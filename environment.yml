@@ -1,40 +1,8 @@
-name: needle-driving
+name: Surg-IL
 channels:
   - conda-forge
 dependencies:
   - python=3.11
-  - opencv
-  - albumentations
-  - numpy=2.2.0
-  - zarr
-  - pandas
-  - matplotlib
-  - seaborn
-  - scipy
-  - pyyaml
-  - wandb
-  - huggingface_hub
-  - safetensors
-  - tqdm
-  - pytest
-  - omegaconf
-  - hydra-core
   - pip
   - pip:
-    - accelerate
-    - flash-attn --no-build-isolation
-    - joblib==1.5.0
-    - numba==0.61.2
-    - torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
-    - torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
-    - torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
-    - triton==3.0.0
-    - torchcfm==1.0.7
-    - diffusers==0.34.0
-    - transformers==4.56.0
-    - timm
-    - termcolor
-    #- pykeops
-    #- geomloss
-    - -e .  # install project as editable
-    #- git+https://gitlab.com/nct_tso_public/imitation-learning-toolkit.git
+      - uv
