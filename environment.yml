@@ -1,4 +1,4 @@
-name: Surg-IL
+name: surg-il
 channels:
   - conda-forge
 dependencies:
