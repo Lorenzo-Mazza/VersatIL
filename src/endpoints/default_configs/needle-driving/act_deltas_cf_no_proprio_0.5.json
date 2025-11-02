@@ -1,0 +1,13 @@
+{
+    "policy_name": "ACT",
+    "exp_name": "needle_driving_0.5_fixed_angle_no_proprio_cf_deltas",
+    "total_ratio_of_episodes": 0.5,
+    "checkpoint_folder":"/mnt/cluster/workspaces/mazzalore/iros" ,
+    "use_depth": false,
+    "deltas_as_actions": true,
+    "obs_robot_frame": false,
+    "obs_camera_frame": false,
+    "batch_size": 128,
+    "learning_rate": 1e-4,
+    "predict_in_camera_frame": true
+}

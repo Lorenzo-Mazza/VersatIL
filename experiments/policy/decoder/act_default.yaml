@@ -1,0 +1,28 @@
+# ACT Decoder Configuration
+# Action Chunking Transformer with DETR-style encoder-decoder
+
+_target_: refactoring.models.decoding.decoders.act.ACT
+
+# Transformer architecture
+embedding_dimension: 512
+number_of_heads: 8
+feedforward_dimension: 3200
+number_of_encoder_layers: 4
+number_of_decoder_layers: 7
+
+# Architecture details
+activation: relu
+dropout: 0.1
+normalize_before: false
+positional_encoding_type: sinusoidal
+dilation: false
+masks: false
+
+# Action heads (dynamically created from action_space)
+action_heads: {}  # Auto-populated based on action_space
+
+# References to task/policy configs (Hydra interpolation)
+observation_horizon: ${task.observation_horizon}
+prediction_horizon: ${task.prediction_horizon}
+action_space: ${task.action_space}
+device: ${experiment.device}

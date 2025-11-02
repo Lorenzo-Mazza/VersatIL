@@ -1,0 +1,11 @@
+{
+    "policy_name": "DIFFUSION_POLICY",
+    "exp_name": "needle_driving_1.0_fixed_angle_no_proprio_cf_deltas",
+    "total_ratio_of_episodes": 1.0,
+    "checkpoint_folder":"/mnt/cluster/workspaces/mazzalore/iros" ,
+    "use_depth": false,
+    "deltas_as_actions": true,
+    "obs_robot_frame": false,
+    "obs_camera_frame": false,
+    "predict_in_camera_frame": true
+}

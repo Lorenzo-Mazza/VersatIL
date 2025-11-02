@@ -1,0 +1,118 @@
+"""Inspired from FiLM,  https://arxiv.org/pdf/2212.09748 and https://github.com/sudeepdasari/dit-policy"""
+from typing import Literal
+
+import torch
+import torch.nn as nn
+
+from refactoring.models.layers.activation import ActivationFunction
+
+
+class ConditionalModulation(nn.Module):
+    """Conditional modulation layer.
+
+    Supports FiLM (for CNNs), adaLN (for transformers), and variants.
+    """
+
+
+    def __init__(
+            self,
+            condition_dim: int,
+            feature_dim: int,
+            use_shift: bool = True,
+            activation: str = ActivationFunction.SILU.value,
+            init_strategy: Literal["identity", "xavier", "zero"] = "identity",
+    ):
+        """
+        Args:
+            condition_dim: Dimension of conditioning vector
+            feature_dim: Dimension of features to modulate
+            use_shift: Whether to include shift (beta) or just scale (gamma)
+            activation: Activation function to apply to condition before modulation.
+            init_strategy: Weight initialization strategy
+        """
+        super().__init__()
+
+        self.use_shift = use_shift
+        self.init_strategy = init_strategy
+        self.activation_function = ActivationFunction(activation).to_torch_activation()()
+        self.scale_linear = nn.Linear(condition_dim, feature_dim)
+
+        if use_shift:
+            self.shift_linear = nn.Linear(condition_dim, feature_dim)
+
+        self.init_parameters()
+
+
+    def init_parameters(self):
+        """Initialize weights based on strategy."""
+        if self.init_strategy == "identity":
+            nn.init.constant_(self.scale_linear.weight, 0)
+            nn.init.constant_(self.scale_linear.bias, 1)
+            if self.use_shift:
+                nn.init.constant_(self.shift_linear.weight, 0)
+                nn.init.constant_(self.shift_linear.bias, 0)
+
+        elif self.init_strategy == "xavier":
+            nn.init.xavier_uniform_(self.scale_linear.weight)
+            nn.init.zeros_(self.scale_linear.bias)
+            if self.use_shift:
+                nn.init.xavier_uniform_(self.shift_linear.weight)
+                nn.init.zeros_(self.shift_linear.bias)
+
+        elif self.init_strategy == "zero":
+            nn.init.zeros_(self.scale_linear.weight)
+            nn.init.zeros_(self.scale_linear.bias)
+            if self.use_shift:
+                nn.init.zeros_(self.shift_linear.weight)
+                nn.init.zeros_(self.shift_linear.bias)
+
+        else:
+            raise ValueError(f"Unknown init_strategy: {self.init_strategy}")
+
+
+    def forward(
+            self,
+            x: torch.Tensor,
+            condition: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Args:
+            x: Features to modulate
+               - CNN: (B, C, H, W)
+               - Transformer: (S, B, D) or (B, S, D)
+            condition: Conditioning vector (B, condition_dim)
+
+        Returns:
+            Modulated features (same shape as action_embedding)
+        """
+        condition = self.activation_function(condition)
+        gamma = self.scale_linear(condition)
+        beta = None
+
+        if x.dim() == 4:
+            gamma = gamma.view(x.size(0), x.size(1), 1, 1)
+            if self.use_shift:
+                beta = self.shift_linear(condition)
+                beta = beta.view(x.size(0), x.size(1), 1, 1)
+
+        elif x.dim() == 3:
+            if x.size(1) == condition.size(0):
+                gamma = gamma[None]
+                if self.use_shift:
+                    beta = self.shift_linear(condition)[None]
+            else:
+                gamma = gamma.unsqueeze(1)
+                if self.use_shift:
+                    beta = self.shift_linear(condition).unsqueeze(1)
+
+        else:
+            raise ValueError(f"Unsupported input shape: {x.shape}")
+
+        if self.use_shift:
+            result: torch.Tensor = gamma * x + beta
+            return result
+        else:
+            result_no_shift: torch.Tensor = gamma * x
+            return result_no_shift
+
+

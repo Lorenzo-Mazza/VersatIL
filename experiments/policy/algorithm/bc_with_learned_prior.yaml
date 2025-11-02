@@ -1,0 +1,41 @@
+# Behavioral Cloning with Learned Diffusion Prior
+# NEW: BC with variational inference using a learned prior p(z|s)
+#
+# Architecture:
+# - Posterior: VAE encoder q(z|a,s) for encoding actions during training
+# - Prior: Diffusion prior p(z|s) for sampling latents during inference (more expressive than N(0,I))
+# - Decoder: Direct behavioral cloning
+
+_target_: refactoring.models.decoding.algorithm.variational.VariationalAlgorithm
+
+# Base algorithm: Behavioral Cloning
+base_algorithm:
+  _target_: refactoring.models.decoding.algorithm.behavior_cloning.BehavioralCloning
+
+# Posterior encoder q(z|a,s): VAE
+posterior_encoder:
+  _target_: refactoring.models.decoding.latent.vae.VAETransformerEncoder
+  latent_dim: 32
+  embedding_dimension: 512
+  prediction_horizon: ${policy.prediction_horizon}
+  number_of_heads: 8
+  feedforward_dimension: 2048
+  number_of_encoder_layers: 4
+  dropout_rate: 0.1
+  device: ${policy.device}
+
+# Prior p(z|s): Learned diffusion prior (more expressive than Gaussian)
+prior:
+  _target_: refactoring.models.decoding.latent.diffusion_prior.DiffusionPrior
+  latent_dim: 32
+  conditioning_dim: 512  # Should match flat encoded features dimension
+  embedding_dimension: 512
+  hidden_dims: [256, 256]
+  num_train_timesteps: 100
+  num_inference_steps: 10
+  beta_start: 0.0001
+  beta_end: 0.02
+  beta_schedule: squaredcos_cap_v2
+  activation: relu
+  dropout: 0.1
+  device: ${policy.device}

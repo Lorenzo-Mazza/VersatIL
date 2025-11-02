@@ -1,0 +1,187 @@
+from typing import Union
+
+import torch
+from torch import nn
+
+from refactoring.models.layers.convolution.conv1d import Downsample1d, Conv1dBlock, Upsample1d
+from refactoring.models.layers.modulation.conditional_residual_block import ConditionalResidualBlock1D
+from refactoring.models.layers.positional_encoding.base import DenominatorMode, OrderingMode, PositionSource
+from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
+
+
+class ConditionalUnet1D(nn.Module):
+
+    def __init__(self,
+                 input_dimension,
+                 local_condition_dimension=None,
+                 global_condition_dimension=None,
+                 diffusion_step_embedding_dimension=256,
+                 down_dimensions=[256, 512, 1024],
+                 kernel_size=3,
+                 num_groups=8,
+                 condition_predict_scale=False
+                 ):
+        super().__init__()
+        all_dimensions = [input_dimension] + list(down_dimensions)
+        starting_dimension = down_dimensions[0]
+
+        diffusion_step_embedding_dimension = diffusion_step_embedding_dimension
+        diffusion_step_encoder = nn.Sequential(
+            SinusoidalPositionalEncoding1D(
+                embedding_dimension=diffusion_step_embedding_dimension,
+                denominator_mode=DenominatorMode.HALF_MINUS_ONE.value,
+                ordering_mode=OrderingMode.CAT_COS_SIN.value,
+                position_source=PositionSource.SCALAR.value,
+                precompute_encodings=False,
+                temperature=10000.0,
+            ),
+            nn.Linear(diffusion_step_embedding_dimension, diffusion_step_embedding_dimension * 4),
+            nn.Mish(),
+            nn.Linear(diffusion_step_embedding_dimension * 4, diffusion_step_embedding_dimension),
+        )
+        condition_dimension = diffusion_step_embedding_dimension
+        if global_condition_dimension is not None:
+            condition_dimension += global_condition_dimension
+
+        input_output_pairs = list(zip(all_dimensions[:-1], all_dimensions[1:]))
+
+        local_condition_encoder = None
+        if local_condition_dimension is not None:
+            _, dimension_out = input_output_pairs[0]
+            dimension_in = local_condition_dimension
+            local_condition_encoder = nn.ModuleList([
+                # down encoder
+                ConditionalResidualBlock1D(
+                    dimension_in, output_channels=dimension_out, condition_dimension=condition_dimension,
+                    kernel_size=kernel_size, num_groups=num_groups,
+                    condition_predict_scale=condition_predict_scale),
+                # up encoder
+                ConditionalResidualBlock1D(
+                    dimension_in, output_channels=dimension_out, condition_dimension=condition_dimension,
+                    kernel_size=kernel_size, num_groups=num_groups,
+                    condition_predict_scale=condition_predict_scale)
+            ])
+
+        middle_dimension = all_dimensions[-1]
+        self.middle_modules = nn.ModuleList([
+            ConditionalResidualBlock1D(
+                input_channels=middle_dimension, output_channels=middle_dimension, condition_dimension=condition_dimension,
+                kernel_size=kernel_size, num_groups=num_groups,
+                condition_predict_scale=condition_predict_scale
+            ),
+            ConditionalResidualBlock1D(
+                input_channels=middle_dimension, output_channels=middle_dimension, condition_dimension=condition_dimension,
+                kernel_size=kernel_size, num_groups=num_groups,
+                condition_predict_scale=condition_predict_scale
+            ),
+        ])
+
+        downsampling_modules = nn.ModuleList([])
+        for index, (dimension_in, dimension_out) in enumerate(input_output_pairs):
+            is_last = index >= (len(input_output_pairs) - 1)
+            downsampling_modules.append(nn.ModuleList([
+                ConditionalResidualBlock1D(
+                    input_channels=dimension_in, output_channels=dimension_out, condition_dimension=condition_dimension,
+                    kernel_size=kernel_size, num_groups=num_groups,
+                    condition_predict_scale=condition_predict_scale),
+                ConditionalResidualBlock1D(
+                    input_channels=dimension_out, output_channels=dimension_out, condition_dimension=condition_dimension,
+                    kernel_size=kernel_size, num_groups=num_groups,
+                    condition_predict_scale=condition_predict_scale),
+                Downsample1d(dimension_out) if not is_last else nn.Identity()
+            ]))
+
+        upsampling_modules = nn.ModuleList([])
+        for index, (dimension_in, dimension_out) in enumerate(reversed(input_output_pairs[1:])):
+            is_last = index >= (len(input_output_pairs) - 1)
+            upsampling_modules.append(nn.ModuleList([
+                ConditionalResidualBlock1D(
+                    input_channels=dimension_out * 2, output_channels=dimension_in, condition_dimension=condition_dimension,
+                    kernel_size=kernel_size, num_groups=num_groups,
+                    condition_predict_scale=condition_predict_scale),
+                ConditionalResidualBlock1D(
+                    input_channels=dimension_in, output_channels=dimension_in, condition_dimension=condition_dimension,
+                    kernel_size=kernel_size, num_groups=num_groups,
+                    condition_predict_scale=condition_predict_scale),
+                Upsample1d(dimension_in) if not is_last else nn.Identity()
+            ]))
+
+        final_convolution = nn.Sequential(
+            Conv1dBlock(starting_dimension, starting_dimension, kernel_size=kernel_size),
+            nn.Conv1d(starting_dimension, input_dimension, 1),
+        )
+
+        self.diffusion_step_encoder = diffusion_step_encoder
+        self.local_condition_encoder = local_condition_encoder
+        self.upsampling_modules = upsampling_modules
+        self.downsampling_modules = downsampling_modules
+        self.final_convolution = final_convolution
+
+
+    def forward(self,
+                noisy_input: torch.Tensor,
+                timesteps: Union[torch.Tensor, float, int],
+                local_condition=None, global_condition=None):
+        """ Forward pass through conditional UNet.
+
+        Args:
+            noisy_input: Noisy input tensor (batch_size, horizon, input_dimension)
+            timesteps: Diffusion timesteps (batch_size,) or scalar
+            local_condition: Optional local conditioning tensor (batch_size, horizon, local_condition_dimension)
+            global_condition: Optional global conditioning tensor (batch_size, global_condition_dimension)
+
+        Returns:
+            Denoised output tensor (batch_size, horizon, input_dimension)
+        """
+        noisy_input = noisy_input.permute(0, 2, 1)  # Shape: (batch_size, horizon, input_dimension) -> (batch_size, input_dimension, horizon)
+
+        timesteps = timesteps
+        if not torch.is_tensor(timesteps):
+            timesteps = torch.tensor([timesteps], dtype=torch.long, device=noisy_input.device)
+        elif torch.is_tensor(timesteps) and len(timesteps.shape) == 0:
+            timesteps = timesteps[None].to(noisy_input.device)
+        # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
+        timesteps = timesteps.expand(noisy_input.shape[0])
+
+        global_features = self.diffusion_step_encoder(timesteps)
+
+        if global_condition is not None:
+            global_features = torch.cat([
+                global_features, global_condition
+            ], dim=-1)
+
+        # encode local features
+        local_hidden_states = list()
+        if local_condition is not None:
+            local_condition = local_condition.permute(0, 2, 1)  # Shape: (batch_size, horizon, local_condition_dimension) -> (batch_size, local_condition_dimension, horizon)
+            first_residual_block, second_residual_block = self.local_condition_encoder
+            x = first_residual_block(x=local_condition, local_condition=global_features)
+            local_hidden_states.append(x)
+            x = second_residual_block(x=local_condition, local_condition=global_features)
+            local_hidden_states.append(x)
+
+        x = noisy_input
+        hidden_states = []
+        for index, (first_residual_block, second_residual_block, downsample) in enumerate(self.downsampling_modules):
+            x = first_residual_block(x=x, local_condition=global_features)
+            if index == 0 and len(local_hidden_states) > 0:
+                x = x + local_hidden_states[0]
+            x = second_residual_block(x=x, local_condition=global_features)
+            hidden_states.append(x)
+            x = downsample(x)
+
+        for middle_module in self.middle_modules:
+            x = middle_module(x=x, local_condition=global_features)
+
+        for index, (first_residual_block, second_residual_block, upsample) in enumerate(self.upsampling_modules):
+            x = torch.cat((x, hidden_states.pop()), dim=1)
+            x = first_residual_block(x=x, local_condition=global_features)
+            if index == (len(self.upsampling_modules)-1) and len(local_hidden_states) > 0:
+                x = x + local_hidden_states[1]
+            x = second_residual_block(x=x, local_condition=global_features)
+            x = upsample(x)
+
+        x = self.final_convolution(x)
+
+        x = x.permute(0, 2, 1)  # Shape: (batch_size, input_dimension, horizon) -> (batch_size, horizon, input_dimension)
+        return x

@@ -1,0 +1,29 @@
+# Encoding pipeline for RGB-only observations using ResNet18
+# Standard configuration for ACT models
+
+encoders:
+  left_rgb:
+    _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
+    input_keys: left_image
+    backbone: resnet18
+    pretrained: false
+    frozen: false
+    pooling_method: spatial_softmax
+    use_group_norm: true
+
+  right_rgb:
+    _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
+    input_keys: right_image
+    backbone: resnet18
+    pretrained: false
+    frozen: false
+    pooling_method: spatial_softmax
+    use_group_norm: true
+
+# Fusion: concatenate left and right features
+fusion_stages:
+  - _target_: refactoring.models.encoding.fusion.concat.ConcatFusion
+    input_features:
+      - left_rgb_features
+      - right_rgb_features
+    output_name: visual_features

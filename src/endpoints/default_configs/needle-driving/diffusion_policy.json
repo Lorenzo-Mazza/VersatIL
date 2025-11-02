@@ -1,0 +1,6 @@
+{
+    "policy_name": "DIFFUSION_POLICY",
+    "exp_name": "needle_driving_fixed_angle",
+    "total_ratio_of_episodes": 1.0,
+    "checkpoint_folder": ""
+}

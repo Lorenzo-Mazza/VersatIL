@@ -1,0 +1,201 @@
+[project]
+name = "Surg-IL"
+version = "0.1.0"
+description = "A python library for Surgical Imitation Learning, with dependencies handled by uv"
+authors = [
+    { name = "Lorenzo Mazza", email = "lorenzo.mazza@nct-dresden.de" },
+]
+license = {text = "MIT"}
+requires-python = ">=3.11"
+dependencies = [
+  "accelerate",
+  "opencv-python",
+  "albumentations",
+  "numpy==2.2.0",
+  "zarr",
+  "pandas",
+  "matplotlib",
+  "seaborn",
+  "scipy",
+  "pyyaml",
+  "wandb",
+  "huggingface_hub",
+  "safetensors",
+  "tqdm",
+  "pytest",
+  "ruff",
+  "mypy",
+  "omegaconf",
+  "hydra-core",
+  "joblib==1.5.0",
+  "numba==0.61.2",
+  "triton==3.0.0",
+  "torchcfm==1.0.7",
+  "diffusers==0.34.0",
+  "transformers==4.56.0",
+  "timm",
+  "termcolor",
+  "torch==2.4.0",
+  "torchaudio==2.4.0",
+  "torchvision==0.19.0",
+  "flash-attn",
+  "pykeops",
+  "geomloss",
+  "git+https://gitlab.com/nct_tso_public/imitation-learning-toolkit.git",
+]
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch" }
+torchaudio = { index = "pytorch" }
+torchvision = { index = "pytorch" }
+
+[tool.uv.extra-build-dependencies]
+flash-attn = ["setuptools", "torch"]
+
+[tool.uv.pip]
+no-build-isolation-package = ["flash-attn"]
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: Fast unit tests with mocked dependencies (deselect with '-m \"not unit\"')",
+    "integration: Slower integration tests with real model downloads (deselect with '-m \"not integration\"')",
+    "slow: Very slow tests (deselect with '-m \"not slow\"')",
+    "requires_gpu: Tests that require GPU (deselect with '-m \"not requires_gpu\"')",
+]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+    "-m", "not integration",
+]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+[tool.ruff]
+# Same as Black
+line-length = 88
+target-version = "py311"
+
+# Exclude directories
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    ".eggs",
+    "*.egg-info",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "lightning_logs",
+    ".qodo",
+    ".github",
+    ".idea",
+]
+
+[tool.ruff.lint]
+# Enable pycodestyle (E, W), Pyflakes (F), isort (I), and other useful rules
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+    "TCH",    # flake8-type-checking
+    "PLC",    # pylint convention (includes PLC0415 for inline imports)
+]
+
+ignore = [
+    "E501",   # Line too long (let formatter handle this)
+    "B008",   # Do not perform function calls in argument defaults (needed for FastAPI/Hydra)
+    "B905",   # zip without explicit strict parameter
+    "N806",   # Variable in function should be lowercase (allow uppercase for tensor dimensions like B, T, C, H, W)
+    "N812",   # Lowercase imported as non-lowercase (for backwards compatibility)
+    "N999",   # Invalid module name (some legacy modules)
+    "TC001",  # Move application imports into type-checking block (often used at runtime)
+    "TC002",  # Move third-party imports into type-checking block (often used at runtime)
+    "PLC0206", # Dict iteration without .items() (performance not critical for our use case)
+]
+
+# Allow autofix for all enabled rules
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore specific rules in test files
+"tests/**/*.py" = [
+    "N802",   # Function name should be lowercase (test methods can use different naming)
+    "N806",   # Variable in function should be lowercase
+]
+# Ignore imports in __init__.py files
+"__init__.py" = ["F401", "F403"]
+# Allow uppercase R for rotation matrices
+"src/refactoring/data/action_processor.py" = ["N803"]
+# Ignore loop variable binding in closures for hooks (intentional behavior)
+"src/refactoring/models/explainer.py" = ["B023"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["refactoring"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[tool.ruff.format]
+# Use Black-compatible formatting
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.mypy]
+# Python version and basic settings
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+# Start lenient - can tighten these over time
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+
+# Show error codes and context
+show_error_codes = true
+show_column_numbers = true
+pretty = true
+
+# Handle missing imports gracefully
+ignore_missing_imports = true
+
+# Exclude directories
+exclude = [
+    "^build/",
+    "^dist/",
+    "^\\.venv/",
+    "^lightning_logs/",
+    "^\\.qodo/",
+    "^\\.github/",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "src.legacy.*",
+    "src.refactoring.configs.legacy_config",
+]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+ignore_errors = false

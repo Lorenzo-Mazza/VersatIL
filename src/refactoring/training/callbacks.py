@@ -1,0 +1,269 @@
+"""PyTorch Lightning callbacks for training."""
+
+import copy
+import io
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pytorch_lightning as pl
+import seaborn as sns
+import torch
+import wandb
+from PIL import Image
+from pytorch_lightning.callbacks import Callback
+from torch.nn.modules.batchnorm import _BatchNorm
+
+
+class EMACallback(Callback):
+    """Exponential Moving Average callback for model weights.
+
+    Maintains a moving average of model weights during training. The EMA model
+    is used for validation and can provide more stable predictions.
+
+    Based on @crowsonkb's notes on EMA Warmup:
+        If gamma=1 and power=1, implements a simple average. gamma=1, power=2/3 are good values
+        for models you plan to train for a million or more steps (reaches decay factor 0.999 at
+        31.6K steps, 0.9999 at 1M steps), gamma=1, power=3/4 for models you plan to train for
+        less (reaches decay factor 0.999 at 10K steps, 0.9999 at 215.4k steps).
+    """
+
+    def __init__(
+        self,
+        power: float = 0.75,
+        update_after_step: int = 0,
+        inv_gamma: float = 1.0,
+        min_value: float = 0.0,
+        max_value: float = 0.9999,
+    ):
+        """Initialize EMA callback.
+
+        Args:
+            power: Exponential factor of EMA warmup (default: 0.75 for shorter training)
+            update_after_step: Start EMA updates after this many steps
+            inv_gamma: Inverse multiplicative factor of EMA warmup
+            min_value: Minimum EMA decay rate
+            max_value: Maximum EMA decay rate
+        """
+        super().__init__()
+        self.power = power
+        self.update_after_step = update_after_step
+        self.inv_gamma = inv_gamma
+        self.min_value = min_value
+        self.max_value = max_value
+        self.decay = 0.0
+        self.optimization_step = 0
+        self.ema_model: torch.nn.Module | None = None
+
+    def on_fit_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        """Create EMA model copy at start of training.
+
+        Args:
+            trainer: Lightning trainer
+            pl_module: Lightning module (LightningPolicy)
+        """
+        # Deep copy the policy (not the whole LightningPolicy wrapper)
+        self.ema_model = copy.deepcopy(pl_module.policy)
+        self.ema_model.eval()
+        self.ema_model.requires_grad_(False)
+
+    def on_train_batch_end(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        outputs,
+        batch,
+        batch_idx: int,
+    ) -> None:
+        """Update EMA model after each training batch.
+
+        Args:
+            trainer: Lightning trainer
+            pl_module: Lightning module
+            outputs: Training step outputs
+            batch: Current batch
+            batch_idx: Batch index
+        """
+        if self.ema_model is None:
+            return
+
+        # Compute decay factor
+        self.decay = self._get_decay(self.optimization_step)
+
+        # Update EMA model parameters
+        for module, ema_module in zip(pl_module.policy.modules(), self.ema_model.modules()):
+            for param, ema_param in zip(module.parameters(recurse=False), ema_module.parameters(recurse=False)):
+                if isinstance(param, dict):
+                    raise RuntimeError("Dict parameter not supported")
+
+                if isinstance(module, _BatchNorm):
+                    # Copy batchnorm stats directly
+                    ema_param.copy_(param.to(dtype=ema_param.dtype).data)
+                elif not param.requires_grad:
+                    # Copy frozen parameters directly
+                    ema_param.copy_(param.to(dtype=ema_param.dtype).data)
+                else:
+                    # EMA update: ema = decay * ema + (1 - decay) * param
+                    ema_param.mul_(self.decay)
+                    ema_param.add_(param.data.to(dtype=ema_param.dtype), alpha=1 - self.decay)
+
+        self.optimization_step += 1
+
+        # Log EMA decay factor
+        if self.optimization_step % 100 == 0:
+            pl_module.log("ema_decay", self.decay, on_step=True, on_epoch=False)
+
+    def _get_decay(self, optimization_step: int) -> float:
+        """Compute the decay factor for the exponential moving average.
+
+        Args:
+            optimization_step: Current optimization step
+
+        Returns:
+            Decay factor between min_value and max_value
+        """
+        step = max(0, optimization_step - self.update_after_step - 1)
+        value = 1 - (1 + step / self.inv_gamma) ** -self.power
+
+        if step <= 0:
+            return 0.0
+
+        return max(self.min_value, min(value, self.max_value))  # type: ignore[no-any-return]
+
+    def on_validation_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        """Temporarily replace policy with EMA model for validation.
+
+        Args:
+            trainer: Lightning trainer
+            pl_module: Lightning module
+        """
+        if self.ema_model is not None:
+            # Store original policy
+            self._original_policy = pl_module.policy
+            # Use EMA model for validation
+            pl_module.policy = self.ema_model
+
+    def on_validation_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        """Restore original policy after validation.
+
+        Args:
+            trainer: Lightning trainer
+            pl_module: Lightning module
+        """
+        if hasattr(self, "_original_policy"):
+            # Restore original policy
+            pl_module.policy = self._original_policy
+            delattr(self, "_original_policy")
+
+
+class ConfusionMatrixCallback(Callback):
+    """Callback to log confusion matrices for phase classification models.
+
+    Automatically detects when phase predictions are available in the metrics
+    and logs confusion matrices to WandB.
+    """
+
+    def __init__(self, log_every_n_epochs: int = 1):
+        """Initialize confusion matrix callback.
+
+        Args:
+            log_every_n_epochs: Log confusion matrix every N epochs
+        """
+        super().__init__()
+        self.log_every_n_epochs = log_every_n_epochs
+
+    def on_train_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        """Log training confusion matrix at end of epoch.
+
+        Args:
+            trainer: Lightning trainer
+            pl_module: Lightning module
+        """
+        if trainer.current_epoch % self.log_every_n_epochs != 0:
+            return
+
+        # Get confusion matrix from train metrics accumulator
+        cm = pl_module.train_metrics.compute_confusion_matrix()
+        if cm is not None:
+            fig = self._create_confusion_matrix_figure(cm, "Train Phase Confusion Matrix")
+            if trainer.logger is not None:
+                # Convert to WandB image
+                wandb_image = self._figure_to_wandb_image(fig)
+                trainer.logger.log_metrics(
+                    {"train_phase_confusion_matrix": wandb_image},  # type: ignore[dict-item]
+                    step=trainer.global_step,
+                )
+            plt.close(fig)
+
+    def on_validation_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        """Log validation confusion matrix at end of epoch.
+
+        Args:
+            trainer: Lightning trainer
+            pl_module: Lightning module
+        """
+        if trainer.current_epoch % self.log_every_n_epochs != 0:
+            return
+        # Get confusion matrix from val metrics accumulator
+        cm = pl_module.val_metrics.compute_confusion_matrix()
+        if cm is not None:
+            fig = self._create_confusion_matrix_figure(cm, "Val Phase Confusion Matrix")
+            if trainer.logger is not None:
+                # Convert to WandB image
+                wandb_image = self._figure_to_wandb_image(fig)
+                trainer.logger.log_metrics(
+                    {"val_phase_confusion_matrix": wandb_image},  # type: ignore[dict-item]
+                    step=trainer.global_step,
+                )
+            plt.close(fig)
+
+    def _create_confusion_matrix_figure(self, cm: np.ndarray, title: str) -> plt.Figure:
+        """Create a seaborn heatmap figure for the confusion matrix.
+
+        Args:
+            cm: Confusion matrix as numpy array (n_phases, n_phases)
+            title: Title for the plot
+
+        Returns:
+            Matplotlib figure
+        """
+        n_phases = cm.shape[0]
+
+        # Normalize by row (true labels)
+        cm_normalized = cm.astype(float) / cm.sum(axis=1, keepdims=True).clip(min=1e-10)
+
+        fig, ax = plt.subplots(figsize=(10, 8))
+        sns.heatmap(
+            cm_normalized,
+            annot=True,
+            fmt=".2f",
+            cmap="Blues",
+            xticklabels=[f"Phase {i}" for i in range(n_phases)],
+            yticklabels=[f"Phase {i}" for i in range(n_phases)],
+            ax=ax,
+            cbar_kws={"label": "Proportion"},
+        )
+        ax.set_xlabel("Predicted Phase")
+        ax.set_ylabel("True Phase")
+        ax.set_title(title)
+        plt.tight_layout()
+        return fig
+
+    def _figure_to_wandb_image(self, fig: plt.Figure) -> wandb.Image:
+        """Convert matplotlib figure to WandB image.
+
+        Args:
+            fig: Matplotlib figure
+
+        Returns:
+            WandB image object
+        """
+        # Save figure to buffer
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
+        buf.seek(0)
+
+        # Load as PIL image
+        pil_img = Image.open(buf)
+
+        # Convert to WandB image
+        return wandb.Image(pil_img)

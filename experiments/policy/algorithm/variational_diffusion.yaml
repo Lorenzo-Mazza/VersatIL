@@ -1,0 +1,50 @@
+# Variational Diffusion Algorithm
+# NEW: Combines Diffusion denoising with variational inference for multi-modal action prediction
+#
+# Architecture:
+# - Posterior: VAE encoder q(z|a,s) for encoding actions during training
+# - Prior: Diffusion prior p(z|s) for sampling latents during inference
+# - Decoder: Diffusion algorithm for action generation
+
+_target_: refactoring.models.decoding.algorithm.variational.VariationalAlgorithm
+
+# Base algorithm: Diffusion
+base_algorithm:
+  _target_: refactoring.models.decoding.algorithm.action_diffusion.Diffusion
+  scheduler_type: ddpm
+  num_train_timesteps: 100
+  num_inference_steps: 10
+  beta_start: 0.0001
+  beta_end: 0.02
+  beta_schedule: squaredcos_cap_v2
+  prediction_type: epsilon
+  scheduler_variance_type: fixed_small
+  clip_sample: true
+
+# Posterior encoder q(z|a,s): VAE
+posterior_encoder:
+  _target_: refactoring.models.decoding.latent.vae.VAETransformerEncoder
+  latent_dim: 32
+  embedding_dimension: 512
+  prediction_horizon: ${policy.prediction_horizon}
+  number_of_heads: 8
+  feedforward_dimension: 2048
+  number_of_encoder_layers: 4
+  dropout_rate: 0.1
+  device: ${policy.device}
+
+# Prior p(z|s): Learned diffusion prior
+prior:
+  _target_: refactoring.models.decoding.latent.diffusion_prior.DiffusionPrior
+  latent_dim: 32
+  conditioning_dim: 512  # Should match flat encoded features dimension
+  embedding_dimension: 512
+  hidden_dims: [256, 256]
+  num_train_timesteps: 100
+  num_inference_steps: 10
+  beta_start: 0.0001
+  beta_end: 0.02
+  beta_schedule: squaredcos_cap_v2
+  activation: relu
+  dropout: 0.1
+  device: ${policy.device}

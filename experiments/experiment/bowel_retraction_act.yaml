@@ -1,0 +1,22 @@
+# Experiment configuration for ACT on bowel retraction
+
+name: br_cf_new_loss_lre-5_wde-4
+seed: 42
+
+# Checkpoint and logging
+checkpoint_folder: /mnt/cluster/workspaces/mazzalore/bowel_retraction/
+resume_from: null
+
+# Weights & Biases
+use_wandb: true
+wandb_project: needle-threading-il
+wandb_entity: null
+
+# Device
+device: cuda
+distributed: false
+
+# Checkpointing and validation
+checkpoint_every: 500
+val_every: 1
+plot_every: 200

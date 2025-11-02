@@ -1,0 +1,22 @@
+# Experiment configuration for Phase ACT on bowel retraction
+
+name: phaseact_br_cf_overlapping_data
+seed: 42
+
+# Checkpoint and logging
+checkpoint_folder: /mnt/cluster/workspaces/mazzalore/bowel_retraction/
+resume_from: null
+
+# Weights & Biases
+use_wandb: true
+wandb_project: needle-threading-il
+wandb_entity: null
+
+# Device
+device: cuda
+distributed: false
+
+# Checkpointing and validation
+checkpoint_every: 20
+val_every: 1
+plot_every: 200
