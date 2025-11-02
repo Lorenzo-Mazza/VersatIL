@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Needle-Threading Imitation Learning framework for robotic manipulation. The codebase is undergoing a **major refactoring** from legacy monolithic code to a new modular architecture in `src/refactoring/`. All new development should target the refactored package.
+Surg-IL: Imitation Learning framework for robotic manipulation. The codebase is undergoing a **major refactoring** from legacy monolithic code to a new modular architecture in `src/refactoring/`. All new development should target the refactored package.
 
 **Goal**: Refactor all legacy code into the new modular design in `src/refactoring/`.
 
@@ -13,7 +13,8 @@ Needle-Threading Imitation Learning framework for robotic manipulation. The code
 ```bash
 # Create environment (Mamba recommended for faster installation)
 mamba env create -f environment.yml
-mamba activate needle-driving
+mamba activate surg-il
+UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
 ```
 
 Requirements: Python 3.11+, CUDA 12.4+

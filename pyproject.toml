@@ -41,7 +41,7 @@ dependencies = [
   "flash-attn",
   "pykeops",
   "geomloss",
-  "git+https://gitlab.com/nct_tso_public/imitation-learning-toolkit.git",
+  "imitation-learning-toolkit",
 ]
 
 [[tool.uv.index]]
@@ -53,6 +53,7 @@ explicit = true
 torch = { index = "pytorch" }
 torchaudio = { index = "pytorch" }
 torchvision = { index = "pytorch" }
+imitation-learning-toolkit = { git = "https://gitlab.com/nct_tso_public/imitation-learning-toolkit.git" }
 
 [tool.uv.extra-build-dependencies]
 flash-attn = ["setuptools", "torch"]

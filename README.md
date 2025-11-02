@@ -8,7 +8,12 @@ This repository provides a framework for training Imitation Learning policies on
 ```bash
 git clone https://gitlab.com/nct_tso_public/surg-il.git
 ```
-2. Create and activate a Conda or Mamba environment using the provided environment.yml. Then install dependencies with `uv`:
+2. Store your git credentials to be able to access private repositories:
+```bash
+git config --global credential.helper store
+git ls-remote https://gitlab.com/nct_tso_public/imitation-learning-toolkit.git
+```
+3.Create and activate a Conda or Mamba environment using the provided environment.yml. Then install dependencies with `uv`:
    ```bash
    conda env create -f environment.yml
    conda activate surg-il
