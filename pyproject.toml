@@ -38,6 +38,7 @@ dependencies = [
   "torch==2.4.0",
   "torchaudio==2.4.0",
   "torchvision==0.19.0",
+  "flash-attn",
   "pykeops",
   "geomloss",
   "imitation-learning-toolkit",
@@ -54,7 +55,11 @@ torchaudio = { index = "pytorch" }
 torchvision = { index = "pytorch" }
 imitation-learning-toolkit = { git = "https://gitlab.com/nct_tso_public/imitation-learning-toolkit.git" }
 
+[tool.uv.extra-build-dependencies]
+flash-attn = ["setuptools", "torch==2.4.0"]
 
+[tool.uv.pip]
+no-build-isolation-package = ["flash-attn"]
 
 [tool.pytest.ini_options]
 markers = [
