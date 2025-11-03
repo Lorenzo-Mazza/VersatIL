@@ -436,9 +436,9 @@ class TestMoEBaseExpertCloning:
             device=device,
         )
 
-        # Check that block weights are independent (mlp is a Sequential containing Linear layers)
-        block0_weight = moe.experts[0].blocks[0].mlp[0].weight
-        block1_weight = moe.experts[1].blocks[0].mlp[0].weight
+        # Check that block weights are independent (mlp.layers is a ModuleList containing Linear layers)
+        block0_weight = moe.experts[0].blocks[0].mlp.layers[0].weight
+        block1_weight = moe.experts[1].blocks[0].mlp.layers[0].weight
 
         assert block0_weight is not block1_weight
 
