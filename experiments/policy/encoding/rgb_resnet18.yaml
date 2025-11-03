@@ -5,7 +5,7 @@ encoders:
   left_rgb:
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys: left_image
-    backbone: resnet18
+    backbone: timm/resnet18.a1_in1k
     pretrained: false
     frozen: false
     pooling_method: none
@@ -14,7 +14,7 @@ encoders:
   right_rgb:
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys: right_image
-    backbone: resnet18
+    backbone: timm/resnet18.a1_in1k
     pretrained: false
     frozen: false
     pooling_method: none

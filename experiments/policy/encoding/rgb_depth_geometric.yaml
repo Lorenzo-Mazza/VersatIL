@@ -16,10 +16,10 @@ encoders:
   right_rgb:
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys: ${cameras:RIGHT}
-    backbone: resnet18
+    backbone: timm/resnet18.a1_in1k
     pretrained: false
     frozen: false
-    pooling_method: none  
+    pooling_method: none
     use_group_norm: true
 
 # Fusion: Spatially fuse DFormer and right camera features
