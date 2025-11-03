@@ -3,6 +3,10 @@
 
 _target_: refactoring.models.decoding.decoders.factory.phase_act.PhaseACT
 
+# Input features from encoding pipeline
+input_keys:
+  - visual_features
+
 # Transformer architecture (same as ACT)
 embedding_dimension: 512
 number_of_heads: 8
@@ -22,7 +26,7 @@ phase_routing_key: phase_label
 action_heads:
   phase_label:
     _target_: refactoring.models.decoding.action_heads.ActionHead
-    input_dim: ${..embedding_dimension}
+    input_dim: ${policy.decoder.embedding_dimension}
     output_dim: ${task.action_space.number_of_phases}
     blocks: null
 
@@ -33,7 +37,7 @@ action_heads:
     num_experts: ${task.action_space.number_of_phases}
     base_expert_config:
       _target_: refactoring.models.decoding.action_heads.ActionHead
-      input_dim: ${...embedding_dimension}
+      input_dim: ${policy.decoder.embedding_dimension}
       output_dim: ${task.action_space.position_dim}
       blocks: null
     temperature: 100.0
@@ -47,7 +51,7 @@ action_heads:
     num_experts: ${task.action_space.number_of_phases}
     base_expert_config:
       _target_: refactoring.models.decoding.action_heads.ActionHead
-      input_dim: ${...embedding_dimension}
+      input_dim: ${policy.decoder.embedding_dimension}
       output_dim: ${task.action_space.gripper_dim}
       blocks: null
     temperature: 100.0
@@ -58,4 +62,6 @@ action_heads:
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}
 action_space: ${task.action_space}
+
+observation_space: ${task.observation_space}
 device: ${experiment.device}

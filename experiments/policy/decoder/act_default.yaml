@@ -3,6 +3,10 @@
 
 _target_: refactoring.models.decoding.decoders.factory.act.ACT
 
+# Input features from encoding pipeline
+input_keys:
+  - visual_features
+
 # Transformer architecture
 embedding_dimension: 512
 number_of_heads: 8
@@ -14,9 +18,6 @@ number_of_decoder_layers: 7
 activation: relu
 dropout_rate: 0.1
 normalize_before: false
-positional_encoding_type: sinusoidal
-dilation: false
-masks: false
 
 # Action heads (dynamically created from action_space)
 action_heads: {}  # Auto-populated based on action_space
@@ -25,4 +26,5 @@ action_heads: {}  # Auto-populated based on action_space
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}
 action_space: ${task.action_space}
+observation_space: ${task.observation_space}
 device: ${experiment.device}
