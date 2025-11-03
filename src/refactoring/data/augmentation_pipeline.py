@@ -46,11 +46,11 @@ class AugmentationPipeline:
         self.resize_transform_depth = None
 
         if self.use_color:
-            self.photometric_transform = instantiate(color_augmentation)
+            self.photometric_transform = instantiate(color_augmentation, _recursive_=True)
         if self.use_spatial:
-            self.spatial_transform = instantiate(spatial_augmentation)
+            self.spatial_transform = instantiate(spatial_augmentation, _recursive_=True)
         if self.use_rotation:
-            self.rotation_transform = instantiate(rotation_augmentation)
+            self.rotation_transform = instantiate(rotation_augmentation, _recursive_=True)
 
         if self.use_resize:
             self.resize_transform_rgb = A.Resize(

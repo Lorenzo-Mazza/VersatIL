@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from unittest.mock import MagicMock, patch, call
+from omegaconf import OmegaConf
 
 from refactoring.data.augmentation_pipeline import AugmentationPipeline
 
@@ -755,3 +756,83 @@ class TestIntegration:
 
         expected_pos = sample_proprio_data[:, :3] @ R.T  # Equivalent to (R @ pos.T).T
         np.testing.assert_allclose(proprio_result[:, :3], expected_pos, rtol=1e-5)
+
+@pytest.mark.integration
+class TestRealHydraConfigIntegration:
+    """Integration tests with real Hydra configs (no mocking)."""
+
+    def test_real_color_augmentation_pipeline(self, sample_rgb_images):
+        """Test with real ColorAugmentationPipeline config."""
+        config = OmegaConf.create({
+            '_target_': 'albumentations.Compose',
+            'transforms': [
+                {'_target_': 'albumentations.ColorJitter', 'brightness': 0.3, 'contrast': 0.4, 'saturation': 0.5, 'hue': 0.1, 'p': 0.5},
+                {'_target_': 'albumentations.RandomBrightnessContrast', 'brightness_limit': 0.4, 'contrast_limit': 0.4, 'p': 0.6},
+            ]
+        })
+
+        # This should not raise and should create a callable pipeline
+        pipeline = AugmentationPipeline(
+            color_augmentation=config,
+            train=True
+        )
+
+        assert pipeline.photometric_transform is not None
+        assert callable(pipeline.photometric_transform)
+
+        # Apply augmentations
+        result = pipeline.apply_rgb_augmentations(sample_rgb_images, angle=0)
+        assert result.shape == sample_rgb_images.shape
+
+    def test_real_spatial_augmentation_pipeline(self, sample_rgb_images):
+        """Test with real SpatialAugmentationPipeline config."""
+        config = OmegaConf.create({
+            '_target_': 'albumentations.Compose',
+            'transforms': [
+                {'_target_': 'albumentations.GaussianBlur', 'blur_limit': (3, 7), 'p': 0.5},
+                {'_target_': 'albumentations.CoarseDropout', 'max_holes': 8, 'max_height': 8, 'max_width': 8, 'p': 0.3},
+            ]
+        })
+
+        pipeline = AugmentationPipeline(
+            spatial_augmentation=config,
+            train=True
+        )
+
+        assert pipeline.spatial_transform is not None
+        assert callable(pipeline.spatial_transform)
+
+        # Apply augmentations
+        result = pipeline.apply_rgb_augmentations(sample_rgb_images, angle=0)
+        assert result.shape == sample_rgb_images.shape
+
+    def test_real_both_augmentation_pipelines(self, sample_rgb_images):
+        """Test with both color and spatial real configs."""
+        color_config = OmegaConf.create({
+            '_target_': 'albumentations.Compose',
+            'transforms': [
+                {'_target_': 'albumentations.ColorJitter', 'brightness': 0.2, 'contrast': 0.2, 'saturation': 0.2, 'hue': 0.1, 'p': 1.0},
+            ]
+        })
+
+        spatial_config = OmegaConf.create({
+            '_target_': 'albumentations.Compose',
+            'transforms': [
+                {'_target_': 'albumentations.GaussianBlur', 'blur_limit': (3, 5), 'p': 1.0},
+            ]
+        })
+
+        pipeline = AugmentationPipeline(
+            color_augmentation=color_config,
+            spatial_augmentation=spatial_config,
+            train=True
+        )
+
+        assert callable(pipeline.photometric_transform)
+        assert callable(pipeline.spatial_transform)
+
+        # Apply augmentations - should work without errors
+        result = pipeline.apply_rgb_augmentations(sample_rgb_images, angle=0)
+        assert result.shape == sample_rgb_images.shape
+        # Result should be different due to augmentation
+        assert not np.allclose(result, sample_rgb_images)

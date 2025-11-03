@@ -187,9 +187,33 @@ class ActionProcessor:
     ) -> tuple[np.ndarray, np.ndarray]:
         """Apply denoising threshold to position data.
 
-        Computes 5th percentile threshold and zeros out small movements.
+        Computes threshold on first call if not already set, then applies it.
         """
-        diffs = next_pos - curr_pos
+        # Compute threshold on first call if not set
+        if self.action_denoising_threshold == 0.0:
+            self.compute_action_denoising_threshold(next_pos, curr_pos)
+
+        # Apply threshold
+        if self.action_denoising_threshold > 0:
+            diffs = next_pos - curr_pos
+            norms = np.linalg.norm(diffs, axis=1)
+            mask = norms < self.action_denoising_threshold
+            next_pos[mask] = curr_pos[mask]
+
+        return next_pos, curr_pos
+
+    def compute_action_denoising_threshold(
+        self, all_next_pos: np.ndarray, all_curr_pos: np.ndarray
+    ) -> None:
+        """Compute and store the action denoising threshold from all training data.
+
+        This should be called once during dataset initialization with all training samples.
+
+        Args:
+            all_next_pos: All next positions from training data (N, position_dim)
+            all_curr_pos: All current positions from training data (N, position_dim)
+        """
+        diffs = all_next_pos - all_curr_pos
         norms = np.linalg.norm(diffs, axis=1)
         non_zero_norms = norms[norms > 0]
 
@@ -200,19 +224,41 @@ class ActionProcessor:
                 f"{self.action_denoising_threshold}. "
                 f"All actions with norm below this will be set to zero."
             )
-            mask = norms < self.action_denoising_threshold
-            next_pos[mask] = curr_pos[mask]
         else:
             self.action_denoising_threshold = 0.0
-
-        return next_pos, curr_pos
 
 
     def apply_orientation_denoising(
         self, next_ori: np.ndarray, curr_ori: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Apply denoising threshold to orientation data."""
-        angles = self._compute_orientation_magnitudes(curr_ori, next_ori)
+        """Apply denoising threshold to orientation data.
+
+        Computes threshold on first call if not already set, then applies it.
+        """
+        # Compute threshold on first call if not set
+        if self.orientation_denoising_threshold == 0.0:
+            self.compute_orientation_denoising_threshold(next_ori, curr_ori)
+
+        # Apply threshold
+        if self.orientation_denoising_threshold > 0:
+            angles = self._compute_orientation_magnitudes(curr_ori, next_ori)
+            mask = angles < self.orientation_denoising_threshold
+            next_ori[mask] = curr_ori[mask]
+
+        return next_ori, curr_ori
+
+    def compute_orientation_denoising_threshold(
+        self, all_next_ori: np.ndarray, all_curr_ori: np.ndarray
+    ) -> None:
+        """Compute and store the orientation denoising threshold from all training data.
+
+        This should be called once during dataset initialization with all training samples.
+
+        Args:
+            all_next_ori: All next orientations from training data (N, orientation_dim)
+            all_curr_ori: All current orientations from training data (N, orientation_dim)
+        """
+        angles = self._compute_orientation_magnitudes(all_curr_ori, all_next_ori)
         non_zero_angles = angles[angles > 0]
 
         if len(non_zero_angles) > 0:
@@ -221,12 +267,8 @@ class ActionProcessor:
                 f"Computed orientation threshold (5th percentile): "
                 f"{self.orientation_denoising_threshold}"
             )
-            mask = angles < self.orientation_denoising_threshold
-            next_ori[mask] = curr_ori[mask]
         else:
             self.orientation_denoising_threshold = 0.0
-
-        return next_ori, curr_ori
 
 
     def _compute_orientation_magnitudes(
