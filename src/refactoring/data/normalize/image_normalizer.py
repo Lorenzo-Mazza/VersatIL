@@ -248,10 +248,16 @@ def _to_tensor(
     Returns:
         Tensor with appropriate shape
     """
-    if isinstance(value, (int, float)):
-        tensor = torch.tensor([value], dtype=dtype)
-    elif isinstance(value, np.ndarray):
-        tensor = torch.from_numpy(value).to(dtype=dtype)
+    if isinstance(value, np.ndarray):
+        # Handle numpy arrays (including 0-d arrays from .mean(), .std(), etc.)
+        if value.ndim == 0:
+            # 0-d array (numpy scalar) - convert to 1-d tensor
+            tensor = torch.tensor([value.item()], dtype=dtype)
+        else:
+            tensor = torch.from_numpy(value).to(dtype=dtype)
+    elif isinstance(value, (int, float, np.number)):
+        # Handle Python scalars and numpy scalar types
+        tensor = torch.tensor([float(value)], dtype=dtype)
     else:
         tensor = torch.as_tensor(value, dtype=dtype)
 
