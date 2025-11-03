@@ -6,7 +6,7 @@ defaults:
   - task/action_space: br_position_gripper_deltas_cf
   - task/observation_space: br_rgb_only
   - training: act_default
-  - policy/encoding: rgb_resnet18
+  - policy/encoding_pipeline: rgb_resnet18
   - policy/decoder: act_default
   - policy/algorithm: behavioral_cloning
   - policy/loss: act_default
