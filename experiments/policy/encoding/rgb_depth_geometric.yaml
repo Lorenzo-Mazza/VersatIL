@@ -1,30 +1,32 @@
 # Encoding pipeline for RGB + Depth with geometric attention fusion
-# Uses DFormerV2 for depth-aware encoding (Phase ACT style)
+# Uses DFormerV2 for depth-aware encoding
 
 encoders:
   dformer:
     _target_: refactoring.models.encoding.encoders.depth.dformerv2.DFormerEncoder
     input_keys:
-      - left_image
-      - depth
+      - ${cameras:LEFT}
+      - ${cameras:DEPTH}
     variant: S  # S, B, or L
     checkpoint_path: /mnt/cluster/workspaces/mazzalore/iros/pretrained_dformer/DFormerv2_Small_NYU.pth
     pretrained: true
-    frozen: true 
+    frozen: true
+    pooling_method: none 
 
   right_rgb:
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
-    input_keys: right_image
+    input_keys: ${cameras:RIGHT}
     backbone: resnet18
     pretrained: false
     frozen: false
-    pooling_method: spatial_softmax
+    pooling_method: none  
     use_group_norm: true
 
-# Fusion: concatenate DFormer features with right camera
+# Fusion: Spatially fuse DFormer and right camera features
 fusion_stages:
-  - _target_: refactoring.models.encoding.fusion.concat.ConcatFusion
+  - _target_: refactoring.models.encoding.fusion.spatial.SpatialFusion
     input_features:
       - dformer_features
       - right_rgb_features
     output_name: visual_features
+    hidden_dim: 256  # Project each encoder to 256 channels before fusion

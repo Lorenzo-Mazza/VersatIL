@@ -8,7 +8,7 @@ encoders:
     backbone: resnet18
     pretrained: false
     frozen: false
-    pooling_method: spatial_softmax
+    pooling_method: none
     use_group_norm: true
 
   right_rgb:
@@ -17,13 +17,14 @@ encoders:
     backbone: resnet18
     pretrained: false
     frozen: false
-    pooling_method: spatial_softmax
+    pooling_method: none
     use_group_norm: true
 
 # Fusion: concatenate left and right features
 fusion_stages:
-  - _target_: refactoring.models.encoding.fusion.concat.ConcatFusion
+  - _target_: refactoring.models.encoding.fusion.spatial.SpatialFusion
     input_features:
       - left_rgb_features
       - right_rgb_features
     output_name: visual_features
+    hidden_dim: 256  # Project each encoder to 256 channels before fusion

@@ -1,4 +1,5 @@
 from hydra.core.config_store import ConfigStore
+from omegaconf import OmegaConf
 
 from refactoring.configs.decoding.decoder import (
     DecodingNetworkConfig,
@@ -22,6 +23,20 @@ from refactoring.configs.training import (
     ParameterGroupConfig,
     TrainingConfig,
 )
+from refactoring.data.constants import Cameras, GripperType, OrientationRepresentation
+
+
+def register_resolvers():
+    """Register custom OmegaConf resolvers for enum access in YAML configs.
+
+    This allows using ${cameras:LEFT} in YAML to get Cameras.LEFT.value.
+    """
+    if not OmegaConf.has_resolver("cameras"):
+        OmegaConf.register_new_resolver("cameras", lambda name: Cameras[name].value)
+    if not OmegaConf.has_resolver("gripper"):
+        OmegaConf.register_new_resolver("gripper", lambda name: GripperType[name].value)
+    if not OmegaConf.has_resolver("orientation"):
+        OmegaConf.register_new_resolver("orientation", lambda name: OrientationRepresentation[name].value)
 
 
 def register_configs():
@@ -47,3 +62,7 @@ def register_configs():
     # Register decoder variants
     cs.store(group="decoder", name="base", node=DecodingNetworkConfig)
     cs.store(group="decoder", name="moe", node=MixtureOfExpertsDecoderConfig)
+
+
+# Register resolvers on module import
+register_resolvers()
