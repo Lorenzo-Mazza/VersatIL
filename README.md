@@ -13,7 +13,9 @@ git clone https://gitlab.com/nct_tso_public/surg-il.git
 git config --global credential.helper store
 git ls-remote https://gitlab.com/nct_tso_public/imitation-learning-toolkit.git
 ```
-3.Create and activate a Conda or Mamba environment using the provided environment.yml. Then install dependencies with `uv`:
+3.Create and activate a Conda or Mamba environment using the provided environment.yml. Then install dependencies with `uv`.
+NB: If you are installing from the cluster, make sure to request an interactive job with 1 GPU and 1 CPU available.
+This is needed to install flash-attn properly, because it needs the paths to CUDA libraries.
    ```bash
    conda env create -f environment.yml
    conda activate surg-il
@@ -24,12 +26,6 @@ Or with Mamba (recommended for faster installation):
    mamba create -f environment.yml
    mamba activate surg-il
    UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
-```
-This will create a conda/mamba environment with all necessary packages besides flash-attention, installed by uv.
-4. Install Flash-Attention manually (required for training):
-```bash 
-wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
-uv pip install ./flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
 ```
 #### Troubleshooting
 
