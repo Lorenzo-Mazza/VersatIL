@@ -1,14 +1,25 @@
-"""Tests for encoding configuration dataclasses."""
 import dataclasses
 import inspect
 
 import pytest
 from hydra.utils import instantiate
+from omegaconf import OmegaConf
 
-from refactoring.configs.encoding.pipeline import EncodingPipelineConfig
+from refactoring.configs.encoding.encoder import (
+    DepthEncoderConfig,
+    LanguageEncoderConfig,
+    StateEncoderConfig,
+)
+from refactoring.configs.encoding.fusion import (
+    AttentionFusionModule,
+    ConcatFusionModule,
+)
 from refactoring.configs.encoding.image import CNNEncoderConfig
-from refactoring.models.encoding.pipeline import EncodingPipeline
+from refactoring.configs.encoding.pipeline import EncodingPipelineConfig
 from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
+from refactoring.models.encoding.fusion.attention import AttentionFusion
+from refactoring.models.encoding.fusion.concat import ConcatFusion
+from refactoring.models.encoding.pipeline import EncodingPipeline
 
 
 @pytest.mark.unit
@@ -58,3 +69,125 @@ class TestCNNEncoderConfig:
         config_keys = {f.name for f in dataclasses.fields(config)} - {'_target_'}
 
         assert config_keys.issubset(params), f"Extra keys: {config_keys - params}"
+
+
+@pytest.mark.unit
+class TestDepthEncoderConfig:
+
+    def test_config_has_correct_target(self):
+        config = DepthEncoderConfig(input_keys=["depth"], backbone="resnet18")
+        assert config._target_ == "refactoring.models.encoding.encoders.depth.cnn.DepthCNNEncoder"
+
+    def test_default_use_group_norm(self):
+        config = DepthEncoderConfig(input_keys=["depth"], backbone="resnet18")
+        assert config.use_group_norm is True
+
+    def test_default_spatial_softmax(self):
+        config = DepthEncoderConfig(input_keys=["depth"], backbone="resnet18")
+        assert config.spatial_softmax is True
+
+
+@pytest.mark.unit
+class TestStateEncoderConfig:
+
+    def test_config_has_correct_target(self):
+        config = StateEncoderConfig(input_keys=["proprio"])
+        assert config._target_ == "refactoring.models.encoding.encoders.proprioceptive.base.ProprioceptiveEncoder"
+
+    def test_default_hidden_dims(self):
+        config = StateEncoderConfig(input_keys=["proprio"])
+        assert config.hidden_dims == [128]
+
+    def test_default_activation(self):
+        config = StateEncoderConfig(input_keys=["proprio"])
+        assert config.activation == "relu"
+
+
+@pytest.mark.unit
+class TestLanguageEncoderConfig:
+
+    def test_config_has_correct_target(self):
+        config = LanguageEncoderConfig(input_keys=["language_instruction"])
+        assert config._target_ == "refactoring.models.encoding.encoders.language.language.LanguageEncoder"
+
+
+@pytest.mark.unit
+class TestConcatFusionModule:
+
+    def test_config_has_correct_target(self):
+        config = ConcatFusionModule(
+            input_features=["feature1", "feature2"],
+            output_name="fused",
+            hidden_dim=256
+        )
+        assert config._target_ == "refactoring.models.encoding.fusion.concat.ConcatFusion"
+
+    def test_config_instantiates_correctly(self):
+        config = ConcatFusionModule(
+            input_features=["feature1", "feature2"],
+            output_name="fused",
+            hidden_dim=256
+        )
+        fusion = instantiate(config)
+        assert isinstance(fusion, ConcatFusion)
+
+    def test_config_params_match_class_signature(self):
+        sig = inspect.signature(ConcatFusion.__init__)
+        params = set(sig.parameters.keys()) - {'self'}
+        config = ConcatFusionModule(
+            input_features=["feature1", "feature2"],
+            output_name="fused",
+            hidden_dim=256
+        )
+        config_dict = OmegaConf.structured(config)
+        config_keys = set(config_dict.keys()) - {'_target_'}
+        assert config_keys.issubset(params), f"Extra keys: {config_keys - params}"
+
+
+@pytest.mark.unit
+class TestAttentionFusionModule:
+
+    def test_config_has_correct_target(self):
+        config = AttentionFusionModule(
+            input_features=["feature1", "feature2"],
+            output_name="fused",
+            hidden_dim=256
+        )
+        assert config._target_ == "refactoring.models.encoding.fusion.attention.AttentionFusion"
+
+    def test_config_instantiates_correctly(self):
+        config = AttentionFusionModule(
+            input_features=["feature1", "feature2"],
+            output_name="fused",
+            hidden_dim=256
+        )
+        fusion = instantiate(config)
+        assert isinstance(fusion, AttentionFusion)
+
+    def test_config_params_match_class_signature(self):
+        sig = inspect.signature(AttentionFusion.__init__)
+        params = set(sig.parameters.keys()) - {'self'}
+        config = AttentionFusionModule(
+            input_features=["feature1", "feature2"],
+            output_name="fused",
+            hidden_dim=256
+        )
+        config_dict = OmegaConf.structured(config)
+        config_keys = set(config_dict.keys()) - {'_target_'}
+        assert config_keys.issubset(params), f"Extra keys: {config_keys - params}"
+
+    def test_default_num_heads(self):
+        config = AttentionFusionModule(
+            input_features=["feature1", "feature2"],
+            output_name="fused",
+            hidden_dim=256
+        )
+        assert config.num_heads == 8
+
+    def test_default_dropout(self):
+        config = AttentionFusionModule(
+            input_features=["feature1", "feature2"],
+            output_name="fused",
+            hidden_dim=256
+        )
+        assert config.dropout == 0.1

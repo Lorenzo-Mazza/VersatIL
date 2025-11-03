@@ -159,7 +159,8 @@ class DFormerEncoder(Encoder):
         pretrained: bool = False,
         frozen: bool = False,
         checkpoint_path: str | None = None,
-        image_size: int = 224,
+        image_height: int = 224,
+        image_width: int = 224,
         pooling_method: str = PoolingMethod.GLOBAL_AVERAGE.value,
     ):
         """Initialize DFormer encoder.
@@ -175,7 +176,8 @@ class DFormerEncoder(Encoder):
             pretrained: Whether to use pretrained weights
             frozen: Whether to freeze encoder weights
             checkpoint_path: Path to checkpoint for loading weights
-            image_size: Input image size
+            image_height: Input image height (only needed for pooling head setup with 'none' pooling)
+            image_width: Input image width (only needed for pooling head setup with 'none' pooling)
         """
         specification = EncoderInput(keys=input_keys,required=[Cameras.DEPTH.value], one_of_groups=[[Cameras.LEFT.value, Cameras.RIGHT.value]])
         super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
@@ -185,7 +187,8 @@ class DFormerEncoder(Encoder):
                 f"Choose from: {list(self.VARIANT_CONFIGS.keys())}"
             )
         self.variant = variant
-        self.image_size = image_size
+        self.image_height = image_height
+        self.image_width = image_width
         self.pooling_method = pooling_method
         self.decomposition_mode = AttentionDecompositionMode(decomposition_mode)
         config = self.VARIANT_CONFIGS[variant]
@@ -195,13 +198,14 @@ class DFormerEncoder(Encoder):
         self.decay_ranges: list[int] = config["decay_ranges"]  # type: ignore[assignment]
         self.use_layer_scales: list[bool] = config["use_layer_scales"]  # type: ignore[assignment]
         self.num_stages = len(self.embed_dims)
+        # Patch size is fixed at 4 to match original DFormerv2 architecture (2 stride-2 convs = 4x downsample)
+        # This cannot be changed without breaking pretrained model loading
         self.patch_embed = PatchEmbedding(
-            img_size=image_size,
             patch_size=4,
             in_chans=3,
             embed_dim=self.embed_dims[0],
             embed_type=PatchEmbedType.PROGRESSIVE.value,
-            norm_layer=FrozenBatchNorm2d ,
+            norm_layer=FrozenBatchNorm2d,
         )
         self._build_backbone(drop_path_rate=drop_path_rate, layer_scale_init_value=layer_scale_init_value, initial_decay=initial_decay)
         self.feature_dim = self.embed_dims[-1]
@@ -251,9 +255,9 @@ class DFormerEncoder(Encoder):
     def _setup_pooling(self):
         """Setup pooling head based on final feature map size."""
         with torch.no_grad():
-            mock_rgb = torch.zeros(1, 3, self.image_size, self.image_size)
+            mock_rgb = torch.zeros(1, 3, self.image_height, self.image_width)
             features = self.patch_embed(mock_rgb)
-            depth_mock = torch.zeros(1, 1, self.image_size, self.image_size)
+            depth_mock = torch.zeros(1, 1, self.image_height, self.image_width)
             depth_map = F.interpolate(depth_mock, size=features.shape[1:3], mode='bilinear')
             for stage in self.stages:
                 _, features, depth_map = stage(features, depth_map)

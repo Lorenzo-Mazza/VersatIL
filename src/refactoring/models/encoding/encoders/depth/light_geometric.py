@@ -45,7 +45,6 @@ class LightGeometricEncoder(Encoder):
         self.pooling_method = pooling_method
         self.image_size = image_size
         self.patch_embed = PatchEmbedding(
-            img_size=image_size,
             patch_size=16,
             in_chans=3,
             embed_dim=embedding_dimension,

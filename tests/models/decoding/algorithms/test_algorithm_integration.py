@@ -63,7 +63,7 @@ def vae_encoder(device):
     """Create VAE encoder."""
     return VAETransformerEncoder(
         latent_dim=16,
-        embedding_dimension=64,
+        output_dim=64,
         prediction_horizon=10,
         number_of_heads=2,
         feedforward_dimension=128,

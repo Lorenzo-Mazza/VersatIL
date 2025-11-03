@@ -10,6 +10,7 @@ class FusionModule:
     _target_: str = MISSING
     input_features: list[str] = MISSING
     output_name: str = MISSING
+    hidden_dim: int = MISSING
 
 
 @dataclass

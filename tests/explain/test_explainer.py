@@ -4,6 +4,7 @@ import pytest
 import torch
 import torch.nn as nn
 import numpy as np
+from hydra.utils import instantiate
 
 from refactoring.configs.task.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import Cameras, POSITION_ACTION_KEY
@@ -101,7 +102,9 @@ def test_policy_explainer_with_vision_encoder_types(encoder_type, encoder_params
         encoder_dim = (256, 56, 56)
         feature_key = "light_geometric_encoder_rgbd"
 
-    encoding_pipeline = EncodingPipeline(encoders={f"{encoder_type}_encoder": encoder_config})
+    # Instantiate encoder from config before passing to pipeline
+    encoder = instantiate(encoder_config)
+    encoding_pipeline = EncodingPipeline(encoders={f"{encoder_type}_encoder": encoder})
 
     embedding_dim = 256
     action_heads = {
@@ -184,10 +187,14 @@ def test_explainer_with_mixed_encoders(action_space, device):
         "output_dim": 64,
     }
 
+    # Instantiate encoders from configs
+    rgb_encoder = instantiate(rgb_encoder_config)
+    proprio_encoder = instantiate(proprio_encoder_config)
+
     encoding_pipeline = EncodingPipeline(
         encoders={
-            "rgb_encoder": rgb_encoder_config,
-            "proprio_encoder": proprio_encoder_config,
+            "rgb_encoder": rgb_encoder,
+            "proprio_encoder": proprio_encoder,
         }
     )
 
@@ -285,10 +292,14 @@ def test_explainer_with_conditional_encoder(action_space, device):
         "pooling_method": "none",
     }
 
+    # Instantiate encoders from configs
+    language_encoder = instantiate(language_encoder_config)
+    conditional_encoder = instantiate(conditional_encoder_config)
+
     encoding_pipeline = EncodingPipeline(
         encoders={
-            "language_encoder": language_encoder_config,
-            "conditional_rgb_encoder": conditional_encoder_config,
+            "language_encoder": language_encoder,
+            "conditional_rgb_encoder": conditional_encoder,
         }
     )
 
@@ -373,7 +384,9 @@ def test_wrapper_forward_with_real_policy(action_space, device):
         "pooling_method": "none",
     }
 
-    encoding_pipeline = EncodingPipeline(encoders={"rgb_encoder": encoder_config})
+    # Instantiate encoder from config
+    encoder = instantiate(encoder_config)
+    encoding_pipeline = EncodingPipeline(encoders={"rgb_encoder": encoder})
 
     obs_space = ObservationSpace(camera_keys=[Cameras.LEFT.value])
 
@@ -453,7 +466,9 @@ def test_target_layers_getter_creation(action_space, device):
         "pooling_method": "none",
     }
 
-    encoding_pipeline = EncodingPipeline(encoders={"rgb_encoder": encoder_config})
+    # Instantiate encoder from config
+    encoder = instantiate(encoder_config)
+    encoding_pipeline = EncodingPipeline(encoders={"rgb_encoder": encoder})
 
     obs_space = ObservationSpace(camera_keys=[Cameras.LEFT.value])
 
@@ -521,7 +536,9 @@ def test_saliency_maps_with_real_policy(action_space, device):
         "pooling_method": "none",
     }
 
-    encoding_pipeline = EncodingPipeline(encoders={"rgb_encoder": encoder_config})
+    # Instantiate encoder from config
+    encoder = instantiate(encoder_config)
+    encoding_pipeline = EncodingPipeline(encoders={"rgb_encoder": encoder})
 
     obs_space = ObservationSpace(camera_keys=[Cameras.LEFT.value])
 

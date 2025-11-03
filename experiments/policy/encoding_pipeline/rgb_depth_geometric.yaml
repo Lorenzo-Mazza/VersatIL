@@ -13,7 +13,9 @@ encoders:
     checkpoint_path: /mnt/cluster/workspaces/mazzalore/pretrained_models/pretrained_dformer/DFormerv2_Small_NYU.pth
     pretrained: true
     frozen: true
-    pooling_method: none 
+    pooling_method: none
+    image_height: ${task.dataloader.image_height}
+    image_width: ${task.dataloader.image_width} 
 
   right_rgb:
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder

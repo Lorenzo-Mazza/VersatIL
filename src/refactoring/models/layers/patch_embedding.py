@@ -15,7 +15,6 @@ class PatchEmbedding(nn.Module):
     """Flexible patch embedding supporting multiple strategies."""
     def __init__(
             self,
-            img_size: int = 224,
             patch_size: int = 16,
             in_chans: int = 3,
             embed_dim: int = 768,
@@ -24,13 +23,10 @@ class PatchEmbedding(nn.Module):
     ):
         super().__init__()
 
-        self.img_size = img_size
         self.patch_size = patch_size
         self.in_chans = in_chans
         self.embed_dim = embed_dim
         self.embed_type = embed_type
-
-        self.num_patches = (img_size // patch_size) ** 2
 
         if embed_type == PatchEmbedType.STANDARD.value:
             self.projection = self._build_standard_projection()
@@ -113,7 +109,8 @@ class PatchEmbedding(nn.Module):
             x: Tensor of images with shape (batch size, channels, height, width)
 
         Returns:
-            Tensor of embedded patches of shape (batch size, N, embedding dimension) where N = num_patches
+            For PROGRESSIVE: Tensor of shape (batch size, H', W', embedding_dim)
+            For STANDARD/OVERLAPPING: Tensor of shape (batch size, N, embedding_dim) where N = num_patches
         """
         x = self.projection(x)  # (B, embedding_dimension, H', W')
         if self.embed_type == PatchEmbedType.PROGRESSIVE.value:
@@ -122,15 +119,6 @@ class PatchEmbedding(nn.Module):
         x = x.flatten(2).transpose(1, 2)
         x = self.norm(x)
         return x
-
-
-    def get_num_patches(self) -> int:
-        """Return number of patches produced."""
-        if self.embed_type == PatchEmbedType.OVERLAPPING.value:
-            # Overlapping changes the count
-            stride = self.patch_size // 2
-            return ((self.img_size - self.patch_size) // stride + 1) ** 2
-        return self.num_patches
 
 
 class PatchMerging(nn.Module):

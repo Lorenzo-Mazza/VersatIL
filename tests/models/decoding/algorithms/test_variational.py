@@ -52,7 +52,7 @@ def vae_encoder(latent_dim, embedding_dim, prediction_horizon, device):
     """Create VAE encoder fixture."""
     return VAETransformerEncoder(
         latent_dim=latent_dim,
-        embedding_dimension=embedding_dim,
+        output_dim=embedding_dim,
         prediction_horizon=prediction_horizon,
         number_of_heads=2,
         feedforward_dimension=128,
