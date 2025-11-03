@@ -8,7 +8,7 @@ encoders:
       - ${cameras:LEFT}
       - ${cameras:DEPTH}
     variant: S  # S, B, or L
-    checkpoint_path: /mnt/cluster/workspaces/mazzalore/iros/pretrained_dformer/DFormerv2_Small_NYU.pth
+    checkpoint_path: /mnt/cluster/workspaces/mazzalore/pretrained_models/pretrained_dformer/DFormerv2_Small_NYU.pth
     pretrained: true
     frozen: true
     pooling_method: none 
