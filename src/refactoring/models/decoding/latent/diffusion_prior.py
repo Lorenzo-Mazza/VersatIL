@@ -32,7 +32,6 @@ from refactoring.models.decoding.constants import SchedulerType, PRIOR_PREDICTIO
 from refactoring.models.decoding.latent import LatentPrior
 from refactoring.models.layers.mlp import MLP
 from refactoring.models.layers.activation import ActivationFunction
-from tests.models.encoding.proprio.test_base import output_dim
 
 
 class DiffusionPrior(LatentPrior):
