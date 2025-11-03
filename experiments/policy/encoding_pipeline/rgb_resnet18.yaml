@@ -30,7 +30,7 @@ encoders:
 fusion_stages:
   - _target_: refactoring.models.encoding.fusion.spatial.SpatialFusion
     input_features:
-      - left_rgb_features
-      - right_rgb_features
+      - left_rgb
+      - right_rgb
     output_name: visual_features
     hidden_dim: 256  # Project each encoder to 256 channels before fusion
