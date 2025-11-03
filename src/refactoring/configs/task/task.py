@@ -25,6 +25,7 @@ from refactoring.data.constants import (
 @dataclass
 class ActionSpace:
     """Defines what actions the task will predict and how they are computed."""
+    _target_: str = "refactoring.configs.task.task.ActionSpace"
     has_position: bool = True
     position_dim: int = 3
     has_orientation: bool = False
@@ -83,6 +84,7 @@ class ActionSpace:
 @dataclass
 class ObservationSpace:
     """Defines what observations the task will request and how they are processed."""
+    _target_: str = "refactoring.configs.task.task.ObservationSpace"
     use_proprioceptive_data: bool = False
     use_proprio_base_frame: bool = False
     use_proprio_camera_frame: bool = False

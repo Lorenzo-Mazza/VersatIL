@@ -37,6 +37,9 @@ def get_dataloaders(
 
     _ensure_zarr_exists(schema=schema, datasets_paths=datasets_paths)
 
+    action_space = instantiate(config.task.action_space)
+    observation_space = instantiate(config.task.observation_space)
+
     train_dataset = EpisodicDataset(
         zarr_path=schema.zarr_path,
         pred_horizon=config.task.prediction_horizon,
@@ -44,8 +47,8 @@ def get_dataloaders(
         dataloader_config=config.task.dataloader,
         train=True,
         seed=config.experiment.seed,
-        action_space=config.task.action_space,
-        observation_space=config.task.observation_space,
+        action_space=action_space,
+        observation_space=observation_space,
     )
 
     val_dataset = EpisodicDataset(
@@ -55,8 +58,8 @@ def get_dataloaders(
         dataloader_config=config.task.dataloader,
         train=False,
         seed=config.experiment.seed,
-        action_space=config.task.action_space,
-        observation_space=config.task.observation_space,
+        action_space=action_space,
+        observation_space=observation_space,
     )
 
     # Get normalizer
