@@ -1,8 +1,7 @@
 """Configuration classes for different action decoder architectures."""
 from dataclasses import dataclass
-from typing import Any
 
-from omegaconf import MISSING
+from omegaconf import DictConfig, MISSING
 
 from refactoring.configs.decoding.action_head import ActionHeadConfig
 from refactoring.configs.task.task import ActionSpace
@@ -94,15 +93,15 @@ class MixtureOfExpertsDecoderConfig(DecodingNetworkConfig):
         )
 
     Note:
-        base_expert_config should be typed as Any to prevent Hydra from
-        instantiating it prematurely. The MoEDecoder will instantiate it
-        num_experts times internally.
+        base_expert_config should be typed as DictConfig | dict to prevent
+        Hydra from instantiating it prematurely. The MoEDecoder will
+        instantiate it num_experts times internally.
     """
     _target_: str = "refactoring.models.decoding.decoders.mixture_of_experts.MoEDecoder"
 
-    base_expert_config: Any = None  # DictConfig with _target_, not pre-instantiated
+    base_expert_config: DictConfig | dict | None = None  # Config with _target_, not pre-instantiated
     num_experts: int | None = None
-    expert_configs: list[Any] | None = None  # List of DictConfigs with _target_
+    expert_configs: list[DictConfig | dict] | None = None  # List of configs with _target_
 
     gating_input_dim: int | None = None
     gating_hidden_dims: list[int] | None = None
