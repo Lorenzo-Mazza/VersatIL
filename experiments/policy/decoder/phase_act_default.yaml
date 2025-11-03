@@ -18,8 +18,41 @@ normalize_before: false
 # Phase-specific settings
 phase_routing_key: phase_label
 
-# Action heads (dynamically created from action_space)
-action_heads: {}  # Auto-populated based on action_space
+# Action heads with MoE for phase-conditioned predictions
+action_heads:
+  phase_label:
+    _target_: refactoring.models.decoding.action_heads.ActionHead
+    input_dim: ${..embedding_dimension}
+    output_dim: ${task.action_space.number_of_phases}
+    blocks: null
+
+  position_action:
+    _target_: refactoring.models.decoding.action_heads.MoEHead
+    output_dim: ${task.action_space.position_dim}
+    device: ${experiment.device}
+    num_experts: ${task.action_space.number_of_phases}
+    base_expert_config:
+      _target_: refactoring.models.decoding.action_heads.ActionHead
+      input_dim: ${...embedding_dimension}
+      output_dim: ${task.action_space.position_dim}
+      blocks: null
+    temperature: 100.0
+    learnable_temperature: true
+    routing_type: soft
+
+  gripper_action:
+    _target_: refactoring.models.decoding.action_heads.MoEHead
+    output_dim: ${task.action_space.gripper_dim}
+    device: ${experiment.device}
+    num_experts: ${task.action_space.number_of_phases}
+    base_expert_config:
+      _target_: refactoring.models.decoding.action_heads.ActionHead
+      input_dim: ${...embedding_dimension}
+      output_dim: ${task.action_space.gripper_dim}
+      blocks: null
+    temperature: 100.0
+    learnable_temperature: true
+    routing_type: soft
 
 # References to task/policy configs (Hydra interpolation)
 observation_horizon: ${task.observation_horizon}
