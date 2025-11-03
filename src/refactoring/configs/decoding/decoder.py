@@ -1,5 +1,6 @@
 """Configuration classes for different action decoder architectures."""
 from dataclasses import dataclass
+from typing import Any
 
 from omegaconf import MISSING
 
@@ -91,12 +92,17 @@ class MixtureOfExpertsDecoderConfig(DecodingNetworkConfig):
             routing_type=MoERoutingType.SOFT.value,
             gating_feature_key="latent",  # Use latent from VAE for routing
         )
+
+    Note:
+        base_expert_config should be typed as Any to prevent Hydra from
+        instantiating it prematurely. The MoEDecoder will instantiate it
+        num_experts times internally.
     """
     _target_: str = "refactoring.models.decoding.decoders.mixture_of_experts.MoEDecoder"
 
-    base_expert_config: DecodingNetworkConfig | None = None
+    base_expert_config: Any = None  # DictConfig with _target_, not pre-instantiated
     num_experts: int | None = None
-    expert_configs: list[DecodingNetworkConfig] | None = None
+    expert_configs: list[Any] | None = None  # List of DictConfigs with _target_
 
     gating_input_dim: int | None = None
     gating_hidden_dims: list[int] | None = None
