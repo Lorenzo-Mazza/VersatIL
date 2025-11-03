@@ -205,11 +205,13 @@ class TestDFormerEncoderInitialization:
         encoder = DFormerEncoder(
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=DFormerVariant.SMALL.value,
-            image_size=image_size,
+            image_height=image_size,
+            image_width=image_size,
             pretrained=False,
         )
 
-        assert encoder.image_size == image_size
+        assert encoder.image_height == image_size
+        assert encoder.image_width == image_size
 
 
     def test_init_pretrained(self):
@@ -222,7 +224,7 @@ class TestDFormerEncoderInitialization:
             checkpoint_path=checkpoint_path,
         )
 
-        H, W = encoder.image_size, encoder.image_size
+        H, W = encoder.image_height, encoder.image_width
         input_dict = {
             Cameras.LEFT.value: torch.randn(2, 3, H, W),
             Cameras.DEPTH.value: torch.randn(2, 1, H, W),

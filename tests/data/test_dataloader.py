@@ -606,7 +606,8 @@ class TestDataloaderIntegration:
 
         train_loader, val_loader, normalizer, gripper_weights = get_dataloaders(mock_config)
 
-        mock_instantiate.assert_called_once()
+        # instantiate is called 3 times: for schema, action_space, and observation_space
+        assert mock_instantiate.call_count == 3
         mock_collect.assert_called_once()
         mock_ensure.assert_called_once()
         assert mock_dataset_class.call_count == 2
@@ -763,7 +764,13 @@ class TestLanguageInDataloader:
     ):
         """Test dataloader creation with language enabled."""
         config = MockConfig(use_language=True)
-        mock_instantiate.return_value = mock_schema
+
+        # Create mock observation space with use_language attribute
+        mock_obs_space = MagicMock()
+        mock_obs_space.use_language = True
+
+        # instantiate is called 3 times: schema, action_space, observation_space
+        mock_instantiate.side_effect = [mock_schema, MagicMock(), mock_obs_space]
         mock_collect.return_value = ["path1.csv"]
 
         train_dataset = MockDataset(length=100)

@@ -285,7 +285,7 @@ class TestPolicyLossValidation:
         # Create actual VariationalAlgorithm
         vae_encoder = VAETransformerEncoder(
             latent_dim=16,
-            embedding_dimension=64,
+            output_dim=64,
             prediction_horizon=10,
             number_of_heads=2,
             feedforward_dimension=128,
@@ -404,7 +404,7 @@ class TestPolicyLossValidation:
         # VariationalAlgorithm with GaussianPrior (doesn't produce prior keys)
         vae_encoder = VAETransformerEncoder(
             latent_dim=16,
-            embedding_dimension=64,
+            output_dim=64,
             prediction_horizon=10,
             number_of_heads=2,
             feedforward_dimension=128,
@@ -468,7 +468,7 @@ class TestPolicyLossValidation:
         # VariationalAlgorithm with DiffusionPrior (produces prior keys)
         vae_encoder = VAETransformerEncoder(
             latent_dim=16,
-            embedding_dimension=64,
+            output_dim=64,
             prediction_horizon=10,
             number_of_heads=2,
             feedforward_dimension=128,

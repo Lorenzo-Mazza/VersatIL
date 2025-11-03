@@ -15,7 +15,7 @@ from refactoring.configs.experiment import ExperimentConfig
 from refactoring.configs.task.task import TaskConfig, ActionSpace, ObservationSpace
 from refactoring.configs.task.dataloader import DataloaderConfig
 from refactoring.configs.task.dataset.schema import DatasetSchemaConfig
-from refactoring.configs.training import TrainingConfig, OptimizerConfig
+from refactoring.configs.training import TrainingConfig, OptimizerConfig, AdamWConfig
 from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
 from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod
 from refactoring.models.encoding.pipeline import EncodingPipeline
@@ -87,9 +87,8 @@ def test_config():
         prediction_horizon=10,
     )
 
-    optimizer_config = OptimizerConfig(
-        optimizer_type="adamw",
-        learning_rate=1e-4,
+    optimizer_config = AdamWConfig(
+        lr=1e-4,
         weight_decay=1e-6,
     )
 
@@ -257,9 +256,8 @@ def saved_checkpoint(checkpoint_dir, test_config, test_policy, device):
     training_config = TrainingConfig(
         num_epochs=1,
         gradient_accumulate_every=1,
-        optimizer=OptimizerConfig(
-            optimizer_type="adamw",
-            learning_rate=1e-4,
+        optimizer=AdamWConfig(
+            lr=1e-4,
         ),
     )
 

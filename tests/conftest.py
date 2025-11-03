@@ -1006,9 +1006,8 @@ def mock_main_config(tmp_path, simple_observation_space, simple_action_space):
         dataloader=dataloader_config,
     )
 
-    optimizer_config = OptimizerConfig(
-        optimizer_type="adamw",
-        learning_rate=1e-4,
+    optimizer_config = AdamWConfig(
+        lr=1e-4,
     )
 
     training_config = TrainingConfig(
