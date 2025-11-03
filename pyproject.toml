@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "Surg-IL"
 version = "0.1.0"
@@ -201,3 +205,6 @@ ignore_errors = true
 module = "tests.*"
 disallow_untyped_defs = false
 ignore_errors = false
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/refactoring"]

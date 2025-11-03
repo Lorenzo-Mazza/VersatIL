@@ -1,3 +1,3 @@
 _target_: refactoring.data.schemas.bowel_retraction.BowelRetractionSchema
-zarr_path: /mnt/cluster/datasets/bowel_retraction/v2/dataset.zarr
+zarr_path: /mnt/cluster/datasets/bowel_retraction/v2/dataset_test.zarr
 dataset_folders: ["/mnt/cluster/datasets/bowel_retraction/v1", "/mnt/cluster/datasets/bowel_retraction/v2"]
