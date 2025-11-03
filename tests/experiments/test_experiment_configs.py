@@ -141,7 +141,7 @@ def create_dummy_batch(config: DictConfig, batch_size: int = 2) -> Dict[str, tor
     if action_space.task_has_phases:
         num_phases = action_space.number_of_phases
         batch["action"]["phase_label"] = torch.randint(
-            0, num_phases, (batch_size, prediction_horizon), dtype=torch.long
+            0, num_phases, (batch_size, prediction_horizon, 1), dtype=torch.long
         )
 
     batch[IS_PAD_KEY] = torch.zeros(batch_size, prediction_horizon, dtype=torch.bool)
