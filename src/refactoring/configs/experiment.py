@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 from omegaconf import MISSING
 
+from refactoring.training.constants import Float32MatmulPrecision, PrecisionType
+
 
 @dataclass
 class ExperimentConfig:
@@ -17,6 +19,13 @@ class ExperimentConfig:
     wandb_entity: str | None = None
     device: str = "cuda"
     distributed: bool = False
+
+    # Training precision and performance
+    #: PyTorch Lightning precision setting
+    precision: str = PrecisionType.FP16_MIXED.value
+    #: Float32 matmul precision for Tensor Cores (None to disable)
+    #: "medium" enables TF32 on Ampere+ GPUs for ~8x speedup with minimal precision loss
+    float32_matmul_precision: str | None = Float32MatmulPrecision.MEDIUM.value
 
     # Checkpointing and validation
     checkpoint_every: int = 100

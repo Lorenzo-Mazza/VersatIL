@@ -166,6 +166,13 @@ class Workspace:
         if self.config.training.clip_gradient_norm:
             gradient_clip_val = self.config.training.clip_max_norm
 
+        # Set float32 matmul precision for Tensor Cores if configured
+        if self.config.experiment.float32_matmul_precision is not None:
+            torch.set_float32_matmul_precision(self.config.experiment.float32_matmul_precision)
+            logging.info(
+                f"Set float32 matmul precision to '{self.config.experiment.float32_matmul_precision}'"
+            )
+
         # Create trainer
         self.trainer = pl.Trainer(
             max_epochs=self.config.training.num_epochs,
@@ -181,7 +188,7 @@ class Workspace:
             enable_progress_bar=True,
             enable_model_summary=True,
             deterministic=False,  # For performance
-            precision="16-mixed" if torch.cuda.is_available() else "32",
+            precision=self.config.experiment.precision,
         )
 
         logging.info(f"Trainer created with {len(callbacks)} callbacks")
