@@ -22,6 +22,8 @@ class CNNEncoderConfig(ImageEncoderConfig):
     _target_: str = "refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder"
     pooling_method: str = PoolingMethod.SPATIAL_SOFTMAX.value
     use_group_norm: bool = True
+    image_height: int = MISSING
+    image_width: int = MISSING
 
 
 @dataclass

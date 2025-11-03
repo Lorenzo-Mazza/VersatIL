@@ -12,6 +12,8 @@ encoders:
     frozen: false
     pooling_method: none
     use_group_norm: true
+    image_height: ${task.dataloader.image_height}
+    image_width: ${task.dataloader.image_width}
 
   right_rgb:
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
@@ -21,6 +23,8 @@ encoders:
     frozen: false
     pooling_method: none
     use_group_norm: true
+    image_height: ${task.dataloader.image_height}
+    image_width: ${task.dataloader.image_width}
 
 # Fusion: concatenate left and right features
 fusion_stages:

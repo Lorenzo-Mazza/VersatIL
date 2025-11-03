@@ -16,7 +16,7 @@ base_algorithm:
 posterior_encoder:
   _target_: refactoring.models.decoding.latent.vae_posterior.VAETransformerEncoder
   latent_dim: 32
-  embedding_dimension: 512
+  output_dim: 512
   prediction_horizon: ${policy.prediction_horizon}
   number_of_heads: 8
   feedforward_dimension: 2048

@@ -1,12 +1,11 @@
 import logging
-from typing import Any
 
 import torch
 import torch.nn as nn
-from hydra.utils import instantiate
 
-from refactoring.models.encoding.encoders.base import EncoderOutput
+from refactoring.models.encoding.encoders.base import EncoderOutput, EncodingMixin
 from refactoring.models.encoding.encoders.conditional import ConditionalEncoder
+from refactoring.models.encoding.fusion.base import FusionModule
 
 
 class EncodingPipeline(nn.Module):
@@ -30,14 +29,14 @@ class EncodingPipeline(nn.Module):
 
     def __init__(
             self,
-            encoders: dict[str, Any],
-            fusion_stages: list[Any] | None = None,
+            encoders: dict[str, EncodingMixin],
+            fusion_stages: list[FusionModule] | None = None,
     ):
         """Initializes the encoding pipeline.
 
                 Args:
-                    encoders: Dictionary of encoder configurations keyed by name.
-                    fusion_stages: List of fusion stage configurations.
+                    encoders: Dictionary of instantiated encoders keyed by name.
+                    fusion_stages: List of instantiated fusion modules.
                 """
         super().__init__()
         self.encoders = nn.ModuleDict()
@@ -69,10 +68,9 @@ class EncodingPipeline(nn.Module):
         return result
 
 
-    def _setup_encoders(self, encoders: dict[str, Any]):
-        """Setup and instantiate the encoders."""
-        for encoder_name, encoder_config in encoders.items():
-            encoder = instantiate(encoder_config)
+    def _setup_encoders(self, encoders: dict[str, EncodingMixin]):
+        """Setup encoders (already instantiated by Hydra)."""
+        for encoder_name, encoder in encoders.items():
             encoder.name = encoder_name
             output_info = encoder.get_output_specification()
             self.encoder_to_outputs[encoder_name] = output_info
@@ -84,8 +82,8 @@ class EncodingPipeline(nn.Module):
                 self.encoders[encoder_name] = encoder
 
 
-    def _setup_fusion_modules(self, fusion_stages: list[dict] | None):
-        """Setup and instantiate fusion modules with the correct encoded feature dimensions.
+    def _setup_fusion_modules(self, fusion_stages: list[FusionModule] | None):
+        """Setup fusion modules (already instantiated by Hydra).
 
         Note:
             Fusion modules consume their input features. After fusion, only the fusion
@@ -93,10 +91,9 @@ class EncodingPipeline(nn.Module):
         """
         self.fusion_stages = nn.ModuleList()
         if fusion_stages:
-            for fusion_config in fusion_stages:
-                fusion = instantiate(fusion_config)
+            for fusion in fusion_stages:
                 fusion.input_features = [self._resolve_feature_name(f) for f in fusion.input_features]
-                fusion.setup(self._feature_dims)
+                fusion.setup(self._feature_keys_to_dims)
                 self._feature_keys_to_dims[fusion.output_name] = fusion.get_output_dim()
                 # Track consumed features
                 for input_feat in fusion.input_features:

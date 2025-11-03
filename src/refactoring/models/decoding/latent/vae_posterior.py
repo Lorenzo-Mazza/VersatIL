@@ -12,7 +12,7 @@ class VAETransformerEncoder(LatentActionEncoder):
     """Transformer-based Variational Autoencoder for encoding actions into latent space.
 
     Args:
-        embedding_dimension: Transformer hidden dimension
+        output_dim: Transformer hidden dimension
         number_of_heads: Number of attention heads
         feedforward_dimension: Feedforward network dimension
         number_of_encoder_layers: Number of transformer encoder layers
@@ -27,7 +27,7 @@ class VAETransformerEncoder(LatentActionEncoder):
 
     def __init__(
         self,
-        embedding_dimension: int,
+        output_dim: int,
         latent_dim: int,
         prediction_horizon: int,
         device: str,
@@ -42,7 +42,7 @@ class VAETransformerEncoder(LatentActionEncoder):
         """Initialize VAE latent action encoder.
 
         Args:
-            embedding_dimension: Dimension of the input embedding for the transformer network
+            output_dim: Dimension of the output embedding
             latent_dim: Dimension of VAE latent space, i.e. the dimension of the output z
             prediction_horizon: Number of action timesteps
             device: Device to place encoder on
@@ -54,13 +54,13 @@ class VAETransformerEncoder(LatentActionEncoder):
             normalize_before: Use pre-normalization
             use_proprioceptive: Whether to condition on proprioceptive observations
         """
-        super().__init__(latent_dim=latent_dim, device=device, output_dim=embedding_dimension)
+        super().__init__(latent_dim=latent_dim, device=device, output_dim=output_dim)
 
-        self.embedding_dimension = embedding_dimension
+        self.embedding_dimension = output_dim
         self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
         self.vae = VAE(
-            embedding_dimension=embedding_dimension,
+            embedding_dimension=self.embedding_dimension,
             number_of_heads=number_of_heads,
             feedforward_dimension=feedforward_dimension,
             number_of_encoder_layers=number_of_encoder_layers,
@@ -75,7 +75,7 @@ class VAETransformerEncoder(LatentActionEncoder):
         # Latent to embedding projection, output dimension matches embedding_dimension
         self.latent_output_projection = nn.Linear(
             latent_dim,
-            embedding_dimension
+            self.embedding_dimension
         )
         self.to(device)
 

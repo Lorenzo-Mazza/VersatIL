@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from omegaconf import DictConfig, MISSING
 
 from refactoring.configs.decoding.action_head import ActionHeadConfig
-from refactoring.configs.task.task import ActionSpace
+from refactoring.configs.task.task import ActionSpace, ObservationSpace
 from refactoring.models.decoding.constants import MoERoutingType
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import PositionalEncodingType
@@ -15,6 +15,8 @@ class DecodingNetworkConfig:
     """Base architecture configuration."""
     _target_: str = MISSING
     action_heads: dict[str, ActionHeadConfig] = MISSING
+    input_keys: list[str] = MISSING
+    observation_space: "ObservationSpace" = "${policy.observation_space}"  # type: ignore[assignment]
     observation_horizon: int = "${policy.observation_horizon}"  # type: ignore[assignment]
     prediction_horizon: int = "${policy.prediction_horizon}"  # type: ignore[assignment]
     action_space: ActionSpace = "${policy.action_space}"  # type: ignore[assignment]
@@ -30,18 +32,15 @@ class ACTConfig(DecodingNetworkConfig):
     not at the Decoder level. To use a VAE with ACT, configure the latent_encoder
     parameter in the algorithm config (e.g., BehavioralCloningConfig).
     """
-    _target_: str = "refactoring.models.decoding.decoders.act.ACT"
+    _target_: str = "refactoring.models.decoding.decoders.factory.act.ACT"
     embedding_dimension: int = 512
     number_of_heads: int = 8
     feedforward_dimension: int = 3200
     number_of_encoder_layers: int = 4
     number_of_decoder_layers: int = 7
     activation: str = ActivationFunction.RELU.value
-    dropout: float = 0.1
+    dropout_rate: float = 0.1
     normalize_before: bool = False
-    positional_encoding_type: str = PositionalEncodingType.SINUSOIDAL.value
-    dilation: bool = False # boh
-    masks: bool = False
 
 
 # TODO: Implement these decoder architectures

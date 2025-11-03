@@ -23,6 +23,8 @@ encoders:
     frozen: false
     pooling_method: none
     use_group_norm: true
+    image_height: ${task.dataloader.image_height}
+    image_width: ${task.dataloader.image_width}
 
 # Fusion: Spatially fuse DFormer and right camera features
 fusion_stages:

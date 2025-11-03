@@ -8,7 +8,16 @@ from refactoring.models.layers.activation import ActivationFunction
 
 @dataclass
 class LatentActionEncoderConfig:
-    """Base latent action encoder configuration."""
+    """Base latent action encoder configuration (for posteriors)."""
+    _target_: str = MISSING
+    latent_dim: int = MISSING
+    output_dim: int = MISSING
+    device: str = "${policy.device}"
+
+
+@dataclass
+class LatentPriorConfig:
+    """Base latent prior configuration."""
     _target_: str = MISSING
     latent_dim: int = MISSING
     output_dim: int = MISSING
@@ -24,11 +33,10 @@ class VAETransformerEncoderConfig(LatentActionEncoderConfig):
     """
     _target_: str = "refactoring.models.decoding.latent.vae_posterior.VAETransformerEncoder"
 
-    embedding_dimension: int = 512
     latent_dim: int = 32
+    output_dim: int = 512
     prediction_horizon: int = "${policy.prediction_horizon}"  # type: ignore[assignment]
 
-    # Transformer architecture
     number_of_heads: int = 8
     feedforward_dimension: int = 512
     number_of_encoder_layers: int = 4
@@ -40,7 +48,7 @@ class VAETransformerEncoderConfig(LatentActionEncoderConfig):
 
 
 @dataclass
-class GaussianPriorConfig:
+class GaussianPriorConfig(LatentPriorConfig):
     """Standard Gaussian N(0, I) prior configuration.
 
     Simple non-learned prior that samples from a standard normal distribution.
@@ -55,11 +63,10 @@ class GaussianPriorConfig:
 
     latent_dim: int = 32
     output_dim: int = 512
-    device: str = "${policy.device}"
 
 
 @dataclass
-class DiffusionPriorConfig(LatentActionEncoderConfig):
+class DiffusionPriorConfig(LatentPriorConfig):
     """Diffusion-based learned prior configuration.
 
     Uses a diffusion MLP to learn p(z|s) instead of using N(0,I) prior.
