@@ -1,9 +1,9 @@
 """Mixture of Experts (MoE) action head for phase-conditioned or multi-modal action prediction."""
 
+import copy
+
 import torch
 import torch.nn as nn
-from hydra.utils import instantiate
-from omegaconf import DictConfig
 
 from refactoring.data.constants import ACTION_KEY
 from refactoring.models.decoding.action_heads.head import ActionHead
@@ -21,11 +21,11 @@ class MoEHead(BaseMixtureOfExperts):
 
     Supports two modes:
     1. Explicit expert list: Pass pre-instantiated experts
-    2. Config-based: Pass base_expert_config and num_experts (recommended)
+    2. Base expert cloning: Pass base_expert instance and num_experts (recommended)
 
     Example:
         moe = MoEHead(
-            base_expert_config=ActionHeadConfig(...),
+            base_expert=ActionHead(input_dim=256, output_dim=3, blocks=None),
             num_experts=5,
             output_dim=3,
             gating_input_dim=256
@@ -37,9 +37,8 @@ class MoEHead(BaseMixtureOfExperts):
         output_dim: int,
         device: str = "cpu",
         experts: list[ActionHead] | None = None,
-        base_expert_config: DictConfig | dict | None = None,
+        base_expert: ActionHead | None = None,
         num_experts: int | None = None,
-        expert_configs: list[DictConfig | dict] | None = None,
         gating_input_dim: int | None = None,
         gating_activation: str = ActivationFunction.SILU.value,
         gating_hidden_dims: list[int] | None = None,
@@ -57,9 +56,8 @@ class MoEHead(BaseMixtureOfExperts):
             output_dim: Output action dimension (must match all experts)
             device: Device to place the module on
             experts: Optional pre-instantiated expert action heads
-            base_expert_config: Base config for creating experts (with num_experts)
-            num_experts: Number of experts to create from base_expert_config
-            expert_configs: Optional per-expert config overrides
+            base_expert: Single expert instance to clone num_experts times (Hydra-friendly)
+            num_experts: Number of experts to create from base_expert
             gating_input_dim: Input dimension for gating network (None for external routing)
             gating_activation: Activation function for gating network
             gating_hidden_dims: Hidden layer dimensions for gating network
@@ -74,12 +72,12 @@ class MoEHead(BaseMixtureOfExperts):
         if experts is not None:
             expert_list = experts
             num_experts = len(experts)
-        elif base_expert_config is not None and num_experts is not None:
-            expert_list = self._create_experts_from_config(
-                base_expert_config, num_experts, expert_configs
-            )
+        elif base_expert is not None and num_experts is not None:
+            expert_list = self._create_experts_from_instance(base_expert, num_experts)
+            # Move experts to correct device
+            expert_list = [expert.to(device) for expert in expert_list]
         else:
-            raise ValueError("Must provide either 'experts' or both 'base_expert_config' and 'num_experts'")
+            raise ValueError("Must provide either 'experts' or 'base_expert' with 'num_experts'")
 
         super().__init__(
             num_experts=num_experts,
@@ -103,25 +101,33 @@ class MoEHead(BaseMixtureOfExperts):
         self.experts = nn.ModuleList(expert_list)
 
     @staticmethod
-    def _create_experts_from_config(
-        base_config: DictConfig | dict,
+    def _create_experts_from_instance(
+        base_expert: ActionHead,
         num_experts: int,
-        overrides: list[DictConfig | dict] | None = None,
     ) -> list[ActionHead]:
-        """Create expert action heads from configuration.
+        """Create expert action heads by deep copying a base instance.
 
         Args:
-            base_config: Base configuration to use for all experts
+            base_expert: Base expert instance to clone
             num_experts: Number of expert heads to create
-            overrides: Optional list of configs to override base config for specific experts
 
         Returns:
-            List of instantiated ActionHead experts
+            List of deep-copied ActionHead experts with independent weights
+
+        Note:
+            Uses copy.deepcopy() to ensure each expert has completely independent
+            parameters and modules. This works for any ActionHead architecture,
+            including complex block compositions.
         """
         experts = []
-        for i in range(num_experts):
-            config = overrides[i] if overrides and i < len(overrides) else base_config
-            expert = instantiate(config)
+        for _ in range(num_experts):
+            # Deep copy creates a completely independent module with separate weights
+            expert = copy.deepcopy(base_expert)
+            for module in expert.modules():
+                # Give each expert its own parameter initialization.
+                if hasattr(module, 'reset_parameters'):
+                    module.reset_parameters()
+
             experts.append(expert)
         return experts
 

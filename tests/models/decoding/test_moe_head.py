@@ -377,6 +377,110 @@ class TestMoETemperature:
 
 
 @pytest.mark.unit
+class TestMoEBaseExpertCloning:
+    """Tests for MoE instantiation via base_expert cloning."""
+
+    def test_instantiation_with_base_expert(self, embedding_dim, action_dim, num_experts):
+        """Test MoE instantiation by cloning a base expert."""
+        base_expert = ActionHead(embedding_dim, action_dim, blocks=None)
+        moe = MoEHead(
+            base_expert=base_expert,
+            num_experts=num_experts,
+            output_dim=action_dim,
+            gating_input_dim=embedding_dim,
+        )
+
+        assert moe is not None
+        assert moe.num_experts == num_experts
+        assert len(moe.experts) == num_experts
+
+        # All experts should have correct dimensions
+        for expert in moe.experts:
+            assert expert.input_dim == embedding_dim
+            assert expert.output_dim == action_dim
+
+    def test_experts_have_independent_weights(self, embedding_dim, action_dim, device):
+        """Test that cloned experts have independent weights."""
+        base_expert = ActionHead(embedding_dim, action_dim, blocks=None)
+        moe = MoEHead(
+            base_expert=base_expert,
+            num_experts=3,
+            output_dim=action_dim,
+            gating_input_dim=embedding_dim,
+            device=device,
+        )
+
+        # Get weight references
+        expert0_weight = moe.experts[0].output_proj.weight
+        expert1_weight = moe.experts[1].output_proj.weight
+
+        # They should be different objects
+        assert expert0_weight is not expert1_weight
+
+        # Modify expert0 and verify expert1 doesn't change
+        original_expert1_value = expert1_weight.data[0, 0].clone()
+        expert0_weight.data[0, 0] = 999.0
+
+        assert expert1_weight.data[0, 0] == original_expert1_value
+        assert expert0_weight.data[0, 0] != expert1_weight.data[0, 0]
+
+    def test_experts_with_blocks_have_independent_weights(self, embedding_dim, action_dim, device):
+        """Test that cloned experts with blocks have independent weights."""
+        blocks = [MLPBlock(embedding_dim, hidden_dims=[128], output_dim=embedding_dim)]
+        base_expert = ActionHead(embedding_dim, action_dim, blocks=blocks)
+        moe = MoEHead(
+            base_expert=base_expert,
+            num_experts=3,
+            output_dim=action_dim,
+            gating_input_dim=embedding_dim,
+            device=device,
+        )
+
+        # Check that block weights are independent (mlp is a Sequential containing Linear layers)
+        block0_weight = moe.experts[0].blocks[0].mlp[0].weight
+        block1_weight = moe.experts[1].blocks[0].mlp[0].weight
+
+        assert block0_weight is not block1_weight
+
+        # Modify and verify independence
+        original_block1_value = block1_weight.data[0, 0].clone()
+        block0_weight.data[0, 0] = 999.0
+
+        assert block1_weight.data[0, 0] == original_block1_value
+
+    def test_base_expert_cloning_forward_pass(
+        self, embedding_dim, action_dim, num_experts, embeddings_2d, batch_size, device
+    ):
+        """Test forward pass with experts created via cloning."""
+        base_expert = ActionHead(embedding_dim, action_dim, blocks=None)
+        moe = MoEHead(
+            base_expert=base_expert,
+            num_experts=num_experts,
+            output_dim=action_dim,
+            gating_input_dim=embedding_dim,
+            device=device,
+        )
+
+        outputs = moe(embeddings_2d)
+
+        assert "action" in outputs
+        assert "routing_weights" in outputs
+        assert "expert_outputs" in outputs
+        assert outputs["action"].shape == (batch_size, action_dim)
+
+    def test_missing_num_experts_raises_error(self, embedding_dim, action_dim):
+        """Test that missing num_experts raises error."""
+        base_expert = ActionHead(embedding_dim, action_dim, blocks=None)
+
+        with pytest.raises(ValueError, match="Must provide either"):
+            MoEHead(
+                base_expert=base_expert,
+                output_dim=action_dim,
+                gating_input_dim=embedding_dim,
+            )
+
+
+@pytest.mark.unit
 class TestMoEEdgeCases:
     """Tests for edge cases and validation."""
 

@@ -1,7 +1,7 @@
 """Configuration classes for modular action heads."""
 from dataclasses import dataclass, field
 
-from omegaconf import DictConfig, MISSING
+from omegaconf import MISSING
 
 from refactoring.models.decoding.constants import MoERoutingType
 
@@ -91,11 +91,11 @@ class MixtureOfExpertsHeadConfig:
 
     Supports two modes:
     1. Explicit experts: Pass list of ActionHeadConfig
-    2. Config-based (recommended): Pass base_expert_config and num_experts
+    2. Base expert cloning: Pass base_expert and num_experts (recommended)
 
     Example:
         moe_config = MixtureOfExpertsHeadConfig(
-            base_expert_config=ActionHeadConfig(input_dim=256, output_dim=3),
+            base_expert=ActionHeadConfig(input_dim=256, output_dim=3, blocks=None),
             num_experts=5,
             output_dim=3,
             gating_input_dim=256,
@@ -103,17 +103,15 @@ class MixtureOfExpertsHeadConfig:
         )
 
     Note:
-        base_expert_config should be typed as DictConfig | dict to prevent
-        Hydra from instantiating it prematurely. The MoEHead will instantiate
-        it num_experts times internally.
+        base_expert is instantiated by Hydra, then cloned num_experts times
+        by MoEHead to create separate expert networks with independent weights.
     """
     _target_: str = "refactoring.models.decoding.action_heads.MoEHead"
     output_dim: int = MISSING
     device: str = "${policy.device}"
     experts: list[ActionHeadConfig] | None = None
-    base_expert_config: DictConfig | dict | None = None  # Config with _target_, not pre-instantiated
+    base_expert: ActionHeadConfig | None = None
     num_experts: int | None = None
-    expert_configs: list[DictConfig | dict] | None = None  # List of configs with _target_
     gating_input_dim: int | None = None
     gating_hidden_dims: list[int] | None = None
     routing_type: str = MoERoutingType.SOFT.value
