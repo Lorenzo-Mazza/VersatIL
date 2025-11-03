@@ -8,9 +8,9 @@ encoders:
       - left_image
       - depth
     variant: S  # S, B, or L
-    checkpoint: /mnt/cluster/workspaces/mazzalore/iros/pretrained_dformer/DFormerv2_Small_NYU.pth
+    checkpoint_path: /mnt/cluster/workspaces/mazzalore/iros/pretrained_dformer/DFormerv2_Small_NYU.pth
     pretrained: true
-    frozen: false  # Allow fine-tuning
+    frozen: true 
 
   right_rgb:
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
