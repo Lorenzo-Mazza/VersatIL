@@ -5,6 +5,7 @@ This module defines configuration classes for various image augmentation strateg
 
 from dataclasses import dataclass, field
 
+import albumentations as A
 from omegaconf import MISSING
 
 
@@ -126,67 +127,79 @@ class AugmentationPipelineConfig:
     transforms: list[AugmentationConfig] = field(default_factory=list)
 
 
-@dataclass
-class ColorAugmentationPipeline(AugmentationPipelineConfig):
-    """Pipeline for color augmentations."""
-    transforms: list[AugmentationConfig] = field(default_factory=lambda: [
-        ColorJitterConfig(),
-        RandomSunFlareConfig(),
-        RandomBrightnessContrastConfig(),
-        RandomGammaConfig(),
-        CLAHEConfig(),
-        RandomShadowConfig(),
-        ImageCompressionConfig(),
-    ])
+class ColorAugmentationPipeline:
+    """Pipeline for color augmentations that returns a callable albumentations.Compose object."""
+
+    def __new__(cls):
+        """Create and return an albumentations.Compose object with color transforms."""
+        return A.Compose([
+            A.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5, hue=0.1, p=0.5),
+            A.RandomSunFlare(flare_roi=(0, 0, 1, 0.5), src_color=(255, 255, 255), p=0.6),
+            A.RandomBrightnessContrast(brightness_limit=0.4, contrast_limit=0.4, p=0.6),
+            A.RandomGamma(gamma_limit=(80, 120), p=0.3),
+            A.CLAHE(clip_limit=4.0, p=0.3),
+            A.RandomShadow(p=0.4),
+            A.ImageCompression(quality_lower=50, quality_upper=100, p=0.2),
+        ])
 
 
-@dataclass
-class SpatialAugmentationPipeline(AugmentationPipelineConfig):
-    """Pipeline for spatial augmentations."""
-    transforms: list[AugmentationConfig] = field(default_factory=lambda: [
-        GaussianBlurConfig(),
-        CoarseDropoutConfig(),
-        ShiftScaleRotateConfig(),
-    ])
+class SpatialAugmentationPipeline:
+    """Pipeline for spatial augmentations that returns a callable albumentations.Compose object."""
+
+    def __new__(cls):
+        """Create and return an albumentations.Compose object with spatial transforms."""
+        return A.Compose([
+            A.GaussianBlur(blur_limit=(3, 7), p=0.5),
+            A.CoarseDropout(max_holes=8, max_height=8, max_width=8, p=0.3),
+            A.ShiftScaleRotate(rotate_limit=(0, 0), scale_limit=(-0.5, 0.6), shift_limit=(-0.0625, 0.0625), p=0.5),
+        ])
 
 
-@dataclass
-class LightColorAugmentationPipeline(AugmentationPipelineConfig):
-    """Light color augmentation pipeline."""
-    transforms: list[AugmentationConfig] = field(default_factory=lambda: [
-        RandomBrightnessContrastConfig(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
-        RandomGammaConfig(gamma_limit=(90, 110), p=0.3),
-    ])
+class LightColorAugmentationPipeline:
+    """Light color augmentation pipeline that returns a callable albumentations.Compose object."""
+
+    def __new__(cls):
+        """Create and return an albumentations.Compose object with light color transforms."""
+        return A.Compose([
+            A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
+            A.RandomGamma(gamma_limit=(90, 110), p=0.3),
+        ])
 
 
-@dataclass
-class LightSpatialAugmentationPipeline(AugmentationPipelineConfig):
-    """Light spatial augmentation pipeline."""
-    transforms: list[AugmentationConfig] = field(default_factory=lambda: [
-        GaussianBlurConfig(blur_limit=(3, 5), p=0.3),
-        ShiftScaleRotateConfig(scale_limit=(-0.1, 0.1), shift_limit=(-0.05, 0.05), p=0.3),
-    ])
+class LightSpatialAugmentationPipeline:
+    """Light spatial augmentation pipeline that returns a callable albumentations.Compose object."""
+
+    def __new__(cls):
+        """Create and return an albumentations.Compose object with light spatial transforms."""
+        return A.Compose([
+            A.GaussianBlur(blur_limit=(3, 5), p=0.3),
+            A.ShiftScaleRotate(rotate_limit=(0, 0), scale_limit=(-0.1, 0.1), shift_limit=(-0.05, 0.05), p=0.3),
+        ])
 
 
-@dataclass
-class StrongColorAugmentationPipeline(AugmentationPipelineConfig):
-    """Strong color augmentation pipeline."""
-    transforms: list[AugmentationConfig] = field(default_factory=lambda: [
-        ColorJitterConfig(brightness=0.4, contrast=0.5, saturation=0.6, hue=0.2, p=0.7),
-        RandomSunFlareConfig(p=0.8),
-        RandomBrightnessContrastConfig(brightness_limit=0.5, contrast_limit=0.5, p=0.7),
-        RandomGammaConfig(gamma_limit=(70, 130), p=0.5),
-        CLAHEConfig(clip_limit=6.0, p=0.5),
-        RandomShadowConfig(p=0.6),
-        ImageCompressionConfig(quality_lower=30, p=0.3),
-    ])
+class StrongColorAugmentationPipeline:
+    """Strong color augmentation pipeline that returns a callable albumentations.Compose object."""
+
+    def __new__(cls):
+        """Create and return an albumentations.Compose object with strong color transforms."""
+        return A.Compose([
+            A.ColorJitter(brightness=0.4, contrast=0.5, saturation=0.6, hue=0.2, p=0.7),
+            A.RandomSunFlare(flare_roi=(0, 0, 1, 0.5), src_color=(255, 255, 255), p=0.8),
+            A.RandomBrightnessContrast(brightness_limit=0.5, contrast_limit=0.5, p=0.7),
+            A.RandomGamma(gamma_limit=(70, 130), p=0.5),
+            A.CLAHE(clip_limit=6.0, p=0.5),
+            A.RandomShadow(p=0.6),
+            A.ImageCompression(quality_lower=30, quality_upper=100, p=0.3),
+        ])
 
 
-@dataclass
-class StrongSpatialAugmentationPipeline(AugmentationPipelineConfig):
-    """Strong spatial augmentation pipeline."""
-    transforms: list[AugmentationConfig] = field(default_factory=lambda: [
-        GaussianBlurConfig(blur_limit=(3, 9), p=0.6),
-        CoarseDropoutConfig(max_holes=12, max_height=12, max_width=12, p=0.5),
-        ShiftScaleRotateConfig(scale_limit=(-0.6, 0.8), shift_limit=(-0.1, 0.1), p=0.6),
-    ])
+class StrongSpatialAugmentationPipeline:
+    """Strong spatial augmentation pipeline that returns a callable albumentations.Compose object."""
+
+    def __new__(cls):
+        """Create and return an albumentations.Compose object with strong spatial transforms."""
+        return A.Compose([
+            A.GaussianBlur(blur_limit=(3, 9), p=0.6),
+            A.CoarseDropout(max_holes=12, max_height=12, max_width=12, p=0.5),
+            A.ShiftScaleRotate(rotate_limit=(0, 0), scale_limit=(-0.6, 0.8), shift_limit=(-0.1, 0.1), p=0.6),
+        ])

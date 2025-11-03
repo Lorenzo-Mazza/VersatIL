@@ -62,7 +62,7 @@ class TestAugmentationPipelineInitialization:
 
         assert pipeline.use_color
         assert pipeline.photometric_transform == mock_transform
-        mock_instantiate.assert_called_once_with(mock_config)
+        mock_instantiate.assert_called_once_with(mock_config, _recursive_=True)
 
 
     @patch('refactoring.data.augmentation_pipeline.instantiate')
@@ -94,7 +94,7 @@ class TestAugmentationPipelineInitialization:
 
         assert pipeline.use_spatial
         assert pipeline.spatial_transform == mock_transform
-        mock_instantiate.assert_called_once_with(mock_config)
+        mock_instantiate.assert_called_once_with(mock_config, _recursive_=True)
 
 
     @patch('refactoring.data.augmentation_pipeline.instantiate')
@@ -111,7 +111,7 @@ class TestAugmentationPipelineInitialization:
 
         assert pipeline.use_rotation
         assert pipeline.rotation_transform == mock_transform
-        mock_instantiate.assert_called_once_with(mock_config)
+        mock_instantiate.assert_called_once_with(mock_config, _recursive_=True)
 
 
     @patch('refactoring.data.augmentation_pipeline.A.Resize')
