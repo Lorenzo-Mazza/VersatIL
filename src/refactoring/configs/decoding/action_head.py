@@ -28,7 +28,7 @@ class MLPBlockConfig(ActionHeadBlockConfig):
 class AttentionBlockConfig(ActionHeadBlockConfig):
     """Configuration for attention block in action head."""
     _target_: str = "refactoring.models.decoding.action_heads.AttentionBlock"
-    embed_dim: int = MISSING  # Set by parent head
+    embedding_dimension: int = MISSING
     num_heads: int = 8
     dropout: float = 0.1
     normalization: bool = True
