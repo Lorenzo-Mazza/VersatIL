@@ -48,7 +48,7 @@ def create_replay_buffer(
         resizer = A.NoOp()
         depth_resizer = A.NoOp()
     else:
-        resizer = A.Resize(height=schema.raw_observations.image_width, width=schema.raw_observations.image_height)
+        resizer = A.Resize(height=schema.raw_observations.image_height, width=schema.raw_observations.image_width)
         depth_resizer = A.Resize(
             height=schema.raw_observations.image_height,
             width=schema.raw_observations.image_width,
