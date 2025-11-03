@@ -40,7 +40,7 @@ class BehavioralCloningConfig(DecodingAlgorithmConfig):
 @dataclass
 class DiffusionConfig(DecodingAlgorithmConfig):
     """Diffusion algorithm configuration."""
-    _target_: str = "refactoring.models.decoding.algorithm.diffusion.Diffusion"
+    _target_: str = "refactoring.models.decoding.algorithm.action_diffusion.Diffusion"
 
     scheduler_type: str = SchedulerType.DDIM.value
     num_train_timesteps: int = 100

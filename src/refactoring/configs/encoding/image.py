@@ -19,7 +19,7 @@ class ImageEncoderConfig(EncoderConfig):
 @dataclass
 class CNNEncoderConfig(ImageEncoderConfig):
     """CNN-based image encoder configuration."""
-    _target_: str = "refactoring.models.encoding.image.cnn.CNNEncoder"
+    _target_: str = "refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder"
     pooling_method: str = PoolingMethod.SPATIAL_SOFTMAX.value
     use_group_norm: bool = True
 
