@@ -1,7 +1,7 @@
 # Phase ACT Decoder Configuration
 # ACT with phase prediction capabilities
 
-_target_: refactoring.models.decoding.decoders.phase_act.PhaseACT
+_target_: refactoring.models.decoding.decoders.factory.phase_act.PhaseACT
 
 # Transformer architecture (same as ACT)
 embedding_dimension: 512
@@ -12,14 +12,11 @@ number_of_decoder_layers: 7
 
 # Architecture details
 activation: relu
-dropout: 0.1
+dropout_rate: 0.1
 normalize_before: false
-positional_encoding_type: sinusoidal
-dilation: false
-masks: false
 
 # Phase-specific settings
-phase_learnable_temperature: 10.0
+phase_routing_key: phase_label
 
 # Action heads (dynamically created from action_space)
 action_heads: {}  # Auto-populated based on action_space

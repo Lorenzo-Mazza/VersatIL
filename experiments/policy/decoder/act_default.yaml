@@ -1,7 +1,7 @@
 # ACT Decoder Configuration
 # Action Chunking Transformer with DETR-style encoder-decoder
 
-_target_: refactoring.models.decoding.decoders.act.ACT
+_target_: refactoring.models.decoding.decoders.factory.act.ACT
 
 # Transformer architecture
 embedding_dimension: 512
@@ -12,7 +12,7 @@ number_of_decoder_layers: 7
 
 # Architecture details
 activation: relu
-dropout: 0.1
+dropout_rate: 0.1
 normalize_before: false
 positional_encoding_type: sinusoidal
 dilation: false
