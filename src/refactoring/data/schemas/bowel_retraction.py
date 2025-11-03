@@ -1,5 +1,7 @@
 """Dataset schema for the bowel retraction surgical robotics dataset.
 
+The dataset schema defines the structure and content of the raw bowel retraction dataset, as it was constructed by the tso-sensing repository.
+
 This schema is instantiated via Hydra configuration files.
 """
 import re
