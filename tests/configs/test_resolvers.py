@@ -7,6 +7,7 @@ from omegaconf.errors import InterpolationResolutionError
 from refactoring.configs import register_resolvers  # Import to trigger resolver registration
 from refactoring.data.constants import Cameras, GripperType, OrientationRepresentation
 from refactoring.models.encoding.encoders.constants import RGBBackboneType
+from refactoring.training.constants import Float32MatmulPrecision, PrecisionType
 
 
 @pytest.mark.unit
@@ -129,3 +130,53 @@ class TestEnumResolvers:
         assert cfg.resnet34 == "timm/resnet34.a1_in1k"
         assert cfg.resnet50 == "timm/resnet50.a1_in1k"
         assert cfg.dinov2_vits14 == "timm/vit_small_patch14_dinov2.lvd142m"
+
+    def test_precision_resolver(self):
+        """Test precision resolver returns correct enum values."""
+        cfg = OmegaConf.create({
+            "fp32": "${precision:FP32}",
+            "fp16_mixed": "${precision:FP16_MIXED}",
+            "bf16_mixed": "${precision:BF16_MIXED}",
+            "fp16_true": "${precision:FP16_TRUE}",
+            "bf16_true": "${precision:BF16_TRUE}",
+            "fp64": "${precision:FP64}",
+        })
+
+        assert cfg.fp32 == PrecisionType.FP32.value
+        assert cfg.fp16_mixed == PrecisionType.FP16_MIXED.value
+        assert cfg.bf16_mixed == PrecisionType.BF16_MIXED.value
+        assert cfg.fp16_true == PrecisionType.FP16_TRUE.value
+        assert cfg.bf16_true == PrecisionType.BF16_TRUE.value
+        assert cfg.fp64 == PrecisionType.FP64.value
+        assert cfg.fp32 == "32"
+        assert cfg.fp16_mixed == "16-mixed"
+        assert cfg.bf16_mixed == "bf16-mixed"
+
+    def test_float32_matmul_resolver(self):
+        """Test float32_matmul resolver returns correct enum values."""
+        cfg = OmegaConf.create({
+            "highest": "${float32_matmul:HIGHEST}",
+            "high": "${float32_matmul:HIGH}",
+            "medium": "${float32_matmul:MEDIUM}",
+        })
+
+        assert cfg.highest == Float32MatmulPrecision.HIGHEST.value
+        assert cfg.high == Float32MatmulPrecision.HIGH.value
+        assert cfg.medium == Float32MatmulPrecision.MEDIUM.value
+        assert cfg.highest == "highest"
+        assert cfg.high == "high"
+        assert cfg.medium == "medium"
+
+    def test_precision_and_matmul_in_experiment_config(self):
+        """Test precision resolvers work in experiment config structure."""
+        cfg = OmegaConf.create({
+            "experiment": {
+                "precision": "${precision:FP16_MIXED}",
+                "float32_matmul_precision": "${float32_matmul:MEDIUM}",
+                "device": "cuda"
+            }
+        })
+
+        assert cfg.experiment.precision == "16-mixed"
+        assert cfg.experiment.float32_matmul_precision == "medium"
+        assert cfg.experiment.device == "cuda"
