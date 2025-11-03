@@ -19,8 +19,19 @@ activation: relu
 dropout_rate: 0.1
 normalize_before: false
 
-# Action heads (dynamically created from action_space)
-action_heads: {}  # Auto-populated based on action_space
+# Action heads
+action_heads:
+  position_action:
+    _target_: refactoring.models.decoding.action_heads.ActionHead
+    input_dim: ${policy.decoder.embedding_dimension}
+    output_dim: ${task.action_space.position_dim}
+    blocks: null
+
+  gripper_action:
+    _target_: refactoring.models.decoding.action_heads.ActionHead
+    input_dim: ${policy.decoder.embedding_dimension}
+    output_dim: ${task.action_space.gripper_dim}
+    blocks: null
 
 # References to task/policy configs (Hydra interpolation)
 observation_horizon: ${task.observation_horizon}

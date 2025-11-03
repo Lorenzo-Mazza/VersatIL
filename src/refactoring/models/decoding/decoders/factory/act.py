@@ -156,8 +156,13 @@ class ACT(ActionDecoder):
         """
         flat_features_dict = {}
         for key, feature in features.items():
-            if self.has_history and len(feature.shape) == 3:
-                feature = feature[:, -1]  # Use most recent timestep
+            if len(feature.shape) == 3:
+                if self.has_history:
+                    feature = feature[:, -1]  # Use most recent timestep
+                elif feature.shape[1] == 1:
+                    feature = feature.squeeze(1)  # Squeeze temporal dimension when T=1
+                else:
+                    raise ValueError(f"Feature {key} has temporal dimension T={feature.shape[1]}, but ACT expects single-frame observation")
             if len(feature.shape)==2:
                 flat_features_dict[key] = feature
         if len(flat_features_dict) == 0:
@@ -188,8 +193,13 @@ class ACT(ActionDecoder):
         spatial_features_dict = {}
 
         for key, feature in sorted(features.items()):
-            if self.has_history and len(feature.shape) == 5:
-                feature = feature[:, -1]  # Use most recent timestep
+            if len(feature.shape) == 5:
+                if self.has_history:
+                    feature = feature[:, -1]  # Use most recent timestep
+                elif feature.shape[1] == 1:
+                    feature = feature.squeeze(1)  # Squeeze temporal dimension when T=1
+                else:
+                    raise ValueError(f"Feature {key} has temporal dimension T={feature.shape[1]}, but ACT expects single-frame observation")
             if len(feature.shape) == 4:  # Spatial features (B, C, H, W)
                 spatial_features_dict[key] = feature
         if len(spatial_features_dict) == 0:

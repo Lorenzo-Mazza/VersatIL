@@ -225,6 +225,28 @@ class Policy(nn.Module):
         # If gripper is binary, no normalization is applied. Also, no normalization is applied to padding mask and phase labels if present.
         return normalized_action
 
+    def unnormalize_actions(self, normalized_action: dict[str, torch.Tensor]) ->  dict[str, torch.Tensor]:
+        """Unnormalize actions using the policy's normalizer.
+
+        Args:
+            normalized_action: Dictionary of normalized action tensors.
+
+        Returns:
+            Dictionary of unnormalized action tensors.
+        """
+        action = normalized_action.copy()
+        if self.action_space.has_position:
+            action[POSITION_ACTION_KEY] = self.normalizer[POSITION_ACTION_KEY].unnormalize(normalized_action[POSITION_ACTION_KEY])
+        if self.action_space.has_orientation:
+            action[ORIENTATION_ACTION_KEY] = self.normalizer[ORIENTATION_ACTION_KEY].unnormalize(normalized_action[ORIENTATION_ACTION_KEY])
+        if self.action_space.gripper_type == GripperType.CONTINUOUS.value:
+            action[GRIPPER_ACTION_KEY] = self.normalizer[GRIPPER_ACTION_KEY].unnormalize(normalized_action[GRIPPER_ACTION_KEY])
+        if self.action_space.custom_action_dims:
+            for custom_key in self.action_space.custom_action_dims:
+                action[custom_key] = self.normalizer[custom_key].unnormalize(normalized_action[custom_key])
+        # If gripper is binary, no unnormalization is applied. Also, no unnormalization is applied to padding mask and phase labels if present.
+        return action
+
 
     def forward(self, batch: dict[str, dict[str, torch.Tensor]]):
         """Forward pass through observation encoding → action decoding.
@@ -279,7 +301,7 @@ class Policy(nn.Module):
         normalized_obs = self.normalize_observations(obs_dict)
         features = self.encoding_pipeline(normalized_obs)
         normalized_actions = self.algorithm.predict(features=features, network=self.decoder)
-        actions = self.normalizer.unnormalize_actions(normalized_actions)
+        actions = self.unnormalize_actions(normalized_actions)
         return actions  # type: ignore[no-any-return]
 
     def get_vision_encoder_modules(self) -> dict[str, nn.Module]:

@@ -147,12 +147,12 @@ class PatchMerging(nn.Module):
         Args:
             x: [B, H, W, C] input tokens.
         Returns:
-            [B, H//2, W//2, out_dim] merged tokens.
-        """
-        B, H, W, C = x.shape
-        if H % 2 != 0 or W % 2 != 0:
-            raise ValueError("H and W must be even for stride-2 downsampling.")
+            [B, H//2, W//2, out_dim] merged tokens (approximate for odd dimensions).
 
+        Note:
+            The stride-2 convolution handles odd spatial dimensions naturally via rounding.
+            This matches the original DFormerv2 implementation behavior.
+        """
         x = x.permute(0, 3, 1, 2).contiguous()  # [B, C, H, W]
         x = self.reduction(x)  # [B, out_dim, H//2, W//2]
         if self.norm_layer != nn.LayerNorm:

@@ -59,16 +59,25 @@ class SpatialFusion(FusionModule):
     def forward(self, features: list[torch.Tensor]) -> torch.Tensor:
         """
         Args:
-            features: List of feature maps [B, C_i, H_i, W_i]
+            features: List of feature maps [B, C_i, H_i, W_i] or [B, T, C_i, H_i, W_i]
 
         Returns:
-            Fused feature map [B, hidden_dim * num_features, H, W]
+            Fused feature map [B, hidden_dim * num_features, H, W] or [B, T, hidden_dim * num_features, H, W]
         """
+        has_time = features[0].dim() == 5
+        if has_time:
+            B, T = features[0].shape[:2]
+            features = [feat.reshape(B * T, *feat.shape[2:]) for feat in features]
+
         projected = []
         for feat, proj in zip(features, self.projections):
-            proj_feat = proj(feat)  # [B, hidden_dim, H, W]
+            proj_feat = proj(feat)  # [B, hidden_dim, H, W] or [B*T, hidden_dim, H, W]
             projected.append(proj_feat)
-        fused = torch.cat(projected, dim=1)  # [B, hidden_dim * num_features, H, W]
+        fused = torch.cat(projected, dim=1)  # [B, hidden_dim * num_features, H, W] or [B*T, hidden_dim * num_features, H, W]
+
+        if has_time:
+            fused = fused.reshape(B, T, *fused.shape[1:])  # [B, T, hidden_dim * num_features, H, W]
+
         return fused
 
 
