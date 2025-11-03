@@ -77,6 +77,7 @@ class BowelRetractionSchema(DatasetSchema):
                 depth_dir_pattern="depth",
                 depth_file_pattern=r'depth_\1.npy',
                 left_dir_pattern="framesLeft",
+                rectified_left_dir_pattern="framesLeftRectified",
             )
 
         super().__init__(
@@ -104,12 +105,12 @@ class BowelRetractionSchema(DatasetSchema):
         """Compute depth file path from left image path using config patterns."""
         # TODO: we should store depth paths directly in the csv instead of computing them on the fly.
         cfg = self.image_path_config
-        key_to_sub = (
-            cfg.rectified_left_image_key
+        dir_to_sub = (
+            cfg.rectified_left_dir_pattern
             if self.raw_observations.use_rectified_images
             else cfg.left_dir_pattern
         )
-        depth_path = base_image_path.replace(key_to_sub, cfg.depth_dir_pattern)
+        depth_path = base_image_path.replace(dir_to_sub, cfg.depth_dir_pattern)
         depth_path = re.sub(
             rf'(\d+){re.escape(cfg.rgb_extension)}$',
             cfg.depth_file_pattern,

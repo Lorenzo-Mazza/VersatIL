@@ -16,4 +16,5 @@ class ImagePathConfig:
     depth_dir_pattern: str = "depth"
     depth_file_pattern: str = r'depth_\1.npy'
     left_dir_pattern: str = "framesLeft"
+    rectified_left_dir_pattern: str = "framesLeftRectified"
     rgb_extension: str = ".png"
