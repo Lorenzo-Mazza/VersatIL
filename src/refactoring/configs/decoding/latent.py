@@ -22,7 +22,7 @@ class VAETransformerEncoderConfig(LatentActionEncoderConfig):
     This encoder uses a transformer architecture to encode action sequences into
     a latent space via variational inference.
     """
-    _target_: str = "refactoring.models.decoding.latent.vae.VAETransformerEncoder"
+    _target_: str = "refactoring.models.decoding.latent.vae_posterior.VAETransformerEncoder"
 
     embedding_dimension: int = 512
     latent_dim: int = 32

@@ -24,6 +24,7 @@ from refactoring.configs.training import (
     TrainingConfig,
 )
 from refactoring.data.constants import Cameras, GripperType, OrientationRepresentation
+from refactoring.models.encoding.encoders.constants import RGBBackboneType
 
 
 def register_resolvers():
@@ -37,6 +38,8 @@ def register_resolvers():
         OmegaConf.register_new_resolver("gripper", lambda name: GripperType[name].value)
     if not OmegaConf.has_resolver("orientation"):
         OmegaConf.register_new_resolver("orientation", lambda name: OrientationRepresentation[name].value)
+    if not OmegaConf.has_resolver("rgb_backbone"):
+        OmegaConf.register_new_resolver("rgb_backbone", lambda name: RGBBackboneType[name].value)
 
 
 def register_configs():

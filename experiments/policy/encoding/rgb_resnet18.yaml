@@ -5,7 +5,7 @@ encoders:
   left_rgb:
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys: ${cameras:LEFT}
-    backbone: timm/resnet18.a1_in1k
+    backbone: ${rgb_backbone:RESNET18}
     pretrained: false
     frozen: false
     pooling_method: none
@@ -14,7 +14,7 @@ encoders:
   right_rgb:
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys: ${cameras:RIGHT}
-    backbone: timm/resnet18.a1_in1k
+    backbone: ${rgb_backbone:RESNET18}
     pretrained: false
     frozen: false
     pooling_method: none

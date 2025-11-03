@@ -6,6 +6,7 @@ from omegaconf.errors import InterpolationResolutionError
 
 from refactoring.configs import register_resolvers  # Import to trigger resolver registration
 from refactoring.data.constants import Cameras, GripperType, OrientationRepresentation
+from refactoring.models.encoding.encoders.constants import RGBBackboneType
 
 
 @pytest.mark.unit
@@ -110,3 +111,21 @@ class TestEnumResolvers:
         assert cfg.default_camera == "left"
         assert cfg.selected_camera == "left"
         assert cfg.gripper == "binary"
+
+    def test_rgb_backbone_resolver(self):
+        """Test rgb_backbone resolver returns correct enum values."""
+        cfg = OmegaConf.create({
+            "resnet18": "${rgb_backbone:RESNET18}",
+            "resnet34": "${rgb_backbone:RESNET34}",
+            "resnet50": "${rgb_backbone:RESNET50}",
+            "dinov2_vits14": "${rgb_backbone:DINOV2_VITS14}"
+        })
+
+        assert cfg.resnet18 == RGBBackboneType.RESNET18.value
+        assert cfg.resnet34 == RGBBackboneType.RESNET34.value
+        assert cfg.resnet50 == RGBBackboneType.RESNET50.value
+        assert cfg.dinov2_vits14 == RGBBackboneType.DINOV2_VITS14.value
+        assert cfg.resnet18 == "timm/resnet18.a1_in1k"
+        assert cfg.resnet34 == "timm/resnet34.a1_in1k"
+        assert cfg.resnet50 == "timm/resnet50.a1_in1k"
+        assert cfg.dinov2_vits14 == "timm/vit_small_patch14_dinov2.lvd142m"

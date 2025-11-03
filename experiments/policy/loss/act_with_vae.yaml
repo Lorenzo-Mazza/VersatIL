@@ -12,6 +12,5 @@ gripper_bce_weight: 0.05
 kl_weight: 100.0  # Standard ACT paper value
 length_weight: 0.001
 smoothness_weight: 0.0
-
-gripper_type: binary
+gripper_type: ${gripper:BINARY}
 use_vae: true

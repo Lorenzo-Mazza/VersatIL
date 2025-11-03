@@ -14,7 +14,7 @@ base_algorithm:
 
 # Posterior encoder q(z|a,s): VAE
 posterior_encoder:
-  _target_: refactoring.models.decoding.latent.vae.VAETransformerEncoder
+  _target_: refactoring.models.decoding.latent.vae_posterior.VAETransformerEncoder
   latent_dim: 32
   embedding_dimension: 512
   prediction_horizon: ${policy.prediction_horizon}
@@ -29,7 +29,7 @@ prior:
   _target_: refactoring.models.decoding.latent.diffusion_prior.DiffusionPrior
   latent_dim: 32
   conditioning_dim: 512  # Should match flat encoded features dimension
-  embedding_dimension: 512
+  output_dim: 512  # Output embedding dimension for decoder input
   hidden_dims: [256, 256]
   num_train_timesteps: 100
   num_inference_steps: 10

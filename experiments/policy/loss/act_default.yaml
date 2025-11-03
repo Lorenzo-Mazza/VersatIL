@@ -15,5 +15,5 @@ length_weight: 0.001  # Trajectory length regularization (sinkhorn_weight in old
 smoothness_weight: 0.0  # Trajectory smoothness
 
 # Gripper settings
-gripper_type: binary
-use_vae: true  # Set to true when using VAE latent encoder
+gripper_type: ${gripper:BINARY}
+use_vae: false  # Set to true when using VAE latent encoder

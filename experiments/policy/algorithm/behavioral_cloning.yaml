@@ -1,7 +1,3 @@
 # Behavioral Cloning without latent encoding
-# Direct supervised learning
 
 _target_: refactoring.models.decoding.algorithm.behavior_cloning.BehavioralCloning
-
-# No latent encoder
-latent_encoder: null

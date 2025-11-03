@@ -486,6 +486,11 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 12. Write proper readme, changelog, etc.
 
 ## For future versions
-- Implement a LORA config for finetuning hugging face encoders with low rank adaptation. Implement a custom finetune logic for the Dformer and the custom models.
+- **Implement LoRA config for parameter-efficient fine-tuning**:
+  - Add `LoRAConfig` dataclass with `rank`, `alpha`, `dropout`, `target_modules` parameters
+  - Use `peft` library for HuggingFace encoders: `get_peft_model(model, LoraConfig(...))`
+  - For custom models (DFormer, custom CNNs), implement custom LoRA layers for attention/linear layers
+  - Add LoRA config to all encoder configs (optional, enabled=False by default)
+  - Benefits: Fine-tune large frozen models with <1% of original parameters
 - Implement memory based encoders like V-JEPA and Masked Autoencoders.
 - Implement two-stage training somehow?

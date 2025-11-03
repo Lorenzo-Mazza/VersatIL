@@ -13,7 +13,7 @@ base_algorithm:
 
 # Posterior encoder q(z|a,s): VAE
 posterior_encoder:
-  _target_: refactoring.models.decoding.latent.vae.VAETransformerEncoder
+  _target_: refactoring.models.decoding.latent.vae_posterior.VAETransformerEncoder
   latent_dim: 32
   embedding_dimension: 512
   prediction_horizon: ${policy.prediction_horizon}

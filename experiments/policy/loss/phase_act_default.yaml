@@ -18,5 +18,5 @@ phase_ce_weight: 0.1  # Cross-entropy for phase prediction
 phase_entropy_weight: 0.01  # Entropy regularization
 label_smoothing: 0.0
 
-gripper_type: binary
+gripper_type: ${gripper:BINARY}
 use_vae: true
