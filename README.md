@@ -25,8 +25,12 @@ Or with Mamba (recommended for faster installation):
    mamba activate surg-il
    UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
 ```
-This will create a conda/mamba environment with all necessary packages, installed by uv.
-
+This will create a conda/mamba environment with all necessary packages besides flash-attention, installed by uv.
+4. Install Flash-Attention manually (required for training):
+```bash 
+wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
+uv pip install ./flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
+```
 #### Troubleshooting
 
 - CUDA Issues: Ensure your CUDA version matches (12.4). Verify with nvidia-smi.
