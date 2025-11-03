@@ -1,6 +1,8 @@
 # Encoding pipeline for RGB-only observations using ResNet18
 # Standard configuration for ACT models
 
+_target_: refactoring.models.encoding.pipeline.EncodingPipeline
+
 encoders:
   left_rgb:
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder

@@ -1,6 +1,8 @@
 # Encoding pipeline for RGB + Depth with geometric attention fusion
 # Uses DFormerV2 for depth-aware encoding
 
+_target_: refactoring.models.encoding.pipeline.EncodingPipeline
+
 encoders:
   dformer:
     _target_: refactoring.models.encoding.encoders.depth.dformerv2.DFormerEncoder
