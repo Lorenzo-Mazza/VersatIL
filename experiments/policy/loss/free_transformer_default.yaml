@@ -21,8 +21,8 @@ loss_modules:
   # Binary KL divergence for discrete latent codes (Free Transformer)
   binary_kl:
     _target_: refactoring.metrics.BinaryKLDivergenceLoss
-    weight: 100.0  # Weight is applied in loss module
-    free_bits: 0.1  # Minimum KL per latent dimension
+    weight: 10.0  # Weight is applied in loss module
+    free_bits: 0.0  # Minimum KL per latent dimension
 
 # Weights for each loss module (multiplied by module's internal weight)
 weights:
