@@ -52,6 +52,7 @@ from refactoring.metrics.base import (
     reduce_loss_with_padding,
 )
 from refactoring.metrics.components import (
+    BinaryKLDivergenceLoss,
     GripperLoss,
     KLDivergenceLoss,
     PhaseClassificationLoss,
@@ -83,6 +84,7 @@ __all__ = [
     "RegressionLoss",
     "GripperLoss",
     "KLDivergenceLoss",
+    "BinaryKLDivergenceLoss",
     "TrajectoryLengthLoss",
     "TrajectorySmoothness",
     "PhaseClassificationLoss",

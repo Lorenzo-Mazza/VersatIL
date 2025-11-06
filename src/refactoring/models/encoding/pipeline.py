@@ -188,13 +188,27 @@ class EncodingPipeline(nn.Module):
     def _flatten_observation_dict(self, observation: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Flatten nested observation dict (identity for flat dicts).
 
+        Flattens nested dictionaries (e.g., proprioceptive state) into a single-level dict.
+        For example:
+            {"left": tensor, "robot_proprio_state": {"proprio_camera_frame": tensor}}
+        Becomes:
+            {"left": tensor, "proprio_camera_frame": tensor}
+
         Args:
-            observation: Dictionary of observation tensors
+            observation: Dictionary of observation tensors, possibly with nested dicts
 
         Returns:
             Flattened observation dictionary
         """
-        return observation
+        flattened = {}
+        for key, value in observation.items():
+            if isinstance(value, dict):
+                # Flatten nested dicts (e.g., robot_proprio_state)
+                for nested_key, nested_value in value.items():
+                    flattened[nested_key] = nested_value
+            else:
+                flattened[key] = value
+        return flattened
 
 
     def forward(

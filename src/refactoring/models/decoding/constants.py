@@ -77,5 +77,8 @@ LOGVAR_KEY = "logvar"  # VAE latent log variance
 PRIOR_PREDICTION_KEY = "prior_prediction"  # Prior network prediction
 PRIOR_TARGET_KEY = "prior_target"  # Prior network target
 
+# Free Transformer keys
+BINARY_LOGITS_KEY = "binary_logits"  # Binary mapper logits for KL divergence
+
 # This key is used to store state features in the algorithm outputs for computing OT loss.
 STATE_FEATURE_KEYS = "state_features"

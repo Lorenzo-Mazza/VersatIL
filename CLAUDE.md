@@ -492,5 +492,9 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
   - For custom models (DFormer, custom CNNs), implement custom LoRA layers for attention/linear layers
   - Add LoRA config to all encoder configs (optional, enabled=False by default)
   - Benefits: Fine-tune large frozen models with <1% of original parameters
+- Implement FAST tokenization for action, implement binning quantization for proprioceptive state.
+- Create a synthetic dataset schema for 1D and 2D vanilla tasks. 
+- Create a dataset schema for simulation?
+- Implement autoregressive action decoder.
 - Implement memory based encoders like V-JEPA and Masked Autoencoders.
 - Implement two-stage training somehow?

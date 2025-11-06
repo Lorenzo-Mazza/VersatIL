@@ -1,6 +1,8 @@
 # Action space for bowel retraction task
 # Predicts position deltas (3D) + gripper (binary) in camera frame
 
+_target_: refactoring.configs.task.task.ActionSpace
+
 has_position: true
 position_dim: 3
 

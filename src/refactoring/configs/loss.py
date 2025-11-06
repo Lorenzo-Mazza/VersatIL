@@ -50,6 +50,15 @@ class KLDivergenceLossConfig(BaseLossConfig):
 
 
 @dataclass
+class BinaryKLDivergenceLossConfig(BaseLossConfig):
+    """Configuration for binary KL divergence loss (Free Transformer)."""
+
+    _target_: str = "refactoring.metrics.BinaryKLDivergenceLoss"
+    weight: float = 0.0001
+    free_bits: float = 0.0
+
+
+@dataclass
 class TrajectoryLengthLossConfig(BaseLossConfig):
     """Configuration for trajectory length loss."""
 

@@ -16,7 +16,7 @@ class FeatureProjection(nn.Module):
 
     This utility handles features with mismatched dimensions by projecting
     each to a common embedding dimension. It supports both flat features
-    (B, D) and spatial features (B, C, H, W).
+    (B, D), sequential features (B, T, D), and spatial features (B, C, H, W).
 
     Warning:
         While this module handles dimension mismatches gracefully, it's

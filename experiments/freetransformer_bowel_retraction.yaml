@@ -1,20 +1,22 @@
+# Free Transformer experiment for bowel retraction task
+# Uses discrete latent variables for multi-modal action prediction
 
 defaults:
   - experiment: bowel_retraction_act
   - task/dataset_schema: bowel_retraction_v2
   - task/dataloader: act_default
   - task/action_space: br_position_gripper_deltas_cf
-  - task/observation_space: br_rgb_only
+  - task/observation_space: br_rgb_proprio_cf
   - training: act_default
-  - policy/encoding_pipeline: rgb_resnet18
-  - policy/decoder: act_default
-  - policy/algorithm: bc_with_vae_gaussian
-  - policy/loss: act_default
+  - policy/encoding_pipeline: rgb_resnet18_proprio_mlp_fusion
+  - policy/decoder: free_transformer
+  - policy/algorithm: behavioral_cloning
+  - policy/loss: free_transformer_default
   - inference: act_default
   - _self_
 
 task:
-  observation_horizon: 1  # ACT uses single observation
+  observation_horizon: 4 # Number of past observations
   prediction_horizon: 10  # Chunk size
 
 policy:

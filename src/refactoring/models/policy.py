@@ -21,7 +21,7 @@ from refactoring.data.constants import (
     Cameras,
     GripperType,
 )
-from refactoring.models.decoding.constants import LATENT_KEY, LOGVAR_KEY, MU_KEY, PRIOR_PREDICTION_KEY, PRIOR_TARGET_KEY
+from refactoring.models.decoding.constants import BINARY_LOGITS_KEY, LATENT_KEY, LOGVAR_KEY, MU_KEY, PRIOR_PREDICTION_KEY, PRIOR_TARGET_KEY
 from refactoring.data.normalize.normalizer import LinearNormalizer
 from refactoring.metrics.base import BaseLoss, LossOutput
 from refactoring.models.decoding.algorithm.base import DecodingAlgorithm
@@ -146,7 +146,7 @@ class Policy(nn.Module):
         if self.action_space.custom_action_dims:
             valid_action_keys.update(self.action_space.custom_action_dims.keys())
 
-        # Add variational inference keys if using VariationalAlgorithm
+        # Add auxiliary keys based on algorithm and decoder types
         valid_auxiliary_keys: set[str] = set()
         if isinstance(self.algorithm, VariationalAlgorithm):
             # Add keys that variational algorithms produce
@@ -158,6 +158,11 @@ class Policy(nn.Module):
             if not isinstance(self.algorithm.prior, GaussianPrior):
                 valid_auxiliary_keys.add(PRIOR_PREDICTION_KEY)  # Prior predictions (for learned priors)
                 valid_auxiliary_keys.add(PRIOR_TARGET_KEY)  # Prior targets (for learned priors)
+
+        # Free Transformer binary logits (for discrete latent codes)
+        decoder_class_name = self.decoder.__class__.__name__
+        if decoder_class_name == "FreeTransformer":
+            valid_auxiliary_keys.add(BINARY_LOGITS_KEY)  # Binary mapper logits
 
         # Get all required keys from loss module
         required_keys = self.loss_module.get_required_keys()

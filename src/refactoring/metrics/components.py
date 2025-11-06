@@ -17,7 +17,11 @@ from refactoring.metrics.constants import (
     MetadataKey,
     MetricKey,
 )
-from refactoring.models.decoding.constants import PRIOR_PREDICTION_KEY, PRIOR_TARGET_KEY
+from refactoring.models.decoding.constants import (
+    PRIOR_PREDICTION_KEY,
+    PRIOR_TARGET_KEY,
+    BINARY_LOGITS_KEY,
+)
 
 
 class RegressionLoss(BaseLoss):
@@ -237,6 +241,83 @@ class KLDivergenceLoss(BaseLoss):
         return LossOutput(
             total_loss=self.weight * kld_mean,
             component_losses={MetricKey.KL_DIVERGENCE.value: kld_mean},
+        )
+
+
+class BinaryKLDivergenceLoss(BaseLoss):
+    """KL divergence loss for Free Transformer binary latent distributions.
+
+    Computes KL divergence between learned binary distributions and uniform prior.
+    Used with Free Transformer's binary mapper output.
+
+    Based on "The Free Transformer" (Fleuret, 2025) - arXiv:2510.17558
+    """
+
+    def __init__(self, weight: float = 0.0001, free_bits: float = 0.0):
+        """Initialize binary KL divergence loss.
+
+        Args:
+            weight: Weight for KL divergence loss
+            free_bits: Free bits threshold (only penalize KL above this value)
+        """
+        super().__init__()
+        self.weight = weight
+        self.free_bits = free_bits
+
+    def get_required_keys(self) -> set[str]:
+        """Get required keys for binary KL divergence loss.
+
+        Returns:
+            Set containing binary_logits key from Free Transformer
+        """
+        return {BINARY_LOGITS_KEY}
+
+    def forward(
+        self,
+        predictions: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        is_pad: torch.Tensor | None = None,
+    ) -> LossOutput:
+        """Compute binary KL divergence loss.
+
+        Args:
+            predictions: Dictionary with 'binary_logits' key (B, T, H) or (B, H)
+            targets: Not used for KL divergence
+            is_pad: Optional padding mask (B, T) or (B,)
+
+        Returns:
+            LossOutput with KL divergence loss
+        """
+        if BINARY_LOGITS_KEY not in predictions:
+            raise ValueError(
+                f"Predictions must contain key '{BINARY_LOGITS_KEY}' for BinaryKLDivergenceLoss."
+            )
+
+        logits = predictions[BINARY_LOGITS_KEY]  # (B, T, H) or (B, H)
+
+        # P(B_h=1) = sigmoid(L_h) for each bit
+        probs = torch.sigmoid(logits)  # (B, T, H) or (B, H)
+
+        # KL divergence for independent Bernoulli vs uniform Bernoulli(0.5)
+        # KL(Bernoulli(p) || Bernoulli(0.5)) = p*log(2p) + (1-p)*log(2(1-p))
+        eps = 1e-8  # For numerical stability
+        kl_per_bit = probs * torch.log(2 * probs + eps) + (1 - probs) * torch.log(
+            2 * (1 - probs) + eps
+        )
+
+        # Sum over bits to get total KL per token
+        kl = kl_per_bit.sum(dim=-1)  # (B, T) or (B,)
+
+        # Apply free bits threshold: max(0, KL - κ)
+        if self.free_bits > 0:
+            kl = torch.clamp(kl - self.free_bits, min=0.0)
+
+        # Apply padding mask if provided
+        kl_reduced = reduce_loss_with_padding(kl, is_pad, reduction="mean")
+
+        return LossOutput(
+            total_loss=self.weight * kl_reduced,
+            component_losses={MetricKey.KL_DIVERGENCE.value: kl_reduced},
         )
 
 

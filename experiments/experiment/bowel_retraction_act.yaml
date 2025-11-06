@@ -9,7 +9,7 @@ resume_from: null
 
 # Weights & Biases
 use_wandb: true
-wandb_project: needle-threading-il
+wandb_project: surg-il
 wandb_entity: null
 
 # Device
@@ -21,6 +21,6 @@ precision: ${precision:FP16_MIXED}  # PyTorch Lightning precision (FP32, FP16_MI
 float32_matmul_precision: ${float32_matmul:MEDIUM}  # Tensor Cores for float32 (HIGHEST, HIGH, MEDIUM, or null)
 
 # Checkpointing and validation
-checkpoint_every: 500
+checkpoint_every: 50
 val_every: 1
-plot_every: 200
+plot_every: 10

@@ -75,6 +75,37 @@ class ACTConfig(DecodingNetworkConfig):
 
 
 @dataclass
+class FreeTransformerConfig(DecodingNetworkConfig):
+    """Free Transformer architecture configuration.
+
+    Based on "The Free Transformer" (Fleuret, 2025) - arXiv:2510.17558
+    https://arxiv.org/abs/2510.17558
+
+    The Free Transformer injects learnable discrete latent variables at the middle layer
+    of a transformer decoder, enabling conditional generation through variational inference.
+
+    Uses modern architecture components:
+    - RMSNorm for pre-normalization
+    - SwiGLU for feedforward activation
+    - Binary mapper for discrete latent codes (2^latent_bits total codes)
+
+    Note:
+        The encoder is only used during training to predict latent codes.
+        During inference, latents are sampled from a uniform prior.
+    """
+    _target_: str = "refactoring.models.decoding.decoders.factory.free_transformer.FreeTransformer"
+    embedding_dimension: int = 256
+    number_of_heads: int = 8
+    feedforward_dimension: int = 1024
+    number_of_decoder_layers: int = 6  # Must be even (split at midpoint for latent injection)
+    number_of_encoder_layers: int = 1  # Encoder for latent prediction (training only)
+    latent_bits: int = 16  # Number of bits for latent codes (2^16 = 65536 codes)
+    dropout_rate: float = 0.1
+    use_rope: bool = False  # Rotary positional embeddings (not yet fully implemented)
+    rope_base: float = 10000.0
+
+
+@dataclass
 class MixtureOfExpertsDecoderConfig(DecodingNetworkConfig):
     """Mixture of Experts (MoE) decoder configuration.
 

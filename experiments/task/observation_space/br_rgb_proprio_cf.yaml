@@ -1,0 +1,24 @@
+# Observation space for bowel retraction with RGB cameras only
+# No proprioceptive data, no depth
+
+_target_: refactoring.configs.task.task.ObservationSpace
+
+# Proprioceptive observations (robot/camera frame)
+use_proprioceptive_data: true
+use_proprio_base_frame: false
+use_proprio_camera_frame: true
+
+# Gripper state
+use_gripper_state: false
+gripper_type: ${gripper:BINARY}
+
+# Camera observations
+camera_keys:  # Cameras enum
+  - ${cameras:LEFT}
+  - ${cameras:RIGHT}
+
+# Language instructions
+use_language: false
+
+# Custom observation keys
+custom_obs_keys: []

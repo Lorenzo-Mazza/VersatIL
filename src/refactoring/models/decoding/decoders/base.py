@@ -22,7 +22,7 @@ class DecoderInput:
     keys: list[str] # feature keys required by the decoder
     #: If specified, the decoder strictly needs these input observation keys
     required: list[str] = field(default_factory=list)
-    #: If specified, the decoder needs at least one input observation key from these feature types
+    #: If specified, the decoder needs at least one input observation key from all these feature types
     #: They have to be `FeatureType` values, i.e. either 'spatial', 'sequential' or 'flat'
     required_types: list[str] = field(default_factory=list)
     #: If specified, the decoder will raise an error at init time, if the input key belongs to the specified feature types.
@@ -72,7 +72,9 @@ class DecoderInput:
                 is_spatial = isinstance(feature_dim, tuple) and len(feature_dim) == 3
                 is_sequential = isinstance(feature_dim, tuple) and len(feature_dim) == 2
                 is_flat = isinstance(feature_dim, int) or (isinstance(feature_dim, tuple) and len(feature_dim) == 1)
-                if expected_type == FeatureType.SPATIAL.value and is_spatial or expected_type == FeatureType.SEQUENTIAL.value and is_sequential or expected_type == FeatureType.FLAT.value and is_flat:
+                if (expected_type == FeatureType.SPATIAL.value and is_spatial
+                        or expected_type == FeatureType.SEQUENTIAL.value and is_sequential
+                        or expected_type == FeatureType.FLAT.value and is_flat):
                     matched = True
             if not matched:
                 raise ValueError(

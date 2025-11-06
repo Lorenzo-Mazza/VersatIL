@@ -1,4 +1,3 @@
-
 import torch
 from torch import nn
 
@@ -41,7 +40,7 @@ class RotaryPositionalEncoding(nn.Module):
             Frequency tensor of shape (dimension // 2,) repeated to (dimension,).
         """
         half_dimension = dimension // 2
-        exponents = torch.linspace(0, 1, half_dimension)
+        exponents = torch.arange(half_dimension, dtype=torch.float32) / half_dimension
         frequencies = 1.0 / (base_frequency ** exponents)
         frequencies = frequencies.repeat_interleave(2)
         result: torch.Tensor = frequencies
@@ -86,7 +85,6 @@ class RotaryPositionalEncoding1D(RotaryPositionalEncoding):
         Returns:
             Tuple of (sine, cosine) tensors of shape (seq_len, head_dim).
         """
-        # Use frequencies' device - parameters are automatically moved when module.to(device) is called
         device = self.frequencies.device
         position_indices = torch.arange(seq_len, device=device)
         angles = position_indices[:, None] * self.frequencies[None, :]
@@ -97,6 +95,25 @@ class RotaryPositionalEncoding1D(RotaryPositionalEncoding):
 
 class RotaryPositionalEncoding2D(RotaryPositionalEncoding):
     """Rotary positional encoding for 2D spatial grids."""
+
+    def __init__(
+            self,
+            embedding_dimension: int,
+            num_heads: int,
+            base_frequency: float = 10000.0,
+            learnable_frequencies: bool = False
+    ):
+        super().__init__(
+            embedding_dimension=embedding_dimension,
+            num_heads=num_heads,
+            base_frequency=base_frequency,
+            learnable_frequencies=learnable_frequencies
+        )
+        self.half_head_dim = self.head_dimension // 2
+        if self.half_head_dim % 2 != 0:
+            raise ValueError("half_head_dimension must be even for 2D rotary encoding")
+        freq_set = self._compute_frequencies(self.half_head_dim, base_frequency=base_frequency)
+        self.frequencies.data = torch.cat([freq_set, freq_set])
 
     def compute_rotation_components(
             self,
@@ -114,8 +131,15 @@ class RotaryPositionalEncoding2D(RotaryPositionalEncoding):
         """
         # Use frequencies' device - parameters are automatically moved when module.to(device) is called
         device = self.frequencies.device
-        position_indices = torch.arange(height * width, device=device)
-        angles = position_indices[:, None] * self.frequencies[None, :]
-        sine_components = torch.sin(angles).reshape(height, width, -1)
-        cosine_components = torch.cos(angles).reshape(height, width, -1)
+        # y positions (rows), x positions (cols)
+        y_pos = torch.arange(height, device=device)[:, None].repeat(1, width)
+        x_pos = torch.arange(width, device=device)[None, :].repeat(height, 1)
+        # Split frequencies: first half for y, second for x
+        freq_y = self.frequencies[:self.half_head_dim]
+        freq_x = self.frequencies[self.half_head_dim:]
+        angles_y = y_pos[..., None] * freq_y[None, None, :]
+        angles_x = x_pos[..., None] * freq_x[None, None, :]
+        angles = torch.cat([angles_y, angles_x], dim=-1)
+        sine_components = torch.sin(angles)
+        cosine_components = torch.cos(angles)
         return sine_components, cosine_components
