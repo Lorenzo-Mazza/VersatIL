@@ -26,16 +26,18 @@ class FreeTransformer(ActionDecoder):
     """Free Transformer for action decoding with discrete latent codes.
 
     Architecture:
-    - **Encoder** (training only): Processes [obs, GT actions] → extracts latent encoding trajectory style/mode
+    - **Encoder** (when actions provided): Processes [obs, GT actions] → extracts latent encoding trajectory style/mode
     - **Decoder** (always): Processes [obs, action queries] with latent injection → generates actions non-autoregressively
 
-    During training:
+    When actions are provided (training/validation):
     - Encoder sees [obs, GT actions] to infer posterior latent p(z|obs,actions)
     - Decoder generates [obs, queries] conditioned on encoder's latent
+    - Returns binary_logits for KL divergence loss
 
-    During inference:
+    During inference (actions=None):
     - Sample latent from uniform prior p(z)
     - Decoder generates [obs, queries] conditioned on sampled latent
+    - No binary_logits returned
 
     Args:
         input_keys: List of feature keys required from encoding pipeline
@@ -157,7 +159,7 @@ class FreeTransformer(ActionDecoder):
         self,
         gt_actions: dict[str, torch.Tensor]
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Encode latent from observations and ground-truth actions (training only).
+        """Encode latent from ground-truth actions using posterior encoder.
 
         Args:
             gt_actions: Dictionary of ground-truth actions
@@ -241,13 +243,13 @@ class FreeTransformer(ActionDecoder):
         Args:
             features: Dictionary of encoded features from EncodingPipeline
                 Expected to contain flat features (B, D) or (B, T, D)
-            actions: Ground-truth actions (required during training)
+            actions: Ground-truth actions (optional, when provided uses posterior encoder)
 
         Returns:
             Dictionary containing:
                 - Action head predictions (e.g. position, orientation, gripper)
                 - latent: Latent codes used for generation
-                - binary_logits: Raw logits for KL divergence (training only)
+                - binary_logits: Raw logits for KL divergence (only when actions provided)
         """
         for key, feature in features.items():
             if (len(feature.shape) == 4 and not self.has_history) or (len(feature.shape) == 5 and self.has_history):
@@ -259,10 +261,8 @@ class FreeTransformer(ActionDecoder):
         feature_vector = self._prepare_sequential_features(features=features)
         obs_embedding = self.embedding_projection(feature_vector)
         batch_size = obs_embedding.size(0)
-        if self.training:
-            if actions is None:
-                raise ValueError("Ground-truth actions required during training for posterior computation.")
 
+        if actions is not None:
             latent_codes, binary_logits = self._encode_latent(actions)
             action_embeddings = self._decode_actions(latent_codes=latent_codes, batch_size=batch_size, observation_embeddings=obs_embedding)
         else:
