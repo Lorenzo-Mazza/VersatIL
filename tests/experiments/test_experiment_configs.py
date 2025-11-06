@@ -67,6 +67,9 @@ def create_dummy_normalizer(config: DictConfig) -> LinearNormalizer:
     if hasattr(obs_space, 'use_proprio_base_frame') and obs_space.use_proprio_base_frame:
         normalizer['proprio_robot_frame'] = SingleFieldLinearNormalizer.create_identity()
 
+    if hasattr(obs_space, 'use_proprio_camera_frame') and obs_space.use_proprio_camera_frame:
+        normalizer['proprio_camera_frame'] = SingleFieldLinearNormalizer.create_identity()
+
     if action_space.has_position:
         normalizer[POSITION_ACTION_KEY] = SingleFieldLinearNormalizer.create_identity()
 
@@ -115,6 +118,11 @@ def create_dummy_batch(config: DictConfig, batch_size: int = 2) -> Dict[str, tor
 
     if hasattr(obs_space, 'use_proprio_base_frame') and obs_space.use_proprio_base_frame:
         batch[OBSERVATION_KEY]['proprio_robot_frame'] = torch.randn(
+            batch_size, observation_horizon, action_space.position_dim
+        )
+
+    if hasattr(obs_space, 'use_proprio_camera_frame') and obs_space.use_proprio_camera_frame:
+        batch[OBSERVATION_KEY]['proprio_camera_frame'] = torch.randn(
             batch_size, observation_horizon, action_space.position_dim
         )
 

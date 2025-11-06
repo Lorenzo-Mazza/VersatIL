@@ -18,6 +18,7 @@ from refactoring.data.constants import (
     ORIENTATION_ACTION_KEY,
     PHASE_LABEL_KEY,
     POSITION_ACTION_KEY,
+    PROPRIO_STATE,
     Cameras,
     GripperType,
 )
@@ -188,12 +189,18 @@ class Policy(nn.Module):
         """Normalize observations using the policy's normalizer.
 
         Args:
-            observation: Dictionary of observation tensors.
+            observation: Dictionary of observation tensors (may contain nested dicts).
 
         Returns:
             Dictionary of normalized observation tensors.
         """
         normalized_observation = observation.copy()
+
+        # Flatten nested proprioceptive dict before normalization
+        if PROPRIO_STATE in normalized_observation and isinstance(normalized_observation[PROPRIO_STATE], dict):
+            proprio_dict = normalized_observation.pop(PROPRIO_STATE)
+            normalized_observation.update(proprio_dict)
+
         if self.observation_space.use_language:
             # Language observations are not normalized
             del normalized_observation[LANGUAGE_KEY]
