@@ -22,7 +22,7 @@ loss_modules:
   binary_kl:
     _target_: refactoring.metrics.BinaryKLDivergenceLoss
     weight: 1.0  # Weight is applied in loss module
-    free_bits: 1.586  # Minimum KL per latent dimension
+    free_bits: 0.1  # Minimum KL per latent dimension
 
 # Weights for each loss module (multiplied by module's internal weight)
 weights:
