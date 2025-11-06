@@ -139,5 +139,6 @@ class BinaryMapper(nn.Module):
         # Forward: hard one-hot Y_t
         # Backward: gradients from soft distribution G_t
         one_hot = y_hard + g_soft - g_soft.detach()
-
+        if self.training:
+            print(f"Mean probs: {probs.mean().item()}")
         return one_hot, logits
