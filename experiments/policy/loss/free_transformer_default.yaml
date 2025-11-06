@@ -22,10 +22,10 @@ loss_modules:
   binary_kl:
     _target_: refactoring.metrics.BinaryKLDivergenceLoss
     weight: 1.0  # Weight is applied in loss module
-    free_bits: 0.2  # Minimum KL per latent dimension
+    free_bits: 1.0  # Minimum KL per latent dimension
 
 # Weights for each loss module (multiplied by module's internal weight)
 weights:
   position_regression: 0.8
   gripper: 0.05
-  binary_kl: 10.0  # High weight for discrete latent regularization
+  binary_kl: 5.0  # High weight for discrete latent regularization
