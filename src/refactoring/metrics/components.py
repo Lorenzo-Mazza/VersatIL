@@ -253,7 +253,7 @@ class BinaryKLDivergenceLoss(BaseLoss):
     Based on "The Free Transformer" (Fleuret, 2025) - arXiv:2510.17558
     """
 
-    def __init__(self, weight: float = 0.0001, free_bits: float = 0.0):
+    def __init__(self, weight: float = 0.0001, entropy_weight: float = 0.01, free_bits: float = 0.0):
         """Initialize binary KL divergence loss.
 
         Args:
@@ -262,6 +262,7 @@ class BinaryKLDivergenceLoss(BaseLoss):
         """
         super().__init__()
         self.weight = weight
+        self.entropy_weight = entropy_weight
         self.free_bits = free_bits
 
     def get_required_keys(self) -> set[str]:
@@ -314,6 +315,8 @@ class BinaryKLDivergenceLoss(BaseLoss):
 
         # Apply padding mask if provided
         kl_reduced = reduce_loss_with_padding(kl, is_pad, reduction="mean")
+        entropy = - (probs * torch.log(probs + eps) + (1 - probs) * torch.log(1 - probs + eps))  # (B,T,H)
+        kl_reduced += -self.entropy_weight * entropy.mean()
 
         return LossOutput(
             total_loss=self.weight * kl_reduced,
