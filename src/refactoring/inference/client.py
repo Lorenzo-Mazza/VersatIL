@@ -185,6 +185,16 @@ class InferenceClient(AbstractModelClient):
         else:
             self.tokenizer = None
 
+        use_depth = Cameras.DEPTH.value in self.policy.observation_space.camera_keys
+        if use_depth:
+            depth_stats = self.policy.normalizer[Cameras.DEPTH.value].params_dict['input_stats']
+            self.depth_min = float(depth_stats['min'].item())
+            self.depth_max = float(depth_stats['max'].item())
+            print(f"Depth clipping range from normalizer: [{self.depth_min:.4f}, {self.depth_max:.4f}]")
+        else:
+            self.depth_min = None
+            self.depth_max = None
+
         return self.model
 
     def get_actions_from_model(self) -> list[Action]:
@@ -226,8 +236,8 @@ class InferenceClient(AbstractModelClient):
             ]
             depth_tensors = [t["depth"] for t in transformed]
             depth_imgs = torch.stack(depth_tensors).unsqueeze(0).unsqueeze(-3)
-            max_depth = 9.352702140808105
-            depth_imgs = torch.clamp(depth_imgs, min=0.0, max=max_depth)
+            if self.depth_min is not None and self.depth_max is not None:
+                depth_imgs = torch.clamp(depth_imgs, min=self.depth_min, max=self.depth_max)
         else:
             transformed = [
                 self.transform(image=left_np, right_image=right_np)
