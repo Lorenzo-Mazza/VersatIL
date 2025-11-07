@@ -108,6 +108,10 @@ class VariationalAlgorithm(DecodingAlgorithm):
                 f"!= posterior_encoder.output_dim={self.posterior_encoder.output_dim}"
             )
 
+    @property
+    def supports_tokenized_actions(self) -> bool:
+        """Whether this algorithm supports tokenized actions."""
+        return self.base_algorithm.supports_tokenized_actions
 
     @staticmethod
     def _extract_conditioning(features: dict[str, torch.Tensor]) -> torch.Tensor | None:

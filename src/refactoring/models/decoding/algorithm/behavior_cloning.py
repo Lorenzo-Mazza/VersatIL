@@ -26,6 +26,8 @@ class BehavioralCloning(DecodingAlgorithm):
         VariationalAlgorithm(BehavioralCloning(), VAETransformerEncoder(...))
     """
 
+    supports_tokenized_actions: bool = True
+
     def __init__(self):
         """Initialize Behavioral Cloning algorithm."""
         super().__init__()

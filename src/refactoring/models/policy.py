@@ -71,6 +71,8 @@ class Policy(nn.Module):
         self.loss_module = loss
         self.device = torch.device(device)
         self.normalizer: LinearNormalizer = LinearNormalizer()
+        self.tokenizer = None  # Set via set_tokenizer() if using tokenization
+
         self.validate_decoder()
         if validate_loss_keys:
             self.validate_loss_keys()
@@ -179,10 +181,15 @@ class Policy(nn.Module):
                 f"Please update your loss configuration or action space."
             )
 
-
     def set_normalizer(self, normalizer: LinearNormalizer):
         """Set normalizer for observations and actions."""
         self.normalizer.load_state_dict(normalizer.state_dict())
+
+    def set_tokenizer(self, tokenizer):
+        """Set tokenizer and pass it to the decoder."""
+        self.tokenizer = tokenizer
+        if tokenizer is not None:
+            self.decoder.set_tokenizer(tokenizer)
 
 
     def normalize_observations(self, observation: dict[str, torch.Tensor]) ->  dict[str, torch.Tensor]:

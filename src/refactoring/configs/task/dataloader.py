@@ -14,6 +14,19 @@ from refactoring.data.constants import (
 
 
 @dataclass
+class TokenizationConfig:
+    """Tokenization configuration for actions and proprioceptive observations.
+    Tokenization converts continuous normalized values into discrete tokens,
+    enabling vocabulary-based action prediction with transformers.
+    """
+    enabled: bool = False
+    tokenize_actions: bool = False
+    use_pretrained_action_tokenizer: bool = True
+    tokenize_proprio_obs: bool = False
+    proprio_num_bins: int = 256
+
+
+@dataclass
 class DataloaderConfig:
     """Data loading and preprocessing configuration."""
     # Batching
@@ -29,6 +42,12 @@ class DataloaderConfig:
     depth_norm_type: str = ImageNormalizationType.MINUS_ONE_TO_ONE.value
     kinematics_norm_type: str = KinematicsNormalizationType.MIN_MAX
     winsorize_depth: bool = True
+    depth_winsorize_quantiles: tuple[float, float] = (0.01, 0.99)
+    winsorize_kinematics: bool = True
+    kinematics_winsorize_quantiles: tuple[float, float] = (0.01, 0.99)
+
+    # Tokenization
+    tokenization: TokenizationConfig = field(default_factory=TokenizationConfig)
 
     # Augmentations
     color_augmentation: AugmentationPipelineConfig | None = field(

@@ -996,13 +996,9 @@ class TestACTEdgeCases:
             embedding_dimension=embedding_dimension,
         )
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            flat_features = decoder._prepare_flat_features(features)
+        with pytest.raises(ValueError, match="ACT expects single-frame observation"):
+            decoder._prepare_flat_features(features)
 
-        # Should handle mix of temporal and static features
-        assert flat_features is not None
-        assert flat_features.shape[0] == batch_size
 
 
 @pytest.mark.integration

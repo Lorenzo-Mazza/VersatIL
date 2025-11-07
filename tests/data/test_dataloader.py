@@ -71,6 +71,11 @@ class MockConfig:
         self.task.dataloader.center_episode_start = center_episode_start
         self.task.dataloader.action_backward_shift = action_backward_shift
         self.task.dataloader.winsorize_depth = winsorize_depth
+        self.task.dataloader.depth_winsorize_quantiles = (0.01, 0.99)
+        self.task.dataloader.winsorize_kinematics = True
+        self.task.dataloader.kinematics_winsorize_quantiles = (0.01, 0.99)
+        self.task.dataloader.tokenization = MagicMock()
+        self.task.dataloader.tokenization.enabled = False
 
         self.experiment = MagicMock()
         self.experiment.seed = seed
@@ -126,6 +131,7 @@ class MockDataset:
         self._normalizer = MagicMock()
 
         self.get_normalizer = MagicMock(return_value=self._normalizer)
+        self.get_normalizer_and_tokenizer = MagicMock(return_value=(self._normalizer, None))
         self.get_gripper_positive_class_imbalance_weight = MagicMock(return_value=self._gripper_weight)
 
         self.sampler = MagicMock()
@@ -137,7 +143,6 @@ class MockDataset:
         self.replay_buffer.get_episode = MagicMock(
             return_value={PHASE_LABEL_KEY: np.array([[0], [1], [2]])}
         )
-
 
     def __len__(self):
         return self._length
@@ -394,11 +399,12 @@ class TestGetDataloaders:
         val_dataset = MockDataset(length=20)
         mock_dataset_class.side_effect = [train_dataset, val_dataset]
 
-        train_loader, val_loader, normalizer, gripper_weights = get_dataloaders(mock_config)
+        train_loader, val_loader, normalizer, tokenizer, gripper_weights = get_dataloaders(mock_config)
 
         assert train_loader is not None
         assert val_loader is not None
         assert normalizer == train_dataset._normalizer
+        assert tokenizer is None  # No tokenizer by default
         assert gripper_weights == 2.5
         assert mock_dataset_class.call_count == 2
 
@@ -475,7 +481,7 @@ class TestGetDataloaders:
         val_dataset = MockDataset(length=20)
         mock_dataset_class.side_effect = [train_dataset, val_dataset]
 
-        train_loader, val_loader, normalizer, gripper_weights = get_dataloaders(config)
+        train_loader, val_loader, normalizer, _tokenizer, gripper_weights = get_dataloaders(config)
 
         assert gripper_weights is None
         train_dataset.get_gripper_positive_class_imbalance_weight.assert_not_called()
@@ -531,7 +537,7 @@ class TestGetDataloaders:
         val_dataset = MockDataset(length=20)
         mock_dataset_class.side_effect = [train_dataset, val_dataset]
 
-        train_loader, val_loader, _, _ = get_dataloaders(config)
+        train_loader, val_loader, _, _, _ = get_dataloaders(config)
 
         assert train_loader.batch_size == 64
         assert val_loader.batch_size == 64
@@ -554,7 +560,7 @@ class TestGetDataloaders:
         val_dataset = MockDataset(length=20)
         mock_dataset_class.side_effect = [train_dataset, val_dataset]
 
-        train_loader, val_loader, _, _ = get_dataloaders(config)
+        train_loader, val_loader, _, _, _ = get_dataloaders(config)
 
         assert train_loader.num_workers == 8
         assert val_loader.num_workers == 4
@@ -576,7 +582,7 @@ class TestGetDataloaders:
         val_dataset = MockDataset(length=20)
         mock_dataset_class.side_effect = [train_dataset, val_dataset]
 
-        train_loader, val_loader, _, _ = get_dataloaders(mock_config)
+        train_loader, val_loader, _, _, _ = get_dataloaders(mock_config)
 
         assert train_loader is not None
         assert val_loader is not None
@@ -604,7 +610,7 @@ class TestDataloaderIntegration:
         val_dataset = MockDataset(length=20)
         mock_dataset_class.side_effect = [train_dataset, val_dataset]
 
-        train_loader, val_loader, normalizer, gripper_weights = get_dataloaders(mock_config)
+        train_loader, val_loader, normalizer, _tokenizer, gripper_weights = get_dataloaders(mock_config)
 
         # instantiate is called 3 times: for schema, action_space, and observation_space
         assert mock_instantiate.call_count == 3
@@ -617,8 +623,8 @@ class TestDataloaderIntegration:
         assert normalizer == train_dataset._normalizer
         assert gripper_weights == 3.2
 
-        train_dataset.get_normalizer.assert_called_once()
-        call_kwargs = train_dataset.get_normalizer.call_args[1]
+        train_dataset.get_normalizer_and_tokenizer.assert_called_once()
+        call_kwargs = train_dataset.get_normalizer_and_tokenizer.call_args[1]
         assert 'device' in call_kwargs
         assert call_kwargs['device'].type == 'cpu'
 
@@ -639,7 +645,7 @@ class TestDataloaderIntegration:
         val_dataset = MockDataset(length=20)
         mock_dataset_class.side_effect = [train_dataset, val_dataset]
 
-        train_loader, val_loader, _, _ = get_dataloaders(mock_config)
+        train_loader, val_loader, _, _, _ = get_dataloaders(mock_config)
 
         assert hasattr(train_loader, '_iterator')
         assert hasattr(val_loader, '_iterator')
@@ -662,9 +668,9 @@ class TestDataloaderIntegration:
         val_dataset = MockDataset(length=20)
         mock_dataset_class.side_effect = [train_dataset, val_dataset]
 
-        train_loader, val_loader, normalizer, _ = get_dataloaders(config)
+        train_loader, val_loader, normalizer, _, _ = get_dataloaders(config)
 
-        call_kwargs = train_dataset.get_normalizer.call_args[1]
+        call_kwargs = train_dataset.get_normalizer_and_tokenizer.call_args[1]
         assert call_kwargs['device'].type == 'cuda'
 
 
@@ -698,7 +704,7 @@ class TestDataloaderIntegration:
         val_dataset = MockDataset(length=20)
         mock_dataset_class.side_effect = [train_dataset, val_dataset]
 
-        train_loader, val_loader, normalizer, gripper_weights = get_dataloaders(config)
+        train_loader, val_loader, normalizer, _tokenizer, gripper_weights = get_dataloaders(config)
 
         assert normalizer is not None
         assert gripper_weights == 2.8
@@ -707,7 +713,7 @@ class TestDataloaderIntegration:
         assert val_dataset.action_processor.action_denoising_threshold == 0.02
         assert val_dataset.action_processor.orientation_denoising_threshold == 0.01
 
-        call_kwargs = train_dataset.get_normalizer.call_args[1]
+        call_kwargs = train_dataset.get_normalizer_and_tokenizer.call_args[1]
         assert call_kwargs['winsorize_depth'] is True
 
 
@@ -777,7 +783,7 @@ class TestLanguageInDataloader:
         val_dataset = MockDataset(length=20)
         mock_dataset_class.side_effect = [train_dataset, val_dataset]
 
-        train_loader, val_loader, normalizer, _ = get_dataloaders(config)
+        train_loader, val_loader, normalizer, _, _ = get_dataloaders(config)
 
         train_call = mock_dataset_class.call_args_list[0]
         obs_space = train_call[1]['observation_space']

@@ -97,7 +97,18 @@ class DecoderInput:
 
 
 class ActionDecoder(nn.Module, ABC):
-    """Abstract base class for Neural Network architectures used for action decoding."""
+    """Abstract base class for Neural Network architectures used for action decoding.
+
+    Attributes:
+        supports_tokenized_actions: Whether this decoder architecture supports discrete tokenized actions.
+
+            Note: This is separate from algorithm support - both decoder AND algorithm must support
+            tokenization for it to work. Set this to True only for specialized autoregressive decoders
+            designed for discrete action tokens.
+    """
+
+    supports_tokenized_actions: bool = False
+
     def __init__(
             self,
             decoder_input: DecoderInput,
@@ -119,6 +130,21 @@ class ActionDecoder(nn.Module, ABC):
 
         # Validate action heads match action space
         self.validate_action_heads()
+
+        # Tokenizer for discrete action tokens (set via set_tokenizer())
+        self.tokenizer = None
+
+    def set_tokenizer(self, tokenizer):
+        """Set tokenizer for discrete action tokenization.
+
+        This method is called by Policy.set_tokenizer() to pass the tokenizer
+        to the decoder. Only decoders with supports_tokenized_actions=True should
+        use this tokenizer in their forward/predict methods.
+
+        Args:
+            tokenizer: Tokenizer instance from data pipeline (can be None)
+        """
+        self.tokenizer = tokenizer
 
     @abstractmethod
     def forward(self,

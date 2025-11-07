@@ -17,6 +17,7 @@ from refactoring.data.constants import (
     PROPRIO_OBS_ROBOT_FRAME_KEY,
     SamplingMode,
 )
+from refactoring.configs.task.dataloader import TokenizationConfig
 from refactoring.data.normalize.normalizer import LinearNormalizer
 from refactoring.data.normalize.normalizer_builder import NormalizerBuilder
 from refactoring.data.preprocessing.replay_buffer import ReplayBuffer
@@ -26,6 +27,7 @@ from refactoring.data.preprocessing.sampler import (
     get_val_mask,
 )
 from refactoring.data.sample_builder import SampleBuilder
+from refactoring.data.tokenize import Tokenizer
 
 logging.basicConfig(level=logging.INFO)
 
@@ -346,6 +348,48 @@ class EpisodicDataset(data.Dataset):
 
         return normalizer_builder.create_normalizer(
             device=device, winsorize_depth=winsorize_depth, **kwargs
+        )
+
+    def get_normalizer_and_tokenizer(
+        self,
+        device: torch.device | None = None,
+        winsorize_depth: bool = True,
+        depth_winsorize_quantiles: tuple[float, float] | None = (0.01, 0.99),
+        winsorize_kinematics: bool = False,
+        kinematics_winsorize_quantiles: tuple[float, float] | None = (0.01, 0.99),
+        tokenization_config: TokenizationConfig | None = None,
+        **kwargs
+    ) -> tuple[LinearNormalizer, Tokenizer | None]:
+        """Get normalizer and optionally tokenizer for this dataset.
+
+        Args:
+            device: Target device for tensors
+            winsorize_depth: Apply winsorization to depth values
+            depth_winsorize_quantiles: Quantiles for depth winsorization
+            winsorize_kinematics: Apply winsorization to kinematics
+            kinematics_winsorize_quantiles: Quantiles for kinematics winsorization
+            tokenization_config: Tokenization configuration. If None, no tokenizer created.
+            **kwargs: Additional arguments for normalizer fitting
+
+        Returns:
+            Tuple of (normalizer, tokenizer) where tokenizer is None if not configured
+        """
+        normalizer_builder = NormalizerBuilder(
+            replay_buffer=self.replay_buffer,
+            action_processor=self.action_processor,
+            observation_space=self.observation_space,
+            episode_ends=self.episode_ends,
+            kinematics_norm_type=self.kinematics_norm_type,
+            image_norm_type=self.image_norm_type,
+            depth_norm_type=self.depth_norm_type,
+            depth_winsorize_quantiles=depth_winsorize_quantiles if winsorize_depth else None,
+            kinematics_winsorize_quantiles=kinematics_winsorize_quantiles if winsorize_kinematics else None,
+            tokenization_config=tokenization_config,
+            prediction_horizon=self.pred_horizon,
+        )
+
+        return normalizer_builder.create_normalizer_and_tokenizer(
+            device=device, **kwargs
         )
 
 

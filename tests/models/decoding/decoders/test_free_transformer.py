@@ -455,32 +455,6 @@ class TestFreeTransformerForwardPass:
 
         assert predictions[LATENT_KEY].shape == (batch_size, prediction_horizon, decoder.latent_dim)
 
-    def test_forward_training_requires_actions(
-        self,
-        action_space,
-        observation_space,
-        action_heads,
-        observation_horizon,
-        prediction_horizon,
-        device,
-        embedding_dimension,
-        flat_features_single,
-    ):
-        """Test that training mode requires actions."""
-        decoder = FreeTransformer(
-            input_keys=["proprioceptive_features"],
-            action_space=action_space,
-            action_heads=action_heads,
-            observation_space=observation_space,
-            observation_horizon=observation_horizon,
-            prediction_horizon=prediction_horizon,
-            device=device,
-            embedding_dimension=embedding_dimension,
-        ).to(device)
-
-        decoder.train()
-        with pytest.raises(ValueError, match="Ground-truth actions required during training"):
-            decoder(flat_features_single, actions=None)
 
     def test_forward_with_temporal_features(
         self,

@@ -4,9 +4,7 @@ This module defines configuration classes for various image augmentation strateg
 """
 
 from dataclasses import dataclass, field
-
-import albumentations as A
-from omegaconf import MISSING
+from omegaconf import MISSING, OmegaConf
 
 
 @dataclass
@@ -128,78 +126,96 @@ class AugmentationPipelineConfig:
 
 
 class ColorAugmentationPipeline:
-    """Pipeline for color augmentations that returns a callable albumentations.Compose object."""
+    """Pipeline for color augmentations that returns a structured DictConfig."""
 
     def __new__(cls):
-        """Create and return an albumentations.Compose object with color transforms."""
-        return A.Compose([
-            A.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5, hue=0.1, p=0.5),
-            A.RandomSunFlare(flare_roi=(0, 0, 1, 0.5), src_color=(255, 255, 255), p=0.6),
-            A.RandomBrightnessContrast(brightness_limit=0.4, contrast_limit=0.4, p=0.6),
-            A.RandomGamma(gamma_limit=(80, 120), p=0.3),
-            A.CLAHE(clip_limit=4.0, p=0.3),
-            A.RandomShadow(p=0.4),
-            A.ImageCompression(quality_lower=50, quality_upper=100, p=0.2),
-        ])
+        """Create and return a structured DictConfig for color transforms."""
+        config = AugmentationPipelineConfig(
+            transforms=[
+                ColorJitterConfig(brightness=0.3, contrast=0.4, saturation=0.5, hue=0.1, p=0.5),
+                RandomSunFlareConfig(flare_roi=(0, 0, 1, 0.5), src_color=(255, 255, 255), p=0.6),
+                RandomBrightnessContrastConfig(brightness_limit=0.4, contrast_limit=0.4, p=0.6),
+                RandomGammaConfig(gamma_limit=(80, 120), p=0.3),
+                CLAHEConfig(clip_limit=4.0, p=0.3),
+                RandomShadowConfig(p=0.4),
+                ImageCompressionConfig(quality_lower=50, quality_upper=100, p=0.2),
+            ]
+        )
+        return OmegaConf.structured(config)
 
 
 class SpatialAugmentationPipeline:
-    """Pipeline for spatial augmentations that returns a callable albumentations.Compose object."""
+    """Pipeline for spatial augmentations that returns a structured DictConfig."""
 
     def __new__(cls):
-        """Create and return an albumentations.Compose object with spatial transforms."""
-        return A.Compose([
-            A.GaussianBlur(blur_limit=(3, 7), p=0.5),
-            A.CoarseDropout(max_holes=8, max_height=8, max_width=8, p=0.3),
-            A.ShiftScaleRotate(rotate_limit=(0, 0), scale_limit=(-0.5, 0.6), shift_limit=(-0.0625, 0.0625), p=0.5),
-        ])
+        """Create and return a structured DictConfig for spatial transforms."""
+        config = AugmentationPipelineConfig(
+            transforms=[
+                GaussianBlurConfig(blur_limit=(3, 7), p=0.5),
+                CoarseDropoutConfig(max_holes=8, max_height=8, max_width=8, p=0.3),
+                ShiftScaleRotateConfig(rotate_limit=(0, 0), scale_limit=(-0.5, 0.6), shift_limit=(-0.0625, 0.0625), p=0.5),
+            ]
+        )
+        return OmegaConf.structured(config)
 
 
 class LightColorAugmentationPipeline:
-    """Light color augmentation pipeline that returns a callable albumentations.Compose object."""
+    """Light color augmentation pipeline that returns a structured DictConfig."""
 
     def __new__(cls):
-        """Create and return an albumentations.Compose object with light color transforms."""
-        return A.Compose([
-            A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
-            A.RandomGamma(gamma_limit=(90, 110), p=0.3),
-        ])
+        """Create and return a structured DictConfig for light color transforms."""
+        config = AugmentationPipelineConfig(
+            transforms=[
+                RandomBrightnessContrastConfig(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
+                RandomGammaConfig(gamma_limit=(90, 110), p=0.3),
+            ]
+        )
+        return OmegaConf.structured(config)
 
 
 class LightSpatialAugmentationPipeline:
-    """Light spatial augmentation pipeline that returns a callable albumentations.Compose object."""
+    """Light spatial augmentation pipeline that returns a structured DictConfig."""
 
     def __new__(cls):
-        """Create and return an albumentations.Compose object with light spatial transforms."""
-        return A.Compose([
-            A.GaussianBlur(blur_limit=(3, 5), p=0.3),
-            A.ShiftScaleRotate(rotate_limit=(0, 0), scale_limit=(-0.1, 0.1), shift_limit=(-0.05, 0.05), p=0.3),
-        ])
+        """Create and return a structured DictConfig for light spatial transforms."""
+        config = AugmentationPipelineConfig(
+            transforms=[
+                GaussianBlurConfig(blur_limit=(3, 5), p=0.3),
+                ShiftScaleRotateConfig(rotate_limit=(0, 0), scale_limit=(-0.1, 0.1), shift_limit=(-0.05, 0.05), p=0.3),
+            ]
+        )
+        return OmegaConf.structured(config)
 
 
 class StrongColorAugmentationPipeline:
-    """Strong color augmentation pipeline that returns a callable albumentations.Compose object."""
+    """Strong color augmentation pipeline that returns a structured DictConfig."""
 
     def __new__(cls):
-        """Create and return an albumentations.Compose object with strong color transforms."""
-        return A.Compose([
-            A.ColorJitter(brightness=0.4, contrast=0.5, saturation=0.6, hue=0.2, p=0.7),
-            A.RandomSunFlare(flare_roi=(0, 0, 1, 0.5), src_color=(255, 255, 255), p=0.8),
-            A.RandomBrightnessContrast(brightness_limit=0.5, contrast_limit=0.5, p=0.7),
-            A.RandomGamma(gamma_limit=(70, 130), p=0.5),
-            A.CLAHE(clip_limit=6.0, p=0.5),
-            A.RandomShadow(p=0.6),
-            A.ImageCompression(quality_lower=30, quality_upper=100, p=0.3),
-        ])
+        """Create and return a structured DictConfig for strong color transforms."""
+        config = AugmentationPipelineConfig(
+            transforms=[
+                ColorJitterConfig(brightness=0.4, contrast=0.5, saturation=0.6, hue=0.2, p=0.7),
+                RandomSunFlareConfig(flare_roi=(0, 0, 1, 0.5), src_color=(255, 255, 255), p=0.8),
+                RandomBrightnessContrastConfig(brightness_limit=0.5, contrast_limit=0.5, p=0.7),
+                RandomGammaConfig(gamma_limit=(70, 130), p=0.5),
+                CLAHEConfig(clip_limit=6.0, p=0.5),
+                RandomShadowConfig(p=0.6),
+                ImageCompressionConfig(quality_lower=30, quality_upper=100, p=0.3),
+            ]
+        )
+        return OmegaConf.structured(config)
 
 
 class StrongSpatialAugmentationPipeline:
-    """Strong spatial augmentation pipeline that returns a callable albumentations.Compose object."""
+    """Strong spatial augmentation pipeline that returns a structured DictConfig."""
 
     def __new__(cls):
-        """Create and return an albumentations.Compose object with strong spatial transforms."""
-        return A.Compose([
-            A.GaussianBlur(blur_limit=(3, 9), p=0.6),
-            A.CoarseDropout(max_holes=12, max_height=12, max_width=12, p=0.5),
-            A.ShiftScaleRotate(rotate_limit=(0, 0), scale_limit=(-0.6, 0.8), shift_limit=(-0.1, 0.1), p=0.6),
-        ])
+        """Create and return a structured DictConfig for strong spatial transforms."""
+        config = AugmentationPipelineConfig(
+            transforms=[
+                GaussianBlurConfig(blur_limit=(3, 9), p=0.6),
+                CoarseDropoutConfig(max_holes=12, max_height=12, max_width=12, p=0.5),
+                ShiftScaleRotateConfig(rotate_limit=(0, 0), scale_limit=(-0.6, 0.8), shift_limit=(-0.1, 0.1), p=0.6),
+            ]
+        )
+        return OmegaConf.structured(config)

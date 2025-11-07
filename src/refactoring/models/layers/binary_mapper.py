@@ -68,19 +68,14 @@ class BinaryMapper(nn.Module):
         """
         # Compute probabilities for each bit
         probs = torch.sigmoid(logits)  # (..., H)
-
         # Expand dimensions for broadcasting
-        # probs: (..., 1, H)
-        # bit_patterns: (2^H, H)
         probs_expanded = probs.unsqueeze(-2)  # (..., 1, H)
         bit_patterns = self.bit_patterns  # (2^H, H)
-
         # Compute probability for each code d
         # For each bit h: σ(L_h)^{b_h} · (1-σ(L_h))^{1-b_h}
         # = σ(L_h) if b_h=1, else (1-σ(L_h))
         prob_if_one = probs_expanded  # (..., 1, H)
         prob_if_zero = 1 - probs_expanded  # (..., 1, H)
-
         # Select probability based on bit pattern
         # bit_patterns: (2^H, H) with values 0 or 1
         log_probs = torch.where(
@@ -88,11 +83,9 @@ class BinaryMapper(nn.Module):
             torch.log(prob_if_one + 1e-8),  # (..., 1, H)
             torch.log(prob_if_zero + 1e-8),  # (..., 1, H)
         )  # (..., 2^H, H)
-
         # Product over bits = sum of log probabilities
         log_soft_dist = log_probs.sum(dim=-1)  # (..., 2^H)
         soft_dist = torch.exp(log_soft_dist)  # (..., 2^H)
-
         return soft_dist
 
     def forward(
@@ -139,6 +132,4 @@ class BinaryMapper(nn.Module):
         # Forward: hard one-hot Y_t
         # Backward: gradients from soft distribution G_t
         one_hot = y_hard + g_soft - g_soft.detach()
-        if self.training:
-            print(f"Mean probs: {probs.mean().item()}")
         return one_hot, logits

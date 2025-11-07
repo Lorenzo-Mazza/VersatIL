@@ -19,6 +19,7 @@ from refactoring.configs.main import MainConfig
 from refactoring.configs.task.task import ActionSpace, ObservationSpace
 from refactoring.data.dataloader import get_dataloaders
 from refactoring.data.normalize.normalizer import LinearNormalizer
+from refactoring.data.tokenize import Tokenizer
 from refactoring.models.policy import Policy
 from refactoring.training.callbacks import ConfusionMatrixCallback, EMACallback
 from refactoring.training.lightning_policy import LightningPolicy
@@ -54,6 +55,8 @@ class Workspace:
         self.train_loader: data.DataLoader | None = None
         self.val_loader: data.DataLoader | None = None
         self.normalizer: LinearNormalizer | None = None
+        self.tokenizer: Tokenizer | None = None
+
         self.gripper_class_weights: torch.Tensor | None = None
         logging.info(f"Workspace initialized for experiment: {self.exp_name}")
         logging.info(f"Output directory: {self.output_dir}")
@@ -103,6 +106,7 @@ class Workspace:
         )
         logging.info(f"Training completed. Best checkpoint saved to {self.output_dir}")
 
+
     def _set_seed(self):
         """Set random seeds for reproducibility."""
         torch.manual_seed(self.config.experiment.seed)
@@ -111,12 +115,13 @@ class Workspace:
             torch.cuda.manual_seed_all(self.config.experiment.seed)
 
     def _setup_data(self):
-        """Setup dataloaders and normalizer."""
+        """Setup dataloaders, normalizer, and tokenizer."""
         logging.info("Setting up dataloaders...")
         (
             self.train_loader,
             self.val_loader,
             self.normalizer,
+            self.tokenizer,
             gripper_class_weights,
         ) = get_dataloaders(self.config)
 
@@ -130,6 +135,12 @@ class Workspace:
         else:
             self.gripper_class_weights = None
 
+        if self.tokenizer is not None:
+            logging.info("Tokenizer initialized for discrete action tokenization")
+            tokenizer_path = self.output_dir / "tokenizer"
+            self.tokenizer.save_pretrained(tokenizer_path)
+            logging.info(f"Tokenizer saved to {tokenizer_path}")
+
         logging.info(f"Train dataset size: {len(self.train_loader)}")
         logging.info(f"Val dataset size: {len(self.val_loader)}")
 
@@ -139,6 +150,7 @@ class Workspace:
         # Config normalization already done in __init__, so observation_space and action_space are dataclasses
         self.policy: Policy = instantiate(self.config.policy)
         self.policy.set_normalizer(self.normalizer)
+        self.policy.set_tokenizer(self.tokenizer)
 
         # Calculate total training steps for LR scheduling
         # Steps per epoch = len(train_loader) // gradient_accumulate_every
@@ -314,6 +326,15 @@ class Workspace:
         else:
             raise ValueError("Checkpoint format not recognized")
         logging.info("Checkpoint loaded successfully")
+
+        tokenizer_path = self.output_dir / "tokenizer"
+        if tokenizer_path.exists():
+            device = torch.device(self.config.experiment.device)
+            self.tokenizer = Tokenizer.from_pretrained(tokenizer_path, device=device)
+            self.policy.set_tokenizer(self.tokenizer)
+            logging.info(f"Tokenizer loaded from {tokenizer_path}")
+        else:
+            self.tokenizer = None
 
 
     def predict(self, obs_dict):

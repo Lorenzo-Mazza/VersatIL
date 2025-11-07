@@ -2,7 +2,9 @@
 
 import copy
 from pathlib import Path
+from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 import torch
 from omegaconf import OmegaConf
@@ -17,7 +19,10 @@ from refactoring.configs.inference import InferenceConfig
 from refactoring.workspace import Workspace
 from refactoring.training.lightning_policy import LightningPolicy
 from refactoring.training.callbacks import EMACallback
-from refactoring.data.constants import Cameras, GripperType, OrientationRepresentation
+from refactoring.data.constants import Cameras, GripperType, OrientationRepresentation, ACTION_KEY
+from refactoring.data.tokenize.tokenizer import Tokenizer
+from refactoring.data.tokenize.action_tokenizer import ActionTokenizer
+from refactoring.data.tokenize.binning_tokenizer import BinningTokenizer
 
 
 @pytest.mark.unit
@@ -562,6 +567,350 @@ class TestWorkspaceLoadCheckpoint:
         for name, param in workspace_with_policy.policy.named_parameters():
             original = simple_policy.state_dict()[name]
             assert torch.allclose(param, original)
+
+    # Tokenizer fixtures
+    @pytest.fixture
+    def action_chunks(self):
+        """Generate action chunks for action tokenizer."""
+        np.random.seed(42)
+        return np.random.randn(10, 5, 7).astype(np.float32) * 0.5
+
+    @pytest.fixture
+    def normalized_proprio(self):
+        """Generate normalized proprioceptive data."""
+        np.random.seed(42)
+        return np.random.randn(100, 7).astype(np.float32) * 0.5
+
+    @pytest.fixture
+    def binning_tokenizer(self, normalized_proprio):
+        """Create fitted binning tokenizer."""
+        device = torch.device("cpu")
+        tokenizer = BinningTokenizer(num_bins=256, device=device)
+        tokenizer.fit(normalized_proprio)
+        return tokenizer
+
+    @pytest.fixture
+    def action_tokenizer_pretrained(self, action_chunks):
+        """Create action tokenizer with pretrained weights."""
+        device = torch.device("cpu")
+        tokenizer = ActionTokenizer(use_pretrained_weights=True, device=device)
+        return tokenizer
+
+    @pytest.fixture
+    def action_tokenizer_custom(self, action_chunks):
+        """Create action tokenizer fitted on custom data."""
+        device = torch.device("cpu")
+        tokenizer = ActionTokenizer(use_pretrained_weights=False, device=device)
+        tokenizer.fit(action_chunks)
+        return tokenizer
+
+    @pytest.fixture
+    def tokenizer_with_binning(self, binning_tokenizer):
+        """Create Tokenizer with binning tokenizer."""
+        device = torch.device("cpu")
+        tokenizer = Tokenizer(device=device)
+        tokenizer.tokenizers["proprio_robot_frame"] = binning_tokenizer
+        return tokenizer
+
+    @pytest.fixture
+    def tokenizer_with_action_pretrained(self, action_tokenizer_pretrained):
+        """Create Tokenizer with pretrained action tokenizer."""
+        device = torch.device("cpu")
+        tokenizer = Tokenizer(device=device)
+        tokenizer.tokenizers[ACTION_KEY] = action_tokenizer_pretrained
+        return tokenizer
+
+    @pytest.fixture
+    def tokenizer_with_action_custom(self, action_tokenizer_custom):
+        """Create Tokenizer with custom-fitted action tokenizer."""
+        device = torch.device("cpu")
+        tokenizer = Tokenizer(device=device)
+        tokenizer.tokenizers[ACTION_KEY] = action_tokenizer_custom
+        return tokenizer
+
+    @pytest.fixture
+    def tokenizer_with_both(self, binning_tokenizer, action_tokenizer_custom):
+        """Create Tokenizer with both action and binning tokenizers."""
+        device = torch.device("cpu")
+        tokenizer = Tokenizer(device=device)
+        tokenizer.tokenizers[ACTION_KEY] = action_tokenizer_custom
+        tokenizer.tokenizers["proprio_robot_frame"] = binning_tokenizer
+        return tokenizer
+
+    @pytest.fixture
+    def tokenizer_with_action(self, action_chunks):
+        """Create Tokenizer with custom-fitted action tokenizer."""
+        device = torch.device("cpu")
+        tokenizer = Tokenizer(device=device)
+        action_tok = ActionTokenizer(use_pretrained_weights=False, device=device)
+        action_tok.fit(action_chunks)
+        tokenizer.tokenizers[ACTION_KEY] = action_tok
+        return tokenizer
+
+    # Tokenizer tests
+    @pytest.mark.parametrize("tokenizer_fixture", [
+        "tokenizer_with_binning",
+        "tokenizer_with_action_custom",
+        "tokenizer_with_both",
+    ])
+    def test_tokenizer_saved_to_workspace(self, tokenizer_fixture, workspace_with_policy, request):
+        """Test that tokenizer can be saved to workspace directory."""
+        tokenizer = request.getfixturevalue(tokenizer_fixture)
+        workspace_with_policy.tokenizer = tokenizer
+
+        # Save tokenizer
+        tokenizer_path = workspace_with_policy.output_dir / "tokenizer"
+        workspace_with_policy.tokenizer.save_pretrained(tokenizer_path)
+
+        # Verify directory structure
+        assert tokenizer_path.exists()
+        assert (tokenizer_path / "config.json").exists()
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize("tokenizer_fixture", [
+        "tokenizer_with_binning",
+        "tokenizer_with_action_custom",
+        "tokenizer_with_both",
+    ])
+    def test_tokenizer_loaded_from_checkpoint(self, tokenizer_fixture, workspace_with_policy, simple_policy, request):
+        """Test loading tokenizer during checkpoint load."""
+        tokenizer = request.getfixturevalue(tokenizer_fixture)
+        workspace_with_policy.tokenizer = tokenizer
+
+        # Save tokenizer
+        tokenizer_path = workspace_with_policy.output_dir / "tokenizer"
+        workspace_with_policy.tokenizer.save_pretrained(tokenizer_path)
+
+        # Create checkpoint
+        checkpoint_path = workspace_with_policy.output_dir / "model.ckpt"
+        checkpoint = {
+            "state_dict": {
+                f"policy.{k}": v
+                for k, v in simple_policy.state_dict().items()
+            },
+        }
+        torch.save(checkpoint, checkpoint_path)
+
+        # Reset tokenizer
+        workspace_with_policy.tokenizer = None
+
+        # Load checkpoint
+        workspace_with_policy.load_checkpoint(str(checkpoint_path))
+
+        # Verify tokenizer was loaded
+        assert workspace_with_policy.tokenizer is not None
+        assert isinstance(workspace_with_policy.tokenizer, Tokenizer)
+        assert len(workspace_with_policy.tokenizer.tokenizers) > 0
+
+    def test_tokenizer_set_on_policy_after_load(self, tokenizer_with_binning, workspace_with_policy, simple_policy):
+        """Test that loaded tokenizer is passed to policy.set_tokenizer."""
+        workspace_with_policy.tokenizer = tokenizer_with_binning
+
+        # Save tokenizer
+        tokenizer_path = workspace_with_policy.output_dir / "tokenizer"
+        workspace_with_policy.tokenizer.save_pretrained(tokenizer_path)
+
+        # Create checkpoint
+        checkpoint_path = workspace_with_policy.output_dir / "model.ckpt"
+        checkpoint = {
+            "state_dict": {
+                f"policy.{k}": v
+                for k, v in simple_policy.state_dict().items()
+            },
+        }
+        torch.save(checkpoint, checkpoint_path)
+
+        # Mock set_tokenizer and reset
+        workspace_with_policy.policy.set_tokenizer = MagicMock()
+        workspace_with_policy.tokenizer = None
+
+        # Load checkpoint
+        workspace_with_policy.load_checkpoint(str(checkpoint_path))
+
+        # Verify set_tokenizer was called
+        workspace_with_policy.policy.set_tokenizer.assert_called_once()
+        assert workspace_with_policy.policy.set_tokenizer.call_args[0][0] is workspace_with_policy.tokenizer
+
+    def test_load_checkpoint_without_tokenizer(self, workspace_with_policy, simple_policy):
+        """Test loading checkpoint when no tokenizer was saved."""
+        # Create checkpoint without tokenizer
+        checkpoint_path = workspace_with_policy.output_dir / "model.ckpt"
+        checkpoint = {
+            "state_dict": {
+                f"policy.{k}": v
+                for k, v in simple_policy.state_dict().items()
+            },
+        }
+        torch.save(checkpoint, checkpoint_path)
+
+        # Ensure no tokenizer directory exists
+        tokenizer_path = workspace_with_policy.output_dir / "tokenizer"
+        assert not tokenizer_path.exists()
+
+        # Load checkpoint (should not error)
+        workspace_with_policy.load_checkpoint(str(checkpoint_path))
+
+        # Verify tokenizer is None
+        assert workspace_with_policy.tokenizer is None
+
+    def test_tokenizer_device_matches_config(self, tokenizer_with_binning, workspace_with_policy, simple_policy):
+        """Test that loaded tokenizer uses correct device from config."""
+        workspace_with_policy.tokenizer = tokenizer_with_binning
+
+        # Save tokenizer
+        tokenizer_path = workspace_with_policy.output_dir / "tokenizer"
+        workspace_with_policy.tokenizer.save_pretrained(tokenizer_path)
+
+        # Create checkpoint
+        checkpoint_path = workspace_with_policy.output_dir / "model.ckpt"
+        checkpoint = {
+            "state_dict": {
+                f"policy.{k}": v
+                for k, v in simple_policy.state_dict().items()
+            },
+        }
+        torch.save(checkpoint, checkpoint_path)
+
+        # Reset and load
+        workspace_with_policy.tokenizer = None
+        workspace_with_policy.load_checkpoint(str(checkpoint_path))
+
+        # Verify device matches config
+        expected_device = torch.device(workspace_with_policy.config.experiment.device)
+        assert workspace_with_policy.tokenizer.device == expected_device
+
+    def test_binning_tokenizer_directory_structure(self, tokenizer_with_binning, workspace_with_policy):
+        """Test binning tokenizer creates correct directory structure."""
+        workspace_with_policy.tokenizer = tokenizer_with_binning
+
+        # Save tokenizer
+        tokenizer_path = workspace_with_policy.output_dir / "tokenizer"
+        workspace_with_policy.tokenizer.save_pretrained(tokenizer_path)
+
+        # Verify binning tokenizer files
+        assert (tokenizer_path / "proprio_robot_frame").exists()
+        assert (tokenizer_path / "proprio_robot_frame" / "binning_state.pt").exists()
+
+    @pytest.mark.integration
+    def test_action_tokenizer_directory_structure(self, tokenizer_with_action_custom, workspace_with_policy):
+        """Test action tokenizer creates correct directory structure."""
+        workspace_with_policy.tokenizer = tokenizer_with_action_custom
+
+        # Save tokenizer
+        tokenizer_path = workspace_with_policy.output_dir / "tokenizer"
+        workspace_with_policy.tokenizer.save_pretrained(tokenizer_path)
+
+        # Verify action tokenizer files
+        assert (tokenizer_path / ACTION_KEY).exists()
+        # HuggingFace saves multiple files
+        assert len(list((tokenizer_path / ACTION_KEY).iterdir())) > 0
+
+    def test_binning_tokenizer_roundtrip(self, tokenizer_with_binning, workspace_with_policy, simple_policy, normalized_proprio):
+        """Test save/load preserves binning tokenizer functionality."""
+        workspace_with_policy.tokenizer = tokenizer_with_binning
+
+        # Test data
+        test_data = {"proprio_robot_frame": normalized_proprio[:10]}
+        original_tokenized = workspace_with_policy.tokenizer.tokenize(test_data)
+
+        # Save tokenizer
+        tokenizer_path = workspace_with_policy.output_dir / "tokenizer"
+        workspace_with_policy.tokenizer.save_pretrained(tokenizer_path)
+
+        # Create checkpoint and load
+        checkpoint_path = workspace_with_policy.output_dir / "model.ckpt"
+        checkpoint = {
+            "state_dict": {
+                f"policy.{k}": v
+                for k, v in simple_policy.state_dict().items()
+            },
+        }
+        torch.save(checkpoint, checkpoint_path)
+
+        workspace_with_policy.tokenizer = None
+        workspace_with_policy.load_checkpoint(str(checkpoint_path))
+
+        # Test with loaded tokenizer
+        loaded_tokenized = workspace_with_policy.tokenizer.tokenize(test_data)
+
+        # Verify tokenization is identical
+        for key in original_tokenized:
+            assert torch.equal(original_tokenized[key], loaded_tokenized[key])
+
+    @pytest.mark.integration
+    def test_action_tokenizer_roundtrip(self, tokenizer_with_action, workspace_with_policy, simple_policy, action_chunks):
+        """Test save/load preserves action tokenizer functionality."""
+        workspace_with_policy.tokenizer = tokenizer_with_action
+
+        # Test data
+        test_data = {ACTION_KEY: action_chunks[:3]}
+        original_tokenized = workspace_with_policy.tokenizer.tokenize(test_data)
+
+        # Save tokenizer
+        tokenizer_path = workspace_with_policy.output_dir / "tokenizer"
+        workspace_with_policy.tokenizer.save_pretrained(tokenizer_path)
+
+        # Create checkpoint and load
+        checkpoint_path = workspace_with_policy.output_dir / "model.ckpt"
+        checkpoint = {
+            "state_dict": {
+                f"policy.{k}": v
+                for k, v in simple_policy.state_dict().items()
+            },
+        }
+        torch.save(checkpoint, checkpoint_path)
+
+        workspace_with_policy.tokenizer = None
+        workspace_with_policy.load_checkpoint(str(checkpoint_path))
+
+        # Test with loaded tokenizer
+        loaded_tokenized = workspace_with_policy.tokenizer.tokenize(test_data)
+
+        # Verify tokenization produces same type
+        assert type(original_tokenized[ACTION_KEY]) == type(loaded_tokenized[ACTION_KEY])
+
+    @pytest.mark.integration
+    def test_mixed_tokenizers_roundtrip(self, tokenizer_with_binning, workspace_with_policy, simple_policy, normalized_proprio, action_chunks):
+        """Test save/load with both action and binning tokenizers."""
+        # Add action tokenizer to binning tokenizer
+        device = torch.device("cpu")
+        action_tok = ActionTokenizer(use_pretrained_weights=False, device=device)
+        action_tok.fit(action_chunks)
+        tokenizer_with_binning.tokenizers[ACTION_KEY] = action_tok
+
+        workspace_with_policy.tokenizer = tokenizer_with_binning
+
+        # Test data
+        test_data = {
+            "proprio_robot_frame": normalized_proprio[:10],
+            ACTION_KEY: action_chunks[:3],
+        }
+        original_tokenized = workspace_with_policy.tokenizer.tokenize(test_data)
+
+        # Save tokenizer
+        tokenizer_path = workspace_with_policy.output_dir / "tokenizer"
+        workspace_with_policy.tokenizer.save_pretrained(tokenizer_path)
+
+        # Create checkpoint and load
+        checkpoint_path = workspace_with_policy.output_dir / "model.ckpt"
+        checkpoint = {
+            "state_dict": {
+                f"policy.{k}": v
+                for k, v in simple_policy.state_dict().items()
+            },
+        }
+        torch.save(checkpoint, checkpoint_path)
+
+        workspace_with_policy.tokenizer = None
+        workspace_with_policy.load_checkpoint(str(checkpoint_path))
+
+        # Test with loaded tokenizer
+        loaded_tokenized = workspace_with_policy.tokenizer.tokenize(test_data)
+
+        # Verify both tokenizers work
+        assert "proprio_robot_frame" in loaded_tokenized
+        assert ACTION_KEY in loaded_tokenized
+        assert torch.equal(original_tokenized["proprio_robot_frame"], loaded_tokenized["proprio_robot_frame"])
 
 @pytest.mark.unit
 class TestWorkspaceConfigSaving:

@@ -23,6 +23,7 @@ from refactoring.data.constants import (
     PROPRIO_OBS_ROBOT_FRAME_KEY,
     Cameras,
 )
+from refactoring.data.tokenize.tokenizer import Tokenizer
 from refactoring.training.lightning_policy import LightningPolicy
 
 
@@ -53,6 +54,7 @@ class InferenceClient(AbstractModelClient):
         self.checkpoint_path = checkpoint_path
         self.device = device
         self.temporal_agg = temporal_agg
+        self.tokenizer = None
 
         self._load_model()
 
@@ -88,7 +90,7 @@ class InferenceClient(AbstractModelClient):
             predicts_delta=predicts_delta,
             obs_robot_frame=obs_robot_frame,
             obs_camera_frame=obs_camera_frame,
-            device=device,
+            device=str(device),
             update_rate_hz=update_rate_hz,
             enable_logging=False,
         )
@@ -174,6 +176,15 @@ class InferenceClient(AbstractModelClient):
         )
         self.model.eval()
         self.policy = self.model.policy
+
+        tokenizer_path = os.path.join(self.checkpoint_path, "tokenizer")
+        if os.path.exists(tokenizer_path):
+            self.tokenizer = Tokenizer.from_pretrained(tokenizer_path, device=self.device)
+            self.policy.set_tokenizer(self.tokenizer)
+            print(f"Tokenizer loaded from {tokenizer_path}")
+        else:
+            self.tokenizer = None
+
         return self.model
 
     def get_actions_from_model(self) -> list[Action]:

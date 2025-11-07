@@ -28,8 +28,6 @@ class DictOfTensorMixin(nn.Module):
             for key, value in state_dict.items():
                 if key.startswith(prefix):
                     param_keys = key[len(prefix):].split('.')[1:]
-                    # if len(param_keys) == 0:
-                    #     import pdb; pdb.set_trace()
                     dfs_add(out_dict, param_keys, value.clone())
             return out_dict
 

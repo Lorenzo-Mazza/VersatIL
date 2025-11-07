@@ -17,18 +17,19 @@ from refactoring.data.normalize.normalizer import LinearNormalizer
 from refactoring.data.preprocessing.create_zarr import create_replay_buffer
 from refactoring.data.preprocessing.replay_buffer import ReplayBuffer
 from refactoring.data.schemas.base import DatasetSchema
+from refactoring.data.tokenize.tokenizer import Tokenizer
 
 
 def get_dataloaders(
     config: MainConfig,
-) -> tuple[data.DataLoader, data.DataLoader, LinearNormalizer, float | None]:
-    """Create train and validation dataloaders with normalizer.
+) -> tuple[data.DataLoader, data.DataLoader, LinearNormalizer, Tokenizer | None, float | None]:
+    """Create train and validation dataloaders with normalizer and optional tokenizer.
 
     Args:
         config: Main configuration object from Hydra
 
     Returns:
-        Tuple of (train_loader, val_loader, normalizer, gripper_class_weights)
+        Tuple of (train_loader, val_loader, normalizer, tokenizer, gripper_class_weights)
     """
     schema: DatasetSchema = instantiate(config.task.dataset_schema)
     logging.info(f"Using dataset schema: {schema.__class__.__name__}")
@@ -62,10 +63,16 @@ def get_dataloaders(
         observation_space=observation_space,
     )
 
-    # Get normalizer
+    # Get normalizer and tokenizer
     device = torch.device(config.experiment.device)
-    normalizer = train_dataset.get_normalizer(
+    tokenization_config = config.task.dataloader.tokenization if config.task.dataloader.tokenization.enabled else None
+
+    normalizer, tokenizer = train_dataset.get_normalizer_and_tokenizer(
         winsorize_depth=config.task.dataloader.winsorize_depth,
+        depth_winsorize_quantiles=config.task.dataloader.depth_winsorize_quantiles,
+        winsorize_kinematics=config.task.dataloader.winsorize_kinematics,
+        kinematics_winsorize_quantiles=config.task.dataloader.kinematics_winsorize_quantiles,
+        tokenization_config=tokenization_config,
         device=device,
     )
 
@@ -104,7 +111,7 @@ def get_dataloaders(
     if config.task.action_space.task_has_phases:
         _log_phase_distributions(train_dataset, val_dataset)
 
-    return train_loader, val_loader, normalizer, gripper_positive_class_weights
+    return train_loader, val_loader, normalizer, tokenizer, gripper_positive_class_weights
 
 
 def _collect_dataset_paths(dataset_folders: list[str]) -> list[str]:
