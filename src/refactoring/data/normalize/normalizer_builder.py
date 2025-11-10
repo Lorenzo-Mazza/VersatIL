@@ -382,9 +382,23 @@ class NormalizerBuilder:
         for key in sorted(action_dict.keys()):
             action_components.append(action_dict[key])
         all_actions = np.concatenate(action_components, axis=-1)
+
+        # Compute adjusted episode ends for the masked action array
+        # Actions are computed from consecutive obs pairs, excluding cross-episode transitions
+        # So each episode loses 1 action (the transition between episodes)
+        adjusted_episode_ends = []
+        cumulative = 0
+        for i in range(len(self.episode_ends)):
+            if i == 0:
+                episode_length = self.episode_ends[i] - 1  # First episode: N obs -> N-1 actions
+            else:
+                episode_length = (self.episode_ends[i] - self.episode_ends[i-1]) - 1
+            cumulative += episode_length
+            adjusted_episode_ends.append(cumulative)
+
         chunks = []
         episode_start = 0
-        for episode_end in self.episode_ends:
+        for episode_end in adjusted_episode_ends:
             episode_actions = all_actions[episode_start:episode_end]
             episode_length = episode_end - episode_start
             if episode_length >= prediction_horizon:
@@ -396,9 +410,9 @@ class NormalizerBuilder:
         if len(chunks) == 0:
             raise ValueError(
                 f"No episodes long enough for prediction_horizon={prediction_horizon}. "
-                f"Longest episode has {max(np.diff(np.concatenate(([0], self.episode_ends))))} steps."
+                f"Longest episode has {max([adjusted_episode_ends[i] - (adjusted_episode_ends[i-1] if i > 0 else 0) for i in range(len(adjusted_episode_ends))])} steps."
             )
-        return np.array(chunks)
+        return np.stack(chunks, axis=0)
 
 
     def _apply_winsorization(
