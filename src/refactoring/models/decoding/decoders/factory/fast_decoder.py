@@ -111,10 +111,6 @@ class FASTDecoder(ActionDecoder):
         self.eos_token_id = eos_token_id
         self.pad_token_id = pad_token_id
         self.embedding_dimension = embedding_dimension
-        self.temperature = nn.Parameter(
-            torch.tensor(temperature, dtype=torch.float32),
-            requires_grad=learnable_temperature,
-        )
         self.deterministic = deterministic
 
         action_heads = {
@@ -139,6 +135,12 @@ class FASTDecoder(ActionDecoder):
             observation_horizon=observation_horizon,
             prediction_horizon=prediction_horizon,
             device=device,
+        )
+
+        # Temperature parameter must be created after super().__init__()
+        self.temperature = nn.Parameter(
+            torch.tensor(temperature, dtype=torch.float32),
+            requires_grad=learnable_temperature,
         )
 
         # Feature projection for handling spatial and flat features
