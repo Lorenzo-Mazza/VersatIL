@@ -8,6 +8,7 @@ import torch.utils.data as data
 from hydra.utils import instantiate
 
 from refactoring.configs import MainConfig
+from refactoring.configs.task.dataloader import DataloaderConfig
 from refactoring.data.constants import (
     EPISODE_FILENAME,
     PHASE_LABEL_KEY,
@@ -40,12 +41,14 @@ def get_dataloaders(
 
     action_space = instantiate(config.task.action_space)
     observation_space = instantiate(config.task.observation_space)
+    dataloader_config = instantiate(config.task.dataloader)
+    tokenization_config = dataloader_config.tokenization if dataloader_config.tokenization.enabled else None
 
     train_dataset = EpisodicDataset(
         zarr_path=schema.zarr_path,
         pred_horizon=config.task.prediction_horizon,
         obs_horizon=config.task.observation_horizon,
-        dataloader_config=config.task.dataloader,
+        dataloader_config=dataloader_config,
         train=True,
         seed=config.experiment.seed,
         action_space=action_space,
@@ -56,7 +59,7 @@ def get_dataloaders(
         zarr_path=schema.zarr_path,
         pred_horizon=config.task.prediction_horizon,
         obs_horizon=config.task.observation_horizon,
-        dataloader_config=config.task.dataloader,
+        dataloader_config=dataloader_config,
         train=False,
         seed=config.experiment.seed,
         action_space=action_space,
@@ -65,13 +68,13 @@ def get_dataloaders(
 
     # Get normalizer and tokenizer
     device = torch.device(config.experiment.device)
-    tokenization_config = config.task.dataloader.tokenization if config.task.dataloader.tokenization.enabled else None
+
 
     normalizer, tokenizer = train_dataset.get_normalizer_and_tokenizer(
-        winsorize_depth=config.task.dataloader.winsorize_depth,
-        depth_winsorize_quantiles=config.task.dataloader.depth_winsorize_quantiles,
-        winsorize_kinematics=config.task.dataloader.winsorize_kinematics,
-        kinematics_winsorize_quantiles=config.task.dataloader.kinematics_winsorize_quantiles,
+        winsorize_depth=dataloader_config.winsorize_depth,
+        depth_winsorize_quantiles=dataloader_config.depth_winsorize_quantiles,
+        winsorize_kinematics=dataloader_config.winsorize_kinematics,
+        kinematics_winsorize_quantiles=dataloader_config.kinematics_winsorize_quantiles,
         tokenization_config=tokenization_config,
         device=device,
     )
