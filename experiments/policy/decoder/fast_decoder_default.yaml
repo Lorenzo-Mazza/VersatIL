@@ -12,7 +12,7 @@ input_keys:
 # vocab_size must match task.dataloader.tokenization.use_pretrained_action_tokenizer:
 #   - use_pretrained_action_tokenizer: true  → vocab_size: 2048
 #   - use_pretrained_action_tokenizer: false → vocab_size: 1024
-vocab_size: 2048
+vocab_size: 1024
 max_seq_len: 512
 
 # Transformer architecture
