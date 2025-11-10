@@ -16,7 +16,8 @@ from refactoring.data.constants import (
     OrientationRepresentation,
     GripperType,
 )
-from refactoring.models.decoding.constants import MU_KEY, LOGVAR_KEY
+from refactoring.models.decoding.constants import MU_KEY, LOGVAR_KEY, LATENT_KEY
+from refactoring.models.decoding.action_heads import AttentionBlock, ResidualBlock
 
 
 @pytest.fixture
@@ -487,10 +488,10 @@ class TestACTFeaturePreparation:
 
         flat_features = decoder._prepare_flat_features(flat_features_mismatched)
 
-        # Both features projected and concatenated
+        # Both features projected to embedding_dimension, concatenated, then projected back
         batch_size = flat_features_mismatched["language_embedding"].shape[0]
-        # language (64 -> 256) + proprio (128 -> 256) = 512
-        assert flat_features.shape == (batch_size, embedding_dimension * 2)
+        # language (64 -> 256) + proprio (128 -> 256) = 512, then 512 -> 256
+        assert flat_features.shape == (batch_size, embedding_dimension)
 
     def test_prepare_flat_features_none_when_no_flat_features(
         self,
@@ -624,8 +625,6 @@ class TestACTForwardPass:
         actions_dict,
     ):
         """Test forward pass with latent embedding from algorithm layer."""
-        from refactoring.models.decoding.constants import LATENT_KEY
-
         decoder = ACT(
             input_keys=["rgb_left_features"],
             action_space=action_space,
@@ -1158,8 +1157,6 @@ class TestACTWithDifferentActionHeads:
         actions_dict,
     ):
         """Test ACT with self-attention in action heads."""
-        from refactoring.models.decoding.action_heads import AttentionBlock
-
         # Create action heads with attention blocks
         action_heads = {
             POSITION_ACTION_KEY: ActionHead(
@@ -1237,8 +1234,6 @@ class TestACTWithDifferentActionHeads:
         batch_size,
     ):
         """Test ACT with residual connections in action heads."""
-        from refactoring.models.decoding.action_heads import ResidualBlock
-
         # Create action heads with residual blocks
         action_heads = {
             POSITION_ACTION_KEY: ActionHead(
@@ -1322,7 +1317,6 @@ class TestACTWithDifferentActionHeads:
         actions_dict,
     ):
         """Test ACT with different architectures for each action modality."""
-        from refactoring.models.decoding.action_heads import AttentionBlock, ResidualBlock
 
         # Each action modality gets a different head architecture
         action_heads = {
@@ -1402,6 +1396,333 @@ class TestACTWithDifferentActionHeads:
 
         # Check shapes match
         assert train_predictions[POSITION_ACTION_KEY].shape == inference_predictions[POSITION_ACTION_KEY].shape
+
+
+@pytest.mark.unit
+class TestACTEncoderInputPrepending:
+    """Test ACT encoder input prepending (latent + proprio tokens following DETR)."""
+
+    def test_encoder_input_with_spatial_only(
+        self,
+        action_space,
+        observation_space,
+        action_heads,
+        observation_horizon,
+        prediction_horizon,
+        device,
+        embedding_dimension,
+        batch_size,
+        spatial_features_single,
+    ):
+        """Test encoder input with only spatial features (no latent, no proprio)."""
+        # Disable proprioceptive features
+        observation_space.use_proprioceptive_data = False
+
+        decoder = ACT(
+            input_keys=["rgb_left_features"],
+            action_space=action_space,
+            action_heads=action_heads,
+            observation_space=observation_space,
+            observation_horizon=observation_horizon,
+            prediction_horizon=prediction_horizon,
+            device=device,
+            embedding_dimension=embedding_dimension,
+        )
+
+        spatial_features = decoder._prepare_image_features(spatial_features_single)
+        flat_features = decoder._prepare_flat_features(spatial_features_single)
+
+        # Flat features should be None
+        assert flat_features is None
+
+        # Prepare encoder input
+        encoder_input, positional_encoding = decoder._prepare_encoder_input(
+            spatial_features,
+            latent_embedding=None,
+            flat_features=None,
+            batch_size=batch_size,
+        )
+
+        # No additional tokens prepended: encoder_input should only have spatial features
+        # Spatial features are (B, C, H, W) = (2, 256, 7, 7) -> flattened to (49, 2, 256)
+        expected_seq_len = 7 * 7  # H * W
+        assert encoder_input.shape[0] == expected_seq_len  # No additional tokens
+        assert encoder_input.shape[1] == batch_size
+        assert encoder_input.shape[2] == embedding_dimension
+
+    def test_encoder_input_with_latent_only(
+        self,
+        action_space,
+        observation_space,
+        action_heads,
+        observation_horizon,
+        prediction_horizon,
+        device,
+        embedding_dimension,
+        batch_size,
+        spatial_features_single,
+    ):
+        """Test encoder input with latent token only (no proprio)."""
+
+        # Disable proprioceptive features
+        observation_space.use_proprioceptive_data = False
+
+        decoder = ACT(
+            input_keys=["rgb_left_features"],
+            action_space=action_space,
+            action_heads=action_heads,
+            observation_space=observation_space,
+            observation_horizon=observation_horizon,
+            prediction_horizon=prediction_horizon,
+            device=device,
+            embedding_dimension=embedding_dimension,
+        )
+
+        spatial_features = decoder._prepare_image_features(spatial_features_single)
+        latent_embedding = torch.randn(batch_size, embedding_dimension, device=device)
+
+        # Prepare encoder input
+        encoder_input, positional_encoding = decoder._prepare_encoder_input(
+            spatial_features,
+            latent_embedding=latent_embedding,
+            flat_features=None,
+            batch_size=batch_size,
+        )
+
+        # Should prepend 1 latent token: (1 + H*W, B, D)
+        expected_seq_len = 1 + 7 * 7  # 1 latent + spatial
+        assert encoder_input.shape[0] == expected_seq_len
+        assert encoder_input.shape[1] == batch_size
+        assert encoder_input.shape[2] == embedding_dimension
+
+        # Positional encoding should match
+        assert positional_encoding.shape[0] == expected_seq_len
+
+    def test_encoder_input_with_proprio_only(
+        self,
+        action_space,
+        observation_space,
+        action_heads,
+        observation_horizon,
+        prediction_horizon,
+        device,
+        embedding_dimension,
+        batch_size,
+    ):
+        """Test encoder input with proprio token only (no latent)."""
+        # Enable proprioceptive features
+        observation_space.use_proprioceptive_data = True
+
+        # Features with both spatial and flat (proprio)
+        features = {
+            "rgb_left_features": torch.randn(batch_size, 2048, 7, 7, device=device),
+            "proprioceptive_features": torch.randn(batch_size, 128, device=device),
+        }
+
+        decoder = ACT(
+            input_keys=["rgb_left_features", "proprioceptive_features"],
+            action_space=action_space,
+            action_heads=action_heads,
+            observation_space=observation_space,
+            observation_horizon=observation_horizon,
+            prediction_horizon=prediction_horizon,
+            device=device,
+            embedding_dimension=embedding_dimension,
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            spatial_features = decoder._prepare_image_features(features)
+            flat_features = decoder._prepare_flat_features(features)
+
+        # Flat features should exist
+        assert flat_features is not None
+        assert flat_features.shape == (batch_size, embedding_dimension)
+
+        # Prepare encoder input (no latent)
+        encoder_input, positional_encoding = decoder._prepare_encoder_input(
+            spatial_features,
+            latent_embedding=None,
+            flat_features=flat_features,
+            batch_size=batch_size,
+        )
+
+        # Should prepend 1 proprio token: (1 + H*W, B, D)
+        expected_seq_len = 1 + 7 * 7  # 1 proprio + spatial
+        assert encoder_input.shape[0] == expected_seq_len
+        assert encoder_input.shape[1] == batch_size
+        assert encoder_input.shape[2] == embedding_dimension
+
+        # Positional encoding should match
+        assert positional_encoding.shape[0] == expected_seq_len
+
+    def test_encoder_input_with_latent_and_proprio(
+        self,
+        action_space,
+        observation_space,
+        action_heads,
+        observation_horizon,
+        prediction_horizon,
+        device,
+        embedding_dimension,
+        batch_size,
+    ):
+        """Test encoder input with both latent and proprio tokens."""
+
+        # Enable proprioceptive features
+        observation_space.use_proprioceptive_data = True
+
+        # Features with both spatial and flat (proprio)
+        features = {
+            "rgb_left_features": torch.randn(batch_size, 2048, 7, 7, device=device),
+            "proprioceptive_features": torch.randn(batch_size, 128, device=device),
+        }
+
+        decoder = ACT(
+            input_keys=["rgb_left_features", "proprioceptive_features"],
+            action_space=action_space,
+            action_heads=action_heads,
+            observation_space=observation_space,
+            observation_horizon=observation_horizon,
+            prediction_horizon=prediction_horizon,
+            device=device,
+            embedding_dimension=embedding_dimension,
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            spatial_features = decoder._prepare_image_features(features)
+            flat_features = decoder._prepare_flat_features(features)
+
+        latent_embedding = torch.randn(batch_size, embedding_dimension, device=device)
+
+        # Prepare encoder input (both latent and proprio)
+        encoder_input, positional_encoding = decoder._prepare_encoder_input(
+            spatial_features,
+            latent_embedding=latent_embedding,
+            flat_features=flat_features,
+            batch_size=batch_size,
+        )
+
+        # Should prepend 2 tokens (latent + proprio): (2 + H*W, B, D)
+        expected_seq_len = 2 + 7 * 7  # 2 additional + spatial
+        assert encoder_input.shape[0] == expected_seq_len
+        assert encoder_input.shape[1] == batch_size
+        assert encoder_input.shape[2] == embedding_dimension
+
+        # Positional encoding should match
+        assert positional_encoding.shape[0] == expected_seq_len
+
+    def test_forward_with_proprio_features(
+        self,
+        action_space,
+        observation_space,
+        action_heads,
+        observation_horizon,
+        prediction_horizon,
+        device,
+        embedding_dimension,
+        batch_size,
+        actions_dict,
+    ):
+        """Test full forward pass with proprioceptive features."""
+        # Enable proprioceptive features
+        observation_space.use_proprioceptive_data = True
+
+        # Features with both spatial and flat (proprio)
+        features = {
+            "rgb_left_features": torch.randn(batch_size, 2048, 7, 7, device=device),
+            "rgb_right_features": torch.randn(batch_size, 2048, 7, 7, device=device),
+            "proprioceptive_features": torch.randn(batch_size, 128, device=device),
+        }
+
+        decoder = ACT(
+            input_keys=["rgb_left_features", "rgb_right_features", "proprioceptive_features"],
+            action_space=action_space,
+            action_heads=action_heads,
+            observation_space=observation_space,
+            observation_horizon=observation_horizon,
+            prediction_horizon=prediction_horizon,
+            device=device,
+            embedding_dimension=embedding_dimension,
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            # Training forward
+            predictions = decoder(features, actions=actions_dict)
+
+        # Check all action predictions exist
+        assert POSITION_ACTION_KEY in predictions
+        assert ORIENTATION_ACTION_KEY in predictions
+        assert GRIPPER_ACTION_KEY in predictions
+
+        # Check shapes
+        assert predictions[POSITION_ACTION_KEY].shape == (
+            batch_size, prediction_horizon, action_space.position_dim
+        )
+        assert predictions[ORIENTATION_ACTION_KEY].shape == (
+            batch_size, prediction_horizon, action_space.orientation_dim
+        )
+        assert predictions[GRIPPER_ACTION_KEY].shape == (
+            batch_size, prediction_horizon, action_space.gripper_dim
+        )
+
+    def test_forward_with_latent_and_proprio(
+        self,
+        action_space,
+        observation_space,
+        action_heads,
+        observation_horizon,
+        prediction_horizon,
+        device,
+        embedding_dimension,
+        batch_size,
+        actions_dict,
+    ):
+        """Test full forward pass with both latent and proprioceptive features."""
+
+        # Enable proprioceptive features
+        observation_space.use_proprioceptive_data = True
+
+        # Features with spatial, flat (proprio), and latent
+        features = {
+            "rgb_left_features": torch.randn(batch_size, 2048, 7, 7, device=device),
+            "proprioceptive_features": torch.randn(batch_size, 128, device=device),
+            LATENT_KEY: torch.randn(batch_size, embedding_dimension, device=device),
+            MU_KEY: torch.randn(batch_size, 32, device=device),
+            LOGVAR_KEY: torch.randn(batch_size, 32, device=device),
+        }
+
+        decoder = ACT(
+            input_keys=["rgb_left_features", "proprioceptive_features"],
+            action_space=action_space,
+            action_heads=action_heads,
+            observation_space=observation_space,
+            observation_horizon=observation_horizon,
+            prediction_horizon=prediction_horizon,
+            device=device,
+            embedding_dimension=embedding_dimension,
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            # Training forward with latent and proprio
+            predictions = decoder(features, actions=actions_dict)
+
+        # Check all action predictions exist
+        assert POSITION_ACTION_KEY in predictions
+        assert ORIENTATION_ACTION_KEY in predictions
+        assert GRIPPER_ACTION_KEY in predictions
+
+        # Decoder should preserve latent-related keys from algorithm
+        assert MU_KEY in predictions
+        assert LOGVAR_KEY in predictions
+
+        # Check shapes
+        assert predictions[POSITION_ACTION_KEY].shape == (
+            batch_size, prediction_horizon, action_space.position_dim
+        )
 
 
 @pytest.mark.unit

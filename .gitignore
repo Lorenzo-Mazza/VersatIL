@@ -145,3 +145,5 @@ dmypy.json
 
 uv.lock
 .venv*
+
+lightning_logs/

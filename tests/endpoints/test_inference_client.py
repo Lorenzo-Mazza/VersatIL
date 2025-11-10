@@ -152,6 +152,19 @@ class TestInferenceClientConfigLoading:
                 mock_policy.action_space = action_space
                 mock_policy.prediction_horizon = 16
 
+                # Mock normalizer for depth statistics
+                mock_depth_normalizer = Mock()
+                mock_depth_normalizer.params_dict = {
+                    'input_stats': {
+                        'min': torch.tensor(0.0),
+                        'max': torch.tensor(10.0)
+                    }
+                }
+                mock_normalizer = Mock()
+                mock_normalizer.__getitem__ = Mock(return_value=mock_depth_normalizer)
+                mock_policy.normalizer = mock_normalizer
+                mock_policy.set_tokenizer = Mock()
+
                 mock_model = Mock()
                 mock_model.policy = mock_policy
                 mock_model.eval = Mock()

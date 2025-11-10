@@ -1,0 +1,6 @@
+# FAST ACT Loss Configuration
+# Cross-entropy loss for tokenized actions
+
+_target_: refactoring.metrics.components.ActionTokenLoss
+ignore_index: 0  # Ignore padding tokens
+label_smoothing: 0.0  # Label smoothing factor

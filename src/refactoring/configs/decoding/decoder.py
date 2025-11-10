@@ -43,6 +43,63 @@ class ACTConfig(DecodingNetworkConfig):
     normalize_before: bool = False
 
 
+@dataclass
+class FastACTConfig(DecodingNetworkConfig):
+    """FAST Action Chunking Transformer for tokenized action prediction.
+
+    Reference: https://arxiv.org/abs/2501.09747
+
+    Extends ACT with discrete action tokenization:
+    - Outputs action_logits (B, horizon, vocab_size) during training
+    - Uses ActionTokenLoss with cross-entropy
+    - Detokenizes to continuous actions during inference
+
+    Note: Requires tokenizer to be set at runtime via set_tokenizer().
+    The vocab_size must match the tokenizer's vocabulary size (default 2048 for pretrained FAST).
+    """
+    _target_: str = "refactoring.models.decoding.decoders.factory.fast_act.FastACT"
+    vocab_size: int = 2048  # Pretrained FAST vocabulary size
+    embedding_dimension: int = 256
+    number_of_heads: int = 8
+    feedforward_dimension: int = 512
+    number_of_encoder_layers: int = 6
+    number_of_decoder_layers: int = 6
+    activation: str = ActivationFunction.RELU.value
+    dropout_rate: float = 0.1
+    normalize_before: bool = False
+
+
+@dataclass
+class FASTDecoderConfig(DecodingNetworkConfig):
+    """FAST Decoder for tokenized action prediction.
+
+    Reference: https://arxiv.org/abs/2501.09747
+
+    GPT-style autoregressive transformer specifically designed for FAST tokenization:
+    - Uses token embeddings and causal masking
+    - Supports variable-length action sequences
+    - Teacher forcing during training
+    - Autoregressive generation during inference
+    - Cross-attention to visual features
+
+    Note: Requires tokenizer to be set at runtime via set_tokenizer().
+    The vocab_size must match the tokenizer's vocabulary size (default 2048 for pretrained FAST).
+    """
+    _target_: str = "refactoring.models.decoding.decoders.factory.fast_decoder.FASTDecoder"
+    vocab_size: int = 2048  # Pretrained FAST vocabulary size
+    max_seq_len: int = 512  # Maximum sequence length for positional encoding
+    embedding_dimension: int = 256
+    number_of_heads: int = 8
+    feedforward_dimension: int = 512
+    number_of_encoder_layers: int = 6
+    number_of_decoder_layers: int = 6
+    activation: str = ActivationFunction.RELU.value
+    dropout_rate: float = 0.1
+    normalize_before: bool = False
+    eos_token_id: int = 1  # End of sequence token
+    pad_token_id: int = 0  # Padding token (default 0)
+
+
 # TODO: Implement these decoder architectures
 # @dataclass
 # class UNetConfig(DecodingNetworkConfig):

@@ -22,7 +22,9 @@ from refactoring.data.constants import (
     Cameras,
     GripperType,
 )
-from refactoring.models.decoding.constants import BINARY_LOGITS_KEY, LATENT_KEY, LOGVAR_KEY, MU_KEY, PRIOR_PREDICTION_KEY, PRIOR_TARGET_KEY
+from refactoring.models.decoding.constants import (ACTION_TOKENS_KEY, BINARY_LOGITS_KEY, LATENT_KEY, LOGVAR_KEY, MU_KEY,
+                                                   PRIOR_PREDICTION_KEY, PRIOR_TARGET_KEY)
+
 from refactoring.data.normalize.normalizer import LinearNormalizer
 from refactoring.metrics.base import BaseLoss, LossOutput
 from refactoring.models.decoding.algorithm.base import DecodingAlgorithm
@@ -163,9 +165,12 @@ class Policy(nn.Module):
                 valid_auxiliary_keys.add(PRIOR_TARGET_KEY)  # Prior targets (for learned priors)
 
         # Free Transformer binary logits (for discrete latent codes)
-        decoder_class_name = self.decoder.__class__.__name__
-        if decoder_class_name == "FreeTransformer":
-            valid_auxiliary_keys.add(BINARY_LOGITS_KEY)  # Binary mapper logits
+        if self.decoder.__class__.__name__ == "FreeTransformer":
+            valid_auxiliary_keys.add(BINARY_LOGITS_KEY)
+
+        # Action tokens for tokenized action decoders
+        if self.decoder.supports_tokenized_actions:
+            valid_auxiliary_keys.add(ACTION_TOKENS_KEY)
 
         # Get all required keys from loss module
         required_keys = self.loss_module.get_required_keys()

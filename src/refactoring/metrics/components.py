@@ -8,7 +8,7 @@ from refactoring.data.constants import (
     GRIPPER_ACTION_KEY,
     PHASE_LABEL_KEY,
     POSITION_ACTION_KEY,
-    GripperType,
+    GripperType, IS_PAD_KEY,
 )
 from refactoring.metrics.base import BaseLoss, LossOutput, reduce_loss_with_padding
 from refactoring.metrics.constants import (
@@ -20,7 +20,7 @@ from refactoring.metrics.constants import (
 from refactoring.models.decoding.constants import (
     PRIOR_PREDICTION_KEY,
     PRIOR_TARGET_KEY,
-    BINARY_LOGITS_KEY,
+    BINARY_LOGITS_KEY, ACTION_TOKENS_TARGET_KEY, ACTION_TOKENS_KEY,
 )
 
 
@@ -557,38 +557,36 @@ class PhaseClassificationLoss(BaseLoss):
 class ActionTokenLoss(BaseLoss):
     """Cross-entropy loss for tokenized actions.
 
-    This loss should be used when actions are tokenized into discrete tokens.
-    Applies cross-entropy loss to predict the correct token ID for each action chunk.
+    For tokenized decoders (e.g., FAST), expects predictions to contain:
+    - '{ACTION_TOKENS_KEY}': logits (B, horizon, vocab_size)
+    - '{ACTION_TOKENS_KEY}_target': ground truth token IDs (B, horizon)
+    - 'is_pad': optional padding mask (B, horizon)
+
+    The targets and is_pad parameters are ignored.
     """
 
     def __init__(
         self,
-        action_keys: list[str],
-        ignore_index: int = -100,
+        ignore_index: int = 0,
         label_smoothing: float = 0.0,
-        per_key_weights: dict[str, float] | None = None,
     ):
         """Initialize action token loss.
 
         Args:
-            action_keys: List of action keys to compute loss for
             ignore_index: Index to ignore in loss computation (for padding)
             label_smoothing: Label smoothing factor [0, 1]
-            per_key_weights: Optional dictionary of per-key weights
         """
         super().__init__()
-        self.action_keys = action_keys
         self.ignore_index = ignore_index
         self.label_smoothing = label_smoothing
-        self.per_key_weights = per_key_weights or {}
 
     def get_required_keys(self) -> set[str]:
-        """Get required target keys for action token loss.
+        """Get required keys from predictions.
 
         Returns:
-            Set containing the action keys
+            Empty set since target ground-truth tokens are in predictions
         """
-        return set(self.action_keys)
+        return {ACTION_TOKENS_KEY}
 
     def forward(
         self,
@@ -599,52 +597,45 @@ class ActionTokenLoss(BaseLoss):
         """Compute cross-entropy loss for tokenized actions.
 
         Args:
-            predictions: Dictionary with action logits (B, horizon, vocab_size)
-            targets: Dictionary with token IDs (B, horizon)
-            is_pad: Optional padding mask (B, horizon)
+            predictions: Dictionary containing:
+                - '{ACTION_TOKENS_KEY}': logits (B, horizon, vocab_size)
+                - '{ACTION_TOKENS_KEY}_target': ground truth token IDs (B, horizon)
+                - 'is_pad': optional padding mask (B, horizon)
+            targets: Ignored (kept for interface compatibility)
+            is_pad: Ignored (kept for interface compatibility)
 
         Returns:
             LossOutput with per-key cross-entropy losses
         """
-        device = next(iter(predictions.values())).device
-        total_loss = torch.tensor(0.0, device=device)
         component_losses = {}
-
-        for key in self.action_keys:
-            if key not in predictions or key not in targets:
-                raise ValueError(
-                    f"Predictions and targets must contain key '{key}' for ActionTokenLoss."
-                )
-
-            pred_logits = predictions[key]
-            target_tokens = targets[key]
-
-            if target_tokens.dim() == 3 and target_tokens.shape[-1] == 1:
-                target_tokens = target_tokens.squeeze(-1)
-
-            batch_size, horizon, vocab_size = pred_logits.shape
-            pred_flat = pred_logits.reshape(-1, vocab_size)
-            target_flat = target_tokens.reshape(-1).long()
-
-            if is_pad is not None:
-                is_pad_flat = is_pad.reshape(-1)
-                target_flat = target_flat.clone()
-                target_flat[is_pad_flat] = self.ignore_index
-
-            ce_loss = F.cross_entropy(
-                pred_flat,
-                target_flat,
-                ignore_index=self.ignore_index,
-                label_smoothing=self.label_smoothing,
+        # Get padding mask from predictions if available
+        token_pad_mask = predictions.get(IS_PAD_KEY, None)
+        if ACTION_TOKENS_KEY not in predictions or ACTION_TOKENS_TARGET_KEY not in predictions:
+            raise ValueError(
+                f"Predictions must contain keys '{ACTION_TOKENS_TARGET_KEY, ACTION_TOKENS_KEY}' for ActionTokenLoss."
             )
+        pred_logits = predictions[ACTION_TOKENS_KEY]
+        target_tokens = predictions[ACTION_TOKENS_TARGET_KEY]
+        if target_tokens.dim() == 3 and target_tokens.shape[-1] == 1:
+            target_tokens = target_tokens.squeeze(-1)
 
-            component_losses[f"{key}_cross_entropy"] = ce_loss
+        batch_size, horizon, vocab_size = pred_logits.shape
+        pred_flat = pred_logits.reshape(-1, vocab_size)
+        target_flat = target_tokens.reshape(-1).long()
+        if token_pad_mask is not None:
+            is_pad_flat = token_pad_mask.reshape(-1)
+            target_flat = target_flat.clone()
+            target_flat[is_pad_flat] = self.ignore_index
 
-            weight = self.per_key_weights.get(key, 1.0)
-            total_loss = total_loss + weight * ce_loss
-
+        ce_loss = F.cross_entropy(
+            pred_flat,
+            target_flat,
+            ignore_index=self.ignore_index,
+            label_smoothing=self.label_smoothing,
+        )
+        component_losses[f"{ACTION_TOKENS_KEY}_cross_entropy"] = ce_loss
         return LossOutput(
-            total_loss=total_loss,
+            total_loss=ce_loss,
             component_losses=component_losses,
             metadata={},
         )

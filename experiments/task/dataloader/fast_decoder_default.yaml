@@ -1,0 +1,42 @@
+
+batch_size: 128
+num_workers: 16
+shuffle: true
+
+# Image dimensions
+image_height: 270
+image_width: 480
+
+# Normalization
+image_norm_type: zero_to_one
+depth_norm_type: zero_to_one
+kinematics_norm_type: gaussian
+winsorize_depth: true
+
+# Tokenization (required for FAST)
+tokenization:
+  enabled: true
+  tokenize_actions: true
+  use_pretrained_action_tokenizer: true
+  tokenize_proprio_obs: false
+  proprio_num_bins: 256
+
+# Augmentations
+color_augmentation:
+  _target_: refactoring.configs.task.augmentations.ColorAugmentationPipeline
+spatial_augmentation: null
+rotation_augmentation: null
+
+# Sampling strategy
+sampling_mode: overlapping
+
+skip_initial_episode_steps: 5
+downsample_factor: 1
+center_episode_start: false
+
+# Action shifting
+action_backward_shift: 1
+
+# Train/val split
+val_ratio: 0.1
+total_ratio: 1.0

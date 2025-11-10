@@ -215,6 +215,11 @@ class ActionDecoder(nn.Module, ABC):
         Raises:
             ValueError: If validation fails
         """
+        # Skip validation for tokenized action decoders
+        # They use special heads like 'action_logits' instead of standard action heads
+        if self.supports_tokenized_actions:
+            return
+
         configured_heads = set(self.action_heads.keys())
 
         # Build required heads based on action space

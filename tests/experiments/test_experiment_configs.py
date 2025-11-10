@@ -12,6 +12,7 @@ This test suite validates that all experiment configurations:
 from pathlib import Path
 from typing import Dict
 
+import numpy as np
 import pytest
 import torch
 from hydra import compose, initialize_config_dir
@@ -19,6 +20,7 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
 from refactoring.data.constants import (
+    ACTION_KEY,
     Cameras,
     POSITION_ACTION_KEY,
     GRIPPER_ACTION_KEY,
@@ -26,6 +28,7 @@ from refactoring.data.constants import (
     IS_PAD_KEY,
 )
 from refactoring.data.normalize.normalizer import LinearNormalizer
+from refactoring.data.tokenize.tokenizer import Tokenizer
 from refactoring.models.policy import Policy
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -77,6 +80,39 @@ def create_dummy_normalizer(config: DictConfig) -> LinearNormalizer:
         normalizer[GRIPPER_ACTION_KEY] = SingleFieldLinearNormalizer.create_identity()
 
     return normalizer
+
+
+def create_dummy_tokenizer(config: DictConfig, device: str = 'cpu') -> Tokenizer | None:
+    """Create a dummy tokenizer if the config requires action tokenization.
+
+    Args:
+        config: Experiment configuration
+        device: Device for tokenizer
+
+    Returns:
+        Tokenizer if tokenization is enabled, None otherwise
+    """
+    if not hasattr(config.task.dataloader, 'tokenization'):
+        return None
+
+    tokenization_config = config.task.dataloader.tokenization
+    if not tokenization_config.enabled or not tokenization_config.tokenize_actions:
+        return None
+
+    action_space = instantiate(config.task.action_space)
+    prediction_horizon = config.task.prediction_horizon
+    total_action_dim = action_space.get_total_action_dim()
+
+    tokenizer_obj = Tokenizer(device=torch.device(device))
+    dummy_action_chunks = np.random.randn(100, prediction_horizon, total_action_dim) * 2 - 1
+    tokenizer_obj.fit_action_tokenizer(
+        action_chunks=dummy_action_chunks,
+        use_pretrained_weights=tokenization_config.use_pretrained_action_tokenizer,
+    )
+    sample_actions = torch.randn(1, prediction_horizon, total_action_dim, device=device)
+    tokenizer_obj.tokenize({ACTION_KEY: sample_actions})
+
+    return tokenizer_obj
 
 
 def create_dummy_batch(config: DictConfig, batch_size: int = 2) -> Dict[str, torch.Tensor]:
@@ -300,6 +336,9 @@ class TestPolicyCreation:
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
             policy.set_normalizer(normalizer)
+            tokenizer = create_dummy_tokenizer(cfg, device='cpu')
+            if tokenizer is not None:
+                policy.set_tokenizer(tokenizer)
             assert policy is not None
             assert isinstance(policy, Policy)
 
@@ -314,6 +353,9 @@ class TestPolicyCreation:
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
             policy.set_normalizer(normalizer)
+            tokenizer = create_dummy_tokenizer(cfg, device='cpu')
+            if tokenizer is not None:
+                policy.set_tokenizer(tokenizer)
             assert hasattr(policy, 'encoding_pipeline')
             assert hasattr(policy, 'decoder')
             assert hasattr(policy, 'algorithm')
@@ -332,6 +374,9 @@ class TestPolicyCreation:
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
             policy.set_normalizer(normalizer)
+            tokenizer = create_dummy_tokenizer(cfg, device='cpu')
+            if tokenizer is not None:
+                policy.set_tokenizer(tokenizer)
 
             available_features = set(policy.encoding_pipeline.get_features_to_dimensions().keys())
             required_features = set(policy.decoder.decoder_input.keys)
@@ -359,6 +404,9 @@ class TestPolicyForwardPass:
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
             policy.set_normalizer(normalizer)
+            tokenizer = create_dummy_tokenizer(cfg, device='cpu')
+            if tokenizer is not None:
+                policy.set_tokenizer(tokenizer)
             policy.train()
 
             batch = create_dummy_batch(cfg, batch_size=2)
@@ -367,7 +415,10 @@ class TestPolicyForwardPass:
             try:
                 output = policy(batch)
                 assert output is not None
-                assert POSITION_ACTION_KEY in output or 'position' in output
+                # For tokenized decoders, check for action_tokens; otherwise check for position
+                has_tokenized_output = 'action_tokens' in output
+                has_continuous_output = POSITION_ACTION_KEY in output or 'position' in output
+                assert has_tokenized_output or has_continuous_output, f"Output keys: {output.keys()}"
             except Exception as e:
                 pytest.fail(f"Forward pass failed for {experiment_name}: {e}")
 
@@ -382,6 +433,9 @@ class TestPolicyForwardPass:
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
             policy.set_normalizer(normalizer)
+            tokenizer = create_dummy_tokenizer(cfg, device='cpu')
+            if tokenizer is not None:
+                policy.set_tokenizer(tokenizer)
             policy.eval()
 
             batch = create_dummy_batch(cfg, batch_size=1)
@@ -405,6 +459,9 @@ class TestPolicyForwardPass:
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
             policy.set_normalizer(normalizer)
+            tokenizer = create_dummy_tokenizer(cfg, device='cpu')
+            if tokenizer is not None:
+                policy.set_tokenizer(tokenizer)
             policy.train()
 
             batch = create_dummy_batch(cfg, batch_size=2)
@@ -435,6 +492,9 @@ class TestGradientFlow:
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
             policy.set_normalizer(normalizer)
+            tokenizer = create_dummy_tokenizer(cfg, device='cpu')
+            if tokenizer is not None:
+                policy.set_tokenizer(tokenizer)
             policy.train()
 
             batch = create_dummy_batch(cfg, batch_size=2)
@@ -465,6 +525,9 @@ class TestGradientFlow:
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
             policy.set_normalizer(normalizer)
+            tokenizer = create_dummy_tokenizer(cfg, device='cpu')
+            if tokenizer is not None:
+                policy.set_tokenizer(tokenizer)
             policy.train()
 
             optimizer = torch.optim.Adam(policy.parameters(), lr=1e-4)

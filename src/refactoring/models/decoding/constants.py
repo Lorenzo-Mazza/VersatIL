@@ -82,3 +82,8 @@ BINARY_LOGITS_KEY = "binary_logits"  # Binary mapper logits for KL divergence
 
 # This key is used to store state features in the algorithm outputs for computing OT loss.
 STATE_FEATURE_KEYS = "state_features"
+
+# Action logits and tokens for tokenizers
+ACTION_LOGITS_KEY = "action_logits"
+ACTION_TOKENS_KEY = "action_tokens"
+ACTION_TOKENS_TARGET_KEY = "action_tokens_target"  # Ground truth token IDs for loss

@@ -12,6 +12,7 @@ from refactoring.data.constants import (
 from refactoring.models.decoding.constants import (
     PRIOR_PREDICTION_KEY,
     PRIOR_TARGET_KEY,
+    ACTION_TOKENS_KEY,
 )
 from refactoring.metrics.components import (
     RegressionLoss,
@@ -20,6 +21,7 @@ from refactoring.metrics.components import (
     TrajectoryLengthLoss,
     PhaseClassificationLoss,
     PriorDenoisingLoss,
+    ActionTokenLoss,
 )
 from refactoring.metrics.constants import MetricKey
 
@@ -272,3 +274,138 @@ class TestPriorDenoisingLoss:
         assert loss_output.component_losses[MetricKey.PRIOR_DENOISING_LOSS.value].item() == pytest.approx(
             0.0, abs=1e-6
         )
+
+
+class TestActionTokenLoss:
+    def test_reads_targets_from_predictions(self, device, batch_size, horizon):
+        """Test that ActionTokenLoss reads ground truth tokens from predictions dict."""
+        vocab_size = 1024
+        loss_fn = ActionTokenLoss(action_keys=[ACTION_TOKENS_KEY], ignore_index=-100)
+
+        predictions = {
+            ACTION_TOKENS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
+            f"{ACTION_TOKENS_KEY}_target": torch.randint(0, vocab_size, (batch_size, horizon), device=device),
+        }
+        targets = {}
+
+        loss_output = loss_fn(predictions, targets, is_pad=None)
+
+        assert loss_output.total_loss.item() >= 0
+        assert f"{ACTION_TOKENS_KEY}_cross_entropy" in loss_output.component_losses
+
+    def test_reads_padding_from_predictions(self, device, batch_size, horizon):
+        """Test that ActionTokenLoss uses is_pad from predictions dict."""
+        vocab_size = 1024
+        loss_fn = ActionTokenLoss(action_keys=[ACTION_TOKENS_KEY], ignore_index=-100)
+
+        target_tokens = torch.randint(0, vocab_size, (batch_size, horizon), device=device)
+        is_pad = torch.zeros(batch_size, horizon, dtype=torch.bool, device=device)
+        is_pad[:, horizon // 2:] = True
+
+        predictions = {
+            ACTION_TOKENS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
+            f"{ACTION_TOKENS_KEY}_target": target_tokens,
+            "is_pad": is_pad,
+        }
+        targets = {}
+
+        loss_output = loss_fn(predictions, targets, is_pad=None)
+
+        assert loss_output.total_loss.item() >= 0
+
+    def test_ignores_targets_parameter(self, device, batch_size, horizon):
+        """Test that ActionTokenLoss ignores the targets parameter."""
+        vocab_size = 1024
+        loss_fn = ActionTokenLoss(action_keys=[ACTION_TOKENS_KEY], ignore_index=-100)
+
+        predictions = {
+            ACTION_TOKENS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
+            f"{ACTION_TOKENS_KEY}_target": torch.randint(0, vocab_size, (batch_size, horizon), device=device),
+        }
+        dummy_targets = {
+            ACTION_TOKENS_KEY: torch.randint(0, vocab_size, (batch_size, horizon), device=device)
+        }
+
+        loss_output = loss_fn(predictions, dummy_targets, is_pad=None)
+
+        assert loss_output.total_loss.item() >= 0
+
+    def test_ignores_is_pad_parameter(self, device, batch_size, horizon):
+        """Test that ActionTokenLoss ignores the is_pad parameter."""
+        vocab_size = 1024
+        loss_fn = ActionTokenLoss(action_keys=[ACTION_TOKENS_KEY], ignore_index=-100)
+
+        is_pad_in_predictions = torch.zeros(batch_size, horizon, dtype=torch.bool, device=device)
+        is_pad_in_predictions[:, horizon // 2:] = True
+
+        predictions = {
+            ACTION_TOKENS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
+            f"{ACTION_TOKENS_KEY}_target": torch.randint(0, vocab_size, (batch_size, horizon), device=device),
+            "is_pad": is_pad_in_predictions,
+        }
+
+        dummy_is_pad = torch.ones(batch_size, horizon, dtype=torch.bool, device=device)
+
+        loss_output = loss_fn(predictions, {}, is_pad=dummy_is_pad)
+
+        assert loss_output.total_loss.item() >= 0
+
+    def test_missing_logits_key_raises_error(self, device, batch_size, horizon):
+        """Test that error is raised when logits key is missing."""
+        vocab_size = 1024
+        loss_fn = ActionTokenLoss(action_keys=[ACTION_TOKENS_KEY], ignore_index=-100)
+
+        predictions = {
+            f"{ACTION_TOKENS_KEY}_target": torch.randint(0, vocab_size, (batch_size, horizon), device=device),
+        }
+        targets = {}
+
+        with pytest.raises(ValueError, match="must contain key 'action_tokens' \\(logits\\)"):
+            loss_fn(predictions, targets)
+
+    def test_missing_target_key_raises_error(self, device, batch_size, horizon):
+        """Test that error is raised when target key is missing."""
+        vocab_size = 1024
+        loss_fn = ActionTokenLoss(action_keys=[ACTION_TOKENS_KEY], ignore_index=-100)
+
+        predictions = {
+            ACTION_TOKENS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
+        }
+        targets = {}
+
+        with pytest.raises(ValueError, match="must contain key 'action_tokens_target' \\(ground truth tokens\\)"):
+            loss_fn(predictions, targets)
+
+    def test_padding_reduces_loss(self, device, batch_size, horizon):
+        """Test that padding mask correctly reduces loss."""
+        vocab_size = 1024
+        loss_fn = ActionTokenLoss(action_keys=[ACTION_TOKENS_KEY], ignore_index=-100)
+
+        logits = torch.randn(batch_size, horizon, vocab_size, device=device)
+        target_tokens = torch.randint(0, vocab_size, (batch_size, horizon), device=device)
+
+        predictions_no_pad = {
+            ACTION_TOKENS_KEY: logits.clone(),
+            f"{ACTION_TOKENS_KEY}_target": target_tokens.clone(),
+        }
+        loss_no_pad = loss_fn(predictions_no_pad, {}, is_pad=None)
+
+        is_pad = torch.zeros(batch_size, horizon, dtype=torch.bool, device=device)
+        is_pad[:, horizon // 2:] = True
+
+        predictions_with_pad = {
+            ACTION_TOKENS_KEY: logits.clone(),
+            f"{ACTION_TOKENS_KEY}_target": target_tokens.clone(),
+            "is_pad": is_pad,
+        }
+        loss_with_pad = loss_fn(predictions_with_pad, {}, is_pad=None)
+
+        assert loss_with_pad.total_loss.item() < loss_no_pad.total_loss.item()
+
+    def test_get_required_keys_returns_empty_set(self):
+        """Test that get_required_keys returns empty set since targets are in predictions."""
+        loss_fn = ActionTokenLoss(action_keys=[ACTION_TOKENS_KEY])
+
+        required_keys = loss_fn.get_required_keys()
+
+        assert required_keys == set()

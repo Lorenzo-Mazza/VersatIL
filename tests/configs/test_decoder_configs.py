@@ -1,17 +1,20 @@
 import inspect
+from pathlib import Path
 
 import pytest
+from hydra import compose, initialize_config_dir
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
 from refactoring.configs.decoding.action_head import ActionHeadConfig
 from refactoring.configs.decoding.decoder import (
     ACTConfig,
+    FASTDecoderConfig,
     MixtureOfExpertsDecoderConfig,
 )
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
 from refactoring.models.decoding.constants import MoERoutingType
 from refactoring.models.decoding.decoders.factory.act import ACT
+from refactoring.models.decoding.decoders.factory.fast_decoder import FASTDecoder
 from refactoring.models.layers.activation import ActivationFunction
 
 
@@ -56,6 +59,70 @@ class TestACTConfig:
             input_keys=["rgb_features"],
         )
         assert config.embedding_dimension == 512
+
+
+@pytest.mark.unit
+class TestFASTDecoderConfig:
+    def test_config_has_correct_target(self):
+        config = FASTDecoderConfig(
+            action_heads={
+                "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
+            },
+            input_keys=["rgb_features"],
+        )
+        assert config._target_ == "refactoring.models.decoding.decoders.factory.fast_decoder.FASTDecoder"
+
+    def test_config_params_match_class_signature(self):
+        sig = inspect.signature(FASTDecoder.__init__)
+        params = set(sig.parameters.keys()) - {"self"}
+        config = FASTDecoderConfig(
+            action_heads={
+                "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
+            },
+            input_keys=["rgb_features"],
+        )
+        config_dict = OmegaConf.structured(config)
+        config_keys = set(config_dict.keys()) - {"_target_", "action_heads"}
+        assert config_keys.issubset(params), f"Extra keys: {config_keys - params}"
+
+    def test_default_activation_is_relu(self):
+        config = FASTDecoderConfig(
+            action_heads={
+                "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
+            },
+            input_keys=["rgb_features"],
+        )
+        assert config.activation == ActivationFunction.RELU.value
+
+    def test_default_embedding_dimension(self):
+        config = FASTDecoderConfig(
+            action_heads={
+                "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
+            },
+            input_keys=["rgb_features"],
+        )
+        assert config.embedding_dimension == 256
+
+    def test_default_vocab_size(self):
+        config = FASTDecoderConfig(
+            action_heads={
+                "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
+            },
+            input_keys=["rgb_features"],
+        )
+        assert config.vocab_size == 2048
+
+    def test_yaml_config_loads(self):
+        """Test that fast_decoder_default.yaml loads correctly via Hydra."""
+        project_root = Path(__file__).parent.parent.parent
+        decoder_config_dir = project_root / "experiments" / "policy" / "decoder"
+
+        with initialize_config_dir(config_dir=str(decoder_config_dir), version_base=None):
+            cfg = compose(config_name="fast_decoder_default")
+            assert cfg is not None
+            assert cfg._target_ == "refactoring.models.decoding.decoders.factory.fast_decoder.FASTDecoder"
+            assert cfg.vocab_size == 2048
+            assert cfg.embedding_dimension == 256
 
 
 @pytest.mark.unit

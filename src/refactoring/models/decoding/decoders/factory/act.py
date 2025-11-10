@@ -113,6 +113,9 @@ class ACT(ActionDecoder):
             warn_on_projection=False, # Don't warn for latent features.
             raise_on_mismatch=False,
         )
+        # Final projection for concatenated flat features to embedding_dimension
+        # Using LazyLinear since we don't know total flat feature dimension a priori
+        self.flat_feature_final_projection = nn.LazyLinear(self.embedding_dimension)
 
         self._build_transformer_components()
 
@@ -141,6 +144,10 @@ class ACT(ActionDecoder):
         # Learnable queries for action prediction (DETR-style)
         self.learnable_query = nn.Embedding(self.prediction_horizon, self.embedding_dimension)
 
+        # Learnable positional embeddings for additional tokens (latent + proprio)
+        # Index 0: latent, Index 1: proprio
+        self.additional_positional_encoding = nn.Embedding(2, self.embedding_dimension)
+
 
     def _prepare_flat_features(self, features: dict[str, torch.Tensor]) -> torch.Tensor | None:
         """Extract and project flat features (proprioceptive, language, etc.).
@@ -152,7 +159,7 @@ class ACT(ActionDecoder):
             features: Dictionary of encoded features
 
         Returns:
-            Concatenated flat features (B, total_embedding_dimension) or None if no flat features
+            Projected flat features (B, embedding_dimension) or None if no flat features
         """
         flat_features_dict = {}
         for key, feature in features.items():
@@ -167,10 +174,15 @@ class ACT(ActionDecoder):
                 flat_features_dict[key] = feature
         if len(flat_features_dict) == 0:
             return None
-        return self.flat_feature_projection.project_and_concatenate(
+
+        # First project each feature to embedding_dimension, then concatenate
+        concatenated = self.flat_feature_projection.project_and_concatenate(
             flat_features_dict,
             concatenation_dimension=-1,
         )
+
+        # Then project concatenated features back to embedding_dimension for use as single token
+        return self.flat_feature_final_projection(concatenated)
 
     def _prepare_image_features(self, features: dict[str, torch.Tensor]) -> torch.Tensor:
         """Collect and concatenate spatial features from encoder pipeline.
@@ -218,13 +230,18 @@ class ACT(ActionDecoder):
             self,
             spatial_features: torch.Tensor,
             latent_embedding: torch.Tensor | None,
+            flat_features: torch.Tensor | None,
             batch_size: int,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Prepare transformer encoder input from spatial features and optional latent.
+        """Prepare transformer encoder input from spatial features and optional latent/proprio.
+
+        Following original DETR implementation: prepends latent and/or proprio tokens
+        to encoder input with learnable positional embeddings.
 
         Args:
             spatial_features: Concatenated spatial features (B, C, H, W)
             latent_embedding: Optional VAE latent embedding (B, embedding_dimension)
+            flat_features: Optional flat features like proprio (B, embedding_dimension)
             batch_size: Batch size
 
         Returns:
@@ -245,22 +262,31 @@ class ACT(ActionDecoder):
             .unsqueeze(1)
             .repeat(1, batch_size, 1)
         )
-        # Optionally prepend token for latent variable z if using VAE
-        if latent_embedding is not None:
-            latent_token = latent_embedding.unsqueeze(0)  # (1, B, embedding_dimension)
-            encoder_input = torch.cat([latent_token, flattened_features], dim=0)
 
-            # Create positional encoding for latent token (zeros)
-            latent_pos = torch.zeros(
-                1, batch_size, self.embedding_dimension, device=self.device
-            )
-            positional_encoding_with_latent = torch.cat(
-                [latent_pos, positional_encoding_flat], dim=0
-            )
-            return encoder_input, positional_encoding_with_latent
+        # Prepare learnable positional embeddings for additional tokens
+        additional_positional_encoding = self.additional_positional_encoding.weight.unsqueeze(1).repeat(1, batch_size, 1)  # (2, B, D)
+
+        # Prepend latent and/or proprio tokens
+        if flat_features is None:
+            if latent_embedding is not None:
+                # Only latent: prepend 1 token
+                additional_input = latent_embedding.unsqueeze(0)  # (1, B, D)
+                positional_encoding = torch.cat([additional_positional_encoding[0].unsqueeze(0), positional_encoding_flat], dim=0)
+            else:
+                # No additional tokens
+                return flattened_features, positional_encoding_flat
         else:
-            # No VAE: use spatial features directly
-            return flattened_features, positional_encoding_flat
+            if latent_embedding is not None:
+                # Both latent and proprio: prepend 2 tokens
+                additional_input = torch.stack([latent_embedding, flat_features], dim=0)  # (2, B, D)
+                positional_encoding = torch.cat([additional_positional_encoding, positional_encoding_flat], dim=0)
+            else:
+                # Only proprio: prepend 1 token
+                additional_input = flat_features.unsqueeze(0)  # (1, B, D)
+                positional_encoding = torch.cat([additional_positional_encoding[1].unsqueeze(0), positional_encoding_flat], dim=0)
+
+        encoder_input = torch.cat([additional_input, flattened_features], dim=0)
+        return encoder_input, positional_encoding
 
     def _decode_actions(
             self,
@@ -341,9 +367,10 @@ class ACT(ActionDecoder):
             if k not in {LATENT_KEY, MU_KEY, LOGVAR_KEY}
         }
         spatial_features = self._prepare_image_features(observation_features)
+        flat_features = self._prepare_flat_features(observation_features)
 
         encoder_input, positional_encoding = self._prepare_encoder_input(
-            spatial_features, latent_embedding, batch_size
+            spatial_features, latent_embedding, flat_features, batch_size
         )
         action_embeddings = self._decode_actions(
             encoder_input, positional_encoding, batch_size
