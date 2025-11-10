@@ -98,6 +98,9 @@ class FASTDecoderConfig(DecodingNetworkConfig):
     normalize_before: bool = False
     eos_token_id: int = 1  # End of sequence token
     pad_token_id: int = 0  # Padding token (default 0)
+    deterministic: bool = True  # If True, use greedy decoding during inference
+    temperature: float = 1.0  # Sampling temperature for stochastic decoding
+    learnable_temperature: bool = True  # If True, make temperature a learnable parameter
 
 
 # TODO: Implement these decoder architectures

@@ -77,6 +77,9 @@ class FASTDecoder(ActionDecoder):
         normalize_before: bool = False,
         eos_token_id: int = 1,
         pad_token_id: int = 0,
+        temperature: float = 1.0,
+        learnable_temperature: bool = False,
+        deterministic: bool = True,
     ):
         """Initialize FAST decoder.
 
@@ -99,12 +102,20 @@ class FASTDecoder(ActionDecoder):
             normalize_before: Use pre-normalization
             eos_token_id: End of sequence token ID
             pad_token_id: Padding token ID
+            temperature: Initial temperature for sampling (not used in greedy decoding)
+            learnable_temperature: If True, make temperature a learnable parameter
+            deterministic: If True, use greedy decoding during inference
         """
         self.vocab_size = vocab_size
         self.max_seq_len = max_seq_len
         self.eos_token_id = eos_token_id
         self.pad_token_id = pad_token_id
         self.embedding_dimension = embedding_dimension
+        self.temperature = nn.Parameter(
+            torch.tensor(temperature, dtype=torch.float32),
+            requires_grad=learnable_temperature,
+        )
+        self.deterministic = deterministic
 
         action_heads = {
             ACTION_LOGITS_KEY: ActionHead(
@@ -503,10 +514,21 @@ class FASTDecoder(ActionDecoder):
 
             head = self.action_heads[ACTION_LOGITS_KEY]
             logits = head(decoder_output[:, -1:, :])  # (B, 1, vocab_size)
-
-            next_token = torch.argmax(logits, dim=-1)  # (B, 1)
-
+            logits_scaled = logits / self.temperature.clamp(min=0.01)  # Prevent division by zero
+            probs = torch.softmax(logits_scaled, dim=-1)  # (B, 1, vocab_size)
+            if self.deterministic:
+                next_token = torch.argmax(logits, dim=-1)  # (B, 1) # Deterministic greedy decoding
+            else:
+                next_token = torch.multinomial(probs.squeeze(1), num_samples=1)  # (B, 1) - stochastic sampling
             generated_tokens = torch.cat([generated_tokens, next_token], dim=1)
+            # Add early stopping check
+            with torch.no_grad():
+                detokenized_actions = self._detokenize_predictions(generated_tokens)
+                # Take min over batch
+                decoded_lengths = [v.shape[1] for v in detokenized_actions.values()]
+                min_decoded_len = min(decoded_lengths) if decoded_lengths else 0
+                if min_decoded_len >= self.prediction_horizon:
+                    break
 
             if (next_token == self.eos_token_id).all():
                 break
@@ -548,7 +570,7 @@ class FASTDecoder(ActionDecoder):
             valid_actions_batch = valid_actions.unsqueeze(0)
             tokens_dict = self.tokenizer.tokenize({ACTION_KEY: valid_actions_batch})
             tokens = tokens_dict[ACTION_KEY][0]
-            # Add EOS token only (FAST paper doesn't use BOS)
+            # Add EOS token only
             tokens = tokens + [self.eos_token_id]
             tokens_list_of_lists.append(tokens)
 
