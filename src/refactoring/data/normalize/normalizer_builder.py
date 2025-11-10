@@ -335,8 +335,11 @@ class NormalizerBuilder:
                 action_keys.append(GRIPPER_ACTION_KEY)
             raw_actions = {k: v for k, v in raw_action_data.items() if k in action_keys}
             normalized_actions = normalizer.normalize(raw_actions)
+            # Convert torch tensors to numpy for tokenizer fitting
+            normalized_actions_np = {k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v
+                                      for k, v in normalized_actions.items()}
             action_chunks = self._create_action_chunks_for_tokenizer(
-                normalized_actions,
+                normalized_actions_np,
                 self.prediction_horizon
             )
             tokenizer.fit_action_tokenizer(
@@ -351,8 +354,11 @@ class NormalizerBuilder:
                 proprio_keys.append(GRIPPER_STATE_OBS_KEY)
             raw_proprio = {k: v for k, v in raw_proprio_data.items() if k in proprio_keys}
             normalized_proprio = normalizer.normalize(raw_proprio)
+            # Convert torch tensors to numpy for tokenizer fitting
+            normalized_proprio_np = {k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v
+                                      for k, v in normalized_proprio.items()}
             tokenizer.fit_proprio_tokenizer(
-                normalized_proprio,
+                normalized_proprio_np,
                 num_bins=self.tokenization_config.proprio_num_bins,
             )
 
