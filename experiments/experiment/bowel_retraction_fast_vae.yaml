@@ -1,0 +1,26 @@
+# Experiment configuration for FAST+VAE on bowel retraction
+
+name: ${now:%Y%m%d_%H%M%S}_br_cf_fast_vae
+seed: 42
+
+# Checkpoint and logging
+checkpoint_folder: /mnt/cluster/workspaces/mazzalore/bowel_retraction/
+resume_from: null
+
+# Weights & Biases
+use_wandb: true
+wandb_project: surg-il
+wandb_entity: null
+
+# Device
+device: cuda
+distributed: false
+
+# Training precision and performance
+precision: ${precision:FP16_MIXED}
+float32_matmul_precision: ${float32_matmul:MEDIUM}
+
+# Checkpointing and validation
+checkpoint_every: 50
+val_every: 1
+plot_every: 10

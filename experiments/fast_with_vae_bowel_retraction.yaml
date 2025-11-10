@@ -1,6 +1,7 @@
+# FAST Decoder with VAE Latent Variables for Bowel Retraction
 
 defaults:
-  - experiment: bowel_retraction_fast_decoder
+  - experiment: bowel_retraction_fast_vae
   - task/dataset_schema: bowel_retraction_v2
   - task/dataloader: fast_decoder_default
   - task/action_space: br_position_gripper_deltas_cf
@@ -8,14 +9,14 @@ defaults:
   - training: act_default
   - policy/encoding_pipeline: rgb_resnet18
   - policy/decoder: fast_decoder_default
-  - policy/algorithm: behavioral_cloning
-  - policy/loss: fast_decoder_default
+  - policy/algorithm: bc_with_vae_gaussian  # Use existing VAE config
+  - policy/loss: fast_decoder_with_vae
   - inference: act_default
   - _self_
 
 task:
-  observation_horizon: 1  # FAST Decoder uses single observation
-  prediction_horizon: 60  # Max sequence length for autoregressive generation
+  observation_horizon: 1
+  prediction_horizon: 60
 
 policy:
   _target_: refactoring.models.policy.Policy
@@ -24,7 +25,3 @@ policy:
   prediction_horizon: ${task.prediction_horizon}
   device: ${experiment.device}
   validate_loss_keys: true
-
-# Override specific parameters from defaults/command line if needed
-# For example, to use different batch size:
-# task.dataloader.batch_size: 64
