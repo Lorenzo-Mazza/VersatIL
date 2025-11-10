@@ -1,11 +1,15 @@
 """This module provides a wrapper around the FAST action tokenizer."""
 
 import logging
+import os
 from typing import Any
 
 import numpy as np
 import torch
 from transformers import AutoProcessor
+
+# Disable tokenizers parallelism to avoid fork warnings with DataLoader workers
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 
 class ActionTokenizer:
@@ -140,7 +144,6 @@ class ActionTokenizer:
         if not self._is_fitted:
             raise RuntimeError("Cannot save unfitted tokenizer")
         self.processor.save_pretrained(path)
-        logging.info(f"Saved tokenizer to {path}")
 
     def state_dict(self) -> dict[str, Any]:
         """Get state dictionary for serialization.

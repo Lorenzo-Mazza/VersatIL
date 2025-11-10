@@ -201,8 +201,6 @@ class Tokenizer:
         with open(path / "config.json", "w") as f:
             json.dump(metadata, f, indent=2)
 
-        logging.info(f"Saved tokenizer to {path}")
-
     @classmethod
     def from_pretrained(cls, path: str | Path, device: torch.device | None = None) -> "Tokenizer":
         """Load tokenizers from disk.
