@@ -429,37 +429,33 @@ class FASTDecoder(ActionDecoder):
         tokenized_actions = self._tokenize_actions(actions)
         token_ids = tokenized_actions[ACTION_TOKENS_KEY]  # (B, seq_len)
         batch_size, seq_len = token_ids.shape
-
-        token_embeddings = self.token_embedding(token_ids)  # (B, seq_len, D)
+        # Shift: Input embeds for tokens 0 to seq-2, to predict 1 to seq-1 (EOS)
+        input_ids = token_ids[:, :-1]
+        token_embeddings = self.token_embedding(input_ids)  # (B, seq_len-1, D)
         token_embeddings = self.dropout(token_embeddings)
-
         token_embeddings = self.token_positional_encoding(token_embeddings)
-
-        token_embeddings = token_embeddings.transpose(0, 1)  # (seq_len, B, D)
-
-        causal_mask = generate_causal_mask(seq_len, token_embeddings.device)
-
+        token_embeddings = token_embeddings.transpose(0, 1)  # (seq_len-1, B, D)
+        causal_mask = generate_causal_mask(seq_len - 1, token_embeddings.device)
         decoder_output = self.action_decoder(
             target=token_embeddings,
             memory=encoder_output,
             target_mask=causal_mask,
             memory_mask=None,
-            target_key_padding_mask=tokenized_actions.get(IS_PAD_KEY, None),
+            target_key_padding_mask=tokenized_actions.get(IS_PAD_KEY, None)[:, :-1] if IS_PAD_KEY in tokenized_actions else None,
             memory_key_padding_mask=None,
-        )  # (1, seq_len, B, D)
-
-        decoder_output = decoder_output[0].transpose(0, 1)  # (B, seq_len, D)
-
+        )  # (1, seq_len-1, B, D)
+        decoder_output = decoder_output[0].transpose(0, 1)  # (B, seq_len-1, D)
         head = self.action_heads[ACTION_LOGITS_KEY]
-        logits = head(decoder_output)  # (B, seq_len, vocab_size)
-
-        # Return logits as ACTION_TOKENS_KEY (what loss expects for predictions)
-        # and ground truth tokens for targets
+        logits = head(decoder_output)  # (B, seq_len-1, vocab_size)
+        # Shifted targets
+        target_ids = token_ids[:, 1:]
+        target_is_pad = tokenized_actions[IS_PAD_KEY][:, 1:] if IS_PAD_KEY in tokenized_actions else None
         return {
             ACTION_TOKENS_KEY: logits,  # Predictions: logits over vocabulary
-            f"{ACTION_TOKENS_KEY}_target": token_ids,  # Targets: ground truth token IDs
-            IS_PAD_KEY: tokenized_actions[IS_PAD_KEY]
+            f"{ACTION_TOKENS_KEY}_target": target_ids,  # Targets: ground truth token IDs (shifted)
+            IS_PAD_KEY: target_is_pad
         }
+
 
     def _forward_inference(
         self,
