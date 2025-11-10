@@ -12,6 +12,9 @@ image_norm_type: zero_to_one
 depth_norm_type: imagenet
 kinematics_norm_type: gaussian
 winsorize_depth: true
+depth_winsorize_quantiles: [0.01, 0.99]
+winsorize_kinematics: true
+kinematics_winsorize_quantiles: [0.01, 0.99]
 
 # Augmentations
 color_augmentation:

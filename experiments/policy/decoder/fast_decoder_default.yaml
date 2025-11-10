@@ -16,11 +16,11 @@ vocab_size: 2048
 max_seq_len: 512
 
 # Transformer architecture
-embedding_dimension: 256
+embedding_dimension: 512
 number_of_heads: 8
-feedforward_dimension: 512
-number_of_encoder_layers: 6  # For visual feature encoding
-number_of_decoder_layers: 6  # For autoregressive decoding
+feedforward_dimension: 3200
+number_of_encoder_layers: 4  # For visual feature encoding
+number_of_decoder_layers: 7  # For autoregressive decoding
 
 # Architecture details
 activation: relu
