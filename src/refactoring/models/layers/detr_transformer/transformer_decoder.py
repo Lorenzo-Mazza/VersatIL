@@ -117,10 +117,10 @@ def generate_causal_mask(size: int, device: torch.device) -> torch.Tensor:
         device: Device for tensor
 
     Returns:
-        Causal mask (size, size) with -inf for future positions
+        Causal mask (size, size) as boolean tensor where True means masked position
     """
-    mask = torch.triu(torch.ones(size, size, device=device), diagonal=1)
-    mask = mask.masked_fill(mask == 1, float("-inf"))
+    # Return boolean mask: True for positions that should be masked (future positions)
+    mask = torch.triu(torch.ones(size, size, device=device, dtype=torch.bool), diagonal=1)
     return mask
 
 
