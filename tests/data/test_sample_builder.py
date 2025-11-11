@@ -490,14 +490,14 @@ class TestGetActionSliceStart:
     def test_get_action_slice_start_no_shift(self, sample_builder):
         """Test action slice start without backward shift."""
         start = sample_builder._get_action_slice_start()
-        assert start == 2  # obs_horizon - 1 - action_backward_shift = 3 - 1 - 0
+        assert start == 2  # obs_horizon - 1 = 3 - 1
 
 
     def test_get_action_slice_start_with_shift(self, sample_builder):
         """Test action slice start with backward shift."""
         sample_builder.action_backward_shift = 1
         start = sample_builder._get_action_slice_start()
-        assert start == 1  # 3 - 1 - 1
+        assert start == 2  # obs_horizon - 1 = 3 - 1
 
 
     def test_get_action_slice_start_large_horizon(self, sample_builder):
@@ -506,77 +506,6 @@ class TestGetActionSliceStart:
         start = sample_builder._get_action_slice_start()
         assert start == 9  # 10 - 1 - 0
 
-
-class TestExtractSlice:
-    """Test slice extraction with edge padding."""
-
-
-    def test_extract_slice_normal(self, sample_builder):
-        """Test normal slice extraction without padding."""
-        array = np.arange(10, dtype=np.float32)
-        result = sample_builder.extract_slice(array, slice_start=2, slice_end=6)
-
-        expected = np.array([2, 3, 4, 5], dtype=np.float32)
-        np.testing.assert_array_equal(result, expected)
-
-
-    def test_extract_slice_with_pre_padding(self, sample_builder):
-        """Test slice extraction with pre-padding."""
-        array = np.arange(10, dtype=np.float32)
-        result = sample_builder.extract_slice(array, slice_start=-2, slice_end=2)
-
-        # Should pad beginning with array[0]
-        expected = np.array([0, 0, 0, 1], dtype=np.float32)
-        np.testing.assert_array_equal(result, expected)
-
-
-    def test_extract_slice_with_post_padding(self, sample_builder):
-        """Test slice extraction with post-padding."""
-        array = np.arange(10, dtype=np.float32)
-        result = sample_builder.extract_slice(array, slice_start=8, slice_end=12)
-
-        # Should pad end with array[-1]
-        expected = np.array([8, 9, 9, 9], dtype=np.float32)
-        np.testing.assert_array_equal(result, expected)
-
-
-    def test_extract_slice_with_both_padding(self, sample_builder):
-        """Test slice extraction with both pre and post padding."""
-        array = np.arange(10, dtype=np.float32)
-        result = sample_builder.extract_slice(array, slice_start=-1, slice_end=3)
-
-        expected = np.array([0, 0, 1, 2], dtype=np.float32)
-        np.testing.assert_array_equal(result, expected)
-
-
-    def test_extract_slice_multidimensional(self, sample_builder):
-        """Test slice extraction with multidimensional array."""
-        array = np.arange(30, dtype=np.float32).reshape(10, 3)
-        result = sample_builder.extract_slice(array, slice_start=1, slice_end=5)
-
-        expected = array[1:5]
-        np.testing.assert_array_equal(result, expected)
-        assert result.shape == (4, 3)
-
-
-    def test_extract_slice_completely_out_of_bounds(self, sample_builder):
-        """Test slice extraction completely outside array bounds."""
-        array = np.arange(10, dtype=np.float32)
-        result = sample_builder.extract_slice(array, slice_start=-5, slice_end=-1)
-
-        # Should all be padded with array[0]
-        expected = np.array([0, 0, 0, 0], dtype=np.float32)
-        np.testing.assert_array_equal(result, expected)
-
-
-    def test_extract_slice_respects_pred_horizon(self, sample_builder):
-        """Test that extract_slice always returns pred_horizon length."""
-        sample_builder.pred_horizon = 7
-        array = np.arange(10, dtype=np.float32)
-
-        result = sample_builder.extract_slice(array, slice_start=2, slice_end=9)
-
-        assert len(result) == 7
 
 
 class TestActionConversion:

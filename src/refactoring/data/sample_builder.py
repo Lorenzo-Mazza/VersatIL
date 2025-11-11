@@ -77,6 +77,11 @@ class SampleBuilder:
             start_idx: Starting index in sampler
             sampler_indices: Array of sampler indices
 
+        Note:
+            Padded data layout: [historical buffer | observation window | future]
+                                    [0:k]             [k:k+H]            [k+H:end]
+            where k=action_backward_shift, H=obs_horizon, end= prediction_horizon+k+H
+
         Returns:
             Dictionary containing observation and action dictionaries. Each sub-dictionary maps keys to tensors.
         """
@@ -109,7 +114,8 @@ class SampleBuilder:
     ) -> None:
         """Add processed images to sample."""
         for cam in self.observation_space.camera_keys:
-            img = padded_data[cam][: self.obs_horizon]
+            # the sampler now fetches action_backward_shift extra prior observations at the start of padded_data, effectively offsetting the entire sequence
+            img = padded_data[cam][self.action_backward_shift: self.action_backward_shift + self.obs_horizon]
             if cam != Cameras.DEPTH.value:
                 img = img.astype(np.float32) / 255.0
                 img = self.augmentation_pipeline.apply_rgb_augmentations(img, angle)
@@ -134,10 +140,10 @@ class SampleBuilder:
         proprio_dict = {}
         if self.observation_space.use_proprio_base_frame:
             proprio_dict[PROPRIO_OBS_ROBOT_FRAME_KEY] = torch.from_numpy(
-                padded_data[PROPRIO_OBS_ROBOT_FRAME_KEY][:self.obs_horizon]
+                padded_data[PROPRIO_OBS_ROBOT_FRAME_KEY][self.action_backward_shift : self.action_backward_shift + self.obs_horizon]
             ).float()
         if self.observation_space.use_proprio_camera_frame:
-            camera_frame = padded_data[PROPRIO_OBS_CAMERA_FRAME_KEY][:self.obs_horizon]
+            camera_frame = padded_data[PROPRIO_OBS_CAMERA_FRAME_KEY][self.action_backward_shift : self.action_backward_shift + self.obs_horizon]
             if angle > 0 and rotation_matrix is not None:
                 camera_frame = self.augmentation_pipeline.rotate_proprio_data(camera_frame, rotation_matrix)
             proprio_dict[PROPRIO_OBS_CAMERA_FRAME_KEY] = torch.from_numpy(camera_frame).float()
@@ -151,10 +157,10 @@ class SampleBuilder:
     ) -> None:
         """Add additional observations to sample, such as language."""
         if self.observation_space.use_language:
-            lang_data = padded_data[LANGUAGE_KEY][: self.obs_horizon]
+            lang_data = padded_data[LANGUAGE_KEY][self.action_backward_shift : self.action_backward_shift + self.obs_horizon]
             sample[OBSERVATION_KEY][LANGUAGE_KEY] = lang_data.tolist()
         for key in self.observation_space.custom_obs_keys:
-            custom_data = padded_data[key][: self.obs_horizon]
+            custom_data = padded_data[key][self.action_backward_shift : self.action_backward_shift + self.obs_horizon]
             sample[OBSERVATION_KEY][key] = torch.from_numpy(custom_data).float() # Assuming float type for custom obs
 
 
@@ -164,11 +170,7 @@ class SampleBuilder:
         """Add phase labels to sample."""
         action_slice_start = self._get_action_slice_start()
         padded_phases = padded_data[PHASE_LABEL_KEY]
-        next_phase = self.extract_slice(
-            padded_array=padded_phases,
-            slice_start=action_slice_start + 1,
-            slice_end=action_slice_start + self.pred_horizon + 1,
-        )
+        next_phase = padded_phases[action_slice_start + 1: action_slice_start + self.pred_horizon + 1]
         sample[ACTION_KEY][PHASE_LABEL_KEY] = torch.from_numpy(next_phase).long()
 
 
@@ -212,30 +214,5 @@ class SampleBuilder:
 
     def _get_action_slice_start(self) -> int:
         """Get the starting index for action slice."""
-        return self.obs_horizon - 1 - self.action_backward_shift
+        return self.obs_horizon - 1
 
-    def extract_slice(
-        self, padded_array: np.ndarray, slice_start: int, slice_end: int
-    ) -> np.ndarray:
-        """Extract a slice from padded array with edge padding if needed."""
-        arr_len = len(padded_array)
-        arr_shape = padded_array.shape[1:]
-        arr_dtype = padded_array.dtype
-
-        pre_pad = max(0, -slice_start)
-        post_pad = max(0, slice_end - arr_len)
-        source_start = max(slice_start, 0)
-        source_end = min(slice_end, arr_len)
-
-        result = np.empty((self.pred_horizon,) + arr_shape, dtype=arr_dtype)
-
-        if source_end > source_start:
-            result[pre_pad : pre_pad + (source_end - source_start)] = padded_array[
-                source_start:source_end
-            ]
-        if pre_pad > 0:
-            result[:pre_pad] = padded_array[0]
-        if post_pad > 0:
-            result[-post_pad:] = padded_array[-1]
-
-        return result

@@ -112,9 +112,9 @@ class EpisodicDataset(data.Dataset):
 
         self.sampler = SequenceSampler(
             replay_buffer=self.replay_buffer,
-            sequence_length=obs_horizon + pred_horizon - 1 + dataloader_config.action_backward_shift,
-            pad_before=obs_horizon - 1,
-            pad_after=pred_horizon - 1,
+            sequence_length=self.obs_horizon + self.pred_horizon + self.action_backward_shift,
+            pad_before=0,
+            pad_after=self.pred_horizon - 1,
             episode_mask=episode_mask,
             key_first_k=dict.fromkeys(observation_space.camera_keys, obs_horizon),
             skip_initial=dataloader_config.skip_initial_episode_steps,
@@ -316,16 +316,16 @@ class EpisodicDataset(data.Dataset):
         """Compute actions for a single sample."""
         action_key = PROPRIO_OBS_CAMERA_FRAME_KEY if self.action_processor.predict_in_camera_frame else PROPRIO_OBS_ROBOT_FRAME_KEY
         obs_for_action = padded_data[action_key]
-        action_slice_start = self.obs_horizon - 1 - self.action_backward_shift
+        action_slice_start = self.obs_horizon - 1
         action_slice_end = action_slice_start + self.pred_horizon
-        next_obs = self.sample_builder.extract_slice(obs_for_action, action_slice_start + 1, action_slice_end + 1)
-        curr_obs = self.sample_builder.extract_slice(obs_for_action, action_slice_start, action_slice_end)
+        next_obs = obs_for_action[action_slice_start + 1:action_slice_end + 1]
+        curr_obs = obs_for_action[action_slice_start:action_slice_end]
         action_dict = self.action_processor.compute_actions_from_observations(curr_obs, next_obs)
 
         if self.action_processor.has_gripper:
             padded_gripper = padded_data[GRIPPER_STATE_OBS_KEY]
-            curr_gripper = self.sample_builder.extract_slice(padded_gripper, action_slice_start, action_slice_end)
-            next_gripper = self.sample_builder.extract_slice(padded_gripper, action_slice_start + 1, action_slice_end + 1)
+            curr_gripper = padded_gripper[action_slice_start: action_slice_end]
+            next_gripper = padded_gripper[action_slice_start + 1: action_slice_end + 1]
             gripper_actions = self.action_processor.compute_gripper_actions(curr_gripper, next_gripper)
             action_dict[GRIPPER_ACTION_KEY] = gripper_actions
 

@@ -570,7 +570,7 @@ class TestSampler:
             seed=42,
         )
 
-        expected_seq_len = 3 + 4 - 1 + 0
+        expected_seq_len = 3 + 4 # obs_horizon + pred_horizon
         assert dataset.sampler.sequence_length == expected_seq_len
 
 
