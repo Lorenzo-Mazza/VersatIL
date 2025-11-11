@@ -147,3 +147,4 @@ uv.lock
 .venv*
 
 lightning_logs/
+/src/endpoints/local_test/dataset.zarr
