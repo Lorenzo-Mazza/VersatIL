@@ -141,8 +141,8 @@ class Workspace:
             self.tokenizer.save_pretrained(tokenizer_path)
             logging.info(f"Tokenizer saved to {tokenizer_path}")
 
-        logging.info(f"Train dataset size: {len(self.train_loader)}")
-        logging.info(f"Val dataset size: {len(self.val_loader)}")
+        logging.info(f"Train dataset size: {len(self.train_loader.dataset)} samples")
+        logging.info(f"Val dataset size: {len(self.val_loader.dataset)} samples")
 
     def _setup_policy(self):
         """Instantiate policy and wrap with Lightning."""

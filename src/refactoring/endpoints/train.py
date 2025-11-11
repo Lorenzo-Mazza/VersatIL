@@ -7,7 +7,6 @@ from pathlib import Path
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from refactoring.configs.main import MainConfig
 from refactoring.workspace import Workspace
 
 logging.basicConfig(

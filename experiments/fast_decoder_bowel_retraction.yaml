@@ -15,7 +15,7 @@ defaults:
 
 task:
   observation_horizon: 1  # FAST Decoder uses single observation
-  prediction_horizon: 60  # Max sequence length for autoregressive generation
+  prediction_horizon: 10  # Max sequence length for autoregressive generation
 
 policy:
   _target_: refactoring.models.policy.Policy

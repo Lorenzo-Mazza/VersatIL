@@ -16,7 +16,7 @@ defaults:
 
 task:
   observation_horizon: 1
-  prediction_horizon: 60
+  prediction_horizon: 10
 
 policy:
   _target_: refactoring.models.policy.Policy
