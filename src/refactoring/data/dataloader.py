@@ -8,7 +8,6 @@ import torch.utils.data as data
 from hydra.utils import instantiate
 
 from refactoring.configs import MainConfig
-from refactoring.configs.task.dataloader import DataloaderConfig
 from refactoring.data.constants import (
     EPISODE_FILENAME,
     PHASE_LABEL_KEY,
