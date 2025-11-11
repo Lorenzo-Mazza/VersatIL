@@ -48,11 +48,11 @@ from refactoring.models.layers.positional_encoding.sinusoidal import (
 )
 
 
-class FASTDecoder(ActionDecoder):
-    """FAST decoder for tokenized action prediction.
+class FASTDETRDecoder(ActionDecoder):
+    """FAST DETR decoder for tokenized action prediction.
 
     Uses DETR-style transformer encoder and GPT-style decoder to generate
-    variable-length sequences of discrete action tokens autoregressively.
+    variable-length sequences of discrete action tokens (FAST tokenization) autoregressively.
     """
 
     supports_tokenized_actions: bool = True

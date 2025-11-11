@@ -45,7 +45,7 @@ class ACTConfig(DecodingNetworkConfig):
 
 @dataclass
 class FASTDecoderConfig(DecodingNetworkConfig):
-    """FAST Decoder for tokenized action prediction.
+    """FAST DETR Decoder for tokenized action prediction.
 
     Reference: https://arxiv.org/abs/2501.09747
 
@@ -59,7 +59,7 @@ class FASTDecoderConfig(DecodingNetworkConfig):
     Note: Requires tokenizer to be set at runtime via set_tokenizer().
     The vocab_size must match the tokenizer's vocabulary size (default 2048 for pretrained FAST).
     """
-    _target_: str = "refactoring.models.decoding.decoders.factory.fast_decoder.FASTDecoder"
+    _target_: str = "refactoring.models.decoding.decoders.factory.fast_detr_decoder.FASTDETRDecoder"
     vocab_size: int = 2048  # Pretrained FAST vocabulary size
     max_seq_len: int = 512  # Maximum sequence length for positional encoding
     embedding_dimension: int = 256

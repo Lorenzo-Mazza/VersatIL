@@ -1,8 +1,8 @@
-# FAST Decoder Configuration
+# FAST DETR Decoder Configuration
 # GPT-style autoregressive transformer for FAST tokenized action prediction
 # Reference: https://arxiv.org/abs/2501.09747
 
-_target_: refactoring.models.decoding.decoders.factory.fast_decoder.FASTDecoder
+_target_: refactoring.models.decoding.decoders.factory.fast_detr_decoder.FASTDETRDecoder
 
 # Input features from encoding pipeline
 input_keys:
@@ -31,7 +31,7 @@ normalize_before: false
 eos_token_id: 1  # End of sequence
 pad_token_id: 0  # Padding token
 
-# Note: action_heads are created internally by FASTDecoder
+# Note: action_heads are created internally by FASTDETRDecoder
 # (action_logits head with output_dim=vocab_size)
 
 # References to task/policy configs (Hydra interpolation)

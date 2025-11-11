@@ -14,7 +14,7 @@ from refactoring.configs.decoding.decoder import (
 )
 from refactoring.models.decoding.constants import MoERoutingType
 from refactoring.models.decoding.decoders.factory.act import ACT
-from refactoring.models.decoding.decoders.factory.fast_decoder import FASTDecoder
+from refactoring.models.decoding.decoders.factory.fast_detr_decoder import FASTDETRDecoder
 from refactoring.models.layers.activation import ActivationFunction
 
 
@@ -70,10 +70,10 @@ class TestFASTDecoderConfig:
             },
             input_keys=["rgb_features"],
         )
-        assert config._target_ == "refactoring.models.decoding.decoders.factory.fast_decoder.FASTDecoder"
+        assert config._target_ == "refactoring.models.decoding.decoders.factory.fast_detr_decoder.FASTDETRDecoder"
 
     def test_config_params_match_class_signature(self):
-        sig = inspect.signature(FASTDecoder.__init__)
+        sig = inspect.signature(FASTDETRDecoder.__init__)
         params = set(sig.parameters.keys()) - {"self"}
         config = FASTDecoderConfig(
             action_heads={
@@ -113,14 +113,14 @@ class TestFASTDecoderConfig:
         assert config.vocab_size == 2048
 
     def test_yaml_config_loads(self):
-        """Test that fast_decoder_default.yaml loads correctly via Hydra."""
+        """Test that fast_detr_decoder_default.yaml loads correctly via Hydra."""
         project_root = Path(__file__).parent.parent.parent
         decoder_config_dir = project_root / "experiments" / "policy" / "decoder"
 
         with initialize_config_dir(config_dir=str(decoder_config_dir), version_base=None):
-            cfg = compose(config_name="fast_decoder_default")
+            cfg = compose(config_name="fast_detr_decoder_default")
             assert cfg is not None
-            assert cfg._target_ == "refactoring.models.decoding.decoders.factory.fast_decoder.FASTDecoder"
+            assert cfg._target_ == "refactoring.models.decoding.decoders.factory.fast_detr_decoder.FASTDETRDecoder"
             assert cfg.vocab_size == 2048
             assert cfg.embedding_dimension == 256
 

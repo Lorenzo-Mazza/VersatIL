@@ -8,7 +8,7 @@ defaults:
   - task/observation_space: br_rgb_only
   - training: act_default
   - policy/encoding_pipeline: rgb_resnet18
-  - policy/decoder: fast_decoder_default
+  - policy/decoder: fast_detr_decoder_default
   - policy/algorithm: bc_with_vae_gaussian  # Use existing VAE config
   - policy/loss: fast_decoder_with_vae
   - inference: act_default

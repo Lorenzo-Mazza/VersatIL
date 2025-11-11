@@ -7,7 +7,7 @@ defaults:
   - task/observation_space: br_rgb_only
   - training: act_default
   - policy/encoding_pipeline: rgb_resnet18
-  - policy/decoder: fast_decoder_default
+  - policy/decoder: fast_detr_decoder_default
   - policy/algorithm: behavioral_cloning
   - policy/loss: fast_decoder_default
   - inference: act_default

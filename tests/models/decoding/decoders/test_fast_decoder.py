@@ -16,7 +16,7 @@ from refactoring.data.constants import (
 )
 from refactoring.data.tokenize.tokenizer import Tokenizer
 from refactoring.models.decoding.constants import ACTION_TOKENS_KEY
-from refactoring.models.decoding.decoders.factory.fast_decoder import FASTDecoder
+from refactoring.models.decoding.decoders.factory.fast_detr_decoder import FASTDETRDecoder
 
 
 @pytest.fixture
@@ -152,7 +152,7 @@ def tokenizer(action_space, prediction_horizon, device, use_pretrained_weights):
 
 @pytest.mark.unit
 class TestFASTDecoderInitialization:
-    """Test FASTDecoder initialization."""
+    """Test FASTDETRDecoder initialization."""
 
     def test_init_basic(
         self,
@@ -165,7 +165,7 @@ class TestFASTDecoderInitialization:
         vocab_size,
     ):
         """Test basic initialization."""
-        decoder = FASTDecoder(
+        decoder = FASTDETRDecoder(
             input_keys=["rgb_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -199,7 +199,7 @@ class TestFASTDecoderInitialization:
         vocab_size,
     ):
         """Test initialization with custom parameters."""
-        decoder = FASTDecoder(
+        decoder = FASTDETRDecoder(
             input_keys=["rgb_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -231,7 +231,7 @@ class TestFASTDecoderInitialization:
         custom_eos = 11
         custom_pad = 2
 
-        decoder = FASTDecoder(
+        decoder = FASTDETRDecoder(
             input_keys=["rgb_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -255,7 +255,7 @@ class TestFASTDecoderInitialization:
 
 @pytest.mark.unit
 class TestFASTDecoderTokenizer:
-    """Test FASTDecoder tokenizer handling."""
+    """Test FASTDETRDecoder tokenizer handling."""
 
     def test_set_tokenizer_success(
         self,
@@ -269,7 +269,7 @@ class TestFASTDecoderTokenizer:
         tokenizer,
     ):
         """Test setting valid tokenizer."""
-        decoder = FASTDecoder(
+        decoder = FASTDETRDecoder(
             input_keys=["rgb_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -300,7 +300,7 @@ class TestFASTDecoderTokenizer:
         tokenizer,
     ):
         """Test that mismatched vocab size raises ValueError."""
-        decoder = FASTDecoder(
+        decoder = FASTDETRDecoder(
             input_keys=["rgb_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -331,7 +331,7 @@ class TestFASTDecoderTokenizer:
         spatial_features,
     ):
         """Test that forward without tokenizer raises RuntimeError."""
-        decoder = FASTDecoder(
+        decoder = FASTDETRDecoder(
             input_keys=["rgb_left_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -353,7 +353,7 @@ class TestFASTDecoderTokenizer:
 
 @pytest.mark.unit
 class TestFASTDecoderForwardPass:
-    """Test FASTDecoder forward pass."""
+    """Test FASTDETRDecoder forward pass."""
 
     def test_forward_training_with_actions(
         self,
@@ -370,7 +370,7 @@ class TestFASTDecoderForwardPass:
         batch_size,
     ):
         """Test forward pass during training with action tokenization."""
-        decoder = FASTDecoder(
+        decoder = FASTDETRDecoder(
             input_keys=["rgb_left_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -409,7 +409,7 @@ class TestFASTDecoderForwardPass:
         batch_size,
     ):
         """Test forward pass during inference with detokenization."""
-        decoder = FASTDecoder(
+        decoder = FASTDETRDecoder(
             input_keys=["rgb_left_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -457,7 +457,7 @@ class TestFASTDecoderForwardPass:
         tokenizer,
     ):
         """Test that padding timesteps are removed before tokenization."""
-        decoder = FASTDecoder(
+        decoder = FASTDETRDecoder(
             input_keys=["rgb_left_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -506,7 +506,7 @@ class TestFASTDecoderTokenizationDetokenization:
         tokenizer,
     ):
         """Test _tokenize_actions creates ACTION_TOKENS_KEY with EOS (no BOS in FAST)."""
-        decoder = FASTDecoder(
+        decoder = FASTDETRDecoder(
             input_keys=["rgb_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -558,7 +558,7 @@ class TestFASTDecoderTokenizationDetokenization:
         tokenizer,
     ):
         """Test _detokenize_predictions splits actions correctly."""
-        decoder = FASTDecoder(
+        decoder = FASTDETRDecoder(
             input_keys=["rgb_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -593,7 +593,7 @@ class TestFASTDecoderTokenizationDetokenization:
 
 @pytest.mark.unit
 class TestFASTDecoderParametrized:
-    """Parametrized tests for FASTDecoder with different configurations."""
+    """Parametrized tests for FASTDETRDecoder with different configurations."""
 
     @pytest.mark.parametrize("prediction_horizon", [10, 20])
     def test_different_prediction_horizons(
@@ -606,7 +606,7 @@ class TestFASTDecoderParametrized:
         embedding_dimension,
         batch_size,
     ):
-        """Test FASTDecoder with different prediction horizons."""
+        """Test FASTDETRDecoder with different prediction horizons."""
         observation_horizon = 1
 
         tokenizer_obj = Tokenizer(device=torch.device(device))
@@ -619,7 +619,7 @@ class TestFASTDecoderParametrized:
         sample_actions = torch.randn(1, prediction_horizon, total_action_dim, device=device)
         tokenizer_obj.tokenize({ACTION_KEY: sample_actions})
 
-        decoder = FASTDecoder(
+        decoder = FASTDETRDecoder(
             input_keys=["rgb_left_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -657,8 +657,8 @@ class TestFASTDecoderParametrized:
         batch_size,
         tokenizer,
     ):
-        """Test FASTDecoder with different batch sizes."""
-        decoder = FASTDecoder(
+        """Test FASTDETRDecoder with different batch sizes."""
+        decoder = FASTDETRDecoder(
             input_keys=["rgb_left_features"],
             action_space=action_space,
             observation_space=observation_space,
