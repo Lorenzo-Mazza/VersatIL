@@ -134,7 +134,7 @@ class NormalizerBuilder:
         if self.action_processor.has_orientation and ORIENTATION_ACTION_KEY in action_dict:
             proprio_data[ORIENTATION_ACTION_KEY] = action_dict[ORIENTATION_ACTION_KEY]
 
-        if self.action_processor.has_gripper and self.action_processor.action_space.gripper_type == GripperType.CONTINUOUS:
+        if self.action_processor.has_gripper:
             gripper_states = self.replay_buffer[GRIPPER_STATE_OBS_KEY][:]
             if len(gripper_states) > 1:
                 gripper_curr = gripper_states[:-1][valid_mask]
@@ -144,7 +144,7 @@ class NormalizerBuilder:
                 )
                 proprio_data[GRIPPER_ACTION_KEY] = gripper_actions
 
-        if self.observation_space.use_gripper_state and self.observation_space.gripper_type == GripperType.CONTINUOUS.value:
+        if self.observation_space.use_gripper_state:
             gripper_obs = self.replay_buffer[GRIPPER_STATE_OBS_KEY][:]
             proprio_data[GRIPPER_STATE_OBS_KEY] = gripper_obs
 
@@ -331,13 +331,22 @@ class NormalizerBuilder:
             raw_action_data = self._read_proprio_data_from_buffer(winsorize=True)
 
             action_keys = [POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY]
-            if self.action_processor.has_gripper and self.action_processor.action_space.gripper_type == GripperType.CONTINUOUS:
-                action_keys.append(GRIPPER_ACTION_KEY)
+            if self.action_processor.has_gripper and GRIPPER_ACTION_KEY in raw_action_data:
+                if self.action_processor.action_space.gripper_type == GripperType.BINARY.value:
+                    # Remap binary {0,1} to continuous {-1,1} for tokenization
+                    raw_action_data[GRIPPER_ACTION_KEY] = 2.0 * raw_action_data[GRIPPER_ACTION_KEY] - 1.0
+                else:
+                    # Normalize continuous gripper actions
+                    action_keys.append(GRIPPER_ACTION_KEY)
+
             raw_actions = {k: v for k, v in raw_action_data.items() if k in action_keys}
             normalized_actions = normalizer.normalize(raw_actions)
             # Convert torch tensors to numpy for tokenizer fitting
             normalized_actions_np = {k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v
                                       for k, v in normalized_actions.items()}
+            if self.action_processor.has_gripper and self.action_processor.action_space.gripper_type == GripperType.BINARY.value:
+                normalized_actions_np[GRIPPER_ACTION_KEY] = raw_action_data[GRIPPER_ACTION_KEY]
+
             action_chunks = self._create_action_chunks_for_tokenizer(
                 normalized_actions_np,
                 self.prediction_horizon

@@ -16,7 +16,7 @@ from refactoring.data.constants import (
     GRIPPER_ACTION_KEY,
     IS_PAD_KEY,
     ORIENTATION_ACTION_KEY,
-    POSITION_ACTION_KEY,
+    POSITION_ACTION_KEY, GripperType,
 )
 from refactoring.data.tokenize import ActionTokenizer
 from refactoring.data.tokenize.tokenizer import Tokenizer
@@ -137,7 +137,6 @@ class FASTDecoder(ActionDecoder):
             device=device,
         )
 
-        # Temperature parameter must be created after super().__init__()
         self.temperature = nn.Parameter(
             torch.tensor(temperature, dtype=torch.float32),
             requires_grad=learnable_temperature,
@@ -552,7 +551,13 @@ class FASTDecoder(ActionDecoder):
         if self.action_space.has_orientation and ORIENTATION_ACTION_KEY in actions:
             action_components.append(actions[ORIENTATION_ACTION_KEY])
         if self.action_space.has_gripper and GRIPPER_ACTION_KEY in actions:
-            action_components.append(actions[GRIPPER_ACTION_KEY])
+            gripper = actions[GRIPPER_ACTION_KEY]
+            if self.action_space.gripper_type == GripperType.BINARY.value:
+                # Remap binary {0,1} to continuous {-1,1}
+                gripper_continuous = 2.0 * gripper - 1.0
+            else:
+                gripper_continuous = gripper
+            action_components.append(gripper_continuous)
 
         action_chunks = torch.cat(action_components, dim=-1)  # (B, T, action_dim)
         batch_size = action_chunks.shape[0]
