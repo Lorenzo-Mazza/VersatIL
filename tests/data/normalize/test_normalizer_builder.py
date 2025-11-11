@@ -149,13 +149,13 @@ class TestReadProprioDataFromBuffer:
         mock_action_processor.compute_gripper_actions.assert_called_once()
 
 
-    def test_skips_binary_gripper_actions(self, normalizer_builder, mock_action_processor):
-        """Test that binary gripper actions are not normalized."""
+    def test_reads_binary_gripper_actions(self, normalizer_builder, mock_action_processor):
+        """Test that binary gripper actions are normalized."""
         mock_action_processor.action_space.gripper_type = GripperType.BINARY
 
         proprio_data = normalizer_builder._read_proprio_data_from_buffer()
 
-        assert GRIPPER_ACTION_KEY not in proprio_data
+        assert GRIPPER_ACTION_KEY in proprio_data
 
 
     def test_reads_continuous_gripper_observations(self, normalizer_builder):
@@ -168,14 +168,14 @@ class TestReadProprioDataFromBuffer:
         assert GRIPPER_STATE_OBS_KEY in proprio_data
 
 
-    def test_skips_binary_gripper_observations(self, normalizer_builder):
-        """Test that binary gripper observations are not normalized."""
+    def test_reads_binary_gripper_observations(self, normalizer_builder):
+        """Test that binary gripper observations are normalized."""
         normalizer_builder.observation_space.use_gripper_state = True
         normalizer_builder.observation_space.gripper_type = GripperType.BINARY.value
 
         proprio_data = normalizer_builder._read_proprio_data_from_buffer()
 
-        assert GRIPPER_STATE_OBS_KEY not in proprio_data
+        assert GRIPPER_STATE_OBS_KEY in proprio_data
 
 
     def test_reads_robot_frame_observations(self, normalizer_builder):

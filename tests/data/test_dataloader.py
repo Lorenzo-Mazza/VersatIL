@@ -74,8 +74,14 @@ class MockConfig:
         self.task.dataloader.depth_winsorize_quantiles = (0.01, 0.99)
         self.task.dataloader.winsorize_kinematics = True
         self.task.dataloader.kinematics_winsorize_quantiles = (0.01, 0.99)
+
+        # Tokenization config
         self.task.dataloader.tokenization = MagicMock()
         self.task.dataloader.tokenization.enabled = False
+        self.task.dataloader.tokenization.tokenize_actions = False
+        self.task.dataloader.tokenization.use_pretrained_action_tokenizer = False
+        self.task.dataloader.tokenization.tokenize_proprio_obs = False
+        self.task.dataloader.tokenization.proprio_num_bins = 256
 
         self.experiment = MagicMock()
         self.experiment.seed = seed
@@ -392,7 +398,7 @@ class TestGetDataloaders:
             mock_config, mock_schema
     ):
         """Test basic dataloader creation."""
-        mock_instantiate.return_value = mock_schema
+        mock_instantiate.side_effect = lambda x: mock_schema if x is None else x
         mock_collect.return_value = ["path1.csv", "path2.csv"]
 
         train_dataset = MockDataset(length=100, gripper_weight=2.5)
@@ -418,7 +424,7 @@ class TestGetDataloaders:
             mock_config, mock_schema
     ):
         """Test that train and val datasets get correct parameters."""
-        mock_instantiate.return_value = mock_schema
+        mock_instantiate.side_effect = lambda x: mock_schema if x is None else x
         mock_collect.return_value = ["path1.csv"]
 
         train_dataset = MockDataset(length=100)
@@ -447,7 +453,7 @@ class TestGetDataloaders:
             mock_config, mock_schema
     ):
         """Test that denoising thresholds are shared from train to val."""
-        mock_instantiate.return_value = mock_schema
+        mock_instantiate.side_effect = lambda x: mock_schema if x is None else x
         mock_collect.return_value = ["path1.csv"]
 
         train_dataset = MockDataset(
@@ -474,7 +480,7 @@ class TestGetDataloaders:
     ):
         """Test dataloader creation without gripper class weights."""
         config = MockConfig(has_gripper=False)
-        mock_instantiate.return_value = mock_schema
+        mock_instantiate.side_effect = lambda x: mock_schema if x is None else x
         mock_collect.return_value = ["path1.csv"]
 
         train_dataset = MockDataset(length=100)
@@ -497,7 +503,7 @@ class TestGetDataloaders:
     ):
         """Test dataloader creation with phase labels."""
         config = MockConfig(task_has_phases=True)
-        mock_instantiate.return_value = mock_schema
+        mock_instantiate.side_effect = lambda x: mock_schema if x is None else x
         mock_collect.return_value = ["path1.csv"]
 
         train_dataset = MockDataset(length=100)
@@ -530,7 +536,7 @@ class TestGetDataloaders:
     ):
         """Test that batch size is configured correctly."""
         config = MockConfig(batch_size=64)
-        mock_instantiate.return_value = mock_schema
+        mock_instantiate.side_effect = lambda x: mock_schema if x is None else x
         mock_collect.return_value = ["path1.csv"]
 
         train_dataset = MockDataset(length=100)
@@ -553,7 +559,7 @@ class TestGetDataloaders:
     ):
         """Test that num_workers is configured correctly."""
         config = MockConfig(num_workers=8)
-        mock_instantiate.return_value = mock_schema
+        mock_instantiate.side_effect = lambda x: mock_schema if x is None else x
         mock_collect.return_value = ["path1.csv"]
 
         train_dataset = MockDataset(length=100)
@@ -575,7 +581,7 @@ class TestGetDataloaders:
             mock_config, mock_schema
     ):
         """Test that shuffle is configured correctly."""
-        mock_instantiate.return_value = mock_schema
+        mock_instantiate.side_effect = lambda x: mock_schema if x is None else x
         mock_collect.return_value = ["path1.csv"]
 
         train_dataset = MockDataset(length=100)
@@ -601,7 +607,7 @@ class TestDataloaderIntegration:
             mock_config, mock_schema
     ):
         """Test complete dataloader creation pipeline."""
-        mock_instantiate.return_value = mock_schema
+        mock_instantiate.side_effect = lambda x: mock_schema if x is None else x
         mock_collect.return_value = ["ep1.csv", "ep2.csv", "ep3.csv"]
 
         train_dataset = MockDataset(length=100, gripper_weight=3.2)
@@ -612,8 +618,8 @@ class TestDataloaderIntegration:
 
         train_loader, val_loader, normalizer, _tokenizer, gripper_weights = get_dataloaders(mock_config)
 
-        # instantiate is called 3 times: for schema, action_space, and observation_space
-        assert mock_instantiate.call_count == 3
+        # instantiate is called 4 times: for schema, action_space, observation_space, and dataloader
+        assert mock_instantiate.call_count == 4
         mock_collect.assert_called_once()
         mock_ensure.assert_called_once()
         assert mock_dataset_class.call_count == 2
@@ -638,7 +644,7 @@ class TestDataloaderIntegration:
             mock_config, mock_schema
     ):
         """Test that persistent workers are enabled."""
-        mock_instantiate.return_value = mock_schema
+        mock_instantiate.side_effect = lambda x: mock_schema if x is None else x
         mock_collect.return_value = ["path1.csv"]
 
         train_dataset = MockDataset(length=100)
@@ -661,7 +667,7 @@ class TestDataloaderIntegration:
     ):
         """Test dataloader creation with CUDA device."""
         config = MockConfig(device="cuda:0")
-        mock_instantiate.return_value = mock_schema
+        mock_instantiate.side_effect = lambda x: mock_schema if x is None else x
         mock_collect.return_value = ["path1.csv"]
 
         train_dataset = MockDataset(length=100)
@@ -692,7 +698,7 @@ class TestDataloaderIntegration:
             winsorize_depth=True
         )
 
-        mock_instantiate.return_value = mock_schema
+        mock_instantiate.side_effect = lambda x: mock_schema if x is None else x
         mock_collect.return_value = ["path1.csv", "path2.csv"]
 
         train_dataset = MockDataset(
@@ -727,7 +733,7 @@ class TestErrorHandling:
             self, mock_collect, mock_instantiate, mock_config, mock_schema
     ):
         """Test handling when no dataset paths are found."""
-        mock_instantiate.return_value = mock_schema
+        mock_instantiate.side_effect = lambda x: mock_schema if x is None else x
         mock_collect.return_value = []
 
         with patch('refactoring.data.dataloader._ensure_zarr_exists'):
@@ -747,7 +753,7 @@ class TestErrorHandling:
             mock_config, mock_schema
     ):
         """Test handling when dataset creation fails."""
-        mock_instantiate.return_value = mock_schema
+        mock_instantiate.side_effect = lambda x: mock_schema if x is None else x
         mock_collect.return_value = ["path1.csv"]
 
         mock_dataset_class.side_effect = RuntimeError("Dataset creation failed")
@@ -775,8 +781,8 @@ class TestLanguageInDataloader:
         mock_obs_space = MagicMock()
         mock_obs_space.use_language = True
 
-        # instantiate is called 3 times: schema, action_space, observation_space
-        mock_instantiate.side_effect = [mock_schema, MagicMock(), mock_obs_space]
+        # instantiate is called 4 times: schema, action_space, observation_space, dataloader
+        mock_instantiate.side_effect = [mock_schema, MagicMock(), mock_obs_space, config.task.dataloader]
         mock_collect.return_value = ["path1.csv"]
 
         train_dataset = MockDataset(length=100)
@@ -805,7 +811,7 @@ class TestLanguageInDataloader:
             zarr_path="/tmp/test.zarr",
             required_keys=['left', 'right', 'proprio_robot_frame', 'language']
         )
-        mock_instantiate.return_value = schema
+        mock_instantiate.side_effect = lambda x: schema if x is None else x
         mock_collect.return_value = ["path1.csv"]
 
         train_dataset = MockDataset(length=100)

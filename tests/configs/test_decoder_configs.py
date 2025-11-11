@@ -121,8 +121,7 @@ class TestFASTDecoderConfig:
             cfg = compose(config_name="fast_detr_decoder_default")
             assert cfg is not None
             assert cfg._target_ == "refactoring.models.decoding.decoders.factory.fast_detr_decoder.FASTDETRDecoder"
-            assert cfg.vocab_size == 2048
-            assert cfg.embedding_dimension == 256
+            assert cfg.embedding_dimension == 512
 
 
 @pytest.mark.unit
