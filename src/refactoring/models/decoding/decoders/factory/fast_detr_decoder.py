@@ -212,7 +212,7 @@ class FASTDETRDecoder(ActionDecoder):
         self.to(self.device)
 
         logging.info(
-            f"FASTDecoder initialized: vocab_size={vocab_size}, "
+            f"FASTDETRDecoder initialized: vocab_size={vocab_size}, "
             f"max_seq_len={max_seq_len}, embedding_dim={embedding_dimension}"
         )
 
@@ -235,7 +235,7 @@ class FASTDETRDecoder(ActionDecoder):
                 else:
                     raise ValueError(
                         f"Feature {key} has temporal dimension T={feature.shape[1]}, "
-                        f"but FASTDecoder expects single-frame observation"
+                        f"but FASTDETRDecoder expects single-frame observation"
                     )
             if len(feature.shape) == 2:
                 flat_features_dict[key] = feature
@@ -274,7 +274,7 @@ class FASTDETRDecoder(ActionDecoder):
                 else:
                     raise ValueError(
                         f"Feature {key} has temporal dimension T={feature.shape[1]}, "
-                        f"but FASTDecoder expects single-frame observation"
+                        f"but FASTDETRDecoder expects single-frame observation"
                     )
             if len(feature.shape) == 4:  # Spatial features (B, C, H, W)
                 spatial_features_dict[key] = feature

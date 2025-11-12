@@ -9,7 +9,7 @@ from omegaconf import OmegaConf
 from refactoring.configs.decoding.action_head import ActionHeadConfig
 from refactoring.configs.decoding.decoder import (
     ACTConfig,
-    FASTDecoderConfig,
+    FASTDETRDecoderConfig,
     MixtureOfExpertsDecoderConfig,
 )
 from refactoring.models.decoding.constants import MoERoutingType
@@ -62,9 +62,9 @@ class TestACTConfig:
 
 
 @pytest.mark.unit
-class TestFASTDecoderConfig:
+class TestFASTDETRDecoderConfig:
     def test_config_has_correct_target(self):
-        config = FASTDecoderConfig(
+        config = FASTDETRDecoderConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
             },
@@ -75,7 +75,7 @@ class TestFASTDecoderConfig:
     def test_config_params_match_class_signature(self):
         sig = inspect.signature(FASTDETRDecoder.__init__)
         params = set(sig.parameters.keys()) - {"self"}
-        config = FASTDecoderConfig(
+        config = FASTDETRDecoderConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
             },
@@ -86,7 +86,7 @@ class TestFASTDecoderConfig:
         assert config_keys.issubset(params), f"Extra keys: {config_keys - params}"
 
     def test_default_activation_is_relu(self):
-        config = FASTDecoderConfig(
+        config = FASTDETRDecoderConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
             },
@@ -95,7 +95,7 @@ class TestFASTDecoderConfig:
         assert config.activation == ActivationFunction.RELU.value
 
     def test_default_embedding_dimension(self):
-        config = FASTDecoderConfig(
+        config = FASTDETRDecoderConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
             },
@@ -104,7 +104,7 @@ class TestFASTDecoderConfig:
         assert config.embedding_dimension == 256
 
     def test_default_vocab_size(self):
-        config = FASTDecoderConfig(
+        config = FASTDETRDecoderConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
             },

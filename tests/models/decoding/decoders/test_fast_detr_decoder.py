@@ -151,7 +151,7 @@ def tokenizer(action_space, prediction_horizon, device, use_pretrained_weights):
 
 
 @pytest.mark.unit
-class TestFASTDecoderInitialization:
+class TestFASTDETRDecoderInitialization:
     """Test FASTDETRDecoder initialization."""
 
     def test_init_basic(
@@ -254,7 +254,7 @@ class TestFASTDecoderInitialization:
 
 
 @pytest.mark.unit
-class TestFASTDecoderTokenizer:
+class TestFASTDETRDecoderTokenizer:
     """Test FASTDETRDecoder tokenizer handling."""
 
     def test_set_tokenizer_success(
@@ -352,7 +352,7 @@ class TestFASTDecoderTokenizer:
 
 
 @pytest.mark.unit
-class TestFASTDecoderForwardPass:
+class TestFASTDETRDecoderForwardPass:
     """Test FASTDETRDecoder forward pass."""
 
     def test_forward_training_with_actions(
@@ -490,7 +490,7 @@ class TestFASTDecoderForwardPass:
 
 
 @pytest.mark.unit
-class TestFASTDecoderTokenizationDetokenization:
+class TestFASTDETRDecoderTokenizationDetokenization:
     """Test tokenization and detokenization methods."""
 
     def test_tokenize_actions_adds_eos(
@@ -592,7 +592,7 @@ class TestFASTDecoderTokenizationDetokenization:
 
 
 @pytest.mark.unit
-class TestFASTDecoderParametrized:
+class TestFASTDETRDecoderParametrized:
     """Parametrized tests for FASTDETRDecoder with different configurations."""
 
     @pytest.mark.parametrize("prediction_horizon", [10, 20])
