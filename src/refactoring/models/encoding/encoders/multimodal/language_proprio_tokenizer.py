@@ -9,6 +9,7 @@ This encoder:
 Outputs embedded token sequences.
 """
 import torch
+from torch import nn
 from transformers import AutoModel, AutoTokenizer
 
 from refactoring.data.constants import (
@@ -73,20 +74,20 @@ class LanguageProprioTokenizerEncoder(Encoder):
         self.device_torch = torch.device(device)
         self.lm_model_name = language_model_name
 
-        # Load tokenizer and language model
+        # Load tokenizer
         self.language_tokenizer = AutoTokenizer.from_pretrained(language_model_name)
         if self.language_tokenizer.pad_token is None:
             self.language_tokenizer.pad_token = self.language_tokenizer.eos_token
-
-        self.language_model = AutoModel.from_pretrained(language_model_name)
-        self.language_model.to(self.device_torch)
-        self.language_model.eval()
-
+        language_model = AutoModel.from_pretrained(language_model_name)
+        hidden_size = language_model.config.hidden_size
+        self.embeddings = nn.Embedding(language_model.config.vocab_size, hidden_size)
+        self.embeddings.weight.data.copy_(language_model.get_input_embeddings().weight.data)
+        del language_model  # Free memory immediately
+        self.embeddings.to(self.device_torch)
         if frozen:
-            for param in self.language_model.parameters():
-                param.requires_grad = False
+            self.embeddings.weight.requires_grad = False
 
-        self.embed_dim = self.language_model.config.hidden_size
+        self.embed_dim = hidden_size
         self.binning_tokenizer_robot: BinningTokenizer | None = None
         self.binning_tokenizer_camera: BinningTokenizer | None = None
 
@@ -227,7 +228,7 @@ class LanguageProprioTokenizerEncoder(Encoder):
         ).to(self.device_torch)
 
         with torch.no_grad():
-            embeddings_batch = self.language_model.get_input_embeddings()(tokenized["input_ids"])  # (B, max_token_len, embed_dim)
+            embeddings_batch = self.embeddings(tokenized["input_ids"])  # (B, max_token_len, embed_dim)
 
         token_masks = tokenized["attention_mask"].to(torch.bool)
 
