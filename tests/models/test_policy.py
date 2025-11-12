@@ -3,7 +3,7 @@
 import pytest
 import torch
 import torch.nn as nn
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, Mock
 
 from refactoring.configs.task.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
@@ -996,3 +996,102 @@ class TestPolicyExplainerIntegration:
         mapping = policy.get_camera_to_encoder_mapping()
         assert Cameras.LEFT.value in mapping
         assert "robot_state" not in mapping
+
+
+@pytest.mark.unit
+class TestPolicySetTokenizer:
+    """Test Policy.set_tokenizer() propagation."""
+
+    def test_set_tokenizer_propagates_to_pipeline(self):
+        """Test tokenizer propagates to encoding pipeline."""
+        encoding_pipeline = MagicMock()
+        encoding_pipeline.set_tokenizer = Mock()
+        encoding_pipeline.get_features_to_dimensions.return_value = {"features": 256}
+        encoding_pipeline.get_final_features_to_dimensions.return_value = {"features": 256}
+
+        decoder = MagicMock()
+        decoder.decoder_input.keys = ["features"]
+        decoder.decoder_input.validate_feature_types = MagicMock()
+        decoder.set_tokenizer = Mock()
+
+        algorithm = MagicMock()
+
+        policy = Policy(
+            encoding_pipeline=encoding_pipeline,
+            algorithm=algorithm,
+            decoder=decoder,
+            observation_space=MagicMock(),
+            action_space=MagicMock(),
+            prediction_horizon=10,
+            loss=None,
+            device="cpu",
+            validate_loss_keys=False,
+        )
+
+        tokenizer = Mock()
+        policy.set_tokenizer(tokenizer)
+
+        encoding_pipeline.set_tokenizer.assert_called_once_with(tokenizer)
+
+    def test_set_tokenizer_propagates_to_decoder(self):
+        """Test tokenizer propagates to decoder."""
+        encoding_pipeline = MagicMock()
+        encoding_pipeline.set_tokenizer = Mock()
+        encoding_pipeline.get_features_to_dimensions.return_value = {"features": 256}
+        encoding_pipeline.get_final_features_to_dimensions.return_value = {"features": 256}
+
+        decoder = MagicMock()
+        decoder.decoder_input.keys = ["features"]
+        decoder.decoder_input.validate_feature_types = MagicMock()
+        decoder.set_tokenizer = Mock()
+
+        algorithm = MagicMock()
+
+        policy = Policy(
+            encoding_pipeline=encoding_pipeline,
+            algorithm=algorithm,
+            decoder=decoder,
+            observation_space=MagicMock(),
+            action_space=MagicMock(),
+            prediction_horizon=10,
+            loss=None,
+            device="cpu",
+            validate_loss_keys=False,
+        )
+
+        tokenizer = Mock()
+        policy.set_tokenizer(tokenizer)
+
+        decoder.set_tokenizer.assert_called_once_with(tokenizer)
+
+    def test_set_tokenizer_none(self):
+        """Test setting None tokenizer sets attribute but doesn't propagate."""
+        encoding_pipeline = MagicMock()
+        encoding_pipeline.set_tokenizer = Mock()
+        encoding_pipeline.get_features_to_dimensions.return_value = {"features": 256}
+        encoding_pipeline.get_final_features_to_dimensions.return_value = {"features": 256}
+
+        decoder = MagicMock()
+        decoder.decoder_input.keys = ["features"]
+        decoder.decoder_input.validate_feature_types = MagicMock()
+        decoder.set_tokenizer = Mock()
+
+        algorithm = MagicMock()
+
+        policy = Policy(
+            encoding_pipeline=encoding_pipeline,
+            algorithm=algorithm,
+            decoder=decoder,
+            observation_space=MagicMock(),
+            action_space=MagicMock(),
+            prediction_horizon=10,
+            loss=None,
+            device="cpu",
+            validate_loss_keys=False,
+        )
+
+        policy.set_tokenizer(None)
+
+        assert policy.tokenizer is None
+        encoding_pipeline.set_tokenizer.assert_not_called()
+        decoder.set_tokenizer.assert_not_called()

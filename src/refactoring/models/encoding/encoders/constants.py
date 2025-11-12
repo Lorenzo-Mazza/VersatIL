@@ -65,6 +65,9 @@ class LanguageEncoderType(str, enum.Enum):
     BERT_BASE = "bert-base-uncased"  # supports AttentionImplementation.SDPA
     DISTILBERT_BASE = "distilbert-base-uncased" # supports AttentionImplementation.SDPA
     MINI_LM_L6 = "sentence-transformers/all-MiniLM-L6-v2"
+    GEMMA_2B =  "google/gemma-2b"
+    QWEN_2_1_5B = "Qwen/Qwen2-1.5B"
+
 
 
 
@@ -75,6 +78,7 @@ class EncoderOutputKeys(str, enum.Enum):
     LANGUAGE = "language"
     DEPTH = "depth"
     PROPRIOCEPTIVE = "proprio"
+    TOKEN_MASK= "token_mask"
     DEFAULT = "default"
 
 SPATIAL_FEATURES = [

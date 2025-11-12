@@ -309,6 +309,26 @@ class EncodingPipeline(nn.Module):
             if feat not in self._consumed_features
         }
 
+
+    def set_tokenizer(self, tokenizer):
+        """Set tokenizer for binning proprioceptive data.
+
+        This method is called by Policy.set_tokenizer() to pass the tokenizer
+        to the encoders. Only encoders that tokenize proprioceptive data should
+        use this tokenizer.
+
+        Args:
+            tokenizer: Tokenizer instance from data pipeline (can be None)
+        """
+        for encoder_name, encoder in self.encoders.items():
+        #TODO: This "hasattr" check is ugly, we could consider extending the encoders to have a common interface for this
+            if hasattr(encoder, "set_tokenizer"):
+                encoder.set_tokenizer(tokenizer)
+        for encoder_name, encoder in self.conditional_encoders.items():
+            if hasattr(encoder, "set_tokenizer"):
+                encoder.set_tokenizer(tokenizer)
+
+
     def __repr__(self) -> str:
         """Pretty print the pipeline structure."""
         lines = ["EncodingPipeline(", "  Encoders:"]

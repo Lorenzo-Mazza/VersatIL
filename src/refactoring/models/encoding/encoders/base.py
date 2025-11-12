@@ -53,8 +53,10 @@ class EncoderInput:
     keys: str | list[str]
     #: The encoder needs these input observation keys
     required: list[str] = field(default_factory=list)
-    #: The encoder needs at least one input observation key from these groups
+    #: The encoder needs exactly one input observation key from each of these groups
     one_of_groups: list[list[str]] = field(default_factory=list)
+    #: The encoder needs at least one input observation key from these groups
+    at_least_one_of_groups: list[list[str]] = field(default_factory=list)
     # For conditional encoders
     conditioning_key: str | None = None
     conditioning_required: list[str] = field(default_factory=list)
@@ -73,6 +75,10 @@ class EncoderInput:
             matches = key_set.intersection(group)
             if len(matches) != 1:
                 raise ValueError(f"Exactly one from {group} required, got {matches}")
+        for group in self.at_least_one_of_groups:
+            matches = key_set.intersection(group)
+            if len(matches) < 1:
+                raise ValueError(f"At least one from {group} required, got {matches}")
         if self.conditioning_key:
             conditioning_set = {self.conditioning_key}
             missing_conditioning = set(self.conditioning_required) - conditioning_set

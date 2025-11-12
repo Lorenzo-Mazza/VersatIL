@@ -327,6 +327,7 @@ class Workspace:
             raise ValueError("Checkpoint format not recognized")
         logging.info("Checkpoint loaded successfully")
 
+        # We need to load explicitly the tokenizer because it's not a torch.nn.Module , differently from the normalizer.
         tokenizer_path = self.output_dir / "tokenizer"
         if tokenizer_path.exists():
             device = torch.device(self.config.experiment.device)

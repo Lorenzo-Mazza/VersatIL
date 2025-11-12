@@ -194,6 +194,7 @@ class Policy(nn.Module):
         """Set tokenizer and pass it to the decoder."""
         self.tokenizer = tokenizer
         if tokenizer is not None:
+            self.encoding_pipeline.set_tokenizer(tokenizer)
             self.decoder.set_tokenizer(tokenizer)
 
 

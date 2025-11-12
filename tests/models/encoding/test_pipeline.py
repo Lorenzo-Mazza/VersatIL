@@ -1,6 +1,8 @@
 """Comprehensive tests for EncodingPipeline with real encoder implementations."""
 import pytest
 import torch
+from unittest.mock import Mock
+
 from refactoring.models.encoding.encoders.base import EncoderOutput, EncoderInput
 
 
@@ -1160,3 +1162,51 @@ class TestEncodingPipelineFeatureConsumption:
         assert "proprio_features" not in final_features_to_dims
         assert "fused" in final_features_to_dims
         assert final_features_to_dims["fused"] == 256
+
+
+@pytest.mark.unit
+class TestEncodingPipelineSetTokenizer:
+    """Test EncodingPipeline.set_tokenizer() propagation."""
+
+    def test_set_tokenizer_propagates_to_encoder_with_method(self):
+        """Test tokenizer propagates to encoder with set_tokenizer method."""
+        encoder = DummyRGBEncoder()
+        encoder.set_tokenizer = Mock()
+
+        pipeline = create_pipeline_with_encoders(
+            encoders_dict={"encoder1": encoder},
+            encoder_outputs={"encoder1": encoder.get_output_specification()},
+            feature_dims={"encoder1_features": (256, 7, 7)},
+        )
+
+        tokenizer = Mock()
+        pipeline.set_tokenizer(tokenizer)
+
+        encoder.set_tokenizer.assert_called_once_with(tokenizer)
+
+    def test_set_tokenizer_skips_encoder_without_method(self):
+        """Test tokenizer doesn't crash on encoder without set_tokenizer."""
+        encoder = DummyRGBEncoder()
+
+        pipeline = create_pipeline_with_encoders(
+            encoders_dict={"encoder1": encoder},
+            encoder_outputs={"encoder1": encoder.get_output_specification()},
+            feature_dims={"encoder1_features": (256, 7, 7)},
+        )
+
+        pipeline.set_tokenizer(Mock())
+
+    def test_set_tokenizer_none(self):
+        """Test setting None tokenizer doesn't crash."""
+        encoder = DummyRGBEncoder()
+        encoder.set_tokenizer = Mock()
+
+        pipeline = create_pipeline_with_encoders(
+            encoders_dict={"encoder1": encoder},
+            encoder_outputs={"encoder1": encoder.get_output_specification()},
+            feature_dims={"encoder1_features": (256, 7, 7)},
+        )
+
+        pipeline.set_tokenizer(None)
+
+        encoder.set_tokenizer.assert_called_once_with(None)

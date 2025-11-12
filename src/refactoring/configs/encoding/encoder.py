@@ -53,4 +53,17 @@ class LanguageEncoderConfig(EncoderConfig):
     use_pooler: bool = True
 
 
+@dataclass
+class LanguageProprioTokenizerEncoderConfig(EncoderConfig):
+    """Language + Proprioceptive Tokenizer Encoder configuration.
+
+    Tokenizes language instruction + discretized proprio state and returns
+    embeddings for FAST-style autoregressive models.
+    """
+    _target_: str = "refactoring.models.encoding.encoders.multimodal.language_proprio_tokenizer.LanguageProprioTokenizerEncoder"
+    language_model_name: str = "google/gemma-2b"
+    max_token_len: int = 512
+    device: str = "cpu"
+
+
 
