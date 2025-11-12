@@ -1,0 +1,39 @@
+# Encoding pipeline for RGB + Language Proprio Tokenizer
+# For use with FASTGPTDecoder
+
+_target_: refactoring.models.encoding.pipeline.EncodingPipeline
+
+encoders:
+  left_rgb:
+    _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
+    input_keys: ${cameras:LEFT}
+    backbone: ${rgb_backbone:RESNET18}
+    pretrained: false
+    frozen: false
+    pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
+    use_group_norm: true
+    image_height: ${task.dataloader.image_height}
+    image_width: ${task.dataloader.image_width}
+
+  right_rgb:
+    _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
+    input_keys: ${cameras:RIGHT}
+    backbone: ${rgb_backbone:RESNET18}
+    pretrained: false
+    frozen: false
+    pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
+    use_group_norm: true
+    image_height: ${task.dataloader.image_height}
+    image_width: ${task.dataloader.image_width}
+
+  tokenizer:
+    _target_: refactoring.models.encoding.encoders.multimodal.language_proprio_tokenizer.LanguageProprioTokenizerEncoder
+    input_keys:
+      - ${obs_key:PROPRIO_CAMERA_FRAME}
+    language_model_name: google/gemma-2b
+    max_token_len: 512
+    device: ${experiment.device}
+
+# No fusion stage needed - FASTGPTDecoder handles combining flat RGB features
+# with sequential language token embeddings internally via _prepare_feature_tokens
+fusion_stages: []

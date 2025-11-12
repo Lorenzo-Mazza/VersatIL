@@ -83,8 +83,22 @@ class VLMEncoder(Encoder):
           constrained to the size expected by the pretrained model. The internal resizing
           uses bicubic interpolation.
         """
-        result: torch.Tensor = torch.nn.functional.interpolate(images, size=(self.image_size, self.image_size), mode='bicubic', align_corners=False)
-        return result
+        if images.ndim != 4:
+            raise ValueError(f"(b,c,h,w) expected, but {images.shape}")
+        cur_height, cur_width = images.shape[2:]
+        target_size = self.image_size
+        ratio = max(cur_width / target_size, cur_height / target_size)
+        resized_height = int(cur_height / ratio)
+        resized_width = int(cur_width / ratio)
+        resized_img = torch.nn.functional.interpolate(
+            images, size=(resized_height, resized_width), mode='bicubic', align_corners=False
+        )
+        pad_height = max(0, target_size - resized_height)
+        pad_width = max(0, target_size - resized_width)
+        # Pad with zeros
+        padded_img = torch.nn.functional.pad(resized_img, (pad_width, 0, pad_height, 0), value=-1)
+        return padded_img
+
 
     def forward(self, inputs: dict[str, torch.Tensor | list[list[str]] | list[str]]) -> dict[str, torch.Tensor]:  # type: ignore[override]
         images = inputs[self.camera_key]

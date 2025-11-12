@@ -10,11 +10,13 @@ from refactoring.configs.decoding.action_head import ActionHeadConfig
 from refactoring.configs.decoding.decoder import (
     ACTConfig,
     FASTDETRDecoderConfig,
+    FASTGPTDecoderConfig,
     MixtureOfExpertsDecoderConfig,
 )
 from refactoring.models.decoding.constants import MoERoutingType
 from refactoring.models.decoding.decoders.factory.act import ACT
 from refactoring.models.decoding.decoders.factory.fast_detr_decoder import FASTDETRDecoder
+from refactoring.models.decoding.decoders.factory.fast_gpt_decoder import FASTGPTDecoder
 from refactoring.models.layers.activation import ActivationFunction
 
 
@@ -122,6 +124,91 @@ class TestFASTDETRDecoderConfig:
             assert cfg is not None
             assert cfg._target_ == "refactoring.models.decoding.decoders.factory.fast_detr_decoder.FASTDETRDecoder"
             assert cfg.embedding_dimension == 512
+
+
+@pytest.mark.unit
+class TestFASTGPTDecoderConfig:
+    def test_config_has_correct_target(self):
+        config = FASTGPTDecoderConfig(
+            action_heads={
+                "action_logits": ActionHeadConfig(input_dim=256, output_dim=1024, blocks=[])
+            },
+            input_keys=["visual_embedding"],
+        )
+        assert config._target_ == "refactoring.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTDecoder"
+
+    def test_config_params_match_class_signature(self):
+        sig = inspect.signature(FASTGPTDecoder.__init__)
+        params = set(sig.parameters.keys()) - {"self"}
+        config = FASTGPTDecoderConfig(
+            action_heads={
+                "action_logits": ActionHeadConfig(input_dim=256, output_dim=1024, blocks=[])
+            },
+            input_keys=["visual_embedding"],
+        )
+        config_dict = OmegaConf.structured(config)
+        config_keys = set(config_dict.keys()) - {"_target_", "action_heads"}
+        assert config_keys.issubset(params), f"Extra keys: {config_keys - params}"
+
+    def test_default_activation_is_swiglu(self):
+        config = FASTGPTDecoderConfig(
+            action_heads={
+                "action_logits": ActionHeadConfig(input_dim=256, output_dim=1024, blocks=[])
+            },
+            input_keys=["visual_embedding"],
+        )
+        assert config.activation == ActivationFunction.SWIGLU.value
+
+    def test_default_normalization_is_rmsnorm(self):
+        config = FASTGPTDecoderConfig(
+            action_heads={
+                "action_logits": ActionHeadConfig(input_dim=256, output_dim=1024, blocks=[])
+            },
+            input_keys=["visual_embedding"],
+        )
+        assert config.normalization_type == "rmsnorm"
+
+    def test_default_attention_type_is_gqa(self):
+        config = FASTGPTDecoderConfig(
+            action_heads={
+                "action_logits": ActionHeadConfig(input_dim=256, output_dim=1024, blocks=[])
+            },
+            input_keys=["visual_embedding"],
+        )
+        assert config.attention_type == "gqa"
+
+    def test_default_embedding_dimension(self):
+        config = FASTGPTDecoderConfig(
+            action_heads={
+                "action_logits": ActionHeadConfig(input_dim=256, output_dim=1024, blocks=[])
+            },
+            input_keys=["visual_embedding"],
+        )
+        assert config.embedding_dimension == 256
+
+    def test_default_action_vocabulary_size(self):
+        config = FASTGPTDecoderConfig(
+            action_heads={
+                "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
+            },
+            input_keys=["visual_embedding"],
+        )
+        assert config.action_vocabulary_size == 2048
+
+    def test_yaml_config_loads(self):
+        """Test that fast_gpt_decoder_default.yaml loads correctly via Hydra."""
+        project_root = Path(__file__).parent.parent.parent
+        decoder_config_dir = project_root / "experiments" / "policy" / "decoder"
+
+        with initialize_config_dir(config_dir=str(decoder_config_dir), version_base=None):
+            cfg = compose(config_name="fast_gpt_decoder_default")
+            assert cfg is not None
+            assert cfg._target_ == "refactoring.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTDecoder"
+            assert cfg.embedding_dimension == 512
+            assert cfg.action_vocabulary_size == 1024
+            assert cfg.activation == "swiglu"
+            assert cfg.normalization_type == "rmsnorm"
+            assert cfg.attention_type == "gqa"
 
 
 @pytest.mark.unit

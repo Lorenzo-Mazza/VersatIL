@@ -1,0 +1,52 @@
+# FAST GPT Decoder Configuration
+# Pure GPT-style autoregressive transformer for FAST tokenized action prediction
+# Uses self-attention only (no cross-attention) with KV caching for efficient inference
+# Reference: https://arxiv.org/abs/2501.09747
+
+_target_: refactoring.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTDecoder
+
+# Input features from encoding pipeline
+# Key is always "{encoder_name}_{EncoderOutputType.value}" for each encoder in the encoding pipeline
+input_keys:
+  - left_rgb_image
+  - right_rgb_image
+  - tokenizer_language
+
+# FAST tokenization settings
+# action_vocabulary_size must match task.dataloader.tokenization.use_pretrained_action_tokenizer:
+#   - use_pretrained_action_tokenizer: true  → action_vocabulary_size: 2048
+#   - use_pretrained_action_tokenizer: false → action_vocabulary_size: 1024
+action_vocabulary_size: 1024
+max_seq_len: 512  # Maximum sequence length (features + action tokens)
+
+# GPT Transformer architecture
+embedding_dimension: 512
+number_of_heads: 8
+number_of_key_value_heads: 2  # For Grouped Query Attention (GQA)
+feedforward_dimension: 2048  # Default: 4 * embedding_dimension
+number_of_layers: 6
+activation: swiglu  # SwiGLU activation (swiglu, gelu, relu, silu)
+normalization_type: rmsnorm  # RMSNorm (rmsnorm, layernorm)
+attention_type: gqa  # Grouped Query Attention (gqa, mha)
+dropout_rate: 0.1
+attention_dropout: 0.0
+positional_encoding_type: rope  # Positional encoding (sinusoidal, rope, null)
+
+# Special tokens
+eos_token_id: 1  # End of sequence
+pad_token_id: 0  # Padding token
+
+# Inference settings
+temperature: 1.0  # Sampling temperature
+learnable_temperature: false  # If true, temperature is a learnable parameter
+deterministic: true  # If true, use greedy decoding; if false, sample from distribution
+
+# Note: action_heads are created internally by FASTGPTDecoder
+# (action_logits head with output_dim=action_vocabulary_size)
+
+# References to task/policy configs (Hydra interpolation)
+observation_horizon: ${task.observation_horizon}
+prediction_horizon: ${task.prediction_horizon}
+action_space: ${task.action_space}
+observation_space: ${task.observation_space}
+device: ${experiment.device}
