@@ -188,19 +188,26 @@ class FASTGPTDecoder(ActionDecoder):
 
         for key, feature in sorted(features.items()):
             if EncoderOutputKeys.LANGUAGE.value in key:
-                # Shape: (B, max_token_len, embed_dim)
-                if feature.shape[-1] != self.embedding_dimension:
-                    feature = self.feature_projection({key: feature})[key]
-                feature_tokens_list.append(feature)
                 # Add corresponding mask for these language tokens
+                batch_size, seq_len = feature.shape[0], feature.shape[1]
                 if language_token_mask is not None:
-                    mask_segments_list.append(language_token_mask)
+                    # Find actual sequence length (first False in mask)
+                    actual_lengths = language_token_mask.sum(dim=1)
+                    max_len = actual_lengths.max().item()
+                    # Truncate both tokens and mask to actual content
+                    feature = feature[:, -max_len:, :]  # Keep only non-padding, tokens are left-padded so slice from the end
+                    mask_segment = language_token_mask[:, -max_len:]
+                    mask_segments_list.append(mask_segment)
                 else:
                     # No mask provided - assume all language tokens valid
                     batch_size, seq_len = feature.shape[0], feature.shape[1]
                     mask_segments_list.append(
                         torch.ones((batch_size, seq_len), dtype=torch.bool, device=feature.device)
                     )
+                # Shape: (B, max_token_len, embed_dim)
+                if feature.shape[-1] != self.embedding_dimension:
+                    feature = self.feature_projection({key: feature})[key]
+                feature_tokens_list.append(feature)
                 continue
 
             if len(feature.shape) >= 4:

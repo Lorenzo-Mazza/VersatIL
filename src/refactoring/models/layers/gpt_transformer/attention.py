@@ -182,6 +182,7 @@ class CachedAttention(nn.Module):
 
         # Softmax and dropout
         attention_weights = F.softmax(attention_scores, dim=-1)
+        attention_weights = torch.nan_to_num(attention_weights, nan=0.0)
         attention_weights = F.dropout(
             attention_weights, p=self.dropout, training=self.training
         )

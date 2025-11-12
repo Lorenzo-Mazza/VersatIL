@@ -220,6 +220,7 @@ class LanguageProprioTokenizerEncoder(Encoder):
 
         tokenized = self.language_tokenizer(
             prefixes,
+            padding_side='left',
             add_special_tokens=True,
             return_tensors="pt",
             max_length=self.max_token_len,
