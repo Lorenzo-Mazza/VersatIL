@@ -177,48 +177,79 @@ class FASTGPTDecoder(ActionDecoder):
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Convert features to tokens and extract masks (None if absent)."""
         feature_tokens_list = []
-        token_mask = None
-        for key, feature in sorted(features.items()):
-            # Handle token mask (extract but don't add to features)
-            if key == EncoderOutputKeys.TOKEN_MASK.value:
-                token_mask = feature
-                continue
+        mask_segments_list = []  # Build mask in same order as tokens
 
-            # Handle language features (already embedded tokens)
+        language_token_mask = None
+        for key, feature in features.items():
+            if EncoderOutputKeys.TOKEN_MASK.value in key:
+                language_token_mask = feature
+                features.pop(key)
+                break
+
+        for key, feature in sorted(features.items()):
             if EncoderOutputKeys.LANGUAGE.value in key:
                 # Shape: (B, max_token_len, embed_dim)
                 if feature.shape[-1] != self.embedding_dimension:
                     feature = self.feature_projection({key: feature})[key]
                 feature_tokens_list.append(feature)
-                continue  # Skip shape checks below
+                # Add corresponding mask for these language tokens
+                if language_token_mask is not None:
+                    mask_segments_list.append(language_token_mask)
+                else:
+                    # No mask provided - assume all language tokens valid
+                    batch_size, seq_len = feature.shape[0], feature.shape[1]
+                    mask_segments_list.append(
+                        torch.ones((batch_size, seq_len), dtype=torch.bool, device=feature.device)
+                    )
+                continue
 
-            # Handle other features based on shape
             if len(feature.shape) >= 4:
                 raise ValueError("FASTGPTDecoder doesn't accept spatial features.")
             elif len(feature.shape) == 3:  # Sequential (B, T, D)
                 feature = self.feature_projection({key: feature})[key]
                 feature_tokens_list.append(feature)
+                # Sequential features are always valid
+                batch_size, seq_len = feature.shape[0], feature.shape[1]
+                mask_segments_list.append(
+                    torch.ones((batch_size, seq_len), dtype=torch.bool, device=feature.device)
+                )
             elif len(feature.shape) == 2:  # Flat (B, D)
                 feature = self.feature_projection({key: feature})[key]
                 feature_tokens_list.append(feature.unsqueeze(1))  # (B, 1, D)
+                # Flat features are always valid (single token)
+                batch_size = feature.shape[0]
+                mask_segments_list.append(
+                    torch.ones((batch_size, 1), dtype=torch.bool, device=feature.device)
+                )
             else:
                 raise ValueError(
                     f"Unsupported feature shape for key '{key}': {feature.shape}. "
                     f"Expected 2D (B, D), 3D (B, T, D), but got {len(feature.shape)}D."
                 )
 
-        # Add latent if present
         if latent_embedding is not None:
             if len(latent_embedding.shape) == 2:
                 latent_embedding = latent_embedding.unsqueeze(1)
             if latent_embedding.shape[-1] != self.embedding_dimension:
                 latent_embedding = self.feature_projection({LATENT_KEY: latent_embedding})[LATENT_KEY]
             feature_tokens_list.append(latent_embedding)
+            # Latent is always valid
+            batch_size, seq_len = latent_embedding.shape[0], latent_embedding.shape[1]
+            mask_segments_list.append(
+                torch.ones((batch_size, seq_len), dtype=torch.bool, device=latent_embedding.device)
+            )
 
         if len(feature_tokens_list) == 0:
             raise ValueError("FASTGPTDecoder requires at least one feature input.")
+
         feature_tokens = torch.cat(feature_tokens_list, dim=1)  # (B, num_tokens, D)
-        return feature_tokens, token_mask
+
+        # Concatenate all mask segments in the same order as tokens
+        if len(mask_segments_list) > 0:
+            full_mask = torch.cat(mask_segments_list, dim=1)  # (B, total_tokens)
+            return feature_tokens, full_mask
+
+        return feature_tokens, None
 
     def set_tokenizer(self, tokenizer: Tokenizer):
         """Set tokenizer and validate vocab size."""

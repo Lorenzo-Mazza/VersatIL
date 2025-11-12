@@ -198,8 +198,8 @@ class LanguageProprioTokenizerEncoder(Encoder):
                 else:
                     lang_instruction = None
 
-                cleaned_text = lang_instruction.lower().strip().replace("_", " ") if lang_instruction else ""
-                task_part = f"Task: {cleaned_text}" if cleaned_text else "Task: "
+                cleaned_text = lang_instruction.lower().strip().replace("_", " ") if lang_instruction else None
+                task_part = f"Task: {cleaned_text}" if cleaned_text else None
 
                 robot_part = ""
                 if discretized_robot is not None:
@@ -242,6 +242,7 @@ class LanguageProprioTokenizerEncoder(Encoder):
         Returns encoder output keys and dimensions.
         """
         return EncoderOutput(
-            features=[EncoderOutputKeys.LANGUAGE.value],
-            dimensions={EncoderOutputKeys.LANGUAGE.value: (self.max_token_len, self.embed_dim)},
+            features=[EncoderOutputKeys.LANGUAGE.value, EncoderOutputKeys.TOKEN_MASK.value],
+            dimensions={EncoderOutputKeys.LANGUAGE.value: (self.max_token_len, self.embed_dim),
+                        EncoderOutputKeys.TOKEN_MASK.value: (self.max_token_len,)},
         )

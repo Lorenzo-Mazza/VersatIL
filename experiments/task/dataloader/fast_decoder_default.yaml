@@ -22,7 +22,7 @@ tokenization:
   enabled: true
   tokenize_actions: true
   use_pretrained_action_tokenizer: false
-  tokenize_proprio_obs: false
+  tokenize_proprio_obs: true
   proprio_num_bins: 256
 
 # Augmentations

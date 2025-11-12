@@ -61,6 +61,8 @@ class LanguageProprioTokenizerEncoderConfig(EncoderConfig):
     embeddings for FAST-style autoregressive models.
     """
     _target_: str = "refactoring.models.encoding.encoders.multimodal.language_proprio_tokenizer.LanguageProprioTokenizerEncoder"
+    pretrained: bool = True
+    frozen: bool = True
     language_model_name: str = "google/gemma-2b"
     max_token_len: int = 512
     device: str = "cpu"

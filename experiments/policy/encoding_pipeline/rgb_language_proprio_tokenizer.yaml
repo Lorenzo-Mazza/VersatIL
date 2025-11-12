@@ -30,6 +30,8 @@ encoders:
     _target_: refactoring.models.encoding.encoders.multimodal.language_proprio_tokenizer.LanguageProprioTokenizerEncoder
     input_keys:
       - ${obs_key:PROPRIO_CAMERA_FRAME}
+    pretrained: true
+    frozen: true
     language_model_name: google/gemma-2b
     max_token_len: 512
     device: ${experiment.device}
