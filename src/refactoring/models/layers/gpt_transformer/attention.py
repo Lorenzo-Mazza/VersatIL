@@ -174,7 +174,7 @@ class CachedAttention(nn.Module):
             if attention_mask.dtype == torch.bool:
                 # Boolean mask: True = masked position
                 attention_scores = attention_scores.masked_fill(
-                    attention_mask, float('-inf')
+                    attention_mask, -1e9 if attention_scores.dtype == torch.float32 else -1e4
                 )
             else:
                 # Additive mask (e.g., -inf for masked positions)
@@ -182,7 +182,6 @@ class CachedAttention(nn.Module):
 
         # Softmax and dropout
         attention_weights = F.softmax(attention_scores, dim=-1)
-        attention_weights = torch.nan_to_num(attention_weights, nan=0.0)
         attention_weights = F.dropout(
             attention_weights, p=self.dropout, training=self.training
         )
