@@ -6,7 +6,7 @@ defaults:
   - task/dataloader: fast_decoder_default
   - task/action_space: br_position_gripper_deltas_cf
   - task/observation_space: br_rgb_only
-  - training: act_default
+  - training: gpt_decoder_default
   - policy/encoding_pipeline: rgb_resnet18
   - policy/decoder: fast_detr_decoder_default
   - policy/algorithm: bc_with_vae_gaussian  # Use existing VAE config

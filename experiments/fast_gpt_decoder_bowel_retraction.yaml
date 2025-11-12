@@ -7,7 +7,7 @@ defaults:
   - task/dataloader: fast_decoder_default
   - task/action_space: br_position_gripper_deltas_cf
   - task/observation_space: br_rgb_proprio_cf
-  - training: act_default
+  - training: gpt_decoder_default
   - policy/encoding_pipeline: rgb_language_proprio_tokenizer
   - policy/decoder: fast_gpt_decoder_default
   - policy/algorithm: behavioral_cloning
