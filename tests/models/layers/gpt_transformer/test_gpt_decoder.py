@@ -308,3 +308,165 @@ class TestGPTDecoder:
 
         with pytest.raises(ValueError, match="encoded_features required"):
             decoder(hidden_states=hidden_states, use_cache=True)
+
+    @pytest.mark.parametrize("mask_dim", [2, 3, 4])
+    def test_custom_self_attention_mask(self, mask_dim):
+        """Test forward pass with custom self-attention mask of different dimensions."""
+        batch_size, seq_len, embedding_dim = 2, 10, 512
+
+        decoder = GPTDecoder(
+            number_of_layers=2,
+            embedding_dimension=embedding_dim,
+            number_of_heads=8,
+            attention_type=AttentionType.MULTI_HEAD.value,
+            use_cross_attention=False,
+        )
+
+        hidden_states = torch.randn(batch_size, seq_len, embedding_dim)
+
+        # Create custom mask with different shapes
+        if mask_dim == 2:
+            # 2D: (seq_len, seq_len)
+            self_attention_mask = torch.triu(torch.ones(seq_len, seq_len, dtype=torch.bool), diagonal=1)
+        elif mask_dim == 3:
+            # 3D: (B, seq_len, seq_len)
+            self_attention_mask = torch.triu(
+                torch.ones(batch_size, seq_len, seq_len, dtype=torch.bool), diagonal=1
+            )
+        else:  # mask_dim == 4
+            # 4D: (B, 1, seq_len, seq_len)
+            self_attention_mask = torch.triu(
+                torch.ones(batch_size, 1, seq_len, seq_len, dtype=torch.bool), diagonal=1
+            )
+
+        output, cache = decoder(
+            hidden_states=hidden_states,
+            self_attention_mask=self_attention_mask,
+            use_cache=True,
+        )
+
+        assert output.shape == (batch_size, seq_len, embedding_dim)
+        assert cache is not None
+
+    def test_custom_self_attention_mask_with_cache(self):
+        """Test custom self-attention mask with KV caching."""
+        batch_size, initial_len, new_len, embedding_dim = 2, 10, 1, 512
+
+        decoder = GPTDecoder(
+            number_of_layers=2,
+            embedding_dimension=embedding_dim,
+            number_of_heads=8,
+            attention_type=AttentionType.MULTI_HEAD.value,
+            use_cross_attention=False,
+        )
+
+        # Initial forward pass
+        initial_input = torch.randn(batch_size, initial_len, embedding_dim)
+        _, cache = decoder(
+            hidden_states=initial_input,
+            use_cache=True,
+        )
+
+        # Autoregressive step with custom mask
+        new_input = torch.randn(batch_size, new_len, embedding_dim)
+        # Custom mask for the new token (should allow attending to itself)
+        custom_mask = torch.zeros(batch_size, new_len, new_len, dtype=torch.bool)
+
+        output, new_cache = decoder(
+            hidden_states=new_input,
+            self_attention_mask=custom_mask,
+            decoder_cache=cache,
+            use_cache=True,
+        )
+
+        assert output.shape == (batch_size, new_len, embedding_dim)
+        assert new_cache.get_length() == initial_len + new_len
+
+    def test_custom_mask_blocks_attention(self):
+        """Test that custom mask correctly blocks attention between specific positions."""
+        batch_size, seq_len, embedding_dim = 1, 4, 512
+
+        decoder = GPTDecoder(
+            number_of_layers=1,
+            embedding_dimension=embedding_dim,
+            number_of_heads=8,
+            attention_type=AttentionType.MULTI_HEAD.value,
+            use_cross_attention=False,
+        )
+
+        # Create input with distinct patterns
+        hidden_states = torch.randn(batch_size, seq_len, embedding_dim)
+
+        # Causal mask (default behavior)
+        output_causal, _ = decoder(hidden_states=hidden_states)
+
+        # Fully visible mask (all positions can attend to all positions)
+        visible_mask = torch.zeros(seq_len, seq_len, dtype=torch.bool)
+        output_visible, _ = decoder(
+            hidden_states=hidden_states,
+            self_attention_mask=visible_mask,
+        )
+
+        # Outputs should differ when using different masks
+        assert not torch.allclose(output_causal, output_visible, rtol=1e-4)
+
+    @pytest.mark.parametrize("attention_type", [
+        AttentionType.MULTI_HEAD.value,
+        AttentionType.GROUPED_QUERY.value,
+    ])
+    def test_custom_mask_with_gqa(self, attention_type):
+        """Test custom self-attention mask with GQA attention."""
+        batch_size, seq_len, embedding_dim = 2, 10, 512
+
+        decoder_kwargs = {
+            "number_of_layers": 2,
+            "embedding_dimension": embedding_dim,
+            "number_of_heads": 8,
+            "attention_type": attention_type,
+            "use_cross_attention": False,
+        }
+        if attention_type == AttentionType.GROUPED_QUERY.value:
+            decoder_kwargs["number_of_key_value_heads"] = 2
+
+        decoder = GPTDecoder(**decoder_kwargs)
+
+        hidden_states = torch.randn(batch_size, seq_len, embedding_dim)
+        # Custom causal mask
+        self_attention_mask = torch.triu(
+            torch.ones(batch_size, seq_len, seq_len, dtype=torch.bool), diagonal=1
+        )
+
+        output, _ = decoder(
+            hidden_states=hidden_states,
+            self_attention_mask=self_attention_mask,
+        )
+
+        assert output.shape == (batch_size, seq_len, embedding_dim)
+
+    def test_custom_mask_with_cross_attention(self):
+        """Test custom self-attention mask when cross-attention is also enabled."""
+        batch_size, seq_len, feature_len, embedding_dim = 2, 10, 20, 512
+
+        decoder = GPTDecoder(
+            number_of_layers=2,
+            embedding_dimension=embedding_dim,
+            number_of_heads=8,
+            attention_type=AttentionType.MULTI_HEAD.value,
+            use_cross_attention=True,
+        )
+
+        hidden_states = torch.randn(batch_size, seq_len, embedding_dim)
+        encoded_features = torch.randn(batch_size, feature_len, embedding_dim)
+
+        # Custom self-attention mask
+        self_attention_mask = torch.triu(
+            torch.ones(seq_len, seq_len, dtype=torch.bool), diagonal=1
+        )
+
+        output, _ = decoder(
+            hidden_states=hidden_states,
+            encoded_features=encoded_features,
+            self_attention_mask=self_attention_mask,
+        )
+
+        assert output.shape == (batch_size, seq_len, embedding_dim)

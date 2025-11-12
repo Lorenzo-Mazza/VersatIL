@@ -33,7 +33,7 @@ class GPTDecoder(nn.Module):
         activation: str = ActivationFunction.SWIGLU.value,
         normalization_type: str = NormalizationType.RMS_NORM.value,
         attention_type: str = AttentionType.GROUPED_QUERY.value,
-        use_cross_attention: bool = True,
+        use_cross_attention: bool = False,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 2048,
         bias: bool = True,
@@ -166,6 +166,7 @@ class GPTDecoder(nn.Module):
         mask = mask.unsqueeze(0).unsqueeze(0)
         return mask
 
+
     def precompute_cross_attention_kv(
         self,
         encoded_features: torch.Tensor,
@@ -211,6 +212,7 @@ class GPTDecoder(nn.Module):
         self,
         hidden_states: torch.Tensor,
         encoded_features: torch.Tensor | None = None,
+        self_attention_mask: torch.Tensor | None = None,
         cross_attention_mask: torch.Tensor | None = None,
         decoder_cache: DecoderKVCache | None = None,
         use_cache: bool = False,
@@ -219,7 +221,9 @@ class GPTDecoder(nn.Module):
 
         Args:
             hidden_states: Input token embeddings (B, seq_len, D)
-            encoded_features: Encoded visual features (B, num_features, D). Required if use_cross_attention=True
+            encoded_features: Encoder visual features (B, num_features, D). Required if self.use_cross_attention=True
+            self_attention_mask: Optional custom self-attention mask (B, 1, seq_len, seq_len) where True means masked.
+               If None, generates standard causal mask.
             cross_attention_mask: Optional mask for cross-attention
             decoder_cache: Optional cached K/V from previous steps
             use_cache: Whether to return updated cache
@@ -235,14 +239,30 @@ class GPTDecoder(nn.Module):
         if isinstance(self.positional_encoding, SinusoidalPositionalEncoding1D):
             hidden_states = self.positional_encoding(hidden_states)
 
-        # Generate causal mask for self-attention
-        # During generation, need to account for cached sequence length
-        cache_length = decoder_cache.get_length() if decoder_cache else 0
-        total_length = cache_length + sequence_length
-        self_attention_mask = self.generate_causal_mask(total_length, device)
-        # Slice to get only rows for current queries (last sequence_length rows)
-        # Shape: (1, 1, sequence_length, total_length)
-        self_attention_mask = self_attention_mask[:, :, -sequence_length:, :]
+        if self_attention_mask is not None:
+            if self_attention_mask.dim() == 3:  # (B, seq_len, seq_len)
+                self_attention_mask = self_attention_mask.unsqueeze(1)  # Add head dimension
+            elif self_attention_mask.dim() == 2:  # (seq_len, seq_len)
+                self_attention_mask = self_attention_mask.unsqueeze(0).unsqueeze(0)  # Add batch and head dims
+            cache_length = decoder_cache.get_length() if decoder_cache else 0
+            if cache_length > 0:
+                # Expand attention mask to account for cached positions
+                total_length = cache_length + sequence_length
+                expanded_mask = torch.ones(
+                    batch_size, 1, sequence_length, total_length, dtype=torch.bool, device=device
+                )
+                expanded_mask[:, :, :, :cache_length] = False  # Can attend to cached positions
+                expanded_mask[:, :, :, cache_length:] = self_attention_mask[:, :, -sequence_length:, :]
+                self_attention_mask = expanded_mask
+        else:
+            # Generate causal mask for self-attention
+            # During generation, need to account for cached sequence length
+            cache_length = decoder_cache.get_length() if decoder_cache else 0
+            total_length = cache_length + sequence_length
+            self_attention_mask = self.generate_causal_mask(total_length, device)
+            # Slice to get only rows for current queries (last sequence_length rows)
+            # Shape: (1, 1, sequence_length, total_length)
+            self_attention_mask = self_attention_mask[:, :, -sequence_length:, :]
 
         # Precompute cross-attention K/V if using cross-attention
         cross_kv_per_layer = None
