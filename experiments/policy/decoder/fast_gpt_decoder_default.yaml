@@ -24,12 +24,12 @@ embedding_dimension: 512
 number_of_heads: 8
 number_of_key_value_heads: 2  # For Grouped Query Attention (GQA)
 feedforward_dimension: 2048  # Default: 4 * embedding_dimension
-number_of_layers: 6
+number_of_layers: 4
 activation: swiglu  # SwiGLU activation (swiglu, gelu, relu, silu)
 normalization_type: rmsnorm  # RMSNorm (rmsnorm, layernorm)
 attention_type: gqa  # Grouped Query Attention (gqa, mha)
-dropout_rate: 0.1
-attention_dropout: 0.0
+dropout_rate: 0.2
+attention_dropout: 0.1
 positional_encoding_type: rope  # Positional encoding (sinusoidal, rope, null)
 
 # Special tokens

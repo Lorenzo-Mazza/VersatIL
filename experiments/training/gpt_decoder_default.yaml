@@ -10,7 +10,7 @@ optimizer:
   param_groups:
     - name: backbone
       lr: 1.0e-5
-      weight_decay: 1.0e-6
+      weight_decay: 1.0e-5
       params_pattern: "encoding_pipeline.encoders.*.backbone"
 
 clip_gradient_norm: true

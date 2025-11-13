@@ -28,7 +28,8 @@ tokenization:
 # Augmentations
 color_augmentation:
   _target_: refactoring.configs.task.augmentations.ColorAugmentationPipeline
-spatial_augmentation: null
+spatial_augmentation:
+  _target_: refactoring.configs.task.augmentations.SpatialAugmentationPipeline
 rotation_augmentation: null
 
 # Sampling strategy
