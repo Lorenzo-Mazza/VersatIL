@@ -17,18 +17,18 @@ input_keys:
 #   - use_pretrained_action_tokenizer: true  → action_vocabulary_size: 2048
 #   - use_pretrained_action_tokenizer: false → action_vocabulary_size: 1024
 action_vocabulary_size: 1024
-max_seq_len: 512  # Maximum sequence length (features + action tokens)
+max_seq_len: 256  # Maximum sequence length (features + action tokens)
 
 # GPT Transformer architecture
-embedding_dimension: 512
-number_of_heads: 8
+embedding_dimension: 128
+number_of_heads: 4
 number_of_key_value_heads: 2  # For Grouped Query Attention (GQA)
-feedforward_dimension: 2048  # Default: 4 * embedding_dimension
+feedforward_dimension: 1024  # Default: 4 * embedding_dimension
 number_of_layers: 4
 activation: swiglu  # SwiGLU activation (swiglu, gelu, relu, silu)
 normalization_type: rmsnorm  # RMSNorm (rmsnorm, layernorm)
 attention_type: gqa  # Grouped Query Attention (gqa, mha)
-dropout_rate: 0.2
+dropout_rate: 0.1
 attention_dropout: 0.1
 positional_encoding_type: rope  # Positional encoding (sinusoidal, rope, null)
 

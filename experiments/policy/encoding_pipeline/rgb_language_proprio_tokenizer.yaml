@@ -33,7 +33,7 @@ encoders:
     pretrained: true
     frozen: true
     language_model_name: google/gemma-2b
-    max_token_len: 512
+    max_token_len: 128
     device: ${experiment.device}
 
 # No fusion stage needed - FASTGPTDecoder handles combining flat RGB features
