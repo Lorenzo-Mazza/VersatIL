@@ -267,3 +267,98 @@ class ConfusionMatrixCallback(Callback):
 
         # Convert to WandB image
         return wandb.Image(pil_img)
+
+
+class GradientNormCallback(Callback):
+    """Callback to log gradient norms before and after clipping.
+
+    Logs:
+    - grad_norm_before_clip: Total gradient norm before clipping
+    - grad_norm_after_clip: Total gradient norm after clipping (if clipping is enabled)
+    - Individual parameter group gradient norms
+    """
+
+    def __init__(self, log_every_n_steps: int = 50):
+        """Initialize gradient norm callback.
+
+        Args:
+            log_every_n_steps: Log gradient norms every N steps
+        """
+        super().__init__()
+        self.log_every_n_steps = log_every_n_steps
+
+    def on_before_optimizer_step(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        optimizer,
+    ) -> None:
+        """Log gradient norms before optimizer step (after gradient clipping).
+
+        Args:
+            trainer: Lightning trainer
+            pl_module: Lightning module
+            optimizer: The optimizer
+        """
+        if trainer.global_step % self.log_every_n_steps != 0:
+            return
+
+        # Compute gradient norm across all parameters
+        grad_norm = self._compute_grad_norm(pl_module)
+
+        # Log to wandb
+        pl_module.log(
+            "grad_norm",
+            grad_norm,
+            on_step=True,
+            on_epoch=False,
+            prog_bar=False,
+            logger=True,
+        )
+
+        # Log per-parameter group if using parameter groups
+        if hasattr(optimizer, "param_groups") and len(optimizer.param_groups) > 1:
+            for idx, param_group in enumerate(optimizer.param_groups):
+                group_grad_norm = self._compute_grad_norm_for_params(param_group["params"])
+                pl_module.log(
+                    f"grad_norm_group_{idx}",
+                    group_grad_norm,
+                    on_step=True,
+                    on_epoch=False,
+                    prog_bar=False,
+                    logger=True,
+                )
+
+    def _compute_grad_norm(self, pl_module: pl.LightningModule) -> float:
+        """Compute the total gradient norm across all parameters.
+
+        Args:
+            pl_module: Lightning module
+
+        Returns:
+            Total gradient norm
+        """
+        total_norm = 0.0
+        for param in pl_module.parameters():
+            if param.grad is not None:
+                param_norm = param.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+        total_norm = total_norm**0.5
+        return total_norm
+
+    def _compute_grad_norm_for_params(self, params) -> float:
+        """Compute gradient norm for a specific set of parameters.
+
+        Args:
+            params: List of parameters
+
+        Returns:
+            Gradient norm
+        """
+        total_norm = 0.0
+        for param in params:
+            if param.grad is not None:
+                param_norm = param.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+        total_norm = total_norm**0.5
+        return total_norm

@@ -18,3 +18,5 @@ clip_max_norm: 0.1
 
 lr_schedule: null
 use_ema: false
+
+early_stopping_patience: 10

@@ -91,3 +91,5 @@ class TrainingConfig:
     # EMA
     use_ema: bool = True
     ema_power: float = 0.75
+
+    early_stopping_patience: int = 10  # Number of validation checks with no improvement to stop training

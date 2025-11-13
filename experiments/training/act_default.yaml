@@ -20,3 +20,5 @@ lr_schedule: cosine
 lr_warmup_steps: 1000
 
 use_ema: false
+
+early_stopping_patience: 10

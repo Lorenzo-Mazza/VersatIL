@@ -37,8 +37,8 @@ eos_token_id: 1  # End of sequence
 pad_token_id: 0  # Padding token
 
 # Inference settings
-temperature: 1.0  # Sampling temperature
-learnable_temperature: false  # If true, temperature is a learnable parameter
+temperature: 10.0  # Sampling temperature
+learnable_temperature: true  # If true, temperature is a learnable parameter
 deterministic: true  # If true, use greedy decoding; if false, sample from distribution
 
 # Note: action_heads are created internally by FASTGPTDecoder

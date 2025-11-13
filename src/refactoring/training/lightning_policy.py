@@ -62,7 +62,8 @@ class LightningPolicy(pl.LightningModule):
         """
         loss_output: LossOutput = self.policy.compute_loss(batch)
         self.train_metrics.add_loss_output(loss_output)
-        self.log("train_loss", loss_output.total_loss, on_step=True, on_epoch=True, prog_bar=True)
+        # Log only on epoch to avoid batch size dependency in plots
+        self.log("train_loss", loss_output.total_loss, on_step=False, on_epoch=True, prog_bar=True)
 
         return loss_output.total_loss
 

@@ -3,4 +3,4 @@
 
 _target_: refactoring.metrics.components.ActionTokenLoss
 ignore_index: 0  # Ignore padding tokens
-label_smoothing: 0.0  # Label smoothing factor
+label_smoothing: 0.1  # Label smoothing factor

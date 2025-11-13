@@ -10,7 +10,7 @@ import pytorch_lightning as pl
 import torch
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
 from torch.utils import data
@@ -21,7 +21,7 @@ from refactoring.data.dataloader import get_dataloaders
 from refactoring.data.normalize.normalizer import LinearNormalizer
 from refactoring.data.tokenize import Tokenizer
 from refactoring.models.policy import Policy
-from refactoring.training.callbacks import ConfusionMatrixCallback, EMACallback
+from refactoring.training.callbacks import ConfusionMatrixCallback, EMACallback, GradientNormCallback
 from refactoring.training.lightning_policy import LightningPolicy
 
 
@@ -213,7 +213,6 @@ class Workspace:
         """
         callbacks = []
 
-        # Callback for exponential moving average of model weights
         if self.config.training.use_ema:
             ema_callback = EMACallback(
                 power=self.config.training.ema_power,
@@ -221,7 +220,6 @@ class Workspace:
             callbacks.append(ema_callback)
             logging.info(f"Added EMA callback (power={self.config.training.ema_power})")
 
-        # Model checkpointing - save top-k best models based on val_loss
         checkpoint_callback_best = ModelCheckpoint(
             dirpath=self.output_dir,
             filename="best-{epoch:02d}-{val_loss:.4f}",
@@ -235,7 +233,6 @@ class Workspace:
         callbacks.append(checkpoint_callback_best)
         logging.info("Added ModelCheckpoint callback (top-k=3)")
 
-        # Save latest checkpoint periodically
         checkpoint_callback_latest = ModelCheckpoint(
             dirpath=self.output_dir,
             filename="latest-{epoch:02d}",
@@ -248,7 +245,19 @@ class Workspace:
         callbacks.append(checkpoint_callback_latest)
         logging.info(f"Added latest checkpoint callback (every {self.config.experiment.checkpoint_every} epochs)")
 
-        # Confusion matrix callback for phase models
+        early_stopping_callback = EarlyStopping(
+            monitor="val_loss",
+            mode="min",
+            patience=100,
+            verbose=True,
+        )
+        callbacks.append(early_stopping_callback)
+        logging.info("Added EarlyStopping callback (patience=10)")
+
+        gradient_norm_callback = GradientNormCallback(log_every_n_steps=50)
+        callbacks.append(gradient_norm_callback)
+        logging.info("Added GradientNorm callback (log every 50 steps)")
+
         if self.config.task.action_space.task_has_phases:
             cm_callback = ConfusionMatrixCallback(
                 log_every_n_epochs=self.config.experiment.val_every,

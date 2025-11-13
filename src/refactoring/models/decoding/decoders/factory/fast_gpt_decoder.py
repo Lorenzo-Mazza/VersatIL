@@ -135,23 +135,18 @@ class FASTGPTDecoder(ActionDecoder):
             prediction_horizon=prediction_horizon,
             device=device,
         )
-
         self.temperature = nn.Parameter(
             torch.tensor(temperature, dtype=torch.float32),
             requires_grad=learnable_temperature,
         )
-
         # Feature projection to convert all features to embedding_dimension
         self.feature_projection = FeatureProjection(
             embedding_dim=embedding_dimension,
             warn_on_projection=False,
             raise_on_mismatch=False,
         )
-
         # Token embedding for action tokens
         self.token_embedding = nn.Embedding(action_vocabulary_size, embedding_dimension)
-
-        # GPT decoder with self-attention only
         self.gpt_decoder = GPTDecoder(
             number_of_layers=number_of_layers,
             embedding_dimension=embedding_dimension,
@@ -167,8 +162,6 @@ class FASTGPTDecoder(ActionDecoder):
             positional_encoding_type=positional_encoding_type,
             maximum_sequence_length=max_seq_len,
         )
-
-        # Move to device
         self.to(self.device)
 
 
