@@ -4,7 +4,8 @@ This directory contains modular Hydra/OmegaConf configuration files for running 
 
 ## Overview
 
-The configuration system is designed to be **modular and composable**. Instead of monolithic JSON files, each aspect of an experiment (task, training, policy architecture, loss) is defined in separate YAML files that can be mixed and matched.
+The configuration system is designed to be **modular and composable**. Instead of monolithic JSON files, each aspect of an experiment 
+(task, training, policy architecture, loss) is defined in separate YAML files that can be mixed and matched.
 
 ## Directory Structure
 
@@ -13,6 +14,7 @@ experiments/
 ├── README.md                           # This file
 ├── act_bowel_retraction.yaml           # Complete ACT experiment config
 ├── phase_act_bowel_retraction.yaml     # Complete Phase ACT experiment config
+├── ... (any other experiment config)
 │
 ├── experiment/                         # Experiment tracking & infrastructure
 │   ├── bowel_retraction_act.yaml
@@ -28,27 +30,30 @@ experiments/
 │   │   └── bowel_retraction_v2.yaml
 │   └── dataloader/                     # Data loading settings
 │       ├── act_default.yaml
-│       └── phase_act_default.yaml
-│
+│       ├── phase_act_default.yaml
+│       └── ...
 ├── training/                           # Training hyperparameters
 │   ├── act_default.yaml
-│   └── phase_act_default.yaml
-│
+│   ├── phase_act_default.yaml
+│   └── ...
 ├── policy/                             # Policy architecture
 │   ├── encoding/                       # Observation encoding pipelines
 │   │   ├── rgb_resnet18.yaml
-│   │   └── rgb_depth_geometric.yaml
+│   │   ├── rgb_depth_geometric.yaml
+│   │   └── ...
 │   ├── decoder/                        # Action decoder architectures
 │   │   ├── act_default.yaml
 │   │   └── phase_act_default.yaml
+│   │   └── ...
 │   ├── algorithm/                      # Learning algorithms
 │   │   ├── behavioral_cloning.yaml
-│   │   └── behavioral_cloning_vae.yaml
+│   │   ├── behavioral_cloning_vae.yaml
+│   │   └── ...
 │   └── loss/                           # Loss functions
 │       ├── act_default.yaml
 │       ├── act_with_vae.yaml
-│       └── phase_act_default.yaml
-│
+│       ├── act_with_vae.yaml
+│       └── ...
 └── inference/                          # Inference settings
     └── act_default.yaml
 ```
@@ -122,8 +127,8 @@ Action decoder architecture:
 #### Algorithm (`policy/algorithm/`)
 Learning algorithm:
 - Behavioral Cloning (direct supervision)
-- Behavioral Cloning + VAE (multi-modal)
-- Future: Diffusion, Flow Matching, VFM
+- Behavioral Cloning + Variational Inference for multi-modality
+- Additional: Diffusion, Flow Matching, VFM
 
 #### Loss (`policy/loss/`)
 Loss function configuration:
