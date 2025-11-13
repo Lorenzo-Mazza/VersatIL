@@ -89,22 +89,23 @@ class EMACallback(Callback):
         # Compute decay factor
         self.decay = self._get_decay(self.optimization_step)
 
-        # Update EMA model parameters
-        for module, ema_module in zip(pl_module.policy.modules(), self.ema_model.modules()):
-            for param, ema_param in zip(module.parameters(recurse=False), ema_module.parameters(recurse=False)):
-                if isinstance(param, dict):
-                    raise RuntimeError("Dict parameter not supported")
+        # Update EMA model parameters (no_grad to avoid in-place operation errors)
+        with torch.no_grad():
+            for module, ema_module in zip(pl_module.policy.modules(), self.ema_model.modules()):
+                for param, ema_param in zip(module.parameters(recurse=False), ema_module.parameters(recurse=False)):
+                    if isinstance(param, dict):
+                        raise RuntimeError("Dict parameter not supported")
 
-                if isinstance(module, _BatchNorm):
-                    # Copy batchnorm stats directly
-                    ema_param.copy_(param.to(dtype=ema_param.dtype).data)
-                elif not param.requires_grad:
-                    # Copy frozen parameters directly
-                    ema_param.copy_(param.to(dtype=ema_param.dtype).data)
-                else:
-                    # EMA update: ema = decay * ema + (1 - decay) * param
-                    ema_param.mul_(self.decay)
-                    ema_param.add_(param.data.to(dtype=ema_param.dtype), alpha=1 - self.decay)
+                    if isinstance(module, _BatchNorm):
+                        # Copy batchnorm stats directly
+                        ema_param.copy_(param.to(dtype=ema_param.dtype).data)
+                    elif not param.requires_grad:
+                        # Copy frozen parameters directly
+                        ema_param.copy_(param.to(dtype=ema_param.dtype).data)
+                    else:
+                        # EMA update: ema = decay * ema + (1 - decay) * param
+                        ema_param.mul_(self.decay)
+                        ema_param.add_(param.data.to(dtype=ema_param.dtype), alpha=1 - self.decay)
 
         self.optimization_step += 1
 
