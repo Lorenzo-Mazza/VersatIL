@@ -90,7 +90,7 @@ class BinningTokenizer:
         tokens = torch.zeros_like(data_flat, dtype=torch.long)
         for dim in range(original_shape[-1]):
             tokens[:, dim] = torch.searchsorted(
-                self.bin_edges[dim], data_flat[:, dim], right=False
+                self.bin_edges[dim], data_flat[:, dim].contiguous(), right=False
             )
 
         return tokens.reshape(original_shape)

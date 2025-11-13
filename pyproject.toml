@@ -79,6 +79,9 @@ addopts = [
     "--tb=short",
     "-m", "not integration",
 ]
+filterwarnings = [
+    "ignore::pydantic._internal._generate_schema.UnsupportedFieldAttributeWarning",
+]
 testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
