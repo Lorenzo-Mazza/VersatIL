@@ -14,12 +14,6 @@ class FeatureType(str, enum.Enum):
     FLAT = "flat"  # Flat features with single dimension
 
 
-class SchedulerType(str, enum.Enum):
-    """Diffusion scheduler types (compatible with diffusers API)."""
-    DDIM = "ddim"
-    DDPM = "ddpm"
-
-
 class PredictionType(str, enum.Enum):
     """What the diffusion model predicts."""
     EPSILON = "epsilon"  # Predict noise

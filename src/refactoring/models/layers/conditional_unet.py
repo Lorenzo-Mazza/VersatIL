@@ -1,3 +1,5 @@
+"""Conditional 1-dimensional U-Net architecture, originally used in the Diffusion Policy paper https://arxiv.org/abs/2303.04137v4 """
+
 from typing import Union
 
 import torch
@@ -13,18 +15,31 @@ class ConditionalUnet1D(nn.Module):
 
     def __init__(self,
                  input_dimension,
-                 local_condition_dimension=None,
-                 global_condition_dimension=None,
+                 local_conditioning_dimension=None,
+                 global_conditioning_dimension=None,
                  diffusion_step_embedding_dimension=256,
                  down_dimensions=[256, 512, 1024],
                  kernel_size=3,
                  num_groups=8,
                  condition_predict_scale=False
                  ):
+        """Initialize the ConditionalUnet1D module.
+
+                Args:
+                    input_dimension: Dimensionality of the input sequence features (e.g., action space size).
+                    local_conditioning_dimension: Dimensionality of per-timestep local conditioning (e.g., observations).
+                        If None, local conditioning is disabled.
+                    global_conditioning_dimension: Dimensionality of global conditioning (e.g., task embeddings).
+                        If None, global conditioning beyond diffusion steps is disabled.
+                    diffusion_step_embedding_dimension: Hidden size for diffusion timestep embeddings.
+                    down_dimensions: List of channel dimensions for downsampling layers.
+                    kernel_size: Kernel size for convolutions in residual blocks.
+                    num_groups: Number of groups for group normalization in residual blocks.
+                    condition_predict_scale: If True, conditions predict scaling factors in residual blocks.
+        """
         super().__init__()
         all_dimensions = [input_dimension] + list(down_dimensions)
         starting_dimension = down_dimensions[0]
-
         diffusion_step_embedding_dimension = diffusion_step_embedding_dimension
         diffusion_step_encoder = nn.Sequential(
             SinusoidalPositionalEncoding1D(
@@ -40,15 +55,15 @@ class ConditionalUnet1D(nn.Module):
             nn.Linear(diffusion_step_embedding_dimension * 4, diffusion_step_embedding_dimension),
         )
         condition_dimension = diffusion_step_embedding_dimension
-        if global_condition_dimension is not None:
-            condition_dimension += global_condition_dimension
+        if global_conditioning_dimension is not None:
+            condition_dimension += global_conditioning_dimension
 
         input_output_pairs = list(zip(all_dimensions[:-1], all_dimensions[1:]))
 
         local_condition_encoder = None
-        if local_condition_dimension is not None:
+        if local_conditioning_dimension is not None:
             _, dimension_out = input_output_pairs[0]
-            dimension_in = local_condition_dimension
+            dimension_in = local_conditioning_dimension
             local_condition_encoder = nn.ModuleList([
                 # down encoder
                 ConditionalResidualBlock1D(
@@ -118,67 +133,74 @@ class ConditionalUnet1D(nn.Module):
         self.final_convolution = final_convolution
 
 
-    def forward(self,
-                noisy_input: torch.Tensor,
-                timesteps: Union[torch.Tensor, float, int],
-                local_condition=None, global_condition=None):
-        """ Forward pass through conditional UNet.
+    def forward(
+            self,
+            noisy_input: torch.Tensor,
+            timesteps: Union[torch.Tensor, float, int],
+            local_conditioning: torch.Tensor | None = None,
+            global_conditioning: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Forward pass through the conditional U-Net.
+
+        Processes noisy input sequences through the U-Net, injecting conditions at each residual block.
+        The input is transposed to (batch, channels, sequence) for 1D convolutions and transposed back
+        at the output.
 
         Args:
-            noisy_input: Noisy input tensor (batch_size, horizon, input_dimension)
-            timesteps: Diffusion timesteps (batch_size,) or scalar
-            local_condition: Optional local conditioning tensor (batch_size, horizon, local_condition_dimension)
-            global_condition: Optional global conditioning tensor (batch_size, global_condition_dimension)
+            noisy_input: Noisy input tensor of shape (batch_size, sequence_length, input_dimension).
+            timesteps: Diffusion timesteps; can be a tensor of shape (batch_size,) or a scalar value.
+            local_conditioning: Optional local conditioning tensor of shape
+                (batch_size, sequence_length, local_condition_dimension).
+            global_conditioning: Optional global conditioning tensor of shape
+                (batch_size, global_condition_dimension).
 
         Returns:
-            Denoised output tensor (batch_size, horizon, input_dimension)
+            Denoised output tensor of shape (batch_size, sequence_length, input_dimension).
         """
         noisy_input = noisy_input.permute(0, 2, 1)  # Shape: (batch_size, horizon, input_dimension) -> (batch_size, input_dimension, horizon)
-
-        timesteps = timesteps
         if not torch.is_tensor(timesteps):
             timesteps = torch.tensor([timesteps], dtype=torch.long, device=noisy_input.device)
         elif torch.is_tensor(timesteps) and len(timesteps.shape) == 0:
             timesteps = timesteps[None].to(noisy_input.device)
-        # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
+        # broadcast to batch dimension
         timesteps = timesteps.expand(noisy_input.shape[0])
 
         global_features = self.diffusion_step_encoder(timesteps)
 
-        if global_condition is not None:
+        if global_conditioning is not None:
             global_features = torch.cat([
-                global_features, global_condition
+                global_features, global_conditioning
             ], dim=-1)
 
         # encode local features
         local_hidden_states = list()
-        if local_condition is not None:
-            local_condition = local_condition.permute(0, 2, 1)  # Shape: (batch_size, horizon, local_condition_dimension) -> (batch_size, local_condition_dimension, horizon)
+        if local_conditioning is not None:
+            local_conditioning = local_conditioning.permute(0, 2, 1)  # Shape: (batch_size, horizon, local_conditioning_dimension) -> (batch_size, local_conditioning_dimension, horizon)
             first_residual_block, second_residual_block = self.local_condition_encoder
-            x = first_residual_block(x=local_condition, local_condition=global_features)
+            x = first_residual_block(x=local_conditioning, condition=global_features)
             local_hidden_states.append(x)
-            x = second_residual_block(x=local_condition, local_condition=global_features)
+            x = second_residual_block(x=local_conditioning, condition=global_features)
             local_hidden_states.append(x)
 
         x = noisy_input
         hidden_states = []
         for index, (first_residual_block, second_residual_block, downsample) in enumerate(self.downsampling_modules):
-            x = first_residual_block(x=x, local_condition=global_features)
+            x = first_residual_block(x=x, condition=global_features)
             if index == 0 and len(local_hidden_states) > 0:
                 x = x + local_hidden_states[0]
-            x = second_residual_block(x=x, local_condition=global_features)
+            x = second_residual_block(x=x, condition=global_features)
             hidden_states.append(x)
             x = downsample(x)
 
         for middle_module in self.middle_modules:
-            x = middle_module(x=x, local_condition=global_features)
+            x = middle_module(x=x, condition=global_features)
 
         for index, (first_residual_block, second_residual_block, upsample) in enumerate(self.upsampling_modules):
             x = torch.cat((x, hidden_states.pop()), dim=1)
-            x = first_residual_block(x=x, local_condition=global_features)
+            x = first_residual_block(x=x, condition=global_features)
             if index == (len(self.upsampling_modules)-1) and len(local_hidden_states) > 0:
                 x = x + local_hidden_states[1]
-            x = second_residual_block(x=x, local_condition=global_features)
+            x = second_residual_block(x=x, condition=global_features)
             x = upsample(x)
 
         x = self.final_convolution(x)

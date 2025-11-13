@@ -1,11 +1,9 @@
 """This module provides reusable building blocks for implementing diffusion processes."""
-
+import enum
 from dataclasses import dataclass
 
 import torch
 from diffusers import DDIMScheduler, DDPMScheduler
-
-from refactoring.models.decoding.constants import SchedulerType
 
 
 @dataclass
@@ -173,3 +171,9 @@ def setup_inference_timesteps(
         Modifies noise_scheduler.timesteps in-place
     """
     noise_scheduler.set_timesteps(num_inference_steps)
+
+
+class SchedulerType(str, enum.Enum):
+    """Diffusion scheduler types (compatible with diffusers API)."""
+    DDIM = "ddim"
+    DDPM = "ddpm"

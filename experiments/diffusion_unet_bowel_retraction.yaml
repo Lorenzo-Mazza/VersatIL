@@ -1,0 +1,25 @@
+defaults:
+  - experiment: bowel_retraction_diffusion_unet
+  - task/dataset_schema: bowel_retraction_v2
+  - task/dataloader: diffusion_default
+  - task/action_space: br_position_gripper_deltas_cf
+  - task/observation_space: br_rgb_proprio_cf
+  - training: diffusion_default
+  - policy/encoding_pipeline: rgb_resnet18_proprio_mlp_fusion
+  - policy/decoder: conditional_unet
+  - policy/algorithm: diffusion
+  - policy/loss: mse
+  - inference: diffusion_default
+  - _self_
+
+task:
+  observation_horizon: 2
+  prediction_horizon: 16
+
+policy:
+  _target_: refactoring.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: true

@@ -1,0 +1,4 @@
+_target_: refactoring.configs.inference.InferenceConfig
+
+temporal_ensemble: true
+update_rate_hz: 3.0

@@ -1,0 +1,19 @@
+num_epochs: 600
+gradient_accumulate_every: 1
+
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 1.0e-6
+  weight_decay: 1.0e-6
+  betas: [0.95, 0.999]
+  eps: 1.0e-8
+
+clip_gradient_norm: false
+
+lr_schedule: cosine
+lr_warmup_steps: 5000
+
+use_ema: true
+ema_decay: 0.75
+
+early_stopping_patience: 50

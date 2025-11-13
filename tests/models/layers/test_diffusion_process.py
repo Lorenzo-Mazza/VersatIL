@@ -3,17 +3,16 @@
 import pytest
 import torch
 
-from refactoring.models.decoding.algorithm.diffusion_process import (
+from refactoring.models.layers.diffusion_process import (
     DiffusionSchedulerConfig,
     add_noise_to_tensor,
     create_noise_scheduler,
     sample_random_timesteps,
-    setup_inference_timesteps,
+    setup_inference_timesteps, SchedulerType,
 )
 from refactoring.models.decoding.constants import (
     BetaSchedule,
     PredictionType,
-    SchedulerType,
     VarianceType,
 )
 

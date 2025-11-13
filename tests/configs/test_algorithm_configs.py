@@ -12,7 +12,7 @@ from refactoring.configs.decoding.algorithm import (
     VariationalAlgorithmConfig,
 )
 from refactoring.models.decoding.algorithm.behavior_cloning import BehavioralCloning
-from refactoring.models.decoding.algorithm.action_diffusion import Diffusion
+from refactoring.models.decoding.algorithm.diffusion import Diffusion
 from refactoring.models.decoding.algorithm.flow_matching import FlowMatching
 from refactoring.models.decoding.algorithm.variational import VariationalAlgorithm
 
@@ -44,7 +44,7 @@ class TestDiffusionConfig:
 
     def test_config_has_correct_target(self):
         config = DiffusionConfig()
-        assert config._target_ == "refactoring.models.decoding.algorithm.action_diffusion.Diffusion"
+        assert config._target_ == "refactoring.models.decoding.algorithm.diffusion.Diffusion"
 
     def test_config_instantiates_correctly(self):
         config = DiffusionConfig()

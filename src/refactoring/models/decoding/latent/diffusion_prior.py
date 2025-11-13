@@ -21,14 +21,14 @@ See algorithm.diffusion_process for detailed documentation of these components.
 import torch
 import torch.nn as nn
 
-from refactoring.models.decoding.algorithm.diffusion_process import (
+from refactoring.models.layers.diffusion_process import (
     DiffusionSchedulerConfig,
     add_noise_to_tensor,
     create_noise_scheduler,
     sample_random_timesteps,
-    setup_inference_timesteps,
+    setup_inference_timesteps, SchedulerType,
 )
-from refactoring.models.decoding.constants import SchedulerType, PRIOR_PREDICTION_KEY, PRIOR_TARGET_KEY
+from refactoring.models.decoding.constants import PRIOR_PREDICTION_KEY, PRIOR_TARGET_KEY
 from refactoring.models.decoding.latent import LatentPrior
 from refactoring.models.layers.mlp import MLP
 from refactoring.models.layers.activation import ActivationFunction

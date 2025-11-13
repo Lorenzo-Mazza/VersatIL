@@ -473,17 +473,15 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 5. **Config references**: Use `"${task.observation_space}"` not direct assignment for Hydra interpolation
 
 ## TODOs
-- Check optimizers in training config. I think we can introduce a set of optimizers configs targeting the torch objects and instantiate them w Hydra.
 - The explainer looks buggy and hardcoded. It will probably need a huge refactor to fit into the new architecture.
+- Integrate SMOL-VLA somewhere in the pipeline (e.g. add smol_vlm as subclass of vlm )
 3. Introduce the diffusion transformer and the conditional-unet decoders in the decoders package, based on the old models.diffusion_policy code.
 4. Introduce the DiT action decoder.
-5. Update the experiment yamls, they are probably not working with the new architecture right now.
 7. Refactor the codebase files: old files go into legacy, new files go outside of the refactoring folder. Update the paths accordingly.
 8. Add tests for all the layers package.
-9. Add tests for all new modules
 10. Verify compliance of tests to ruff
 11. Introduce pre-commit hooks
-12. Write proper readme, changelog, etc.
+12. Write proper changelog, etc.
 
 ## For future versions
 - **Implement LoRA config for parameter-efficient fine-tuning**:
@@ -492,9 +490,8 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
   - For custom models (DFormer, custom CNNs), implement custom LoRA layers for attention/linear layers
   - Add LoRA config to all encoder configs (optional, enabled=False by default)
   - Benefits: Fine-tune large frozen models with <1% of original parameters
-- Implement FAST tokenization for action, implement binning quantization for proprioceptive state.
 - Create a synthetic dataset schema for 1D and 2D vanilla tasks. 
 - Create a dataset schema for simulation?
-- Implement autoregressive action decoder.
+- Introduce support for Pointcloud data and 3D encoders-decoders like RVT
 - Implement memory based encoders like V-JEPA and Masked Autoencoders.
 - Implement two-stage training somehow?

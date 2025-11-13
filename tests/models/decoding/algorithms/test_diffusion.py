@@ -4,7 +4,7 @@ import torch
 from typing import Dict, Optional
 
 from refactoring.models.decoding.algorithm.behavior_cloning import BehavioralCloning
-from refactoring.models.decoding.algorithm.action_diffusion import Diffusion
+from refactoring.models.decoding.algorithm.diffusion import Diffusion
 from refactoring.models.decoding.algorithm.flow_matching import FlowMatching
 from refactoring.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from refactoring.configs.task.task import ActionSpace, ObservationSpace
@@ -17,12 +17,12 @@ from refactoring.data.constants import (
     Cameras,
 )
 from refactoring.models.decoding.constants import (
-    SchedulerType,
     PredictionType,
     BetaSchedule,
     VarianceType,
     ODESolver,
 )
+from refactoring.models.layers.diffusion_process import SchedulerType
 
 
 # Mock decoder for testing algorithms

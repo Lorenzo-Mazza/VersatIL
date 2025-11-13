@@ -204,7 +204,7 @@ class TestFASTGPTDecoderConfig:
             cfg = compose(config_name="fast_gpt_decoder_default")
             assert cfg is not None
             assert cfg._target_ == "refactoring.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTDecoder"
-            assert cfg.embedding_dimension == 512
+            assert cfg.embedding_dimension == 128
             assert cfg.action_vocabulary_size == 1024
             assert cfg.activation == "swiglu"
             assert cfg.normalization_type == "rmsnorm"

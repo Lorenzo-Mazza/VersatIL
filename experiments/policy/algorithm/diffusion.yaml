@@ -1,0 +1,13 @@
+_target_: refactoring.models.decoding.algorithm.diffusion.Diffusion
+
+scheduler_type: ddim
+num_train_timesteps: 100
+num_inference_steps: 10
+beta_start: 0.0001
+beta_end: 0.02
+beta_schedule: squaredcos_cap_v2
+prediction_type: sample
+scheduler_variance_type: fixed_small
+clip_sample: true
+set_alpha_to_one: true
+steps_offset: 0

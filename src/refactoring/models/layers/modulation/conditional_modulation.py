@@ -83,7 +83,7 @@ class ConditionalModulation(nn.Module):
             condition: Conditioning vector (B, condition_dim)
 
         Returns:
-            Modulated features (same shape as action_embedding)
+            Modulated features (same shape as x)
         """
         condition = self.activation_function(condition)
         gamma = self.scale_linear(condition)
@@ -96,14 +96,23 @@ class ConditionalModulation(nn.Module):
                 beta = beta.view(x.size(0), x.size(1), 1, 1)
 
         elif x.dim() == 3:
-            if x.size(1) == condition.size(0):
-                gamma = gamma[None]
+
+            if x.size(0) == condition.size(0):
+                # x is (B, C, T) for Conv1D or (B, S, D) for Transformer
+                gamma = gamma.unsqueeze(-1)  # (B, feature_dim) -> (B, feature_dim, 1)
+                if self.use_shift:
+                    beta = self.shift_linear(condition).unsqueeze(-1)
+            elif x.size(1) == condition.size(0):
+                # Tensor with sequence-first: x is (S, B, D), condition is (B, condition_dim)
+                # gamma is (B, D) -> need (1, B, D) to broadcast over sequence
+                gamma = gamma[None]  # (B, D) -> (1, B, D)
                 if self.use_shift:
                     beta = self.shift_linear(condition)[None]
             else:
-                gamma = gamma.unsqueeze(1)
-                if self.use_shift:
-                    beta = self.shift_linear(condition).unsqueeze(1)
+                raise ValueError(
+                    f"Cannot match batch dimension: x.shape={x.shape}, condition.shape={condition.shape}. "
+                    f"Expected x.size(0) or x.size(1) to equal condition.size(0)={condition.size(0)}"
+                )
 
         else:
             raise ValueError(f"Unsupported input shape: {x.shape}")

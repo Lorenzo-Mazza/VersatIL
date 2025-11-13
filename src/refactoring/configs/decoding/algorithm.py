@@ -12,9 +12,9 @@ from refactoring.models.decoding.constants import (
     BetaSchedule,
     ODESolver,
     PredictionType,
-    SchedulerType,
     VarianceType,
 )
+from refactoring.models.layers.diffusion_process import SchedulerType
 
 
 @dataclass
@@ -40,7 +40,7 @@ class BehavioralCloningConfig(DecodingAlgorithmConfig):
 @dataclass
 class DiffusionConfig(DecodingAlgorithmConfig):
     """Diffusion algorithm configuration."""
-    _target_: str = "refactoring.models.decoding.algorithm.action_diffusion.Diffusion"
+    _target_: str = "refactoring.models.decoding.algorithm.diffusion.Diffusion"
 
     scheduler_type: str = SchedulerType.DDIM.value
     num_train_timesteps: int = 100

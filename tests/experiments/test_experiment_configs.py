@@ -330,9 +330,7 @@ class TestPolicyCreation:
         """Test that policy instantiates from config."""
         with initialize_config_dir(config_dir=str(EXPERIMENTS_DIR), version_base=None):
             cfg = compose(config_name=experiment_name)
-
             cfg.experiment.device = 'cpu'
-
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
             policy.set_normalizer(normalizer)

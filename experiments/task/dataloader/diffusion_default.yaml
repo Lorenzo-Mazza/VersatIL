@@ -1,0 +1,33 @@
+_target_: refactoring.configs.task.dataloader.DataloaderConfig
+
+batch_size: 64
+num_workers: 16
+shuffle: true
+
+image_height: 270
+image_width: 480
+
+image_norm_type: minus_one_to_one
+depth_norm_type: minus_one_to_one
+kinematics_norm_type: min_max
+winsorize_depth: true
+depth_winsorize_quantiles: [0.01, 0.99]
+winsorize_kinematics: true
+kinematics_winsorize_quantiles: [0.01, 0.99]
+
+color_augmentation:
+  _target_: refactoring.configs.task.augmentations.ColorAugmentationPipeline
+spatial_augmentation:
+  _target_: refactoring.configs.task.augmentations.SpatialAugmentationPipeline
+rotation_augmentation: null
+
+sampling_mode: overlapping
+
+skip_initial_episode_steps: 5
+downsample_factor: 1
+center_episode_start: false
+
+action_backward_shift: 0
+
+val_ratio: 0.1
+total_ratio: 1.0

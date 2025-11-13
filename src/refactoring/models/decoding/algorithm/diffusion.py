@@ -20,18 +20,17 @@ import torch
 
 from refactoring.data.constants import POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY, GRIPPER_ACTION_KEY
 from refactoring.models.decoding.algorithm.base import DecodingAlgorithm
-from refactoring.models.decoding.algorithm.diffusion_process import (
+from refactoring.models.layers.diffusion_process import (
     DiffusionSchedulerConfig,
     add_noise_to_tensor,
     create_noise_scheduler,
     sample_random_timesteps,
-    setup_inference_timesteps,
+    setup_inference_timesteps, SchedulerType,
 )
 from refactoring.models.decoding.constants import (
     TIMESTEP_KEY,
     BetaSchedule,
     PredictionType,
-    SchedulerType,
     VarianceType, NOISE_KEY, TARGET_DIFFUSION_KEY,
 )
 from refactoring.models.decoding.decoders.base import ActionDecoder

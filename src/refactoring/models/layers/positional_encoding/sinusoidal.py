@@ -95,7 +95,10 @@ class SinusoidalPositionalEncoding1D(PositionalEncoding1D):
         if input_values.dim() == 0:
             input_values = input_values.unsqueeze(0)
         # Use temporary tensor during init, otherwise use registered parameter
-        frequencies = getattr(self, 'frequencies', self._temp_frequencies)
+        if hasattr(self, 'frequencies'):
+            frequencies = self.frequencies
+        else:
+            frequencies = self._temp_frequencies
         scaled_values = input_values[:, None] * frequencies[None] if input_values.dim() == 1 else input_values * frequencies
         sine_values = torch.sin(scaled_values)
         cosine_values = torch.cos(scaled_values)
