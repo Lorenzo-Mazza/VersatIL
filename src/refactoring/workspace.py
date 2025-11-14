@@ -404,6 +404,7 @@ class Workspace:
 
         if self.config.training.tune_lr:
             logging.info("Running learning rate tuning...")
+            self.lightning_policy.lr = self.config.training.optimizer.lr
             lr_finder_results = tuner.lr_find(
                 model=self.lightning_policy,
                 min_lr=1e-8,
