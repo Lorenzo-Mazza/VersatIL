@@ -26,6 +26,22 @@ from refactoring.training.callbacks import ConfusionMatrixCallback, EMACallback,
 from refactoring.training.lightning_policy import LightningPolicy
 
 
+class DataModule(pl.LightningDataModule):
+    """DataModule wrapper for hyperparameter tuning."""
+
+    def __init__(self, train_loader, val_loader, batch_size):
+        super().__init__()
+        self._train_loader = train_loader
+        self._val_loader = val_loader
+        self.batch_size = batch_size
+
+    def train_dataloader(self):
+        return self._train_loader
+
+    def val_dataloader(self):
+        return self._val_loader
+
+
 class Workspace:
     """Single workspace for training any policy using PyTorch Lightning.
 
@@ -360,13 +376,20 @@ class Workspace:
 
         if self.config.training.tune_batch_size:
             logging.info("Running batch size tuning...")
+            # Create a datamodule for tuner
+            datamodule = DataModule(
+                self.train_loader,
+                self.val_loader,
+                self.config.task.dataloader.batch_size
+            )
             tuner.scale_batch_size(
                 model=self.lightning_policy,
+                datamodule=datamodule,
                 mode="power",
                 steps_per_trial=3,
                 max_trials=25,
             )
-            new_batch_size = self.train_loader.batch_size
+            new_batch_size = datamodule.batch_size
             logging.info(f"Tuned batch size: {new_batch_size}")
             self.config.task.dataloader.batch_size = new_batch_size
             logging.info("Recreating dataloaders with tuned batch size...")

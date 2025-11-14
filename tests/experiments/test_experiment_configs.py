@@ -112,6 +112,32 @@ def create_dummy_tokenizer(config: DictConfig, device: str = 'cpu') -> Tokenizer
     sample_actions = torch.randn(1, prediction_horizon, total_action_dim, device=device)
     tokenizer_obj.tokenize({ACTION_KEY: sample_actions})
 
+    # Also fit proprio tokenizer if observation space uses proprioception
+    observation_space = instantiate(config.task.observation_space)
+    if observation_space.use_proprio_robot_frame or observation_space.use_proprio_camera_frame:
+        # Determine proprio dim based on observation space
+        proprio_dim = 0
+        if action_space.has_position:
+            proprio_dim += action_space.position_dim
+        if action_space.has_orientation:
+            proprio_dim += action_space.get_orientation_dim()
+        if action_space.has_gripper:
+            proprio_dim += 1
+
+        dummy_proprio_chunks = np.random.randn(100, prediction_horizon, proprio_dim) * 2 - 1
+        if observation_space.use_proprio_robot_frame:
+            tokenizer_obj.fit_proprio_tokenizer(
+                proprio_chunks=dummy_proprio_chunks,
+                key='proprio_robot_frame',
+                use_pretrained_weights=False,
+            )
+        if observation_space.use_proprio_camera_frame:
+            tokenizer_obj.fit_proprio_tokenizer(
+                proprio_chunks=dummy_proprio_chunks,
+                key='proprio_camera_frame',
+                use_pretrained_weights=False,
+            )
+
     return tokenizer_obj
 
 
