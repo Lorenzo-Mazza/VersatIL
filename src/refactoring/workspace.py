@@ -387,7 +387,7 @@ class Workspace:
             tuner.scale_batch_size(
                 model=self.lightning_policy,
                 mode="power",
-                steps_per_trial=3,
+                steps_per_trial=50,
                 max_trials=25,
             )
             new_batch_size = self.lightning_policy.batch_size
