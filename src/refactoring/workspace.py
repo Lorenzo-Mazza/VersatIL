@@ -345,10 +345,8 @@ class Workspace:
         state_dict mismatches when restoring.
         """
         try:
-            # Get a single batch from train loader
-            batch = next(iter(self.train_loader))
-
-            # Move to device
+            data_iter = iter(self.train_loader)
+            batch = next(data_iter)
             device = torch.device(self.config.experiment.device)
             batch = {
                 k: {kk: vv.to(device) if torch.is_tensor(vv) else vv for kk, vv in v.items()}
@@ -356,14 +354,14 @@ class Workspace:
                 for k, v in batch.items()
             }
 
-            # Do forward pass in eval mode to initialize lazy modules
+            self.lightning_policy.to(device)
             self.lightning_policy.eval()
             with torch.no_grad():
                 _ = self.lightning_policy.training_step(batch, 0)
-
             logging.info("Initialized lazy modules with dummy forward pass")
         except Exception as e:
             logging.warning(f"Failed to initialize lazy modules: {e}. Tuning may fail if model has lazy layers.")
+
 
     def _tune_hyperparameters(self):
         """Run hyperparameter tuning if enabled.
@@ -379,13 +377,13 @@ class Workspace:
         if self.config.experiment.distributed:
             logging.warning("Hyperparameter tuning not supported with distributed training. Skipping...")
             return
-
+        original_callbacks = self.trainer.callbacks.copy()
+        self.trainer.callbacks = [cb for cb in self.trainer.callbacks if not isinstance(cb, StochasticWeightAveraging)]
         tuner = Tuner(self.trainer)
 
         self._initialize_lazy_modules()
         if self.config.training.tune_batch_size:
             logging.info("Running batch size tuning...")
-            # Create a datamodule for tuner
             tuner.scale_batch_size(
                 model=self.lightning_policy,
                 mode="power",
@@ -397,7 +395,6 @@ class Workspace:
             self.config.task.dataloader.batch_size = new_batch_size
             logging.info("Recreating dataloaders with tuned batch size...")
             self._setup_data()
-            # Update lightning policy with new dataloaders
             self.lightning_policy._train_dataloader = self.train_loader
             self.lightning_policy._val_dataloader = self.val_loader
             steps_per_epoch = len(self.train_loader) // self.config.training.gradient_accumulate_every
@@ -419,6 +416,8 @@ class Workspace:
             self.config.training.optimizer.lr = suggested_lr
             logging.info(f"Updated config with learning rate: {suggested_lr}")
 
+        # Restore original callbacks
+        self.trainer.callbacks = original_callbacks
         if self.config.training.tune_lr or self.config.training.tune_batch_size:
             self.save_config()
             logging.info("Saved updated config with tuned hyperparameters")
