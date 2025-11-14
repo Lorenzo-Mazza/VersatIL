@@ -17,8 +17,8 @@ device: cuda
 distributed: false
 
 # Training precision and performance
-precision: ${precision:FP16_MIXED}
-float32_matmul_precision: ${float32_matmul:MEDIUM}
+precision: ${precision:FP32}
+float32_matmul_precision: ${float32_matmul:HIGH}
 
 # Checkpointing and validation
 checkpoint_every: 50
