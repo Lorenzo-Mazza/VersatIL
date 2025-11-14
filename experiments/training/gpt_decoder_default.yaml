@@ -1,4 +1,4 @@
-num_epochs: 500
+num_epochs: 1000
 gradient_accumulate_every: 1
 
 optimizer:
@@ -17,7 +17,7 @@ clip_gradient_norm: true
 clip_max_norm: 1.0
 
 lr_schedule: cosine
-lr_warmup_steps: 500
+lr_warmup_steps: 1000
 
 use_ema: true
 ema_power: 0.999
