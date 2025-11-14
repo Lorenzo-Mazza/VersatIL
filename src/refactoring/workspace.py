@@ -357,6 +357,34 @@ class Workspace:
 
         return strategy
 
+    def _initialize_lazy_modules(self):
+        """Initialize lazy modules by doing a dummy forward pass.
+
+        This ensures all lazy layers (like LazyLinear in feature projections)
+        are initialized before the tuner saves checkpoints, preventing
+        state_dict mismatches when restoring.
+        """
+        try:
+            # Get a single batch from train loader
+            batch = next(iter(self.train_loader))
+
+            # Move to device
+            device = torch.device(self.config.experiment.device)
+            batch = {
+                k: {kk: vv.to(device) if torch.is_tensor(vv) else vv for kk, vv in v.items()}
+                if isinstance(v, dict) else v.to(device) if torch.is_tensor(v) else v
+                for k, v in batch.items()
+            }
+
+            # Do forward pass in eval mode to initialize lazy modules
+            self.lightning_policy.eval()
+            with torch.no_grad():
+                _ = self.lightning_policy.training_step(batch, 0)
+
+            logging.info("Initialized lazy modules with dummy forward pass")
+        except Exception as e:
+            logging.warning(f"Failed to initialize lazy modules: {e}. Tuning may fail if model has lazy layers.")
+
     def _tune_hyperparameters(self):
         """Run hyperparameter tuning if enabled.
 
@@ -373,6 +401,9 @@ class Workspace:
             return
 
         tuner = Tuner(self.trainer)
+
+        # Initialize all lazy modules before tuning by doing a dummy forward pass
+        self._initialize_lazy_modules()
 
         if self.config.training.tune_batch_size:
             logging.info("Running batch size tuning...")
