@@ -8,10 +8,10 @@ optimizer:
   betas: [0.9, 0.999]
   eps: 1.0e-8
   param_groups:
-    - name: backbone
-      lr: 1.0e-5
+    - name: vision_encoders
+      lr: 5.0e-6
       weight_decay: 1.0e-5
-      params_pattern: "encoding_pipeline.encoders.*.backbone"
+      params_pattern: "encoding_pipeline\\.encoders\\.(left_rgb|right_rgb)\\."
 
 clip_gradient_norm: true
 clip_max_norm: 1.0

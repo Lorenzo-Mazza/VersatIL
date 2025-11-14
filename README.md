@@ -258,6 +258,38 @@ Located in `src/refactoring/models/encoding/encoders/`:
 - `LanguageEncoder`: CLIP/T5 text encoders
 - `TokenizerEncoder`: For discrete tokenization and embedding (no full encoding)
 
+#### Encoder Input Keys ⚠️
+
+Encoder `input_keys` must use appropriate constants from `src/refactoring/data/constants.py`:
+
+| Encoder Type | Constants to Use | Example Values |
+|--------------|------------------|----------------|
+| **RGB/Depth** | `Cameras` enum | `Cameras.LEFT.value` → `"left"`<br>`Cameras.RIGHT.value` → `"right"`<br>`Cameras.DEPTH.value` → `"depth"` |
+| **Proprioceptive** | Observation key constants | `PROPRIO_OBS_ROBOT_FRAME_KEY` → `"proprio_robot_frame"`<br>`PROPRIO_OBS_CAMERA_FRAME_KEY` → `"proprio_camera_frame"`<br>`GRIPPER_STATE_OBS_KEY` → `"gripper_state_obs"` |
+| **Language** | Language key constant | `LANGUAGE_KEY` → `"language_instruction"` |
+| **Custom** | Custom observation keys | Any string matching your Zarr dataset keys |
+
+**Note on custom observation keys**:
+- Custom keys are defined in your **DatasetSchema** when creating the Zarr dataset
+- They must match keys in your **ObservationSpace** configuration
+- Use string literals directly in encoder config: `input_keys: ["robot_ee_force"]`
+
+**Example YAML configs:**
+```yaml
+# RGB encoder (using Hydra resolver)
+left_rgb:
+  _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
+  input_keys: ${cameras:LEFT}  # Resolves to "left"
+
+# Proprioceptive encoder
+proprio:
+  _target_: refactoring.models.encoding.encoders.proprioceptive.ProprioceptiveEncoder
+  input_keys:
+    - ${obs_key:PROPRIO_CAMERA_FRAME}  # Resolves to "proprio_camera_frame"
+```
+
+These keys match the observation dictionary keys from the dataset and ensure type safety across the pipeline.
+
 ### Fusion Modules
 
 Located in `src/refactoring/models/encoding/fusion/`:

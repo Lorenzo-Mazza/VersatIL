@@ -177,6 +177,16 @@ src/refactoring/
 
 #### 1. Feature Flow and Validation
 
+**EncodingPipeline inputs**: Encoder `input_keys` must use appropriate constants from `src/refactoring/data/constants.py`:
+  - **RGB/Depth encoders**: Use `Cameras` enum values
+    - `Cameras.LEFT.value` ("left"), `Cameras.RIGHT.value` ("right"), `Cameras.DEPTH.value` ("depth")
+    - Example: `input_keys: ${cameras:LEFT}` resolves to `"left"` via Hydra resolver
+  - **Proprioceptive encoders**: Use observation key constants
+    - `PROPRIO_OBS_ROBOT_FRAME_KEY` ("proprio_robot_frame")
+    - `PROPRIO_OBS_CAMERA_FRAME_KEY` ("proprio_camera_frame")
+    - `GRIPPER_STATE_OBS_KEY` ("gripper_state_obs")
+  - **Language encoders**: Use `LANGUAGE_KEY` ("language_instruction")
+
 **EncodingPipeline** produces named features:
 - Each encoder registers output features with dimensions (e.g., `rgb_cnn_features: (C, H, W)`)
 - Fusion stages combine features and register new ones (e.g., `fused_visual: (D,)`)
