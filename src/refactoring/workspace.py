@@ -26,21 +26,6 @@ from refactoring.training.callbacks import ConfusionMatrixCallback, EMACallback,
 from refactoring.training.lightning_policy import LightningPolicy
 
 
-class DataModule(pl.LightningDataModule):
-    """DataModule wrapper for hyperparameter tuning."""
-
-    def __init__(self, train_loader, val_loader, batch_size):
-        super().__init__()
-        self._train_loader = train_loader
-        self._val_loader = val_loader
-        self.batch_size = batch_size
-
-    def train_dataloader(self):
-        return self._train_loader
-
-    def val_dataloader(self):
-        return self._val_loader
-
 
 class Workspace:
     """Single workspace for training any policy using PyTorch Lightning.
@@ -115,7 +100,7 @@ class Workspace:
         self._setup_policy()
         self.lightning_policy._train_dataloader = self.train_loader
         self.lightning_policy._val_dataloader = self.val_loader
-
+        self.lightning_policy.batch_size = self.train_loader.batch_size
         self._setup_trainer()
 
         # Run hyperparameter tuning if requested
@@ -192,20 +177,15 @@ class Workspace:
         callbacks = self._create_callbacks()
         logger = self._create_logger()
         strategy = self._create_strategy()
-
-        # Gradient clipping
         gradient_clip_val = None
         if self.config.training.clip_gradient_norm:
             gradient_clip_val = self.config.training.clip_max_norm
 
-        # Set float32 matmul precision for Tensor Cores if configured
         if self.config.experiment.float32_matmul_precision is not None:
             torch.set_float32_matmul_precision(self.config.experiment.float32_matmul_precision)
             logging.info(
                 f"Set float32 matmul precision to '{self.config.experiment.float32_matmul_precision}'"
             )
-
-        # Create trainer
         self.trainer = pl.Trainer(
             max_epochs=self.config.training.num_epochs,
             accelerator="gpu" if "cuda" in self.config.experiment.device else "cpu",
@@ -402,25 +382,17 @@ class Workspace:
 
         tuner = Tuner(self.trainer)
 
-        # Initialize all lazy modules before tuning by doing a dummy forward pass
         self._initialize_lazy_modules()
-
         if self.config.training.tune_batch_size:
             logging.info("Running batch size tuning...")
             # Create a datamodule for tuner
-            datamodule = DataModule(
-                self.train_loader,
-                self.val_loader,
-                self.config.task.dataloader.batch_size
-            )
             tuner.scale_batch_size(
                 model=self.lightning_policy,
-                datamodule=datamodule,
                 mode="power",
                 steps_per_trial=3,
                 max_trials=25,
             )
-            new_batch_size = datamodule.batch_size
+            new_batch_size = self.lightning_policy.batch_size
             logging.info(f"Tuned batch size: {new_batch_size}")
             self.config.task.dataloader.batch_size = new_batch_size
             logging.info("Recreating dataloaders with tuned batch size...")
