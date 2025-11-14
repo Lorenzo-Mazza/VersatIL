@@ -1,6 +1,7 @@
 """PyTorch Lightning wrapper for Policy."""
 
 import re
+from copy import deepcopy
 from typing import Any
 
 import pytorch_lightning as pl
@@ -255,3 +256,25 @@ class LightningPolicy(pl.LightningModule):
     def val_dataloader(self):
         """Return validation dataloader for Lightning."""
         return self._val_dataloader
+
+    def __deepcopy__(self, memo):
+        """Custom deepcopy to avoid copying dataloaders (not picklable).
+
+        This is needed because SWA callback does deepcopy of the model,
+        and DataLoaders with multiprocessing cannot be pickled.
+        """
+        train_loader = self._train_dataloader
+        val_loader = self._val_dataloader
+        self._train_dataloader = None
+        self._val_dataloader = None
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memo[id(self)] = result
+        for k, v in self.__dict__.items():
+            if k not in ('_train_dataloader', '_val_dataloader'):
+                setattr(result, k, deepcopy(v, memo))
+            else:
+                setattr(result, k, None)
+        self._train_dataloader = train_loader
+        self._val_dataloader = val_loader
+        return result
