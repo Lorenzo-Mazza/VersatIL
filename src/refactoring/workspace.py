@@ -10,9 +10,10 @@ import pytorch_lightning as pl
 import torch
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint, StochasticWeightAveraging
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
+from pytorch_lightning.tuner import Tuner
 from torch.utils import data
 
 from refactoring.configs.main import MainConfig
@@ -97,6 +98,10 @@ class Workspace:
         self._setup_data()
         self._setup_policy()
         self._setup_trainer()
+
+        # Run hyperparameter tuning if requested
+        self._tune_hyperparameters()
+
         logging.info("Starting training...")
         assert self.trainer is not None, "Trainer should be initialized"
         self.trainer.fit(
@@ -258,6 +263,24 @@ class Workspace:
         callbacks.append(gradient_norm_callback)
         logging.info("Added GradientNorm callback (log every 50 steps)")
 
+        lr_monitor_callback = LearningRateMonitor(logging_interval='step')
+        callbacks.append(lr_monitor_callback)
+        logging.info("Added LearningRateMonitor callback (logging per step)")
+
+        if self.config.training.swa_lrs is not None:
+            # Calculate start epoch based on fraction of total epochs
+            swa_epoch_start = int(self.config.training.swa_epoch_start * self.config.training.num_epochs)
+            swa_callback = StochasticWeightAveraging(
+                swa_lrs=self.config.training.swa_lrs,
+                swa_epoch_start=swa_epoch_start,
+                annealing_epochs=self.config.training.swa_annealing_epochs,
+            )
+            callbacks.append(swa_callback)
+            logging.info(
+                f"Added SWA callback (lr={self.config.training.swa_lrs}, "
+                f"start_epoch={swa_epoch_start}, annealing_epochs={self.config.training.swa_annealing_epochs})"
+            )
+
         if self.config.task.action_space.task_has_phases:
             cm_callback = ConfusionMatrixCallback(
                 log_every_n_epochs=self.config.experiment.val_every,
@@ -318,6 +341,60 @@ class Workspace:
         logging.info(f"Rank: {os.environ.get('SLURM_PROCID', 'N/A')}")
 
         return strategy
+
+    def _tune_hyperparameters(self):
+        """Run hyperparameter tuning if enabled.
+
+        Tunes learning rate and/or batch size using PyTorch Lightning Tuner.
+        Updates the config and dataloaders with tuned values.
+        """
+        if not self.config.training.tune_lr and not self.config.training.tune_batch_size:
+            return
+
+        assert self.trainer is not None, "Trainer must be initialized"
+        assert self.lightning_policy is not None, "Lightning policy must be initialized"
+        if self.config.experiment.distributed:
+            logging.warning("Hyperparameter tuning not supported with distributed training. Skipping...")
+            return
+
+        tuner = Tuner(self.trainer)
+        if self.config.training.tune_batch_size:
+            logging.info("Running batch size tuning...")
+            tuner.scale_batch_size(
+                model=self.lightning_policy,
+                train_dataloaders=self.train_loader,
+                mode="power",  # Binary search for power of 2
+                steps_per_trial=3,
+                max_trials=25,
+            )
+            new_batch_size = self.train_loader.batch_size
+            logging.info(f"Tuned batch size: {new_batch_size}")
+            self.config.task.dataloader.batch_size = new_batch_size
+            logging.info("Recreating dataloaders with tuned batch size...")
+            self._setup_data()
+            steps_per_epoch = len(self.train_loader) // self.config.training.gradient_accumulate_every
+            total_training_steps = steps_per_epoch * self.config.training.num_epochs
+            self.lightning_policy.total_training_steps = total_training_steps
+            logging.info(f"Updated total training steps: {total_training_steps}")
+
+        if self.config.training.tune_lr:
+            logging.info("Running learning rate tuning...")
+            lr_finder_results = tuner.lr_find(
+                model=self.lightning_policy,
+                train_dataloaders=self.train_loader,
+                min_lr=1e-8,
+                max_lr=1.0,
+                num_training=100,
+            )
+
+            suggested_lr = lr_finder_results.suggestion()
+            logging.info(f"Suggested learning rate: {suggested_lr}")
+            # Update optimizer config for persistence
+            self.config.training.optimizer.lr = suggested_lr
+            logging.info(f"Updated config with learning rate: {suggested_lr}")
+        if self.config.training.tune_lr or self.config.training.tune_batch_size:
+            self.save_config()
+            logging.info("Saved updated config with tuned hyperparameters")
 
     def load_checkpoint(self, checkpoint_path: str):
         """Load model from checkpoint.

@@ -2,9 +2,10 @@
 
 import pytest
 import torch
+import torch.nn as nn
 from unittest.mock import patch, MagicMock
 from pytorch_lightning.strategies import DDPStrategy
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, StochasticWeightAveraging
 
 from refactoring.workspace import Workspace
 from refactoring.training.callbacks import EMACallback, ConfusionMatrixCallback
@@ -15,19 +16,25 @@ from refactoring.data.constants import (
     ORIENTATION_ACTION_KEY,
     GRIPPER_ACTION_KEY,
     PHASE_LABEL_KEY,
+    OrientationRepresentation,
+    GripperType,
+    Cameras,
 )
 from refactoring.data.normalize.normalizer import LinearNormalizer
 from refactoring.configs.task.task import ActionSpace, ObservationSpace
 from refactoring.models.policy import Policy
 from refactoring.models.encoding.pipeline import EncodingPipeline
+from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
+from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod
 from refactoring.models.decoding.algorithm.behavior_cloning import BehavioralCloning
 from refactoring.models.decoding.decoders.factory.act import ACT
+from refactoring.models.decoding.decoders.factory.phase_act import PhaseACT
 from refactoring.models.decoding.action_heads import ActionHead
+from refactoring.models.decoding.action_heads.moe import MoEHead
+from refactoring.models.decoding.latent.vae_posterior import VAETransformerEncoder
+from refactoring.models.decoding.constants import MU_KEY, LOGVAR_KEY
 from refactoring.metrics.composite import ActionReconstructionLoss, PhaseActionLoss
 from tests.conftest import DummyNormalizer
-from refactoring.data.constants import OrientationRepresentation, GripperType, Cameras
-from refactoring.models.decoding.decoders.factory.phase_act import PhaseACT
-from refactoring.models.decoding.action_heads.moe import MoEHead
 
 
 @pytest.mark.slow
@@ -366,8 +373,6 @@ class TestACTPolicyEndToEnd:
     @pytest.fixture
     def resnet18_encoder(self, device):
         """Real ResNet18 CNN encoder for RGB images."""
-        from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
-        from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod
 
         encoder = CNNEncoder(
             input_keys=Cameras.LEFT.value,
@@ -384,7 +389,6 @@ class TestACTPolicyEndToEnd:
     @pytest.fixture
     def encoding_pipeline_act(self, resnet18_encoder, device):
         """Real encoding pipeline for ACT tests."""
-        import torch.nn as nn
 
         encoders = nn.ModuleDict({"rgb": resnet18_encoder})
         encoder_outputs = {"rgb": resnet18_encoder.get_output_specification()}
@@ -633,9 +637,6 @@ class TestPhaseACTEndToEnd:
     @pytest.fixture
     def resnet18_encoder_phase(self, device):
         """Real ResNet18 CNN encoder for PhaseACT."""
-        from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
-        from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod
-
         encoder = CNNEncoder(
             input_keys=Cameras.LEFT.value,
             backbone=RGBBackboneType.RESNET18.value,
@@ -651,7 +652,6 @@ class TestPhaseACTEndToEnd:
     @pytest.fixture
     def encoding_pipeline_phase(self, resnet18_encoder_phase, device):
         """Real encoding pipeline for PhaseACT tests."""
-        import torch.nn as nn
 
         encoders = nn.ModuleDict({"rgb": resnet18_encoder_phase})
         encoder_outputs = {"rgb": resnet18_encoder_phase.get_output_specification()}
@@ -927,8 +927,6 @@ class TestACTPolicyWithVAEEndToEnd:
     @pytest.fixture
     def resnet18_encoder_vae(self, device):
         """Real ResNet18 CNN encoder for RGB images."""
-        from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
-        from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod
 
         encoder = CNNEncoder(
             input_keys=Cameras.LEFT.value,
@@ -945,7 +943,6 @@ class TestACTPolicyWithVAEEndToEnd:
     @pytest.fixture
     def encoding_pipeline_vae(self, resnet18_encoder_vae, device):
         """Real encoding pipeline for VAE tests."""
-        import torch.nn as nn
 
         encoders = nn.ModuleDict({"rgb": resnet18_encoder_vae})
         encoder_outputs = {"rgb": resnet18_encoder_vae.get_output_specification()}
@@ -975,7 +972,6 @@ class TestACTPolicyWithVAEEndToEnd:
     @pytest.fixture
     def vae_latent_encoder(self, device):
         """Real VAETransformerEncoder for testing."""
-        from refactoring.models.decoding.latent.vae import VAETransformerEncoder
 
         encoder = VAETransformerEncoder(
             embedding_dimension=256,
@@ -1027,7 +1023,6 @@ class TestACTPolicyWithVAEEndToEnd:
         device
     ):
         """ACT policy with VAE encoder at algorithm level."""
-        from refactoring.models.decoding.constants import LATENT_KEY, MU_KEY, LOGVAR_KEY
 
         embedding_dim = 256
         prediction_horizon = 10
@@ -1110,7 +1105,6 @@ class TestACTPolicyWithVAEEndToEnd:
 
     def test_vae_policy_forward_pass(self, vae_act_policy, vae_training_batch, device):
         """Test that VAE encoder produces latent features consumed by decoder."""
-        from refactoring.models.decoding.constants import LATENT_KEY, MU_KEY, LOGVAR_KEY
 
         vae_act_policy.train()
 
@@ -1165,7 +1159,6 @@ class TestACTPolicyWithVAEEndToEnd:
 
     def test_vae_policy_inference_samples_from_prior(self, vae_act_policy, mock_observations_vae, device):
         """Test that inference samples from VAE prior (not posterior)."""
-        from refactoring.models.decoding.constants import MU_KEY, LOGVAR_KEY
 
         vae_act_policy.eval()
 
@@ -1186,7 +1179,6 @@ class TestACTPolicyWithVAEEndToEnd:
 
     def test_vae_latent_shapes(self, vae_act_policy, vae_training_batch):
         """Test that VAE latent outputs have correct shapes."""
-        from refactoring.models.decoding.constants import MU_KEY, LOGVAR_KEY
 
         vae_act_policy.train()
 
@@ -1218,3 +1210,306 @@ class TestACTPolicyWithVAEEndToEnd:
         assert torch.allclose(actions1[POSITION_ACTION_KEY], actions2[POSITION_ACTION_KEY])
         assert torch.allclose(actions1[ORIENTATION_ACTION_KEY], actions2[ORIENTATION_ACTION_KEY])
         assert torch.allclose(actions1[GRIPPER_ACTION_KEY], actions2[GRIPPER_ACTION_KEY])
+
+
+@pytest.mark.slow
+@pytest.mark.integration
+class TestHyperparameterTuning:
+    """Test hyperparameter tuning functionality."""
+
+    @pytest.fixture
+    def mock_dataloaders_tuning(self, synthetic_training_batch):
+        """Mock dataloaders with batch_size attribute for tuning."""
+        train_dataset = DummyDataset(length=20)
+        val_dataset = DummyDataset(length=10)
+
+        mock_train_loader = DummyDataLoader(
+            dataset=train_dataset,
+            batches=[synthetic_training_batch] * 5
+        )
+        mock_train_loader.batch_size = 4  # Add batch_size attribute
+
+        mock_val_loader = DummyDataLoader(
+            dataset=val_dataset,
+            batches=[synthetic_training_batch] * 3
+        )
+        mock_val_loader.batch_size = 4
+
+        return mock_train_loader, mock_val_loader
+
+    def test_tuning_disabled_by_default(self, mock_main_config):
+        """Test that tuning is disabled by default."""
+        assert mock_main_config.training.tune_lr is False
+        assert mock_main_config.training.tune_batch_size is False
+
+    def test_tuning_skipped_when_disabled(
+        self,
+        mock_main_config,
+        simple_policy,
+        mock_dataloaders_tuning,
+    ):
+        """Test that tuning is skipped when both flags are False."""
+        mock_train_loader, mock_val_loader = mock_dataloaders_tuning
+        normalizer = LinearNormalizer()
+
+        mock_main_config.training.tune_lr = False
+        mock_main_config.training.tune_batch_size = False
+        mock_main_config.training.num_epochs = 1
+
+        workspace = Workspace(mock_main_config)
+
+        with patch.object(workspace, "_setup_data") as mock_setup_data:
+            mock_setup_data.side_effect = lambda: TestEndToEndTraining._set_data_attrs(
+                workspace, mock_train_loader, mock_val_loader, normalizer
+            )
+
+            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+                # Mock Tuner to verify it's not called
+                with patch("refactoring.workspace.Tuner") as mock_tuner:
+                    workspace.run()
+
+                    # Tuner should not be instantiated when tuning is disabled
+                    mock_tuner.assert_not_called()
+
+    def test_tuning_skipped_in_distributed_mode(
+        self,
+        mock_main_config,
+        simple_policy,
+        mock_dataloaders_tuning,
+    ):
+        """Test that tuning is skipped in distributed training mode."""
+        mock_train_loader, mock_val_loader = mock_dataloaders_tuning
+        normalizer = LinearNormalizer()
+
+        mock_main_config.training.tune_lr = True
+        mock_main_config.training.tune_batch_size = True
+        mock_main_config.experiment.distributed = True
+        mock_main_config.training.num_epochs = 1
+
+        workspace = Workspace(mock_main_config)
+
+        with patch.object(workspace, "_setup_data") as mock_setup_data:
+            mock_setup_data.side_effect = lambda: TestEndToEndTraining._set_data_attrs(
+                workspace, mock_train_loader, mock_val_loader, normalizer
+            )
+
+            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+                # Mock Tuner to verify tuning is skipped
+                with patch("refactoring.workspace.Tuner") as mock_tuner:
+                    workspace.run()
+
+                    # Tuner should not be instantiated in distributed mode
+                    mock_tuner.assert_not_called()
+
+    def test_batch_size_tuning_enabled(
+        self,
+        mock_main_config,
+        simple_policy,
+        mock_dataloaders_tuning,
+    ):
+        """Test that batch size tuning is called when enabled."""
+        mock_train_loader, mock_val_loader = mock_dataloaders_tuning
+        normalizer = LinearNormalizer()
+
+        mock_main_config.training.tune_batch_size = True
+        mock_main_config.training.tune_lr = False
+        mock_main_config.experiment.distributed = False
+        mock_main_config.training.num_epochs = 1
+
+        workspace = Workspace(mock_main_config)
+
+        with patch.object(workspace, "_setup_data") as mock_setup_data:
+            mock_setup_data.side_effect = lambda: TestEndToEndTraining._set_data_attrs(
+                workspace, mock_train_loader, mock_val_loader, normalizer
+            )
+
+            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+                # Mock Tuner and scale_batch_size
+                with patch("refactoring.workspace.Tuner") as mock_tuner_class:
+                    mock_tuner = MagicMock()
+                    mock_tuner_class.return_value = mock_tuner
+
+                    workspace.run()
+
+                    # Verify Tuner was created
+                    mock_tuner_class.assert_called_once_with(workspace.trainer)
+
+                    # Verify scale_batch_size was called
+                    mock_tuner.scale_batch_size.assert_called_once()
+                    call_kwargs = mock_tuner.scale_batch_size.call_args[1]
+                    assert call_kwargs["mode"] == "power"
+                    assert call_kwargs["steps_per_trial"] == 3
+                    assert call_kwargs["max_trials"] == 25
+
+    def test_learning_rate_tuning_enabled(
+        self,
+        mock_main_config,
+        simple_policy,
+        mock_dataloaders_tuning,
+    ):
+        """Test that learning rate tuning is called when enabled."""
+        mock_train_loader, mock_val_loader = mock_dataloaders_tuning
+        normalizer = LinearNormalizer()
+
+        mock_main_config.training.tune_lr = True
+        mock_main_config.training.tune_batch_size = False
+        mock_main_config.experiment.distributed = False
+        mock_main_config.training.num_epochs = 1
+
+        workspace = Workspace(mock_main_config)
+
+        with patch.object(workspace, "_setup_data") as mock_setup_data:
+            mock_setup_data.side_effect = lambda: TestEndToEndTraining._set_data_attrs(
+                workspace, mock_train_loader, mock_val_loader, normalizer
+            )
+
+            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+                # Mock Tuner and lr_find
+                with patch("refactoring.workspace.Tuner") as mock_tuner_class:
+                    mock_tuner = MagicMock()
+                    mock_lr_finder = MagicMock()
+                    mock_lr_finder.suggestion.return_value = 1e-3
+                    mock_tuner.lr_find.return_value = mock_lr_finder
+                    mock_tuner_class.return_value = mock_tuner
+
+                    workspace.run()
+
+                    # Verify Tuner was created
+                    mock_tuner_class.assert_called_once_with(workspace.trainer)
+
+                    # Verify lr_find was called
+                    mock_tuner.lr_find.assert_called_once()
+                    call_kwargs = mock_tuner.lr_find.call_args[1]
+                    assert call_kwargs["min_lr"] == 1e-8
+                    assert call_kwargs["max_lr"] == 1.0
+                    assert call_kwargs["num_training"] == 100
+
+    def test_both_tuning_enabled(
+        self,
+        mock_main_config,
+        simple_policy,
+        mock_dataloaders_tuning,
+    ):
+        """Test that both batch size and LR tuning can run together."""
+        mock_train_loader, mock_val_loader = mock_dataloaders_tuning
+        normalizer = LinearNormalizer()
+
+        mock_main_config.training.tune_lr = True
+        mock_main_config.training.tune_batch_size = True
+        mock_main_config.experiment.distributed = False
+        mock_main_config.training.num_epochs = 1
+
+        workspace = Workspace(mock_main_config)
+
+        with patch.object(workspace, "_setup_data") as mock_setup_data:
+            mock_setup_data.side_effect = lambda: TestEndToEndTraining._set_data_attrs(
+                workspace, mock_train_loader, mock_val_loader, normalizer
+            )
+
+            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+                # Mock Tuner and both tuning methods
+                with patch("refactoring.workspace.Tuner") as mock_tuner_class:
+                    mock_tuner = MagicMock()
+                    mock_lr_finder = MagicMock()
+                    mock_lr_finder.suggestion.return_value = 5e-4
+                    mock_tuner.lr_find.return_value = mock_lr_finder
+                    mock_tuner_class.return_value = mock_tuner
+
+                    workspace.run()
+
+                    # Verify both tuning methods were called
+                    mock_tuner.scale_batch_size.assert_called_once()
+                    mock_tuner.lr_find.assert_called_once()
+
+    def test_tuning_updates_config(
+        self,
+        mock_main_config,
+        simple_policy,
+        mock_dataloaders_tuning,
+    ):
+        """Test that tuned values are saved to config."""
+        mock_train_loader, mock_val_loader = mock_dataloaders_tuning
+        normalizer = LinearNormalizer()
+
+        mock_main_config.training.tune_lr = True
+        mock_main_config.training.tune_batch_size = True
+        mock_main_config.experiment.distributed = False
+        mock_main_config.training.num_epochs = 1
+
+        workspace = Workspace(mock_main_config)
+
+        tuned_lr = 3e-4
+        tuned_batch_size = 16
+
+        with patch.object(workspace, "_setup_data") as mock_setup_data:
+            mock_setup_data.side_effect = lambda: TestEndToEndTraining._set_data_attrs(
+                workspace, mock_train_loader, mock_val_loader, normalizer
+            )
+
+            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+                # Mock Tuner
+                with patch("refactoring.workspace.Tuner") as mock_tuner_class:
+                    mock_tuner = MagicMock()
+
+                    # Mock LR finder
+                    mock_lr_finder = MagicMock()
+                    mock_lr_finder.suggestion.return_value = tuned_lr
+                    mock_tuner.lr_find.return_value = mock_lr_finder
+
+                    # Mock batch size tuning - update dataloader batch_size
+                    def update_batch_size(*args, **kwargs):
+                        workspace.train_loader.batch_size = tuned_batch_size
+                    mock_tuner.scale_batch_size.side_effect = update_batch_size
+
+                    mock_tuner_class.return_value = mock_tuner
+
+                    workspace.run()
+
+                    # Verify config was updated
+                    assert workspace.config.training.optimizer.lr == tuned_lr
+
+    def test_tuner_integration_with_callbacks(
+        self,
+        mock_main_config,
+        simple_policy,
+        mock_dataloaders_tuning,
+    ):
+        """Test that tuning works alongside other callbacks."""
+        mock_train_loader, mock_val_loader = mock_dataloaders_tuning
+        normalizer = LinearNormalizer()
+
+        mock_main_config.training.tune_lr = True
+        mock_main_config.training.use_ema = True
+        mock_main_config.training.swa_lrs = 0.05
+        mock_main_config.training.swa_epoch_start = 0.8
+        mock_main_config.experiment.distributed = False
+        mock_main_config.training.num_epochs = 10  # Need at least 10 epochs for SWA to start at epoch 8
+
+        workspace = Workspace(mock_main_config)
+
+        with patch.object(workspace, "_setup_data") as mock_setup_data:
+            mock_setup_data.side_effect = lambda: TestEndToEndTraining._set_data_attrs(
+                workspace, mock_train_loader, mock_val_loader, normalizer
+            )
+
+            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+                # Mock Tuner
+                with patch("refactoring.workspace.Tuner") as mock_tuner_class:
+                    mock_tuner = MagicMock()
+                    mock_lr_finder = MagicMock()
+                    mock_lr_finder.suggestion.return_value = 1e-3
+                    mock_tuner.lr_find.return_value = mock_lr_finder
+                    mock_tuner_class.return_value = mock_tuner
+
+                    workspace.run()
+
+                    # Verify tuning happened
+                    mock_tuner.lr_find.assert_called_once()
+
+                    # Verify callbacks were still created
+
+                    ema_callbacks = [cb for cb in workspace.trainer.callbacks if isinstance(cb, EMACallback)]
+                    swa_callbacks = [cb for cb in workspace.trainer.callbacks if isinstance(cb, StochasticWeightAveraging)]
+
+                    assert len(ema_callbacks) == 1
+                    assert len(swa_callbacks) == 1

@@ -92,4 +92,13 @@ class TrainingConfig:
     use_ema: bool = True
     ema_power: float = 0.75
 
+    # Stochastic Weight Averaging (SWA)
+    swa_lrs: float | None = None  # If not None, enables SWA with this learning rate
+    swa_epoch_start: float = 0.5  # Start SWA at this fraction of total epochs (default: 80% through training)
+    swa_annealing_epochs: int = 10  # Number of epochs to anneal learning rate to swa_lrs
+
+    # Hyperparameter Tuning
+    tune_lr: bool = False  # If True, automatically find optimal learning rate before training
+    tune_batch_size: bool = False  # If True, automatically find largest batch size that fits in memory
+
     early_stopping_patience: int = 10  # Number of validation checks with no improvement to stop training
