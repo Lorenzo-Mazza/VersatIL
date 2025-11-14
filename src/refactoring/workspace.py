@@ -100,7 +100,6 @@ class Workspace:
         self._setup_policy()
         self.lightning_policy._train_dataloader = self.train_loader
         self.lightning_policy._val_dataloader = self.val_loader
-        self.lightning_policy.batch_size = self.train_loader.batch_size
         self._setup_trainer()
 
         # Run hyperparameter tuning if requested
@@ -382,26 +381,6 @@ class Workspace:
         tuner = Tuner(self.trainer)
 
         self._initialize_lazy_modules()
-        if self.config.training.tune_batch_size:
-            logging.info("Running batch size tuning...")
-            tuner.scale_batch_size(
-                model=self.lightning_policy,
-                mode="power",
-                steps_per_trial=50,
-                max_trials=25,
-            )
-            new_batch_size = self.lightning_policy.batch_size
-            logging.info(f"Tuned batch size: {new_batch_size}")
-            self.config.task.dataloader.batch_size = new_batch_size
-            logging.info("Recreating dataloaders with tuned batch size...")
-            self._setup_data()
-            self.lightning_policy._train_dataloader = self.train_loader
-            self.lightning_policy._val_dataloader = self.val_loader
-            steps_per_epoch = len(self.train_loader) // self.config.training.gradient_accumulate_every
-            total_training_steps = steps_per_epoch * self.config.training.num_epochs
-            self.lightning_policy.total_training_steps = total_training_steps
-            logging.info(f"Updated total training steps: {total_training_steps}")
-
         if self.config.training.tune_lr:
             logging.info("Running learning rate tuning...")
             self.lightning_policy.lr = self.config.training.optimizer.lr

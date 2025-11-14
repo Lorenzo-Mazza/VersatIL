@@ -28,6 +28,5 @@ swa_epoch_start: 0.8  # Start SWA at 80% of training
 swa_annealing_epochs: 10  # Anneal LR over 10 epochs
 
 tune_lr: true  # Automatically find optimal learning rate
-tune_batch_size: true  # Automatically find largest fitting batch size
 
 early_stopping_patience: 50

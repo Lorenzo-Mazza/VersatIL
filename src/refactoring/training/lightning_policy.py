@@ -51,7 +51,6 @@ class LightningPolicy(pl.LightningModule):
         self.save_hyperparameters(ignore=["policy"])
         self._train_dataloader = None
         self._val_dataloader = None
-        self.batch_size = None
         self.lr = None
 
     def training_step(self, batch: dict[str, dict[str, torch.Tensor]], batch_idx: int) -> torch.Tensor:

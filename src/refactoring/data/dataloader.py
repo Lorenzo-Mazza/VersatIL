@@ -33,6 +33,7 @@ def get_dataloaders(
     """
     schema: DatasetSchema = instantiate(config.task.dataset_schema)
     logging.info(f"Using dataset schema: {schema.__class__.__name__}")
+    schema.zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/dataset.zarr"
     datasets_paths = _collect_dataset_paths(schema.dataset_folders)
     logging.info(f"Found {len(datasets_paths)} episodes across {len(schema.dataset_folders)} folders")
 
@@ -125,6 +126,7 @@ def _collect_dataset_paths(dataset_folders: list[str]) -> list[str]:
             d for d in root_path.iterdir() if d.is_dir() and (d / EPISODE_FILENAME).exists()
         ]
         datasets_paths.extend([str(d / EPISODE_FILENAME) for d in episode_dirs])
+    datasets_paths = datasets_paths[:4]
     return datasets_paths
 
 
@@ -134,6 +136,7 @@ def _ensure_zarr_exists(
 ) -> None:
     """Create zarr if it doesn't exist or is invalid."""
     zarr_path = schema.zarr_path
+    zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/dataset.zarr"
     need_create = True
     required_keys = schema.get_required_zarr_keys()
     if Path(zarr_path).exists():
