@@ -369,7 +369,7 @@ class Workspace:
         Tunes learning rate and/or batch size using PyTorch Lightning Tuner.
         Updates the config and dataloaders with tuned values.
         """
-        if not self.config.training.tune_lr and not self.config.training.tune_batch_size:
+        if not self.config.training.tune_lr:
             return
 
         assert self.trainer is not None, "Trainer must be initialized"
@@ -399,7 +399,7 @@ class Workspace:
 
         # Restore original callbacks
         self.trainer.callbacks = original_callbacks
-        if self.config.training.tune_lr or self.config.training.tune_batch_size:
+        if self.config.training.tune_lr:
             self.save_config()
             logging.info("Saved updated config with tuned hyperparameters")
 
