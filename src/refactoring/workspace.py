@@ -357,6 +357,7 @@ class Workspace:
             self.lightning_policy.eval()
             with torch.no_grad():
                 _ = self.lightning_policy.training_step(batch, 0)
+            self.lightning_policy.train()
             logging.info("Initialized lazy modules with dummy forward pass")
         except Exception as e:
             logging.warning(f"Failed to initialize lazy modules: {e}. Tuning may fail if model has lazy layers.")
