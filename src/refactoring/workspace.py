@@ -97,6 +97,9 @@ class Workspace:
         """Run the complete training workflow."""
         self._setup_data()
         self._setup_policy()
+        self.lightning_policy._train_dataloader = self.train_loader
+        self.lightning_policy._val_dataloader = self.val_loader
+
         self._setup_trainer()
 
         # Run hyperparameter tuning if requested
@@ -104,11 +107,7 @@ class Workspace:
 
         logging.info("Starting training...")
         assert self.trainer is not None, "Trainer should be initialized"
-        self.trainer.fit(
-            model=self.lightning_policy,
-            train_dataloaders=self.train_loader,
-            val_dataloaders=self.val_loader,
-        )
+        self.trainer.fit(model=self.lightning_policy)
         logging.info(f"Training completed. Best checkpoint saved to {self.output_dir}")
 
 
@@ -358,12 +357,12 @@ class Workspace:
             return
 
         tuner = Tuner(self.trainer)
+
         if self.config.training.tune_batch_size:
             logging.info("Running batch size tuning...")
             tuner.scale_batch_size(
                 model=self.lightning_policy,
-                train_dataloaders=self.train_loader,
-                mode="power",  # Binary search for power of 2
+                mode="power",
                 steps_per_trial=3,
                 max_trials=25,
             )
@@ -372,6 +371,9 @@ class Workspace:
             self.config.task.dataloader.batch_size = new_batch_size
             logging.info("Recreating dataloaders with tuned batch size...")
             self._setup_data()
+            # Update lightning policy with new dataloaders
+            self.lightning_policy._train_dataloader = self.train_loader
+            self.lightning_policy._val_dataloader = self.val_loader
             steps_per_epoch = len(self.train_loader) // self.config.training.gradient_accumulate_every
             total_training_steps = steps_per_epoch * self.config.training.num_epochs
             self.lightning_policy.total_training_steps = total_training_steps
@@ -381,7 +383,6 @@ class Workspace:
             logging.info("Running learning rate tuning...")
             lr_finder_results = tuner.lr_find(
                 model=self.lightning_policy,
-                train_dataloaders=self.train_loader,
                 min_lr=1e-8,
                 max_lr=1.0,
                 num_training=100,
@@ -389,9 +390,9 @@ class Workspace:
 
             suggested_lr = lr_finder_results.suggestion()
             logging.info(f"Suggested learning rate: {suggested_lr}")
-            # Update optimizer config for persistence
             self.config.training.optimizer.lr = suggested_lr
             logging.info(f"Updated config with learning rate: {suggested_lr}")
+
         if self.config.training.tune_lr or self.config.training.tune_batch_size:
             self.save_config()
             logging.info("Saved updated config with tuned hyperparameters")

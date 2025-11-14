@@ -49,6 +49,8 @@ class LightningPolicy(pl.LightningModule):
         self.train_metrics = MetricsAccumulator()
         self.val_metrics = MetricsAccumulator()
         self.save_hyperparameters(ignore=["policy"])
+        self._train_dataloader = None
+        self._val_dataloader = None
 
     def training_step(self, batch: dict[str, dict[str, torch.Tensor]], batch_idx: int) -> torch.Tensor:
         """Training step.
@@ -245,3 +247,11 @@ class LightningPolicy(pl.LightningModule):
             Predicted actions
         """
         return self.policy.predict_action(obs_dict)
+
+    def train_dataloader(self):
+        """Return training dataloader for Lightning."""
+        return self._train_dataloader
+
+    def val_dataloader(self):
+        """Return validation dataloader for Lightning."""
+        return self._val_dataloader
