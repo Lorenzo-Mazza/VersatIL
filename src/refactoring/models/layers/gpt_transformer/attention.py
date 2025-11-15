@@ -139,12 +139,13 @@ class CachedAttention(nn.Module):
 
         return projected_query, projected_key, projected_value
 
+
     def compute_attention(
-        self,
-        queries: torch.Tensor,
-        keys: torch.Tensor,
-        values: torch.Tensor,
-        attention_mask: torch.Tensor | None = None,
+            self,
+            queries: torch.Tensor,
+            keys: torch.Tensor,
+            values: torch.Tensor,
+            attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute scaled dot-product attention.
 
@@ -160,16 +161,36 @@ class CachedAttention(nn.Module):
         batch_size = queries.shape[0]
         query_length = queries.shape[2]
 
+        # Debug: Check for NaN in inputs
+        print("Queries has NaN:", torch.isnan(queries).any())
+        print("Keys has NaN:", torch.isnan(keys).any())
+        print("Values has NaN:", torch.isnan(values).any())
+
         # For GQA: repeat key/value heads to match query heads
         if self.group_size > 1:
             keys = torch.repeat_interleave(keys, self.group_size, dim=1)
             values = torch.repeat_interleave(values, self.group_size, dim=1)
 
         dropout_p = self.dropout if self.training else 0.0
-        # flash-attn
+        # Debug: Mask info
+        if attention_mask is not None:
+            print("Attention mask shape:", attention_mask.shape)
+            print("Attention mask dtype:", attention_mask.dtype)
+            if attention_mask.dtype == torch.bool:
+                # Check if any query row is fully masked (all False in row)
+                fully_masked_rows = (~attention_mask).all(dim=-1)
+                print("Any fully masked query rows:", fully_masked_rows.any())
+                print("Fully masked rows mask:", fully_masked_rows)
+
+        # Convert bool to additive
         sdpa_mask = attention_mask
         if attention_mask is not None and attention_mask.dtype == torch.bool:
-            sdpa_mask = torch.where(attention_mask, 0.0, -torch.inf)
+            # Shape (B, num_heads, query_len, key_len) - broadcast heads
+            mask_shape = (batch_size, self.number_of_heads, query_length, keys.shape[2])
+            sdpa_mask = torch.full(mask_shape, -torch.inf, dtype=queries.dtype, device=queries.device)
+            sdpa_mask = sdpa_mask.masked_fill_(attention_mask.unsqueeze(1), 0.0)  # Broadcast over heads
+
+        # flash-attn
         attended_values = F.scaled_dot_product_attention(
             queries,
             keys,
@@ -179,6 +200,12 @@ class CachedAttention(nn.Module):
             is_causal=False,
             scale=self.head_dimension ** -0.5,
         )
+        # Debug: Check for NaN in attended_values
+        print("Attended values has NaN after SDPA:", torch.isnan(attended_values).any())
+
+        # Replace NaN with 0 if any
+        attended_values = torch.nan_to_num(attended_values, nan=0.0)
+
         # Reshape: (B, H, L, D) -> (B, L, H*D)
         attended_values = attended_values.transpose(1, 2).contiguous()
         attended_values = attended_values.view(
@@ -188,6 +215,7 @@ class CachedAttention(nn.Module):
         # Output projection
         output = self.output_projection(attended_values)
         return output
+
 
     def forward(
         self,
