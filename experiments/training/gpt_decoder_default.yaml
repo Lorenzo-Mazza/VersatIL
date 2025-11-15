@@ -30,3 +30,5 @@ swa_annealing_epochs: 10  # Anneal LR over 10 epochs
 
 tune_lr: false
 early_stopping_patience: 100
+reduce_lr_on_plateau: true
+reduce_lr_patience: 10
