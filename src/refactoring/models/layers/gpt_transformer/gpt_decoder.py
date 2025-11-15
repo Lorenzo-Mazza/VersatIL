@@ -10,6 +10,7 @@ from refactoring.models.layers.gpt_transformer.decoder_layer import TransformerD
 from refactoring.models.layers.gpt_transformer.kv_cache import DecoderKVCache, LayerKVCache, initialize_decoder_cache
 from refactoring.models.layers.gpt_transformer.normalization import create_normalization_layer
 from refactoring.models.layers.gpt_transformer.positional_encoding import create_positional_encoding
+from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
 from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
 from refactoring.models.layers.rms_norm import RMSNorm
 
@@ -239,7 +240,7 @@ class GPTDecoder(nn.Module):
         device = hidden_states.device
 
         # Apply positional encoding to input embeddings if using sinusoidal
-        if isinstance(self.positional_encoding, SinusoidalPositionalEncoding1D):
+        if isinstance(self.positional_encoding, (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D)):
             hidden_states = self.positional_encoding(hidden_states)
 
         if self_attention_mask is not None:

@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 
 from refactoring.models.layers.constants import PositionalEncodingType
+from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
 from refactoring.models.layers.positional_encoding.rotary import RotaryPositionalEncoding1D
 from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
 
@@ -34,6 +35,11 @@ def create_positional_encoding(
     """
     if encoding_type == PositionalEncodingType.SINUSOIDAL.value:
         return SinusoidalPositionalEncoding1D(
+            embedding_dimension=embedding_dimension,
+            maximum_length=maximum_length,
+        )
+    elif encoding_type == PositionalEncodingType.LEARNED.value:
+        return LearnedPositionalEncoding1D(
             embedding_dimension=embedding_dimension,
             maximum_length=maximum_length,
         )
