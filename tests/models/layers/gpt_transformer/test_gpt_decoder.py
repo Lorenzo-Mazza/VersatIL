@@ -6,17 +6,17 @@ import torch
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType, NormalizationType, PositionalEncodingType
 from refactoring.models.layers.gpt_transformer.gpt_decoder import GPTDecoder
-from refactoring.models.layers.gpt_transformer.gpt_decoder_layer import GPTDecoderLayer
+from refactoring.models.layers.gpt_transformer.decoder_layer import TransformerDecoderLayer
 
 
 @pytest.mark.unit
-class TestGPTDecoderLayer:
-    """Tests for GPTDecoderLayer."""
+class TestTransformerDecoderLayer:
+    """Tests for TransformerDecoderLayer."""
 
     @pytest.mark.parametrize("use_cross_attention", [True, False])
     def test_initialization(self, use_cross_attention):
         """Test layer initialization with/without cross-attention."""
-        layer = GPTDecoderLayer(
+        layer = TransformerDecoderLayer(
             embedding_dimension=512,
             number_of_heads=8,
             attention_type=AttentionType.MULTI_HEAD.value,
@@ -45,7 +45,7 @@ class TestGPTDecoderLayer:
         """Test forward pass with different configurations."""
         batch_size, seq_len, feature_len, embedding_dim = 2, 10, 20, 512
 
-        layer = GPTDecoderLayer(
+        layer = TransformerDecoderLayer(
             embedding_dimension=embedding_dim,
             number_of_heads=8,
             attention_type=AttentionType.MULTI_HEAD.value,

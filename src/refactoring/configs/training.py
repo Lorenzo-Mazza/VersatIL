@@ -99,3 +99,7 @@ class TrainingConfig:
 
     tune_lr: bool = False  # If True, automatically find optimal learning rate before training
     early_stopping_patience: int = 10  # Number of validation checks with no improvement to stop training
+
+    # ReduceLROnPlateau - reduce learning rate when validation loss plateaus
+    reduce_lr_on_plateau: bool = False  # If True, reduce LR when val_loss plateaus
+    reduce_lr_patience: int = 10  # Number of epochs with no improvement before reducing LR

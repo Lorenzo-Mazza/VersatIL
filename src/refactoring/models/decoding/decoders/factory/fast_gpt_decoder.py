@@ -311,7 +311,11 @@ class FASTGPTDecoder(ActionDecoder):
                              action_tokens: torch.Tensor,
                              feature_token_mask: torch.Tensor| None = None
                              ) -> torch.Tensor:
-        """Compute attention mask with bidirectional prefix and causal actions."""
+        """Compute attention mask with bidirectional prefix and causal actions.
+
+        Note: True indicates valid tokens, False indicates padding. This is the convention used in
+          torch.nn.scaled_dot_product_attention.
+        """
         prefix_len = feature_tokens.shape[1]
         action_input_mask = action_tokens != self.pad_token_id  # (B, seq_len-1)
         if feature_token_mask is not None:
@@ -330,8 +334,7 @@ class FASTGPTDecoder(ActionDecoder):
         attention_allowed = (cumsum[:, None, :] <= cumsum[:, :, None]).to(torch.bool) # (B, total_len, total_len)
         valid_mask = full_input_mask[:, None, :] & full_input_mask[:, :, None]
         final_attention_allowed = attention_allowed & valid_mask
-        attention_mask = ~final_attention_allowed
-        return attention_mask.unsqueeze(1)  # (B, 1, total_len, total_len)
+        return final_attention_allowed.unsqueeze(1)  # (B, 1, total_len, total_len)
 
 
     def _forward_training(
@@ -410,12 +413,12 @@ class FASTGPTDecoder(ActionDecoder):
         cumsum = torch.cumsum(autoregressive_mask, dim=1)
         attention_allowed = (cumsum[:, None, :] <= cumsum[:, :, None])
         valid_mask = feature_token_mask[:, None, :] & feature_token_mask[:, :, None]
-        first_mask = ~(attention_allowed & valid_mask)
-        first_mask = first_mask.unsqueeze(1)  # Add head dimension
+        self_attention_mask = attention_allowed & valid_mask
+        self_attention_mask = self_attention_mask.unsqueeze(1)  # Add head dimension
         decoder_output, decoder_cache = self.gpt_decoder(
             hidden_states=current_sequence,
             encoded_features=None,
-            self_attention_mask=first_mask,
+            self_attention_mask=self_attention_mask,
             cross_attention_mask=None,
             decoder_cache=None,
             use_cache=True,

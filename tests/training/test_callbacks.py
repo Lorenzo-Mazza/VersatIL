@@ -6,7 +6,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import LearningRateMonitor, StochasticWeightAveraging
 from unittest.mock import Mock, MagicMock, patch
 
-from refactoring.training.callbacks import EMACallback, GradientNormCallback, ConfusionMatrixCallback
+from refactoring.training.callbacks import EMACallback, GradientNormCallback, ConfusionMatrixCallback, ReduceLROnPlateauCallback
 from refactoring.training.lightning_policy import LightningPolicy
 from refactoring.configs.training import TrainingConfig, AdamWConfig
 
@@ -369,3 +369,99 @@ class TestTrainingConfigCallbackParameters:
         # Tuning parameters
         assert training_config.tune_lr is False
         assert training_config.tune_batch_size is False
+
+    def test_reduce_lr_on_plateau_config_parameters(self):
+        """Test ReduceLROnPlateau configuration parameters."""
+        training_config = TrainingConfig(
+            num_epochs=100,
+            optimizer=AdamWConfig(lr=1e-4),
+            reduce_lr_on_plateau=True,
+            reduce_lr_patience=15,
+        )
+
+        assert training_config.reduce_lr_on_plateau is True
+        assert training_config.reduce_lr_patience == 15
+
+    def test_reduce_lr_on_plateau_disabled_by_default(self):
+        """Test that ReduceLROnPlateau is disabled by default."""
+        training_config = TrainingConfig(
+            num_epochs=100,
+            optimizer=AdamWConfig(lr=1e-4),
+        )
+
+        assert training_config.reduce_lr_on_plateau is False
+        assert training_config.reduce_lr_patience == 10  # Default value
+
+
+@pytest.mark.unit
+class TestReduceLROnPlateauCallback:
+    """Test ReduceLROnPlateau callback."""
+
+    def test_initialization(self):
+        """Test ReduceLROnPlateau callback initialization."""
+        callback = ReduceLROnPlateauCallback(patience=15)
+
+        assert callback.monitor == "val_loss"
+        assert callback.mode == "min"
+        assert callback.patience == 15
+        assert callback.factor == 0.5
+        assert callback.scheduler is None
+
+    def test_initialization_custom_params(self):
+        """Test ReduceLROnPlateau callback with custom parameters."""
+        callback = ReduceLROnPlateauCallback(
+            monitor="val_acc",
+            mode="max",
+            factor=0.1,
+            patience=5,
+            min_lr=1e-7,
+        )
+
+        assert callback.monitor == "val_acc"
+        assert callback.mode == "max"
+        assert callback.factor == 0.1
+        assert callback.patience == 5
+        assert callback.min_lr == 1e-7
+
+    def test_scheduler_created_on_fit_start(self, simple_policy, simple_training_config):
+        """Test that scheduler is created when training starts."""
+        callback = ReduceLROnPlateauCallback(patience=10)
+        lightning_policy = LightningPolicy(
+            policy=simple_policy,
+            training_config=simple_training_config,
+        )
+
+        trainer = Mock()
+
+        # Simulate fit start
+        callback.on_fit_start(trainer, lightning_policy)
+
+        assert callback.scheduler is not None
+
+    def test_lr_reduction_on_plateau(self, simple_policy, simple_training_config):
+        """Test that LR is reduced when metric plateaus."""
+        callback = ReduceLROnPlateauCallback(patience=2, factor=0.5)
+        lightning_policy = LightningPolicy(
+            policy=simple_policy,
+            training_config=simple_training_config,
+        )
+
+        trainer = Mock()
+        trainer.callback_metrics = {"val_loss": torch.tensor(1.0)}
+
+        # Initialize scheduler
+        callback.on_fit_start(trainer, lightning_policy)
+
+        # Get initial LR
+        optimizer = lightning_policy.optimizers()
+        initial_lr = optimizer.param_groups[0]["lr"]
+
+        # Simulate plateau (same val_loss for patience+1 epochs)
+        with patch.object(lightning_policy, 'log'):
+            for _ in range(3):  # patience=2, so LR should reduce on 3rd call
+                callback.on_validation_epoch_end(trainer, lightning_policy)
+
+        # Check LR was reduced
+        new_lr = optimizer.param_groups[0]["lr"]
+        assert new_lr < initial_lr
+        assert new_lr == initial_lr * callback.factor

@@ -1,4 +1,4 @@
-"""GPT-style transformer decoder layer with KV cache support."""
+"""General transformer decoder layer with KV cache support."""
 
 import torch
 import torch.nn as nn
@@ -11,15 +11,15 @@ from refactoring.models.layers.gpt_transformer.normalization import create_norma
 from refactoring.models.layers.swiglu import SwiGLU
 
 
-class GPTDecoderLayer(nn.Module):
-    """Single GPT decoder layer with self-attention, cross-attention, and FFN.
+class TransformerDecoderLayer(nn.Module):
+    """Single transformer decoder layer with self-attention, cross-attention, and FFN.
 
     Architecture (Pre-Norm variant):
         x = x + SelfAttn(Norm(x))
         x = x + CrossAttn(Norm(x), encoded_features)
         x = x + FFN(Norm(x))
 
-    Supports KV caching for efficient autoregressive generation.
+    Supports KV caching for efficient autoregressive generation, if autoregressive.
     """
 
     def __init__(
@@ -36,8 +36,9 @@ class GPTDecoderLayer(nn.Module):
         use_cross_attention: bool = True,
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
+        autoregressive: bool = True,
     ):
-        """Initialize GPT decoder layer.
+        """Initialize Transformer decoder layer.
 
         Args:
             embedding_dimension: Model embedding dimension
@@ -52,12 +53,14 @@ class GPTDecoderLayer(nn.Module):
             use_cross_attention: Whether to use cross-attention (False for decoder-only models)
             bias: Whether to use bias in linear layers
             normalization_epsilon: Epsilon for normalization layers
+            autoregressive: Whether the model is autoregressive (affects caching behavior)
         """
         super().__init__()
 
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
         self.use_cross_attention = use_cross_attention
+        self.autoregressive = autoregressive
 
         if feedforward_dimension is None:
             feedforward_dimension = 4 * embedding_dimension
@@ -136,15 +139,20 @@ class GPTDecoderLayer(nn.Module):
         Args:
             hidden_states: Input embeddings (B, seq_len, D)
             encoded_features: Encoded visual features (B, num_features, D). Required if use_cross_attention=True
-            self_attention_mask: Optional causal mask for self-attention
-            cross_attention_mask: Optional mask for cross-attention
+            self_attention_mask: Optional causal mask for self-attention (False=masked). If None, no causal masking is applied.
+            cross_attention_mask: Optional mask for cross-attention, where False indicates positions to mask.
             layer_cache: Optional cached K/V from previous steps
-            use_cache: Whether to return updated cache
+            use_cache: Whether to return updated cache. Only valid if autoregressive=True
             positional_encoding: Optional positional encoding module (for RoPE)
 
         Returns:
             Tuple of (output_states, updated_cache)
+
+        Raises:
+            ValueError: If use_cache=True for non-autoregressive model
         """
+        if use_cache and not self.autoregressive:
+            raise ValueError("use_cache=True only valid for autoregressive models")
         # Self-attention with residual
         residual = hidden_states
         hidden_states = self.self_attention_normalization(hidden_states)

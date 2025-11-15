@@ -6,7 +6,7 @@ import math
 
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType, NormalizationType
-from refactoring.models.layers.gpt_transformer.gpt_decoder_layer import GPTDecoderLayer
+from refactoring.models.layers.gpt_transformer.decoder_layer import TransformerDecoderLayer
 from refactoring.models.layers.gpt_transformer.kv_cache import DecoderKVCache, LayerKVCache, initialize_decoder_cache
 from refactoring.models.layers.gpt_transformer.normalization import create_normalization_layer
 from refactoring.models.layers.gpt_transformer.positional_encoding import create_positional_encoding
@@ -15,9 +15,9 @@ from refactoring.models.layers.rms_norm import RMSNorm
 
 
 class GPTDecoder(nn.Module):
-    """GPT-style autoregressive decoder with KV caching.
+    """GPT-style autoregressive decoder, with KV caching, extended to support cross-attention.
 
-    Stacks multiple GPTDecoderLayer modules and manages KV cache across layers.
+    Stacks multiple TransformerDecoderLayer modules and manages KV cache across layers.
     Applies causal masking for autoregressive generation.
     """
 
@@ -90,7 +90,7 @@ class GPTDecoder(nn.Module):
 
         # Stack of decoder layers
         self.layers = nn.ModuleList([
-            GPTDecoderLayer(
+            TransformerDecoderLayer(
                 embedding_dimension=embedding_dimension,
                 number_of_heads=number_of_heads,
                 number_of_key_value_heads=number_of_key_value_heads,
@@ -103,6 +103,7 @@ class GPTDecoder(nn.Module):
                 use_cross_attention=use_cross_attention,
                 bias=bias,
                 normalization_epsilon=normalization_epsilon,
+                autoregressive=True,
             )
             for _ in range(number_of_layers)
         ])
@@ -118,7 +119,7 @@ class GPTDecoder(nn.Module):
 
     def _init_weights(self, module):
         """Initialize the weights."""
-        if isinstance(module, nn.Linear):  # No Conv1D in your arch, so removed
+        if isinstance(module, nn.Linear):
             module.weight.data.normal_(mean=0.0, std=self.initializer_range)
             if module.bias is not None:
                 module.bias.data.zero_()
@@ -136,7 +137,6 @@ class GPTDecoder(nn.Module):
         # > the weights of residual layers at initialization by a factor of 1/√N where N is the # of residual layers.
         # > -- GPT-2 :: https://openai.com/blog/better-language-models/
         #
-        # Reference (Megatron-LM): https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/model/gpt_model.py
         for name, p in module.named_parameters():
             if 'output_projection.weight' in name or 'feedforward_network' in name:
                 num_norm_layers = 3 if self.use_cross_attention else 2
@@ -155,16 +155,19 @@ class GPTDecoder(nn.Module):
             device: Device to create mask on
 
         Returns:
-            Causal mask (1, 1, seq_len, seq_len) as boolean tensor where True means masked position
+            Causal mask (1, 1, seq_len, seq_len) as boolean tensor where True means non-masked position
+
+        Note:
+            This mask uses the same convention as torch.nn.scaled_dot_product_attention.
         """
-        # Create causal mask: True for positions that should be masked (future positions)
+        # Create causal mask: False for positions that should be masked (future positions)
         mask = torch.triu(
             torch.ones(sequence_length, sequence_length, device=device, dtype=torch.bool),
             diagonal=1
         )
         # Add batch and head dimensions: (seq_len, seq_len) -> (1, 1, seq_len, seq_len)
         mask = mask.unsqueeze(0).unsqueeze(0)
-        return mask
+        return ~mask
 
 
     def precompute_cross_attention_kv(
@@ -222,9 +225,9 @@ class GPTDecoder(nn.Module):
         Args:
             hidden_states: Input token embeddings (B, seq_len, D)
             encoded_features: Encoder visual features (B, num_features, D). Required if self.use_cross_attention=True
-            self_attention_mask: Optional custom self-attention mask (B, 1, seq_len, seq_len) where True means masked.
-               If None, generates standard causal mask.
-            cross_attention_mask: Optional mask for cross-attention
+            self_attention_mask: Optional custom self-attention mask (B, 1, seq_len, seq_len) where False means masked.
+               If None, generates standard triangular causal mask.
+            cross_attention_mask: Optional mask for cross-attention, where False means masked.
             decoder_cache: Optional cached K/V from previous steps
             use_cache: Whether to return updated cache
 
@@ -248,10 +251,10 @@ class GPTDecoder(nn.Module):
             if cache_length > 0:
                 # Expand attention mask to account for cached positions
                 total_length = cache_length + sequence_length
-                expanded_mask = torch.ones(
+                expanded_mask = torch.zeros(
                     batch_size, 1, sequence_length, total_length, dtype=torch.bool, device=device
                 )
-                expanded_mask[:, :, :, :cache_length] = False  # Can attend to cached positions
+                expanded_mask[:, :, :, :cache_length] = True  # Can attend to cached positions
                 expanded_mask[:, :, :, cache_length:] = self_attention_mask[:, :, -sequence_length:, :]
                 self_attention_mask = expanded_mask
         else:

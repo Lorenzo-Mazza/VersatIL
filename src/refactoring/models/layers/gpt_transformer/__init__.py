@@ -2,7 +2,7 @@
 
 from refactoring.models.layers.gpt_transformer.attention import CachedAttention, create_attention
 from refactoring.models.layers.gpt_transformer.gpt_decoder import GPTDecoder
-from refactoring.models.layers.gpt_transformer.gpt_decoder_layer import GPTDecoderLayer
+from refactoring.models.layers.gpt_transformer.decoder_layer import TransformerDecoderLayer
 from refactoring.models.layers.gpt_transformer.kv_cache import (
     DecoderKVCache,
     LayerKVCache,
@@ -17,7 +17,7 @@ from refactoring.models.layers.gpt_transformer.positional_encoding import (
 
 __all__ = [
     "GPTDecoder",
-    "GPTDecoderLayer",
+    "TransformerDecoderLayer",
     "CachedAttention",
     "create_attention",
     "LayerKVCache",

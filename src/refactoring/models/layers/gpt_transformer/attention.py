@@ -152,7 +152,7 @@ class CachedAttention(nn.Module):
             queries: Query tensor (B, num_heads, query_len, head_dim)
             keys: Key tensor (B, kv_heads, key_len, head_dim) - compact for GQA
             values: Value tensor (B, kv_heads, value_len, head_dim) - compact for GQA
-            attention_mask: Optional mask (B, 1, query_len, key_len) or boolean
+            attention_mask: Optional mask (B, 1, query_len, key_len) or boolean. If None, no masking is applied.
 
         Returns:
             Attention output (B, query_len, embedding_dim)
@@ -165,29 +165,17 @@ class CachedAttention(nn.Module):
             keys = torch.repeat_interleave(keys, self.group_size, dim=1)
             values = torch.repeat_interleave(values, self.group_size, dim=1)
 
-        # Scaled dot-product attention
-        attention_scores = torch.matmul(queries, keys.transpose(-1, -2))
-        attention_scores = attention_scores / (self.head_dimension ** 0.5)
-
-        # Apply mask if provided
-        if attention_mask is not None:
-            if attention_mask.dtype == torch.bool:
-                # Boolean mask: True = masked position
-                attention_scores = attention_scores.masked_fill(
-                    attention_mask, -1e9 if attention_scores.dtype == torch.float32 else -1e4
-                )
-            else:
-                # Additive mask (e.g., -inf for masked positions)
-                attention_scores = attention_scores + attention_mask
-
-        # Softmax and dropout
-        attention_weights = F.softmax(attention_scores, dim=-1)
-        attention_weights = F.dropout(
-            attention_weights, p=self.dropout, training=self.training
+        dropout_p = self.dropout if self.training else 0.0
+        # flash-attn
+        attended_values = F.scaled_dot_product_attention(
+            queries,
+            keys,
+            values,
+            attn_mask=attention_mask,
+            dropout_p=dropout_p,
+            is_causal=False,
+            scale=self.head_dimension ** -0.5,
         )
-
-        # Attend to values
-        attended_values = torch.matmul(attention_weights, values)
 
         # Reshape: (B, H, L, D) -> (B, L, H*D)
         attended_values = attended_values.transpose(1, 2).contiguous()
@@ -218,7 +206,7 @@ class CachedAttention(nn.Module):
                        uses precomputed K from layer_cache
             value_input: Value input (B, value_len, D). If None and use_cross_attention_cache=True,
                          uses precomputed V from layer_cache
-            attention_mask: Optional attention mask
+            attention_mask: Optional attention mask. If None, no masking is applied.
             layer_cache: Optional cached keys/values
             use_cache: Whether to return updated cache (for self-attention)
             positional_encoding: Optional positional encoding module (for RoPE)

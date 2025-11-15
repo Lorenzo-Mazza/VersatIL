@@ -22,7 +22,12 @@ from refactoring.data.dataloader import get_dataloaders
 from refactoring.data.normalize.normalizer import LinearNormalizer
 from refactoring.data.tokenize import Tokenizer
 from refactoring.models.policy import Policy
-from refactoring.training.callbacks import ConfusionMatrixCallback, EMACallback, GradientNormCallback
+from refactoring.training.callbacks import (
+    ConfusionMatrixCallback,
+    EMACallback,
+    GradientNormCallback,
+    ReduceLROnPlateauCallback,
+)
 from refactoring.training.lightning_policy import LightningPolicy
 
 
@@ -281,6 +286,13 @@ class Workspace:
             )
             callbacks.append(cm_callback)
             logging.info("Added ConfusionMatrix callback for phase classification")
+
+        if self.config.training.reduce_lr_on_plateau:
+            reduce_lr_callback = ReduceLROnPlateauCallback(
+                patience=self.config.training.reduce_lr_patience,
+            )
+            callbacks.append(reduce_lr_callback)
+            logging.info(f"Added ReduceLROnPlateau callback (patience={self.config.training.reduce_lr_patience})")
 
         return callbacks
 

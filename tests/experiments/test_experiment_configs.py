@@ -357,6 +357,12 @@ class TestPolicyCreation:
         with initialize_config_dir(config_dir=str(EXPERIMENTS_DIR), version_base=None):
             cfg = compose(config_name=experiment_name)
             cfg.experiment.device = 'cpu'
+
+            # Override language encoder to use smaller model for tests
+            if 'encoding_pipeline' in cfg.policy and 'encoders' in cfg.policy.encoding_pipeline:
+                if 'tokenizer' in cfg.policy.encoding_pipeline.encoders:
+                    cfg.policy.encoding_pipeline.encoders.tokenizer.language_model_name = 'bert-base-uncased'
+
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
             policy.set_normalizer(normalizer)
@@ -373,6 +379,11 @@ class TestPolicyCreation:
             cfg = compose(config_name=experiment_name)
 
             cfg.experiment.device = 'cpu'
+
+            # Override language encoder to use smaller model for tests
+            if 'encoding_pipeline' in cfg.policy and 'encoders' in cfg.policy.encoding_pipeline:
+                if 'tokenizer' in cfg.policy.encoding_pipeline.encoders:
+                    cfg.policy.encoding_pipeline.encoders.tokenizer.language_model_name = 'bert-base-uncased'
 
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
@@ -394,6 +405,11 @@ class TestPolicyCreation:
             cfg = compose(config_name=experiment_name)
 
             cfg.experiment.device = 'cpu'
+
+            # Override language encoder to use smaller model for tests
+            if 'encoding_pipeline' in cfg.policy and 'encoders' in cfg.policy.encoding_pipeline:
+                if 'tokenizer' in cfg.policy.encoding_pipeline.encoders:
+                    cfg.policy.encoding_pipeline.encoders.tokenizer.language_model_name = 'bert-base-uncased'
 
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
@@ -425,6 +441,11 @@ class TestPolicyForwardPass:
 
             cfg.experiment.device = 'cpu'
 
+            # Override language encoder to use smaller model for tests
+            if 'encoding_pipeline' in cfg.policy and 'encoders' in cfg.policy.encoding_pipeline:
+                if 'tokenizer' in cfg.policy.encoding_pipeline.encoders:
+                    cfg.policy.encoding_pipeline.encoders.tokenizer.language_model_name = 'bert-base-uncased'
+
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
             policy.set_normalizer(normalizer)
@@ -454,6 +475,11 @@ class TestPolicyForwardPass:
 
             cfg.experiment.device = 'cpu'
 
+            # Override language encoder to use smaller model for tests
+            if 'encoding_pipeline' in cfg.policy and 'encoders' in cfg.policy.encoding_pipeline:
+                if 'tokenizer' in cfg.policy.encoding_pipeline.encoders:
+                    cfg.policy.encoding_pipeline.encoders.tokenizer.language_model_name = 'bert-base-uncased'
+
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
             policy.set_normalizer(normalizer)
@@ -479,6 +505,11 @@ class TestPolicyForwardPass:
             cfg = compose(config_name=experiment_name)
 
             cfg.experiment.device = 'cpu'
+
+            # Override language encoder to use smaller model for tests
+            if 'encoding_pipeline' in cfg.policy and 'encoders' in cfg.policy.encoding_pipeline:
+                if 'tokenizer' in cfg.policy.encoding_pipeline.encoders:
+                    cfg.policy.encoding_pipeline.encoders.tokenizer.language_model_name = 'bert-base-uncased'
 
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
@@ -513,6 +544,11 @@ class TestGradientFlow:
 
             cfg.experiment.device = 'cpu'
 
+            # Override language encoder to use smaller model for tests
+            if 'encoding_pipeline' in cfg.policy and 'encoders' in cfg.policy.encoding_pipeline:
+                if 'tokenizer' in cfg.policy.encoding_pipeline.encoders:
+                    cfg.policy.encoding_pipeline.encoders.tokenizer.language_model_name = 'bert-base-uncased'
+
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)
             policy.set_normalizer(normalizer)
@@ -545,6 +581,11 @@ class TestGradientFlow:
             cfg = compose(config_name=experiment_name)
 
             cfg.experiment.device = 'cpu'
+
+            # Override language encoder to use smaller model for tests
+            if 'encoding_pipeline' in cfg.policy and 'encoders' in cfg.policy.encoding_pipeline:
+                if 'tokenizer' in cfg.policy.encoding_pipeline.encoders:
+                    cfg.policy.encoding_pipeline.encoders.tokenizer.language_model_name = 'bert-base-uncased'
 
             policy: Policy = instantiate(cfg.policy)
             normalizer = create_dummy_normalizer(cfg)

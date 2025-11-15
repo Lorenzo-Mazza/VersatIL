@@ -1,12 +1,13 @@
-num_epochs: 1000
-gradient_accumulate_every: 1
+num_epochs: 2000
+gradient_accumulate_every: 4
 
 optimizer:
   _target_: torch.optim.AdamW
-  lr: 1.0e-5
-  weight_decay: 1.0e-3
-  betas: [0.9, 0.999]
+  lr: 1.0e-4
+  weight_decay: 5.0e-2
+  betas: [0.9, 0.95]
   eps: 1.0e-8
+  fused: true
   param_groups:
     - name: vision_encoders
       lr: 5.0e-6
@@ -17,7 +18,7 @@ clip_gradient_norm: true
 clip_max_norm: 1.0
 
 lr_schedule: cosine
-lr_warmup_steps: 1000
+lr_warmup_steps: 20000
 
 use_ema: true
 ema_power: 0.999
@@ -28,4 +29,4 @@ swa_epoch_start: 0.8  # Start SWA at 80% of training
 swa_annealing_epochs: 10  # Anneal LR over 10 epochs
 
 tune_lr: false
-early_stopping_patience: 50
+early_stopping_patience: 100
