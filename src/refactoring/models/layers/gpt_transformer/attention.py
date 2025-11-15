@@ -188,7 +188,13 @@ class CachedAttention(nn.Module):
             # Shape (B, num_heads, query_len, key_len) - broadcast heads
             mask_shape = (batch_size, self.number_of_heads, query_length, keys.shape[2])
             sdpa_mask = torch.full(mask_shape, -torch.inf, dtype=queries.dtype, device=queries.device)
+            # Debug: Before masked_fill
+            print("sdpa_mask shape before fill:", sdpa_mask.shape)
+            print("attention_mask.unsqueeze(1) shape:", attention_mask.unsqueeze(1).shape)
             sdpa_mask = sdpa_mask.masked_fill_(attention_mask.unsqueeze(1), 0.0)  # Broadcast over heads
+            # Debug: After masked_fill
+            print("sdpa_mask has inf:", torch.isinf(sdpa_mask).any())
+            print("sdpa_mask has NaN:", torch.isnan(sdpa_mask).any())
 
         # flash-attn
         attended_values = F.scaled_dot_product_attention(
@@ -215,7 +221,6 @@ class CachedAttention(nn.Module):
         # Output projection
         output = self.output_projection(attended_values)
         return output
-
 
     def forward(
         self,
