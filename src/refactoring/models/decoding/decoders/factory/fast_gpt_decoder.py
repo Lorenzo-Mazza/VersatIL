@@ -69,7 +69,7 @@ class FASTGPTDecoder(ActionDecoder):
         attention_type: str = AttentionType.MULTI_HEAD.value,
         dropout_rate: float = 0.1,
         attention_dropout: float = 0.0,
-        positional_encoding_type: str | None = PositionalEncodingType.SINUSOIDAL.value,
+        positional_encoding_type: str | None = PositionalEncodingType.ROPE.value,
         eos_token_id: int = 1,
         pad_token_id: int = 0,
         temperature: float = 1.0,
