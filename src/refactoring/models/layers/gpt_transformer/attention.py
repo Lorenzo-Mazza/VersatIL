@@ -176,7 +176,8 @@ class CachedAttention(nn.Module):
             is_causal=False,
             scale=self.head_dimension ** -0.5,
         )
-
+        # Replace NaN (from all-masked) with 0. This can happen if using attention masks that mask out all keys.
+        attended_values = torch.nan_to_num(attended_values, nan=0.0)
         # Reshape: (B, H, L, D) -> (B, L, H*D)
         attended_values = attended_values.transpose(1, 2).contiguous()
         attended_values = attended_values.view(
