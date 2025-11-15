@@ -167,17 +167,18 @@ class CachedAttention(nn.Module):
 
         dropout_p = self.dropout if self.training else 0.0
         # flash-attn
+        sdpa_mask = attention_mask
+        if attention_mask is not None and attention_mask.dtype == torch.bool:
+            sdpa_mask = torch.where(attention_mask, 0.0, -torch.inf)
         attended_values = F.scaled_dot_product_attention(
             queries,
             keys,
             values,
-            attn_mask=attention_mask,
+            attn_mask=sdpa_mask,
             dropout_p=dropout_p,
             is_causal=False,
             scale=self.head_dimension ** -0.5,
         )
-        # Replace NaN (from all-masked) with 0. This can happen if using attention masks that mask out all keys.
-        attended_values = torch.nan_to_num(attended_values, nan=0.0)
         # Reshape: (B, H, L, D) -> (B, L, H*D)
         attended_values = attended_values.transpose(1, 2).contiguous()
         attended_values = attended_values.view(
