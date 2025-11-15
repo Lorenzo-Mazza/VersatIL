@@ -7,7 +7,6 @@ optimizer:
   weight_decay: 5.0e-2
   betas: [0.9, 0.95]
   eps: 1.0e-8
-  fused: true
   param_groups:
     - name: vision_encoders
       lr: 5.0e-6
