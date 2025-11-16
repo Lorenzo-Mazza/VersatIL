@@ -86,12 +86,12 @@ def text_inputs_batch(batch_size):
 @pytest.fixture
 def fitted_tokenizer_robot(proprio_dim, num_bins):
     """Fitted tokenizer for robot frame only."""
-    tokenizer = Tokenizer(device=torch.device("cpu"))
+    tokenizer = Tokenizer()
 
     np.random.seed(42)
     normalized_data = np.random.randn(100, proprio_dim).astype(np.float32) * 0.5
 
-    binning_tok_robot = BinningTokenizer(num_bins=num_bins, device=torch.device("cpu"))
+    binning_tok_robot = BinningTokenizer(num_bins=num_bins)
     binning_tok_robot.fit(normalized_data)
 
     tokenizer.tokenizers[PROPRIO_OBS_ROBOT_FRAME_KEY] = binning_tok_robot
@@ -102,16 +102,16 @@ def fitted_tokenizer_robot(proprio_dim, num_bins):
 @pytest.fixture
 def fitted_tokenizer_both(proprio_dim, num_bins):
     """Fitted tokenizer for both robot and camera frames."""
-    tokenizer = Tokenizer(device=torch.device("cpu"))
+    tokenizer = Tokenizer()
 
     np.random.seed(42)
     normalized_data_robot = np.random.randn(100, proprio_dim).astype(np.float32) * 0.5
     normalized_data_camera = np.random.randn(100, proprio_dim).astype(np.float32) * 0.5
 
-    binning_tok_robot = BinningTokenizer(num_bins=num_bins, device=torch.device("cpu"))
+    binning_tok_robot = BinningTokenizer(num_bins=num_bins)
     binning_tok_robot.fit(normalized_data_robot)
 
-    binning_tok_camera = BinningTokenizer(num_bins=num_bins, device=torch.device("cpu"))
+    binning_tok_camera = BinningTokenizer(num_bins=num_bins)
     binning_tok_camera.fit(normalized_data_camera)
 
     tokenizer.tokenizers[PROPRIO_OBS_ROBOT_FRAME_KEY] = binning_tok_robot
@@ -131,11 +131,9 @@ class TestLanguageProprioTokenizerInitialization:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=128,
-            device="cpu",
         )
 
         assert encoder.max_token_len == 128
-        assert encoder.device_str == "cpu"
         assert encoder.lm_model_name == LanguageEncoderType.BERT_BASE.value
         assert encoder.binning_tokenizer_robot is None
         assert encoder.binning_tokenizer_camera is None
@@ -148,7 +146,6 @@ class TestLanguageProprioTokenizerInitialization:
             frozen=True,
             language_model_name=LanguageEncoderType.GEMMA_2B.value,
             max_token_len=128,
-            device="cpu",
         )
 
         assert encoder.binning_tokenizer_robot is None
@@ -162,24 +159,9 @@ class TestLanguageProprioTokenizerInitialization:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=128,
-            device="cpu",
         )
 
         assert LANGUAGE_KEY in encoder.input_specification.keys
-
-    def test_initialization_frozen(self):
-        """Test initialization with frozen weights."""
-        encoder = LanguageProprioTokenizerEncoder(
-            input_keys=[PROPRIO_OBS_ROBOT_FRAME_KEY],
-            pretrained=True,
-            frozen=True,
-            language_model_name=LanguageEncoderType.BERT_BASE.value,
-            max_token_len=128,
-            device="cpu",
-        )
-
-        for param in encoder.language_model.parameters():
-            assert not param.requires_grad
 
     def test_initialization_custom_max_token_len(self):
         """Test initialization with custom max token length."""
@@ -190,7 +172,6 @@ class TestLanguageProprioTokenizerInitialization:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=max_len,
-            device="cpu",
         )
 
         assert encoder.max_token_len == max_len
@@ -203,7 +184,6 @@ class TestLanguageProprioTokenizerInitialization:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=128,
-            device="cpu",
         )
 
         spec = encoder.get_output_specification()
@@ -220,7 +200,6 @@ class TestLanguageProprioTokenizerInitialization:
                 frozen=True,
                 language_model_name=LanguageEncoderType.BERT_BASE.value,
                 max_token_len=128,
-                device="cpu",
             )
 
 
@@ -235,7 +214,6 @@ class TestSetTokenizer:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=128,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_robot)
@@ -252,7 +230,6 @@ class TestSetTokenizer:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=128,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_both)
@@ -270,10 +247,9 @@ class TestSetTokenizer:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=128,
-            device="cpu",
         )
 
-        empty_tokenizer = Tokenizer(device=torch.device("cpu"))
+        empty_tokenizer = Tokenizer()
 
         with pytest.raises(ValueError, match="Tokenizer must contain at least one"):
             encoder.set_tokenizer(empty_tokenizer)
@@ -297,7 +273,6 @@ class TestForwardPass:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=max_token_len,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_robot)
@@ -312,10 +287,10 @@ class TestForwardPass:
         assert EncoderOutputKeys.LANGUAGE.value in output
         assert EncoderOutputKeys.TOKEN_MASK.value in output
 
-        embeddings = output[EncoderOutputKeys.LANGUAGE.value]
-        assert embeddings.shape == (batch_size, max_token_len, encoder.embed_dim)
-        assert embeddings.dtype == torch.float32
-        assert not torch.isnan(embeddings).any()
+        tokens = output[EncoderOutputKeys.LANGUAGE.value]
+        assert tokens.shape == (batch_size, max_token_len)
+        assert tokens.dtype == torch.int64
+        assert not torch.isnan(tokens.float()).any()
 
         token_mask = output[EncoderOutputKeys.TOKEN_MASK.value]
         assert token_mask.shape == (batch_size, max_token_len)
@@ -335,7 +310,6 @@ class TestForwardPass:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=max_token_len,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_robot)
@@ -347,9 +321,9 @@ class TestForwardPass:
         output = encoder(inputs)
 
         assert EncoderOutputKeys.LANGUAGE.value in output
-        embeddings = output[EncoderOutputKeys.LANGUAGE.value]
-        assert embeddings.shape == (batch_size, max_token_len, encoder.embed_dim)
-        assert not torch.isnan(embeddings).any()
+        tokens = output[EncoderOutputKeys.LANGUAGE.value]
+        assert tokens.shape == (batch_size, max_token_len)
+        assert not torch.isnan(tokens.float()).any()
 
     def test_forward_both_frames_with_language(
         self,
@@ -367,7 +341,6 @@ class TestForwardPass:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=max_token_len,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_both)
@@ -380,9 +353,9 @@ class TestForwardPass:
 
         output = encoder(inputs)
 
-        embeddings = output[EncoderOutputKeys.LANGUAGE.value]
-        assert embeddings.shape == (batch_size, max_token_len, encoder.embed_dim)
-        assert not torch.isnan(embeddings).any()
+        tokens = output[EncoderOutputKeys.LANGUAGE.value]
+        assert tokens.shape == (batch_size, max_token_len)
+        assert not torch.isnan(tokens.float()).any()
 
     def test_forward_3d_proprio(
         self,
@@ -399,7 +372,6 @@ class TestForwardPass:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=max_token_len,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_robot)
@@ -411,8 +383,8 @@ class TestForwardPass:
 
         output = encoder(inputs)
 
-        embeddings = output[EncoderOutputKeys.LANGUAGE.value]
-        assert embeddings.shape == (batch_size, max_token_len, encoder.embed_dim)
+        tokens = output[EncoderOutputKeys.LANGUAGE.value]
+        assert tokens.shape == (batch_size, max_token_len)
 
     def test_forward_camera_frame_only(
         self,
@@ -429,7 +401,6 @@ class TestForwardPass:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=max_token_len,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_both)
@@ -441,8 +412,8 @@ class TestForwardPass:
 
         output = encoder(inputs)
 
-        embeddings = output[EncoderOutputKeys.LANGUAGE.value]
-        assert embeddings.shape == (batch_size, max_token_len, encoder.embed_dim)
+        tokens = output[EncoderOutputKeys.LANGUAGE.value]
+        assert tokens.shape == (batch_size, max_token_len)
 
 
 class TestParametrized:
@@ -466,7 +437,6 @@ class TestParametrized:
             frozen=True,
             language_model_name=model_name,
             max_token_len=max_token_len,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_robot)
@@ -478,8 +448,8 @@ class TestParametrized:
 
         output = encoder(inputs)
 
-        embeddings = output[EncoderOutputKeys.LANGUAGE.value]
-        assert embeddings.shape == (batch_size, max_token_len, embed_dim)
+        tokens = output[EncoderOutputKeys.LANGUAGE.value]
+        assert tokens.shape == (batch_size, max_token_len)
 
     @pytest.mark.parametrize("num_bins_param", [64, 128, 256])
     def test_different_num_bins(
@@ -492,12 +462,12 @@ class TestParametrized:
         proprio_dim,
     ):
         """Test with different number of bins."""
-        tokenizer = Tokenizer(device=torch.device("cpu"))
+        tokenizer = Tokenizer()
 
         np.random.seed(42)
         normalized_data = np.random.randn(100, proprio_dim).astype(np.float32) * 0.5
 
-        binning_tok = BinningTokenizer(num_bins=num_bins_param, device=torch.device("cpu"))
+        binning_tok = BinningTokenizer(num_bins=num_bins_param)
         binning_tok.fit(normalized_data)
 
         tokenizer.tokenizers[PROPRIO_OBS_ROBOT_FRAME_KEY] = binning_tok
@@ -508,7 +478,6 @@ class TestParametrized:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=max_token_len,
-            device="cpu",
         )
 
         encoder.set_tokenizer(tokenizer)
@@ -537,7 +506,6 @@ class TestParametrized:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=max_len,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_robot)
@@ -549,8 +517,8 @@ class TestParametrized:
 
         output = encoder(inputs)
 
-        embeddings = output[EncoderOutputKeys.LANGUAGE.value]
-        assert embeddings.shape[1] == max_len
+        tokens = output[EncoderOutputKeys.LANGUAGE.value]
+        assert tokens.shape[1] == max_len
 
     @pytest.mark.parametrize("T", [1, 3, 5])
     def test_temporal_proprio(
@@ -568,7 +536,6 @@ class TestParametrized:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=max_token_len,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_robot)
@@ -581,8 +548,8 @@ class TestParametrized:
 
         output = encoder(inputs)
 
-        embeddings = output[EncoderOutputKeys.LANGUAGE.value]
-        assert embeddings.shape == (batch_size, max_token_len, encoder.embed_dim)
+        tokens = output[EncoderOutputKeys.LANGUAGE.value]
+        assert tokens.shape == (batch_size, max_token_len)
 
     @pytest.mark.parametrize("T", [1, 3, 5])
     def test_temporal_proprio_and_language(
@@ -600,7 +567,6 @@ class TestParametrized:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=max_token_len,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_robot)
@@ -615,8 +581,8 @@ class TestParametrized:
 
         output = encoder(inputs)
 
-        embeddings = output[EncoderOutputKeys.LANGUAGE.value]
-        assert embeddings.shape == (batch_size, max_token_len, encoder.embed_dim)
+        tokens = output[EncoderOutputKeys.LANGUAGE.value]
+        assert tokens.shape == (batch_size, max_token_len)
 
     @pytest.mark.parametrize("T", [3, 5])
     def test_temporal_both_frames(
@@ -634,7 +600,6 @@ class TestParametrized:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=max_token_len,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_both)
@@ -649,8 +614,8 @@ class TestParametrized:
 
         output = encoder(inputs)
 
-        embeddings = output[EncoderOutputKeys.LANGUAGE.value]
-        assert embeddings.shape == (batch_size, max_token_len, encoder.embed_dim)
+        tokens = output[EncoderOutputKeys.LANGUAGE.value]
+        assert tokens.shape == (batch_size, max_token_len)
 
 
 class TestTemporalMismatch:
@@ -669,7 +634,6 @@ class TestTemporalMismatch:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=128,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_both)
@@ -698,7 +662,6 @@ class TestTemporalMismatch:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=128,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_robot)
@@ -730,7 +693,6 @@ class TestEdgeCases:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=128,
-            device="cpu",
         )
 
         inputs = {
@@ -753,7 +715,6 @@ class TestEdgeCases:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=128,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_robot)
@@ -779,7 +740,6 @@ class TestEdgeCases:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=max_token_len,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_robot)
@@ -791,9 +751,9 @@ class TestEdgeCases:
 
         output = encoder(inputs)
 
-        embeddings = output[EncoderOutputKeys.LANGUAGE.value]
-        assert embeddings.shape == (batch_size, max_token_len, encoder.embed_dim)
-        assert not torch.isnan(embeddings).any()
+        tokens = output[EncoderOutputKeys.LANGUAGE.value]
+        assert tokens.shape == (batch_size, max_token_len)
+        assert not torch.isnan(tokens.float()).any()
 
     def test_batch_size_one(
         self,
@@ -808,7 +768,6 @@ class TestEdgeCases:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=max_token_len,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_robot)
@@ -820,8 +779,8 @@ class TestEdgeCases:
 
         output = encoder(inputs)
 
-        embeddings = output[EncoderOutputKeys.LANGUAGE.value]
-        assert embeddings.shape == (1, max_token_len, encoder.embed_dim)
+        tokens = output[EncoderOutputKeys.LANGUAGE.value]
+        assert tokens.shape == (1, max_token_len)
 
 
 @pytest.mark.integration
@@ -841,7 +800,6 @@ class TestIntegration:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=128,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_robot)
@@ -864,7 +822,7 @@ class TestIntegration:
         assert output1.shape == output2.shape
         assert not torch.allclose(output1, output2, atol=1e-5)
 
-    def test_same_inputs_produce_same_features(
+    def test_same_inputs_produce_consistent_features(
         self,
         fitted_tokenizer_robot,
         text_inputs_batch,
@@ -877,7 +835,6 @@ class TestIntegration:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=128,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_robot)
@@ -907,7 +864,6 @@ class TestIntegration:
             frozen=True,
             language_model_name=LanguageEncoderType.BERT_BASE.value,
             max_token_len=128,
-            device="cpu",
         )
 
         encoder.set_tokenizer(fitted_tokenizer_robot)
@@ -921,5 +877,3 @@ class TestIntegration:
 
         assert not output.requires_grad
 
-        for param in encoder.language_model.parameters():
-            assert not param.requires_grad
