@@ -4,13 +4,12 @@ This encoder:
 1. Discretizes proprioceptive state into bins using pre-fitted BinningTokenizer
 2. Converts discretized state to string representation (robot/camera frame)
 3. Optionally concatenates with language instruction
-4. Tokenizes the combined text and returns embeddings
+4. Tokenizes the combined text and returns token IDs
 
-Outputs embedded token sequences.
+Outputs token ID sequences.
 """
 import torch
-from torch import nn
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoTokenizer
 
 from refactoring.data.constants import (
     LANGUAGE_KEY,
@@ -28,15 +27,14 @@ from refactoring.models.encoding.encoders.unconditional import Encoder
 class LanguageProprioTokenizerEncoder(Encoder):
     """Tokenizes language instruction + discretized proprioceptive state.
 
-    This encoder is designed for FAST-style autoregressive models that operate
-    on raw embedded token sequences.
+    This encoder is designed to tokenize input data strings.
 
     Architecture:
         1. Receive pre-fitted BinningTokenizer via set_tokenizer()
         2. Discretize proprio state → bins (robot/camera frame)
         3. Convert bins to string with frame labels
         4. Create prefix: "Task: {language}, Proprioceptive state in robot frame: {state_robot}, ...in camera frame: {state_camera};\n"
-        5. Tokenize prefix and return raw input embeddings from language model
+        5. Tokenize prefix
     """
 
     def __init__(
@@ -46,7 +44,6 @@ class LanguageProprioTokenizerEncoder(Encoder):
         frozen: bool,
         language_model_name: str =LanguageEncoderType.GEMMA_2B.value,
         max_token_len: int = 256,
-        device: str = "cpu",
     ):
         """Initialize language + proprio tokenizer encoder.
 
@@ -56,7 +53,6 @@ class LanguageProprioTokenizerEncoder(Encoder):
             frozen: Whether to freeze encoder weights
             language_model_name: HuggingFace model name for language model
             max_token_len: Maximum token sequence length
-            device: Device for torch tensors
         """
         # Language is optional, but at least one proprio frame must be present
         specification = EncoderInput(
@@ -70,24 +66,12 @@ class LanguageProprioTokenizerEncoder(Encoder):
         )
 
         self.max_token_len = max_token_len
-        self.device_str = device
-        self.device_torch = torch.device(device)
         self.lm_model_name = language_model_name
-
-        # Load tokenizer
         self.language_tokenizer = AutoTokenizer.from_pretrained(language_model_name)
         if self.language_tokenizer.pad_token is None:
             self.language_tokenizer.pad_token = self.language_tokenizer.eos_token
-        language_model = AutoModel.from_pretrained(language_model_name)
-        hidden_size = language_model.config.hidden_size
-        self.embeddings = nn.Embedding(language_model.config.vocab_size, hidden_size)
-        self.embeddings.weight.data.copy_(language_model.get_input_embeddings().weight.data)
-        del language_model  # Free memory immediately
-        self.embeddings.to(self.device_torch)
-        if frozen:
-            self.embeddings.weight.requires_grad = False
 
-        self.embed_dim = hidden_size
+        self.vocabulary_size = self.language_tokenizer.vocab_size
         self.binning_tokenizer_robot: BinningTokenizer | None = None
         self.binning_tokenizer_camera: BinningTokenizer | None = None
 
@@ -112,7 +96,7 @@ class LanguageProprioTokenizerEncoder(Encoder):
     def forward(
         self, inputs: dict[str, torch.Tensor | list[str] | list[list[str]]]
     ) -> dict[str, torch.Tensor]:
-        """Forward pass to tokenize and embed language + proprio.
+        """Forward pass to tokenize language + proprio.
 
         Args:
             inputs: Dict containing:
@@ -123,9 +107,9 @@ class LanguageProprioTokenizerEncoder(Encoder):
                 - PROPRIO_OBS_CAMERA_FRAME_KEY (optional): Proprio tensor (B, D) or (B, T, D)
 
         Returns:
-            Dict with embedded token sequences:
-                - "language": Embeddings (B, max_token_len, embed_dim)
-                - "token_mask": Valid token mask (B, max_token_len)
+            Dict with tokenized sequences:
+                - "language": token IDs (B, max_token_len)
+                - "is_pad_token": padded token mask (B, max_token_len)
         """
         if self.binning_tokenizer_robot is None and self.binning_tokenizer_camera is None:
             raise RuntimeError(
@@ -188,7 +172,6 @@ class LanguageProprioTokenizerEncoder(Encoder):
 
         prefixes = []
         for i in range(batch_size):
-            # Here we build the prefix string for each batch element
             time_parts = []
             for t in range(T):
                 if language_instructions is not None:
@@ -204,12 +187,12 @@ class LanguageProprioTokenizerEncoder(Encoder):
 
                 robot_part = ""
                 if discretized_robot is not None:
-                    robot_str = " ".join(map(str, discretized_robot[i, t].cpu().numpy().tolist()))
+                    robot_str = " ".join(map(str, discretized_robot[i, t].numpy().tolist()))
                     robot_part = f"State at t={t} in robot frame: {robot_str}"
 
                 camera_part = ""
                 if discretized_camera is not None:
-                    camera_str = " ".join(map(str, discretized_camera[i, t].cpu().numpy().tolist()))
+                    camera_str = " ".join(map(str, discretized_camera[i, t].numpy().tolist()))
                     camera_part = f"State at t={t} in camera frame: {camera_str}"
 
                 parts = [p for p in [task_part, robot_part, camera_part] if p]
@@ -224,18 +207,14 @@ class LanguageProprioTokenizerEncoder(Encoder):
             add_special_tokens=True,
             return_tensors="pt",
             max_length=self.max_token_len,
-            truncation=True,
+            truncation=False,
             padding="max_length",
-        ).to(self.device_torch)
-
-        with torch.no_grad():
-            embeddings_batch = self.embeddings(tokenized["input_ids"])  # (B, max_token_len, embed_dim)
-
-        token_masks = tokenized["attention_mask"].to(torch.bool)
-
+        )  # (B, max_token_len)
+        tokens = tokenized.data['input_ids']
+        is_pad_mask = ~tokenized.data['attention_mask'].to(torch.bool)
         return {
-            EncoderOutputKeys.LANGUAGE.value: embeddings_batch,
-            EncoderOutputKeys.TOKEN_MASK.value: token_masks,
+            EncoderOutputKeys.LANGUAGE.value: tokens,
+            EncoderOutputKeys.TOKEN_MASK.value: is_pad_mask,
         }
 
     def get_output_specification(self) -> EncoderOutput:
@@ -245,6 +224,8 @@ class LanguageProprioTokenizerEncoder(Encoder):
         """
         return EncoderOutput(
             features=[EncoderOutputKeys.LANGUAGE.value, EncoderOutputKeys.TOKEN_MASK.value],
-            dimensions={EncoderOutputKeys.LANGUAGE.value: (self.max_token_len, self.embed_dim),
-                        EncoderOutputKeys.TOKEN_MASK.value: (self.max_token_len,)},
+            dimensions={
+                EncoderOutputKeys.LANGUAGE.value: (self.max_token_len,),
+                EncoderOutputKeys.TOKEN_MASK.value: (self.max_token_len,),
+            },
         )

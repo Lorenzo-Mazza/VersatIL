@@ -26,7 +26,7 @@ class ViTEncoder(Encoder):
             feature_extraction_method: str,
             backbone: str = RGBBackboneType.DINOV2_VITB14.value,
     ):
-        """Vision Transformer (ViT) encoder using Transformers library and TIMM models."""
+        """Vision Transformer (ViT) encoder using Transformers library and TIMM."""
         specification = EncoderInput(keys=input_keys,one_of_groups=[[Cameras.LEFT.value, Cameras.RIGHT.value]])
         super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
         self.feature_extraction_method = feature_extraction_method
@@ -51,12 +51,18 @@ class ViTEncoder(Encoder):
 
 
     def _setup_feature_extractor(self):
-        """Setup feature extraction layer based on configuration."""
+        """Set-up pooling head and output dimensionality accordingly."""
         if self.feature_extraction_method == PoolingMethod.LEARNED_AGGREGATION.value:
             self.pooling_head = LearnedAggregation(self.feature_dim)
 
+        if self.feature_extraction_method == PoolingMethod.NONE.value:
+            self.output_dim = (-1, self.feature_dim) # -1 indicates a variable dimension
+        else:
+            self.output_dim = self.feature_dim
+
 
     def _extract_features(self, outputs: TimmWrapperModelOutput) -> torch.Tensor:
+        """Pool extracted features using the encoder pooling head."""
         last_hidden_state = outputs.last_hidden_state
         if self.feature_extraction_method == PoolingMethod.DEFAULT.value:
             return last_hidden_state[:, 0] # CLS token
@@ -102,5 +108,5 @@ class ViTEncoder(Encoder):
     def get_output_specification(self) -> EncoderOutput:
         return EncoderOutput(
             features=[EncoderOutputKeys.RGB.value],
-            dimensions={EncoderOutputKeys.RGB.value: self.feature_dim},
+            dimensions={EncoderOutputKeys.RGB.value: self.output_dim},
         )

@@ -72,13 +72,17 @@ class LanguageEncoder(Encoder):
 
 
     def _setup_feature_extractor(self):
-        """Setup feature extraction layer based on configuration."""
+        """Set-up pooling head and output dimensionality accordingly."""
         if self.feature_extraction_method == PoolingMethod.LEARNED_AGGREGATION.value:
             self.pooling_head = LearnedAggregation(self.feature_dim).to(self.encoder.device)
+        if self.feature_extraction_method == PoolingMethod.NONE.value:
+            self.output_dim = (-1, self.feature_dim) # -1 indicates a variable dimension
+        else:
+            self.output_dim = self.feature_dim
 
 
     def _extract_features(self, outputs: BaseModelOutput) -> torch.Tensor:
-        """Extract features from transformer outputs based on specified method."""
+        """Pool extracted features using the encoder pooling head."""
         if outputs.last_hidden_state is None:
             raise RuntimeError("last_hidden_state must be present in model output")
         if self.feature_extraction_method == PoolingMethod.DEFAULT.value:
@@ -135,5 +139,5 @@ class LanguageEncoder(Encoder):
     def get_output_specification(self) -> EncoderOutput:
         return EncoderOutput(
             features=[EncoderOutputKeys.LANGUAGE.value],
-            dimensions={EncoderOutputKeys.LANGUAGE.value: self.feature_dim},
+            dimensions={EncoderOutputKeys.LANGUAGE.value: self.output_dim},
         )

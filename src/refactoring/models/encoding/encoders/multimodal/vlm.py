@@ -55,14 +55,23 @@ class VLMEncoder(Encoder):
 
 
     def _setup_pooling(self):
+        """Set-up pooling heads and output dimensionality accordingly."""
         if self.feature_extraction_method == PoolingMethod.LEARNED_AGGREGATION.value:
             self.pooling_heads = torch.nn.ModuleDict({
                 EncoderOutputKeys.RGB.value: LearnedAggregation(self.hidden_vision_dim),
                 EncoderOutputKeys.LANGUAGE.value: LearnedAggregation(self.hidden_language_dim)
             })
 
+        if self.feature_extraction_method == PoolingMethod.NONE.value:
+            self.output_vision_dim = (-1, self.hidden_vision_dim) # -1 indicates a variable dimension
+            self.output_language_dim = (-1, self.hidden_language_dim)# -1 indicates a variable dimension
+        else:
+            self.output_vision_dim = self.hidden_vision_dim
+            self.output_language_dim = self.hidden_language_dim
+
 
     def _extract_features(self, outputs: BaseModelOutputWithPooling, modality: str) -> torch.Tensor:
+        """Pool extracted features using the encoder pooling heads."""
         if outputs.pooler_output is None or outputs.last_hidden_state is None:
             raise RuntimeError("Encoder outputs are missing required fields.")
         if self.feature_extraction_method == PoolingMethod.DEFAULT.value:
@@ -141,6 +150,6 @@ class VLMEncoder(Encoder):
     def get_output_specification(self) -> EncoderOutput:
         return EncoderOutput(
             features=[EncoderOutputKeys.RGB.value, EncoderOutputKeys.LANGUAGE.value],
-            dimensions={EncoderOutputKeys.RGB.value: self.hidden_vision_dim,
-                        EncoderOutputKeys.LANGUAGE.value: self.hidden_language_dim},
+            dimensions={EncoderOutputKeys.RGB.value: self.output_vision_dim,
+                        EncoderOutputKeys.LANGUAGE.value: self.output_language_dim},
         )
