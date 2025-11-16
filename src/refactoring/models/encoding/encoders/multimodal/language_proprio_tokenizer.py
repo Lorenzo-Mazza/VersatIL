@@ -8,6 +8,8 @@ This encoder:
 
 Outputs token ID sequences.
 """
+import logging
+
 import torch
 from transformers import AutoTokenizer
 
@@ -207,11 +209,15 @@ class LanguageProprioTokenizerEncoder(Encoder):
             add_special_tokens=True,
             return_tensors="pt",
             max_length=self.max_token_len,
-            truncation=False,
+            truncation=True,
             padding="max_length",
         )  # (B, max_token_len)
         tokens = tokenized.data['input_ids']
         is_pad_mask = ~tokenized.data['attention_mask'].to(torch.bool)
+        if tokens.shape[-1] > self.max_token_len:
+            logging.warning(msg="Tokenized sequence length exceeds max_token_len; truncating. If this occurs frequently, consider increasing max_token_len.")
+            tokens = tokens[:, -self.max_token_len :]
+            is_pad_mask = is_pad_mask[:, -self.max_token_len :]
         return {
             EncoderOutputKeys.LANGUAGE.value: tokens,
             EncoderOutputKeys.TOKEN_MASK.value: is_pad_mask,
