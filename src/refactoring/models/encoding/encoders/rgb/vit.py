@@ -9,7 +9,7 @@ from refactoring.data.constants import Cameras
 from refactoring.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from refactoring.models.encoding.encoders.constants import (
     EncoderOutputKeys,
-    FeatureExtractionMethod,
+    PoolingMethod,
     RGBBackboneType,
 )
 from refactoring.models.encoding.encoders.unconditional import Encoder
@@ -43,28 +43,32 @@ class ViTEncoder(Encoder):
     def _build_backbone(self):
         """Build backbone using Transformer library."""
         config = AutoConfig.from_pretrained(self.backbone_name)
-        # Allows the underlying timm model to accept input images of arbitrary sizes,
-        config.model_args = {"dynamic_img_size": True}
-        self.backbone = AutoModel.from_pretrained(self.backbone_name, config=config)
+        config.model_args = {"dynamic_img_size": True} # Allows the underlying timm model to accept input images of arbitrary sizes
+        if self.pretrained:
+            self.backbone = AutoModel.from_pretrained(self.backbone_name, config=config, use_safetensors=True)
+        else:
+            self.backbone = AutoModel.from_config(config)
 
 
     def _setup_feature_extractor(self):
         """Setup feature extraction layer based on configuration."""
-        if self.feature_extraction_method == FeatureExtractionMethod.LEARNED_AGGREGATION.value:
+        if self.feature_extraction_method == PoolingMethod.LEARNED_AGGREGATION.value:
             self.pooling_head = LearnedAggregation(self.feature_dim)
 
 
     def _extract_features(self, outputs: TimmWrapperModelOutput) -> torch.Tensor:
         last_hidden_state = outputs.last_hidden_state
-        if self.feature_extraction_method == FeatureExtractionMethod.CLS_TOKEN.value:
-            return last_hidden_state[:, 0] # CLS token (ViT standard)
-        elif self.feature_extraction_method == FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value:
+        if self.feature_extraction_method == PoolingMethod.DEFAULT.value:
+            return last_hidden_state[:, 0] # CLS token
+        elif self.feature_extraction_method == PoolingMethod.AVERAGE.value:
             return last_hidden_state[:, 1:].mean(dim=1)  # GAP on patches (exclude CLS)
-        elif self.feature_extraction_method == FeatureExtractionMethod.LEARNED_AGGREGATION.value:
+        elif self.feature_extraction_method == PoolingMethod.LEARNED_AGGREGATION.value:
             if self.pooling_head is None:
                 raise RuntimeError("pooling_head must be initialized for LEARNED_AGGREGATION")
-            result: torch.Tensor = self.pooling_head(last_hidden_state[:, 1:]) # Learned agg on patches
+            result: torch.Tensor = self.pooling_head(last_hidden_state[:, 1]) # Learned aggregation on patches
             return result
+        elif self.feature_extraction_method == PoolingMethod.NONE.value:
+            return last_hidden_state[:, 1:]  # Return all patch tokens (exclude CLS)
         else:
             raise ValueError(f"Unknown feature extraction method: {self.feature_extraction_method}")
 
@@ -75,8 +79,8 @@ class ViTEncoder(Encoder):
             inputs: Dict with single key from input_keys
 
         Returns:
-            A dictionary containing key `RGB_FEATURES` and tensor with shape (batch size, feature dim) or
-            (batch size, time steps, feature dim) if input has temporal dimension.
+            A dictionary containing key `RGB_FEATURES` and tensor with shape (batch size, *feature dim) or
+            (batch size, time steps, *feature dim) if input has temporal dimension.
         """
         img = inputs[self.input_specification.keys[0]]
         T = None
@@ -92,7 +96,7 @@ class ViTEncoder(Encoder):
         if has_time:
             if T is None:
                 raise RuntimeError("T must be set when has_time is True")
-            features = features.reshape(B, T, -1)
+            features = features.reshape(B, T, *features.shape[1:])  # Batch, Time, Features
         return {EncoderOutputKeys.RGB.value: features}
 
     def get_output_specification(self) -> EncoderOutput:

@@ -2,7 +2,7 @@ import pytest
 import torch
 
 from refactoring.models.encoding.encoders.rgb import ViTEncoder
-from refactoring.models.encoding.encoders.constants import RGBBackboneType, FeatureExtractionMethod, EncoderOutputKeys
+from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod, EncoderOutputKeys
 from refactoring.data.constants import Cameras
 
 
@@ -17,9 +17,9 @@ VIT_BACKBONES = [
 ]
 
 FEATURE_EXTRACTION_METHODS = [
-    FeatureExtractionMethod.CLS_TOKEN.value,
-    FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
-    FeatureExtractionMethod.LEARNED_AGGREGATION.value,
+    PoolingMethod.DEFAULT.value,
+    PoolingMethod.AVERAGE.value,
+    PoolingMethod.LEARNED_AGGREGATION.value,
 ]
 
 
@@ -65,13 +65,13 @@ class TestViTEncoder:
             backbone=backbone,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         assert encoder.feature_dim == expected_dim
         spec = encoder.get_output_specification()
         assert spec.dimensions[EncoderOutputKeys.RGB.value] == expected_dim
-        assert encoder.feature_extraction_method == FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value
+        assert encoder.feature_extraction_method == PoolingMethod.AVERAGE.value
 
     def test_get_output_specification(self):
         """Test get_output_specification returns correct structure."""
@@ -80,7 +80,7 @@ class TestViTEncoder:
             backbone=RGBBackboneType.DINOV2_VITB14.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         spec = encoder.get_output_specification()
@@ -97,7 +97,7 @@ class TestViTEncoder:
                 backbone=RGBBackboneType.DINOV2_VITB14.value,
                 pretrained=True,
                 frozen=True,
-                feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+                feature_extraction_method=PoolingMethod.AVERAGE.value,
             )
 
     def test_init_multiple_cameras(self):
@@ -108,7 +108,7 @@ class TestViTEncoder:
                 backbone=RGBBackboneType.DINOV2_VITB14.value,
                 pretrained=True,
                 frozen=True,
-                feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+                feature_extraction_method=PoolingMethod.AVERAGE.value,
             )
 
     @pytest.mark.parametrize("backbone,expected_dim", VIT_BACKBONES)
@@ -119,7 +119,7 @@ class TestViTEncoder:
             backbone=backbone,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         input_dict = {Cameras.LEFT.value: input_dict_4d["rgb"]}
@@ -142,7 +142,7 @@ class TestViTEncoder:
             backbone=backbone,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         input_dict = {Cameras.LEFT.value: input_dict_5d["rgb"]}
@@ -175,7 +175,7 @@ class TestViTEncoder:
         assert output.dtype == torch.float32
         assert not torch.isnan(output).any()
 
-        if feature_method == FeatureExtractionMethod.LEARNED_AGGREGATION.value:
+        if feature_method == PoolingMethod.LEARNED_AGGREGATION.value:
             assert encoder.pooling_head is not None
         else:
             assert encoder.pooling_head is None
@@ -187,7 +187,7 @@ class TestViTEncoder:
             backbone=RGBBackboneType.DINOV2_VITB14.value,
             pretrained=True,
             frozen=False,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         input_tensor = input_dict_4d["rgb"].clone()
@@ -212,7 +212,7 @@ class TestViTEncoder:
             backbone=RGBBackboneType.DINOV2_VITB14.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         input_dict = {Cameras.LEFT.value: input_dict_4d["rgb"]}
@@ -230,7 +230,7 @@ class TestViTEncoder:
             backbone=RGBBackboneType.DINOV2_VITB14.value,
             pretrained=True,
             frozen=False,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         input_tensor = input_dict_4d["rgb"].clone()
@@ -251,7 +251,7 @@ class TestViTEncoder:
             backbone=RGBBackboneType.DINOV2_VITB14.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.CLS_TOKEN.value,
+            feature_extraction_method=PoolingMethod.DEFAULT.value,
         )
 
         encoder_gap = ViTEncoder(
@@ -259,7 +259,7 @@ class TestViTEncoder:
             backbone=RGBBackboneType.DINOV2_VITB14.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         encoder_cls.eval()
@@ -281,7 +281,7 @@ class TestViTEncoder:
             backbone=RGBBackboneType.DINOV2_VITB14.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         encoder.eval()
@@ -302,7 +302,7 @@ class TestViTEncoder:
             backbone=backbone,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         encoder.eval()
@@ -325,7 +325,7 @@ class TestViTEncoder:
                 backbone=RGBBackboneType.DINOV2_VITB14.value,
                 pretrained=True,
                 frozen=True,
-                feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+                feature_extraction_method=PoolingMethod.AVERAGE.value,
             )
 
             input_dict = {camera: torch.randn(2, 3, 224, 224)}
@@ -346,7 +346,7 @@ class TestViTEncoderOutputSpecification:
             backbone=backbone,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         spec = encoder.get_output_specification()
@@ -400,7 +400,7 @@ class TestViTEncoderComparison:
                 backbone=backbone,
                 pretrained=True,
                 frozen=True,
-                feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+                feature_extraction_method=PoolingMethod.AVERAGE.value,
             )
             encoder.eval()
 
@@ -428,7 +428,7 @@ class TestViTEncodersGPU:
             backbone=backbone,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
         encoder = encoder.to(device)
 
@@ -448,7 +448,7 @@ class TestViTEncodersGPU:
             backbone=RGBBackboneType.DINOV2_VITB14.value,
             pretrained=True,
             frozen=False,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
         encoder = encoder.to(device)
 

@@ -1,6 +1,6 @@
 
 import torch
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer, AutoConfig
 from transformers.modeling_outputs import BaseModelOutput
 
 from refactoring.data.constants import LANGUAGE_KEY
@@ -58,8 +58,13 @@ class LanguageEncoder(Encoder):
 
     def _build_encoder(self):
         """Build language encoder and tokenizer."""
-        self.encoder = AutoModel.from_pretrained(self.model_name, device_map="auto",
-                                                 attn_implementation=self.attention_type, use_safetensors=True)
+
+        if self.pretrained:
+            self.encoder = AutoModel.from_pretrained(self.model_name,attn_implementation=self.attention_type, use_safetensors=True)
+        else:
+            config = AutoConfig.from_pretrained(self.model_name)
+            self.encoder = AutoModel.from_config(config, attn_implementation=self.attention_type)
+
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         # Ensure tokenizer has pad token
         if self.tokenizer.pad_token is None:
