@@ -21,7 +21,7 @@ class DepthCNNEncoder(Encoder):
             self,
             input_keys: str | list[str],
             backbone: str = RGBBackboneType.RESNET18.value,
-            pooling_method: str = PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method: str = PoolingMethod.AVERAGE.value,
             use_group_norm: bool = True,
             pretrained: bool = False,
             frozen: bool = False,

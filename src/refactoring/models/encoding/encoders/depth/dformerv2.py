@@ -161,7 +161,7 @@ class DFormerEncoder(Encoder):
         checkpoint_path: str | None = None,
         image_height: int = 224,
         image_width: int = 224,
-        pooling_method: str = PoolingMethod.GLOBAL_AVERAGE.value,
+        pooling_method: str = PoolingMethod.AVERAGE.value,
     ):
         """Initialize DFormer encoder.
 

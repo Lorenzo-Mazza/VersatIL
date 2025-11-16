@@ -59,7 +59,7 @@ class TestCNNEncoderInitialization:
     ])
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
-        (PoolingMethod.GLOBAL_AVERAGE.value, 1),
+        (PoolingMethod.AVERAGE.value, 1),
     ])
     def test_init_all_backbones_pooled(self, backbone, pooling_method, expected_multiplier):
         """Test initialization with pooling methods that return 1D features."""
@@ -190,7 +190,7 @@ class TestCNNEncoderForward:
     ])
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
-        (PoolingMethod.GLOBAL_AVERAGE.value, 1),
+        (PoolingMethod.AVERAGE.value, 1),
     ])
     def test_forward_4d_input_pooled(self, input_dict_4d, backbone, pooling_method, expected_multiplier):
         """Test forward pass with 4D input and pooling."""
@@ -249,7 +249,7 @@ class TestCNNEncoderForward:
     ])
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
-        (PoolingMethod.GLOBAL_AVERAGE.value, 1),
+        (PoolingMethod.AVERAGE.value, 1),
     ])
     def test_forward_5d_input_pooled(self, input_dict_5d, backbone, pooling_method, expected_multiplier):
         """Test forward pass with 5D input (temporal) and pooling."""
@@ -306,7 +306,7 @@ class TestCNNEncoderForward:
         encoder = CNNEncoder(
             input_keys=Cameras.LEFT.value,
             backbone=RGBBackboneType.RESNET18.value,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
         )
 
         input_dict = {Cameras.LEFT.value: input_dict_4d["rgb"]}
@@ -331,7 +331,7 @@ class TestCNNEncoderOutputSpecification:
     ])
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
-        (PoolingMethod.GLOBAL_AVERAGE.value, 1),
+        (PoolingMethod.AVERAGE.value, 1),
     ])
     def test_output_dims_pooled(self, backbone, pooling_method, expected_multiplier):
         """Test output dimensions with pooling methods."""
@@ -381,7 +381,7 @@ class TestCNNEncoderOutputSpecification:
         encoder = CNNEncoder(
             input_keys=Cameras.LEFT.value,
             backbone=RGBBackboneType.RESNET18.value,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
         )
 
         spec = encoder.get_output_specification()
@@ -409,7 +409,7 @@ class TestCNNEncoderGradients:
             input_keys=Cameras.LEFT.value,
             backbone=backbone,
             frozen=False,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -433,7 +433,7 @@ class TestCNNEncoderGradients:
             input_keys=Cameras.LEFT.value,
             backbone=backbone,
             frozen=True,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -475,7 +475,7 @@ class TestCNNEncoderIntegration:
         encoder = CNNEncoder(
             input_keys=Cameras.LEFT.value,
             backbone=RGBBackboneType.RESNET18.value,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
         )
 
         encoder.train()
@@ -493,7 +493,7 @@ class TestCNNEncoderIntegration:
         encoder = CNNEncoder(
             input_keys=Cameras.LEFT.value,
             backbone=RGBBackboneType.RESNET18.value,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
         )
 
         encoder.eval()
@@ -513,7 +513,7 @@ class TestCNNEncoderIntegration:
         encoder = CNNEncoder(
             input_keys=Cameras.LEFT.value,
             backbone=backbone,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 

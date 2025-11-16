@@ -46,18 +46,16 @@ class AttentionImplementation(str, enum.Enum):
     FLASH_ATTENTION_2 = "flash_attention_2" # using Dao-AILab/flash-attention
 
 
-class FeatureExtractionMethod(str, enum.Enum):
-    """Methods for extracting features from ViT encoders."""
-    CLS_TOKEN = "cls_token"
-    AVERAGE_PATCH_TOKENS = "average_patch_tokens"
-    LEARNED_AGGREGATION = "learned_aggregation"  # learned weighted aggregation of patch tokens
 
 
 class PoolingMethod(str, enum.Enum):
-    """Feature pooling methods for CNN encoders."""
-    SPATIAL_SOFTMAX = "spatial_softmax"
-    GLOBAL_AVERAGE = "global_average"
-    NONE = "none" # Return full spatial features without pooling
+    """Feature pooling methods for Convolutional and Transformer encoders."""
+    LEARNED_AGGREGATION = "learned_aggregation"  # learned attention aggregation of patch tokens/feature channels
+    DEFAULT = "default" # use [CLS] token in ViT, max pooling in CNNs or pooled output in VLMs
+    SPATIAL_SOFTMAX = "spatial_softmax" # Spatial Softmax pooling for CNN feature maps
+    AVERAGE = "average_pooling" # Global Average Pooling (GAP) for CNN feature maps or mean pooling for Transformer tokens
+    NONE = "none" # Return full spatial features or last hidden state tokens without pooling
+
 
 
 class LanguageEncoderType(str, enum.Enum):

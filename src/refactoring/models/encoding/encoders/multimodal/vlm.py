@@ -1,6 +1,6 @@
 
 import torch
-from transformers import AutoModel, AutoProcessor
+from transformers import AutoModel, AutoProcessor, AutoConfig
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 from refactoring.data.constants import LANGUAGE_KEY, Cameras
@@ -8,7 +8,7 @@ from refactoring.models.encoding.encoders.base import EncoderInput, EncoderOutpu
 from refactoring.models.encoding.encoders.constants import (
     AttentionImplementation,
     EncoderOutputKeys,
-    FeatureExtractionMethod,
+    PoolingMethod,
     ImageTextModelType,
 )
 from refactoring.models.encoding.encoders.unconditional import Encoder
@@ -33,8 +33,11 @@ class VLMEncoder(Encoder):
         self.feature_extraction_method = feature_extraction_method
         self.num_register_tokens = 0
         self.pooling_head: LearnedAggregation | None = None
-        self.encoder = AutoModel.from_pretrained(model_name, device_map="auto",
-                                                 attn_implementation=attention_type, use_safetensors=True)
+        config = AutoConfig.from_pretrained(model_name)
+        if pretrained:
+            self.encoder = AutoModel.from_pretrained(model_name,attn_implementation=attention_type, use_safetensors=True)
+        else:
+            self.encoder = AutoModel.from_config(config, attn_implementation=attention_type)
         self.processor = AutoProcessor.from_pretrained(model_name, do_rescale=False, do_normalize=False,
                                                        do_convert_rgb=False, do_center_crop=False, do_resize=False)
         vision_config = self.encoder.vision_model.config
@@ -43,7 +46,8 @@ class VLMEncoder(Encoder):
             self.image_size = vision_config.image_size
         else:
             self.image_size = None  # Flexible size (e.g., SigLIP naflex)
-        self.feature_dim = vision_config.projection_dim if hasattr(vision_config, 'projection_dim') else vision_config.hidden_size
+        self.hidden_vision_dim = vision_config.hidden_size
+        self.hidden_language_dim = self.encoder.text_model.config.hidden_size
         self._setup_pooling()
         if frozen:
             super()._freeze_weights()
@@ -51,25 +55,26 @@ class VLMEncoder(Encoder):
 
 
     def _setup_pooling(self):
-        if self.feature_extraction_method == FeatureExtractionMethod.LEARNED_AGGREGATION.value:
-            self.pooling_head = LearnedAggregation(self.feature_dim)
+        if self.feature_extraction_method == PoolingMethod.LEARNED_AGGREGATION.value:
+            self.pooling_heads = torch.nn.ModuleDict({
+                EncoderOutputKeys.RGB.value: LearnedAggregation(self.hidden_vision_dim),
+                EncoderOutputKeys.LANGUAGE.value: LearnedAggregation(self.hidden_language_dim)
+            })
 
 
-    def _extract_features(self, outputs: BaseModelOutputWithPooling) -> torch.Tensor:
-        if self.feature_extraction_method == FeatureExtractionMethod.CLS_TOKEN.value:
-            if outputs.pooler_output is None:
-                raise RuntimeError("pooler_output must be present in model output")
+    def _extract_features(self, outputs: BaseModelOutputWithPooling, modality: str) -> torch.Tensor:
+        if outputs.pooler_output is None or outputs.last_hidden_state is None:
+            raise RuntimeError("Encoder outputs are missing required fields.")
+        if self.feature_extraction_method == PoolingMethod.DEFAULT.value:
             return outputs.pooler_output
-        elif self.feature_extraction_method == FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value:
-            if outputs.last_hidden_state is None:
-                raise RuntimeError("last_hidden_state must be present in model output")
-            return outputs.last_hidden_state[:, 1:].mean(dim=1)  # GAP on patches (exclude CLS)
-        elif self.feature_extraction_method == FeatureExtractionMethod.LEARNED_AGGREGATION.value:
-            if self.pooling_head is None:
+        elif self.feature_extraction_method == PoolingMethod.AVERAGE.value:
+            return outputs.last_hidden_state.mean(dim=1)  # GAP on patches (exclude CLS)
+        elif self.feature_extraction_method == PoolingMethod.NONE.value:
+            return outputs.last_hidden_state
+        elif self.feature_extraction_method == PoolingMethod.LEARNED_AGGREGATION.value:
+            if self.pooling_heads is None:
                 raise RuntimeError("pooling_head must be initialized for LEARNED_AGGREGATION")
-            if outputs.last_hidden_state is None:
-                raise RuntimeError("last_hidden_state must be present in model output")
-            result: torch.Tensor = self.pooling_head(outputs.last_hidden_state[:, 1:])  # Learned agg on tokens (exclude CLS)
+            result: torch.Tensor = self.pooling_heads[modality](outputs.last_hidden_state)
             return result
         else:
             raise ValueError(f"Unsupported feature extraction method: {self.feature_extraction_method}")
@@ -123,19 +128,19 @@ class VLMEncoder(Encoder):
             padding=True
         ).to(images.device)
         outputs = self.encoder(**inputs)
-        image_features = outputs["image_embeds"]
-        language_features = outputs["text_embeds"]
+        image_features = self._extract_features(outputs.vision_model_output, modality=EncoderOutputKeys.RGB.value)
+        language_features = self._extract_features(outputs.text_model_output, modality=EncoderOutputKeys.LANGUAGE.value)
         if has_time:
             if T is None:
                 raise RuntimeError("T must be set when has_time is True")
-            image_features = image_features.reshape(B, T, -1)
-            language_features = language_features.reshape(B, T, -1)
+            image_features = image_features.reshape(B, T, *image_features.shape[1:])
+            language_features = language_features.reshape(B, T, *language_features.shape[1:])
         return {EncoderOutputKeys.RGB.value: image_features, EncoderOutputKeys.LANGUAGE.value: language_features}
 
 
     def get_output_specification(self) -> EncoderOutput:
         return EncoderOutput(
             features=[EncoderOutputKeys.RGB.value, EncoderOutputKeys.LANGUAGE.value],
-            dimensions={EncoderOutputKeys.LANGUAGE.value: self.feature_dim,
-                        EncoderOutputKeys.RGB.value: self.feature_dim},
+            dimensions={EncoderOutputKeys.RGB.value: self.hidden_vision_dim,
+                        EncoderOutputKeys.LANGUAGE.value: self.hidden_language_dim},
         )

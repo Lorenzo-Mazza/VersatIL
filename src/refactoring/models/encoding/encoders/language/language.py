@@ -8,7 +8,7 @@ from refactoring.models.encoding.encoders.base import EncoderInput, EncoderOutpu
 from refactoring.models.encoding.encoders.constants import (
     AttentionImplementation,
     EncoderOutputKeys,
-    FeatureExtractionMethod,
+    PoolingMethod,
     LanguageEncoderType,
 )
 from refactoring.models.encoding.encoders.unconditional import Encoder
@@ -68,7 +68,7 @@ class LanguageEncoder(Encoder):
 
     def _setup_feature_extractor(self):
         """Setup feature extraction layer based on configuration."""
-        if self.feature_extraction_method == FeatureExtractionMethod.LEARNED_AGGREGATION.value:
+        if self.feature_extraction_method == PoolingMethod.LEARNED_AGGREGATION.value:
             self.pooling_head = LearnedAggregation(self.feature_dim).to(self.encoder.device)
 
 
@@ -76,11 +76,11 @@ class LanguageEncoder(Encoder):
         """Extract features from transformer outputs based on specified method."""
         if outputs.last_hidden_state is None:
             raise RuntimeError("last_hidden_state must be present in model output")
-        if self.feature_extraction_method == FeatureExtractionMethod.CLS_TOKEN.value:
+        if self.feature_extraction_method == PoolingMethod.DEFAULT.value:
             return outputs.last_hidden_state[:, 0]  # CLS token
-        elif self.feature_extraction_method == FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value:
+        elif self.feature_extraction_method == PoolingMethod.AVERAGE.value:
             return outputs.last_hidden_state[:, 1:].mean(dim=1)  # GAP on tokens (exclude CLS)
-        elif self.feature_extraction_method == FeatureExtractionMethod.LEARNED_AGGREGATION.value:
+        elif self.feature_extraction_method == PoolingMethod.LEARNED_AGGREGATION.value:
             if self.pooling_head is None:
                 raise RuntimeError("pooling_head must be initialized for LEARNED_AGGREGATION")
             result: torch.Tensor = self.pooling_head(outputs.last_hidden_state[:, 1:])  # Learned agg on tokens (exclude CLS)

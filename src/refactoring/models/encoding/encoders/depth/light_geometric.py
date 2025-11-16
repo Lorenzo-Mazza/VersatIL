@@ -34,7 +34,7 @@ class LightGeometricEncoder(Encoder):
         initial_decay: float = 2.0,
         decay_range: float = 4.0,
         image_size: int = 224,
-        pooling_method: str = PoolingMethod.GLOBAL_AVERAGE.value,
+        pooling_method: str = PoolingMethod.AVERAGE.value,
         pretrained: bool = False,
         frozen: bool = False,
     ):

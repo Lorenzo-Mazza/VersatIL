@@ -7,7 +7,7 @@ encoders:
   left_rgb:
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys: ${cameras:LEFT}
-    backbone: ${rgb_backbone:RESNET18}
+    backbone: ${rgb_backbone:EFFICIENTNET_B0}
     pretrained: false
     frozen: false
     pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
@@ -18,7 +18,7 @@ encoders:
   right_rgb:
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys: ${cameras:RIGHT}
-    backbone: ${rgb_backbone:RESNET18}
+    backbone: ${rgb_backbone:EFFICIENTNET_B0}
     pretrained: false
     frozen: false
     pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
@@ -32,7 +32,7 @@ encoders:
       - ${obs_key:PROPRIO_CAMERA_FRAME}
     pretrained: true
     frozen: true
-    language_model_name: google/gemma-2b
+    language_model_name: ${language_model:BERT_BASE}
     max_token_len: 128
     device: ${experiment.device}
 

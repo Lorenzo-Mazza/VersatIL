@@ -36,7 +36,7 @@ from refactoring.data.constants import (
     PROPRIO_OBS_CAMERA_FRAME_KEY,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
 )
-from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod
+from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod, LanguageEncoderType
 from refactoring.training.constants import Float32MatmulPrecision, PrecisionType
 
 
@@ -59,6 +59,8 @@ def register_resolvers():
         OmegaConf.register_new_resolver("float32_matmul", lambda name: Float32MatmulPrecision[name].value)
     if not OmegaConf.has_resolver("pooling_method"):
         OmegaConf.register_new_resolver("pooling_method", lambda name: PoolingMethod[name].value)
+    if not OmegaConf.has_resolver("language_model"):
+        OmegaConf.register_new_resolver("language_model", lambda name: LanguageEncoderType[name].value)
     if not OmegaConf.has_resolver("action_key"):
         action_key_map = {
             "POSITION": POSITION_ACTION_KEY,

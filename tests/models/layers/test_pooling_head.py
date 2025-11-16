@@ -106,11 +106,11 @@ class TestPoolingHeads:
 
     @pytest.mark.parametrize("pooling_method,expected_class", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, SpatialSoftmaxPooling),
-        (PoolingMethod.GLOBAL_AVERAGE.value, GlobalAveragePooling),
+        (PoolingMethod.AVERAGE.value, GlobalAveragePooling),
         (PoolingMethod.NONE.value, IdentityPooling),
     ])
     def test_factory_creates_correct_type(
-            self, pooling_method, expected_class, feature_dimensions
+            self, pooling_method:str, expected_class, feature_dimensions
     ):
         """Test factory function creates correct pooling head types."""
         pooling = create_pooling_head(
@@ -186,7 +186,7 @@ class TestPoolingHeads:
 
     @pytest.mark.parametrize("pooling_method", [
         PoolingMethod.SPATIAL_SOFTMAX.value,
-        PoolingMethod.GLOBAL_AVERAGE.value,
+        PoolingMethod.AVERAGE.value,
         PoolingMethod.NONE.value,
     ])
     def test_gradient_flow(self, pooling_method, feature_dimensions):
@@ -224,7 +224,7 @@ class TestPoolingHeads:
         """Test output_dim matches actual output shape."""
         pooling_configs = [
             (PoolingMethod.SPATIAL_SOFTMAX.value, lambda c: c * 2),
-            (PoolingMethod.GLOBAL_AVERAGE.value, lambda c: c),
+            (PoolingMethod.AVERAGE.value, lambda c: c),
             (PoolingMethod.NONE.value, lambda c: (c, 7, 7)),
         ]
 

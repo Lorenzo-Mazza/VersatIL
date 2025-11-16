@@ -62,7 +62,7 @@ class TestDepthCNNEncoderInitialization:
     ])
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
-        (PoolingMethod.GLOBAL_AVERAGE.value, 1),
+        (PoolingMethod.AVERAGE.value, 1),
     ])
     def test_init_all_backbones(self, backbone, pooling_method, expected_multiplier):
         """Test initialization with all backbones and pooling methods."""
@@ -172,7 +172,7 @@ class TestDepthCNNEncoderForward:
     ])
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
-        (PoolingMethod.GLOBAL_AVERAGE.value, 1),
+        (PoolingMethod.AVERAGE.value, 1),
     ])
     def test_forward_4d_input(self, input_dict_4d, backbone, pooling_method, expected_multiplier):
         """Test forward pass with 4D input (B, C, H, W) for all backbones."""
@@ -204,7 +204,7 @@ class TestDepthCNNEncoderForward:
     ])
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
-        (PoolingMethod.GLOBAL_AVERAGE.value, 1),
+        (PoolingMethod.AVERAGE.value, 1),
     ])
     def test_forward_5d_input(self, input_dict_5d, backbone, pooling_method, expected_multiplier):
         """Test forward pass with 5D input (B, T, C, H, W) for selected backbones."""
@@ -238,7 +238,7 @@ class TestDepthCNNEncoderForward:
         encoder = DepthCNNEncoder(
             input_keys=Cameras.DEPTH.value,
             backbone=backbone,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -262,7 +262,7 @@ class TestDepthCNNEncoderForward:
         encoder = DepthCNNEncoder(
             input_keys=Cameras.DEPTH.value,
             backbone=backbone,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -325,7 +325,7 @@ class TestDepthCNNEncoderOutputSpecification:
         encoder = DepthCNNEncoder(
             input_keys=Cameras.DEPTH.value,
             backbone=backbone,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -370,7 +370,7 @@ class TestDepthCNNEncoderGradients:
             input_keys=Cameras.DEPTH.value,
             backbone=backbone,
             frozen=False,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -393,7 +393,7 @@ class TestDepthCNNEncoderGradients:
             input_keys=Cameras.DEPTH.value,
             backbone=backbone,
             frozen=True,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -415,7 +415,7 @@ class TestDepthCNNEncoderIntegration:
         encoder = DepthCNNEncoder(
             input_keys=Cameras.DEPTH.value,
             backbone=RGBBackboneType.RESNET18.value,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
         )
 
         encoder.train()
@@ -432,7 +432,7 @@ class TestDepthCNNEncoderIntegration:
         encoder = DepthCNNEncoder(
             input_keys=Cameras.DEPTH.value,
             backbone=RGBBackboneType.RESNET18.value,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
         )
 
         encoder.eval()
@@ -451,7 +451,7 @@ class TestDepthCNNEncoderIntegration:
         encoder = DepthCNNEncoder(
             input_keys=Cameras.DEPTH.value,
             backbone=backbone,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -470,7 +470,7 @@ class TestDepthCNNEncoderIntegration:
         encoder = DepthCNNEncoder(
             input_keys=Cameras.DEPTH.value,
             backbone=RGBBackboneType.RESNET18.value,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             use_group_norm=False,
         )
 
@@ -490,7 +490,7 @@ class TestDepthCNNEncoderIntegration:
         encoder = DepthCNNEncoder(
             input_keys=Cameras.DEPTH.value,
             backbone=RGBBackboneType.RESNET18.value,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
         )
 
         depth_normalized = torch.rand(2, 1, 224, 224)
@@ -506,7 +506,7 @@ class TestDepthCNNEncoderIntegration:
 
     @pytest.mark.parametrize("pooling_method", [
         PoolingMethod.SPATIAL_SOFTMAX.value,
-        PoolingMethod.GLOBAL_AVERAGE.value,
+        PoolingMethod.AVERAGE.value,
     ])
     def test_temporal_consistency(self, pooling_method):
         """Test temporal processing maintains consistency."""

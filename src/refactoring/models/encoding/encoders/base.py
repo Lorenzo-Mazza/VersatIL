@@ -40,7 +40,7 @@ class StructuredOutput:
 class EncoderOutput:
     """Structured encoder output specification."""
     features: list[str]  # list of feature names as `EncoderOutputKeys.value`.
-    dimensions: dict[str, int | tuple]  # feature_name -> dimension
+    dimensions: dict[str, int | tuple]  # feature_name -> dimension (skips batch and time dimension)
 
     @property
     def is_multi_output(self) -> bool:

@@ -72,7 +72,7 @@ class TestConditionalCNNEncoderInitialization:
     @pytest.mark.parametrize("backbone", SUPPORTED_BACKBONES)
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
-        (PoolingMethod.GLOBAL_AVERAGE.value, 1),
+        (PoolingMethod.AVERAGE.value, 1),
     ])
     def test_init_supported_backbones_pooled(self, backbone, pooling_method, expected_multiplier, condition_dim):
         """Test initialization with pooling methods that return 1D features."""
@@ -201,7 +201,7 @@ class TestConditionalCNNEncoderForward:
     @pytest.mark.parametrize("backbone", SUPPORTED_BACKBONES)
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
-        (PoolingMethod.GLOBAL_AVERAGE.value, 1),
+        (PoolingMethod.AVERAGE.value, 1),
     ])
     def test_forward_4d_input_pooled(self, input_dict_4d, condition_tensor, backbone, pooling_method, expected_multiplier, condition_dim):
         """Test forward pass with 4D input and pooling."""
@@ -253,7 +253,7 @@ class TestConditionalCNNEncoderForward:
     @pytest.mark.parametrize("backbone", SUPPORTED_BACKBONES)
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
-        (PoolingMethod.GLOBAL_AVERAGE.value, 1),
+        (PoolingMethod.AVERAGE.value, 1),
     ])
     def test_forward_5d_input_pooled(self, input_dict_5d, backbone, pooling_method, expected_multiplier, condition_dim):
         """Test forward pass with 5D input and pooling."""
@@ -338,7 +338,7 @@ class TestConditionalCNNEncoderOutputSpecification:
             condition_key="language_features",
             condition_dim=condition_dim,
             backbone=backbone,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -377,7 +377,7 @@ class TestConditionalCNNEncoderOutputSpecification:
             condition_key="language_features",
             condition_dim=condition_dim,
             backbone=RGBBackboneType.RESNET18.value,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
         )
 
         spec = encoder.get_output_specification()
@@ -403,7 +403,7 @@ class TestConditionalCNNEncoderGradients:
             condition_dim=condition_dim,
             backbone=backbone,
             frozen=False,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -425,7 +425,7 @@ class TestConditionalCNNEncoderGradients:
             condition_dim=condition_dim,
             backbone=backbone,
             frozen=True,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -469,7 +469,7 @@ class TestConditionalCNNEncoderIntegration:
             condition_key="language_features",
             condition_dim=condition_dim,
             backbone=RGBBackboneType.RESNET18.value,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
         )
 
         encoder.train()
@@ -488,7 +488,7 @@ class TestConditionalCNNEncoderIntegration:
             condition_key="language_features",
             condition_dim=condition_dim,
             backbone=RGBBackboneType.RESNET18.value,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
         )
 
         encoder.eval()
@@ -506,7 +506,7 @@ class TestConditionalCNNEncoderIntegration:
             condition_key="language_features",
             condition_dim=condition_dim,
             backbone=backbone,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -528,7 +528,7 @@ class TestConditionalCNNEncoderIntegration:
             condition_key="language_features",
             condition_dim=condition_dim,
             backbone=RGBBackboneType.RESNET18.value,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
             frozen=False
         )
@@ -561,7 +561,7 @@ class TestConditionalCNNEncoderIntegration:
                 condition_key="language_features",
                 condition_dim=condition_dim,
                 backbone=RGBBackboneType.RESNET18.value,
-                pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+                pooling_method=PoolingMethod.AVERAGE.value,
             )
 
             input_dict = {camera: torch.randn(2, 3, 224, 224)}

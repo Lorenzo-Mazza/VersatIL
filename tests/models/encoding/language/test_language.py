@@ -4,7 +4,7 @@ import torch
 from refactoring.models.encoding.encoders.language import LanguageEncoder
 from refactoring.models.encoding.encoders.constants import (
     LanguageEncoderType,
-    FeatureExtractionMethod,
+    PoolingMethod,
     EncoderOutputKeys,
 )
 from refactoring.data.constants import LANGUAGE_KEY
@@ -17,9 +17,9 @@ LANGUAGE_MODELS = [
 ]
 
 FEATURE_EXTRACTION_METHODS = [
-    FeatureExtractionMethod.CLS_TOKEN.value,
-    FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
-    FeatureExtractionMethod.LEARNED_AGGREGATION.value,
+    PoolingMethod.DEFAULT.value,
+    PoolingMethod.AVERAGE.value,
+    PoolingMethod.LEARNED_AGGREGATION.value,
 ]
 
 
@@ -66,13 +66,13 @@ class TestLanguageEncoderInitialization:
             model_name=model_name,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         assert encoder.feature_dim == expected_dim
         spec = encoder.get_output_specification()
         assert spec.dimensions[EncoderOutputKeys.LANGUAGE.value] == expected_dim
-        assert encoder.feature_extraction_method == FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value
+        assert encoder.feature_extraction_method == PoolingMethod.AVERAGE.value
 
     def test_get_output_specification(self):
         """Test get_output_specification returns correct structure."""
@@ -81,7 +81,7 @@ class TestLanguageEncoderInitialization:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         spec = encoder.get_output_specification()
@@ -97,7 +97,7 @@ class TestLanguageEncoderInitialization:
                 model_name=LanguageEncoderType.BERT_BASE.value,
                 pretrained=True,
                 frozen=True,
-                feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+                feature_extraction_method=PoolingMethod.AVERAGE.value,
             )
 
     def test_init_frozen(self):
@@ -107,7 +107,7 @@ class TestLanguageEncoderInitialization:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         for param in encoder.encoder.parameters():
@@ -121,7 +121,7 @@ class TestLanguageEncoderInitialization:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
             max_length=max_len,
         )
 
@@ -140,7 +140,7 @@ class TestLanguageEncoderForward:
             model_name=model_name,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         input_dict = {LANGUAGE_KEY: text_inputs_batch}
@@ -163,7 +163,7 @@ class TestLanguageEncoderForward:
             model_name=model_name,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         input_dict = {LANGUAGE_KEY: text_inputs_temporal}
@@ -196,7 +196,7 @@ class TestLanguageEncoderForward:
         assert output.dtype == torch.float32
         assert not torch.isnan(output).any()
 
-        if feature_method == FeatureExtractionMethod.LEARNED_AGGREGATION.value:
+        if feature_method == PoolingMethod.LEARNED_AGGREGATION.value:
             assert encoder.pooling_head is not None
         else:
             assert encoder.pooling_head is None
@@ -208,7 +208,7 @@ class TestLanguageEncoderForward:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         encoder.eval()
@@ -230,7 +230,7 @@ class TestLanguageEncoderForward:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         encoder.eval()
@@ -254,7 +254,7 @@ class TestLanguageEncoderEdgeCases:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         single_words = ["pick", "move"]
@@ -272,7 +272,7 @@ class TestLanguageEncoderEdgeCases:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
             max_length=max_len,
         )
 
@@ -290,7 +290,7 @@ class TestLanguageEncoderEdgeCases:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         empty_texts = ["", "move the arm"]
@@ -307,7 +307,7 @@ class TestLanguageEncoderEdgeCases:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         input_dict = {LANGUAGE_KEY: ["pick up the block"]}
@@ -322,7 +322,7 @@ class TestLanguageEncoderEdgeCases:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         texts = [
@@ -347,7 +347,7 @@ class TestLanguageEncoderOutputDims:
             model_name=model_name,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         spec = encoder.get_output_specification()
@@ -371,7 +371,7 @@ class TestLanguageEncoderGradients:
             model_name=model_name,
             pretrained=True,
             frozen=False,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         input_dict = {LANGUAGE_KEY: text_inputs_batch}
@@ -393,7 +393,7 @@ class TestLanguageEncoderGradients:
             model_name=model_name,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         input_dict = {LANGUAGE_KEY: text_inputs_batch}
@@ -416,7 +416,7 @@ class TestLanguageEncoderIntegration:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=False,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         encoder.train()
@@ -435,7 +435,7 @@ class TestLanguageEncoderIntegration:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         encoder.eval()
@@ -453,7 +453,7 @@ class TestLanguageEncoderIntegration:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         texts1 = ["pick up the block"] * batch_size
@@ -474,7 +474,7 @@ class TestLanguageEncoderIntegration:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.CLS_TOKEN.value,
+            feature_extraction_method=PoolingMethod.DEFAULT.value,
         )
 
         encoder_gap = LanguageEncoder(
@@ -482,7 +482,7 @@ class TestLanguageEncoderIntegration:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         encoder_cls.eval()
@@ -504,7 +504,7 @@ class TestLanguageEncoderIntegration:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         special_texts = [
@@ -525,7 +525,7 @@ class TestLanguageEncoderIntegration:
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         unicode_texts = [

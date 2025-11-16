@@ -110,7 +110,7 @@ def create_pooling_head(
     """
     if pooling_method == PoolingMethod.SPATIAL_SOFTMAX.value:
         return SpatialSoftmaxPooling(spatial_height, spatial_width, feature_channels)
-    elif pooling_method == PoolingMethod.GLOBAL_AVERAGE.value:
+    elif pooling_method == PoolingMethod.AVERAGE.value:
         return GlobalAveragePooling()
     elif pooling_method == PoolingMethod.NONE.value:
         return IdentityPooling(spatial_height, spatial_width, feature_channels)

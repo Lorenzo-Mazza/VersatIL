@@ -3,7 +3,7 @@ import torch
 
 from refactoring.models.encoding.encoders.multimodal.vlm import VLMEncoder
 from refactoring.models.encoding.encoders.constants import (
-    FeatureExtractionMethod,
+    PoolingMethod,
     ImageTextModelType,
     EncoderOutputKeys
 )
@@ -11,15 +11,16 @@ from refactoring.data.constants import Cameras, LANGUAGE_KEY
 
 
 IMAGE_TEXT_MODELS_TO_OUTPUT_DIM = [
-    (ImageTextModelType.CLIP_VITB32.value, 512),
-    (ImageTextModelType.CLIP_VITB16.value, 512),
-    (ImageTextModelType.SIGLIP_BASE_PATCH16.value, 768),
+    (ImageTextModelType.CLIP_VITB32.value, 768, 512),  # (model, vision_dim, text_dim)
+    (ImageTextModelType.CLIP_VITB16.value, 768, 512),
+    (ImageTextModelType.SIGLIP_BASE_PATCH16.value, 768, 768),
 ]
 
 FEATURE_EXTRACTION_METHODS = [
-    FeatureExtractionMethod.CLS_TOKEN.value,
-    FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
-    FeatureExtractionMethod.LEARNED_AGGREGATION.value,
+    PoolingMethod.DEFAULT.value,
+    PoolingMethod.AVERAGE.value,
+    PoolingMethod.LEARNED_AGGREGATION.value,
+    PoolingMethod.NONE.value,
 ]
 
 
@@ -62,36 +63,36 @@ def input_dict_5d(batch_size, temporal_length, image_size):
     H, W = image_size
     return {"rgb": torch.randn(batch_size, temporal_length, 3, H, W)}
 
-
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required for CLIP")
 @pytest.mark.integration
 class TestImageTextEncoderInitialization:
     """Test VLMEncoder initialization."""
 
-    @pytest.mark.parametrize("model_name,expected_dim", IMAGE_TEXT_MODELS_TO_OUTPUT_DIM)
-    def test_initialization(self, model_name, expected_dim):
+    @pytest.mark.parametrize("model_name,vision_dim,text_dim", IMAGE_TEXT_MODELS_TO_OUTPUT_DIM)
+    def test_initialization(self, model_name, vision_dim, text_dim):
         """Test VLMEncoder initialization with different models."""
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=model_name,
             pretrained=True,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
-        assert encoder.feature_dim == expected_dim
+        assert encoder.hidden_vision_dim == vision_dim
         output_spec = encoder.get_output_specification()
-        assert output_spec.dimensions[EncoderOutputKeys.RGB.value] == expected_dim
-        assert output_spec.dimensions[EncoderOutputKeys.LANGUAGE.value] == expected_dim
-        assert encoder.feature_extraction_method == FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value
+        assert output_spec.dimensions[EncoderOutputKeys.RGB.value] == vision_dim
+        assert output_spec.dimensions[EncoderOutputKeys.LANGUAGE.value] == text_dim
+        assert encoder.feature_extraction_method == PoolingMethod.AVERAGE.value
 
     def test_get_output_specification(self):
         """Test get_output_specification returns correct structure."""
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=ImageTextModelType.CLIP_VITB32.value,
-            pretrained=True,
+            pretrained=False,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         output_spec = encoder.get_output_specification()
@@ -105,9 +106,9 @@ class TestImageTextEncoderInitialization:
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=ImageTextModelType.CLIP_VITB32.value,
-            pretrained=True,
+            pretrained=False,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         assert set(encoder.input_specification.keys) == {Cameras.LEFT.value, LANGUAGE_KEY}
@@ -120,9 +121,9 @@ class TestImageTextEncoderInitialization:
             VLMEncoder(
                 input_keys=[LANGUAGE_KEY],
                 model_name=ImageTextModelType.CLIP_VITB32.value,
-                pretrained=True,
+                pretrained=False,
                 frozen=True,
-                feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+                feature_extraction_method=PoolingMethod.AVERAGE.value,
             )
 
     def test_init_missing_language(self):
@@ -131,9 +132,9 @@ class TestImageTextEncoderInitialization:
             VLMEncoder(
                 input_keys=[Cameras.LEFT.value],
                 model_name=ImageTextModelType.CLIP_VITB32.value,
-                pretrained=True,
+                pretrained=False,
                 frozen=True,
-                feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+                feature_extraction_method=PoolingMethod.AVERAGE.value,
             )
 
     def test_init_multiple_cameras(self):
@@ -142,9 +143,9 @@ class TestImageTextEncoderInitialization:
             VLMEncoder(
                 input_keys=[Cameras.LEFT.value, Cameras.RIGHT.value, LANGUAGE_KEY],
                 model_name=ImageTextModelType.CLIP_VITB32.value,
-                pretrained=True,
+                pretrained=False,
                 frozen=True,
-                feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+                feature_extraction_method=PoolingMethod.AVERAGE.value,
             )
 
     def test_init_frozen(self):
@@ -152,30 +153,28 @@ class TestImageTextEncoderInitialization:
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=ImageTextModelType.CLIP_VITB32.value,
-            pretrained=True,
+            pretrained=False,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         for param in encoder.encoder.parameters():
             assert not param.requires_grad
 
-
-@pytest.mark.integration
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required for CLIP")
 class TestImageTextEncoderForward:
     """Test VLMEncoder forward pass."""
 
-    @pytest.mark.parametrize("model_name,expected_dim", IMAGE_TEXT_MODELS_TO_OUTPUT_DIM)
-    def test_forward_4d_input(self, model_name, expected_dim, input_dict_4d, text_inputs, batch_size):
+    @pytest.mark.parametrize("model_name,vision_dim,text_dim", IMAGE_TEXT_MODELS_TO_OUTPUT_DIM)
+    def test_forward_4d_input(self, model_name, vision_dim, text_dim, input_dict_4d, text_inputs, batch_size):
         """Test forward pass with 4D input."""
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=model_name,
-            pretrained=True,
+            pretrained=False,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
-        )
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
+        ).to("cuda")
 
         input_dict = {
             Cameras.LEFT.value: input_dict_4d["rgb"].cuda(),
@@ -190,23 +189,23 @@ class TestImageTextEncoderForward:
         image_output = output_dict[EncoderOutputKeys.RGB.value]
         text_output = output_dict[EncoderOutputKeys.LANGUAGE.value]
 
-        assert image_output.shape == (batch_size, expected_dim)
-        assert text_output.shape == (batch_size, expected_dim)
+        assert image_output.shape == (batch_size, vision_dim)
+        assert text_output.shape == (batch_size, text_dim)
         assert image_output.dtype == torch.float32
         assert text_output.dtype == torch.float32
         assert not torch.isnan(image_output).any()
         assert not torch.isnan(text_output).any()
 
-    @pytest.mark.parametrize("model_name,expected_dim", IMAGE_TEXT_MODELS_TO_OUTPUT_DIM)
-    def test_forward_5d_input(self, model_name, expected_dim, input_dict_5d, text_inputs_5d, batch_size, temporal_length):
+    @pytest.mark.parametrize("model_name,vision_dim,text_dim", IMAGE_TEXT_MODELS_TO_OUTPUT_DIM)
+    def test_forward_5d_input(self, model_name, vision_dim, text_dim, input_dict_5d, text_inputs_5d, batch_size, temporal_length):
         """Test forward pass with 5D temporal input."""
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=model_name,
-            pretrained=True,
+            pretrained=False,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
-        )
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
+        ).to("cuda")
 
         input_dict = {
             Cameras.LEFT.value: input_dict_5d["rgb"].cuda(),
@@ -221,8 +220,8 @@ class TestImageTextEncoderForward:
         image_output = output_dict[EncoderOutputKeys.RGB.value]
         text_output = output_dict[EncoderOutputKeys.LANGUAGE.value]
 
-        assert image_output.shape == (batch_size, temporal_length, expected_dim)
-        assert text_output.shape == (batch_size, temporal_length, expected_dim)
+        assert image_output.shape == (batch_size, temporal_length, vision_dim)
+        assert text_output.shape == (batch_size, temporal_length, text_dim)
         assert not torch.isnan(image_output).any()
         assert not torch.isnan(text_output).any()
 
@@ -232,36 +231,41 @@ class TestImageTextEncoderForward:
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=ImageTextModelType.CLIP_VITB32.value,
-            pretrained=True,
+            pretrained=False,
             frozen=True,
             feature_extraction_method=feature_method,
-        )
-
+        ).to("cuda")
         input_dict = {
             Cameras.LEFT.value: input_dict_4d["rgb"].cuda(),
             LANGUAGE_KEY: text_inputs
         }
         output_dict = encoder(input_dict)
-
         assert isinstance(output_dict, dict)
         assert EncoderOutputKeys.RGB.value in output_dict
         assert EncoderOutputKeys.LANGUAGE.value in output_dict
-
         image_output = output_dict[EncoderOutputKeys.RGB.value]
         text_output = output_dict[EncoderOutputKeys.LANGUAGE.value]
+        if feature_method != PoolingMethod.NONE.value:
+            assert image_output.shape == (batch_size, 768)
+            assert text_output.shape == (batch_size, 512)
+        else:
+            assert image_output.ndim == 3  # (B, N, C)
+            assert text_output.ndim == 3  # (B, N, C)
+            assert image_output.shape[0] == batch_size
+            assert text_output.shape[0] == batch_size
+            assert image_output.shape[2] == 768
+            assert text_output.shape[2] == 512
 
-        assert image_output.shape == (batch_size, 512)
-        assert text_output.shape == (batch_size, 512)
 
     def test_forward_output_keys_match_specification(self, input_dict_4d, text_inputs):
         """Test forward output keys match specification."""
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=ImageTextModelType.CLIP_VITB32.value,
-            pretrained=True,
+            pretrained=False,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
-        )
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
+        ).to("cuda")
 
         input_dict = {
             Cameras.LEFT.value: input_dict_4d["rgb"].cuda(),
@@ -272,15 +276,16 @@ class TestImageTextEncoderForward:
 
         assert set(output_dict.keys()) == set(output_spec.features)
 
-    def test_forward_dimensions_match_specification(self, input_dict_4d, text_inputs):
+    @pytest.mark.parametrize("feature_method", FEATURE_EXTRACTION_METHODS)
+    def test_forward_dimensions_match_specification(self, feature_method, input_dict_4d, text_inputs):
         """Test forward output dimensions match specification."""
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=ImageTextModelType.CLIP_VITB32.value,
-            pretrained=True,
+            pretrained=False,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
-        )
+            feature_extraction_method=feature_method,
+        ).to("cuda")
 
         input_dict = {
             Cameras.LEFT.value: input_dict_4d["rgb"].cuda(),
@@ -290,17 +295,18 @@ class TestImageTextEncoderForward:
         output_spec = encoder.get_output_specification()
 
         for key in output_spec.features:
-            assert output_dict[key].shape[-1] == output_spec.dimensions[key]
+            spec_dim = output_spec.dimensions[key]
+            assert output_dict[key].shape[-1] == spec_dim
 
     def test_gradients_enabled_unfrozen(self, input_dict_4d, text_inputs):
         """Test gradients flow when not frozen."""
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=ImageTextModelType.CLIP_VITB32.value,
-            pretrained=True,
+            pretrained=False,
             frozen=False,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
-        )
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
+        ).to("cuda")
 
         input_dict = {
             Cameras.LEFT.value: input_dict_4d["rgb"].cuda().requires_grad_(True),
@@ -318,10 +324,10 @@ class TestImageTextEncoderForward:
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=ImageTextModelType.CLIP_VITB32.value,
-            pretrained=True,
+            pretrained=False,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
-        )
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
+        ).to("cuda")
 
         encoder.eval()
 
@@ -345,10 +351,10 @@ class TestImageTextEncoderForward:
             encoder = VLMEncoder(
                 input_keys=[camera, LANGUAGE_KEY],
                 model_name=ImageTextModelType.CLIP_VITB32.value,
-                pretrained=True,
+                pretrained=False,
                 frozen=True,
-                feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
-            )
+                feature_extraction_method=PoolingMethod.AVERAGE.value,
+            ).to("cuda")
 
             input_dict = {
                 camera: torch.randn(2, 3, 224, 224).cuda(),
@@ -356,7 +362,7 @@ class TestImageTextEncoderForward:
             }
             output_dict = encoder(input_dict)
 
-            assert output_dict[EncoderOutputKeys.RGB.value].shape == (2, 512)
+            assert output_dict[EncoderOutputKeys.RGB.value].shape == (2, 768)
             assert output_dict[EncoderOutputKeys.LANGUAGE.value].shape == (2, 512)
 
 
@@ -364,15 +370,15 @@ class TestImageTextEncoderForward:
 class TestImageTextEncoderOutputSpecification:
     """Test encoder output specification methods."""
 
-    @pytest.mark.parametrize("model_name,expected_dim", IMAGE_TEXT_MODELS_TO_OUTPUT_DIM)
-    def test_output_specification_structure(self, model_name, expected_dim):
+    @pytest.mark.parametrize("model_name,vision_dim,text_dim", IMAGE_TEXT_MODELS_TO_OUTPUT_DIM)
+    def test_output_specification_structure(self, model_name, vision_dim, text_dim):
         """Test output specification returns proper structure."""
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=model_name,
-            pretrained=True,
+            pretrained=False,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         output_spec = encoder.get_output_specification()
@@ -381,8 +387,8 @@ class TestImageTextEncoderOutputSpecification:
         assert len(output_spec.dimensions) == 2
         assert EncoderOutputKeys.RGB.value in output_spec.dimensions
         assert EncoderOutputKeys.LANGUAGE.value in output_spec.dimensions
-        assert output_spec.dimensions[EncoderOutputKeys.RGB.value] == expected_dim
-        assert output_spec.dimensions[EncoderOutputKeys.LANGUAGE.value] == expected_dim
+        assert output_spec.dimensions[EncoderOutputKeys.RGB.value] == vision_dim
+        assert output_spec.dimensions[EncoderOutputKeys.LANGUAGE.value] == text_dim
         assert all(isinstance(k, str) for k in output_spec.dimensions.keys())
         assert all(isinstance(v, int) for v in output_spec.dimensions.values())
 
@@ -391,9 +397,9 @@ class TestImageTextEncoderOutputSpecification:
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=ImageTextModelType.CLIP_VITB32.value,
-            pretrained=True,
+            pretrained=False,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
         )
 
         output_spec = encoder.get_output_specification()
@@ -410,10 +416,10 @@ class TestImageTextEncoderIntegration:
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=ImageTextModelType.CLIP_VITB32.value,
-            pretrained=True,
+            pretrained=False,
             frozen=False,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
-        )
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
+        ).to("cuda")
 
         encoder.train()
         input_dict = {
@@ -432,10 +438,10 @@ class TestImageTextEncoderIntegration:
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=ImageTextModelType.CLIP_VITB32.value,
-            pretrained=True,
+            pretrained=False,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
-        )
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
+        ).to("cuda")
 
         encoder.eval()
         input_dict = {
@@ -454,10 +460,10 @@ class TestImageTextEncoderIntegration:
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=ImageTextModelType.CLIP_VITB32.value,
-            pretrained=True,
+            pretrained=False,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
-        )
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
+        ).to("cuda")
 
         H, W = image_size
         text_inputs = ["test text"] * batch_size
@@ -482,10 +488,10 @@ class TestImageTextEncoderIntegration:
         encoder = VLMEncoder(
             input_keys=[Cameras.LEFT.value, LANGUAGE_KEY],
             model_name=ImageTextModelType.CLIP_VITB32.value,
-            pretrained=True,
+            pretrained=False,
             frozen=True,
-            feature_extraction_method=FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value,
-        )
+            feature_extraction_method=PoolingMethod.AVERAGE.value,
+        ).to("cuda")
 
         encoder.eval()
 

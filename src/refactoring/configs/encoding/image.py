@@ -4,7 +4,6 @@ from omegaconf import MISSING
 
 from refactoring.configs import EncoderConfig
 from refactoring.models.encoding.encoders.constants import (
-    FeatureExtractionMethod,
     PoolingMethod,
 )
 
@@ -30,6 +29,6 @@ class CNNEncoderConfig(ImageEncoderConfig):
 class ViTEncoderConfig(ImageEncoderConfig):
     """ViT-based image encoder configuration."""
     _target_: str = MISSING
-    feature_method: str = FeatureExtractionMethod.AVERAGE_PATCH_TOKENS.value
+    feature_method: str = PoolingMethod.AVERAGE.value
 
 

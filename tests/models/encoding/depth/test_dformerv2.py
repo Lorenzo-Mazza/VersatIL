@@ -12,15 +12,15 @@ from tests.conftest import CACHE_DIR
 VARIANT_OUTPUT_DIMS = {
     DFormerVariant.SMALL.value: {
         PoolingMethod.SPATIAL_SOFTMAX.value: 512 * 2,
-        PoolingMethod.GLOBAL_AVERAGE.value: 512,
+        PoolingMethod.AVERAGE.value: 512,
     },
     DFormerVariant.BASE.value: {
         PoolingMethod.SPATIAL_SOFTMAX.value: 512 * 2,
-        PoolingMethod.GLOBAL_AVERAGE.value: 512,
+        PoolingMethod.AVERAGE.value: 512,
     },
     DFormerVariant.LARGE.value: {
         PoolingMethod.SPATIAL_SOFTMAX.value: 640 * 2,
-        PoolingMethod.GLOBAL_AVERAGE.value: 640,
+        PoolingMethod.AVERAGE.value: 640,
     },
 }
 
@@ -75,7 +75,7 @@ class TestDFormerEncoderInitialization:
     ])
     @pytest.mark.parametrize("pooling_method", [
         PoolingMethod.SPATIAL_SOFTMAX.value,
-        PoolingMethod.GLOBAL_AVERAGE.value,
+        PoolingMethod.AVERAGE.value,
     ])
     def test_init_all_variants(self, variant, pooling_method):
         """Test initialization with all variants and pooling methods."""
@@ -245,7 +245,7 @@ class TestDFormerEncoderForward:
     ])
     @pytest.mark.parametrize("pooling_method", [
         PoolingMethod.SPATIAL_SOFTMAX.value,
-        PoolingMethod.GLOBAL_AVERAGE.value,
+        PoolingMethod.AVERAGE.value,
     ])
     def test_forward_4d_input_all_variants(self, input_dict_4d, variant, pooling_method):
         """Test forward pass with 4D inputs for all variants."""
@@ -276,7 +276,7 @@ class TestDFormerEncoderForward:
     ])
     @pytest.mark.parametrize("pooling_method", [
         PoolingMethod.SPATIAL_SOFTMAX.value,
-        PoolingMethod.GLOBAL_AVERAGE.value,
+        PoolingMethod.AVERAGE.value,
     ])
     def test_forward_5d_input(self, input_dict_5d, variant, pooling_method):
         """Test forward pass with 5D temporal inputs."""
@@ -375,7 +375,7 @@ class TestDFormerEncoderTemporalHandling:
         encoder = DFormerEncoder(
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=DFormerVariant.SMALL.value,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -387,14 +387,14 @@ class TestDFormerEncoderTemporalHandling:
         output = encoder(input_dict)[EncoderOutputKeys.RGBD.value]
 
         expected_output_dim = VARIANT_OUTPUT_DIMS[DFormerVariant.SMALL.value][
-            PoolingMethod.GLOBAL_AVERAGE.value
+            PoolingMethod.AVERAGE.value
         ]
         assert output.shape == (batch_size, temporal_length, expected_output_dim)
 
 
     @pytest.mark.parametrize("pooling_method", [
         PoolingMethod.SPATIAL_SOFTMAX.value,
-        PoolingMethod.GLOBAL_AVERAGE.value,
+        PoolingMethod.AVERAGE.value,
     ])
     def test_temporal_single_timestep(self, batch_size, image_size, pooling_method):
         """Test single timestep temporal input."""
@@ -461,9 +461,9 @@ class TestDFormerEncoderOutputSpecification:
 
     @pytest.mark.parametrize("variant,pooling_method", [
         (DFormerVariant.SMALL.value, PoolingMethod.SPATIAL_SOFTMAX.value),
-        (DFormerVariant.SMALL.value, PoolingMethod.GLOBAL_AVERAGE.value),
+        (DFormerVariant.SMALL.value, PoolingMethod.AVERAGE.value),
         (DFormerVariant.BASE.value, PoolingMethod.SPATIAL_SOFTMAX.value),
-        (DFormerVariant.LARGE.value, PoolingMethod.GLOBAL_AVERAGE.value),
+        (DFormerVariant.LARGE.value, PoolingMethod.AVERAGE.value),
     ])
     def test_output_dimensions_correct(self, variant, pooling_method):
         """Test output dimensions match expected values."""
@@ -517,7 +517,7 @@ class TestDFormerEncoderGradients:
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=variant,
             frozen=False,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -547,7 +547,7 @@ class TestDFormerEncoderGradients:
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=variant,
             frozen=True,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -574,7 +574,7 @@ class TestDFormerEncoderIntegration:
         encoder = DFormerEncoder(
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=DFormerVariant.SMALL.value,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -596,7 +596,7 @@ class TestDFormerEncoderIntegration:
         encoder = DFormerEncoder(
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=DFormerVariant.SMALL.value,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -620,7 +620,7 @@ class TestDFormerEncoderIntegration:
         encoder = DFormerEncoder(
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=variant,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 
@@ -658,7 +658,7 @@ class TestDFormerEncoderIntegration:
             output = encoder(input_dict)[EncoderOutputKeys.RGBD.value]
 
             expected_output_dim = VARIANT_OUTPUT_DIMS[DFormerVariant.SMALL.value][
-                PoolingMethod.GLOBAL_AVERAGE.value
+                PoolingMethod.AVERAGE.value
             ]
             assert output.shape == (2, expected_output_dim)
 
@@ -672,7 +672,7 @@ class TestDFormerEncoderIntegration:
         encoder = DFormerEncoder(
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=variant,
-            pooling_method=PoolingMethod.GLOBAL_AVERAGE.value,
+            pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         )
 

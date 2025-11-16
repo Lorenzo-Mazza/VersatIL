@@ -226,12 +226,12 @@ class SpatialFeatureConcatenator(nn.Module):
         ...     concat_dim=3  # Width concatenation for multi-camera
         ... )
         >>> features = {
-        ...     "rgb_left": torch.randn(8, 2048, 7, 7),   # ResNet50
-        ...     "rgb_right": torch.randn(8, 2048, 7, 7),  # ResNet50
-        ...     "depth": torch.randn(8, 512, 7, 7)        # Lighter CNN
+        ...     "rgb_left": torch.randn(8, 2048, 7, 7),
+        ...     "rgb_right": torch.randn(8, 2048, 7, 7),
+        ...     "depth": torch.randn(8, 512, 7, 7)
         ... }
         >>> concatenated = concatenator(features)
-        >>> concatenated.shape  # (8, 256, 7, 21) - width tripled
+        >>> concatenated.shape  # (8, 256, 7, 21) - target channels, width tripled
     """
 
     def __init__(

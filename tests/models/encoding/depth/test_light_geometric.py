@@ -46,7 +46,7 @@ class TestLightGeometricEncoderInitialization:
     @pytest.mark.parametrize("embedding_dimension", [256, 512])
     @pytest.mark.parametrize("pooling_method", [
         PoolingMethod.SPATIAL_SOFTMAX.value,
-        PoolingMethod.GLOBAL_AVERAGE.value,
+        PoolingMethod.AVERAGE.value,
     ])
     def test_init(self, embedding_dimension, pooling_method):
         encoder = LightGeometricEncoder(
@@ -120,7 +120,7 @@ class TestLightGeometricEncoderForward:
 
     @pytest.mark.parametrize("pooling_method", [
         PoolingMethod.SPATIAL_SOFTMAX.value,
-        PoolingMethod.GLOBAL_AVERAGE.value,
+        PoolingMethod.AVERAGE.value,
     ])
     def test_forward_4d_input(self, input_dict_4d, pooling_method):
         encoder = LightGeometricEncoder(
@@ -142,7 +142,7 @@ class TestLightGeometricEncoderForward:
 
     @pytest.mark.parametrize("pooling_method", [
         PoolingMethod.SPATIAL_SOFTMAX.value,
-        PoolingMethod.GLOBAL_AVERAGE.value,
+        PoolingMethod.AVERAGE.value,
     ])
     def test_forward_5d_input(self, input_dict_5d, pooling_method):
         encoder = LightGeometricEncoder(
@@ -238,7 +238,7 @@ class TestLightGeometricEncoderTemporalHandling:
 
     @pytest.mark.parametrize("pooling_method", [
         PoolingMethod.SPATIAL_SOFTMAX.value,
-        PoolingMethod.GLOBAL_AVERAGE.value,
+        PoolingMethod.AVERAGE.value,
     ])
     def test_temporal_single_timestep(self, batch_size, image_size, pooling_method):
         encoder = LightGeometricEncoder(
@@ -299,8 +299,8 @@ class TestLightGeometricEncoderOutputSpecification:
     @pytest.mark.parametrize("embedding_dimension,pooling_method", [
         (256, PoolingMethod.SPATIAL_SOFTMAX.value),
         (512, PoolingMethod.SPATIAL_SOFTMAX.value),
-        (256, PoolingMethod.GLOBAL_AVERAGE.value),
-        (512, PoolingMethod.GLOBAL_AVERAGE.value),
+        (256, PoolingMethod.AVERAGE.value),
+        (512, PoolingMethod.AVERAGE.value),
     ])
     def test_output_dimensions_correct(self, embedding_dimension, pooling_method):
         """Test output dimensions match expected values."""
