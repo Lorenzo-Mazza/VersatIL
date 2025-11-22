@@ -600,6 +600,7 @@ class ActionTokenLoss(BaseLoss):
             )
         pred_logits = predictions[ACTION_LOGITS_KEY] # (B, num_tokens, vocab_size)
         target_tokens = targets[TOKENIZED_ACTIONS_KEY][:,1:] # (B, num_tokens)
+        is_pad = is_pad[:,1:]  if is_pad is not None else is_pad
         vocab_size = pred_logits.shape[-1]
         num_tokens = pred_logits.shape[1]
         logits = pred_logits.view(-1, vocab_size, num_tokens)  # (B × 256, 1024)
