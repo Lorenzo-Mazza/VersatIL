@@ -188,7 +188,7 @@ class SequenceSampler:
             indices = np.zeros((0, 4), dtype=np.int64)
         # (buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx)
         self.indices = indices
-        self.keys = list(keys)  # prevent OmegaConf list performance problem
+        self.keys = list(keys)
         self.sequence_length = sequence_length
         self.episode_mask=episode_mask
         self.replay_buffer = replay_buffer

@@ -116,7 +116,7 @@ class EpisodicDataset(data.Dataset):
             pad_before=0,
             pad_after=self.pred_horizon - 1,
             episode_mask=episode_mask,
-            key_first_k=dict.fromkeys(observation_space.camera_keys, obs_horizon),
+            key_first_k=dict.fromkeys(observation_space.camera_keys, self.obs_horizon + self.action_backward_shift),
             skip_initial=dataloader_config.skip_initial_episode_steps,
             pad_with_zeros=False,
         )
