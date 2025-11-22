@@ -284,7 +284,7 @@ class FASTGPTDecoder(ActionDecoder):
         )  # (B, query_len, query_len)
         full_token_sequence = torch.cat([feature_tokens, action_token_embeddings], dim=1) # (B, query_len, emb_dim)
         if full_token_sequence.shape[1]>self.max_seq_len:
-            raise ValueError(f"Feature token length {prefix_len} >= max_seq_len {self.max_seq_len}. "
+            raise ValueError(f"Input token length {full_token_sequence} >= max_seq_len {self.max_seq_len}. "
                 "No room for any action tokens. "
                 "Consider increasing max_seq_len or reducing feature token count.")
         print(full_token_sequence.shape[1])
