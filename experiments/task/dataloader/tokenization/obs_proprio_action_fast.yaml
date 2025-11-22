@@ -13,5 +13,5 @@ action_tokenizer:
   tokenizer_chain:
     - ${tokenizer_type:FAST}
   use_pretrained_fast: false
-  max_token_len: 256
+  max_token_len: 128
 
