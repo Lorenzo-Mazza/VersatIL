@@ -3,8 +3,11 @@
 Similarly to the FAST-pi0 model, it uses a GPT-style autoregressive decoder (only self-attention)
 to generate sequences of tokenized actions.
 """
+import logging
+
 import torch
 import torch.nn as nn
+from tqdm.contrib.logging import logging_redirect_tqdm
 
 from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
@@ -280,6 +283,12 @@ class FASTGPTDecoder(ActionDecoder):
             feature_token_mask=feature_token_mask,
         )  # (B, query_len, query_len)
         full_token_sequence = torch.cat([feature_tokens, action_token_embeddings], dim=1) # (B, query_len, emb_dim)
+        if full_token_sequence.shape[1]>self.max_seq_len:
+            raise ValueError(f"Feature token length {prefix_len} >= max_seq_len {self.max_seq_len}. "
+                "No room for any action tokens. "
+                "Consider increasing max_seq_len or reducing feature token count.")
+        print(full_token_sequence.shape[1])
+        print(self.max_seq_len)
         decoder_output, _ = self.gpt_decoder(
             hidden_states=full_token_sequence,
             encoded_features=None,

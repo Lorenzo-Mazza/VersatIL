@@ -11,18 +11,18 @@ input_keys:
   - right_image
   - embedder_token_embedding
 
-max_seq_len: 256  # Maximum sequence length (features + action tokens)
+max_seq_len: 512  # Maximum sequence length (features + action tokens)
 
-embedding_dimension: 128
-number_of_heads: 4
+embedding_dimension: 512
+number_of_heads: 8
 number_of_key_value_heads: 2
 feedforward_dimension: 1024
-number_of_layers: 2
+number_of_layers: 4
 activation: ${activation_function:SWIGLU}
 normalization_type: ${normalization:RMS_NORM}
 attention_type: ${attention:GROUPED_QUERY}
 dropout_rate: 0.2
-attention_dropout: 0.2
+attention_dropout: 0.1
 positional_encoding_type: ${pos_encoding:ROPE}
 temperature: 10.0
 learnable_temperature: true
