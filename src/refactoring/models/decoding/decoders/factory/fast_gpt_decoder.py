@@ -181,6 +181,7 @@ class FASTGPTDecoder(ActionDecoder):
         device = self.temperature.device
         self.vocab_size = tokenizer.action_tokenizer.vocab_size
         self.token_embedding = nn.Embedding(self.vocab_size, self.embedding_dimension).to(device)
+        nn.init.normal_(self.token_embedding.weight, mean=0.0, std=self.gpt_decoder.initializer_range)
         lm_head = nn.Linear(self.embedding_dimension, self.vocab_size, bias=False, device=device)
         lm_head.weight = self.token_embedding.weight  # tie output weights to input embedding weights, like in GPT-2
         self.action_heads[ACTION_LOGITS_KEY] = lm_head

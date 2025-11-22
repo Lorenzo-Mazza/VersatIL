@@ -21,12 +21,14 @@ class Embedder(Encoder):
             self,
             embedding_dim: int,
             max_token_len: int,
+            initializer_range: float = 0.02,
     ):
         """Initialize embedder.
 
         Args:
             embedding_dim: Dimension of the embedding vectors
             max_token_len: Maximum sequence length (for validation and output spec)
+            initializer_range: std of the embedding module initial weights.
         """
         specification = EncoderInput(keys=[TOKENIZED_OBSERVATIONS_KEY, IS_PAD_OBSERVATION_KEY],
                                      required=[TOKENIZED_OBSERVATIONS_KEY, IS_PAD_OBSERVATION_KEY], requires_tokenized=True)
@@ -35,6 +37,7 @@ class Embedder(Encoder):
             pretrained=False,
             frozen=False,
         )
+        self.initializer_range = initializer_range
         self.vocab_size = None # To be set when loading tokenizer
         self.embedding_dim = embedding_dim
         self.max_token_len = max_token_len
@@ -55,6 +58,11 @@ class Embedder(Encoder):
         self.embedding = nn.Embedding(
             num_embeddings=vocab_size,
             embedding_dim=self.embedding_dim,
+        )
+        nn.init.normal_(
+            self.embedding.weight,
+            mean=0.0,
+            std=self.initializer_range,
         )
 
 
