@@ -320,7 +320,7 @@ class Workspace:
             save_dir=self.output_dir,
             log_model=False,  # We handle checkpointing ourselves
         )
-        wandb_logger.log_hyperparams(self.config)
+        wandb_logger.log_hyperparams(OmegaConf.to_container(self.original_yaml_config, resolve=True))
         logging.info(f"WandB logger created for experiment: {self.exp_name}")
         return wandb_logger
 
