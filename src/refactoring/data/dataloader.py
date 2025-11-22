@@ -159,7 +159,7 @@ def _collect_dataset_paths(dataset_folders: list[str], episode_filename: str) ->
             d for d in root_path.iterdir() if d.is_dir() and (d / episode_filename).exists()
         ]
         datasets_paths.extend([str(d / episode_filename) for d in episode_dirs])
-    datasets_paths = datasets_paths[:4]
+    #datasets_paths = datasets_paths[:4]
     return datasets_paths
 
 
