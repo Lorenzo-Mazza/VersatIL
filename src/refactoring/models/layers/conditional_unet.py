@@ -4,9 +4,11 @@ from typing import Union
 
 import torch
 from torch import nn
+from torch.nn.modules.batchnorm import _BatchNorm
 
 from refactoring.models.layers.convolution.conv1d import Downsample1d, Conv1dBlock, Upsample1d
 from refactoring.models.layers.modulation.conditional_residual_block import ConditionalResidualBlock1D
+from refactoring.models.layers.normalization.rms_norm import RMSNorm
 from refactoring.models.layers.positional_encoding.base import DenominatorMode, OrderingMode, PositionSource
 from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
 
@@ -14,14 +16,15 @@ from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalP
 class ConditionalUnet1D(nn.Module):
 
     def __init__(self,
-                 input_dimension,
-                 local_conditioning_dimension=None,
-                 global_conditioning_dimension=None,
-                 diffusion_step_embedding_dimension=256,
-                 down_dimensions=[256, 512, 1024],
-                 kernel_size=3,
-                 num_groups=8,
-                 condition_predict_scale=False
+                 input_dimension: int ,
+                 local_conditioning_dimension: int | None = None,
+                 global_conditioning_dimension: int | None = None,
+                 diffusion_step_embedding_dimension: int = 256,
+                 down_dimensions: list[int] = [256, 512, 1024],
+                 kernel_size: int =3,
+                 num_groups: int =8,
+                 condition_predict_scale: bool = False,
+                 initializer_range: float = 0.02,
                  ):
         """Initialize the ConditionalUnet1D module.
 
@@ -36,6 +39,7 @@ class ConditionalUnet1D(nn.Module):
                     kernel_size: Kernel size for convolutions in residual blocks.
                     num_groups: Number of groups for group normalization in residual blocks.
                     condition_predict_scale: If True, conditions predict scaling factors in residual blocks.
+                    initializer_range: std of the initial weights for conv and linear layers.
         """
         super().__init__()
         all_dimensions = [input_dimension] + list(down_dimensions)
@@ -131,7 +135,19 @@ class ConditionalUnet1D(nn.Module):
         self.upsampling_modules = upsampling_modules
         self.downsampling_modules = downsampling_modules
         self.final_convolution = final_convolution
+        self.initializer_range = initializer_range
+        self.apply(self._init_weights)
 
+
+
+    def _init_weights(self, module):
+        if isinstance(module, (nn.Linear, nn.Conv1d)):
+            nn.init.normal_(module.weight, mean=0.0, std=self.initializer_range)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+        elif isinstance(module, (nn.LayerNorm, RMSNorm, nn.GroupNorm, _BatchNorm)):
+            nn.init.zeros_(module.bias)
+            nn.init.ones_(module.weight)
 
     def forward(
             self,
