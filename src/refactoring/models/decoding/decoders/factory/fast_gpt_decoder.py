@@ -242,7 +242,7 @@ class FASTGPTDecoder(ActionDecoder):
             feature_token_mask = torch.zeros(batch_size, prefix_len, dtype=torch.bool, device=feature_tokens.device)
         action_ar_pad_mask = torch.triu(
             torch.ones(action_tokens.shape[1], action_tokens.shape[1], device=action_tokens.device, dtype=torch.bool),
-            diagonal=0 # `True`s start on the main diagonal, i.e. don't attend to current and future action tokens
+            diagonal=1 # `True`s start on the main diagonal, i.e. don't attend to current and future action tokens
         ).unsqueeze(0).unsqueeze(0) #(1, 1, action_len, action_len)
         action_ar_pad_mask = action_ar_pad_mask.expand(batch_size, 1, action_tokens.shape[1], action_tokens.shape[1])  # (B, 1, action_len, action_len)
         full_padding_mask = torch.zeros(batch_size, 1, total_len, total_len, dtype=torch.bool, device=feature_tokens.device)
@@ -276,7 +276,8 @@ class FASTGPTDecoder(ActionDecoder):
         """
         prefix_len = feature_tokens.shape[1]
         target_token_ids = actions[TOKENIZED_ACTIONS_KEY]  # (B, action_token_len)
-        action_token_embeddings = self.token_embedding(target_token_ids)  # (B, action_token_len, emb_dim)
+        input_ids = target_token_ids[:, :-1]  # (B, seq_len-1)
+        action_token_embeddings = self.token_embedding(input_ids)  # (B, action_token_len, emb_dim)
         # query_len = prefix_len + action_token_len
         full_attention_mask = self._make_attention_mask(
             feature_tokens=feature_tokens,
