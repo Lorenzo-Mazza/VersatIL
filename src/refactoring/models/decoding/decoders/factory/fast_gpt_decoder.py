@@ -287,8 +287,11 @@ class FASTGPTDecoder(ActionDecoder):
             raise ValueError(f"Input token length {full_token_sequence.shape[1]} >= max_seq_len {self.max_seq_len}. "
                 "No room for any action tokens. "
                 "Consider increasing max_seq_len or reducing feature token count.")
-        print(full_token_sequence.shape[1])
-        print(self.max_seq_len)
+        print(f"Full token sequence {full_token_sequence.shape[1]}")
+        print(f"Obs sequence {prefix_len}")
+        print(f"Action sequence {action_token_embeddings}")
+        print(f"Max seq length of the model {self.max_seq_len}")
+
         decoder_output, _ = self.gpt_decoder(
             hidden_states=full_token_sequence,
             encoded_features=None,
