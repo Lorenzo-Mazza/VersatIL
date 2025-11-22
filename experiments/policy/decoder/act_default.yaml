@@ -1,28 +1,21 @@
-# ACT Decoder Configuration
-# Action Chunking Transformer with DETR-style encoder-decoder
 defaults:
   - act
 
 _target_: refactoring.models.decoding.decoders.factory.act.ACT
 
-# Input features from encoding pipeline
 input_keys:
   - left_image
   - right_image
 
-# Transformer architecture
 embedding_dimension: 512
 number_of_heads: 8
 feedforward_dimension: 3200
 number_of_encoder_layers: 4
 number_of_decoder_layers: 7
-
-# Architecture details
 activation: relu
 dropout_rate: 0.1
 normalize_before: false
 
-# Action heads
 action_heads:
   position_action:
     _target_: refactoring.models.decoding.action_heads.ActionHead
@@ -44,7 +37,6 @@ action_heads:
         output_dim: 128
         activation: ${activation_function:SWIGLU}
 
-# References to task/policy configs (Hydra interpolation)
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}
 action_space: ${task.action_space}

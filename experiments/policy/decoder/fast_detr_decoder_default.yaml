@@ -1,40 +1,24 @@
-# FAST DETR Decoder Configuration
-# GPT-style autoregressive transformer for FAST tokenized action prediction
-# Reference: https://arxiv.org/abs/2501.09747
+defaults:
+  - fastdetr
 
-_target_: refactoring.models.decoding.decoders.factory.fast_detr_decoder.FASTDETRDecoder
-
-# Input features from encoding pipeline
 input_keys:
-  - visual_features
+  - left_image
+  - right_image
 
-# FAST tokenization settings
-# vocab_size must match task.dataloader.tokenization.use_pretrained_action_tokenizer:
-#   - use_pretrained_action_tokenizer: true  → vocab_size: 2048
-#   - use_pretrained_action_tokenizer: false → vocab_size: 1024
-vocab_size: 1024
 max_seq_len: 512
 
-# Transformer architecture
 embedding_dimension: 512
 number_of_heads: 8
 feedforward_dimension: 3200
-number_of_encoder_layers: 4  # For visual feature encoding
-number_of_decoder_layers: 7  # For autoregressive decoding
-
-# Architecture details
-activation: relu
+number_of_encoder_layers: 4
+number_of_decoder_layers: 7
+activation: ${activation_function:SILU}
 dropout_rate: 0.1
 normalize_before: false
+temperature: 10.0
+learnable_temperature: true
+deterministic: true
 
-# Special tokens
-eos_token_id: 1  # End of sequence
-pad_token_id: 0  # Padding token
-
-# Note: action_heads are created internally by FASTDETRDecoder
-# (action_logits head with output_dim=vocab_size)
-
-# References to task/policy configs (Hydra interpolation)
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}
 action_space: ${task.action_space}

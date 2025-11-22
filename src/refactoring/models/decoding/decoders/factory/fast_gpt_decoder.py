@@ -316,7 +316,7 @@ class FASTGPTDecoder(ActionDecoder):
             feature_token_mask: Feature token mask (B, num_features) or None
 
         Returns:
-            Dict with continuous action predictions
+            Dict with tokenized action predictions
         """
         batch_size = feature_tokens.shape[0]
         prefix_len = feature_tokens.shape[1]

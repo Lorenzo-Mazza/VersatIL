@@ -148,12 +148,14 @@ class ACT(ActionDecoder):
             Action embeddings (B, prediction_horizon, embedding_dimension)
         """
         batch_size = input_tokens.shape[0]
-        queries = self.learnable_query.weight.unsqueeze(0).repeat(batch_size, 1, 1) # (B, pred_horizon, emb)
+        query_positional_encoding = self.learnable_query.weight.unsqueeze(0).repeat(batch_size, 1, 1) # (B, pred_horizon, emb)
+        target = torch.zeros_like(query_positional_encoding)
         return self.action_decoder(
             source=input_tokens,
-            target=queries,
+            target=target,
             source_positional_encoding=positional_encodings,
             source_key_padding_mask=padding_mask,
+            target_positional_encoding=query_positional_encoding
         )[0]  # (B, pred_horizon, embedding_dimension)  type: ignore[no-any-return]
 
 

@@ -48,31 +48,21 @@ class ACTConfig(DecodingNetworkConfig):
 class FASTDETRDecoderConfig(DecodingNetworkConfig):
     """FAST DETR Decoder for tokenized action prediction.
 
-    Reference: https://arxiv.org/abs/2501.09747
-
-    Autoregressive transformer specifically designed for FAST tokenization:
-    - Supports variable-length action token sequences
-    - Teacher forcing during training
-    - Autoregressive generation during inference
+    DETR non-autoregressive transformer that predicts tokenized actions:
     - Cross-attention to visual features using DETR-style feature encoding (like ACT)
-    - GPT-like decoder architecture
 
     Note: Requires tokenizer to be set at runtime via set_tokenizer().
-    The vocab_size must match the tokenizer's vocabulary size (default 2048 for pretrained FAST).
     """
     _target_: str = "refactoring.models.decoding.decoders.factory.fast_detr_decoder.FASTDETRDecoder"
-    vocab_size: int = 2048  # Pretrained FAST vocabulary size
-    max_seq_len: int = 512  # Maximum sequence length for positional encoding
+    max_seq_len: int = 512  # Maximum token sequence length to predict
     embedding_dimension: int = 256
     number_of_heads: int = 8  # Number of attention heads
     feedforward_dimension: int = 512
-    number_of_encoder_layers: int = 6
-    number_of_decoder_layers: int = 6
+    number_of_encoder_layers: int = 4
+    number_of_decoder_layers: int = 7
     activation: str = ActivationFunction.RELU.value
     dropout_rate: float = 0.1
     normalize_before: bool = False
-    eos_token_id: int = 1  # End of sequence token
-    pad_token_id: int = 0  # Padding token (default 0)
     deterministic: bool = True  # If True, use greedy decoding during inference
     temperature: float = 1.0  # Sampling temperature for stochastic decoding
     learnable_temperature: bool = True  # If True, make temperature a learnable parameter
@@ -80,7 +70,7 @@ class FASTDETRDecoderConfig(DecodingNetworkConfig):
 
 @dataclass
 class FASTGPTDecoderConfig(DecodingNetworkConfig):
-    """FAST GPT Decoder for tokenized action prediction.
+    """GPT Decoder for tokenized action prediction.
 
     Reference: https://arxiv.org/abs/2501.09747
 
@@ -92,7 +82,6 @@ class FASTGPTDecoderConfig(DecodingNetworkConfig):
     - Works with any feature encoder (spatial, sequential, flat)
 
     Note: Requires tokenizer to be set at runtime via set_tokenizer().
-    The action_vocabulary_size must match the tokenizer's vocabulary size (default 2048 for pretrained FAST).
     """
     _target_: str = "refactoring.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTDecoder"
     max_seq_len: int = 512  # Maximum sequence length for GPT (features + action tokens)
