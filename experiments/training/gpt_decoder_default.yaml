@@ -22,7 +22,7 @@ clip_max_norm: 1.0
 lr_schedule: cosine
 lr_warmup_steps: 20000
 
-use_ema: false
+use_ema: true
 ema_power: 0.999
 
 tune_lr: false

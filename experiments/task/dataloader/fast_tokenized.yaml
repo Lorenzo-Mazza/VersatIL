@@ -25,5 +25,5 @@ downsample_factor: 1
 center_episode_start: false
 action_backward_shift: 1
 
-val_ratio: 0.4
+val_ratio: 0.1
 total_ratio: 1.0
