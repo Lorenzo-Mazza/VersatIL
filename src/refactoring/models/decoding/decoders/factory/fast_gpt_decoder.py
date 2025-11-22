@@ -289,7 +289,7 @@ class FASTGPTDecoder(ActionDecoder):
                 "Consider increasing max_seq_len or reducing feature token count.")
         print(f"Full token sequence {full_token_sequence.shape[1]}")
         print(f"Obs sequence {prefix_len}")
-        print(f"Action sequence {action_token_embeddings}")
+        print(f"Action sequence {action_token_embeddings.shape[1]}")
         print(f"Max seq length of the model {self.max_seq_len}")
 
         decoder_output, _ = self.gpt_decoder(
