@@ -11,7 +11,7 @@ input_keys:
   - right_image
   - embedder_token_embedding
 
-max_seq_len: 1024  # Maximum sequence length (features + action tokens)
+max_seq_len: 768  # Maximum sequence length (features + action tokens)
 
 embedding_dimension: 512
 number_of_heads: 8
