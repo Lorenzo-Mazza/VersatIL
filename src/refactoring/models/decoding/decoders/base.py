@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import torch
 import torch.nn as nn
 
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
     GRIPPER_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
@@ -13,6 +13,7 @@ from refactoring.data.constants import (
     POSITION_ACTION_KEY,
     GripperType,
 )
+from refactoring.data.tokenization import Tokenizer, ActionTokenizer
 from refactoring.models.decoding.constants import FeatureType
 
 
@@ -20,8 +21,6 @@ from refactoring.models.decoding.constants import FeatureType
 class DecoderInput:
     """Structured input specification for decoder architectures."""
     keys: list[str] # feature keys required by the decoder
-    #: If specified, the decoder strictly needs these input observation keys
-    required: list[str] = field(default_factory=list)
     #: If specified, the decoder needs at least one input observation key from all these feature types
     #: They have to be `FeatureType` values, i.e. either 'spatial', 'sequential' or 'flat'
     required_types: list[str] = field(default_factory=list)
@@ -36,10 +35,6 @@ class DecoderInput:
 
     def __post_init__(self):
         """Post-initialization to ensure feature keys are consistent."""
-        key_set = set(self.keys)
-        missing = set(self.required) - key_set
-        if missing:
-            raise ValueError(f"Missing required decoder input: {missing}")
         if self.conditioning_key:
             conditioning_set = {self.conditioning_key}
             missing_conditioning = set(self.conditioning_required) - conditioning_set
@@ -116,25 +111,21 @@ class ActionDecoder(nn.Module, ABC):
             action_space: ActionSpace,
             action_heads: dict,
             device: str,
-            observation_horizon: int = 1,
-            prediction_horizon: int = 10,
+            observation_horizon: int,
+            prediction_horizon: int,
     ):
         super().__init__()
         self.decoder_input = decoder_input
-        self.action_heads = nn.ModuleDict(action_heads)  # Register as nn.ModuleDict for proper parameter tracking
+        self.action_heads = nn.ModuleDict(action_heads)
         self.observation_space = observation_space
         self.action_space = action_space
         self.observation_horizon = observation_horizon
         self.prediction_horizon = prediction_horizon
         self.device = torch.device(device)
-
-        # Validate action heads match action space
         self.validate_action_heads()
+        self.tokenizer: ActionTokenizer | None = None
 
-        # Tokenizer for discrete action tokens (set via set_tokenizer())
-        self.tokenizer = None
-
-    def set_tokenizer(self, tokenizer):
+    def set_tokenizer(self, tokenizer: Tokenizer | None = None):
         """Set tokenizer for discrete action tokenization.
 
         This method is called by Policy.set_tokenizer() to pass the tokenizer
@@ -144,7 +135,9 @@ class ActionDecoder(nn.Module, ABC):
         Args:
             tokenizer: Tokenizer instance from data pipeline (can be None)
         """
-        self.tokenizer = tokenizer
+        if self.supports_tokenized_actions and tokenizer is None:
+            raise ValueError("Tokenizer must be provided for tokenized action decoders.")
+        self.tokenizer = tokenizer.action_tokenizer
 
     @abstractmethod
     def forward(self,
@@ -216,7 +209,6 @@ class ActionDecoder(nn.Module, ABC):
             ValueError: If validation fails
         """
         # Skip validation for tokenized action decoders
-        # They use special heads like 'action_logits' instead of standard action heads
         if self.supports_tokenized_actions:
             return
 

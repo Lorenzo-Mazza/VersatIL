@@ -116,7 +116,7 @@ class TestMoEInstantiation:
 
     def test_empty_experts_raises_error(self, embedding_dim, action_dim):
         """Test that empty experts list raises error."""
-        with pytest.raises(ValueError, match="at least one expert"):
+        with pytest.raises(ValueError, match="Must provide either 'experts' or 'base_expert' with 'num_experts"):
             MoEHead(
                 experts=[],
                 output_dim=action_dim,

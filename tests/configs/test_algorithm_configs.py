@@ -91,7 +91,7 @@ class TestVariationalAlgorithmConfig:
 
         config = VariationalAlgorithmConfig(
             base_algorithm=BehavioralCloningConfig(),
-            posterior_encoder=VAETransformerEncoderConfig(latent_dim=32),
+            posterior_encoder=VAETransformerEncoderConfig(latent_dimension=32),
         )
         assert config._target_ == "refactoring.models.decoding.algorithm.variational.VariationalAlgorithm"
 
@@ -103,7 +103,7 @@ class TestVariationalAlgorithmConfig:
 
         config = VariationalAlgorithmConfig(
             base_algorithm=BehavioralCloningConfig(),
-            posterior_encoder=VAETransformerEncoderConfig(latent_dim=32),
+            posterior_encoder=VAETransformerEncoderConfig(latent_dimension=32),
         )
         config_keys = {f.name for f in dataclasses.fields(config)} - {'_target_'}
 

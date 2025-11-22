@@ -199,21 +199,6 @@ class TestDFormerEncoderInitialization:
         assert encoder is not None
 
 
-    @pytest.mark.parametrize("image_size", [224, 256, 512])
-    def test_init_different_image_sizes(self, image_size):
-        """Test initialization with different image sizes."""
-        encoder = DFormerEncoder(
-            input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
-            variant=DFormerVariant.SMALL.value,
-            image_height=image_size,
-            image_width=image_size,
-            pretrained=False,
-        )
-
-        assert encoder.image_height == image_size
-        assert encoder.image_width == image_size
-
-
     def test_init_pretrained(self):
         """Test initialization with pretrained weights."""
         checkpoint_path = CACHE_DIR / "pretrained_dformer" / "DFormerv2_Small_NYU.pth"
@@ -224,7 +209,7 @@ class TestDFormerEncoderInitialization:
             checkpoint_path=checkpoint_path,
         )
 
-        H, W = encoder.image_height, encoder.image_width
+        H, W = 224, 224
         input_dict = {
             Cameras.LEFT.value: torch.randn(2, 3, H, W),
             Cameras.DEPTH.value: torch.randn(2, 1, H, W),
@@ -243,17 +228,19 @@ class TestDFormerEncoderForward:
         DFormerVariant.BASE.value,
         DFormerVariant.LARGE.value,
     ])
+    @pytest.mark.parametrize("pretrained", [True, False])
     @pytest.mark.parametrize("pooling_method", [
         PoolingMethod.SPATIAL_SOFTMAX.value,
         PoolingMethod.AVERAGE.value,
     ])
-    def test_forward_4d_input_all_variants(self, input_dict_4d, variant, pooling_method):
+    def test_forward_4d_input_all_variants(self, input_dict_4d, variant, pooling_method, pretrained):
         """Test forward pass with 4D inputs for all variants."""
         encoder = DFormerEncoder(
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
             variant=variant,
             pooling_method=pooling_method,
-            pretrained=False,
+            pretrained=pretrained,
+            checkpoint_path=CACHE_DIR / "pretrained_dformer" / "DFormerv2_Small_NYU.pth" if pretrained else None,
         )
 
         input_dict = {

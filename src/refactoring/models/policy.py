@@ -1,31 +1,27 @@
 """Policy module that handles the sequence of input encoding, output decoding, and loss computation."""
 
 
-import hydra
 import torch
 import torch.nn as nn
-from hydra.utils import instantiate
 
 from refactoring.common.tensor_ops import to_device
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
     ACTION_KEY,
     GRIPPER_ACTION_KEY,
-    GRIPPER_STATE_OBS_KEY,
-    IS_PAD_KEY,
-    LANGUAGE_KEY,
+    IS_PAD_ACTION_KEY,
     OBSERVATION_KEY,
     ORIENTATION_ACTION_KEY,
     PHASE_LABEL_KEY,
     POSITION_ACTION_KEY,
-    PROPRIO_STATE,
     Cameras,
-    GripperType,
 )
-from refactoring.models.decoding.constants import (ACTION_TOKENS_KEY, BINARY_LOGITS_KEY, LATENT_KEY, LOGVAR_KEY, MU_KEY,
+from refactoring.data.tokenization import Tokenizer
+from refactoring.data.transform import unnormalize_actions, detokenize_actions, normalize_observation
+from refactoring.models.decoding.constants import (BINARY_LOGITS_KEY, LATENT_KEY, LOGVAR_KEY, MU_KEY,
                                                    PRIOR_PREDICTION_KEY, PRIOR_TARGET_KEY)
 
-from refactoring.data.normalize.normalizer import LinearNormalizer
+from refactoring.data.normalization.normalizer import LinearNormalizer
 from refactoring.metrics.base import BaseLoss, LossOutput
 from refactoring.models.decoding.algorithm.base import DecodingAlgorithm
 from refactoring.models.decoding.algorithm.variational import VariationalAlgorithm
@@ -33,6 +29,7 @@ from refactoring.models.decoding.decoders import MoEDecoder
 from refactoring.models.decoding.latent.gaussian_prior import GaussianPrior
 from refactoring.models.decoding.decoders.base import ActionDecoder
 from refactoring.models.encoding.pipeline import EncodingPipeline
+from refactoring.data.constants import TOKENIZED_ACTIONS_KEY
 
 
 class Policy(nn.Module):
@@ -46,6 +43,7 @@ class Policy(nn.Module):
             observation_space: ObservationSpace,
             action_space: ActionSpace,
             prediction_horizon: int,
+            observation_horizon: int,
             loss: BaseLoss,
             device: str,
             validate_loss_keys: bool = True,
@@ -59,6 +57,7 @@ class Policy(nn.Module):
             observation_space: Observation space configuration
             action_space: Action space configuration
             prediction_horizon: Number of future actions to predict
+            observation_horizon: Number of past observations to condition on
             loss: Loss module for training
             device: Device to run on
             validate_loss_keys: Whether to validate loss keys against action space
@@ -70,11 +69,11 @@ class Policy(nn.Module):
         self.observation_space = observation_space
         self.action_space = action_space
         self.prediction_horizon = prediction_horizon
+        self.observation_horizon = observation_horizon
         self.loss_module = loss
         self.device = torch.device(device)
         self.normalizer: LinearNormalizer = LinearNormalizer()
-        self.tokenizer = None  # Set via set_tokenizer() if using tokenization
-
+        self.tokenizer = None  # Set later via set_tokenizer()
         self.validate_decoder()
         if validate_loss_keys:
             self.validate_loss_keys()
@@ -140,6 +139,8 @@ class Policy(nn.Module):
             ValueError: If loss keys are invalid
         """
         valid_action_keys: set[str] = set()
+        if self.decoder.supports_tokenized_actions:
+            return # Skip validation if using tokenized actions
         if self.action_space.has_position:
             valid_action_keys.add(POSITION_ACTION_KEY)
         if self.action_space.has_orientation:
@@ -151,15 +152,12 @@ class Policy(nn.Module):
         if self.action_space.custom_action_dims:
             valid_action_keys.update(self.action_space.custom_action_dims.keys())
 
-        # Add auxiliary keys based on algorithm and decoder types
         valid_auxiliary_keys: set[str] = set()
         if isinstance(self.algorithm, VariationalAlgorithm):
-            # Add keys that variational algorithms produce
             valid_auxiliary_keys.add(LATENT_KEY)  # Latent embedding
             valid_auxiliary_keys.add(MU_KEY)  # Posterior mean
             valid_auxiliary_keys.add(LOGVAR_KEY)  # Posterior log variance
             # Only add prior keys for learned priors (not GaussianPrior)
-            # GaussianPrior returns {} from forward(), so it doesn't produce these keys
             if not isinstance(self.algorithm.prior, GaussianPrior):
                 valid_auxiliary_keys.add(PRIOR_PREDICTION_KEY)  # Prior predictions (for learned priors)
                 valid_auxiliary_keys.add(PRIOR_TARGET_KEY)  # Prior targets (for learned priors)
@@ -168,12 +166,10 @@ class Policy(nn.Module):
         if self.decoder.__class__.__name__ == "FreeTransformer":
             valid_auxiliary_keys.add(BINARY_LOGITS_KEY)
 
-        # Action tokens for tokenized action decoders
-        if self.decoder.supports_tokenized_actions:
-            valid_auxiliary_keys.add(ACTION_TOKENS_KEY)
-
-        # Get all required keys from loss module
         required_keys = self.loss_module.get_required_keys()
+        if self.decoder.supports_tokenized_actions:
+            valid_auxiliary_keys.add(TOKENIZED_ACTIONS_KEY)
+
         valid_keys = valid_action_keys | valid_auxiliary_keys
         invalid_keys = required_keys - valid_keys
 
@@ -189,103 +185,28 @@ class Policy(nn.Module):
     def set_normalizer(self, normalizer: LinearNormalizer):
         """Set normalizer for observations and actions."""
         self.normalizer.load_state_dict(normalizer.state_dict())
+        self.normalizer.to(self.device)
 
-    def set_tokenizer(self, tokenizer):
+    def set_tokenizer(self, tokenizer: Tokenizer | None):
         """Set tokenizer and pass it to the decoder."""
         self.tokenizer = tokenizer
-        if tokenizer is not None:
-            self.encoding_pipeline.set_tokenizer(tokenizer)
-            self.decoder.set_tokenizer(tokenizer)
+        self.encoding_pipeline.set_tokenizer(tokenizer)
+        self.decoder.set_tokenizer(tokenizer)
 
 
-    def normalize_observations(self, observation: dict[str, torch.Tensor]) ->  dict[str, torch.Tensor]:
-        """Normalize observations using the policy's normalizer.
-
-        Args:
-            observation: Dictionary of observation tensors (may contain nested dicts).
-
-        Returns:
-            Dictionary of normalized observation tensors.
-        """
-        normalized_observation = observation.copy()
-
-        # Flatten nested proprioceptive dict before normalization
-        if PROPRIO_STATE in normalized_observation and isinstance(normalized_observation[PROPRIO_STATE], dict):
-            proprio_dict = normalized_observation.pop(PROPRIO_STATE)
-            normalized_observation.update(proprio_dict)
-
-        if self.observation_space.use_language:
-            # Language observations are not normalized
-            del normalized_observation[LANGUAGE_KEY]
-        if self.observation_space.use_gripper_state and self.observation_space.gripper_type == GripperType.BINARY.value:
-            # Binary gripper actions are not normalized
-            del normalized_observation[GRIPPER_STATE_OBS_KEY]
-        normalized_observation = self.normalizer.normalize(normalized_observation)  # type: ignore[assignment]
-        # Restore non-normalized keys
-        if self.observation_space.use_language:
-            normalized_observation[LANGUAGE_KEY] = observation[LANGUAGE_KEY]
-        if self.observation_space.use_gripper_state and self.observation_space.gripper_type == GripperType.BINARY.value:
-            normalized_observation[GRIPPER_STATE_OBS_KEY] = observation[GRIPPER_STATE_OBS_KEY]
-        return normalized_observation
-
-    def normalize_actions(self, action: dict[str, torch.Tensor]) ->  dict[str, torch.Tensor]:
-        """Normalize actions using the policy's normalizer.
-
-        Args:
-            action: Dictionary of action tensors.
-
-        Returns:
-            Dictionary of normalized action tensors.
-        """
-        normalized_action = action.copy()
-        if self.action_space.has_position:
-            normalized_action[POSITION_ACTION_KEY] = self.normalizer[POSITION_ACTION_KEY].normalize(action[POSITION_ACTION_KEY])
-        if self.action_space.has_orientation:
-            normalized_action[ORIENTATION_ACTION_KEY] = self.normalizer[ORIENTATION_ACTION_KEY].normalize(action[ORIENTATION_ACTION_KEY])
-        if self.action_space.gripper_type == GripperType.CONTINUOUS.value:
-            normalized_action[GRIPPER_ACTION_KEY] = self.normalizer[GRIPPER_ACTION_KEY].normalize(action[GRIPPER_ACTION_KEY])
-        if self.action_space.custom_action_dims:
-            for custom_key in self.action_space.custom_action_dims:
-                normalized_action[custom_key] = self.normalizer[custom_key].normalize(action[custom_key])
-        # If gripper is binary, no normalization is applied. Also, no normalization is applied to padding mask and phase labels if present.
-        return normalized_action
-
-    def unnormalize_actions(self, normalized_action: dict[str, torch.Tensor]) ->  dict[str, torch.Tensor]:
-        """Unnormalize actions using the policy's normalizer.
-
-        Args:
-            normalized_action: Dictionary of normalized action tensors.
-
-        Returns:
-            Dictionary of unnormalized action tensors.
-        """
-        action = normalized_action.copy()
-        if self.action_space.has_position:
-            action[POSITION_ACTION_KEY] = self.normalizer[POSITION_ACTION_KEY].unnormalize(normalized_action[POSITION_ACTION_KEY])
-        if self.action_space.has_orientation:
-            action[ORIENTATION_ACTION_KEY] = self.normalizer[ORIENTATION_ACTION_KEY].unnormalize(normalized_action[ORIENTATION_ACTION_KEY])
-        if self.action_space.gripper_type == GripperType.CONTINUOUS.value:
-            action[GRIPPER_ACTION_KEY] = self.normalizer[GRIPPER_ACTION_KEY].unnormalize(normalized_action[GRIPPER_ACTION_KEY])
-        if self.action_space.custom_action_dims:
-            for custom_key in self.action_space.custom_action_dims:
-                action[custom_key] = self.normalizer[custom_key].unnormalize(normalized_action[custom_key])
-        # If gripper is binary, no unnormalization is applied. Also, no unnormalization is applied to padding mask and phase labels if present.
-        return action
-
-
-    def forward(self, batch: dict[str, dict[str, torch.Tensor]]):
+    def forward(self, batch: dict[str, dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
         """Forward pass through observation encoding → action decoding.
 
         Args:
-            batch: A batch dictionary containing observations and actions dictionaries. Each is a dict of tensors.
+            batch: A batch dictionary containing normalized observations and actions dictionaries. Each is a dict of tensors.
+
+        Returns:
+            Decoder output dictionary containing action predictions and any architecture-specific outputs.
         """
-        normalized_obs = self.normalize_observations(batch[OBSERVATION_KEY])
-        if self.decoder.decoder_input.requires_actions:
-            normalized_actions = self.normalize_actions(batch[ACTION_KEY])
-        else:
-            normalized_actions = None
-        features = self.encoding_pipeline(normalized_obs)
-        return self.algorithm.forward(features=features, actions=normalized_actions, network=self.decoder)
+        obs = batch[OBSERVATION_KEY]
+        actions = batch.get(ACTION_KEY, None) if self.decoder.decoder_input.requires_actions else None
+        features = self.encoding_pipeline(obs)
+        return self.algorithm.forward(features=features, actions=actions, network=self.decoder)
 
 
     def compute_loss(
@@ -301,18 +222,17 @@ class Policy(nn.Module):
             LossOutput with total loss and component losses
         """
         output = self.forward(batch)
-        loss_output = self.loss_module(
+        return self.loss_module(
             predictions=output,
             targets=batch[ACTION_KEY],
-            is_pad=batch[ACTION_KEY].get(IS_PAD_KEY, None),
-        )
-        return loss_output  # type: ignore[no-any-return]
+            is_pad=batch[ACTION_KEY].get(IS_PAD_ACTION_KEY, None),
+        )  # type: ignore[no-any-return]
 
 
     def predict_action(
             self,
             obs_dict: dict[str, torch.Tensor],
-    ) -> torch.Tensor:
+    ) -> dict[str, torch.Tensor]:
         """Predict actions from observations.
 
         Args:
@@ -321,12 +241,22 @@ class Policy(nn.Module):
         Returns:
             Predicted actions (on same device as policy)
         """
-        # Move observations to policy's device (handles nested structures)
-        obs_dict = to_device(obs_dict, self.device)
-        normalized_obs = self.normalize_observations(obs_dict)
+        obs_dict = to_device(obs_dict, self.device) # Move nested observations to policy's device
+        normalized_obs = normalize_observation(observation=obs_dict,
+                                               normalizer=self.normalizer, observation_space=self.observation_space)
         features = self.encoding_pipeline(normalized_obs)
-        normalized_actions = self.algorithm.predict(features=features, network=self.decoder)
-        actions = self.unnormalize_actions(normalized_actions)
+        predictions = self.algorithm.predict(features=features, network=self.decoder)
+        if TOKENIZED_ACTIONS_KEY in predictions:
+            action_tokens = predictions[TOKENIZED_ACTIONS_KEY]
+            if self.tokenizer is None or self.tokenizer.action_tokenizer is None:
+                raise RuntimeError("Action tokenizer not set. Cannot detokenize actions.")
+            normalized_actions = detokenize_actions(action_tokens, action_tokenizer=self.tokenizer.action_tokenizer,
+                                                   action_space=self.action_space)
+            normalized_actions = to_device(normalized_actions, self.device)
+        else:
+            normalized_actions = predictions
+        actions = unnormalize_actions(normalized_actions=normalized_actions,
+                                      normalizer=self.normalizer, action_space=self.action_space)
         return actions  # type: ignore[no-any-return]
 
     def get_vision_encoder_modules(self) -> dict[str, nn.Module]:
@@ -498,8 +428,3 @@ class Policy(nn.Module):
         return mapping
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="main")
-def create_policy_from_config(cfg):
-    """Factory function to instantiate policy from Hydra config."""
-    policy = instantiate(cfg.policy)
-    return policy

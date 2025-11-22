@@ -3,19 +3,19 @@ import numpy as np
 import pytest
 import torch
 
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
     ACTION_KEY,
     GRIPPER_ACTION_KEY,
-    IS_PAD_KEY,
+    IS_PAD_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
     POSITION_ACTION_KEY,
     Cameras,
     GripperType,
     OrientationRepresentation,
 )
-from refactoring.data.tokenize.tokenizer import Tokenizer
-from refactoring.models.decoding.constants import ACTION_TOKENS_KEY, LATENT_KEY, LOGVAR_KEY, MU_KEY
+from refactoring.data.tokenization.tokenizer import Tokenizer
+from refactoring.models.decoding.constants import PREDICTED_ACTION_TOKENS_KEY, LATENT_KEY, LOGVAR_KEY, MU_KEY
 from refactoring.models.decoding.decoders.factory.fast_gpt_decoder import FASTGPTDecoder
 from refactoring.models.encoding.encoders.constants import EncoderOutputKeys
 
@@ -161,7 +161,7 @@ def actions_dict(batch_size, prediction_horizon, action_space, device):
             0, 2, (batch_size, prediction_horizon, action_space.gripper_dim), device=device
         ).float()
 
-    actions[IS_PAD_KEY] = torch.zeros(
+    actions[IS_PAD_ACTION_KEY] = torch.zeros(
         batch_size, prediction_horizon, 1, dtype=torch.bool, device=device
     )
 
@@ -490,11 +490,11 @@ class TestFASTGPTDecoderForwardPass:
 
         predictions = decoder(flat_features, actions=actions_dict)
 
-        # Training returns ACTION_TOKENS_KEY (logits) and target tokens
-        assert ACTION_TOKENS_KEY in predictions
-        assert f"{ACTION_TOKENS_KEY}_target" in predictions
-        assert predictions[ACTION_TOKENS_KEY].shape[0] == batch_size
-        assert predictions[ACTION_TOKENS_KEY].shape[2] == action_vocabulary_size
+        # Training returns PREDICTED_ACTION_TOKENS_KEY (logits) and target tokens
+        assert PREDICTED_ACTION_TOKENS_KEY in predictions
+        assert f"{PREDICTED_ACTION_TOKENS_KEY}_target" in predictions
+        assert predictions[PREDICTED_ACTION_TOKENS_KEY].shape[0] == batch_size
+        assert predictions[PREDICTED_ACTION_TOKENS_KEY].shape[2] == action_vocabulary_size
 
     def test_forward_training_with_sequential_features(
         self,
@@ -528,8 +528,8 @@ class TestFASTGPTDecoderForwardPass:
 
         predictions = decoder(sequential_features, actions=actions_dict)
 
-        assert ACTION_TOKENS_KEY in predictions
-        assert predictions[ACTION_TOKENS_KEY].shape[0] == batch_size
+        assert PREDICTED_ACTION_TOKENS_KEY in predictions
+        assert predictions[PREDICTED_ACTION_TOKENS_KEY].shape[0] == batch_size
 
     def test_forward_training_with_mixed_features(
         self,
@@ -562,8 +562,8 @@ class TestFASTGPTDecoderForwardPass:
 
         predictions = decoder(mixed_features, actions=actions_dict)
 
-        assert ACTION_TOKENS_KEY in predictions
-        assert predictions[ACTION_TOKENS_KEY].shape[0] == batch_size
+        assert PREDICTED_ACTION_TOKENS_KEY in predictions
+        assert predictions[PREDICTED_ACTION_TOKENS_KEY].shape[0] == batch_size
 
     def test_forward_training_with_language_features(
         self,
@@ -598,8 +598,8 @@ class TestFASTGPTDecoderForwardPass:
 
         predictions = decoder(language_features, actions=actions_dict)
 
-        assert ACTION_TOKENS_KEY in predictions
-        assert predictions[ACTION_TOKENS_KEY].shape[0] == batch_size
+        assert PREDICTED_ACTION_TOKENS_KEY in predictions
+        assert predictions[PREDICTED_ACTION_TOKENS_KEY].shape[0] == batch_size
 
     def test_forward_inference_with_flat_features(
         self,
@@ -720,7 +720,7 @@ class TestFASTGPTDecoderForwardPass:
         # Check that latent statistics are passed through
         assert MU_KEY in predictions
         assert LOGVAR_KEY in predictions
-        assert ACTION_TOKENS_KEY in predictions
+        assert PREDICTED_ACTION_TOKENS_KEY in predictions
 
 
 @pytest.mark.unit
@@ -758,9 +758,9 @@ class TestFASTGPTDecoderTokenizationDetokenization:
 
         tokenized = decoder._tokenize_actions(actions_dict)
 
-        assert ACTION_TOKENS_KEY in tokenized
+        assert PREDICTED_ACTION_TOKENS_KEY in tokenized
         # Check that at least one sample has EOS token
-        token_ids = tokenized[ACTION_TOKENS_KEY]
+        token_ids = tokenized[PREDICTED_ACTION_TOKENS_KEY]
         has_eos = (token_ids == decoder.eos_token_id).any()
         assert has_eos
 
@@ -796,17 +796,17 @@ class TestFASTGPTDecoderTokenizationDetokenization:
             POSITION_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 3, device=device),
             ORIENTATION_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 4, device=device),
             GRIPPER_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 1, device=device),
-            IS_PAD_KEY: torch.zeros(batch_size, prediction_horizon, 1, dtype=torch.bool, device=device),
+            IS_PAD_ACTION_KEY: torch.zeros(batch_size, prediction_horizon, 1, dtype=torch.bool, device=device),
         }
 
         # Mark last 5 timesteps as padding for first sample
-        actions[IS_PAD_KEY][0, 5:] = True
+        actions[IS_PAD_ACTION_KEY][0, 5:] = True
 
         tokenized = decoder._tokenize_actions(actions)
 
         # First sample should have fewer tokens than second sample
-        first_sample_length = (~tokenized[IS_PAD_KEY][0]).sum()
-        second_sample_length = (~tokenized[IS_PAD_KEY][1]).sum()
+        first_sample_length = (~tokenized[IS_PAD_ACTION_KEY][0]).sum()
+        second_sample_length = (~tokenized[IS_PAD_ACTION_KEY][1]).sum()
         assert first_sample_length < second_sample_length
 
     def test_detokenize_predictions(
@@ -935,7 +935,7 @@ class TestFASTGPTDecoderParametrized:
 
         predictions = decoder(flat_features, actions=actions_dict)
 
-        assert ACTION_TOKENS_KEY in predictions
+        assert PREDICTED_ACTION_TOKENS_KEY in predictions
 
     @pytest.mark.parametrize(
         "normalization_type,activation",
@@ -980,7 +980,7 @@ class TestFASTGPTDecoderParametrized:
 
         predictions = decoder(flat_features, actions=actions_dict)
 
-        assert ACTION_TOKENS_KEY in predictions
+        assert PREDICTED_ACTION_TOKENS_KEY in predictions
 
     @pytest.mark.parametrize(
         "positional_encoding_type",
@@ -1023,7 +1023,7 @@ class TestFASTGPTDecoderParametrized:
 
         predictions = decoder(flat_features, actions=actions_dict)
 
-        assert ACTION_TOKENS_KEY in predictions
+        assert PREDICTED_ACTION_TOKENS_KEY in predictions
 
 
 @pytest.mark.unit
@@ -1067,7 +1067,7 @@ class TestFASTGPTDecoderFeatureProjection:
         # Should not raise error - features are projected
         predictions = decoder(mismatched_features, actions=actions_dict)
 
-        assert ACTION_TOKENS_KEY in predictions
+        assert PREDICTED_ACTION_TOKENS_KEY in predictions
 
     def test_language_features_not_duplicated(
         self,
@@ -1102,4 +1102,4 @@ class TestFASTGPTDecoderFeatureProjection:
         # This should work without errors
         predictions = decoder(language_features, actions=actions_dict)
 
-        assert ACTION_TOKENS_KEY in predictions
+        assert PREDICTED_ACTION_TOKENS_KEY in predictions

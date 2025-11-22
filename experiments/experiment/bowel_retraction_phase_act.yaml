@@ -1,4 +1,6 @@
 # Experiment configuration for Phase ACT on bowel retraction
+defaults:
+  - base
 
 name: ${now:%Y%m%d_%H%M%S}_phaseact_br_cf_overlapping_data
 seed: 42

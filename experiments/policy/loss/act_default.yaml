@@ -1,19 +1,15 @@
-# ACT Loss Configuration
-# Action reconstruction with multiple components (based on bowel retraction config)
 
-_target_: refactoring.metrics.ActionReconstructionLoss
 
-# Action keys to compute loss over (auto-populated from action_space)
-action_keys: null
-
-# Loss weights (from act_br_cf_new_loss.json)
-mse_weight: 0.8  # MSE on position
-l1_weight: 0.0
-gripper_bce_weight: 0.05  # BCE on gripper
-kl_weight: 0.0  # KL divergence for VAE (set to 100 if using VAE)
-length_weight: 0.001  # Trajectory length regularization (sinkhorn_weight in old config)
-smoothness_weight: 0.0  # Trajectory smoothness
-
-# Gripper settings
-gripper_type: ${gripper:BINARY}
-use_vae: false  # Set to true when using VAE latent encoder
+_target_: refactoring.metrics.composite.CompositeLoss
+loss_modules:
+    action_reconstruction:
+      _target_: refactoring.metrics.ActionReconstructionLoss
+      action_keys: ${action_key:POSITION}
+      mse_weight: 0.8
+      l1_weight: 0.0
+      gripper_bce_weight: 0.05
+      kl_weight: 0.0
+      length_weight: 0.001
+      smoothness_weight: 0.0
+      gripper_type: ${gripper:BINARY}
+      use_vae: false

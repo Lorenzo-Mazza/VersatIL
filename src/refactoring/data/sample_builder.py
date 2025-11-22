@@ -5,28 +5,31 @@ Builds the final training/validation samples by:
 - Adding proprioceptive data
 - Adding actions
 - Computing padding masks
+- Tokenizing observations and actions (if configured)
 """
 from typing import Any
 
 import numpy as np
 import torch
 
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.action_processor import ActionProcessor
-from refactoring.data.augmentation_pipeline import AugmentationPipeline
+from refactoring.data.augmentation.augmentation_pipeline import AugmentationPipeline
 from refactoring.data.constants import (
     ACTION_KEY,
     GRIPPER_ACTION_KEY,
-    IS_PAD_KEY,
+    IS_PAD_ACTION_KEY,
     LANGUAGE_KEY,
     OBSERVATION_KEY,
     PHASE_LABEL_KEY,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
-    PROPRIO_STATE,
     Cameras,
     GripperType,
 )
+from refactoring.data.tokenization import Tokenizer
+from refactoring.data.normalization.normalizer import LinearNormalizer
+from refactoring.data.transform import normalize_sample, tokenize_sample
 
 
 class SampleBuilder:
@@ -41,6 +44,8 @@ class SampleBuilder:
         action_backward_shift: int,
         augmentation_pipeline: AugmentationPipeline,
         action_processor: ActionProcessor,
+        tokenizer: Tokenizer | None = None,
+        normalizer: LinearNormalizer | None = None,
     ):
         """
         Args:
@@ -51,6 +56,8 @@ class SampleBuilder:
             action_backward_shift: Backward shift for action timing
             augmentation_pipeline: Handles augmentations
             action_processor: Processes actions
+            tokenizer: Unified tokenizer for observations and actions
+            normalizer: Normalizer for observations and actions 
         """
 
         self.action_space = action_space
@@ -60,6 +67,8 @@ class SampleBuilder:
         self.action_backward_shift = action_backward_shift
         self.augmentation_pipeline = augmentation_pipeline
         self.action_processor = action_processor
+        self.tokenizer = tokenizer
+        self.normalizer = normalizer
 
 
     def build_sample(
@@ -90,7 +99,7 @@ class SampleBuilder:
         self._add_images(sample=sample, padded_data=padded_data, angle=angle)
         if self.observation_space.use_proprioceptive_data:
             self._add_proprioceptive(sample=sample, padded_data=padded_data, angle=angle, rotation_matrix=rotation_matrix)
-            self._add_additional_observation_keys(sample=sample, padded_data=padded_data)
+        self._add_additional_observation_keys(sample=sample, padded_data=padded_data)
 
         if angle != 0 and rotation_matrix is not None and self.action_space.predict_in_camera_frame:
             action_dict = self.action_processor.rotate_actions(action_dict=action_dict, R=rotation_matrix)
@@ -102,7 +111,24 @@ class SampleBuilder:
         if self.action_space.task_has_phases:
             self._add_phase_labels(sample=sample, padded_data=padded_data)
         self._add_padding_mask(sample=sample, start_idx=start_idx, sampler_indices=sampler_indices)
+        sample = self.normalize_and_tokenize_sample(sample=sample)
+        return sample
 
+
+    def normalize_and_tokenize_sample(self, sample: dict[str, dict[str, torch.Tensor]]) -> dict[str, dict[str, torch.Tensor]]:
+        """Normalize and tokenize a pre-built sample.
+
+        Args:
+            sample: Pre-built sample with observation and action dictionaries.
+
+        Returns:
+            Normalized and tokenized sample.
+        """
+        if self.normalizer is not None:
+            sample = normalize_sample(sample=sample, normalizer=self.normalizer,
+                                      observation_space=self.observation_space, action_space=self.action_space)
+        if self.tokenizer is not None:
+            sample = tokenize_sample(sample=sample, tokenizer=self.tokenizer,)
         return sample
 
 
@@ -147,7 +173,7 @@ class SampleBuilder:
             if angle > 0 and rotation_matrix is not None:
                 camera_frame = self.augmentation_pipeline.rotate_proprio_data(camera_frame, rotation_matrix)
             proprio_dict[PROPRIO_OBS_CAMERA_FRAME_KEY] = torch.from_numpy(camera_frame).float()
-        sample[OBSERVATION_KEY][PROPRIO_STATE] = proprio_dict
+        sample[OBSERVATION_KEY].update(proprio_dict)
 
 
     def _add_additional_observation_keys(
@@ -210,7 +236,8 @@ class SampleBuilder:
                 action_positions + 1 >= sample_end_idx,
             )
 
-        sample[ACTION_KEY][IS_PAD_KEY] = torch.from_numpy(is_pad).bool()
+        sample[ACTION_KEY][IS_PAD_ACTION_KEY] = torch.from_numpy(is_pad).bool()
+
 
     def _get_action_slice_start(self) -> int:
         """Get the starting index for action slice."""

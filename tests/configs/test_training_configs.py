@@ -37,7 +37,7 @@ class TestAdamWConfig:
 
     def test_config_has_correct_target(self):
         config = AdamWConfig()
-        assert config._target_ == "torch.optim.AdamW"
+        assert config.target_class == "torch.optim.AdamW"
 
     def test_config_can_be_instantiated(self):
         config = AdamWConfig()
@@ -52,7 +52,7 @@ class TestAdamConfig:
 
     def test_config_has_correct_target(self):
         config = AdamConfig()
-        assert config._target_ == "torch.optim.Adam"
+        assert config.target_class == "torch.optim.Adam"
 
     def test_config_can_be_instantiated(self):
         config = AdamConfig()
@@ -66,7 +66,7 @@ class TestSGDConfig:
 
     def test_config_has_correct_target(self):
         config = SGDConfig()
-        assert config._target_ == "torch.optim.SGD"
+        assert config.target_class == "torch.optim.SGD"
 
     def test_config_can_be_instantiated(self):
         config = SGDConfig()

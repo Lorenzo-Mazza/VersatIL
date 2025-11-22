@@ -19,16 +19,23 @@ class ImageEncoderConfig(EncoderConfig):
 class CNNEncoderConfig(ImageEncoderConfig):
     """CNN-based image encoder configuration."""
     _target_: str = "refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder"
-    pooling_method: str = PoolingMethod.SPATIAL_SOFTMAX.value
+    pooling_method: str = PoolingMethod.NONE.value
     use_group_norm: bool = True
-    image_height: int = MISSING
-    image_width: int = MISSING
 
+
+@dataclass
+class ConditionalCNNEncoder:
+    _target_: str = "refactoring.models.encoding.encoders.rgb.conditional_cnn.ConditionalCNNEncoder"
+    condition_key: str = MISSING
+    condition_dim: int = MISSING
+    pooling_method: str = PoolingMethod.NONE.value
+    use_group_norm: bool = True
 
 @dataclass
 class ViTEncoderConfig(ImageEncoderConfig):
     """ViT-based image encoder configuration."""
     _target_: str = MISSING
     feature_method: str = PoolingMethod.AVERAGE.value
+    pooling_method: str = PoolingMethod.NONE.value
 
 

@@ -60,6 +60,7 @@ class TestCNNEncoderInitialization:
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
         (PoolingMethod.AVERAGE.value, 1),
+        (PoolingMethod.LEARNED_AGGREGATION.value, 1),
     ])
     def test_init_all_backbones_pooled(self, backbone, pooling_method, expected_multiplier):
         """Test initialization with pooling methods that return 1D features."""
@@ -191,6 +192,7 @@ class TestCNNEncoderForward:
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
         (PoolingMethod.AVERAGE.value, 1),
+        (PoolingMethod.LEARNED_AGGREGATION.value, 1),
     ])
     def test_forward_4d_input_pooled(self, input_dict_4d, backbone, pooling_method, expected_multiplier):
         """Test forward pass with 4D input and pooling."""
@@ -250,6 +252,7 @@ class TestCNNEncoderForward:
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
         (PoolingMethod.AVERAGE.value, 1),
+        (PoolingMethod.LEARNED_AGGREGATION.value, 1),
     ])
     def test_forward_5d_input_pooled(self, input_dict_5d, backbone, pooling_method, expected_multiplier):
         """Test forward pass with 5D input (temporal) and pooling."""
@@ -332,6 +335,7 @@ class TestCNNEncoderOutputSpecification:
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
         (PoolingMethod.AVERAGE.value, 1),
+        (PoolingMethod.LEARNED_AGGREGATION.value, 1),
     ])
     def test_output_dims_pooled(self, backbone, pooling_method, expected_multiplier):
         """Test output dimensions with pooling methods."""

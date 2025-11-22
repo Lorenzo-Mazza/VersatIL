@@ -19,12 +19,6 @@ class PositionalEncodingType(str, enum.Enum):
     ROPE = "rope"
 
 
-class NormalizationType(str, enum.Enum):
-    """Types of normalization layers for transformers."""
-    LAYER_NORM = "layernorm"
-    RMS_NORM = "rmsnorm"
-
-
 class AttentionType(str, enum.Enum):
     """Types of attention mechanisms."""
     MULTI_HEAD = "mha"

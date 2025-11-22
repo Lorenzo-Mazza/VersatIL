@@ -4,7 +4,8 @@ import pytest
 import torch
 
 from refactoring.models.layers.activation import ActivationFunction
-from refactoring.models.layers.constants import AttentionType, NormalizationType, PositionalEncodingType
+from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
+from refactoring.models.layers.normalization.constants import NormalizationType
 from refactoring.models.layers.gpt_transformer.gpt_decoder import GPTDecoder
 from refactoring.models.layers.gpt_transformer.decoder_layer import TransformerDecoderLayer
 

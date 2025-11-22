@@ -301,14 +301,14 @@ All algorithms are now **pure** (no latent variables). Use `VariationalAlgorithm
 
 **TaskConfig** defines what data the experiment uses at runtime:
 
-**ObservationSpace** (`src/refactoring/configs/task/task.py:74-104`):
+**ObservationSpace** (`src/refactoring/data/task.py:74-104`):
 - Which cameras to use (RGB/depth)
 - Whether to use proprioceptive data (robot/camera frame)
 - Language instructions
 - Gripper state
 - Returns required Zarr keys via `get_required_zarr_keys()`
 
-**ActionSpace** (`src/refactoring/configs/task/task.py:18-70`):
+**ActionSpace** (`src/refactoring/data/task.py:18-70`):
 - Position (dim, camera frame vs robot frame)
 - Orientation (representation: roll/euler/quaternion)
 - Gripper (binary vs continuous)

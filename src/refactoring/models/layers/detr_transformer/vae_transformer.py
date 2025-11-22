@@ -3,7 +3,8 @@ import logging
 import torch
 from torch import nn
 
-from refactoring.data.constants import IS_PAD_KEY
+from refactoring.data.constants import IS_PAD_ACTION_KEY
+from refactoring.models.decoding.constants import CLASS_TOKEN_KEY
 from refactoring.models.layers.detr_transformer import (
     TransformerEncoder,
     TransformerEncoderLayer,
@@ -11,6 +12,7 @@ from refactoring.models.layers.detr_transformer import (
 from refactoring.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
 )
+from refactoring.models.layers.transformer_input_builder import TransformerInputBuilder
 
 
 def reparametrize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
@@ -42,9 +44,10 @@ class VAE(nn.Module):
         activation: str,
         dropout_rate: float,
         normalize_before: bool,
-        vae_latent_dimension: int,
-        use_state: bool,
+        latent_dimension: int,
+        use_proprioceptive: bool,
         prediction_horizon: int,
+        observation_horizon: int,
         device: str,
     ):
         super().__init__()
@@ -55,18 +58,11 @@ class VAE(nn.Module):
         self.activation = activation
         self.dropout_rate = dropout_rate
         self.normalize_before = normalize_before
-        self.vae_latent_dimension = vae_latent_dimension
-        self.use_state = use_state
+        self.vae_latent_dimension = latent_dimension
+        self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
+        self.observation_horizon = observation_horizon
         self.device = device
-
-        # Input projection - uses LazyLinear to infer dimension
-        self.vae_input_projection = nn.LazyLinear(self.embedding_dimension)
-        # State projection (if needed)
-        if self.use_state:
-            self.vae_state_projection = nn.LazyLinear(self.embedding_dimension)
-
-        # VAE transformer encoder
         self.vae_encoder = TransformerEncoder(
             encoder_layer=TransformerEncoderLayer(
                 embedding_dimension=self.embedding_dimension,
@@ -79,44 +75,46 @@ class VAE(nn.Module):
             number_of_layers=self.number_of_encoder_layers,
             normalization=nn.LayerNorm(self.embedding_dimension) if self.normalize_before else None
         )
-        # CLS token for VAE encoder
-        self.cls_token = nn.Embedding(1, self.embedding_dimension)
-        # Latent distribution parameters
+        self.input_sequence_builder = TransformerInputBuilder(
+            embedding_dim=self.embedding_dimension,
+            has_time_dim=self.observation_horizon > 1,
+            spatial_positional_encoding_layer=None,
+            flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
+                embedding_dimension=self.embedding_dimension,
+                maximum_length=1000,
+            ),
+        )
+        self.cls_token = nn.Embedding(1, self.embedding_dimension) # CLS input token
         self.latent_stats_projection = nn.Linear(
             self.embedding_dimension,
-            self.vae_latent_dimension * 2  # mu and logvar
+            self.vae_latent_dimension * 2  # Latent gaussian distribution parameters: mu and logvar
         )
-        # Positional encoding table (lazily initialized on first forward pass)
-        self.register_buffer('vae_positional_encoding_table', None, persistent=False)
-        self.to(device)  # Need to set device for Lazy modules
+        self.to(device)
+
 
     def forward(
         self,
         inputs: dict[str, torch.Tensor],
-        state_features: torch.Tensor | None = None,
+        observations: dict[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Encode actions to latent embedding, or sample from prior if no actions.
+        """Encode action chunk to latent space z embedding using Variational Inference.
 
         Args:
-            inputs: Ground-truth input for VAE encoding
-            state_features: Optional state observations
+            inputs: Dictionary containing:
+             - ground-truth action chunk tensor of shape (B, prediction_horizon, total_input_dim)
+             - optional padding mask tensor of shape (B, prediction_horizon) with boolean values
+            observations: Optional dictionary of state features for conditional encoding with variable shapes
 
         Returns:
-            Tuple of (z, mu, logvar)
-            - mu and logvar are None during inference
+            Dictionary of tensors (z, mu, logvar) with shape (B, latent_dim) for each.
         """
-        return self._encode_actions_to_latent(inputs, state_features)  # type: ignore[arg-type]
+        if observations is None:
+            observations = {}
+        for action in inputs:
+            observations[action] = inputs[action].to(self.cls_token.weight.device).float()
 
-
-    def _encode_actions_to_latent(
-        self,
-        inputs: dict[str, torch.Tensor],
-        state_features: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Encode inputs to latent representation using VAE encoder."""
-        # Extract padding mask and action embeddings
-        batch_size = state_features.size(0) if state_features is not None else list(inputs.values())[0].size(0)
-        is_pad = inputs.get(IS_PAD_KEY)
+        batch_size = list(inputs.values())[0].size(0)
+        is_pad = observations.get(IS_PAD_ACTION_KEY)
         if is_pad is None:
             logging.warning("No padding key found in actions; assuming no padding.")
             is_pad = torch.zeros(
@@ -125,58 +123,16 @@ class VAE(nn.Module):
                 dtype=torch.bool,
                 device=self.cls_token.weight.device
             )
-        else:
-            is_pad = is_pad.to(self.cls_token.weight.device)
-
-        input_tensors_list = []
-        for key, input_tensor in sorted(inputs.items()):
-            if key == IS_PAD_KEY:
-                continue
-            input_tensors_list.append(input_tensor.to(self.cls_token.weight.device))
-        all_inputs = torch.cat(input_tensors_list, dim=-1)  # (B, horizon, total_input_dim)
-
-        # Project concatenated input to embedding dimension
-        input_embeddings = self.vae_input_projection(all_inputs)  # (B, horizon, embedding_dim)
-        # Prepare encoder input: CLS token + [optional state] + input embeddings
-        cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(batch_size, 1, 1)
-        if self.use_state and state_features is not None:
-            state_embedding = self.vae_state_projection(
-                state_features
-            ).unsqueeze(1)
-            encoder_input = torch.cat(
-                [cls_embedding, state_embedding, input_embeddings], dim=1
-            )
-            non_action_mask = torch.full((batch_size, 2), False, device=self.cls_token.weight.device)
-        else:
-            encoder_input = torch.cat([cls_embedding, input_embeddings], dim=1)
-            non_action_mask = torch.full((batch_size, 1), False, device=self.cls_token.weight.device)
-
-        # Transpose to (sequence_length, batch, embedding dimension)
-        encoder_input = encoder_input.permute(1, 0, 2)
-        key_padding_mask = torch.cat([non_action_mask, is_pad], dim=1)
-        # Get positional encodings for the input
-        if self.vae_positional_encoding_table is None:
-            num_positions = (
-                1  # CLS
-                + (1 if self.use_state else 0)
-                + self.prediction_horizon
-            )
-            positional_encoding_table = SinusoidalPositionalEncoding1D.create_encoding_table(
-                number_of_positions=num_positions,
-                embedding_dimension=self.embedding_dimension,
-            ).to(self.cls_token.weight.device)
-            self.register_buffer('vae_positional_encoding_table', positional_encoding_table)
-
-        positional_encoding = self.vae_positional_encoding_table.clone().permute(1, 0, 2)
-
+            observations[IS_PAD_ACTION_KEY] = is_pad
+        cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(batch_size, 1, 1) # (B, 1, emb_dim)
+        observations[CLASS_TOKEN_KEY] = cls_embedding
+        input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(observations) # (B, seq_len, embedding_dimension)
         encoder_output = self.vae_encoder(
-            encoder_input,
-            positional_encoding=positional_encoding,
-            source_key_padding_mask=key_padding_mask
-        )[0]  # CLS token output
-        # Get latent distribution parameters
-        latent_stats = self.latent_stats_projection(encoder_output)
-        mu, logvar = latent_stats.chunk(2, dim=1)
-        # Sample using reparametrization trick
-        z = reparametrize(mu, logvar)
+            input_tokens,
+            positional_encoding=pos_encodings,
+            source_key_padding_mask=padding_mask
+        )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dim)
+        latent_stats = self.latent_stats_projection(encoder_output) # (B, latent_dim * 2)
+        mu, logvar = latent_stats.chunk(2, dim=1) # Each (B, latent_dim)
+        z = reparametrize(mu, logvar) # Sample using reparametrization trick (B, latent_dim)
         return z, mu, logvar

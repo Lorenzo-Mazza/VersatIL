@@ -79,7 +79,6 @@ class CompositeLoss(BaseLoss):
             loss_output = loss_module(predictions, targets, is_pad)
             weight = self.weights.get(name, 1.0)
             total_loss = total_loss + weight * loss_output.total_loss
-
             for comp_name, comp_value in loss_output.component_losses.items():
                 prefixed_name = f"{name}/{comp_name}"
                 all_component_losses[prefixed_name] = comp_value

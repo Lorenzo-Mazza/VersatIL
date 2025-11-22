@@ -4,12 +4,12 @@ import torch
 
 from refactoring.models.decoding.decoders.factory.phase_act import PhaseACT
 from refactoring.models.decoding.action_heads import ActionHead, MLPBlock, MoEHead
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
     POSITION_ACTION_KEY,
     GRIPPER_ACTION_KEY,
     PHASE_LABEL_KEY,
-    IS_PAD_KEY,
+    IS_PAD_ACTION_KEY,
     Cameras,
     GripperType,
 )
@@ -217,7 +217,7 @@ def actions_dict(batch_size, prediction_horizon, num_phases, device):
         POSITION_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 3, device=device),
         GRIPPER_ACTION_KEY: torch.randint(0, 2, (batch_size, prediction_horizon, 1), device=device).float(),
         PHASE_LABEL_KEY: torch.randint(0, num_phases, (batch_size, prediction_horizon, 1), device=device).long(),
-        IS_PAD_KEY: torch.zeros(batch_size, prediction_horizon, dtype=torch.bool, device=device),
+        IS_PAD_ACTION_KEY: torch.zeros(batch_size, prediction_horizon, dtype=torch.bool, device=device),
     }
 
 

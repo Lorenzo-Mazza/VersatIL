@@ -14,18 +14,15 @@ class TestDiffusionPriorInitialization:
         """Test DiffusionPrior initializes correctly with default parameters."""
         latent_dim = 32
         conditioning_dim = 128
-        output_dim = 512
 
         prior = DiffusionPrior(
-            latent_dim=latent_dim,
+            latent_dimension=latent_dim,
             conditioning_dim=conditioning_dim,
-            output_dim=output_dim,
             device=str(device),
         )
 
-        assert prior.latent_dim == latent_dim
+        assert prior.latent_dimension == latent_dim
         assert prior.conditioning_dim == conditioning_dim
-        assert prior.output_dim == output_dim
         assert prior.num_inference_steps == 10  # Default value
         assert prior.timestep_embed_dim == latent_dim
 
@@ -37,26 +34,23 @@ class TestDiffusionPriorInitialization:
         """Test DiffusionPrior with custom hidden dimensions."""
         latent_dim = 32
         conditioning_dim = 128
-        output_dim = 512
         custom_hidden_dims = [128, 256, 128]
 
         prior = DiffusionPrior(
-            latent_dim=latent_dim,
+            latent_dimension=latent_dim,
             conditioning_dim=conditioning_dim,
-            output_dim=output_dim,
             hidden_dims=custom_hidden_dims,
             device=str(device),
         )
 
-        assert prior.latent_dim == latent_dim
+        assert prior.latent_dimension == latent_dim
         assert prior.conditioning_dim == conditioning_dim
 
     def test_initialization_custom_diffusion_params(self, device):
         """Test DiffusionPrior with custom diffusion parameters."""
         prior = DiffusionPrior(
-            latent_dim=16,
+            latent_dimension=16,
             conditioning_dim=64,
-            output_dim=256,
             num_train_timesteps=50,
             num_inference_steps=5,
             beta_start=0.0002,
@@ -74,9 +68,8 @@ class TestDiffusionPriorInitialization:
     def test_submodules_created(self, device):
         """Test that all required submodules are created."""
         prior = DiffusionPrior(
-            latent_dim=32,
+            latent_dimension=32,
             conditioning_dim=128,
-            output_dim=512,
             device=str(device),
         )
 
@@ -86,10 +79,6 @@ class TestDiffusionPriorInitialization:
 
         # Check denoising network exists
         assert hasattr(prior, "denoising_network")
-
-        # Check projection layer exists
-        assert hasattr(prior, "latent_output_projection")
-        assert isinstance(prior.latent_output_projection, torch.nn.Linear)
 
         # Check noise scheduler
         assert hasattr(prior, "noise_scheduler")
@@ -104,12 +93,11 @@ class TestDiffusionPriorSamplePrior:
         batch_size = 4
         latent_dim = 32
         conditioning_dim = 128
-        output_dim = 512
 
         prior = DiffusionPrior(
-            latent_dim=latent_dim,
+            latent_dimension=latent_dim,
             conditioning_dim=conditioning_dim,
-            output_dim=output_dim,
+             
             num_inference_steps=2,  # Fast for testing
             device=str(device),
         )
@@ -120,7 +108,7 @@ class TestDiffusionPriorSamplePrior:
         latent_samples = prior.sample_prior(batch_size=batch_size, conditioning=conditioning)
 
         # Check output shape
-        assert latent_samples.shape == (batch_size, output_dim)
+        assert latent_samples.shape == (batch_size, latent_dim)
         assert latent_samples.device.type == device.type
 
     def test_sample_prior_without_conditioning(self, device):
@@ -128,12 +116,11 @@ class TestDiffusionPriorSamplePrior:
         batch_size = 4
         latent_dim = 32
         conditioning_dim = 128
-        output_dim = 512
 
         prior = DiffusionPrior(
-            latent_dim=latent_dim,
+            latent_dimension=latent_dim,
             conditioning_dim=conditioning_dim,
-            output_dim=output_dim,
+             
             num_inference_steps=2,
             device=str(device),
         )
@@ -142,19 +129,18 @@ class TestDiffusionPriorSamplePrior:
         latent_samples = prior.sample_prior(batch_size=batch_size, conditioning=None)
 
         # Should still produce valid samples (using zero conditioning)
-        assert latent_samples.shape == (batch_size, output_dim)
+        assert latent_samples.shape == (batch_size, latent_dim)
         assert latent_samples.device.type == device.type
 
     def test_sample_prior_different_batch_sizes(self, device):
         """Test sampling with different batch sizes."""
         latent_dim = 32
         conditioning_dim = 128
-        output_dim = 512
 
         prior = DiffusionPrior(
-            latent_dim=latent_dim,
+            latent_dimension=latent_dim,
             conditioning_dim=conditioning_dim,
-            output_dim=output_dim,
+             
             num_inference_steps=2,
             device=str(device),
         )
@@ -162,19 +148,18 @@ class TestDiffusionPriorSamplePrior:
         for batch_size in [1, 4, 8]:
             conditioning = torch.randn(batch_size, conditioning_dim, device=device)
             latent_samples = prior.sample_prior(batch_size=batch_size, conditioning=conditioning)
-            assert latent_samples.shape == (batch_size, output_dim)
+            assert latent_samples.shape == (batch_size, latent_dim)
 
     def test_sample_prior_deterministic_with_seed(self, device):
         """Test that sampling is deterministic when seed is set."""
         batch_size = 4
         latent_dim = 32
         conditioning_dim = 128
-        output_dim = 512
 
         prior = DiffusionPrior(
-            latent_dim=latent_dim,
+            latent_dimension=latent_dim,
             conditioning_dim=conditioning_dim,
-            output_dim=output_dim,
+             
             num_inference_steps=2,
             device=str(device),
         )
@@ -203,9 +188,8 @@ class TestDiffusionPriorForward:
         conditioning_dim = 128
 
         prior = DiffusionPrior(
-            latent_dim=latent_dim,
+            latent_dimension=latent_dim,
             conditioning_dim=conditioning_dim,
-            output_dim=512,
             device=str(device),
         )
 
@@ -232,9 +216,8 @@ class TestDiffusionPriorForward:
         conditioning_dim = 128
 
         prior = DiffusionPrior(
-            latent_dim=latent_dim,
+            latent_dimension=latent_dim,
             conditioning_dim=conditioning_dim,
-            output_dim=512,
             device=str(device),
         )
 
@@ -265,9 +248,8 @@ class TestDiffusionPriorForward:
         conditioning_dim = 128
 
         prior = DiffusionPrior(
-            latent_dim=latent_dim,
+            latent_dimension=latent_dim,
             conditioning_dim=conditioning_dim,
-            output_dim=512,
             num_train_timesteps=100,
             device=str(device),
         )
@@ -295,9 +277,8 @@ class TestDiffusionPriorDevicePlacement:
     def test_device_placement_cuda(self):
         """Test that prior is correctly placed on CUDA device."""
         prior = DiffusionPrior(
-            latent_dim=32,
+            latent_dimension=32,
             conditioning_dim=128,
-            output_dim=512,
             device="cuda",
         )
 
@@ -307,9 +288,8 @@ class TestDiffusionPriorDevicePlacement:
     def test_device_placement_cpu(self):
         """Test that prior is correctly placed on CPU device."""
         prior = DiffusionPrior(
-            latent_dim=32,
+            latent_dimension=32,
             conditioning_dim=128,
-            output_dim=512,
             device="cpu",
         )
 
@@ -326,12 +306,11 @@ class TestDiffusionPriorIntegration:
         batch_size = 8
         latent_dim = 32
         conditioning_dim = 128
-        output_dim = 512
 
         prior = DiffusionPrior(
-            latent_dim=latent_dim,
+            latent_dimension=latent_dim,
             conditioning_dim=conditioning_dim,
-            output_dim=output_dim,
+             
             num_train_timesteps=50,
             device=str(device),
         )
@@ -377,12 +356,11 @@ class TestDiffusionPriorIntegration:
         batch_size = 16
         latent_dim = 32
         conditioning_dim = 128
-        output_dim = 512
 
         prior = DiffusionPrior(
-            latent_dim=latent_dim,
+            latent_dimension=latent_dim,
             conditioning_dim=conditioning_dim,
-            output_dim=output_dim,
+             
             num_inference_steps=5,
             device=str(device),
         )

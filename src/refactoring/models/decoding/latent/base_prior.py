@@ -18,17 +18,15 @@ class LatentPrior(nn.Module, abc.ABC):
 
     """
 
-    def __init__(self, latent_dim: int, output_dim: int, device: str):
+    def __init__(self, latent_dimension: int, device: str):
         """Initialize latent prior.
 
         Args:
-            latent_dim: Dimension of latent variable z
-            output_dim: Output embedding dimension
+            latent_dimension: Dimension of latent variable z
             device: Device to place prior on
         """
         super().__init__()
-        self.latent_dim = latent_dim
-        self.output_dim = output_dim
+        self.latent_dimension = latent_dimension
         self.device = torch.device(device)
 
     @abc.abstractmethod

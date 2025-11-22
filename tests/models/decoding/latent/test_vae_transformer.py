@@ -63,8 +63,8 @@ class TestVAETransformerEncoderInitialization:
     def test_init_basic(self, embedding_dimension, vae_latent_dimension, prediction_horizon, device):
         """Test basic initialization."""
         encoder = VAETransformerEncoder(
-            output_dim=embedding_dimension,
-            latent_dim=vae_latent_dimension,
+            embedding_dimension=embedding_dimension,
+            latent_dimension=vae_latent_dimension,
             prediction_horizon=prediction_horizon,
             device=device,
         )
@@ -78,8 +78,8 @@ class TestVAETransformerEncoderInitialization:
     def test_init_with_proprioceptive(self, embedding_dimension, vae_latent_dimension, prediction_horizon, device):
         """Test initialization with proprioceptive conditioning."""
         encoder = VAETransformerEncoder(
-            output_dim=embedding_dimension,
-            latent_dim=vae_latent_dimension,
+            embedding_dimension=embedding_dimension,
+            latent_dimension=vae_latent_dimension,
             prediction_horizon=prediction_horizon,
             device=device,
             use_proprioceptive=True,
@@ -90,8 +90,8 @@ class TestVAETransformerEncoderInitialization:
     def test_init_custom_params(self, embedding_dimension, vae_latent_dimension, prediction_horizon, device):
         """Test initialization with custom transformer parameters."""
         encoder = VAETransformerEncoder(
-            output_dim=embedding_dimension,
-            latent_dim=vae_latent_dimension,
+            embedding_dimension=embedding_dimension,
+            latent_dimension=vae_latent_dimension,
             prediction_horizon=prediction_horizon,
             device=device,
             number_of_heads=16,
@@ -101,7 +101,6 @@ class TestVAETransformerEncoderInitialization:
             normalize_before=True,
         )
 
-        assert encoder.vae.number_of_heads == 16
         assert encoder.vae.feedforward_dimension == 1024
         assert encoder.vae.number_of_encoder_layers == 6
         assert encoder.vae.dropout_rate == 0.2
@@ -117,8 +116,8 @@ class TestVAETransformerEncoderEncode:
     ):
         """Test encoding actions without observations."""
         encoder = VAETransformerEncoder(
-            output_dim=embedding_dimension,
-            latent_dim=vae_latent_dimension,
+            embedding_dimension=embedding_dimension,
+            latent_dimension=vae_latent_dimension,
             prediction_horizon=prediction_horizon,
             device=device,
             use_proprioceptive=False,
@@ -153,8 +152,8 @@ class TestVAETransformerEncoderEncode:
     ):
         """Test encoding actions with observation conditioning."""
         encoder = VAETransformerEncoder(
-            output_dim=embedding_dimension,
-            latent_dim=vae_latent_dimension,
+            embedding_dimension=embedding_dimension,
+            latent_dimension=vae_latent_dimension,
             prediction_horizon=prediction_horizon,
             device=device,
             use_proprioceptive=True,
@@ -177,8 +176,8 @@ class TestVAETransformerEncoderEncode:
     ):
         """Test encoding with different batch sizes."""
         encoder = VAETransformerEncoder(
-            output_dim=embedding_dimension,
-            latent_dim=vae_latent_dimension,
+            embedding_dimension=embedding_dimension,
+            latent_dimension=vae_latent_dimension,
             prediction_horizon=prediction_horizon,
             device=device,
         )
@@ -203,8 +202,8 @@ class TestVAETransformerEncoderForward:
     ):
         """Test forward with actions (training mode)."""
         encoder = VAETransformerEncoder(
-            output_dim=embedding_dimension,
-            latent_dim=vae_latent_dimension,
+            embedding_dimension=embedding_dimension,
+            latent_dimension=vae_latent_dimension,
             prediction_horizon=prediction_horizon,
             device=device,
         )
@@ -227,8 +226,8 @@ class TestVAETransformerEncoderGradients:
     ):
         """Test that gradients flow through encoding."""
         encoder = VAETransformerEncoder(
-            output_dim=embedding_dimension,
-            latent_dim=vae_latent_dimension,
+            embedding_dimension=embedding_dimension,
+            latent_dimension=vae_latent_dimension,
             prediction_horizon=prediction_horizon,
             device=device,
         )

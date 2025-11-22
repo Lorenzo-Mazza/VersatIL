@@ -34,12 +34,16 @@ class ConditionalModulation(nn.Module):
 
         self.use_shift = use_shift
         self.init_strategy = init_strategy
-        self.activation_function = ActivationFunction(activation).to_torch_activation()()
-        self.scale_linear = nn.Linear(condition_dim, feature_dim)
-
+        if activation == ActivationFunction.SWIGLU.value:
+            self.scale_linear = ActivationFunction(activation).to_torch_activation()(
+                input_dim=condition_dim, hidden_dim=feature_dim)
+        else:
+            self.scale_linear = nn.Sequential(
+                ActivationFunction(activation).to_torch_activation()(),
+                nn.Linear(condition_dim, feature_dim),
+            )
         if use_shift:
             self.shift_linear = nn.Linear(condition_dim, feature_dim)
-
         self.init_parameters()
 
 
@@ -85,7 +89,6 @@ class ConditionalModulation(nn.Module):
         Returns:
             Modulated features (same shape as x)
         """
-        condition = self.activation_function(condition)
         gamma = self.scale_linear(condition)
         beta = None
 

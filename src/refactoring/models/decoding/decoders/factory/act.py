@@ -2,21 +2,18 @@
 
 Reference: https://arxiv.org/abs/2304.13705
 """
-import logging
-
 import torch
 from torch import nn
 
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.models.decoding.action_heads import ActionHead
-from refactoring.models.decoding.constants import FeatureType, LATENT_KEY, LOGVAR_KEY, MU_KEY
+from refactoring.models.decoding.constants import FeatureType
 from refactoring.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from refactoring.models.encoding.encoders.constants import EncoderOutputKeys
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.detr_transformer import Transformer
-from refactoring.models.layers.feature_projection import (
-    FeatureProjection,
-    SpatialFeatureConcatenator,
-)
+from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
+from refactoring.models.layers.transformer_input_builder import TransformerInputBuilder
 from refactoring.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding2D,
 )
@@ -28,8 +25,9 @@ class ACT(ActionDecoder):
     This architecture:
     - Encodes multi-camera images into spatial features
     - Optionally accepts a latent embedding from the algorithm layer (e.g., from VAE)
-    - Decodes actions using a transformer with learnable queries
-    - Supports multiple action types: position, orientation, gripper
+    - Convert flat and spatial features into a sequence of token embeddings with shared embedding dimension
+    - Decodes actions in parallel using a DETR-style non-autoregressive transformer with learnable queries
+    - Supports multiple action heads: position, orientation, gripper
 
     Note: Latent action encoding is handled at the Algorithm level,
     not within this decoder. The decoder expects latent embeddings to be passed
@@ -72,9 +70,6 @@ class ACT(ActionDecoder):
             dropout_rate: Dropout probability
             normalize_before: Use pre-normalization
 
-        Warns:
-            If observation history is provided, since ACT only uses the most recent timestep.
-
         """
         decoder_input = DecoderInput(
             keys=input_keys,
@@ -90,9 +85,6 @@ class ACT(ActionDecoder):
             observation_horizon=observation_horizon,
             device=device,
         )
-        if self.has_history:
-            logging.warning("ACT does not support observation history; using only the most recent timestep.")
-
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
         self.feedforward_dimension = feedforward_dimension
@@ -101,35 +93,29 @@ class ACT(ActionDecoder):
         self.activation = activation
         self.dropout_rate = dropout_rate
         self.normalize_before = normalize_before
-
-        # Feature projection utilities for handling dimension mismatches
-        self.spatial_feature_concatenator = SpatialFeatureConcatenator(
-            target_channels=self.embedding_dimension,
-            concat_dim=3,  # Concatenate along width for multi-camera
-            warn_on_projection=True,
-        )
-        self.flat_feature_projection = FeatureProjection(
-            embedding_dim=self.embedding_dimension,
-            warn_on_projection=False, # Don't warn for latent features.
-            raise_on_mismatch=False,
-        )
-        # Final projection for concatenated flat features to embedding_dimension
-        # Using LazyLinear since we don't know total flat feature dimension a priori
-        self.flat_feature_final_projection = nn.LazyLinear(self.embedding_dimension)
-
         self._build_transformer_components()
-
-        # Move all components to device (including LazyLinear layers created above)
         self.to(self.device)
 
 
 
     def _build_transformer_components(self):
         """Build core transformer encoder-decoder and positional encodings."""
-        # Positional encoding for image features
-        self.image_positional_encoding = SinusoidalPositionalEncoding2D(
+        image_positional_encoding = SinusoidalPositionalEncoding2D(
             embedding_dimension=self.embedding_dimension,
             normalize=True
+        )
+        temporal_positional_encoding = None
+        if self.observation_horizon > 1:
+            temporal_positional_encoding = LearnedPositionalEncoding1D(embedding_dimension=self.embedding_dimension)
+        # This layer transforms input features into a sequence of token embeddings + positional encodings
+        self.input_sequence_builder = TransformerInputBuilder(
+            embedding_dim=self.embedding_dimension,
+            has_time_dim=self.observation_horizon > 1,
+            spatial_positional_encoding_layer=image_positional_encoding,
+            flat_positional_encoding_layer=LearnedPositionalEncoding1D(
+                embedding_dimension=self.embedding_dimension,
+            ),
+            temporal_positional_encoding_layer=temporal_positional_encoding,
         )
         self.action_decoder = Transformer(
             embedding_dimension=self.embedding_dimension,
@@ -141,184 +127,38 @@ class ACT(ActionDecoder):
             normalize_before=self.normalize_before,
             feedforward_dimension=self.feedforward_dimension,
         )
-        # Learnable queries for action prediction (DETR-style)
-        self.learnable_query = nn.Embedding(self.prediction_horizon, self.embedding_dimension)
+        # Learnable queries for action prediction
+        self.learnable_query = nn.Embedding(self.prediction_horizon, self.embedding_dimension) # (pred_horizon, emb)
 
-        # Learnable positional embeddings for additional tokens (latent + proprio)
-        # Index 0: latent, Index 1: proprio
-        self.additional_positional_encoding = nn.Embedding(2, self.embedding_dimension)
-
-
-    def _prepare_flat_features(self, features: dict[str, torch.Tensor]) -> torch.Tensor | None:
-        """Extract and project flat features (proprioceptive, language, etc.).
-
-        Uses the FeatureProjection utility to handle features with different
-        dimensions. If mismatches are detected, warnings will be issued.
-
-        Args:
-            features: Dictionary of encoded features
-
-        Returns:
-            Projected flat features (B, embedding_dimension) or None if no flat features
-        """
-        flat_features_dict = {}
-        for key, feature in features.items():
-            if len(feature.shape) == 3:
-                if self.has_history:
-                    feature = feature[:, -1]  # Use most recent timestep
-                elif feature.shape[1] == 1:
-                    feature = feature.squeeze(1)  # Squeeze temporal dimension when T=1
-                else:
-                    raise ValueError(f"Feature {key} has temporal dimension T={feature.shape[1]}, but ACT expects single-frame observation")
-            if len(feature.shape)==2:
-                flat_features_dict[key] = feature
-        if len(flat_features_dict) == 0:
-            return None
-
-        # First project each feature to embedding_dimension, then concatenate
-        concatenated = self.flat_feature_projection.project_and_concatenate(
-            flat_features_dict,
-            concatenation_dimension=-1,
-        )
-
-        # Then project concatenated features back to embedding_dimension for use as single token
-        return self.flat_feature_final_projection(concatenated)
-
-    def _prepare_image_features(self, features: dict[str, torch.Tensor]) -> torch.Tensor:
-        """Collect and concatenate spatial features from encoder pipeline.
-
-        Uses the SpatialFeatureConcatenator to handle features with different
-        channel dimensions. If mismatches are detected, warnings will be issued
-        suggesting the user configure a SpatialProjectionFusion module in the
-        encoding pipeline.
-
-        Args:
-            features: Dictionary of encoded features
-
-        Returns:
-            Concatenated spatial features (B, embedding_dimension, H, W_total)
-            or (B, embedding_dimension, H, W_total)
-
-        Raises:
-            ValueError: If no spatial features are found
-        """
-        spatial_features_dict = {}
-
-        for key, feature in sorted(features.items()):
-            if len(feature.shape) == 5:
-                if self.has_history:
-                    feature = feature[:, -1]  # Use most recent timestep
-                elif feature.shape[1] == 1:
-                    feature = feature.squeeze(1)  # Squeeze temporal dimension when T=1
-                else:
-                    raise ValueError(f"Feature {key} has temporal dimension T={feature.shape[1]}, but ACT expects single-frame observation")
-            if len(feature.shape) == 4:  # Spatial features (B, C, H, W)
-                spatial_features_dict[key] = feature
-        if len(spatial_features_dict) == 0:
-            raise ValueError(
-                f"No spatial features found. Available keys: {list(features.keys())}"
-            )
-        elif len(spatial_features_dict) == 1:
-            # Single spatial feature - still need to project if channel dimension mismatches
-            feature_name, feature_tensor = list(spatial_features_dict.items())[0]
-            return self.spatial_feature_concatenator({feature_name: feature_tensor})  # type: ignore[no-any-return]
-        else:
-            # Multiple spatial features - concatenate with automatic projection
-            return self.spatial_feature_concatenator(spatial_features_dict)  # type: ignore[no-any-return]
-
-    def _prepare_encoder_input(
-            self,
-            spatial_features: torch.Tensor,
-            latent_embedding: torch.Tensor | None,
-            flat_features: torch.Tensor | None,
-            batch_size: int,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Prepare transformer encoder input from spatial features and optional latent/proprio.
-
-        Following original DETR implementation: prepends latent and/or proprio tokens
-        to encoder input with learnable positional embeddings.
-
-        Args:
-            spatial_features: Concatenated spatial features (B, C, H, W)
-            latent_embedding: Optional VAE latent embedding (B, embedding_dimension)
-            flat_features: Optional flat features like proprio (B, embedding_dimension)
-            batch_size: Batch size
-
-        Returns:
-            Tuple of (encoder_input, positional_encoding)
-            - encoder_input: (seq_len, B, embedding_dimension)
-            - positional_encoding: (seq_len, B, embedding_dimension)
-        """
-        _, _, height, width = spatial_features.shape
-        positional_encoding = self.image_positional_encoding(
-            torch.zeros(1, 1, height, width, device=self.device)
-        )[0] # (embedding_dimension, H, W)
-        # Flatten spatial features: (B, C, H, W) -> (H*W, B, C)
-        flattened_features = spatial_features.flatten(2).permute(2, 0, 1)
-        # Flatten positional encoding and repeat for batch
-        positional_encoding_flat = (
-            positional_encoding.flatten(1)
-            .permute(1, 0)
-            .unsqueeze(1)
-            .repeat(1, batch_size, 1)
-        )
-
-        # Prepare learnable positional embeddings for additional tokens
-        additional_positional_encoding = self.additional_positional_encoding.weight.unsqueeze(1).repeat(1, batch_size, 1)  # (2, B, D)
-
-        # Prepend latent and/or proprio tokens
-        if flat_features is None:
-            if latent_embedding is not None:
-                # Only latent: prepend 1 token
-                additional_input = latent_embedding.unsqueeze(0)  # (1, B, D)
-                positional_encoding = torch.cat([additional_positional_encoding[0].unsqueeze(0), positional_encoding_flat], dim=0)
-            else:
-                # No additional tokens
-                return flattened_features, positional_encoding_flat
-        else:
-            if latent_embedding is not None:
-                # Both latent and proprio: prepend 2 tokens
-                additional_input = torch.stack([latent_embedding, flat_features], dim=0)  # (2, B, D)
-                positional_encoding = torch.cat([additional_positional_encoding, positional_encoding_flat], dim=0)
-            else:
-                # Only proprio: prepend 1 token
-                additional_input = flat_features.unsqueeze(0)  # (1, B, D)
-                positional_encoding = torch.cat([additional_positional_encoding[1].unsqueeze(0), positional_encoding_flat], dim=0)
-
-        encoder_input = torch.cat([additional_input, flattened_features], dim=0)
-        return encoder_input, positional_encoding
 
     def _decode_actions(
             self,
-            encoder_input: torch.Tensor,
-            positional_encoding: torch.Tensor,
-            batch_size: int,
+            input_tokens: torch.Tensor,
+            positional_encodings: torch.Tensor,
+            padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Run transformer decoder to predict action sequence.
+        """Run DETR non-causal transformer encoder-decoder to predict chunks of action embeddings in parallel.
 
         Args:
-            encoder_input: Encoder memory (seq_len, B, embedding_dimension)
-            positional_encoding: Positional encodings (seq_len, B, embedding_dimension)
-            batch_size: Batch size
+            input_tokens: Input tokens to the action decoder, shape (B, obs_sequence_len, embedding_dimension)
+            positional_encodings: Positional encodings, shape (B, obs_sequence_len, embedding_dimension)
+            padding_mask: Optional padding mask for encoder tokens, shape (B, obs_sequence_len), where True indicates padding tokens.
 
         Returns:
             Action embeddings (B, prediction_horizon, embedding_dimension)
         """
-        # Repeat learnable queries per batch element
-        queries = self.learnable_query.weight.unsqueeze(1).repeat(1, batch_size, 1) # (horizon, B, embedding_dimension)
-        decoder_output = self.action_decoder(
-            source=encoder_input,
+        batch_size = input_tokens.shape[0]
+        queries = self.learnable_query.weight.unsqueeze(0).repeat(batch_size, 1, 1) # (B, pred_horizon, emb)
+        return self.action_decoder(
+            source=input_tokens,
             target=queries,
-            source_positional_encoding=positional_encoding
-        )  # (1, horizon, B, embedding_dimension)
-        # Take first element to get (horizon, B, embedding_dimension)
-        decoder_output = decoder_output[0]
-        # Transpose to (B, horizon, embedding_dimension)
-        return decoder_output.permute(1, 0, 2)  # type: ignore[no-any-return]
+            source_positional_encoding=positional_encodings,
+            source_key_padding_mask=padding_mask,
+        )[0]  # (B, pred_horizon, embedding_dimension)  type: ignore[no-any-return]
 
 
     def _apply_action_heads(self, action_embeddings: torch.Tensor) -> dict[str, torch.Tensor]:
-        """Apply modular prediction heads to action embeddings.
+        """Apply prediction heads to action embeddings.
 
         Args:
             action_embeddings: Action embeddings (B, horizon, embedding_dimension)
@@ -329,7 +169,6 @@ class ACT(ActionDecoder):
         predictions = {}
         for action_key, head in self.action_heads.items():
             predictions[action_key] = head(action_embeddings)
-
         return predictions
 
 
@@ -342,44 +181,17 @@ class ACT(ActionDecoder):
 
         Args:
             features: Dictionary of encoded features from EncodingPipeline
-                Expected to contain spatial features (B, C, H, W) or (B, T, C, H, W)
-                May optionally contain LATENT_KEY from algorithm's latent encoder
-            actions: Optional ground-truth actions for training (passed to transformer)
+            actions: Not used, present for API compatibility.
 
         Returns:
-            Dictionary containing:
-                - Action head predictions (e.g. position, orientation, gripper)
-                - Preserves any latent-related keys (mu, logvar) from features
+            Dictionary containing action head predictions (e.g. position, orientation, gripper)
 
         Note:
-            If LATENT_KEY is present in features, it will be used as the latent embedding
-            token prepended to the transformer encoder input.
+            If LATENT_KEY is present in features, it will be used as an extra token embedding for the transformer cross-attention.
         """
-        # Determine batch size
-        batch_size = list(features.values())[0].shape[0]
-
-        # Extract latent embedding if provided by algorithm
-        latent_embedding = features.get(LATENT_KEY, None)
-
-        # Prepare spatial and flat features (excluding latent-related keys)
-        observation_features = {
-            k: v for k, v in features.items()
-            if k not in {LATENT_KEY, MU_KEY, LOGVAR_KEY}
-        }
-        spatial_features = self._prepare_image_features(observation_features)
-        flat_features = self._prepare_flat_features(observation_features)
-
-        encoder_input, positional_encoding = self._prepare_encoder_input(
-            spatial_features, latent_embedding, flat_features, batch_size
-        )
-        action_embeddings = self._decode_actions(
-            encoder_input, positional_encoding, batch_size
-        )
+        # This creates a sequence of input tokens and positional encodings in the format ACT expects
+        input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(features) # (B, pred_horizon, embedding_dimension)
+        action_embeddings = self._decode_actions(input_tokens=input_tokens, positional_encodings=pos_encodings,
+                                                 padding_mask=None)
         predictions = self._apply_action_heads(action_embeddings)
-
-        # Preserve latent-related outputs from algorithm (e.g., mu, logvar for loss computation)
-        for key in [MU_KEY, LOGVAR_KEY]:
-            if key in features:
-                predictions[key] = features[key]
-
         return predictions

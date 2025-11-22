@@ -1,8 +1,11 @@
+defaults:
+  - base
+
 num_epochs: 100
 gradient_accumulate_every: 1
 
 optimizer:
-  _target_: torch.optim.AdamW
+  target_class : "torch.optim.AdamW"
   lr: 5.0e-5
   weight_decay: 1.0e-3
   betas: [0.9, 0.999]

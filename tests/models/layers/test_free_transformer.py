@@ -9,7 +9,6 @@ from refactoring.models.layers.free_transformer import (
     FreeTransformerEncoder,
     FreeTransformerDecoder,
 )
-from refactoring.models.layers.rms_norm import RMSNorm
 from refactoring.models.layers.activation import ActivationFunction
 
 

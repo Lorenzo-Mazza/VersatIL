@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from unittest.mock import MagicMock, Mock
 
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
     POSITION_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
@@ -52,7 +52,8 @@ class TestPolicyLossValidation:
         )
 
         observation_space = ObservationSpace(
-            use_proprioceptive_data=False,
+            use_proprio_base_frame=False,
+            use_proprio_camera_frame=False,
             camera_keys=[Cameras.LEFT.value],
             use_language=False,
         )
@@ -284,8 +285,8 @@ class TestPolicyLossValidation:
 
         # Create actual VariationalAlgorithm
         vae_encoder = VAETransformerEncoder(
-            latent_dim=16,
-            output_dim=64,
+            latent_dimension=16,
+            embedding_dimension=64,
             prediction_horizon=10,
             number_of_heads=2,
             feedforward_dimension=128,
@@ -403,8 +404,8 @@ class TestPolicyLossValidation:
 
         # VariationalAlgorithm with GaussianPrior (doesn't produce prior keys)
         vae_encoder = VAETransformerEncoder(
-            latent_dim=16,
-            output_dim=64,
+            latent_dimension=16,
+            embedding_dimension=64,
             prediction_horizon=10,
             number_of_heads=2,
             feedforward_dimension=128,
@@ -467,8 +468,8 @@ class TestPolicyLossValidation:
 
         # VariationalAlgorithm with DiffusionPrior (produces prior keys)
         vae_encoder = VAETransformerEncoder(
-            latent_dim=16,
-            output_dim=64,
+            latent_dimension=16,
+            embedding_dimension=64,
             prediction_horizon=10,
             number_of_heads=2,
             feedforward_dimension=128,
@@ -477,7 +478,7 @@ class TestPolicyLossValidation:
             device="cpu",
         )
         diffusion_prior = DiffusionPrior(
-            latent_dim=16,
+            latent_dimension=16,
             conditioning_dim=64,
             output_dim=64,
             hidden_dims=[32, 32],
@@ -549,63 +550,11 @@ class TestPolicyNormalizerMethods:
 
     def test_set_normalizer(self, simple_policy):
         """Test set_normalizer method."""
-
         original_normalizer = simple_policy.normalizer
-
         new_normalizer = DummyNormalizer()
         simple_policy.set_normalizer(new_normalizer)
 
         assert simple_policy.normalizer.state_dict().keys() == new_normalizer.state_dict().keys()
-
-    def test_normalize_observations_basic(self, simple_policy, device):
-        """Test normalize_observations method."""
-        obs = {
-            "rgb": torch.randn(2, 2, 3, 64, 64, device=device),
-            "proprio": torch.randn(2, 2, 7, device=device),
-        }
-
-        normalized = simple_policy.normalize_observations(obs)
-
-        assert "rgb" in normalized
-        assert "proprio" in normalized
-        assert normalized["rgb"].shape == obs["rgb"].shape
-
-    def test_normalize_observations_excludes_language(self, simple_observation_space, device):
-        """Test that language observations are not normalized."""
-        observation_space_with_lang = ObservationSpace(
-            camera_keys=[Cameras.LEFT.value],
-            use_proprio_base_frame=True,
-            use_language=True,
-        )
-
-        obs = {
-            "rgb": torch.randn(2, 2, 3, 64, 64, device=device),
-            "proprio": torch.randn(2, 2, 7, device=device),
-            LANGUAGE_KEY: torch.randint(0, 1000, (2, 50), device=device),
-        }
-
-        policy_mock = MagicMock()
-        policy_mock.observation_space = observation_space_with_lang
-        policy_mock.normalizer = MagicMock()
-        policy_mock.normalizer.normalize = lambda x: x
-
-        normalized = Policy.normalize_observations(policy_mock, obs)
-
-        assert LANGUAGE_KEY in normalized
-
-    def test_normalize_actions(self, simple_policy, device):
-        """Test normalize_actions method."""
-        actions = {
-            POSITION_ACTION_KEY: torch.randn(2, 4, 3, device=device),
-            ORIENTATION_ACTION_KEY: torch.randn(2, 4, 4, device=device),
-            GRIPPER_ACTION_KEY: torch.randint(0, 2, (2, 4, 1), device=device, dtype=torch.float32),
-        }
-
-        normalized = simple_policy.normalize_actions(actions)
-
-        assert POSITION_ACTION_KEY in normalized
-        assert ORIENTATION_ACTION_KEY in normalized
-        assert GRIPPER_ACTION_KEY in normalized
 
 
 @pytest.mark.unit

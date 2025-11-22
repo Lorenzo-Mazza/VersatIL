@@ -1,8 +1,11 @@
+defaults:
+  - base
+
 num_epochs: 600
 gradient_accumulate_every: 1
 
 optimizer:
-  _target_: torch.optim.AdamW
+  target_class : "torch.optim.AdamW"
   lr: 1.0e-6
   weight_decay: 1.0e-6
   betas: [0.95, 0.999]
@@ -14,7 +17,7 @@ lr_schedule: cosine
 lr_warmup_steps: 5000
 
 use_ema: true
-ema_decay: 0.75
+ema_power: 0.75
 
 # Stochastic Weight Averaging (SWA)
 swa_lrs: null  # Set to a float (e.g., 0.05) to enable SWA

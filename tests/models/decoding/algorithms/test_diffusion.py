@@ -7,7 +7,7 @@ from refactoring.models.decoding.algorithm.behavior_cloning import BehavioralClo
 from refactoring.models.decoding.algorithm.diffusion import Diffusion
 from refactoring.models.decoding.algorithm.flow_matching import FlowMatching
 from refactoring.models.decoding.decoders.base import ActionDecoder, DecoderInput
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
     POSITION_ACTION_KEY,
     ORIENTATION_ACTION_KEY,

@@ -3,6 +3,8 @@ from collections.abc import Callable
 import torch
 import torch.nn as nn
 
+from refactoring.models.layers.swiglu import SwiGLU
+
 
 class MLP(nn.Module):
     def __init__(
@@ -27,8 +29,11 @@ class MLP(nn.Module):
         layers: list[nn.Module] = []
         prev_dim = input_dim
         for hidden_dim in hidden_dims:
-            layers.append(nn.Linear(prev_dim, hidden_dim))
-            layers.append(activation_function())
+            if issubclass(activation_function, SwiGLU):
+                layers.append(activation_function(input_dim=prev_dim, hidden_dim=hidden_dim))
+            else:
+                layers.append(nn.Linear(prev_dim, hidden_dim))
+                layers.append(activation_function())
             if dropout > 0.0:
                 layers.append(nn.Dropout(dropout))
             prev_dim = hidden_dim

@@ -5,31 +5,30 @@
 # - Posterior: VAE encoder q(z|a,s) for encoding actions during training
 # - Prior: Diffusion prior p(z|s) for sampling latents during inference (more expressive than N(0,I))
 # - Decoder: Direct behavioral cloning
+defaults:
+  - base
 
 _target_: refactoring.models.decoding.algorithm.variational.VariationalAlgorithm
 
-# Base algorithm: Behavioral Cloning
 base_algorithm:
   _target_: refactoring.models.decoding.algorithm.behavior_cloning.BehavioralCloning
 
-# Posterior encoder q(z|a,s): VAE
 posterior_encoder:
   _target_: refactoring.models.decoding.latent.vae_posterior.VAETransformerEncoder
-  latent_dim: 32
-  output_dim: 512
+  latent_dimension: 32
+  embedding_dimension: 512
   prediction_horizon: ${policy.prediction_horizon}
+  observation_horizon: ${policy.observation_horizon}
   number_of_heads: 8
   feedforward_dimension: 2048
   number_of_encoder_layers: 4
   dropout_rate: 0.1
   device: ${policy.device}
 
-# Prior p(z|s): Learned diffusion prior (more expressive than Gaussian)
 prior:
   _target_: refactoring.models.decoding.latent.diffusion_prior.DiffusionPrior
-  latent_dim: 32
+  latent_dimension: 32
   conditioning_dim: 512  # Should match flat encoded features dimension
-  output_dim: 512  # Output embedding dimension for decoder input
   hidden_dims: [256, 256]
   num_train_timesteps: 100
   num_inference_steps: 10

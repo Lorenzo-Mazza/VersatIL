@@ -1,4 +1,6 @@
 # Inference configuration for ACT
+defaults:
+  - base
 
 # Temporal aggregation (exponential smoothing)
 temporal_agg: true

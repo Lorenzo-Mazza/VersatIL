@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
     GRIPPER_ACTION_KEY,
     ORIENTATION_ACTION_KEY,

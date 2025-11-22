@@ -39,10 +39,12 @@ class MLPFusion(SequentialFusion):
     def forward(self, features: list[torch.Tensor]) -> torch.Tensor:
         """
         Args:
-            features: List of sequence features [B, T, D_i] or [B, D_i]
+            features: List of sequence or flat features [B, Seq, D_i], [B, D_i]. Or if observation horizon spans
+              multiple timesteps, [B, T, Seq, D_i] or [B, T, D_i].
 
         Returns:
-            Fused features [B, T, hidden_dim] or [B, hidden_dim]
+            Fused features of shape [B, Seq, output_dim] or [B, output_dim]. If observation horizon spans
+            multiple timesteps, returns [B, T, Seq, output_dim] or [B, T, output_dim].
         """
         if self.projections is None:
             raise RuntimeError("Projections must be set up before forward pass")

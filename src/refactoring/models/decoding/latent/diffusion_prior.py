@@ -1,21 +1,9 @@
 """Diffusion-based learned prior for variational models.
 
-This module implements a learned diffusion prior for latent variable models
-using shared diffusion process components from algorithm.diffusion_process.
-
 The prior learns to sample from p(z|s) using a diffusion model, where z is the
 latent variable and s is the conditioning. During training, it learns to denoise
 latent samples from the posterior. During inference, it generates latents via
 reverse diffusion.
-
-Shared Components Used:
-    - DiffusionSchedulerConfig: Unified configuration for DDPM scheduler
-    - create_noise_scheduler(): Factory for creating noise schedulers
-    - add_noise_to_tensor(): Forward diffusion (adding noise to posterior latents)
-    - sample_random_timesteps(): Uniform timestep sampling for training
-    - setup_inference_timesteps(): Configure scheduler for sampling
-
-See algorithm.diffusion_process for detailed documentation of these components.
 """
 
 import torch
@@ -46,9 +34,8 @@ class DiffusionPrior(LatentPrior):
     During inference, it generates latent samples via the reverse diffusion process.
 
     Args:
-        latent_dim: Dimension of latent variable z
+        latent_dimension: Dimension of latent variable z
         conditioning_dim: Dimension of conditioning features (state)
-        output_dim: Dimension to project latent output to (for decoder input)
         hidden_dims: Hidden layer dimensions for denoising network
         num_train_timesteps: Number of diffusion timesteps during training
         num_inference_steps: Number of denoising steps during sampling
@@ -62,9 +49,8 @@ class DiffusionPrior(LatentPrior):
 
     def __init__(
         self,
-        latent_dim: int,
+        latent_dimension: int,
         conditioning_dim: int,
-        output_dim: int,
         device: str,
         hidden_dims: list[int] | None = None,
         num_train_timesteps: int = 100,
@@ -75,25 +61,9 @@ class DiffusionPrior(LatentPrior):
         activation: str = ActivationFunction.RELU.value,
         dropout: float = 0.1,
     ):
-        """Initialize diffusion prior.
-
-        Args:
-            latent_dim: Dimension of latent variable z
-            conditioning_dim: Dimension of conditioning features
-            output_dim: Output embedding dimension
-            device: Device to place prior on
-            hidden_dims: Hidden layer dimensions
-            num_train_timesteps: Training timesteps
-            num_inference_steps: Inference steps
-            beta_start: Starting beta
-            beta_end: Ending beta
-            beta_schedule: Noise schedule type
-            activation: Activation function
-            dropout: Dropout rate
-        """
-        super().__init__(latent_dim=latent_dim, device=device, output_dim=output_dim)
+        """Initialize diffusion prior."""
+        super().__init__(latent_dimension=latent_dimension, device=device)
         self.conditioning_dim = conditioning_dim
-        self.embedding_dimension = output_dim
         self.num_train_timesteps = num_train_timesteps
         self.num_inference_steps = num_inference_steps
         scheduler_config = DiffusionSchedulerConfig(
@@ -110,26 +80,27 @@ class DiffusionPrior(LatentPrior):
         self.noise_scheduler = create_noise_scheduler(scheduler_config)
         # Denoising network: takes (noisy_z, conditioning, timestep) -> predicted_noise
         if hidden_dims is None:
-            hidden_dims = [latent_dim * 2, latent_dim * 2]
+            hidden_dims = [latent_dimension * 2, latent_dimension * 2]
 
-        self.timestep_embed_dim = latent_dim
+        self.timestep_embed_dim = latent_dimension
+        if activation == ActivationFunction.SWIGLU.value:
+            activation_fn = ActivationFunction(activation).to_torch_activation()(
+                input_dim=self.timestep_embed_dim, hidden_dim=self.timestep_embed_dim)
+        else:
+            activation_fn = ActivationFunction(activation).to_torch_activation()()
         self.timestep_mlp = nn.Sequential(
             nn.Linear(1, self.timestep_embed_dim),
-            ActivationFunction(activation).to_torch_activation()(),
+            activation_fn,
             nn.Linear(self.timestep_embed_dim, self.timestep_embed_dim),
         )
-
-        input_dim = latent_dim + conditioning_dim + self.timestep_embed_dim
-
+        input_dim = latent_dimension + conditioning_dim + self.timestep_embed_dim
         self.denoising_network = MLP(
             input_dim=input_dim,
             hidden_dims=hidden_dims,
-            output_dim=latent_dim,
+            output_dim=latent_dimension,
             activation_function=ActivationFunction(activation).to_torch_activation(),
             dropout=dropout,
         )
-        # Projection from latent_dim to embedding_dimension for decoder input
-        self.latent_output_projection = nn.Linear(latent_dim, output_dim)
         self.to(torch.device(device))
 
     def sample_prior(self, batch_size: int, conditioning: torch.Tensor | None = None) -> torch.Tensor:
@@ -140,31 +111,25 @@ class DiffusionPrior(LatentPrior):
             conditioning: Conditioning features (state) with shape (batch_size, conditioning_dim)
 
         Returns:
-            Sampled latent embeddings (batch_size, embedding_dimension)
+            Sampled latent embeddings (batch_size, latent_dim)
         """
         device = next(self.parameters()).device
-
         if conditioning is None:
             # Unconditional sampling
             conditioning = torch.zeros(batch_size, self.conditioning_dim, device=device)
-
         # Start from pure noise
-        z_t = torch.randn(batch_size, self.latent_dim, device=device)
+        z_t = torch.randn(batch_size, self.latent_dimension, device=device)
         setup_inference_timesteps(self.noise_scheduler, self.num_inference_steps)
 
         # Reverse diffusion process
         for t in self.noise_scheduler.timesteps:
-            # Prepare timestep embedding
             timestep = torch.tensor([t], device=device).float().view(1, 1).expand(batch_size, 1)
             timestep_embed = self.timestep_mlp(timestep / self.num_train_timesteps)
             model_input = torch.cat([z_t, conditioning, timestep_embed], dim=-1)
             predicted_noise = self.denoising_network(model_input)
-
             # Compute previous sample using scheduler
             z_t = self.noise_scheduler.step(predicted_noise, t, z_t).prev_sample
-
-        latent_embedding = self.latent_output_projection(z_t)
-        return latent_embedding
+        return z_t
 
     def forward(
         self,
@@ -175,13 +140,13 @@ class DiffusionPrior(LatentPrior):
 
         Args:
             target_latents: Latent samples from posterior q(z|a,s) with shape (B, latent_dim)
-                These should be DETACHED to prevent gradients flowing back to posterior
+                These should be detached to prevent gradients flowing back to posterior
             conditioning: Conditioning features (state) with shape (B, conditioning_dim)
 
         Returns:
             Prior network output dictionary containing:
-                - Predicted noise or actions.
-                - 'target': The training target (noise).
+                - Predicted noise or actions , shape (B, latent_dim).
+                - 'target': The training target (noise), shape (B, latent_dim).
         """
         batch_size = target_latents.shape[0]
         device = target_latents.device

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import albumentations as A
 import cv2
+import hydra.utils
 import numpy as np
 import pandas as pd
 import torch
@@ -16,10 +17,8 @@ from albumentations.pytorch import ToTensorV2
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
-from refactoring.configs.main import MainConfig
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
-    EPISODE_FILENAME,
     Cameras
 )
 from refactoring.data.schemas.base import DatasetSchema
@@ -61,8 +60,6 @@ class ModelExplainer:
         self._load_model()
         self._setup_paths()
         self._setup_transforms()
-
-        self.dataset = None
         self.timestep = 0
 
     def _load_model(self):
@@ -74,15 +71,9 @@ class ModelExplainer:
                 f"Config file not found at {config_path}. "
                 f"Expected 'config.yaml' in checkpoint directory."
             )
-
+        config = hydra.utils.instantiate(OmegaConf.load(config_path))
+        self.config = config
         print(f"Loading config from {config_path}")
-        self.config = OmegaConf.load(config_path)
-        self._ensure_configs_are_dataclasses()
-
-        # Instantiate dataset schema
-        self.dataset_schema: DatasetSchema = instantiate(self.config.task.dataset_schema)
-
-        # Load checkpoint
         checkpoint_file = os.path.join(self.checkpoint_path, "latest.ckpt")
         if not os.path.exists(checkpoint_file):
             checkpoint_file = os.path.join(self.checkpoint_path, "last.ckpt")
@@ -102,6 +93,7 @@ class ModelExplainer:
         self.policy = self.lightning_model.policy
         self.observation_space = self.policy.observation_space
         self.action_space = self.policy.action_space
+        self.dataset_schema = self.config.task.dataset_schema
 
     def _ensure_configs_are_dataclasses(self):
         """Convert OmegaConf DictConfigs to dataclass instances where needed."""
@@ -207,14 +199,14 @@ class ModelExplainer:
         episodes_paths = [
             p
             for p in Path(self.data_path).glob("*/")
-            if p.is_dir() and (p / EPISODE_FILENAME).exists()
+            if p.is_dir() and (p / self.dataset_schema.dataset_filename).exists()
         ]
 
         print(f"Found {len(episodes_paths)} episodes to explain")
 
         for path in episodes_paths:
             print(f"\nProcessing episode: {path.name}")
-            self.dataset = pd.read_csv(path / EPISODE_FILENAME)
+            self.dataset = pd.read_csv(path / self.dataset_schema.dataset_filename)
             self.timestep = 0
 
             assert self.dataset is not None, "Dataset should be loaded"

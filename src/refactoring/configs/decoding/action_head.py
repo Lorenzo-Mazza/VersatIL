@@ -1,5 +1,6 @@
 """Configuration classes for modular action heads."""
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from typing import TypeAlias, Union, Any
 
 from omegaconf import MISSING
 
@@ -41,48 +42,14 @@ class ResidualBlockConfig(ActionHeadBlockConfig):
     block: ActionHeadBlockConfig = MISSING
     dropout: float = 0.1
 
-
 @dataclass
 class ActionHeadConfig:
     """Configuration for a single action head."""
     _target_: str = "refactoring.models.decoding.action_heads.ActionHead"
     input_dim: int = MISSING  # Set from decoder embedding_dimension
     output_dim: int = MISSING  # Set from action_space
-    blocks: list[ActionHeadBlockConfig] = field(default_factory=list)
+    blocks: list[Any] | None = None
 
-
-@dataclass
-class DefaultActionHeadConfig:
-    """Default action head: single MLP layer."""
-    _target_: str = "refactoring.models.decoding.action_heads.create_default_action_head"
-    input_dim: int = MISSING
-    output_dim: int = MISSING
-    hidden_dim: int | None = None  # Defaults to input_dim // 2
-    activation: str = "silu"
-    dropout: float = 0.1
-
-
-@dataclass
-class MLPActionHeadConfig:
-    """Multi-layer MLP action head."""
-    _target_: str = "refactoring.models.decoding.action_heads.create_mlp_action_head"
-    input_dim: int = MISSING
-    output_dim: int = MISSING
-    hidden_dims: list[int] = field(default_factory=lambda: [128, 64])
-    activation: str = "silu"
-    dropout: float = 0.1
-
-
-@dataclass
-class AttentionMLPActionHeadConfig:
-    """Attention + MLP action head."""
-    _target_: str = "refactoring.models.decoding.action_heads.create_attention_mlp_head"
-    input_dim: int = MISSING
-    output_dim: int = MISSING
-    num_heads: int = 8
-    mlp_hidden_dim: int | None = None
-    activation: str = "silu"
-    dropout: float = 0.1
 
 
 @dataclass
@@ -109,11 +76,11 @@ class MixtureOfExpertsHeadConfig:
     _target_: str = "refactoring.models.decoding.action_heads.MoEHead"
     output_dim: int = MISSING
     device: str = "${policy.device}"
-    experts: list[ActionHeadConfig] | None = None
-    base_expert: ActionHeadConfig | None = None
-    num_experts: int | None = None
-    gating_input_dim: int | None = None
-    gating_hidden_dims: list[int] | None = None
+    experts: list[ActionHeadConfig]  | None  = None
+    base_expert: ActionHeadConfig | None  = None
+    num_experts: int = MISSING
+    gating_input_dim: int  = MISSING
+    gating_hidden_dims: list[int] | None  = None
     routing_type: str = MoERoutingType.SOFT.value
     top_k: int = 2  # For top-k routing
     temperature: float = 1.0

@@ -5,7 +5,7 @@ import torch
 
 from refactoring.models.layers.constants import PositionalEncodingType
 from refactoring.models.layers.gpt_transformer.positional_encoding import (
-    apply_positional_encoding,
+    apply_rope_positional_encoding,
     create_positional_encoding,
 )
 from refactoring.models.layers.positional_encoding.rotary import RotaryPositionalEncoding1D
@@ -103,7 +103,7 @@ class TestApplyPositionalEncoding:
         queries = torch.randn(batch_size, num_heads, seq_len, head_dim)
         keys = torch.randn(batch_size, num_heads, seq_len, head_dim)
 
-        queries_with_pos, keys_with_pos = apply_positional_encoding(
+        queries_with_pos, keys_with_pos = apply_rope_positional_encoding(
             queries=queries,
             keys=keys,
             positional_encoding=encoding,
@@ -131,7 +131,7 @@ class TestApplyPositionalEncoding:
         queries = torch.randn(batch_size, num_heads, seq_len, head_dim)
         keys = torch.randn(batch_size, num_heads, seq_len, head_dim)
 
-        queries_with_pos, keys_with_pos = apply_positional_encoding(
+        queries_with_pos, keys_with_pos = apply_rope_positional_encoding(
             queries=queries,
             keys=keys,
             positional_encoding=encoding,
@@ -154,7 +154,7 @@ class TestApplyPositionalEncoding:
         queries = torch.randn(batch_size, num_heads, seq_len, head_dim)
         keys = torch.randn(batch_size, num_heads, seq_len, head_dim)
 
-        queries_with_pos, keys_with_pos = apply_positional_encoding(
+        queries_with_pos, keys_with_pos = apply_rope_positional_encoding(
             queries=queries,
             keys=keys,
             positional_encoding=encoding,
@@ -179,7 +179,7 @@ class TestApplyPositionalEncoding:
         # Same input at different positions
         queries = torch.ones(batch_size, num_heads, seq_len, head_dim)
 
-        queries_with_pos, _ = apply_positional_encoding(
+        queries_with_pos, _ = apply_rope_positional_encoding(
             queries=queries,
             keys=queries.clone(),
             positional_encoding=encoding,
@@ -207,7 +207,7 @@ class TestApplyPositionalEncoding:
         queries = torch.randn(batch_size, num_heads, seq_len, head_dim)
         keys = torch.randn(batch_size, num_heads, seq_len, head_dim)
 
-        queries_with_pos, keys_with_pos = apply_positional_encoding(
+        queries_with_pos, keys_with_pos = apply_rope_positional_encoding(
             queries=queries,
             keys=keys,
             positional_encoding=encoding,
@@ -230,7 +230,7 @@ class TestApplyPositionalEncoding:
         class UnknownEncoding(torch.nn.Module):
             pass
 
-        queries_with_pos, keys_with_pos = apply_positional_encoding(
+        queries_with_pos, keys_with_pos = apply_rope_positional_encoding(
             queries=queries,
             keys=keys,
             positional_encoding=UnknownEncoding(),

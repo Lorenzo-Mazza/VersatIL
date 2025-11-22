@@ -6,7 +6,7 @@ from refactoring.models.decoding.decoders import MoEDecoder, DecoderInput
 from refactoring.models.decoding.decoders.base import ActionDecoder
 from refactoring.models.decoding.constants import MoERoutingType, FeatureType
 from refactoring.models.decoding.action_heads import ActionHead
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
     POSITION_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
@@ -137,7 +137,6 @@ def decoder_input():
     """Create decoder input specification."""
     return DecoderInput(
         keys=["flat_features"],
-        required=["flat_features"],
         required_types=[FeatureType.FLAT],
         requires_actions=False,
     )

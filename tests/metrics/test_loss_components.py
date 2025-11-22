@@ -8,12 +8,12 @@ from refactoring.data.constants import (
     POSITION_ACTION_KEY,
     GRIPPER_ACTION_KEY,
     PHASE_LABEL_KEY,
-    GripperType,
+    GripperType, TOKENIZED_ACTIONS_KEY, IS_PAD_ACTION_KEY,
 )
 from refactoring.models.decoding.constants import (
     PRIOR_PREDICTION_KEY,
     PRIOR_TARGET_KEY,
-    ACTION_TOKENS_KEY,
+    PREDICTED_ACTION_TOKENS_KEY, ACTION_LOGITS_KEY,
 )
 from refactoring.metrics.components import (
     RegressionLoss,
@@ -281,32 +281,31 @@ class TestActionTokenLoss:
     def test_reads_targets_from_predictions(self, device, batch_size, horizon):
         """Test that ActionTokenLoss reads ground truth tokens from predictions dict."""
         vocab_size = 1024
-        loss_fn = ActionTokenLoss(ignore_index=-100)
+        loss_fn = ActionTokenLoss()
 
         predictions = {
-            ACTION_TOKENS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
-            f"{ACTION_TOKENS_KEY}_target": torch.randint(0, vocab_size, (batch_size, horizon), device=device),
+            ACTION_LOGITS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
+            TOKENIZED_ACTIONS_KEY: torch.randint(0, vocab_size, (batch_size, horizon), device=device),
         }
         targets = {}
 
         loss_output = loss_fn(predictions, targets, is_pad=None)
 
         assert loss_output.total_loss.item() >= 0
-        assert f"{ACTION_TOKENS_KEY}_cross_entropy" in loss_output.component_losses
+        assert MetricKey.ACTION_TOKEN_CROSS_ENTROPY.value in loss_output.component_losses
 
     def test_reads_padding_from_predictions(self, device, batch_size, horizon):
         """Test that ActionTokenLoss uses is_pad from predictions dict."""
         vocab_size = 1024
-        loss_fn = ActionTokenLoss(ignore_index=-100)
-
+        loss_fn = ActionTokenLoss()
         target_tokens = torch.randint(0, vocab_size, (batch_size, horizon), device=device)
         is_pad = torch.zeros(batch_size, horizon, dtype=torch.bool, device=device)
         is_pad[:, :] = True
 
         predictions = {
-            ACTION_TOKENS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
-            f"{ACTION_TOKENS_KEY}_target": target_tokens,
-            "is_pad": is_pad,
+            ACTION_LOGITS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
+            TOKENIZED_ACTIONS_KEY: target_tokens,
+            IS_PAD_ACTION_KEY: is_pad,
         }
         targets = {}
 
@@ -316,14 +315,13 @@ class TestActionTokenLoss:
     def test_ignores_targets_parameter(self, device, batch_size, horizon):
         """Test that ActionTokenLoss ignores the targets parameter."""
         vocab_size = 1024
-        loss_fn = ActionTokenLoss(ignore_index=-100)
-
+        loss_fn = ActionTokenLoss()
         predictions = {
-            ACTION_TOKENS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
-            f"{ACTION_TOKENS_KEY}_target": torch.randint(0, vocab_size, (batch_size, horizon), device=device),
+            ACTION_LOGITS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
+            TOKENIZED_ACTIONS_KEY: torch.randint(0, vocab_size, (batch_size, horizon), device=device),
         }
         dummy_targets = {
-            ACTION_TOKENS_KEY: torch.randint(0, vocab_size, (batch_size, horizon), device=device)
+            TOKENIZED_ACTIONS_KEY: torch.randint(0, vocab_size, (batch_size, horizon), device=device)
         }
 
         loss_output = loss_fn(predictions, dummy_targets, is_pad=None)
@@ -339,8 +337,8 @@ class TestActionTokenLoss:
         is_pad_in_predictions[:, horizon // 2:] = True
 
         predictions = {
-            ACTION_TOKENS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
-            f"{ACTION_TOKENS_KEY}_target": torch.randint(0, vocab_size, (batch_size, horizon), device=device),
+            PREDICTED_ACTION_TOKENS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
+            f"{PREDICTED_ACTION_TOKENS_KEY}_target": torch.randint(0, vocab_size, (batch_size, horizon), device=device),
             "is_pad": is_pad_in_predictions,
         }
 
@@ -356,7 +354,7 @@ class TestActionTokenLoss:
         loss_fn = ActionTokenLoss(ignore_index=-100)
 
         predictions = {
-            f"{ACTION_TOKENS_KEY}_target": torch.randint(0, vocab_size, (batch_size, horizon), device=device),
+            f"{PREDICTED_ACTION_TOKENS_KEY}_target": torch.randint(0, vocab_size, (batch_size, horizon), device=device),
         }
         targets = {}
 
@@ -369,7 +367,7 @@ class TestActionTokenLoss:
         loss_fn = ActionTokenLoss(ignore_index=-100)
 
         predictions = {
-            ACTION_TOKENS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
+            PREDICTED_ACTION_TOKENS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
         }
         targets = {}
 
@@ -385,8 +383,8 @@ class TestActionTokenLoss:
         target_tokens = torch.randint(0, vocab_size, (batch_size, horizon), device=device)
 
         predictions_no_pad = {
-            ACTION_TOKENS_KEY: logits.clone(),
-            f"{ACTION_TOKENS_KEY}_target": target_tokens.clone(),
+            PREDICTED_ACTION_TOKENS_KEY: logits.clone(),
+            f"{PREDICTED_ACTION_TOKENS_KEY}_target": target_tokens.clone(),
         }
         loss_no_pad = loss_fn(predictions_no_pad, {}, is_pad=None)
 
@@ -394,8 +392,8 @@ class TestActionTokenLoss:
         is_pad[:, horizon // 2:] = True
 
         predictions_with_pad = {
-            ACTION_TOKENS_KEY: logits.clone(),
-            f"{ACTION_TOKENS_KEY}_target": target_tokens.clone(),
+            PREDICTED_ACTION_TOKENS_KEY: logits.clone(),
+            f"{PREDICTED_ACTION_TOKENS_KEY}_target": target_tokens.clone(),
             "is_pad": is_pad,
         }
         loss_with_pad = loss_fn(predictions_with_pad, {}, is_pad=None)
@@ -403,9 +401,9 @@ class TestActionTokenLoss:
         assert loss_with_pad.total_loss.item() < loss_no_pad.total_loss.item()
 
     def test_get_required_keys_returns_action_tokens(self):
-        """Test that get_required_keys returns ACTION_TOKENS_KEY."""
+        """Test that get_required_keys returns PREDICTED_ACTION_TOKENS_KEY."""
         loss_fn = ActionTokenLoss()
 
         required_keys = loss_fn.get_required_keys()
 
-        assert required_keys == {ACTION_TOKENS_KEY}
+        assert required_keys == {ACTION_LOGITS_KEY}

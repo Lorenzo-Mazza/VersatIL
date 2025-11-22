@@ -6,8 +6,8 @@ This schema is instantiated via Hydra configuration files.
 """
 import re
 
-from refactoring.configs.task.dataset.image_path import ImagePathConfig
-from refactoring.configs.task.dataset.raw_observations import RawObservationsConfig
+from refactoring.configs.data.dataset.image_path import ImagePathConfig
+from refactoring.configs.data.dataset.raw_observations import RawObservationsConfig
 from refactoring.data.constants import Cameras, GripperType
 from refactoring.data.schemas.base import DatasetSchema
 
@@ -27,6 +27,7 @@ BOWEL_RETRACTION_LEFT_IMAGE_KEY = "frameLeftPath"
 BOWEL_RETRACTION_RIGHT_IMAGE_KEY = "frameRightPath"
 BOWEL_RETRACTION_RECTIFIED_LEFT_IMAGE_KEY = "frameLeftRectifiedPath"
 BOWEL_RETRACTION_RECTIFIED_RIGHT_IMAGE_KEY = "frameRightRectifiedPath"
+BOWEL_RETRACTION_EPISODE_FILENAME = "episode.csv"
 
 
 class BowelRetractionSchema(DatasetSchema):
@@ -84,6 +85,7 @@ class BowelRetractionSchema(DatasetSchema):
 
         super().__init__(
             dataset_folders=dataset_folders,
+            dataset_filename=BOWEL_RETRACTION_EPISODE_FILENAME,
             zarr_path=zarr_path,
             raw_observations=raw_observation_config,
             image_path_config=image_path_config,

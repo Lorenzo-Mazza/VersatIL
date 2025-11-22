@@ -8,19 +8,19 @@ from pathlib import Path
 import numpy as np
 import pytorch_lightning as pl
 import torch
-from hydra.utils import instantiate
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, DictConfig
 from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint, StochasticWeightAveraging
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.tuner import Tuner
 from torch.utils import data
 
-from refactoring.configs.main import MainConfig
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from model.common.tensor_utils import to_device
+from refactoring.configs import TaskSpaceConfig, MainConfig
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.dataloader import get_dataloaders
-from refactoring.data.normalize.normalizer import LinearNormalizer
-from refactoring.data.tokenize import Tokenizer
+from refactoring.data.normalization.normalizer import LinearNormalizer
+from refactoring.data.tokenization import Tokenizer
 from refactoring.models.policy import Policy
 from refactoring.training.callbacks import (
     ConfusionMatrixCallback,
@@ -44,13 +44,16 @@ class Workspace:
     - Checkpointing with save_top_k and save_last
     """
 
-    def __init__(self, config: MainConfig):
+    def __init__(self, config: DictConfig, original_yaml_config: DictConfig):
         """Initialize workspace.
 
         Args:
-            config: Main configuration containing all settings
+            config: Main configuration containing all settings, already instantiated
+            original_yaml_config: Original YAML config before instantiation, for saving
         """
-        self.config = config
+        self.config: MainConfig = config
+        self.original_yaml_config = original_yaml_config
+
         self._ensure_configs_are_dataclasses()
         self.exp_name = config.experiment.name
         self.output_dir = Path(config.experiment.checkpoint_folder) / self.exp_name
@@ -72,14 +75,16 @@ class Workspace:
     def _ensure_configs_are_dataclasses(self):
         """Convert OmegaConf DictConfigs to dataclass instances where needed.
 
-        This ensures that configs with methods (ActionSpace, ObservationSpace)
-        are actual dataclass instances, not OmegaConf DictConfigs, so their
+        This ensures that configs with methods are actual dataclass instances, not OmegaConf DictConfigs, so their
         methods can be called.
 
         This is necessary because:
         - ActionSpace has get_total_action_dim() and get_required_zarr_keys() methods
         - ObservationSpace has get_required_zarr_keys() method
         """
+        if OmegaConf.is_config(self.config.task):
+            config_dict = OmegaConf.to_container(self.config.task, resolve=True)
+            self.config.task = TaskSpaceConfig(**config_dict)
         if OmegaConf.is_config(self.config.task.action_space):
             config_dict = OmegaConf.to_container(self.config.task.action_space, resolve=True)
             self.config.task.action_space = ActionSpace(**config_dict)
@@ -95,7 +100,7 @@ class Workspace:
         initialization to ensure the config is available for later use.
         """
         config_path = self.output_dir / "config.yaml"
-        OmegaConf.save(self.config, config_path)
+        OmegaConf.save(self.original_yaml_config, config_path)
         logging.info(f"Config saved to {config_path}")
 
 
@@ -156,23 +161,20 @@ class Workspace:
     def _setup_policy(self):
         """Instantiate policy and wrap with Lightning."""
         logging.info("Instantiating policy...")
-        # Config normalization already done in __init__, so observation_space and action_space are dataclasses
-        self.policy: Policy = instantiate(self.config.policy)
+        self.policy: Policy = self.config.policy
         self.policy.set_normalizer(self.normalizer)
         self.policy.set_tokenizer(self.tokenizer)
-
         # Calculate total training steps for LR scheduling
         # Steps per epoch = len(train_loader) // gradient_accumulate_every
         # Total steps = steps_per_epoch * num_epochs
         steps_per_epoch = len(self.train_loader) // self.config.training.gradient_accumulate_every
         total_training_steps = steps_per_epoch * self.config.training.num_epochs
-
-        # Wrap with Lightning
         self.lightning_policy = LightningPolicy(
             policy=self.policy,
             training_config=self.config.training,
             total_training_steps=total_training_steps,
         )
+        self._initialize_lazy_modules()
         logging.info(f"Policy created: {self.policy.__class__.__name__}")
         logging.info(f"Total training steps: {total_training_steps}")
 
@@ -348,32 +350,27 @@ class Workspace:
 
         return strategy
 
-    def _initialize_lazy_modules(self):
-        """Initialize lazy modules by doing a dummy forward pass.
 
-        This ensures all lazy layers (like LazyLinear in feature projections)
-        are initialized before the tuner saves checkpoints, preventing
-        state_dict mismatches when restoring.
-        """
+    def _initialize_lazy_modules(self):
+        """Initialize lazy modules by doing a dummy forward pass."""
+        if self.train_loader is None or len(self.train_loader) == 0:
+            logging.warning("No training data → skipping lazy module initialization")
+            return
+
         try:
             data_iter = iter(self.train_loader)
             batch = next(data_iter)
-            device = torch.device(self.config.experiment.device)
-            batch = {
-                k: {kk: vv.to(device) if torch.is_tensor(vv) else vv for kk, vv in v.items()}
-                if isinstance(v, dict) else v.to(device) if torch.is_tensor(v) else v
-                for k, v in batch.items()
-            }
 
+            device = torch.device(self.config.experiment.device)
+            batch = to_device(batch, device)
             self.lightning_policy.to(device)
             self.lightning_policy.eval()
             with torch.no_grad():
                 _ = self.lightning_policy.training_step(batch, 0)
             self.lightning_policy.train()
-            logging.info("Initialized lazy modules with dummy forward pass")
+            logging.info("Lazy modules initialized successfully")
         except Exception as e:
-            logging.warning(f"Failed to initialize lazy modules: {e}. Tuning may fail if model has lazy layers.")
-
+            logging.warning(f"Failed to initialize lazy modules: {e}")
 
     def _tune_hyperparameters(self):
         """Run hyperparameter tuning if enabled.
@@ -393,7 +390,6 @@ class Workspace:
         self.trainer.callbacks = [cb for cb in self.trainer.callbacks if not isinstance(cb, StochasticWeightAveraging)]
         tuner = Tuner(self.trainer)
 
-        self._initialize_lazy_modules()
         if self.config.training.tune_lr:
             logging.info("Running learning rate tuning...")
             self.lightning_policy.lr = self.config.training.optimizer.lr
@@ -407,9 +403,9 @@ class Workspace:
             suggested_lr = lr_finder_results.suggestion()
             logging.info(f"Suggested learning rate: {suggested_lr}")
             self.config.training.optimizer.lr = suggested_lr
+            self.original_yaml_config.training.optimizer.lr = suggested_lr
             logging.info(f"Updated config with learning rate: {suggested_lr}")
 
-        # Restore original callbacks
         self.trainer.callbacks = original_callbacks
         if self.config.training.tune_lr:
             self.save_config()

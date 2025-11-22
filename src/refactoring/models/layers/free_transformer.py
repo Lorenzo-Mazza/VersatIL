@@ -12,7 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional
 
-from refactoring.models.layers.rms_norm import RMSNorm
+from refactoring.models.layers.normalization.rms_norm import RMSNorm
 from refactoring.models.layers.binary_mapper import BinaryMapper
 from refactoring.models.layers.positional_encoding.rotary import RotaryPositionalEncoding1D
 from refactoring.models.layers.group_query_attention import GroupQueryAttention

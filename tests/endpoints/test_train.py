@@ -1,460 +1,458 @@
-"""End-to-end tests for the training endpoint."""
-
 import os
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-import torch
-import numpy as np
-from omegaconf import OmegaConf
 
-from refactoring.configs.experiment import ExperimentConfig
-from refactoring.configs.main import MainConfig
-from refactoring.configs.task.task import TaskConfig, ActionSpace, ObservationSpace
-from refactoring.configs.task.dataloader import DataloaderConfig
-from refactoring.configs.training import TrainingConfig, OptimizerConfig, AdamWConfig
-from refactoring.configs.policy import PolicyConfig
-from refactoring.configs.inference import InferenceConfig
-from refactoring.workspace import Workspace
-from refactoring.data.constants import Cameras, OrientationRepresentation
+from refactoring.endpoints import train
 
 
-@pytest.mark.unit
-class TestTrainingEndpointConfigSaving:
-    """Test that training endpoint saves config properly."""
+@pytest.fixture
+def mock_hydra_config_factory(minimal_yaml_config_factory):
+    """Factory for creating mock Hydra configs for testing train.py."""
+    def factory(**overrides):
+        return minimal_yaml_config_factory(**overrides)
+    return factory
 
-    def test_workspace_saves_config_on_init(self, tmp_path):
-        """Test that workspace automatically saves config.yaml during initialization."""
-        config = MainConfig(
-            experiment=ExperimentConfig(
-                name="train_test",
-                checkpoint_folder=str(tmp_path),
-                device="cpu",
-                use_wandb=False,
-            ),
-            task=TaskConfig(
-                observation_space=ObservationSpace(
-                    camera_keys=[Cameras.LEFT.value],
-                    use_proprio_base_frame=True,
-                ),
-                action_space=ActionSpace(
-                    has_position=True,
-                    position_dim=3,
-                ),
-                observation_horizon=1,
-                prediction_horizon=4,
-                dataloader=DataloaderConfig(batch_size=2),
-            ),
-            training=TrainingConfig(num_epochs=1),
-            policy=PolicyConfig(),
-            inference=InferenceConfig(),
-        )
 
-        workspace = Workspace(config)
+@pytest.fixture
+def mock_workspace_factory():
+    """Factory for creating mock Workspace instances."""
+    def factory():
+        workspace = MagicMock()
+        workspace.output_dir = Path("/tmp/test_output")
+        return workspace
+    return factory
 
-        # Verify config.yaml exists
-        config_path = workspace.output_dir / "config.yaml"
-        assert config_path.exists(), "config.yaml should be created during workspace init"
 
-    def test_saved_config_contains_all_sections(self, tmp_path):
-        """Test that saved config contains all required sections."""
-        config = MainConfig(
-            experiment=ExperimentConfig(
-                name="sections_test",
-                checkpoint_folder=str(tmp_path),
-                device="cpu",
-                seed=42,
-                use_wandb=False,
-            ),
-            task=TaskConfig(
-                observation_space=ObservationSpace(
-                    camera_keys=[Cameras.LEFT.value, Cameras.RIGHT.value],
-                    use_proprio_base_frame=True,
-                ),
-                action_space=ActionSpace(
-                    has_position=True,
-                    position_dim=3,
-                    has_orientation=True,
-                    orientation_dim=4,
-                    orientation_repr=OrientationRepresentation.QUATERNION.value,
-                ),
-                observation_horizon=2,
-                prediction_horizon=16,
-                dataloader=DataloaderConfig(batch_size=32),
-            ),
-            training=TrainingConfig(
-                num_epochs=100,
-                use_ema=True,
-                optimizer=AdamWConfig(lr=1e-4),
-            ),
-            policy=PolicyConfig(),
-            inference=InferenceConfig(),
-        )
+@pytest.fixture
+def mock_instantiated_config_factory(tmp_path):
+    """Factory for creating mock instantiated configs."""
+    def factory(resume_from=None, distributed=False):
+        config = MagicMock()
+        config.experiment.resume_from = resume_from
+        config.experiment.distributed = distributed
+        config.experiment.checkpoint_folder = str(tmp_path)
+        return config
+    return factory
 
-        workspace = Workspace(config)
-        config_path = workspace.output_dir / "config.yaml"
 
-        # Load and verify all sections
-        loaded = OmegaConf.load(config_path)
-
-        assert "experiment" in loaded
-        assert "task" in loaded
-        assert "training" in loaded
-        assert "policy" in loaded
-        assert "inference" in loaded
-
-        # Verify some key values
-        assert loaded.experiment.seed == 42
-        assert loaded.task.observation_horizon == 2
-        assert loaded.task.prediction_horizon == 16
-        assert loaded.training.num_epochs == 100
-        assert loaded.training.use_ema is True
-
-    def test_config_matches_original_after_save_load(self, tmp_path):
-        """Test that config round-trips correctly through save/load cycle."""
-        original_config = MainConfig(
-            experiment=ExperimentConfig(
-                name="roundtrip_test",
-                checkpoint_folder=str(tmp_path),
-                device="cpu",
-                seed=123,
-                val_every=5,
-                checkpoint_every=10,
-                use_wandb=False,
-            ),
-            task=TaskConfig(
-                observation_space=ObservationSpace(
-                    camera_keys=[Cameras.LEFT.value],
-                    use_proprio_base_frame=True,
-                    use_proprio_camera_frame=False,
-                ),
-                action_space=ActionSpace(
-                    has_position=True,
-                    position_dim=3,
-                ),
-                observation_horizon=1,
-                prediction_horizon=8,
-                dataloader=DataloaderConfig(
-                    batch_size=16,
-                    num_workers=4,
-                ),
-            ),
-            training=TrainingConfig(
-                num_epochs=50,
-                gradient_accumulate_every=2,
-                use_ema=False,
-                optimizer=AdamWConfig(
-                    lr=5e-5,
-                    weight_decay=1e-5,
-                ),
-            ),
-            policy=PolicyConfig(),
-            inference=InferenceConfig(),
-        )
-
-        workspace = Workspace(original_config)
-        config_path = workspace.output_dir / "config.yaml"
-
-        # Reload config
-        loaded_config = OmegaConf.load(config_path)
-
-        # Verify key fields match
-        assert loaded_config.experiment.name == original_config.experiment.name
-        assert loaded_config.experiment.seed == original_config.experiment.seed
-        assert loaded_config.experiment.val_every == original_config.experiment.val_every
-        assert loaded_config.task.observation_horizon == original_config.task.observation_horizon
-        assert loaded_config.task.prediction_horizon == original_config.task.prediction_horizon
-        assert loaded_config.task.dataloader.batch_size == original_config.task.dataloader.batch_size
-        assert loaded_config.training.num_epochs == original_config.training.num_epochs
-        assert loaded_config.training.gradient_accumulate_every == original_config.training.gradient_accumulate_every
+@pytest.fixture(autouse=True)
+def mock_omega_conf_to_yaml():
+    """Auto-mock OmegaConf.to_yaml to avoid DictConfig validation issues."""
+    with patch("refactoring.endpoints.train.OmegaConf") as mock:
+        mock.to_yaml.return_value = "mocked_yaml_output"
+        yield mock
 
 
 @pytest.mark.unit
-class TestTrainingEndpointCheckpointing:
-    """Test that training endpoint handles checkpointing correctly."""
+class TestTrainEndpointConfigInstantiation:
+    """Test that train.py correctly instantiates configs from YAML."""
 
-    def test_checkpoint_directory_created(self, tmp_path):
-        """Test that checkpoint directory is created."""
-        config = MainConfig(
-            experiment=ExperimentConfig(
-                name="ckpt_dir_test",
-                checkpoint_folder=str(tmp_path),
-                device="cpu",
-                use_wandb=False,
-            ),
-            task=TaskConfig(
-                observation_space=ObservationSpace(
-                    camera_keys=[Cameras.LEFT.value],
-                    use_proprio_base_frame=True,
-                ),
-                action_space=ActionSpace(
-                    has_position=True,
-                    position_dim=3,
-                ),
-                observation_horizon=1,
-                prediction_horizon=4,
-                dataloader=DataloaderConfig(batch_size=2),
-            ),
-            training=TrainingConfig(num_epochs=1),
-            policy=PolicyConfig(),
-            inference=InferenceConfig(),
+    @patch("refactoring.endpoints.train.Workspace")
+    @patch("refactoring.endpoints.train.validate_config")
+    @patch("hydra.utils.instantiate")
+    @patch("refactoring.endpoints.train.logger")
+    def test_empty_config_raises_error(
+        self, mock_logger, mock_instantiate, mock_validate, mock_workspace_class
+    ):
+        with pytest.raises(ValueError, match="No configuration specified"):
+            train.main.__wrapped__(None)
+
+    @patch("refactoring.endpoints.train.Workspace")
+    @patch("refactoring.endpoints.train.validate_config")
+    @patch("hydra.utils.instantiate")
+    @patch("refactoring.endpoints.train.OmegaConf")
+    def test_hydra_instantiate_is_called(
+        self,
+        mock_omega_conf,
+        mock_instantiate,
+        mock_workspace_class,
+        mock_hydra_config_factory,
+        mock_instantiated_config_factory,
+        mock_workspace_factory,
+    ):
+        config = mock_hydra_config_factory()
+        instantiated = mock_instantiated_config_factory(resume_from=None)
+        workspace = mock_workspace_factory()
+
+        mock_instantiate.return_value = instantiated
+        mock_workspace_class.return_value = workspace
+
+        train.main.__wrapped__(config)
+
+        mock_instantiate.assert_called_once_with(config)
+
+    @patch("refactoring.endpoints.train.Workspace")
+    @patch("refactoring.endpoints.train.validate_config")
+    @patch("hydra.utils.instantiate")
+    @patch("refactoring.endpoints.train.logger")
+    def test_validate_config_is_called_with_instantiated_config(
+        self,
+        mock_logger,
+        mock_instantiate,
+        mock_validate,
+        mock_workspace_class,
+        mock_hydra_config_factory,
+        mock_instantiated_config_factory,
+        mock_workspace_factory,
+    ):
+        config = mock_hydra_config_factory()
+        instantiated = mock_instantiated_config_factory(resume_from=None)
+        workspace = mock_workspace_factory()
+
+        mock_instantiate.return_value = instantiated
+        mock_workspace_class.return_value = workspace
+
+        train.main.__wrapped__(config)
+
+        mock_validate.assert_called_once_with(instantiated)
+
+    @patch("refactoring.endpoints.train.Workspace")
+    @patch("refactoring.endpoints.train.validate_config")
+    @patch("hydra.utils.instantiate")
+    def test_workspace_created_with_both_configs(
+        self,
+        mock_instantiate,
+        mock_validate,
+        mock_workspace_class,
+        mock_hydra_config_factory,
+        mock_instantiated_config_factory,
+        mock_workspace_factory,
+    ):
+        config = mock_hydra_config_factory()
+        instantiated = mock_instantiated_config_factory(resume_from=None)
+        workspace = mock_workspace_factory()
+
+        mock_instantiate.return_value = instantiated
+        mock_workspace_class.return_value = workspace
+
+        train.main.__wrapped__(config)
+
+        mock_workspace_class.assert_called_once_with(
+            instantiated, original_yaml_config=config
         )
 
-        workspace = Workspace(config)
+    @patch("refactoring.endpoints.train.Workspace")
+    @patch("refactoring.endpoints.train.validate_config")
+    @patch("hydra.utils.instantiate")
+    def test_workspace_run_is_invoked(
+        self,
+        mock_instantiate,
+        mock_validate,
+        mock_workspace_class,
+        mock_hydra_config_factory,
+        mock_instantiated_config_factory,
+        mock_workspace_factory,
+    ):
+        config = mock_hydra_config_factory()
+        instantiated = mock_instantiated_config_factory(resume_from=None)
+        workspace = mock_workspace_factory()
 
-        # Verify output directory exists
-        assert workspace.output_dir.exists()
-        assert workspace.output_dir.is_dir()
+        mock_instantiate.return_value = instantiated
+        mock_workspace_class.return_value = workspace
 
-        # Verify it's in the right location
-        expected_path = Path(tmp_path) / "ckpt_dir_test"
-        assert workspace.output_dir == expected_path
+        train.main.__wrapped__(config)
 
-    def test_config_saved_before_training(self, tmp_path):
-        """Test that config.yaml is saved before any training begins."""
-        config = MainConfig(
-            experiment=ExperimentConfig(
-                name="save_before_train_test",
-                checkpoint_folder=str(tmp_path),
-                device="cpu",
-                use_wandb=False,
-            ),
-            task=TaskConfig(
-                observation_space=ObservationSpace(
-                    camera_keys=[Cameras.LEFT.value],
-                    use_proprio_base_frame=True,
-                ),
-                action_space=ActionSpace(
-                    has_position=True,
-                    position_dim=3,
-                ),
-                observation_horizon=1,
-                prediction_horizon=4,
-                dataloader=DataloaderConfig(batch_size=2),
-            ),
-            training=TrainingConfig(num_epochs=1),
-            policy=PolicyConfig(),
-            inference=InferenceConfig(),
-        )
-
-        # Config should be saved during __init__, before any other setup
-        workspace = Workspace(config)
-
-        # Verify config exists immediately
-        config_path = workspace.output_dir / "config.yaml"
-        assert config_path.exists()
-        assert config_path.parent == workspace.output_dir
-
-        # Verify policy/trainer haven't been initialized yet
-        assert workspace.policy is None
-        assert workspace.trainer is None
+        workspace.run.assert_called_once()
 
 
 @pytest.mark.unit
-class TestHydraConfigLoading:
-    """Test Hydra configuration loading and validation."""
+class TestTrainEndpointResumeCheckpoint:
+    """Test checkpoint resume functionality."""
 
-    def test_experiment_config_defaults(self):
-        """Test ExperimentConfig has expected defaults."""
-        config = ExperimentConfig(
-            name="test",
-            checkpoint_folder="/tmp/checkpoints"
-        )
+    @patch("refactoring.endpoints.train.Workspace")
+    @patch("refactoring.endpoints.train.validate_config")
+    @patch("hydra.utils.instantiate")
+    @patch("refactoring.endpoints.train.Path")
+    def test_load_checkpoint_called_when_resume_from_exists(
+        self,
+        mock_path_class,
+        mock_instantiate,
+        mock_validate,
+        mock_workspace_class,
+        mock_hydra_config_factory,
+        mock_instantiated_config_factory,
+        mock_workspace_factory,
+    ):
+        config = mock_hydra_config_factory()
+        checkpoint_path = "/path/to/checkpoint.pt"
+        instantiated = mock_instantiated_config_factory(resume_from=checkpoint_path)
+        workspace = mock_workspace_factory()
 
-        assert config.name == "test"
-        assert config.seed == 42
-        assert config.device == "cuda"
-        assert config.distributed is False
-        assert config.use_wandb is True
-        assert config.checkpoint_every == 100
-        assert config.val_every == 1
+        mock_checkpoint_path = MagicMock()
+        mock_checkpoint_path.exists.return_value = True
+        mock_checkpoint_path.__str__.return_value = checkpoint_path
+        mock_path_class.return_value = mock_checkpoint_path
 
-    def test_config_to_object_conversion(self):
-        """Test OmegaConf DictConfig can be converted to MainConfig."""
-        dict_config = {
-            "experiment": {
-                "name": "test_exp",
-                "seed": 123,
-                "checkpoint_folder": "/tmp/ckpt",
-                "device": "cpu",
-                "distributed": False,
-                "use_wandb": False,
-            }
-        }
+        mock_instantiate.return_value = instantiated
+        mock_workspace_class.return_value = workspace
 
-        omega_conf = OmegaConf.create(dict_config)
+        train.main.__wrapped__(config)
 
-        assert omega_conf.experiment.name == "test_exp"
-        assert omega_conf.experiment.seed == 123
-        assert omega_conf.experiment.device == "cpu"
+        workspace.load_checkpoint.assert_called_once_with(checkpoint_path)
+        workspace.run.assert_called_once()
 
-    def test_hydra_interpolation_experiment_to_policy(self):
-        """Test that ${experiment.device} interpolation works."""
-        dict_config = {
-            "experiment": {"device": "cuda"},
-            "policy": {"device": "${experiment.device}"}
-        }
+    @patch("refactoring.endpoints.train.Workspace")
+    @patch("refactoring.endpoints.train.validate_config")
+    @patch("hydra.utils.instantiate")
+    @patch("refactoring.endpoints.train.Path")
+    @patch("refactoring.endpoints.train.logger")
+    def test_warning_logged_when_checkpoint_missing(
+        self,
+        mock_logger,
+        mock_path_class,
+        mock_instantiate,
+        mock_validate,
+        mock_workspace_class,
+        mock_hydra_config_factory,
+        mock_instantiated_config_factory,
+        mock_workspace_factory,
+    ):
+        config = mock_hydra_config_factory()
+        checkpoint_path = "/path/to/missing.pt"
+        instantiated = mock_instantiated_config_factory(resume_from=checkpoint_path)
+        workspace = mock_workspace_factory()
 
-        omega_conf = OmegaConf.create(dict_config)
-        resolved = OmegaConf.to_container(omega_conf, resolve=True)
+        mock_checkpoint_path = MagicMock()
+        mock_checkpoint_path.exists.return_value = False
+        mock_checkpoint_path.__str__.return_value = checkpoint_path
+        mock_path_class.return_value = mock_checkpoint_path
 
-        assert resolved["policy"]["device"] == "cuda"
+        mock_instantiate.return_value = instantiated
+        mock_workspace_class.return_value = workspace
 
-    def test_config_override_via_dict(self):
-        """Test that config values can be overridden."""
-        base_config = {
-            "experiment": {
-                "name": "base",
-                "device": "cuda",
-                "seed": 42,
-            }
-        }
+        train.main.__wrapped__(config)
 
-        override = {"experiment": {"device": "cpu", "seed": 999}}
+        mock_logger.warning.assert_called_once()
+        warning_message = mock_logger.warning.call_args[0][0]
+        assert "Checkpoint not found" in warning_message
 
-        base = OmegaConf.create(base_config)
-        override_conf = OmegaConf.create(override)
-        merged = OmegaConf.merge(base, override_conf)
+        workspace.load_checkpoint.assert_not_called()
+        workspace.run.assert_called_once()
 
-        assert merged.experiment.device == "cpu"
-        assert merged.experiment.seed == 999
-        assert merged.experiment.name == "base"
+    @patch("refactoring.endpoints.train.Workspace")
+    @patch("refactoring.endpoints.train.validate_config")
+    @patch("hydra.utils.instantiate")
+    def test_no_load_checkpoint_when_resume_from_is_none(
+        self,
+        mock_instantiate,
+        mock_validate,
+        mock_workspace_class,
+        mock_hydra_config_factory,
+        mock_instantiated_config_factory,
+        mock_workspace_factory,
+    ):
+        config = mock_hydra_config_factory()
+        instantiated = mock_instantiated_config_factory(resume_from=None)
+        workspace = mock_workspace_factory()
+
+        mock_instantiate.return_value = instantiated
+        mock_workspace_class.return_value = workspace
+
+        train.main.__wrapped__(config)
+
+        workspace.load_checkpoint.assert_not_called()
+        workspace.run.assert_called_once()
 
 
 @pytest.mark.unit
-class TestDistributedTrainingDetection:
-    """Test distributed training environment variable detection."""
+class TestTrainEndpointDistributedDetection:
+    """Test distributed training detection from environment variables."""
 
-    def test_world_size_env_var_enables_distributed(self):
-        """Test that WORLD_SIZE env var enables distributed training."""
-        with patch.dict(os.environ, {"WORLD_SIZE": "4"}, clear=False):
-            assert "WORLD_SIZE" in os.environ
-            assert os.environ["WORLD_SIZE"] == "4"
+    @patch("refactoring.endpoints.train.Workspace")
+    @patch("refactoring.endpoints.train.validate_config")
+    @patch("hydra.utils.instantiate")
+    @patch("refactoring.endpoints.train.logger")
+    @patch.dict(os.environ, {"WORLD_SIZE": "4"}, clear=False)
+    def test_world_size_env_var_sets_distributed_true(
+        self,
+        mock_logger,
+        mock_instantiate,
+        mock_workspace_class,
+        mock_hydra_config_factory,
+        mock_instantiated_config_factory,
+        mock_workspace_factory,
+    ):
+        config = mock_hydra_config_factory()
+        config.experiment.distributed = False
 
-    def test_no_world_size_keeps_distributed_false(self):
-        """Test that absence of WORLD_SIZE keeps distributed=False."""
-        with patch.dict(os.environ, {}, clear=True):
-            assert "WORLD_SIZE" not in os.environ
+        instantiated = mock_instantiated_config_factory(distributed=False)
+        workspace = mock_workspace_factory()
 
-    def test_slurm_environment_variables_present(self):
-        """Test detection of SLURM environment variables."""
-        slurm_vars = {
+        mock_instantiate.return_value = instantiated
+        mock_workspace_class.return_value = workspace
+
+        train.main.__wrapped__(config)
+
+        assert config.experiment.distributed is True
+
+    @patch("refactoring.endpoints.train.Workspace")
+    @patch("refactoring.endpoints.train.validate_config")
+    @patch("hydra.utils.instantiate")
+    @patch("refactoring.endpoints.train.logger")
+    @patch.dict(os.environ, {}, clear=True)
+    def test_no_world_size_keeps_distributed_false(
+        self,
+        mock_logger,
+        mock_instantiate,
+        mock_workspace_class,
+        mock_hydra_config_factory,
+        mock_instantiated_config_factory,
+        mock_workspace_factory,
+    ):
+        assert "WORLD_SIZE" not in os.environ
+
+        config = mock_hydra_config_factory()
+        config.experiment.distributed = False
+
+        instantiated = mock_instantiated_config_factory(distributed=False)
+        workspace = mock_workspace_factory()
+
+        mock_instantiate.return_value = instantiated
+        mock_workspace_class.return_value = workspace
+
+        train.main.__wrapped__(config)
+
+        assert config.experiment.distributed is False
+
+    @patch("refactoring.endpoints.train.Workspace")
+    @patch("refactoring.endpoints.train.validate_config")
+    @patch("hydra.utils.instantiate")
+    @patch("refactoring.endpoints.train.logger")
+    @patch.dict(
+        os.environ,
+        {
             "WORLD_SIZE": "8",
             "SLURM_PROCID": "0",
             "SLURM_GPUS_ON_NODE": "2",
-            "SLURM_CPUS_PER_TASK": "8",
-        }
+        },
+        clear=False,
+    )
+    def test_distributed_detection_logs_world_size(
+        self,
+        mock_logger,
+        mock_instantiate,
+        mock_workspace_class,
+        mock_hydra_config_factory,
+        mock_instantiated_config_factory,
+        mock_workspace_factory,
+    ):
+        config = mock_hydra_config_factory()
+        config.experiment.distributed = False
 
-        with patch.dict(os.environ, slurm_vars, clear=False):
-            assert os.environ.get("WORLD_SIZE") == "8"
-            assert os.environ.get("SLURM_PROCID") == "0"
+        instantiated = mock_instantiated_config_factory(distributed=False)
+        workspace = mock_workspace_factory()
 
+        mock_instantiate.return_value = instantiated
+        mock_workspace_class.return_value = workspace
 
-@pytest.mark.unit
-class TestWorkspaceExtended:
-    """Additional workspace initialization tests."""
+        train.main.__wrapped__(config)
 
-    def test_workspace_seed_setting(self, tmp_path):
-        """Test that workspace sets random seeds correctly."""
-        config = MainConfig(
-            experiment=ExperimentConfig(
-                name="seed_test",
-                checkpoint_folder=str(tmp_path),
-                seed=12345,
-                device="cpu",
-                use_wandb=False,
-            ),
-            task=TaskConfig(
-                observation_space=ObservationSpace(
-                    camera_keys=[Cameras.LEFT.value],
-                    use_proprio_base_frame=True,
-                ),
-                action_space=ActionSpace(
-                    has_position=True,
-                    position_dim=3,
-                ),
-                observation_horizon=1,
-                prediction_horizon=4,
-                dataloader=DataloaderConfig(batch_size=2),
-            ),
-            training=TrainingConfig(
-                num_epochs=1,
-                optimizer=AdamWConfig(),
-            ),
-            policy=PolicyConfig(),
-            inference=InferenceConfig(),
-        )
+        assert config.experiment.distributed is True
 
-        workspace = Workspace(config)
-
-        rand_val1 = torch.rand(1).item()
-        np_rand_val1 = np.random.rand()
-
-        torch.manual_seed(12345)
-        np.random.seed(12345)
-
-        rand_val2 = torch.rand(1).item()
-        np_rand_val2 = np.random.rand()
-
-        assert rand_val1 == rand_val2
-        assert np_rand_val1 == np_rand_val2
+        info_calls = [str(call) for call in mock_logger.info.call_args_list]
+        assert any("WORLD_SIZE=8" in call for call in info_calls)
 
 
 @pytest.mark.unit
-class TestTrainingConfigValidation:
-    """Test training configuration validation."""
+class TestTrainEndpointExecutionFlow:
+    """Integration tests verifying complete execution flow."""
 
-    def test_training_config_defaults(self):
-        """Test TrainingConfig has sensible defaults."""
-        config = TrainingConfig(
-            num_epochs=100,
-            optimizer=AdamWConfig(),
-        )
+    @patch("refactoring.endpoints.train.Workspace")
+    @patch("refactoring.endpoints.train.validate_config")
+    @patch("hydra.utils.instantiate")
+    @patch("refactoring.endpoints.train.logger")
+    def test_full_flow_without_resume(
+        self,
+        mock_logger,
+        mock_instantiate,
+        mock_validate,
+        mock_workspace_class,
+        mock_hydra_config_factory,
+        mock_instantiated_config_factory,
+        mock_workspace_factory,
+    ):
+        config = mock_hydra_config_factory()
+        instantiated = mock_instantiated_config_factory(resume_from=None)
+        workspace = mock_workspace_factory()
 
-        assert config.num_epochs == 100
-        assert config.gradient_accumulate_every == 1
-        assert config.clip_gradient_norm is False
-        assert config.use_ema is True
-        assert config.ema_power == 0.75
+        mock_instantiate.return_value = instantiated
+        mock_workspace_class.return_value = workspace
 
-    def test_optimizer_config_defaults(self):
-        """Test AdamWConfig has expected defaults."""
-        config = AdamWConfig()
+        train.main.__wrapped__(config)
 
-        assert config.lr == 1e-4
-        assert config.weight_decay == 1e-4
-        assert config.betas == (0.9, 0.999)
-        assert config.eps == 1e-8
-        assert config._target_ == "torch.optim.AdamW"
+        assert mock_instantiate.called
+        assert mock_validate.called
+        assert mock_workspace_class.called
+        assert workspace.run.called
 
-    def test_lr_schedule_in_training_config(self):
-        """Test learning rate schedule is configured in TrainingConfig."""
-        config = TrainingConfig(
-            num_epochs=100,
-            optimizer=AdamWConfig(),
-            lr_schedule="cosine",
-            lr_warmup_steps=1000,
-        )
+        workspace.load_checkpoint.assert_not_called()
 
-        assert config.lr_schedule == "cosine"
-        assert config.lr_warmup_steps == 1000
+    @patch("refactoring.endpoints.train.Workspace")
+    @patch("refactoring.endpoints.train.validate_config")
+    @patch("hydra.utils.instantiate")
+    @patch("refactoring.endpoints.train.Path")
+    @patch.dict(os.environ, {"WORLD_SIZE": "4"}, clear=False)
+    def test_full_flow_with_resume_and_distributed(
+        self,
+        mock_path_class,
+        mock_instantiate,
+        mock_validate,
+        mock_workspace_class,
+        mock_hydra_config_factory,
+        mock_instantiated_config_factory,
+        mock_workspace_factory,
+    ):
+        config = mock_hydra_config_factory()
+        config.experiment.distributed = False
+        checkpoint_path = "/path/to/checkpoint.pt"
 
+        instantiated = mock_instantiated_config_factory(resume_from=checkpoint_path)
+        workspace = mock_workspace_factory()
 
-@pytest.mark.unit
-class TestCheckpointExtended:
-    """Extended checkpoint configuration tests."""
+        mock_checkpoint_path = MagicMock()
+        mock_checkpoint_path.exists.return_value = True
+        mock_checkpoint_path.__str__.return_value = checkpoint_path
+        mock_path_class.return_value = mock_checkpoint_path
 
-    def test_resume_from_checkpoint_path(self, tmp_path):
-        """Test resume_from checkpoint path."""
-        checkpoint_path = tmp_path / "checkpoint.ckpt"
-        checkpoint_path.touch()
+        mock_instantiate.return_value = instantiated
+        mock_workspace_class.return_value = workspace
 
-        config = ExperimentConfig(
-            name="test",
-            checkpoint_folder=str(tmp_path),
-            resume_from=str(checkpoint_path),
-        )
+        train.main.__wrapped__(config)
 
-        assert config.resume_from == str(checkpoint_path)
-        assert Path(config.resume_from).exists()
+        assert config.experiment.distributed is True
+
+        workspace.load_checkpoint.assert_called_once_with(checkpoint_path)
+        workspace.run.assert_called_once()
+
+    @patch("refactoring.endpoints.train.Workspace")
+    @patch("refactoring.endpoints.train.validate_config")
+    @patch("hydra.utils.instantiate")
+    @patch("refactoring.endpoints.train.logger")
+    def test_execution_order_is_correct(
+        self,
+        mock_logger,
+        mock_instantiate,
+        mock_validate,
+        mock_workspace_class,
+        mock_hydra_config_factory,
+        mock_instantiated_config_factory,
+        mock_workspace_factory,
+    ):
+        config = mock_hydra_config_factory()
+        instantiated = mock_instantiated_config_factory(resume_from=None)
+        workspace = mock_workspace_factory()
+
+        mock_instantiate.return_value = instantiated
+        mock_workspace_class.return_value = workspace
+
+        call_order = []
+        mock_instantiate.side_effect = lambda x: (call_order.append("instantiate"), instantiated)[1]
+        mock_validate.side_effect = lambda x: call_order.append("validate")
+        mock_workspace_class.side_effect = lambda *args, **kwargs: (call_order.append("workspace"), workspace)[1]
+        workspace.run.side_effect = lambda: call_order.append("run")
+
+        train.main.__wrapped__(config)
+
+        assert call_order == ["instantiate", "validate", "workspace", "run"]

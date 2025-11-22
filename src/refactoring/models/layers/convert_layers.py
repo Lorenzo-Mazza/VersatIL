@@ -8,7 +8,6 @@ def convert_layers(
         layer_type_old: type[nn.Module],
         layer_type_new: type[nn.Module],
         convert_weights: bool = False,
-        num_groups: int | None = None,
 ) -> nn.Module:
     """
     Recursively convert layers of a specific type in the model to a new type, in-place.
@@ -20,7 +19,6 @@ def convert_layers(
         layer_type_old: The type of layer to replace (e.g., nn.BatchNorm2d).
         layer_type_new: The type of layer to replace with (e.g., nn.GroupNorm).
         convert_weights: If True, copy weights and biases from old to new layers.
-        num_groups: Deprecated, computed automatically for GroupNorm.
 
     Returns:
         The modified model with layers converted.
@@ -30,7 +28,7 @@ def convert_layers(
             continue
         if len(list(module.children())) > 0:
             model._modules[name] = convert_layers(
-                module, layer_type_old, layer_type_new, convert_weights, num_groups
+                module, layer_type_old, layer_type_new, convert_weights
             )
 
         if isinstance(module, layer_type_old):
@@ -41,7 +39,7 @@ def convert_layers(
             if layer_type_new == nn.GroupNorm:
                 computed_num_groups = _compute_num_groups(num_channels)
             else:
-                computed_num_groups = num_groups if num_groups is not None else num_channels
+                computed_num_groups = num_channels
 
             layer_new = layer_type_new(
                 num_groups=computed_num_groups,
@@ -98,5 +96,4 @@ def replace_batchnorm_with_groupnorm(model: nn.Module) -> nn.Module:
         layer_type_old=_BatchNorm,
         layer_type_new=nn.GroupNorm,
         convert_weights=False,
-        num_groups=None
     )

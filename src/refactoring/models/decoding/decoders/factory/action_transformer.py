@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.constants import FeatureType
 from refactoring.models.decoding.decoders import ActionDecoder, DecoderInput

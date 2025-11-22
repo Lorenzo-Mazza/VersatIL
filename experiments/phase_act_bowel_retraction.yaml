@@ -5,7 +5,7 @@ defaults:
   - task/action_space: br_position_gripper_deltas_cf_phases
   - task/observation_space: br_rgb_depth
   - training: phase_act_default
-  - policy/encoding_pipeline: rgb_depth_geometric
+  - policy/encoding_pipeline: stereo_rgb_geom_depth
   - policy/decoder: phase_act_default
   - policy/algorithm: bc_with_vae_gaussian
   - policy/loss: phase_act_default

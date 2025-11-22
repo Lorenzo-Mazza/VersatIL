@@ -5,12 +5,12 @@ import torch
 from refactoring.models.decoding.decoders.factory.free_transformer import FreeTransformer
 from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.action_heads.blocks import MLPBlock
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
     POSITION_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
     GRIPPER_ACTION_KEY,
-    IS_PAD_KEY,
+    IS_PAD_ACTION_KEY,
     Cameras,
     OrientationRepresentation,
     GripperType,
@@ -169,7 +169,7 @@ def actions_dict(batch_size, prediction_horizon, action_space, device):
             0, 2, (batch_size, prediction_horizon, action_space.gripper_dim), device=device
         ).float()
 
-    actions[IS_PAD_KEY] = torch.zeros(
+    actions[IS_PAD_ACTION_KEY] = torch.zeros(
         batch_size, prediction_horizon, dtype=torch.bool, device=device
     )
 

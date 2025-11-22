@@ -73,39 +73,26 @@ class VariationalAlgorithm(DecodingAlgorithm):
         posterior_encoder: LatentActionEncoder,
         prior: LatentPrior | None = None,
     ):
-        """Initialize variational algorithm wrapper.
-
-        Args:
-            base_algorithm: Base decoding algorithm to wrap
-            posterior_encoder: Posterior encoder q(z|a,s)
-            prior: Optional prior p(z|s). If None, creates GaussianPrior.
-        """
+        """Initialize variational algorithm wrapper."""
         super().__init__()
         self.base_algorithm = base_algorithm
         self.posterior_encoder = posterior_encoder
-        # Auto-create Gaussian prior if none provided
         if prior is None:
             device = str(posterior_encoder.device)
             self.prior = GaussianPrior(
-                latent_dim=self.posterior_encoder.latent_dim,
-                output_dim=self.posterior_encoder.output_dim,
+                latent_dimension=self.posterior_encoder.latent_dim,
                 device=device,
             )
             logging.info(
-                f"Auto-created GaussianPrior with latent_dim={self.posterior_encoder.latent_dim}. "
+                f"Auto-created GaussianPrior with latent_dim={self.posterior_encoder.latent_dimension}. "
             )
         else:
             self.prior = prior
 
-        if self.prior.latent_dim != self.posterior_encoder.latent_dim:
+        if self.prior.latent_dimension != self.posterior_encoder.latent_dimension:
             raise ValueError(
-                f"Latent dimension mismatch: prior.latent_dim={self.prior.latent_dim} "
-                f"!= posterior_encoder.latent_dim={self.posterior_encoder.latent_dim}"
-            )
-        if self.prior.output_dim != self.posterior_encoder.output_dim:
-            raise ValueError(
-                f"Output dimension mismatch: prior.output_dim={self.prior.output_dim} "
-                f"!= posterior_encoder.output_dim={self.posterior_encoder.output_dim}"
+                f"Latent dimension mismatch: prior.latent_dim={self.prior.latent_dimension} "
+                f"!= posterior_encoder.latent_dim={self.posterior_encoder.latent_dimension}"
             )
 
     @property
@@ -143,7 +130,7 @@ class VariationalAlgorithm(DecodingAlgorithm):
         features: dict[str, torch.Tensor],
         actions: dict[str, torch.Tensor],
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor], torch.Tensor | None]:
-        """Encode actions via posterior and optionally train prior.
+        """Encode actions via posterior  q(z|a,s) and optionally train prior.
 
         Args:
             features: Observation features
@@ -153,18 +140,15 @@ class VariationalAlgorithm(DecodingAlgorithm):
             Tuple of (latent_embedding, mu, logvar, prior_outputs, state features)
             where prior_outputs contains predictions and targets for prior loss
         """
-        # Encode actions via posterior q(z|a,s)
         latent_output = self.posterior_encoder.encode(actions=actions, observations=features)
-        latent_embedding = latent_output[LATENT_KEY]
+        latent_embedding = latent_output[LATENT_KEY] # (B, posterior.latent_dim)
         state_features = latent_output[STATE_FEATURE_KEYS]
-        mu = latent_output.get(MU_KEY)
-        logvar = latent_output.get(LOGVAR_KEY)
+        mu = latent_output[MU_KEY]# (B, posterior.latent_dim)
+        logvar = latent_output[LOGVAR_KEY] # (B, posterior.latent_dim)
         z = reparametrize(mu, logvar)
-        # Train prior to match posterior samples (if learned prior)
         conditioning = self._extract_conditioning(features)
-        # Detach z to prevent gradients flowing to posterior encoder
         prior_outputs = self.prior.forward(
-            target_latents=z.detach(),
+            target_latents=z.detach(), # Detach z to prevent gradients flowing to posterior encoder
             conditioning=conditioning,
         )
         return latent_embedding, mu, logvar, prior_outputs, state_features
@@ -184,7 +168,6 @@ class VariationalAlgorithm(DecodingAlgorithm):
             Sampled latent embedding
         """
         conditioning = self._extract_conditioning(features)
-        # Sample from conditioned prior p(z|s) or unconditional if GaussianPrior
         latent_embedding = self.prior.sample_prior(
             batch_size=batch_size,
             conditioning=conditioning,
@@ -219,34 +202,27 @@ class VariationalAlgorithm(DecodingAlgorithm):
         """
         if actions is None:
             raise ValueError("Actions must be provided during training for variational algorithm.")
-
-        # Training mode: encode via posterior
-        latent_embedding, mu, logvar, prior_outputs, state_features = self._encode_posterior(
+        latent_embedding, mu, logvar, prior_outputs, obs_features = self._encode_posterior(
             features=features,
             actions=actions,
         )
-        # Add latent feature to features
-        features_with_latent = {**features, LATENT_KEY: latent_embedding}
-        # Delegate to base algorithm
+        features_with_latent = {**features, LATENT_KEY: latent_embedding} # (B, latent_dimension)
         predictions = self.base_algorithm.forward(
             network=network,
             features=features_with_latent,
             actions=actions,
         )
-
-        # Add latent variables to output
         if mu is not None:
             predictions[MU_KEY] = mu
         if logvar is not None:
             predictions[LOGVAR_KEY] = logvar
-        # Add prior outputs if available (for learned priors)
         if prior_outputs is not None and len(prior_outputs) > 0:
             if PRIOR_PREDICTION_KEY in prior_outputs:
                 predictions[PRIOR_PREDICTION_KEY] = prior_outputs[PRIOR_PREDICTION_KEY]
             if PRIOR_TARGET_KEY in prior_outputs:
                 predictions[PRIOR_TARGET_KEY] = prior_outputs[PRIOR_TARGET_KEY]
-        if state_features is not None:
-            predictions[STATE_FEATURE_KEYS] = state_features
+        if obs_features is not None:
+            predictions[STATE_FEATURE_KEYS] = obs_features
         return predictions
 
 
@@ -265,11 +241,8 @@ class VariationalAlgorithm(DecodingAlgorithm):
             Dictionary containing action predictions
         """
         batch_size = next(iter(features.values())).shape[0]
-        # Sample from prior
         latent_embedding = self._sample_prior(features=features, batch_size=batch_size)
-
-        features_with_latent = {**features, LATENT_KEY: latent_embedding}
-        # Delegate to base algorithm's predict method
+        features_with_latent = {**features, LATENT_KEY: latent_embedding} # (B, latent_dimension)
         return self.base_algorithm.forward(
             network=network,
             features=features_with_latent,

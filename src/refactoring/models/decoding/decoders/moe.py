@@ -5,7 +5,7 @@ import torch.nn as nn
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.models.decoding.constants import (
     EXPERT_OUTPUTS,
     ROUTING_WEIGHT,

@@ -14,3 +14,9 @@ class SequentialFusionType(str, enum.Enum):
     CROSS_ATTENTION = 'cross_attention'
     MLP = 'mlp'
 
+
+class ConcatDimension(str, enum.Enum):
+    """Dimensions to concatenate along."""
+    CHANNEL = 'channel'
+    HEIGHT = 'height'
+    WIDTH = 'width'

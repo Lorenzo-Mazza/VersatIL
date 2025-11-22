@@ -1,0 +1,9 @@
+defaults:
+  - base
+
+use_proprio_base_frame: true
+use_proprio_camera_frame: true
+camera_keys:
+  - ${cameras:LEFT}
+  - ${cameras:RIGHT}
+

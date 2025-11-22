@@ -10,20 +10,20 @@ import logging
 import torch
 import torch.nn as nn
 
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
     ACTION_KEY,
     GRIPPER_ACTION_KEY,
-    IS_PAD_KEY,
+    IS_PAD_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
     POSITION_ACTION_KEY, GripperType,
 )
-from refactoring.data.tokenize import ActionTokenizer
-from refactoring.data.tokenize.tokenizer import Tokenizer
+from refactoring.data.tokenization import ActionTokenizer
+from refactoring.data.tokenization.tokenizer import Tokenizer
 from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.constants import (
     ACTION_LOGITS_KEY,
-    ACTION_TOKENS_KEY,
+    PREDICTED_ACTION_TOKENS_KEY,
     LATENT_KEY,
     LOGVAR_KEY,
     MU_KEY,
@@ -40,7 +40,6 @@ from refactoring.models.layers.detr_transformer.transformer_encoder import (
 )
 from refactoring.models.layers.feature_projection import (
     FeatureProjection,
-    SpatialFeatureConcatenator,
 )
 from refactoring.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
@@ -143,11 +142,7 @@ class FASTDETRDecoder(ActionDecoder):
         )
 
         # Feature projection for handling spatial and flat features
-        self.spatial_feature_concatenator = SpatialFeatureConcatenator(
-            target_channels=embedding_dimension,
-            concat_dim=3,  # Concatenate along width for multi-camera
-            warn_on_projection=True,
-        )
+        self.spatial_feature_concatenator = None # Replace
         self.flat_feature_projection = FeatureProjection(
             embedding_dim=embedding_dimension,
             warn_on_projection=False,
@@ -439,7 +434,7 @@ class FASTDETRDecoder(ActionDecoder):
             Dict with ACTION_LOGITS_KEY and tokenized targets
         """
         tokenized_actions = self._tokenize_actions(actions)
-        token_ids = tokenized_actions[ACTION_TOKENS_KEY]  # (B, seq_len)
+        token_ids = tokenized_actions[PREDICTED_ACTION_TOKENS_KEY]  # (B, seq_len)
         batch_size, seq_len = token_ids.shape
         # Shift: Input embeds for tokens 0 to seq-2, to predict 1 to seq-1 (EOS)
         input_ids = token_ids[:, :-1]
@@ -453,7 +448,7 @@ class FASTDETRDecoder(ActionDecoder):
             memory=encoder_output,
             target_mask=causal_mask,
             memory_mask=None,
-            target_key_padding_mask=tokenized_actions.get(IS_PAD_KEY, None)[:, :-1] if IS_PAD_KEY in tokenized_actions else None,
+            target_key_padding_mask=tokenized_actions.get(IS_PAD_ACTION_KEY, None)[:, :-1] if IS_PAD_ACTION_KEY in tokenized_actions else None,
             memory_key_padding_mask=None,
         )  # (1, seq_len-1, B, D)
         decoder_output = decoder_output[0].transpose(0, 1)  # (B, seq_len-1, D)
@@ -461,11 +456,11 @@ class FASTDETRDecoder(ActionDecoder):
         logits = head(decoder_output)  # (B, seq_len-1, vocab_size)
         # Shifted targets
         target_ids = token_ids[:, 1:]
-        target_is_pad = tokenized_actions[IS_PAD_KEY][:, 1:] if IS_PAD_KEY in tokenized_actions else None
+        target_is_pad = tokenized_actions[IS_PAD_ACTION_KEY][:, 1:] if IS_PAD_ACTION_KEY in tokenized_actions else None
         return {
-            ACTION_TOKENS_KEY: logits,  # Predictions: logits over vocabulary
-            f"{ACTION_TOKENS_KEY}_target": target_ids,  # Targets: ground truth token IDs (shifted)
-            IS_PAD_KEY: target_is_pad
+            PREDICTED_ACTION_TOKENS_KEY: logits,  # Predictions: logits over vocabulary
+            f"{PREDICTED_ACTION_TOKENS_KEY}_target": target_ids,  # Targets: ground truth token IDs (shifted)
+            IS_PAD_ACTION_KEY: target_is_pad
         }
 
 
@@ -543,7 +538,7 @@ class FASTDETRDecoder(ActionDecoder):
             actions: Dict with position_action, orientation_action, gripper_action, is_pad
 
         Returns:
-            Dict with ACTION_TOKENS_KEY and IS_PAD_KEY
+            Dict with PREDICTED_ACTION_TOKENS_KEY and IS_PAD_ACTION_KEY
         """
         action_components = []
         if self.action_space.has_position and POSITION_ACTION_KEY in actions:
@@ -562,8 +557,8 @@ class FASTDETRDecoder(ActionDecoder):
         action_chunks = torch.cat(action_components, dim=-1)  # (B, T, action_dim)
         batch_size = action_chunks.shape[0]
 
-        if IS_PAD_KEY in actions:
-            is_pad = actions[IS_PAD_KEY].squeeze(-1)  # (B, T)
+        if IS_PAD_ACTION_KEY in actions:
+            is_pad = actions[IS_PAD_ACTION_KEY].squeeze(-1)  # (B, T)
             action_chunks_list = []
             for i in range(batch_size):
                 valid_mask = ~is_pad[i]
@@ -598,8 +593,8 @@ class FASTDETRDecoder(ActionDecoder):
             token_is_pad[i, :token_len] = False
 
         return {
-            ACTION_TOKENS_KEY: token_ids,
-            IS_PAD_KEY: token_is_pad,
+            PREDICTED_ACTION_TOKENS_KEY: token_ids,
+            IS_PAD_ACTION_KEY: token_is_pad,
         }
 
     def _detokenize_predictions(self, token_ids: torch.Tensor) -> dict[str, torch.Tensor]:

@@ -51,12 +51,17 @@ class GripperType(str, enum.Enum):
     CONTINUOUS = 'continuous'
 
 
+class TokenizerType(str, enum.Enum):
+    """Enum for tokenizer types in tokenization chains."""
+    FAST = 'fast'  # FAST action tokenizer
+    LANGUAGE = 'language'  # Language model tokenizer (BERT, GPT, Gemma, etc.)
+
+
 #: Observation keys
+OBSERVATION_KEY = "observation"
 PROPRIO_OBS_ROBOT_FRAME_KEY = "proprio_robot_frame"
 PROPRIO_OBS_CAMERA_FRAME_KEY = "proprio_camera_frame"
 GRIPPER_STATE_OBS_KEY = "gripper_state_obs"
-PROPRIO_STATE = "robot_proprio_state"
-OBSERVATION_KEY = "observation"
 LANGUAGE_KEY = "language_instruction"
 
 #: Action keys
@@ -64,18 +69,12 @@ ACTION_KEY = "action"
 POSITION_ACTION_KEY = "position_action"
 ORIENTATION_ACTION_KEY = "orientation_action"
 GRIPPER_ACTION_KEY = "gripper_action"
-
-#: Padding key
-IS_PAD_KEY = "is_pad"
-
-#: Shape key
-SHAPE_KEY = "shape"
-
-#: Phase label key
+IS_PAD_ACTION_KEY = "is_pad"
+IS_PAD_OBSERVATION_KEY = "is_pad_observation"
+TOKENIZED_OBSERVATIONS_KEY = "tokenized_observations"
+TOKENIZED_ACTIONS_KEY = "tokenized_actions"
 PHASE_LABEL_KEY = "phase_label"
 
-#: Episode metadata
-EPISODE_FILENAME = "episode.csv"
 
 
 

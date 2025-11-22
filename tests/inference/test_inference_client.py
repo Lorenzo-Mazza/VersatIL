@@ -12,9 +12,10 @@ from refactoring.data.constants import (
     GripperType,
 )
 from refactoring.configs.experiment import ExperimentConfig
-from refactoring.configs.task.task import TaskConfig, ActionSpace, ObservationSpace
-from refactoring.configs.task.dataloader import DataloaderConfig
-from refactoring.configs.task.dataset.schema import DatasetSchemaConfig
+from refactoring.configs.data.task import TaskSpaceConfig
+from refactoring.data.task import ActionSpace, ObservationSpace
+from refactoring.configs.data.dataloader import DataLoaderConfig
+from refactoring.configs.data.dataset.schema import DatasetSchemaConfig
 from refactoring.configs.training import TrainingConfig, OptimizerConfig, AdamWConfig
 from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
 from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod
@@ -65,7 +66,7 @@ def test_config():
         task_has_phases=False,
     )
 
-    dataloader_config = DataloaderConfig(
+    dataloader_config = DataLoaderConfig(
         batch_size=2,
         num_workers=0,
         image_height=224,
@@ -78,7 +79,7 @@ def test_config():
         zarr_path="dummy.zarr",
     )
 
-    task_config = TaskConfig(
+    task_config = TaskSpaceConfig(
         dataset_schema=dataset_schema_config,
         dataloader=dataloader_config,
         action_space=action_space,
@@ -149,7 +150,7 @@ def test_policy(test_config, device):
     encoding_pipeline.encoders = encoders
     encoding_pipeline.conditional_encoders = torch.nn.ModuleDict()
     encoding_pipeline.fusion_stages = torch.nn.ModuleList([])
-    encoding_pipeline.encoder_to_outputs = encoder_outputs
+    encoding_pipeline.encoders_to_outputs = encoder_outputs
     encoding_pipeline._feature_keys_to_dims = feature_keys_to_dims
     encoding_pipeline._consumed_features = set()
 
@@ -205,7 +206,6 @@ def test_policy(test_config, device):
 
     decoder_input = DecoderInput(
         keys=["rgb_image"],
-        required=["rgb_image"],
         required_types=[],
         requires_actions=False,
     )

@@ -51,8 +51,8 @@ def embedding_dim():
 def vae_encoder(latent_dim, embedding_dim, prediction_horizon, device):
     """Create VAE encoder fixture."""
     return VAETransformerEncoder(
-        latent_dim=latent_dim,
-        output_dim=embedding_dim,
+        latent_dimension=latent_dim,
+        embedding_dimension=embedding_dim,
         prediction_horizon=prediction_horizon,
         number_of_heads=2,
         feedforward_dimension=128,
@@ -66,7 +66,7 @@ def vae_encoder(latent_dim, embedding_dim, prediction_horizon, device):
 def gaussian_prior(latent_dim, embedding_dim, device):
     """Create Gaussian prior fixture."""
     return GaussianPrior(
-        latent_dim=latent_dim,
+        latent_dimension=latent_dim,
         output_dim=embedding_dim,
         device=device,
     )
@@ -82,7 +82,7 @@ def diffusion_prior(latent_dim, embedding_dim, device):
     Total: 112
     """
     return DiffusionPrior(
-        latent_dim=latent_dim,
+        latent_dimension=latent_dim,
         conditioning_dim=112,  # Matches flattened sample_features (32 + 5*16)
         output_dim=embedding_dim,
         hidden_dims=[32, 32],
@@ -123,8 +123,7 @@ class TestVariationalAlgorithmAutoGaussianPrior:
 
         assert alg.prior is not None
         assert isinstance(alg.prior, GaussianPrior)
-        assert alg.prior.latent_dim == vae_encoder.latent_dim
-        assert alg.prior.output_dim == vae_encoder.output_dim
+        assert alg.prior.latent_dimension == vae_encoder.latent_dimension
 
 
 class TestVariationalAlgorithmWithGaussianPrior:

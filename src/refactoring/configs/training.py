@@ -1,6 +1,4 @@
-from dataclasses import dataclass, field
-
-from omegaconf import MISSING
+from dataclasses import dataclass, field, MISSING
 
 
 @dataclass
@@ -14,23 +12,9 @@ class ParameterGroupConfig:
 
 @dataclass
 class OptimizerConfig:
-    """Base optimizer configuration using Hydra instantiation.
-
-    Uses _target_ to directly instantiate torch.optim optimizers.
-    All optimizer-specific parameters (lr, weight_decay, betas, etc.) are passed
-    directly to the torch optimizer via Hydra.
-
-    Example:
-        optimizer:
-            _target_: torch.optim.AdamW
-            lr: 1e-4
-            weight_decay: 1e-4
-            betas: [0.9, 0.999]
-            eps: 1e-8
-            param_groups: []  # Optional parameter groups with different LRs
+    """Base optimizer configuration.
     """
-    _target_: str = MISSING  # e.g., "torch.optim.AdamW"
-
+    target_class: str = MISSING
     # Base learning rate (required by all optimizers)
     lr: float = 1e-4
 
@@ -41,7 +25,7 @@ class OptimizerConfig:
 @dataclass
 class AdamWConfig(OptimizerConfig):
     """Configuration for torch.optim.AdamW optimizer."""
-    _target_: str = "torch.optim.AdamW"
+    target_class: str = "torch.optim.AdamW"
     lr: float = 1e-4
     weight_decay: float = 1e-4
     betas: tuple[float, float] = (0.9, 0.999)
@@ -52,7 +36,7 @@ class AdamWConfig(OptimizerConfig):
 @dataclass
 class AdamConfig(OptimizerConfig):
     """Configuration for torch.optim.Adam optimizer."""
-    _target_: str = "torch.optim.Adam"
+    target_class: str  = "torch.optim.Adam"
     lr: float = 1e-4
     betas: tuple[float, float] = (0.9, 0.999)
     eps: float = 1e-8
@@ -63,7 +47,7 @@ class AdamConfig(OptimizerConfig):
 @dataclass
 class SGDConfig(OptimizerConfig):
     """Configuration for torch.optim.SGD optimizer."""
-    _target_: str = "torch.optim.SGD"
+    target_class: str = "torch.optim.SGD"
     lr: float = 1e-2
     momentum: float = 0.0
     weight_decay: float = 0.0

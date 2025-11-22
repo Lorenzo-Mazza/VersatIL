@@ -14,8 +14,8 @@ import abc
 import numpy as np
 import pandas as pd
 
-from refactoring.configs.task.dataset.image_path import ImagePathConfig
-from refactoring.configs.task.dataset.raw_observations import RawObservationsConfig
+from refactoring.configs.data.dataset.image_path import ImagePathConfig
+from refactoring.configs.data.dataset.raw_observations import RawObservationsConfig
 from refactoring.data.constants import (
     GRIPPER_STATE_OBS_KEY,
     PHASE_LABEL_KEY,
@@ -43,6 +43,7 @@ class DatasetSchema(abc.ABC):
         self,
         dataset_folders: list[str],
         zarr_path: str,
+        dataset_filename: str,
         raw_observations: RawObservationsConfig,
         image_path_config: ImagePathConfig,
         has_phase_labels: bool = False,
@@ -53,6 +54,7 @@ class DatasetSchema(abc.ABC):
         Args:
             dataset_folders: List of dataset folder paths
             zarr_path: Path to save/load the zarr file
+            dataset_filename: Name and format of the dataset file in each folder
             raw_observations: Configuration for the raw observations stored in the csv
             image_path_config: Configuration for image paths
             has_phase_labels: Whether dataset has phase labels
@@ -60,6 +62,7 @@ class DatasetSchema(abc.ABC):
         """
         self.dataset_folders = dataset_folders
         self.zarr_path = zarr_path
+        self.dataset_filename = dataset_filename
         self.raw_observations = raw_observations
         self.image_path_config = image_path_config
         self.has_phase_labels = has_phase_labels

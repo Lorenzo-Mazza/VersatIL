@@ -9,7 +9,7 @@ from hydra.utils import get_class
 from omegaconf import OmegaConf
 from transformers import get_scheduler
 
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.configs import OptimizerConfig
 from refactoring.configs.training import TrainingConfig
 from refactoring.metrics.accumulators import MetricsAccumulator
 from refactoring.metrics.base import LossOutput
@@ -67,7 +67,6 @@ class LightningPolicy(pl.LightningModule):
         self.train_metrics.add_loss_output(loss_output)
         # Log only on epoch to avoid batch size dependency in plots
         self.log("train_loss", loss_output.total_loss, on_step=False, on_epoch=True, prog_bar=True)
-
         return loss_output.total_loss
 
     def on_train_epoch_end(self) -> None:
@@ -108,7 +107,7 @@ class LightningPolicy(pl.LightningModule):
     def configure_optimizers(self) -> dict[str, Any]:  # type: ignore[override]
         """Configure optimizers and learning rate schedulers.
 
-        Uses Hydra's get_class() to resolve optimizer from config._target_.
+        Uses Hydra's get_class() to resolve optimizer from config.target_class.
         Supports parameter groups with different learning rates.
 
         Returns:
@@ -117,32 +116,22 @@ class LightningPolicy(pl.LightningModule):
         optimizer_config = self.training_config.optimizer
         param_groups = self._create_parameter_groups(optimizer_config)
 
-        # Convert config to OmegaConf, then to dict to extract optimizer kwargs
-        # We need to exclude 'param_groups' since it's not a torch.optim parameter
         optimizer_config_omega = OmegaConf.structured(optimizer_config)
         optimizer_config_dict = OmegaConf.to_container(optimizer_config_omega, resolve=True)
-        assert isinstance(optimizer_config_dict, dict), "Expected dict from OmegaConf.to_container"
-
-        # Get optimizer class from _target_
-        target = optimizer_config_dict.pop("_target_")
+        target = optimizer_config_dict.pop("target_class")
         optimizer_cls = get_class(target)
-
         # Remove custom field that's not passed to torch.optim
         optimizer_config_dict.pop("param_groups", None)
-
-        # Manually instantiate optimizer to avoid Hydra's recursive conversion
         optimizer = optimizer_cls(param_groups, **optimizer_config_dict)
-
         if self.training_config.lr_schedule is None:
             return {"optimizer": optimizer}
         scheduler_config = self._create_scheduler_config(optimizer)
-
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler_config,
         }
 
-    def _create_parameter_groups(self, optimizer_config) -> list[dict[str, Any]]:
+    def _create_parameter_groups(self, optimizer_config: OptimizerConfig) -> list[dict[str, Any]]:
         """Create parameter groups with different learning rates.
 
         Args:
@@ -151,7 +140,6 @@ class LightningPolicy(pl.LightningModule):
         Returns:
             List of parameter group dictionaries
         """
-        # If no custom parameter groups, return all parameters
         if not optimizer_config.param_groups:
             return [{"params": self.policy.parameters()}]
         param_groups_dict: dict[str, list[torch.nn.Parameter]] = {}
@@ -228,17 +216,8 @@ class LightningPolicy(pl.LightningModule):
         """
         super().on_load_checkpoint(checkpoint)
 
-        # Convert observation_space and action_space to dataclass instances if needed
-        if hasattr(self, 'policy') and self.policy is not None:
-            if OmegaConf.is_config(self.policy.observation_space):
-                config_dict = OmegaConf.to_container(self.policy.observation_space, resolve=True)
-                self.policy.observation_space = ObservationSpace(**config_dict)  # type: ignore[arg-type]
-            if OmegaConf.is_config(self.policy.action_space):
-                config_dict = OmegaConf.to_container(self.policy.action_space, resolve=True)
-                self.policy.action_space = ActionSpace(**config_dict)  # type: ignore[arg-type]
 
-
-    def forward(self, obs_dict: dict[str, torch.Tensor]) -> torch.Tensor:
+    def forward(self, obs_dict: dict[str, torch.Tensor]) -> dict[str,torch.Tensor]:
         """Forward pass for inference.
 
         Args:

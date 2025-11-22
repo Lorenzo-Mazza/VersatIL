@@ -9,13 +9,14 @@ import os
 import time
 
 import albumentations as A
+import hydra
 import numpy as np
 import torch
 from albumentations.pytorch import ToTensorV2
 from imitation_learning_toolkit.sockets.model_client import AbstractModelClient, Action
 from omegaconf import OmegaConf
 
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
     GRIPPER_ACTION_KEY,
     POSITION_ACTION_KEY,
@@ -23,7 +24,7 @@ from refactoring.data.constants import (
     PROPRIO_OBS_ROBOT_FRAME_KEY,
     Cameras,
 )
-from refactoring.data.tokenize.tokenizer import Tokenizer
+from refactoring.data.tokenization.tokenizer import Tokenizer
 from refactoring.training.lightning_policy import LightningPolicy
 
 
@@ -120,27 +121,6 @@ class InferenceClient(AbstractModelClient):
         self.timestep = 0
         self.current_all_actions = None
 
-    def _ensure_configs_are_dataclasses(self):
-        """Convert OmegaConf DictConfigs to dataclass instances where needed.
-
-        This ensures that configs with methods (ActionSpace, ObservationSpace)
-        are actual dataclass instances, not OmegaConf DictConfigs, so their
-        methods can be called.
-
-        This is necessary because:
-        - ActionSpace has get_total_action_dim() and get_required_zarr_keys() methods
-        - ObservationSpace has get_required_zarr_keys() method
-        - OmegaConf DictConfigs don't have these methods
-        """
-        # Convert ActionSpace if it's an OmegaConf DictConfig
-        if OmegaConf.is_config(self.config.task.action_space):
-            config_dict = OmegaConf.to_container(self.config.task.action_space, resolve=True)
-            self.config.task.action_space = ActionSpace(**config_dict)
-
-        # Convert ObservationSpace if it's an OmegaConf DictConfig
-        if OmegaConf.is_config(self.config.task.observation_space):
-            config_dict = OmegaConf.to_container(self.config.task.observation_space, resolve=True)
-            self.config.task.observation_space = ObservationSpace(**config_dict)
 
     def _load_model(self) -> LightningPolicy:
         """Load model and config from checkpoint.
@@ -156,19 +136,17 @@ class InferenceClient(AbstractModelClient):
             )
 
         print(f"Loading config from {config_path}")
-        self.config = OmegaConf.load(config_path)
-        self._ensure_configs_are_dataclasses()
+        config = hydra.utils.instantiate(OmegaConf.load(config_path))
+        self.config = config
 
         checkpoint_file = os.path.join(self.checkpoint_path, "latest.ckpt")
         if not os.path.exists(checkpoint_file):
             checkpoint_file = os.path.join(self.checkpoint_path, "last.ckpt")
-
         if not os.path.exists(checkpoint_file):
             raise FileNotFoundError(
                 f"No checkpoint found at {checkpoint_file}. "
                 f"Expected 'latest.ckpt' or 'last.ckpt'"
             )
-
         print(f"Loading model from {checkpoint_file}")
         self.model = LightningPolicy.load_from_checkpoint(
             checkpoint_file,
@@ -176,7 +154,6 @@ class InferenceClient(AbstractModelClient):
         )
         self.model.eval()
         self.policy = self.model.policy
-
         tokenizer_path = os.path.join(self.checkpoint_path, "tokenizer")
         if os.path.exists(tokenizer_path):
             self.tokenizer = Tokenizer.from_pretrained(tokenizer_path, device=self.device)
@@ -269,14 +246,13 @@ class InferenceClient(AbstractModelClient):
         if self.request_depth:
             obs_dict[Cameras.DEPTH.value] = depth_imgs
 
+        preprocessing_end_time = time.time()
+        preprocessing_duration = preprocessing_end_time - preprocessing_start_time
+        print(f"[TIMING] Input preprocessing completed in: {preprocessing_duration:.6f} seconds")
         if self.predicts_in_camera_frame and self.obs_camera_frame and self.obs_robot_frame:
             current_robot_position = self.robot_state_buffer[-1][3:6]
         else:
             current_robot_position = self.robot_state_buffer[-1][:3]
-
-        preprocessing_end_time = time.time()
-        preprocessing_duration = preprocessing_end_time - preprocessing_start_time
-        print(f"[TIMING] Input preprocessing completed in: {preprocessing_duration:.6f} seconds")
 
         inference_start_time = time.time()
         print(f"[TIMING] Model inference started at: {inference_start_time:.6f}")

@@ -1,6 +1,7 @@
 """Loss configuration for policy training."""
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from omegaconf import MISSING
 
@@ -85,15 +86,11 @@ class PhaseClassificationLossConfig(BaseLossConfig):
     entropy_weight: float = 0.0
     label_smoothing: float = 0.0
 
-
 @dataclass
-class SimpleMSELossConfig(BaseLossConfig):
-    """Configuration for simple MSE loss."""
-
-    _target_: str = "refactoring.metrics.SimpleMSELoss"
-    prediction_key: str = MISSING
-    target_key: str = MISSING
-    loss_name: str | None = None
+class ActionTokenLossConfig(BaseLossConfig):
+    """Configuration for action to token loss (TokenACT-style models)."""
+    _target_: str = "refactoring.metrics.ActionTokenLoss"
+    label_smoothing: float = 0.0
 
 
 @dataclass
@@ -136,17 +133,7 @@ class CompositeLossConfig(BaseLossConfig):
     """Configuration for composite loss with custom modules."""
 
     _target_: str = "refactoring.metrics.CompositeLoss"
-    loss_modules: dict[str, BaseLossConfig] = field(default_factory=dict)
+    loss_modules: dict[str, Any] = field(default_factory=dict)
     weights: dict[str, float] | None = None
 
 
-@dataclass
-class PolicyLossConfig:
-    """Loss configuration for policy training.
-
-    This configuration validates that all loss keys are present in the action space
-    and provides the loss module for the policy.
-    """
-
-    loss: BaseLossConfig = MISSING
-    validate_keys: bool = True

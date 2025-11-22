@@ -1,0 +1,15 @@
+defaults:
+  - base
+
+
+_target_: "refactoring.data.task.ObservationSpace"
+
+use_proprio_base_frame: false
+use_proprio_camera_frame: true
+use_gripper_state: false
+
+camera_keys:
+  - ${cameras:LEFT}
+  - ${cameras:RIGHT}
+
+use_language: false

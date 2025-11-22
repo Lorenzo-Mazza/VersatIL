@@ -48,6 +48,10 @@ def sample_features(device):
         "flat_feature": torch.randn(2, 64, device=device),
     }
 
+@pytest.fixture
+def embedding_dimension():
+    """Embedding dimension for tests."""
+    return 64
 
 @pytest.fixture
 def sample_actions(device):
@@ -59,27 +63,27 @@ def sample_actions(device):
 
 
 @pytest.fixture
-def vae_encoder(device):
+def vae_encoder(device, embedding_dimension):
     """Create VAE encoder."""
     return VAETransformerEncoder(
-        latent_dim=16,
-        output_dim=64,
+        latent_dimension=16,
+        embedding_dimension=embedding_dimension,
         prediction_horizon=10,
         number_of_heads=2,
         feedforward_dimension=128,
         number_of_encoder_layers=2,
         dropout_rate=0.0,
         device=device,
+        observation_horizon=1
     )
 
 
 @pytest.fixture
-def diffusion_prior(device):
+def diffusion_prior(device, embedding_dimension):
     """Create Diffusion prior."""
     return DiffusionPrior(
-        latent_dim=16,
-        conditioning_dim=64,
-        output_dim=64,
+        latent_dimension=16,
+        conditioning_dim=embedding_dimension,
         hidden_dims=[32, 32],
         num_train_timesteps=10,
         num_inference_steps=3,
@@ -167,13 +171,14 @@ class TestVariationalAlgorithms:
         ],
     )
     def test_variational_with_gaussian_prior(
-        self, base_algorithm, vae_encoder, sample_features, sample_actions, device
+        self, base_algorithm, vae_encoder, sample_features, sample_actions, device, embedding_dimension
     ):
         """Test all algorithms work with Gaussian prior."""
         algorithm = VariationalAlgorithm(
             base_algorithm=base_algorithm,
             posterior_encoder=vae_encoder,
             prior=None,  # Auto-creates GaussianPrior
+            embedding_dimension=embedding_dimension
         )
 
         assert isinstance(algorithm.prior, GaussianPrior)
@@ -206,12 +211,14 @@ class TestVariationalAlgorithms:
         sample_features,
         sample_actions,
         device,
+        embedding_dimension
     ):
         """Test all algorithms work with learned DiffusionPrior."""
         algorithm = VariationalAlgorithm(
             base_algorithm=base_algorithm,
             posterior_encoder=vae_encoder,
             prior=diffusion_prior,
+            embedding_dimension=embedding_dimension
         )
 
         mock_network = MockNetwork(device)
@@ -233,12 +240,13 @@ class TestVariationalAlgorithms:
 class TestMetricsIntegration:
     """Test that metrics work correctly with variational outputs."""
 
-    def test_kl_divergence_loss(self, vae_encoder, sample_features, sample_actions, device):
+    def test_kl_divergence_loss(self, vae_encoder, sample_features, sample_actions, device, embedding_dimension):
         """Test KL divergence loss works with variational outputs."""
         algorithm = VariationalAlgorithm(
             base_algorithm=BehavioralCloning(),
             posterior_encoder=vae_encoder,
             prior=None,
+            embedding_dimension=embedding_dimension
         )
 
         mock_network = MockNetwork(device)
@@ -256,13 +264,14 @@ class TestMetricsIntegration:
         assert loss_output.total_loss.item() >= 0  # KL divergence is non-negative
 
     def test_prior_denoising_loss(
-        self, vae_encoder, diffusion_prior, sample_features, sample_actions, device
+        self, vae_encoder, diffusion_prior, sample_features, sample_actions, device, embedding_dimension
     ):
         """Test prior denoising loss works with variational outputs."""
         algorithm = VariationalAlgorithm(
             base_algorithm=FlowMatching(sigma=0.0, num_inference_steps=2),
             posterior_encoder=vae_encoder,
             prior=diffusion_prior,
+            embedding_dimension=embedding_dimension
         )
 
         mock_network = MockNetwork(device)
@@ -280,33 +289,3 @@ class TestMetricsIntegration:
         assert loss_output.total_loss.item() >= 0  # MSE is non-negative
 
 
-@pytest.mark.unit
-class TestNoBackwardCompatibility:
-    """Verify that backward compatibility code has been removed."""
-
-    def test_behavioral_cloning_no_latent_encoder_param(self):
-        """Test that BehavioralCloning no longer accepts latent_encoder."""
-        # Should only accept no arguments
-        bc = BehavioralCloning()
-        assert not hasattr(bc, "latent_encoder")
-
-    def test_decoding_algorithm_base_no_latent_encoder(self):
-        """Test that DecodingAlgorithm base class has no latent_encoder."""
-        from refactoring.models.decoding.algorithm import DecodingAlgorithm
-
-        # Check __init__ signature
-        import inspect
-
-        sig = inspect.signature(DecodingAlgorithm.__init__)
-        params = list(sig.parameters.keys())
-
-        # Should only have 'self', no latent_encoder
-        assert params == ["self"]
-
-    def test_variational_flow_matching_removed(self):
-        """Test that VariationalFlowMatching class no longer exists."""
-        # Should raise ImportError
-        with pytest.raises(ImportError):
-            from refactoring.models.decoding.algorithm import (  # type: ignore[attr-defined]
-                VariationalFlowMatching,  # noqa: F401
-            )

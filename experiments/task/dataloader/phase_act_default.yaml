@@ -1,4 +1,6 @@
-_target_: refactoring.configs.task.dataloader.DataloaderConfig
+defaults:
+  - base
+  - image_augmentations@color_augmentation: color
 
 batch_size: 64
 num_workers: 16
@@ -17,9 +19,6 @@ depth_winsorize_quantiles: [0.01, 0.99]
 winsorize_kinematics: true
 kinematics_winsorize_quantiles: [0.01, 0.99]
 
-# Augmentations
-color_augmentation:
-  _target_: refactoring.configs.task.augmentations.ColorAugmentationPipeline
 spatial_augmentation: null
 rotation_augmentation: null
 

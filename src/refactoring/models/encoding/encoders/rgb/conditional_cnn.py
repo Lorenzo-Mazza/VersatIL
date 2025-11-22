@@ -51,7 +51,7 @@ class ConditionalCNNEncoder(ConditionalEncoder):
 
         if backbone not in self.BACKBONE_CONFIGS:
             raise ValueError(
-                f"Backbone {backbone} not supported for FiLM. "
+                f"Backbone {backbone} not supported for FiLM Conditioning. "
                 f"Supported: {list(self.BACKBONE_CONFIGS.keys())}"
             )
 
@@ -143,6 +143,7 @@ class ConditionalCNNEncoder(ConditionalEncoder):
                     if isinstance(self_block.downsample[1], nn.BatchNorm2d):
                         self_block.downsample[1].load_state_dict(base_block.downsample[1].state_dict())
 
+
     def _setup_pooling(self):
         """Setup pooling layer."""
         with torch.no_grad():
@@ -188,7 +189,12 @@ class ConditionalCNNEncoder(ConditionalEncoder):
         if img.dim() == 5:
             B, T, C, H, W = img.shape  # Batch, Time, Channels, Height, Width
             img = img.reshape(B * T, C, H, W)
-            conditioning = conditioning.unsqueeze(1).repeat(1, T, 1).reshape(B * T, -1)
+            if conditioning.dim() == 3 and conditioning.shape[1] == T:  # Already (B, T, D)
+                conditioning = conditioning.reshape(B * T, -1)
+            elif conditioning.dim() == 2:  # (B, D), replicate over T
+                conditioning = conditioning.unsqueeze(1).repeat(1, T, 1).reshape(B * T, -1)
+            else:
+                raise ValueError(f"Unexpected conditioning shape: {conditioning.shape}. Conditioning must be (B, D) or (B, T, D).")
             has_time = True
         else:
             B = img.shape[0]
@@ -208,7 +214,8 @@ class ConditionalCNNEncoder(ConditionalEncoder):
             x = block(x, conditioning)
         pooled_features = self.pooling_head(x)
         if has_time:
-            pooled_features = pooled_features.reshape(B, T, *pooled_features.shape[1:])  # Batch, Time, Features
+            # Reshape back to (B, T, C) or (B, T, C, H, W)
+            pooled_features = pooled_features.reshape(B, T, *pooled_features.shape[1:])
         return {EncoderOutputKeys.RGB.value: pooled_features}
 
 

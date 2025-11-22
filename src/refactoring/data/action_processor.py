@@ -11,7 +11,7 @@ import logging
 import numpy as np
 import scipy
 
-from refactoring.configs.task.task import ActionSpace
+from refactoring.data.task import ActionSpace
 from refactoring.data.constants import (
     GRIPPER_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
@@ -28,7 +28,7 @@ class ActionProcessor:
         """Initialize action processor.
 
         Args:
-            action_space: Task action space configuration (contains all action-related settings)
+            action_space: TaskSpace action space configuration (contains all action-related settings)
         """
         self.action_space = action_space
         self.predict_in_camera_frame = action_space.predict_in_camera_frame

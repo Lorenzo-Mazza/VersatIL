@@ -2,15 +2,14 @@
 
 import pytest
 import torch
-from pathlib import Path
-from omegaconf import OmegaConf
 from unittest.mock import Mock, patch
 
 from refactoring.configs.experiment import ExperimentConfig
 from refactoring.configs.main import MainConfig
-from refactoring.configs.task.task import TaskConfig, ActionSpace, ObservationSpace
-from refactoring.configs.task.dataloader import DataloaderConfig
-from refactoring.configs.task.dataset.schema import DatasetSchemaConfig
+from refactoring.configs.data.task import TaskSpaceConfig
+from refactoring.data.task import ActionSpace, ObservationSpace
+from refactoring.configs.data.dataloader import DataLoaderConfig
+from refactoring.configs.data.dataset.schema import DatasetSchemaConfig
 from refactoring.configs.training import TrainingConfig
 from refactoring.configs.policy import PolicyConfig
 from refactoring.configs.inference import InferenceConfig
@@ -36,7 +35,7 @@ class TestExplainerConfigLoading:
                 checkpoint_path=str(checkpoint_dir),
             )
 
-    def test_explainer_loads_config_from_checkpoint_dir(self, tmp_path, simple_policy):
+    def test_explainer_loads_config_from_checkpoint_dir(self, tmp_path, simple_policy, minimal_yaml_config_factory):
         """Test that ModelExplainer successfully loads config.yaml."""
         # Create workspace to save config
         config = MainConfig(
@@ -46,7 +45,7 @@ class TestExplainerConfigLoading:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value],
                     use_proprio_base_frame=True,
@@ -57,7 +56,7 @@ class TestExplainerConfigLoading:
                 ),
                 observation_horizon=2,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(
+                dataloader=DataLoaderConfig(
                     batch_size=2,
                     image_height=270,
                     image_width=480,
@@ -73,7 +72,8 @@ class TestExplainerConfigLoading:
             inference=InferenceConfig(),
         )
 
-        workspace = Workspace(config)
+        original_yaml = minimal_yaml_config_factory()
+        workspace = Workspace(config, original_yaml_config=original_yaml)
 
         # Create a fake checkpoint file
         checkpoint_path = workspace.output_dir / "latest.ckpt"
@@ -96,7 +96,7 @@ class TestExplainerConfigLoading:
             assert hasattr(explainer, "config")
             assert explainer.config is not None
 
-    def test_explainer_uses_config_for_image_dimensions(self, tmp_path, simple_policy):
+    def test_explainer_uses_config_for_image_dimensions(self, tmp_path, simple_policy, minimal_yaml_config_factory):
         """Test that ModelExplainer uses image dimensions from config."""
         # Create config with specific image dimensions
         image_h, image_w = 224, 384
@@ -107,7 +107,7 @@ class TestExplainerConfigLoading:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value],
                     use_proprio_base_frame=True,
@@ -118,7 +118,7 @@ class TestExplainerConfigLoading:
                 ),
                 observation_horizon=1,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(
+                dataloader=DataLoaderConfig(
                     batch_size=2,
                     image_height=image_h,
                     image_width=image_w,
@@ -134,7 +134,17 @@ class TestExplainerConfigLoading:
             inference=InferenceConfig(),
         )
 
-        workspace = Workspace(config)
+        original_yaml = minimal_yaml_config_factory(
+            task={
+                "action_space": {"has_position": True},
+                "observation_space": {"camera_keys": ["left"]},
+                "observation_horizon": 1,
+                "prediction_horizon": 4,
+                "dataloader": {"image_height": image_h, "image_width": image_w},
+                "dataset_schema": {"_target_": "refactoring.data.schemas.bowel_retraction.BowelRetractionSchema", "dataset_folders": [], "zarr_path": ""}
+            }
+        )
+        workspace = Workspace(config, original_yaml_config=original_yaml)
         checkpoint_path = workspace.output_dir / "latest.ckpt"
         checkpoint_path.touch()
 
@@ -155,7 +165,7 @@ class TestExplainerConfigLoading:
             assert resize_transform.height == image_h
             assert resize_transform.width == image_w
 
-    def test_explainer_uses_config_for_observation_horizon(self, tmp_path, simple_policy):
+    def test_explainer_uses_config_for_observation_horizon(self, tmp_path, simple_policy, minimal_yaml_config_factory):
         """Test that ModelExplainer uses observation_horizon from config."""
         obs_horizon = 3
         config = MainConfig(
@@ -165,7 +175,7 @@ class TestExplainerConfigLoading:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value],
                     use_proprio_base_frame=True,
@@ -176,7 +186,7 @@ class TestExplainerConfigLoading:
                 ),
                 observation_horizon=obs_horizon,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(
+                dataloader=DataLoaderConfig(
                     batch_size=2,
                     image_height=270,
                     image_width=480,
@@ -192,7 +202,17 @@ class TestExplainerConfigLoading:
             inference=InferenceConfig(),
         )
 
-        workspace = Workspace(config)
+        original_yaml = minimal_yaml_config_factory(
+            task={
+                "dataloader": {"image_height": 270, "image_width": 480},
+                "action_space": {"has_position": True},
+                "observation_space": {"camera_keys": ["left"]},
+                "observation_horizon": obs_horizon,
+                "prediction_horizon": 4,
+                "dataset_schema": {"_target_": "refactoring.data.schemas.bowel_retraction.BowelRetractionSchema", "dataset_folders": [], "zarr_path": ""}
+            }
+        )
+        workspace = Workspace(config, original_yaml_config=original_yaml)
         checkpoint_path = workspace.output_dir / "latest.ckpt"
         checkpoint_path.touch()
 
@@ -209,7 +229,7 @@ class TestExplainerConfigLoading:
             # Verify observation_horizon matches config
             assert explainer.observation_horizon == obs_horizon
 
-    def test_explainer_instantiates_dataset_schema(self, tmp_path, simple_policy):
+    def test_explainer_instantiates_dataset_schema(self, tmp_path, simple_policy, minimal_yaml_config_factory):
         """Test that ModelExplainer instantiates the dataset schema from config."""
         config = MainConfig(
             experiment=ExperimentConfig(
@@ -218,7 +238,7 @@ class TestExplainerConfigLoading:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value, Cameras.RIGHT.value],
                     use_proprio_base_frame=True,
@@ -229,7 +249,7 @@ class TestExplainerConfigLoading:
                 ),
                 observation_horizon=1,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(
+                dataloader=DataLoaderConfig(
                     batch_size=2,
                     image_height=270,
                     image_width=480,
@@ -245,7 +265,8 @@ class TestExplainerConfigLoading:
             inference=InferenceConfig(),
         )
 
-        workspace = Workspace(config)
+        original_yaml = minimal_yaml_config_factory()
+        workspace = Workspace(config, original_yaml_config=original_yaml)
         checkpoint_path = workspace.output_dir / "latest.ckpt"
         checkpoint_path.touch()
 
@@ -259,11 +280,9 @@ class TestExplainerConfigLoading:
                 checkpoint_path=str(workspace.output_dir),
             )
 
-            # Verify dataset_schema was instantiated
             assert hasattr(explainer, "dataset_schema")
             assert explainer.dataset_schema is not None
 
-            # Verify it has expected methods
             assert hasattr(explainer.dataset_schema, "get_image_path_column")
             assert hasattr(explainer.dataset_schema, "compute_depth_path")
 
@@ -272,7 +291,7 @@ class TestExplainerConfigLoading:
 class TestExplainerIntegrationWithWorkspace:
     """Test that explainer works with workspace-saved config."""
 
-    def test_end_to_end_config_flow(self, tmp_path, simple_policy):
+    def test_end_to_end_config_flow(self, tmp_path, simple_policy, minimal_yaml_config_factory):
         """Test complete flow: workspace saves config -> explainer loads it."""
         # Step 1: Create and save config via workspace
         config = MainConfig(
@@ -283,7 +302,7 @@ class TestExplainerIntegrationWithWorkspace:
                 seed=999,
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value, Cameras.RIGHT.value],
                     use_proprio_base_frame=True,
@@ -291,13 +310,13 @@ class TestExplainerIntegrationWithWorkspace:
                 action_space=ActionSpace(
                     has_position=True,
                     position_dim=3,
-                    has_orientation=True,
+                    has_orientation=False,
                     orientation_dim=4,
                     orientation_repr=OrientationRepresentation.QUATERNION.value,
                 ),
                 observation_horizon=2,
                 prediction_horizon=16,
-                dataloader=DataloaderConfig(
+                dataloader=DataLoaderConfig(
                     batch_size=32,
                     image_height=480,
                     image_width=640,
@@ -313,17 +332,24 @@ class TestExplainerIntegrationWithWorkspace:
             inference=InferenceConfig(),
         )
 
-        workspace = Workspace(config)
-
-        # Step 2: Verify config was saved
+        original_yaml = minimal_yaml_config_factory(
+            experiment={"seed": 999},
+            task={
+                "action_space": {"has_position": True, "has_orientation": False},
+                "observation_space": {"camera_keys": ["left", "right"]},
+                "observation_horizon": 2,
+                "prediction_horizon": 16,
+                "dataloader": {"batch_size": 32, "image_height": 480, "image_width": 640},
+                "dataset_schema": {"_target_": "refactoring.data.schemas.bowel_retraction.BowelRetractionSchema", "dataset_folders": [], "zarr_path": ""}
+            }
+        )
+        workspace = Workspace(config, original_yaml_config=original_yaml)
         config_path = workspace.output_dir / "config.yaml"
         assert config_path.exists()
 
-        # Step 3: Create fake checkpoint
         checkpoint_path = workspace.output_dir / "latest.ckpt"
         checkpoint_path.touch()
 
-        # Step 4: Load config via explainer
         with patch("refactoring.endpoints.explain.LightningPolicy.load_from_checkpoint") as mock_load:
             mock_model = Mock()
             mock_model.policy = simple_policy
@@ -334,7 +360,6 @@ class TestExplainerIntegrationWithWorkspace:
                 checkpoint_path=str(workspace.output_dir),
             )
 
-            # Step 5: Verify explainer loaded correct config values
             assert explainer.config.experiment.seed == 999
             assert explainer.config.task.observation_horizon == 2
             assert explainer.config.task.prediction_horizon == 16
@@ -342,7 +367,6 @@ class TestExplainerIntegrationWithWorkspace:
             assert explainer.config.task.dataloader.image_width == 640
             assert explainer.observation_horizon == 2
 
-            # Verify transform dimensions
             resize_transform = explainer.transform.transforms[0]
             assert resize_transform.height == 480
             assert resize_transform.width == 640

@@ -23,26 +23,21 @@ import numpy as np
 import zarr
 from pathlib import Path
 import tempfile
-from refactoring.configs.task.task import ObservationSpace
-from refactoring.data.constants import GripperType
+from omegaconf import OmegaConf
+
 
 from refactoring.data.constants import (
     Cameras,
-    PROPRIO_OBS_ROBOT_FRAME_KEY,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
     GRIPPER_STATE_OBS_KEY,
 )
 from refactoring.configs.main import MainConfig
 from refactoring.configs.experiment import ExperimentConfig
-from refactoring.configs.task.task import TaskConfig
-from refactoring.configs.task.dataloader import DataloaderConfig
-from refactoring.configs.training import TrainingConfig, OptimizerConfig, AdamWConfig
+from refactoring.configs.data.task import TaskSpaceConfig
+from refactoring.configs.data.dataloader import DataLoaderConfig
+from refactoring.configs.training import TrainingConfig, AdamWConfig
 from refactoring.configs.policy import PolicyConfig
 from refactoring.configs.inference import InferenceConfig
-from unittest.mock import MagicMock
-from refactoring.models.policy import Policy
-from refactoring.metrics.base import LossOutput
-from refactoring.data.normalize.normalizer import LinearNormalizer
 from refactoring.data.constants import (
     OBSERVATION_KEY,
     ACTION_KEY,
@@ -51,7 +46,7 @@ from refactoring.data.constants import (
     GRIPPER_ACTION_KEY,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
 )
-from refactoring.configs.task.task import ActionSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import OrientationRepresentation, GripperType
 from refactoring.models.encoding.encoders.base import EncoderOutput, EncoderInput
 from refactoring.models.decoding.decoders.base import ActionDecoder, DecoderInput
@@ -63,9 +58,6 @@ from refactoring.models.policy import Policy
 from refactoring.metrics.composite import ActionReconstructionLoss
 
 
-# ==============================================================================
-# Dummy Encoders for Testing
-# ==============================================================================
 
 class DummyNormalizer(torch.nn.Module):
     """Dummy normalizer that acts as pass-through (no normalization)."""
@@ -299,9 +291,6 @@ class MockActionDecoder(ActionDecoder):
         return predictions
 
 
-# ==============================================================================
-# Synthetic Data Generation Functions
-# ==============================================================================
 
 def generate_synthetic_positions(
         num_samples: int = 10,
@@ -934,7 +923,7 @@ def simple_policy(simple_observation_space, simple_action_space, device):
     encoding_pipeline.encoders = encoders
     encoding_pipeline.conditional_encoders = torch.nn.ModuleDict()
     encoding_pipeline.fusion_stages = fusion_stages
-    encoding_pipeline.encoder_to_outputs = encoder_outputs
+    encoding_pipeline.encoders_to_outputs = encoder_outputs
     encoding_pipeline._feature_keys_to_dims = feature_keys_to_dims
     encoding_pipeline._consumed_features = {"rgb_features", "proprio_features"}  # Fusion consumes these
 
@@ -990,7 +979,7 @@ def mock_main_config(tmp_path, simple_observation_space, simple_action_space):
         val_every=1,
     )
 
-    dataloader_config = DataloaderConfig(
+    dataloader_config = DataLoaderConfig(
         batch_size=2,
         num_workers=0,  # No multiprocessing in tests
         shuffle=True,
@@ -998,7 +987,7 @@ def mock_main_config(tmp_path, simple_observation_space, simple_action_space):
         image_width=64,
     )
 
-    task_config = TaskConfig(
+    task_config = TaskSpaceConfig(
         observation_space=simple_observation_space,
         action_space=simple_action_space,
         observation_horizon=2,
@@ -1030,3 +1019,134 @@ def mock_main_config(tmp_path, simple_observation_space, simple_action_space):
     )
 
     return config
+
+
+@pytest.fixture
+def minimal_yaml_config_factory():
+    """Factory for creating minimal OmegaConf DictConfig for Workspace original_yaml_config parameter."""
+    def factory(**kwargs):
+        defaults = {
+            "experiment": {
+                "name": "test_experiment",
+                "seed": 42,
+                "checkpoint_folder": "/tmp/test_checkpoints",
+                "device": "cpu",
+                "use_wandb": False,
+            },
+            "task": {"_target_": "refactoring.data.task.TaskSpace",
+                "action_space": {"_target_": "refactoring.data.task.ActionSpace",
+                    "has_position": True, "position_dim": 3, "has_gripper": True, "gripper_dim": 1},
+                "observation_space": {"_target_": "refactoring.data.task.ObservationSpace",
+                    "camera_keys": ["left"], "use_proprio_base_frame": True},
+                "observation_horizon": 2,
+                "prediction_horizon": 4,
+                "dataloader": {"batch_size": 2, "image_height": 4, "image_width": 4},
+                "dataset_schema": {
+                    "_target_": "refactoring.data.schemas.bowel_retraction.BowelRetractionSchema",
+                    "dataset_folders": [],
+                    "zarr_path": ""
+                }
+            },
+            "training": {
+                "num_epochs": 10,
+                "optimizer": {
+                    "target_class": "torch.optim.AdamW",
+                    "lr": 1e-4,
+                    "weight_decay": 1e-4,
+                }
+            },
+            "policy": {
+                "_target_": "refactoring.models.policy.Policy",
+                "observation_space": "${task.observation_space}",
+                "action_space": "${task.action_space}",
+                "prediction_horizon": "${task.prediction_horizon}",
+                "device": "${experiment.device}",
+                "validate_loss_keys": True,
+                "encoding_pipeline": {
+                    "_target_": "refactoring.models.encoding.pipeline.EncodingPipeline",
+                    "encoders": {
+                        "left_rgb": {
+                            "_target_": "refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder",
+                            "input_keys": "${cameras: LEFT}",
+                            "backbone": "${rgb_backbone: RESNET18}",
+                            "pretrained": "false",
+                            "frozen": "false",
+                            "pooling_method": "none",
+                            "use_group_norm": "true",
+                            "image_height": "${task.dataloader.image_height}",
+                            "image_width": "${task.dataloader.image_width}",
+                            },
+                    },
+                    "fusion_stages": [
+                        {"_target_": "refactoring.models.encoding.fusion.spatial.SpatialFusion",
+                        "input_features": ["left_rgb", ],
+                                        "output_name": "visual_features",
+                                        "hidden_dim": 512,
+                         }
+                    ],
+                },
+                "algorithm": {
+                    "_target_": "refactoring.models.decoding.algorithm.behavior_cloning.BehavioralCloning",
+                },
+                "decoder": {
+                    "_target_": "refactoring.models.decoding.decoders.factory.act.ACT",
+                    "input_keys": ["visual_features"],
+                    "embedding_dimension": 512,
+                    "number_of_heads": 8,
+                    "feedforward_dimension": 3200,
+                    "number_of_encoder_layers": 4,
+                    "number_of_decoder_layers": 7,
+                    "observation_horizon": "${task.observation_horizon}",
+                    "prediction_horizon": "${task.prediction_horizon}",
+                    "action_space": "${task.action_space}",
+                    "observation_space": "${task.observation_space}",
+                    "device": "${experiment.device}",
+                    "action_heads": {
+                        "position_action": {
+                            "_target_": "refactoring.models.decoding.action_heads.ActionHead",
+                            "input_dim": "${policy.decoder.embedding_dimension}",
+                            "output_dim": "${task.action_space.position_dim}",
+                            "blocks": None,
+                        },
+                        "gripper_action": {
+                            "_target_": "refactoring.models.decoding.action_heads.ActionHead",
+                            "input_dim": "${policy.decoder.embedding_dimension}",
+                            "output_dim": "${task.action_space.gripper_dim}",
+                            "blocks": None,
+                        },
+                    },
+                },
+                "loss": {
+                    "_target_": "refactoring.metrics.ActionReconstructionLoss",
+                    "action_keys": None,
+                    "mse_weight": 1.0,
+                    "gripper_bce_weight": 1.0,
+                    "use_vae": False,
+                },
+            },
+            "inference": {
+                "temporal_agg": True,
+                "update_rate_hz": 3.0,
+            }
+        }
+
+        def deep_merge(base, override):
+            """Recursively merge override into base."""
+            for key, value in override.items():
+                if key in base and isinstance(value, dict) and isinstance(base[key], dict):
+                    # Recursively merge nested dicts
+                    base[key] = deep_merge(base[key], value)
+                else:
+                    # Override or add new key
+                    base[key] = value
+            return base
+
+        for key, value in kwargs.items():
+            if key in defaults and isinstance(value, dict) and isinstance(defaults[key], dict):
+                # Recursively merge nested dicts
+                defaults[key] = deep_merge(defaults[key], value)
+            else:
+                defaults[key] = value
+
+        return OmegaConf.create(defaults)
+    return factory

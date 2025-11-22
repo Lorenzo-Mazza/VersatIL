@@ -77,7 +77,7 @@ addopts = [
     "-v",
     "--strict-markers",
     "--tb=short",
-    "-m", "not integration",
+    #"-m", "not integration",
 ]
 filterwarnings = [
     "ignore::pydantic._internal._generate_schema.UnsupportedFieldAttributeWarning",

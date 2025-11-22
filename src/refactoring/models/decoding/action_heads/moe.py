@@ -69,7 +69,7 @@ class MoEHead(BaseMixtureOfExperts):
             gating_normalization: Whether to normalize inputs to gating network
             gating_feature_key: Optional feature key for gating network input
         """
-        if experts is not None:
+        if experts is not None and len(experts) > 0:
             expert_list = experts
             num_experts = len(experts)
         elif base_expert is not None and num_experts is not None:

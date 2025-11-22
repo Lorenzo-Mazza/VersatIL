@@ -25,16 +25,12 @@ class DepthCNNEncoder(Encoder):
             use_group_norm: bool = True,
             pretrained: bool = False,
             frozen: bool = False,
-            image_height: int = 224,
-            image_width: int = 224,
     ):
         specification = EncoderInput(keys=input_keys,required=[Cameras.DEPTH.value])
         super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
         self.use_group_norm = use_group_norm
         self.pooling_method = pooling_method
         self.backbone_name = backbone
-        self.image_height = image_height
-        self.image_width = image_width
         self._build_backbone()
         self.feature_dim = self.backbone.num_features[-1]
         self._setup_pooling()
@@ -53,7 +49,7 @@ class DepthCNNEncoder(Encoder):
     def _setup_pooling(self):
         """Setup pooling layer based on configuration."""
         with torch.no_grad():
-            mock_input = torch.zeros(1, 1, self.image_height, self.image_width)
+            mock_input = torch.zeros(1, 1, 224, 224)
             mock_output: BackboneOutput = self.backbone(mock_input)
             mock_features = mock_output.feature_maps[-1]  # type: ignore[index]
             _, c, h, w = mock_features.shape

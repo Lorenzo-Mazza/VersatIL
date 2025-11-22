@@ -5,8 +5,7 @@ from omegaconf import MISSING
 
 from refactoring.configs.decoding.latent import (
     LatentActionEncoderConfig,
-    DiffusionPriorConfig,
-    GaussianPriorConfig,
+    LatentPriorConfig,
 )
 from refactoring.models.decoding.constants import (
     BetaSchedule,
@@ -100,9 +99,8 @@ class VariationalAlgorithmConfig(DecodingAlgorithmConfig):
         prior: Latent prior for p(z|s). If None, auto-creates GaussianPrior.
     """
     _target_: str = "refactoring.models.decoding.algorithm.variational.VariationalAlgorithm"
-
     base_algorithm: DecodingAlgorithmConfig = MISSING  # type: ignore[assignment]
     posterior_encoder: LatentActionEncoderConfig = MISSING  # type: ignore[assignment]
-    prior: GaussianPriorConfig | DiffusionPriorConfig | None = None
+    prior: LatentPriorConfig  = MISSING
 
 

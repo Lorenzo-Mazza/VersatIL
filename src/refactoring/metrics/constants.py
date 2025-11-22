@@ -26,19 +26,7 @@ class MetricKey(str, Enum):
     DIFFUSION_LOSS = "diffusion_loss"
     FLOW_MATCHING_LOSS = "flow_matching_loss"
     OPTIMAL_TRANSPORT_LOSS = "optimal_transport_loss"
-
-
-class ReductionMode(str, Enum):
-    """Reduction modes for loss computation."""
-
-    NONE = "none"
-    MEAN = "mean"
-    SUM = "sum"
-
-
-VARIANCE_KEY = "logvar"
-MEAN_KEY = "mu"
-PREDICTION_TYPE_KEY = "prediction_type"
+    ACTION_TOKEN_CROSS_ENTROPY = "action_token_cross_entropy"
 
 
 class LossModuleName(str, Enum):

@@ -10,8 +10,7 @@ from refactoring.models.layers.activation import ActivationFunction
 class LatentActionEncoderConfig:
     """Base latent action encoder configuration (for posteriors)."""
     _target_: str = MISSING
-    latent_dim: int = MISSING
-    output_dim: int = MISSING
+    latent_dimension: int = MISSING
     device: str = "${policy.device}"
 
 
@@ -19,8 +18,7 @@ class LatentActionEncoderConfig:
 class LatentPriorConfig:
     """Base latent prior configuration."""
     _target_: str = MISSING
-    latent_dim: int = MISSING
-    output_dim: int = MISSING
+    latent_dimension: int = MISSING
     device: str = "${policy.device}"
 
 
@@ -32,19 +30,18 @@ class VAETransformerEncoderConfig(LatentActionEncoderConfig):
     a latent space via variational inference.
     """
     _target_: str = "refactoring.models.decoding.latent.vae_posterior.VAETransformerEncoder"
-
-    latent_dim: int = 32
-    output_dim: int = 512
+    latent_dimension: int = MISSING
+    embedding_dimension: int = MISSING
     prediction_horizon: int = "${policy.prediction_horizon}"  # type: ignore[assignment]
-
+    observation_horizon: int = "${policy.observation_horizon}"  # type: ignore[assignment]
+    device: str = "${policy.device}"  # type: ignore[assignment]
     number_of_heads: int = 8
     feedforward_dimension: int = 512
     number_of_encoder_layers: int = 4
-    activation: str = ActivationFunction.RELU.value
+    activation: str = ActivationFunction.SWIGLU.value
     dropout_rate: float = 0.1
     normalize_before: bool = False
-
-    use_proprioceptive: bool = False
+    exclude_keys : list[str] | None = None
 
 
 @dataclass
@@ -56,13 +53,10 @@ class GaussianPriorConfig(LatentPriorConfig):
 
     Args:
         latent_dim: Dimension of latent variable z
-        output_dim: Dimension to project latent to (for decoder input)
         device: Device to place prior on
     """
     _target_: str = "refactoring.models.decoding.latent.gaussian_prior.GaussianPrior"
-
-    latent_dim: int = 32
-    output_dim: int = 512
+    latent_dimension: int = 32
 
 
 @dataclass
@@ -75,7 +69,6 @@ class DiffusionPriorConfig(LatentPriorConfig):
     Args:
         latent_dim: Dimension of latent variable z
         conditioning_dim: Dimension of conditioning features (state)
-        output_dim: Dimension to project latent to (for decoder input)
         hidden_dims: Hidden layer dimensions for denoising network
         num_train_timesteps: Number of diffusion timesteps during training
         num_inference_steps: Number of denoising steps during sampling
@@ -88,9 +81,8 @@ class DiffusionPriorConfig(LatentPriorConfig):
     """
     _target_: str = "refactoring.models.decoding.latent.diffusion_prior.DiffusionPrior"
 
-    latent_dim: int = 32
+    latent_dimension: int = 32
     conditioning_dim: int = 128  # Should match the sum of the dimension of the flat state features
-    output_dim: int = 512
 
     # Denoising network architecture
     hidden_dims: list[int] | None = None  # Defaults to [latent_dim*2, latent_dim*2]

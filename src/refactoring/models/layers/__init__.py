@@ -18,7 +18,7 @@ from refactoring.models.layers.diffusion_process import (
 
 from .convert_layers import convert_layers
 from .drop_path import DropPath
-from .frozen_batchnorm import FrozenBatchNorm2d
+from refactoring.models.layers.normalization.frozen_batchnorm import FrozenBatchNorm2d
 from .mlp import MLP
 from .patch_embedding import PatchEmbedding, PatchMerging
 

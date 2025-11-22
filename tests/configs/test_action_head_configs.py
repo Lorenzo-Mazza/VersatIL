@@ -135,13 +135,3 @@ class TestMixtureOfExpertsHeadConfig:
 
         assert config_keys.issubset(params), f"Extra keys: {config_keys - params}"
 
-    def test_no_legacy_base_expert_config_field(self):
-        config = MixtureOfExpertsHeadConfig(
-            output_dim=7,
-            base_expert=ActionHeadConfig(input_dim=256, output_dim=7, blocks=[]),
-            num_experts=3,
-        )
-        config_dict = OmegaConf.structured(config)
-
-        assert 'base_expert_config' not in config_dict
-        assert 'base_expert' in config_dict

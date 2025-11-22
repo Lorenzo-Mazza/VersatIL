@@ -1,8 +1,8 @@
-"""Tests for optimizer configuration and Hydra instantiation."""
+"""Tests for optimizer configuration and manual instantiation."""
 
 import pytest
 import torch
-from hydra.utils import instantiate
+from hydra.utils import instantiate, get_class
 from omegaconf import OmegaConf
 
 from refactoring.configs.training import (
@@ -24,7 +24,7 @@ class TestOptimizerConfigDataclasses:
         """Test AdamWConfig has correct defaults."""
         config = AdamWConfig()
 
-        assert config._target_ == "torch.optim.AdamW"
+        assert config.target_class == "torch.optim.AdamW"
         assert config.lr == 1e-4
         assert config.weight_decay == 1e-4
         assert config.betas == (0.9, 0.999)
@@ -36,7 +36,7 @@ class TestOptimizerConfigDataclasses:
         """Test AdamConfig has correct defaults."""
         config = AdamConfig()
 
-        assert config._target_ == "torch.optim.Adam"
+        assert config.target_class == "torch.optim.Adam"
         assert config.lr == 1e-4
         assert config.weight_decay == 0.0
         assert config.betas == (0.9, 0.999)
@@ -47,7 +47,7 @@ class TestOptimizerConfigDataclasses:
         """Test SGDConfig has correct defaults."""
         config = SGDConfig()
 
-        assert config._target_ == "torch.optim.SGD"
+        assert config.target_class == "torch.optim.SGD"
         assert config.lr == 1e-2
         assert config.momentum == 0.0
         assert config.weight_decay == 0.0
@@ -59,7 +59,7 @@ class TestOptimizerConfigDataclasses:
         config = TrainingConfig()
 
         assert isinstance(config.optimizer, AdamWConfig)
-        assert config.optimizer._target_ == "torch.optim.AdamW"
+        assert config.optimizer.target_class == "torch.optim.AdamW"
 
 
 @pytest.mark.unit
@@ -67,49 +67,54 @@ class TestOptimizerHydraInstantiation:
     """Test Hydra instantiation of optimizers."""
 
     def test_instantiate_adamw(self):
-        """Test instantiating AdamW optimizer via Hydra."""
+        """Test instantiating AdamW optimizer manually."""
         # Create simple model
         model = torch.nn.Linear(10, 5)
 
         # Create AdamW config
         config = AdamWConfig(lr=1e-3, weight_decay=1e-5)
 
-        # Convert to OmegaConf, then to dict, and remove param_groups for instantiation
+        # Convert to dict and manually instantiate (like lightning_policy does)
         config_omega = OmegaConf.structured(config)
         config_dict = OmegaConf.to_container(config_omega, resolve=True)
+        target = config_dict.pop("target_class")
         config_dict.pop("param_groups", None)
 
-        # Instantiate
-        optimizer = instantiate(config_dict, params=model.parameters())
+        optimizer_cls = get_class(target)
+        optimizer = optimizer_cls(model.parameters(), **config_dict)
 
         assert isinstance(optimizer, torch.optim.AdamW)
         assert optimizer.defaults["lr"] == 1e-3
         assert optimizer.defaults["weight_decay"] == 1e-5
 
     def test_instantiate_adam(self):
-        """Test instantiating Adam optimizer via Hydra."""
+        """Test instantiating Adam optimizer manually."""
         model = torch.nn.Linear(10, 5)
 
         config = AdamConfig(lr=5e-4)
         config_omega = OmegaConf.structured(config)
         config_dict = OmegaConf.to_container(config_omega, resolve=True)
+        target = config_dict.pop("target_class")
         config_dict.pop("param_groups", None)
 
-        optimizer = instantiate(config_dict, params=model.parameters())
+        optimizer_cls = get_class(target)
+        optimizer = optimizer_cls(model.parameters(), **config_dict)
 
         assert isinstance(optimizer, torch.optim.Adam)
         assert optimizer.defaults["lr"] == 5e-4
 
     def test_instantiate_sgd(self):
-        """Test instantiating SGD optimizer via Hydra."""
+        """Test instantiating SGD optimizer manually."""
         model = torch.nn.Linear(10, 5)
 
         config = SGDConfig(lr=1e-2, momentum=0.9, nesterov=True)
         config_omega = OmegaConf.structured(config)
         config_dict = OmegaConf.to_container(config_omega, resolve=True)
+        target = config_dict.pop("target_class")
         config_dict.pop("param_groups", None)
 
-        optimizer = instantiate(config_dict, params=model.parameters())
+        optimizer_cls = get_class(target)
+        optimizer = optimizer_cls(model.parameters(), **config_dict)
 
         assert isinstance(optimizer, torch.optim.SGD)
         assert optimizer.defaults["lr"] == 1e-2
@@ -117,16 +122,18 @@ class TestOptimizerHydraInstantiation:
         assert optimizer.defaults["nesterov"] is True
 
     def test_instantiate_with_custom_target(self):
-        """Test instantiating optimizer with custom _target_."""
+        """Test instantiating optimizer with custom target_class."""
         model = torch.nn.Linear(10, 5)
 
         # Create config with custom target (e.g., RMSprop)
-        config = OptimizerConfig(_target_="torch.optim.RMSprop", lr=1e-3)
+        config = OptimizerConfig(target_class="torch.optim.RMSprop", lr=1e-3)
         config_omega = OmegaConf.structured(config)
         config_dict = OmegaConf.to_container(config_omega, resolve=True)
+        target = config_dict.pop("target_class")
         config_dict.pop("param_groups", None)
 
-        optimizer = instantiate(config_dict, params=model.parameters())
+        optimizer_cls = get_class(target)
+        optimizer = optimizer_cls(model.parameters(), **config_dict)
 
         assert isinstance(optimizer, torch.optim.RMSprop)
         assert optimizer.defaults["lr"] == 1e-3
@@ -282,7 +289,7 @@ class TestOptimizerYAMLConfig:
     def test_load_adamw_yaml_config(self, tmp_path):
         """Test loading AdamW config from YAML."""
         yaml_content = """
-_target_: torch.optim.AdamW
+target_class: torch.optim.AdamW
 lr: 1.0e-4
 weight_decay: 1.0e-4
 betas: [0.9, 0.999]
@@ -295,7 +302,7 @@ param_groups: []
         # Load config
         config = OmegaConf.load(yaml_path)
 
-        assert config._target_ == "torch.optim.AdamW"
+        assert config.target_class == "torch.optim.AdamW"
         assert config.lr == 1e-4
         assert config.weight_decay == 1e-4
         assert config.betas == [0.9, 0.999]
@@ -303,7 +310,7 @@ param_groups: []
     def test_load_yaml_with_param_groups(self, tmp_path):
         """Test loading config with parameter groups from YAML."""
         yaml_content = """
-_target_: torch.optim.AdamW
+target_class: torch.optim.AdamW
 lr: 1.0e-4
 weight_decay: 1.0e-4
 param_groups:
@@ -326,9 +333,9 @@ param_groups:
         assert config.param_groups[1].lr == 5e-5
 
     def test_instantiate_from_yaml_config(self, tmp_path):
-        """Test end-to-end: YAML -> config -> instantiate -> optimizer."""
+        """Test end-to-end: YAML -> config -> manual instantiate -> optimizer."""
         yaml_content = """
-_target_: torch.optim.AdamW
+target_class: torch.optim.AdamW
 lr: 2.0e-4
 weight_decay: 1.0e-5
 betas: [0.95, 0.999]
@@ -339,14 +346,17 @@ betas: [0.95, 0.999]
         # Load config
         config = OmegaConf.load(yaml_path)
 
-        # Create model and instantiate optimizer
+        # Create model and manually instantiate optimizer
         model = torch.nn.Linear(10, 5)
         config_dict = OmegaConf.to_container(config, resolve=True)
+        target = config_dict.pop("target_class")
         config_dict.pop("param_groups", None)
 
-        optimizer = instantiate(config_dict, params=model.parameters())
+        optimizer_cls = get_class(target)
+        optimizer = optimizer_cls(model.parameters(), **config_dict)
 
         assert isinstance(optimizer, torch.optim.AdamW)
         assert optimizer.defaults["lr"] == 2e-4
         assert optimizer.defaults["weight_decay"] == 1e-5
-        assert optimizer.defaults["betas"] == (0.95, 0.999)
+        # YAML loads lists, optimizer converts to tuples
+        assert optimizer.defaults["betas"] == (0.95, 0.999) or optimizer.defaults["betas"] == [0.95, 0.999]

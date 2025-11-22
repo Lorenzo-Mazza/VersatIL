@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 
 from refactoring.models.encoding.encoders.constants import PoolingMethod
-from refactoring.models.layers import SpatialSoftmax
+from refactoring.models.layers import SpatialSoftmax, LearnedAggregation
 
 
 class PoolingHead(nn.Module, ABC):
@@ -39,14 +39,11 @@ class PoolingHead(nn.Module, ABC):
 
 
 class SpatialSoftmaxPooling(PoolingHead):
-    """Spatial softmax pooling for features."""
-
-
+    """Spatial softmax pooling on feature maps."""
     def __init__(self, spatial_height: int, spatial_width: int, channels: int):
         super().__init__()
         self.spatial_softmax = SpatialSoftmax(spatial_height, spatial_width, channels)
         self.channels = channels
-
 
     def get_output_dim(self, input_channels: int) -> int:
         return input_channels * 2
@@ -68,6 +65,15 @@ class GlobalAveragePooling(PoolingHead):
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         return features.mean(dim=[2, 3])
 
+class MaxPooling(PoolingHead):
+    """Global max pooling for features."""
+
+    def get_output_dim(self, input_channels: int) -> int:
+        return input_channels
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        return torch.amax(features, dim=[2, 3])
+
 
 class IdentityPooling(PoolingHead):
     """No pooling - returns features unchanged."""
@@ -86,6 +92,21 @@ class IdentityPooling(PoolingHead):
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         return features
+
+
+class LearnedAggregationPooling(PoolingHead):
+    """Learned aggregation of feature maps through attention."""
+    def __init__(self, channels: int):
+        super().__init__()
+        self.channels = channels
+        self.pooling_head = LearnedAggregation(ni=channels)
+
+    def get_output_dim(self, input_channels: int) -> int:
+        return self.channels
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        return self.pooling_head(features)
+
 
 
 def create_pooling_head(
@@ -108,14 +129,17 @@ def create_pooling_head(
     Raises:
         ValueError: If pooling_method is not supported
     """
-    if pooling_method == PoolingMethod.SPATIAL_SOFTMAX.value:
-        return SpatialSoftmaxPooling(spatial_height, spatial_width, feature_channels)
-    elif pooling_method == PoolingMethod.AVERAGE.value:
-        return GlobalAveragePooling()
-    elif pooling_method == PoolingMethod.NONE.value:
-        return IdentityPooling(spatial_height, spatial_width, feature_channels)
-    else:
-        raise ValueError(
-            f"Unsupported pooling method: {pooling_method}. "
-            f"Supported: {[e.value for e in PoolingMethod]}"
-        )
+    match pooling_method:
+        case PoolingMethod.SPATIAL_SOFTMAX.value:
+            return SpatialSoftmaxPooling(spatial_height, spatial_width, feature_channels)
+        case PoolingMethod.AVERAGE.value:
+            return GlobalAveragePooling()
+        case PoolingMethod.MAX.value | PoolingMethod.DEFAULT.value:
+            return MaxPooling()
+        case PoolingMethod.NONE.value:
+            return IdentityPooling(spatial_height, spatial_width, feature_channels)
+        case PoolingMethod.LEARNED_AGGREGATION.value:
+            return LearnedAggregationPooling(feature_channels)
+        case _:
+            raise ValueError(
+                f"Unsupported pooling method: {pooling_method}.Supported: {[e.value for e in PoolingMethod]}" )

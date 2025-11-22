@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 from refactoring.models.layers.activation import ActivationFunction
-from refactoring.models.layers.positional_encoding.base import add_positional_encoding
+from refactoring.models.layers.detr_transformer.attention import FlashAttention
 
 
 class TransformerDecoderLayer(nn.Module):
@@ -30,12 +30,10 @@ class TransformerDecoderLayer(nn.Module):
         """
         super().__init__()
         self.normalize_before = normalize_before
-        self.self_attention = nn.MultiheadAttention(
-            embed_dim=embedding_dimension, num_heads=number_of_heads, dropout=dropout, batch_first=False
-        )
-        self.cross_attention = nn.MultiheadAttention(
-            embed_dim=embedding_dimension, num_heads=number_of_heads, dropout=dropout, batch_first=False
-        )
+        self.self_attention = FlashAttention(embedding_dimension=embedding_dimension,
+                                        number_of_heads=number_of_heads, dropout=dropout)
+        self.cross_attention = FlashAttention(embedding_dimension=embedding_dimension,
+                                        number_of_heads=number_of_heads, dropout=dropout)
         self.feedforward_linear1 = nn.Linear(embedding_dimension, feedforward_dimension)
         self.feedforward_dropout = nn.Dropout(dropout)
         self.feedforward_linear2 = nn.Linear(feedforward_dimension, embedding_dimension)
@@ -45,7 +43,22 @@ class TransformerDecoderLayer(nn.Module):
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
         self.dropout3 = nn.Dropout(dropout)
-        self.activation = ActivationFunction(activation).to_torch_activation()()
+        if activation == ActivationFunction.SWIGLU.value:
+            self.activation = ActivationFunction(activation).to_torch_activation()(
+                input_dim=embedding_dimension, hidden_dim=feedforward_dimension)
+            self.feedforward_network = nn.Sequential(
+                self.activation,
+                self.feedforward_dropout,
+                self.feedforward_linear2,
+            )
+        else:
+            self.activation = ActivationFunction(activation).to_torch_activation()()
+            self.feedforward_network = nn.Sequential(
+                self.feedforward_linear1,
+                self.activation,
+                self.feedforward_dropout,
+                self.feedforward_linear2,
+            )
 
 
     def forward(
@@ -61,52 +74,39 @@ class TransformerDecoderLayer(nn.Module):
     ) -> torch.Tensor:
         """Forward pass through decoder layer.
 
-        Args:
-            target: Target tensor of shape (target_length, batch, embedding_dimension).
-            memory: Encoder output of shape (source_length, batch, embedding_dimension), used for cross-attention.
-            target_mask: Target attention mask of shape (target_length, target_length).
-            memory_mask: Memory attention mask of shape (target_length, source_length).
-            target_key_padding_mask: Target padding mask of shape (batch, target_length).
-            memory_key_padding_mask: Memory padding mask of shape (batch, source_length).
-            memory_positional_encoding: Memory positional encoding of shape (source_length, batch, embedding_dimension).
-            query_positional_encoding: Query positional encoding of shape (target_length, batch, embedding_dimension).
-
         Returns:
-            Output tensor of shape (target_length, batch, embedding_dimension).
+            Output tensor of shape (batch size, target_length, embedding_dimension).
         """
         residual = target
-        target = self.normalization1(target) if self.normalize_before else target
-        # DETR-style: Add positional encoding to queries and keys, but not to values
-        query = key = add_positional_encoding(target, query_positional_encoding)
         target = self.self_attention(
-            query, key, value=target,
-            attn_mask=target_mask,
+            query=target,
+            key=target,
+            value=target,
+            query_positional_encoding=query_positional_encoding,
+            attention_mask=target_mask,
             key_padding_mask=target_key_padding_mask,
-        )[0]
+        )
         target = residual + self.dropout1(target)
         target = target if self.normalize_before else self.normalization1(target)
         residual = target
         target = self.normalization2(target) if self.normalize_before else target
         target = self.cross_attention(
-            query=add_positional_encoding(target, query_positional_encoding),
-            key=add_positional_encoding(memory, memory_positional_encoding),
+            query=target,
+            key=memory,
             value=memory,
-            attn_mask=memory_mask,
+            query_positional_encoding=query_positional_encoding,
+            key_positional_encoding=memory_positional_encoding,
+            attention_mask=memory_mask,
             key_padding_mask=memory_key_padding_mask,
-        )[0]
+        )
         target = residual + self.dropout2(target)
         target = target if self.normalize_before else self.normalization2(target)
         residual = target
         target = self.normalization3(target) if self.normalize_before else target
-        target = self.feedforward_linear2(
-            self.feedforward_dropout(
-                self.activation(self.feedforward_linear1(target))
-            )
-        )
+        target = self.feedforward_network(target)
         target = residual + self.dropout3(target)
         target = target if self.normalize_before else self.normalization3(target)
-        return target
-
+        return target # (B, target_length, C)
 
 
 def generate_causal_mask(size: int, device: torch.device) -> torch.Tensor:
@@ -164,18 +164,18 @@ class TransformerDecoder(nn.Module):
         """Forward pass through all decoder layers.
 
         Args:
-            target: Target tensor of shape (target_length, batch, embedding_dimension).
-            memory: Encoder output of shape (source_length, batch, embedding_dimension).
+            target: Target tensor of shape (batch size, target_length, embedding_dimension).
+            memory: Encoder output of shape (batch size, source_length, embedding_dimension).
             target_mask: Target attention mask of shape (target_length, target_length).
             memory_mask: Memory attention mask of shape (target_length, source_length).
-            target_key_padding_mask: Target padding mask of shape (batch, target_length).
-            memory_key_padding_mask: Memory padding mask of shape (batch, source_length).
-            memory_positional_encoding: Memory positional encoding of shape (source_length, batch, embedding_dimension).
-            query_positional_encoding: Query positional encoding of shape (target_length, batch, embedding_dimension).
+            target_key_padding_mask: Target padding mask of shape (batch size, target_length).
+            memory_key_padding_mask: Memory padding mask of shape (batch size, source_length).
+            memory_positional_encoding: Memory positional encoding of shape (batch size,source_length,embedding_dimension).
+            query_positional_encoding: Query positional encoding of shape (batch size,target_length,embedding_dimension).
 
         Returns:
-            If return_intermediate is True, returns tensor of shape (number_of_layers, target_length, batch, embedding_dimension).
-            Otherwise, returns tensor of shape (1, target_length, batch, embedding_dimension).
+            If return_intermediate is True, a tensor with shape (number_of_layers, batch_size, target_length,
+             embedding_dimension). Otherwise, with shape  (1, batch_size, target_length, embedding_dimension).
         """
         output = target
         intermediate = []
@@ -196,7 +196,6 @@ class TransformerDecoder(nn.Module):
             output = self.normalization(output)
             if self.return_intermediate:
                 intermediate[-1] = output
-
         if self.return_intermediate:
             return torch.stack(intermediate)
         return output.unsqueeze(0)

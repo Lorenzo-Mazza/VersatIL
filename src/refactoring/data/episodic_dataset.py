@@ -6,10 +6,10 @@ import torch
 import torch.utils.data as data
 from threadpoolctl import threadpool_limits
 
-from refactoring.configs import DataloaderConfig
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.configs.data.dataloader import DataLoaderConfig
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.action_processor import ActionProcessor
-from refactoring.data.augmentation_pipeline import AugmentationPipeline
+from refactoring.data.augmentation.augmentation_pipeline import AugmentationPipeline
 from refactoring.data.constants import (
     GRIPPER_ACTION_KEY,
     GRIPPER_STATE_OBS_KEY,
@@ -17,9 +17,9 @@ from refactoring.data.constants import (
     PROPRIO_OBS_ROBOT_FRAME_KEY,
     SamplingMode,
 )
-from refactoring.configs.task.dataloader import TokenizationConfig
-from refactoring.data.normalize.normalizer import LinearNormalizer
-from refactoring.data.normalize.normalizer_builder import NormalizerBuilder
+from refactoring.configs.data.tokenizer import TokenizationConfig
+from refactoring.data.normalization.normalizer import LinearNormalizer
+from refactoring.data.normalization.normalizer_builder import NormalizerBuilder
 from refactoring.data.preprocessing.replay_buffer import ReplayBuffer
 from refactoring.data.preprocessing.sampler import (
     SequenceSampler,
@@ -27,7 +27,7 @@ from refactoring.data.preprocessing.sampler import (
     get_val_mask,
 )
 from refactoring.data.sample_builder import SampleBuilder
-from refactoring.data.tokenize import Tokenizer
+from refactoring.data.tokenization import Tokenizer
 
 logging.basicConfig(level=logging.INFO)
 
@@ -48,7 +48,7 @@ class EpisodicDataset(data.Dataset):
             zarr_path: str,
             action_space: ActionSpace,
             observation_space: ObservationSpace,
-            dataloader_config: DataloaderConfig,
+            dataloader_config: DataLoaderConfig,
             pred_horizon: int,
             obs_horizon: int,
             train: bool = True,
@@ -58,8 +58,8 @@ class EpisodicDataset(data.Dataset):
 
         Args:
             zarr_path: Path to zarr replay buffer
-            action_space: Task action space config (what to predict and how)
-            observation_space: Task observation space config (what to use as observation data)
+            action_space: TaskSpace action space config (what to predict and how)
+            observation_space: TaskSpace observation space config (what to use as observation data)
             pred_horizon: Prediction horizon, i.e. chunk size.
             obs_horizon: Observation horizon, i.e. history size.
             train: Whether to use training mode.
@@ -130,6 +130,7 @@ class EpisodicDataset(data.Dataset):
             augmentation_pipeline=self.augmentation_pipeline,
             action_processor=self.action_processor,
         )
+        self.normalizer: LinearNormalizer | None = None
 
 
     def _create_episode_mask(
@@ -245,11 +246,10 @@ class EpisodicDataset(data.Dataset):
                 if self.action_space.has_orientation:
                     pos_end = self.action_space.position_dim
                     ori_end = pos_end + self.action_space.orientation_dim
-                    first_ori = first_obs[pos_end:ori_end]
-                    episode_ori = episode_obs[:, pos_end:ori_end]
-                    # Repeat first_ori for each timestep to compute relative orientations
-                    first_ori_repeated = np.tile(first_ori, (episode_length, 1))
-                    centered_ori = self.action_processor._compute_orientation_deltas(first_ori_repeated, episode_ori)
+                    first_orientation = first_obs[pos_end:ori_end]
+                    episode_orientations = episode_obs[:, pos_end:ori_end]
+                    first_orientation_repeated = np.tile(first_orientation, (episode_length, 1)) # Repeat for each timestep
+                    centered_ori = self.action_processor._compute_orientation_deltas(first_orientation_repeated, episode_orientations)
                     episode_obs[:, pos_end:ori_end] = centered_ori
 
             current_start = end
@@ -339,6 +339,7 @@ class EpisodicDataset(data.Dataset):
         normalizer_builder = NormalizerBuilder(
             replay_buffer=self.replay_buffer,
             action_processor=self.action_processor,
+            prediction_horizon=self.pred_horizon,
             observation_space=self.observation_space,
             episode_ends=self.episode_ends,
             kinematics_norm_type=self.kinematics_norm_type,
@@ -392,6 +393,22 @@ class EpisodicDataset(data.Dataset):
             device=device, **kwargs
         )
 
+
+    def set_tokenizer(self, tokenizer: Tokenizer | None) -> None:
+        """Set tokenizer for the sample builder.
+
+        Args:
+            tokenizer: Unified tokenizer containing observation and action tokenizers
+        """
+        self.sample_builder.tokenizer = tokenizer
+
+    def set_normalizer(self, normalizer: LinearNormalizer) -> None:
+        """Set normalizer for the dataset.
+
+        Args:
+            normalizer: Normalizer for observations and actions
+        """
+        self.sample_builder.normalizer = normalizer
 
     def get_gripper_positive_class_imbalance_weight(self) -> float:
         """Get class imbalance weight for gripper actions."""

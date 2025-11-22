@@ -144,13 +144,10 @@ def reduce_loss_with_padding(
             return loss_tensor.sum()
         else:
             return loss_tensor
-
     pad_mask = (~is_pad).float()
     while pad_mask.dim() < loss_tensor.dim():
         pad_mask = pad_mask.unsqueeze(-1)
-
     masked_loss = loss_tensor * pad_mask
-
     if reduction == "mean":
         return masked_loss.sum() / (pad_mask.sum() + 1e-8)
     elif reduction == "sum":

@@ -8,7 +8,7 @@ from typing import Optional
 import torch
 from torch import nn
 
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.constants import FeatureType, TIMESTEP_KEY
 from refactoring.models.decoding.decoders.base import DecoderInput
@@ -72,7 +72,6 @@ class ConditionalUNetDecoder(ActionDecoder):
         """
         decoder_input = DecoderInput(
             keys=input_keys,
-            required=[],
             raises_for_types=[FeatureType.SPATIAL.value],
             requires_actions=True,
         )

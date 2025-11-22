@@ -1,25 +1,26 @@
 """Configuration classes for different action decoder architectures."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from omegaconf import DictConfig, MISSING
+from omegaconf import MISSING
 
 from refactoring.configs.decoding.action_head import ActionHeadConfig
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.configs.data.task import ActionSpaceConfig, ObservationSpaceConfig
 from refactoring.models.decoding.constants import MoERoutingType
 from refactoring.models.layers.activation import ActivationFunction
-from refactoring.models.layers.constants import PositionalEncodingType
+from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
+from refactoring.models.layers.normalization.constants import NormalizationType
 
 
 @dataclass
 class DecodingNetworkConfig:
     """Base architecture configuration."""
     _target_: str = MISSING
-    action_heads: dict[str, ActionHeadConfig] = MISSING
+    action_heads: dict[str, ActionHeadConfig] | None = None
     input_keys: list[str] = MISSING
-    observation_space: "ObservationSpace" = "${policy.observation_space}"  # type: ignore[assignment]
+    observation_space: ObservationSpaceConfig = "${policy.observation_space}"  # type: ignore[assignment]
+    action_space: ActionSpaceConfig = "${policy.action_space}"  # type: ignore[assignment]
     observation_horizon: int = "${policy.observation_horizon}"  # type: ignore[assignment]
     prediction_horizon: int = "${policy.prediction_horizon}"  # type: ignore[assignment]
-    action_space: ActionSpace = "${policy.action_space}"  # type: ignore[assignment]
     device: str = "${policy.device}"
 
 
@@ -94,7 +95,6 @@ class FASTGPTDecoderConfig(DecodingNetworkConfig):
     The action_vocabulary_size must match the tokenizer's vocabulary size (default 2048 for pretrained FAST).
     """
     _target_: str = "refactoring.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTDecoder"
-    action_vocabulary_size: int = 2048  # Pretrained FAST vocabulary size
     max_seq_len: int = 512  # Maximum sequence length for GPT (features + action tokens)
     embedding_dimension: int = 256
     number_of_heads: int = 8  # Number of query attention heads
@@ -102,13 +102,11 @@ class FASTGPTDecoderConfig(DecodingNetworkConfig):
     feedforward_dimension: int | None = None  # FFN hidden dimension (default: 4 * embedding_dimension)
     number_of_layers: int = 6
     activation: str = ActivationFunction.SWIGLU.value  # Activation function
-    normalization_type: str = "rmsnorm"  # Normalization type
-    attention_type: str = "gqa"  # Attention type
+    normalization_type: str = NormalizationType.RMS_NORM.value  # Normalization type
+    attention_type: str = AttentionType.GROUPED_QUERY.value  # Attention type
     dropout_rate: float = 0.1
     attention_dropout: float = 0.0
-    positional_encoding_type: str | None = "sinusoidal"  # Type of positional encoding
-    eos_token_id: int = 1  # End of sequence token
-    pad_token_id: int = 0  # Padding token
+    positional_encoding_type: str | None = PositionalEncodingType.ROPE.value  # Type of positional encoding
     temperature: float = 1.0  # Sampling temperature
     learnable_temperature: bool = False  # If True, make temperature a learnable parameter
     deterministic: bool = True  # If True, use greedy decoding during inference
@@ -200,12 +198,12 @@ class MixtureOfExpertsDecoderConfig(DecodingNetworkConfig):
     """
     _target_: str = "refactoring.models.decoding.decoders.mixture_of_experts.MoEDecoder"
 
-    base_expert_config: DictConfig | dict | None = None  # Config with _target_, not pre-instantiated
-    num_experts: int | None = None
-    expert_configs: list[DictConfig | dict] | None = None  # List of configs with _target_
+    base_expert_config: dict = field(default_factory=dict)
+    num_experts: int = MISSING
+    expert_configs: list[dict] = field(default_factory=list)
 
     gating_input_dim: int | None = None
-    gating_hidden_dims: list[int] | None = None
+    gating_hidden_dims: list[int] = field(default_factory=list)
     routing_type: str = MoERoutingType.SOFT.value
     top_k: int = 2
     temperature: float = 1.0

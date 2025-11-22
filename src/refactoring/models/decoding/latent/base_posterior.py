@@ -22,16 +22,10 @@ class LatentActionEncoder(nn.Module, abc.ABC):
         Returns {LATENT_KEY: z, MU_KEY: mu, LOGVAR_KEY: logvar}
     """
 
-    def __init__(self, latent_dim: int, output_dim: int, device: str):
-        """Initialize latent action encoder.
-
-        Args:
-            latent_dim: Dimension of latent embedding
-            device: Device to place encoder on
-        """
+    def __init__(self, latent_dimension: int, device: str):
+        """Initialize latent action encoder."""
         super().__init__()
-        self.latent_dim = latent_dim
-        self.output_dim = output_dim
+        self.latent_dimension = latent_dimension
         self.device = torch.device(device)
 
     @abc.abstractmethod

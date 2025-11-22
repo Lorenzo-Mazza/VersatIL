@@ -1,27 +1,31 @@
+_target_: refactoring.configs.main.MainConfig
 
 defaults:
+  - task: base
+  - policy: base
   - experiment: bowel_retraction_act
   - task/dataset_schema: bowel_retraction_v2
   - task/dataloader: act_default
   - task/action_space: br_position_gripper_deltas_cf
   - task/observation_space: br_rgb_only
   - training: act_default
-  - policy/encoding_pipeline: rgb_resnet18
+  - policy/encoding_pipeline: stereo_rgb
   - policy/decoder: act_default
   - policy/algorithm: bc_with_vae_gaussian
-  - policy/loss: act_default
+  - policy/loss: act_with_vae
   - inference: act_default
   - _self_
 
 task:
-  observation_horizon: 1  # ACT uses single observation
-  prediction_horizon: 10  # Chunk size
+  observation_horizon: 2
+  prediction_horizon: 10
 
 policy:
   _target_: refactoring.models.policy.Policy
   observation_space: ${task.observation_space}
   action_space: ${task.action_space}
   prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
   device: ${experiment.device}
   validate_loss_keys: true
 

@@ -25,22 +25,18 @@ class CNNEncoder(Encoder):
             use_group_norm: bool = True,
             pretrained: bool = False,
             frozen: bool = False,
-            image_height: int = 224,
-            image_width: int = 224,
     ):
         specification = EncoderInput(keys=input_keys,one_of_groups=[[Cameras.LEFT.value, Cameras.RIGHT.value]])
         super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
         # Validate backbone type at instantiation
         if backbone not in [e.value for e in RGBBackboneType]:
-            valid_backbones = [e.value for e in RGBBackboneType]
+            valid_backbones = [e.value for e in RGBBackboneType if "vit" not in e.value]
             raise ValueError(
                 f"Invalid backbone '{backbone}'. Must be one of: {valid_backbones}"
             )
         self.use_group_norm = use_group_norm
         self.pooling_method = pooling_method
         self.backbone_name = backbone
-        self.image_height = image_height
-        self.image_width = image_width
         self._build_backbone()
         self.feature_dim = self.backbone.num_features[-1]
         self._setup_pooling()
@@ -58,7 +54,7 @@ class CNNEncoder(Encoder):
     def _setup_pooling(self):
         """Setup pooling layer based on configuration."""
         with torch.no_grad():
-            mock_input = torch.zeros(1, 3, self.image_height, self.image_width)
+            mock_input = torch.zeros(1, 3, 224, 224)
             mock_output: BackboneOutput = self.backbone(mock_input)
             mock_features = mock_output.feature_maps[0]  # type: ignore[index]
             _, c, h, w = mock_features.shape
@@ -83,6 +79,7 @@ class CNNEncoder(Encoder):
         Note:
             Feature dimension size depends on the pooling method used. If no pooling is applied, the raw feature maps are returned and the output shape will
             be (batch size, channels, height, width) or (batch size, time steps, channels, height, width).
+            If pooling is used, the output shape will be (batch size, channels).
         """
         img = inputs[self.input_specification.keys[0]]
         T = None
@@ -97,7 +94,8 @@ class CNNEncoder(Encoder):
         features = backbone_output.feature_maps[-1]
         pooled_features = self.pooling_head(features)
         if has_time:
-            pooled_features = pooled_features.reshape(B, T, *pooled_features.shape[1:])  # Batch, Time, Features
+            # Reshape back to (B, T, C) or (B, T, C, H, W)
+            pooled_features = pooled_features.reshape(B, T, *pooled_features.shape[1:])
         return {EncoderOutputKeys.RGB.value: pooled_features}
 
 

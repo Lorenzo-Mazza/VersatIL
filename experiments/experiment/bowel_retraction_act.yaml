@@ -1,7 +1,8 @@
 # Experiment configuration for ACT on bowel retraction
+defaults:
+  - base
 
 name: ${now:%Y%m%d_%H%M%S}_br_cf_new_loss_lre-5_wde-4
-seed: 42
 
 # Checkpoint and logging
 checkpoint_folder: /mnt/cluster/workspaces/mazzalore/bowel_retraction/

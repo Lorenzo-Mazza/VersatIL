@@ -11,26 +11,21 @@ class TestGaussianPriorInitialization:
     def test_initialization_default_params(self, device):
         """Test GaussianPrior initializes correctly with default parameters."""
         latent_dim = 32
-        output_dim = 256
 
         prior = GaussianPrior(
-            latent_dim=latent_dim,
-            output_dim=output_dim,
+            latent_dimension=latent_dim,
             device=str(device),
         )
 
-        assert prior.latent_dim == latent_dim
-        assert prior.output_dim == output_dim
+        assert prior.latent_dimension == latent_dim
         assert prior.infer_constant_prior == False  # Default
         assert isinstance(prior.latent_output_projection, torch.nn.Linear)
         assert prior.latent_output_projection.in_features == latent_dim
-        assert prior.latent_output_projection.out_features == output_dim
 
     def test_initialization_with_constant_prior(self, device):
         """Test GaussianPrior with constant prior mode (like ACT)."""
         prior = GaussianPrior(
-            latent_dim=16,
-            output_dim=128,
+            latent_dimension=16,
             device=str(device),
             infer_constant_prior=True,
         )
@@ -40,11 +35,9 @@ class TestGaussianPriorInitialization:
     def test_latent_output_projection_created(self, device):
         """Test that latent output projection layer is created."""
         latent_dim = 64
-        output_dim = 512
 
         prior = GaussianPrior(
-            latent_dim=latent_dim,
-            output_dim=output_dim,
+            latent_dimension=latent_dim,
             device=str(device),
         )
 
@@ -53,13 +46,11 @@ class TestGaussianPriorInitialization:
         proj = prior.latent_output_projection
         assert isinstance(proj, torch.nn.Linear)
         assert proj.in_features == latent_dim
-        assert proj.out_features == output_dim
 
     def test_device_placement_on_init(self, device):
         """Test that prior is moved to correct device during init."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
             device=str(device),
         )
 
@@ -67,39 +58,28 @@ class TestGaussianPriorInitialization:
         for param in prior.parameters():
             assert param.device.type == device.type
 
-    @pytest.mark.parametrize("latent_dim,output_dim", [
-        (16, 64),
-        (32, 128),
-        (64, 256),
-        (128, 512),
-        (256, 1024),
-    ])
-    def test_different_latent_output_dims(self, device, latent_dim, output_dim):
+    @pytest.mark.parametrize("latent_dim", [8, 16, 32, 64])
+    def test_different_latent_latent_dim(self, device, latent_dim):
         """Test various dimension combinations."""
         prior = GaussianPrior(
-            latent_dim=latent_dim,
-            output_dim=output_dim,
+            latent_dimension=latent_dim,
             device=str(device),
         )
 
-        assert prior.latent_dim == latent_dim
-        assert prior.output_dim == output_dim
+        assert prior.latent_dimension == latent_dim
 
     def test_parameter_validation(self, device):
         """Test that all parameters are stored correctly."""
         latent_dim = 32
-        output_dim = 256
         infer_constant = True
 
         prior = GaussianPrior(
-            latent_dim=latent_dim,
-            output_dim=output_dim,
+            latent_dimension=latent_dim,
             device=str(device),
             infer_constant_prior=infer_constant,
         )
 
-        assert prior.latent_dim == latent_dim
-        assert prior.output_dim == output_dim
+        assert prior.latent_dimension == latent_dim
         assert prior.infer_constant_prior == infer_constant
         assert prior.device == str(device)
 
@@ -111,8 +91,7 @@ class TestGaussianPriorSamplePrior:
     def test_sample_prior_random_sampling(self, device):
         """Test standard N(0,I) random sampling."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
             device=str(device),
             infer_constant_prior=False,
         )
@@ -120,9 +99,7 @@ class TestGaussianPriorSamplePrior:
         batch_size = 4
         samples = prior.sample_prior(batch_size=batch_size)
 
-        # Check shape
-        assert samples.shape == (batch_size, prior.output_dim)
-
+        assert samples.shape == (batch_size, 32)
         # Check device
         assert samples.device.type == device.type
 
@@ -133,8 +110,7 @@ class TestGaussianPriorSamplePrior:
     def test_sample_prior_constant_zero_latent(self, device):
         """Test constant zero latent sampling (ACT-style)."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
             device=str(device),
             infer_constant_prior=True,
         )
@@ -149,24 +125,22 @@ class TestGaussianPriorSamplePrior:
         assert torch.allclose(samples, samples2)
 
     def test_sample_prior_output_shape(self, device):
-        """Test output shape is (batch_size, output_dim)."""
+        """Test output shape is (batch_size, latent_dim)."""
         latent_dim = 16
-        output_dim = 128
         prior = GaussianPrior(
-            latent_dim=latent_dim,
-            output_dim=output_dim,
+            latent_dimension=latent_dim,
             device=str(device),
         )
 
         for batch_size in [1, 2, 8, 16]:
             samples = prior.sample_prior(batch_size=batch_size)
-            assert samples.shape == (batch_size, output_dim)
+            assert samples.shape == (batch_size, latent_dim)
 
     def test_sample_prior_output_device(self, device):
         """Test output is on correct device."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
         )
 
@@ -176,8 +150,8 @@ class TestGaussianPriorSamplePrior:
     def test_sample_prior_ignores_conditioning(self, device):
         """Test that conditioning parameter has no effect."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
             infer_constant_prior=True,  # Use constant to make test deterministic
         )
@@ -193,8 +167,8 @@ class TestGaussianPriorSamplePrior:
     def test_sample_prior_different_batch_sizes(self, device, batch_size):
         """Test sampling with different batch sizes."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
         )
 
@@ -204,8 +178,8 @@ class TestGaussianPriorSamplePrior:
     def test_sample_prior_deterministic_with_seed(self, device):
         """Test that same seed produces same samples."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
             infer_constant_prior=False,
         )
@@ -221,8 +195,8 @@ class TestGaussianPriorSamplePrior:
     def test_sample_prior_random_without_seed(self, device):
         """Test that different calls produce different samples (for non-constant)."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
             infer_constant_prior=False,
         )
@@ -236,8 +210,8 @@ class TestGaussianPriorSamplePrior:
     def test_sample_prior_constant_always_same(self, device):
         """Test that constant mode always produces same output."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
             infer_constant_prior=True,
         )
@@ -258,8 +232,8 @@ class TestGaussianPriorForward:
     def test_forward_returns_empty_dict(self, device):
         """Test that forward() returns empty dict (no training loss)."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
         )
 
@@ -275,8 +249,8 @@ class TestGaussianPriorForward:
     def test_forward_ignores_target_latents(self, device):
         """Test that forward() returns same empty dict regardless of inputs."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
         )
 
@@ -291,8 +265,8 @@ class TestGaussianPriorForward:
     def test_forward_ignores_conditioning(self, device):
         """Test that conditioning doesn't affect output."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
         )
 
@@ -307,8 +281,8 @@ class TestGaussianPriorForward:
     def test_forward_no_gradient_flow_to_prior(self, device):
         """Test that forward() doesn't create computation graph."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
         )
 
@@ -323,8 +297,8 @@ class TestGaussianPriorForward:
     def test_forward_accepts_various_input_shapes(self, device):
         """Test forward() works with various batch sizes."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
         )
 
@@ -337,8 +311,8 @@ class TestGaussianPriorForward:
     def test_forward_output_type(self, device):
         """Test that forward() returns dict[str, torch.Tensor]."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
         )
 
@@ -355,8 +329,7 @@ class TestGaussianPriorForward:
     def test_forward_consistency(self, device):
         """Test that same inputs produce same output (empty dict)."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
             device=str(device),
         )
 
@@ -376,15 +349,13 @@ class TestGaussianPriorConstantVsRandom:
     def test_constant_vs_random_sampling_difference(self, device):
         """Test that constant and random modes produce different outputs."""
         prior_constant = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
             device=str(device),
             infer_constant_prior=True,
         )
 
         prior_random = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
             device=str(device),
             infer_constant_prior=False,
         )
@@ -403,8 +374,8 @@ class TestGaussianPriorConstantVsRandom:
     def test_constant_prior_deterministic(self, device):
         """Test that constant mode is always deterministic."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
             infer_constant_prior=True,
         )
@@ -418,8 +389,8 @@ class TestGaussianPriorConstantVsRandom:
     def test_random_prior_stochastic(self, device):
         """Test that random mode produces different samples each call."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
             infer_constant_prior=False,
         )
@@ -430,20 +401,17 @@ class TestGaussianPriorConstantVsRandom:
         all_same = all(torch.allclose(samples[0], s) for s in samples[1:])
         assert not all_same
 
-    def test_both_modes_same_output_dim(self, device):
-        """Test that both modes respect output_dim."""
-        output_dim = 512
+    def test_both_modes_same_latent_dim(self, device):
+        """Test that both modes respect latent_dim."""
 
         prior_constant = GaussianPrior(
-            latent_dim=32,
-            output_dim=output_dim,
+            latent_dimension=32,
             device=str(device),
             infer_constant_prior=True,
         )
 
         prior_random = GaussianPrior(
-            latent_dim=32,
-            output_dim=output_dim,
+            latent_dimension=32,
             device=str(device),
             infer_constant_prior=False,
         )
@@ -451,24 +419,21 @@ class TestGaussianPriorConstantVsRandom:
         samples_constant = prior_constant.sample_prior(batch_size=4)
         samples_random = prior_random.sample_prior(batch_size=4)
 
-        assert samples_constant.shape[1] == output_dim
-        assert samples_random.shape[1] == output_dim
+        assert samples_constant.shape[1] == 32
+        assert samples_random.shape[1] == 32
 
     def test_projection_applied_in_both_modes(self, device):
         """Test that linear projection is applied in both modes."""
         latent_dim = 32
-        output_dim = 256
 
         prior_constant = GaussianPrior(
-            latent_dim=latent_dim,
-            output_dim=output_dim,
+            latent_dimension=latent_dim,
             device=str(device),
             infer_constant_prior=True,
         )
 
         prior_random = GaussianPrior(
-            latent_dim=latent_dim,
-            output_dim=output_dim,
+            latent_dimension=latent_dim,
             device=str(device),
             infer_constant_prior=False,
         )
@@ -477,9 +442,8 @@ class TestGaussianPriorConstantVsRandom:
         assert hasattr(prior_constant, 'latent_output_projection')
         assert hasattr(prior_random, 'latent_output_projection')
 
-        # Output dimensions should match output_dim (not latent_dim)
-        assert prior_constant.sample_prior(1).shape[1] == output_dim
-        assert prior_random.sample_prior(1).shape[1] == output_dim
+        assert prior_constant.sample_prior(1).shape[1] == 32
+        assert prior_random.sample_prior(1).shape[1] == 32
 
 
 @pytest.mark.unit
@@ -489,8 +453,8 @@ class TestGaussianPriorDevicePlacement:
     def test_device_placement_cpu(self):
         """Test explicit CPU device placement."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device="cpu",
         )
 
@@ -506,8 +470,8 @@ class TestGaussianPriorDevicePlacement:
     def test_device_placement_cuda(self):
         """Test explicit CUDA device placement."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device="cuda",
         )
 
@@ -522,8 +486,8 @@ class TestGaussianPriorDevicePlacement:
     def test_parameter_on_correct_device(self, device):
         """Test that latent_output_projection parameters are on correct device."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
         )
 
@@ -534,8 +498,8 @@ class TestGaussianPriorDevicePlacement:
     def test_sample_prior_respects_device(self, device):
         """Test that samples are generated on correct device."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
         )
 
@@ -547,8 +511,8 @@ class TestGaussianPriorDevicePlacement:
         """Test that .to(device) works correctly."""
         # Start on CPU
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device="cpu",
         )
 
@@ -573,8 +537,8 @@ class TestGaussianPriorGradients:
     def test_sampling_output_has_gradients_from_projection(self, device):
         """Test that sample_prior() output has gradients from trainable projection."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
         )
 
@@ -586,8 +550,8 @@ class TestGaussianPriorGradients:
     def test_projection_layer_trainable(self, device):
         """Test that linear projection layer parameters are trainable."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
         )
 
@@ -598,8 +562,8 @@ class TestGaussianPriorGradients:
     def test_projection_receives_gradients(self, device):
         """Test that backprop through projection works."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
         )
 
@@ -621,8 +585,8 @@ class TestGaussianPriorGradients:
     def test_forward_no_backprop(self, device):
         """Test that forward() doesn't require gradients."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
         )
 
@@ -647,16 +611,16 @@ class TestGaussianPriorIntegration:
 
         # Create VAE encoder
         vae_encoder = VAETransformerEncoder(
-            latent_dim=16,
+            latent_dimension=16,
             embedding_dimension=64,
             prediction_horizon=10,
             device=str(device),
+            observation_horizon=1
         )
 
         # Create VariationalAlgorithm with explicit GaussianPrior
         prior = GaussianPrior(
-            latent_dim=16,
-            output_dim=64,
+            latent_dimension=16,
             device=str(device),
         )
 
@@ -675,7 +639,7 @@ class TestGaussianPriorIntegration:
         from refactoring.models.decoding.latent import VAETransformerEncoder
 
         vae_encoder = VAETransformerEncoder(
-            latent_dim=16,
+            latent_dimension=16,
             embedding_dimension=64,
             prediction_horizon=10,
             device=str(device),
@@ -685,18 +649,18 @@ class TestGaussianPriorIntegration:
             base_algorithm=BehavioralCloning(),
             posterior_encoder=vae_encoder,
             prior=None,  # Should auto-create GaussianPrior
+            embedding_dimension=64,
         )
 
         # Check prior was auto-created
         assert isinstance(algorithm.prior, GaussianPrior)
-        assert algorithm.prior.latent_dim == 16
-        assert algorithm.prior.output_dim == 64
+        assert algorithm.prior.latent_dimension == 16
 
     def test_constant_prior_in_act_mode(self, device):
         """Test constant prior mode (ACT-style)."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
             infer_constant_prior=True,
         )
@@ -710,8 +674,8 @@ class TestGaussianPriorIntegration:
     def test_sampling_in_inference_loop(self, device):
         """Test multiple inference steps work correctly."""
         prior = GaussianPrior(
-            latent_dim=32,
-            output_dim=256,
+            latent_dimension=32,
+             
             device=str(device),
         )
 

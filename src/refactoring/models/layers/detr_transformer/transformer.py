@@ -40,9 +40,6 @@ class Transformer(nn.Module):
             normalize_before: If True, use pre-normalization. If False, use post-normalization.
             return_intermediate_decoder: If True, return outputs from all decoder layers.
 
-
-        Note:
-            PyTorch > 2.0 automatically uses Flash Attention when available.
         """
         super().__init__()
         self.embedding_dimension = embedding_dimension
@@ -101,18 +98,18 @@ class Transformer(nn.Module):
         """Forward pass through transformer.
 
         Args:
-            source: Source sequence of shape (source_length, batch, embedding_dimension).
-            target: Target sequence of shape (target_length, batch, embedding_dimension).
+            source: Input tensor of shape (batch size, source_length, embedding_dimension).
+            target: Target tensor of shape (batch size, target_length, embedding_dimension).
             source_mask: Source attention mask of shape (source_length, source_length).
             target_mask: Target attention mask of shape (target_length, target_length).
             source_key_padding_mask: Source padding mask of shape (batch, source_length).
             target_key_padding_mask: Target padding mask of shape (batch, target_length).
-            source_positional_encoding: Source positional encoding of shape (source_length, batch, embedding_dimension).
-            target_positional_encoding: Target positional encoding of shape (target_length, batch, embedding_dimension).
+            source_positional_encoding: Source PE of shape (batch size, source_length, embedding_dimension).
+            target_positional_encoding: Target PE of shape (batch size, target_length, embedding_dimension).
 
         Returns:
-            If return_intermediate_decoder is True, returns tensor of shape (number_of_decoder_layers, target_length, batch, embedding_dimension).
-            Otherwise, returns tensor of shape (1, target_length, batch, embedding_dimension).
+            If return_intermediate is True, a tensor with shape (number_of_layers, batch_size, target_length,
+             embedding_dimension). Otherwise, with shape  (1, batch_size, target_length, embedding_dimension).
         """
         memory = self.encoder(
             source=source,

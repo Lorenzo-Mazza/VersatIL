@@ -15,9 +15,6 @@ from refactoring.models.decoding.action_heads.blocks import (
 )
 from refactoring.models.decoding.action_heads.head import (
     ActionHead,
-    create_attention_mlp_head,
-    create_default_action_head,
-    create_mlp_action_head,
 )
 from refactoring.models.decoding.action_heads.moe import MoEHead
 
@@ -28,7 +25,4 @@ __all__ = [
     "ResidualBlock",
     "ActionHead",
     "MoEHead",
-    "create_default_action_head",
-    "create_mlp_action_head",
-    "create_attention_mlp_head",
 ]

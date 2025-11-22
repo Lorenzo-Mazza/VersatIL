@@ -4,10 +4,12 @@ import torch
 import torch.nn as nn
 
 from refactoring.models.layers.activation import ActivationFunction
-from refactoring.models.layers.constants import AttentionType, NormalizationType
+from refactoring.models.layers.constants import AttentionType
+from refactoring.models.layers.normalization.constants import NormalizationType
 from refactoring.models.layers.gpt_transformer.attention import CachedAttention
 from refactoring.models.layers.gpt_transformer.kv_cache import LayerKVCache
-from refactoring.models.layers.gpt_transformer.normalization import create_normalization_layer
+from refactoring.models.layers.normalization.factory import create_normalization_layer
+from refactoring.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
 from refactoring.models.layers.swiglu import SwiGLU
 
 
@@ -61,11 +63,8 @@ class TransformerDecoderLayer(nn.Module):
         self.number_of_heads = number_of_heads
         self.use_cross_attention = use_cross_attention
         self.autoregressive = autoregressive
-
         if feedforward_dimension is None:
             feedforward_dimension = 4 * embedding_dimension
-
-        # Self-attention (causal)
         self.self_attention = CachedAttention(
             embedding_dimension=embedding_dimension,
             number_of_heads=number_of_heads,
@@ -79,8 +78,6 @@ class TransformerDecoderLayer(nn.Module):
             dimension=embedding_dimension,
             epsilon=normalization_epsilon,
         )
-
-        # Cross-attention (to encoded features) - optional
         if use_cross_attention:
             self.cross_attention = CachedAttention(
                 embedding_dimension=embedding_dimension,
@@ -99,8 +96,6 @@ class TransformerDecoderLayer(nn.Module):
             self.cross_attention = None
             self.cross_attention_normalization = None
 
-        # Feed-forward network
-        # SwiGLU is gated activation with internal projections, handle specially
         if activation == ActivationFunction.SWIGLU.value:
             self.feedforward_network = nn.Sequential(
                 SwiGLU(input_dim=embedding_dimension, hidden_dim=feedforward_dimension, bias=bias),
@@ -120,8 +115,6 @@ class TransformerDecoderLayer(nn.Module):
             dimension=embedding_dimension,
             epsilon=normalization_epsilon,
         )
-
-        # Dropout for residual connections
         self.dropout = nn.Dropout(dropout)
 
     def forward(
@@ -132,52 +125,48 @@ class TransformerDecoderLayer(nn.Module):
         cross_attention_mask: torch.Tensor | None = None,
         layer_cache: LayerKVCache | None = None,
         use_cache: bool = False,
-        positional_encoding: nn.Module | None = None,
+        positional_encoding: RotaryPositionalEncoding | None = None,
     ) -> tuple[torch.Tensor, LayerKVCache | None]:
         """Forward pass through decoder layer.
 
         Args:
             hidden_states: Input embeddings (B, seq_len, D)
             encoded_features: Encoded visual features (B, num_features, D). Required if use_cross_attention=True
-            self_attention_mask: Optional causal mask for self-attention (False=masked). If None, no causal masking is applied.
-            cross_attention_mask: Optional mask for cross-attention, where False indicates positions to mask.
+            self_attention_mask: Optional causal mask for self-attention with shape (B,1, query length, key length)
+             where True=masked. If None, no causal masking is applied.
+            cross_attention_mask: Optional mask for cross-attention, with shape (B,1, query length, key length)
+             where True=masked. If None, no cross-attention masking is applied.
             layer_cache: Optional cached K/V from previous steps
             use_cache: Whether to return updated cache. Only valid if autoregressive=True
-            positional_encoding: Optional positional encoding module (for RoPE)
+            positional_encoding: Optional rotary positional encoding module
 
         Returns:
             Tuple of (output_states, updated_cache)
 
         Raises:
-            ValueError: If use_cache=True for non-autoregressive model
+            ValueError: If use_self_attention_cache=True for non-autoregressive model
         """
         if use_cache and not self.autoregressive:
-            raise ValueError("use_cache=True only valid for autoregressive models")
-        # Self-attention with residual
+            raise ValueError("use_self_attention_cache=True only valid for autoregressive models")
         residual = hidden_states
         hidden_states = self.self_attention_normalization(hidden_states)
-
         self_attention_output, new_cache = self.self_attention(
             query_input=hidden_states,
             key_input=hidden_states,
             value_input=hidden_states,
             attention_mask=self_attention_mask,
             layer_cache=layer_cache,
-            use_cache=use_cache,
+            use_self_attention_cache=use_cache,
+            use_cross_attention_cache=False,
             positional_encoding=positional_encoding,
         )
-
         hidden_states = residual + self.dropout(self_attention_output)
 
-        # Cross-attention with residual (only if enabled)
         if self.use_cross_attention:
             if encoded_features is None and (layer_cache is None or layer_cache.cross_attention_keys is None):
                 raise ValueError("encoded_features required when use_cross_attention=True and no cached cross KV")
-
             residual = hidden_states
             hidden_states = self.cross_attention_normalization(hidden_states)
-
-            # Cross-attention uses precomputed K/V if available in cache, otherwise project from encoded_features
             use_cross_cache = layer_cache is not None and layer_cache.cross_attention_keys is not None
             cross_attention_output, _ = self.cross_attention(
                 query_input=hidden_states,
@@ -185,13 +174,11 @@ class TransformerDecoderLayer(nn.Module):
                 value_input=encoded_features if not use_cross_cache else None,
                 attention_mask=cross_attention_mask,
                 layer_cache=layer_cache,
-                use_cache=False,
+                use_self_attention_cache=False,
                 use_cross_attention_cache=use_cross_cache,
             )
-
             hidden_states = residual + self.dropout(cross_attention_output)
 
-        # Feed-forward network with residual
         residual = hidden_states
         hidden_states = self.feedforward_normalization(hidden_states)
         feedforward_output = self.feedforward_network(hidden_states)

@@ -6,13 +6,13 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
 from refactoring.configs.encoding.encoder import (
-    DepthEncoderConfig,
+    DepthCNNEncoderConfig,
     LanguageEncoderConfig,
-    StateEncoderConfig,
+    ProprioEncoderConfig,
 )
 from refactoring.configs.encoding.fusion import (
-    AttentionFusionModule,
-    ConcatFusionModule,
+    AttentionFusionConfig,
+    ConcatFusionConfig,
 )
 from refactoring.configs.encoding.image import CNNEncoderConfig
 from refactoring.configs.encoding.pipeline import EncodingPipelineConfig
@@ -75,15 +75,15 @@ class TestCNNEncoderConfig:
 class TestDepthEncoderConfig:
 
     def test_config_has_correct_target(self):
-        config = DepthEncoderConfig(input_keys=["depth"], backbone="resnet18")
+        config = DepthCNNEncoderConfig(input_keys=["depth"], backbone="resnet18")
         assert config._target_ == "refactoring.models.encoding.encoders.depth.cnn.DepthCNNEncoder"
 
     def test_default_use_group_norm(self):
-        config = DepthEncoderConfig(input_keys=["depth"], backbone="resnet18")
+        config = DepthCNNEncoderConfig(input_keys=["depth"], backbone="resnet18")
         assert config.use_group_norm is True
 
     def test_default_spatial_softmax(self):
-        config = DepthEncoderConfig(input_keys=["depth"], backbone="resnet18")
+        config = DepthCNNEncoderConfig(input_keys=["depth"], backbone="resnet18")
         assert config.spatial_softmax is True
 
 
@@ -91,15 +91,15 @@ class TestDepthEncoderConfig:
 class TestStateEncoderConfig:
 
     def test_config_has_correct_target(self):
-        config = StateEncoderConfig(input_keys=["proprio"])
+        config = ProprioEncoderConfig(input_keys=["proprio"])
         assert config._target_ == "refactoring.models.encoding.encoders.proprioceptive.base.ProprioceptiveEncoder"
 
     def test_default_hidden_dims(self):
-        config = StateEncoderConfig(input_keys=["proprio"])
+        config = ProprioEncoderConfig(input_keys=["proprio"])
         assert config.hidden_dims == [128]
 
     def test_default_activation(self):
-        config = StateEncoderConfig(input_keys=["proprio"])
+        config = ProprioEncoderConfig(input_keys=["proprio"])
         assert config.activation == "relu"
 
 
@@ -115,7 +115,7 @@ class TestLanguageEncoderConfig:
 class TestConcatFusionModule:
 
     def test_config_has_correct_target(self):
-        config = ConcatFusionModule(
+        config = ConcatFusionConfig(
             input_features=["feature1", "feature2"],
             output_name="fused",
             hidden_dim=256
@@ -123,7 +123,7 @@ class TestConcatFusionModule:
         assert config._target_ == "refactoring.models.encoding.fusion.concat.ConcatFusion"
 
     def test_config_instantiates_correctly(self):
-        config = ConcatFusionModule(
+        config = ConcatFusionConfig(
             input_features=["feature1", "feature2"],
             output_name="fused",
             hidden_dim=256
@@ -134,7 +134,7 @@ class TestConcatFusionModule:
     def test_config_params_match_class_signature(self):
         sig = inspect.signature(ConcatFusion.__init__)
         params = set(sig.parameters.keys()) - {'self'}
-        config = ConcatFusionModule(
+        config = ConcatFusionConfig(
             input_features=["feature1", "feature2"],
             output_name="fused",
             hidden_dim=256
@@ -148,7 +148,7 @@ class TestConcatFusionModule:
 class TestAttentionFusionModule:
 
     def test_config_has_correct_target(self):
-        config = AttentionFusionModule(
+        config = AttentionFusionConfig(
             input_features=["feature1", "feature2"],
             output_name="fused",
             hidden_dim=256
@@ -156,7 +156,7 @@ class TestAttentionFusionModule:
         assert config._target_ == "refactoring.models.encoding.fusion.attention.AttentionFusion"
 
     def test_config_instantiates_correctly(self):
-        config = AttentionFusionModule(
+        config = AttentionFusionConfig(
             input_features=["feature1", "feature2"],
             output_name="fused",
             hidden_dim=256
@@ -167,7 +167,7 @@ class TestAttentionFusionModule:
     def test_config_params_match_class_signature(self):
         sig = inspect.signature(AttentionFusion.__init__)
         params = set(sig.parameters.keys()) - {'self'}
-        config = AttentionFusionModule(
+        config = AttentionFusionConfig(
             input_features=["feature1", "feature2"],
             output_name="fused",
             hidden_dim=256
@@ -177,7 +177,7 @@ class TestAttentionFusionModule:
         assert config_keys.issubset(params), f"Extra keys: {config_keys - params}"
 
     def test_default_num_heads(self):
-        config = AttentionFusionModule(
+        config = AttentionFusionConfig(
             input_features=["feature1", "feature2"],
             output_name="fused",
             hidden_dim=256
@@ -185,7 +185,7 @@ class TestAttentionFusionModule:
         assert config.num_heads == 8
 
     def test_default_dropout(self):
-        config = AttentionFusionModule(
+        config = AttentionFusionConfig(
             input_features=["feature1", "feature2"],
             output_name="fused",
             hidden_dim=256

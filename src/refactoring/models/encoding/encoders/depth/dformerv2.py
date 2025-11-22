@@ -158,9 +158,7 @@ class DFormerEncoder(Encoder):
         initial_decay: float = 2.0,
         pretrained: bool = False,
         frozen: bool = False,
-        checkpoint_path: str | None = None,
-        image_height: int = 224,
-        image_width: int = 224,
+        checkpoint_path: str | None = "/mnt/cluster/workspaces/mazzalore/pretrained_models/pretrained_dformer/DFormerv2_Small_NYU.pth",
         pooling_method: str = PoolingMethod.AVERAGE.value,
     ):
         """Initialize DFormer encoder.
@@ -176,8 +174,6 @@ class DFormerEncoder(Encoder):
             pretrained: Whether to use pretrained weights
             frozen: Whether to freeze encoder weights
             checkpoint_path: Path to checkpoint for loading weights
-            image_height: Input image height (only needed for pooling head setup with 'none' pooling)
-            image_width: Input image width (only needed for pooling head setup with 'none' pooling)
         """
         specification = EncoderInput(keys=input_keys,required=[Cameras.DEPTH.value], one_of_groups=[[Cameras.LEFT.value, Cameras.RIGHT.value]])
         super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
@@ -186,9 +182,9 @@ class DFormerEncoder(Encoder):
                 f"Variant '{variant}' not supported. "
                 f"Choose from: {list(self.VARIANT_CONFIGS.keys())}"
             )
+        if pretrained and checkpoint_path is None:
+            raise ValueError("Pretrained=True requires a valid checkpoint_path for DFormerEncoder.")
         self.variant = variant
-        self.image_height = image_height
-        self.image_width = image_width
         self.pooling_method = pooling_method
         self.decomposition_mode = AttentionDecompositionMode(decomposition_mode)
         config = self.VARIANT_CONFIGS[variant]
@@ -210,7 +206,7 @@ class DFormerEncoder(Encoder):
         self._build_backbone(drop_path_rate=drop_path_rate, layer_scale_init_value=layer_scale_init_value, initial_decay=initial_decay)
         self.feature_dim = self.embed_dims[-1]
         self._setup_pooling()
-        if checkpoint_path:
+        if pretrained:
             self._load_checkpoint(checkpoint_path)
         if frozen:
             super()._freeze_weights()
@@ -255,9 +251,9 @@ class DFormerEncoder(Encoder):
     def _setup_pooling(self):
         """Setup pooling head based on final feature map size."""
         with torch.no_grad():
-            mock_rgb = torch.zeros(1, 3, self.image_height, self.image_width)
+            mock_rgb = torch.zeros(1, 3, 224, 224)
             features = self.patch_embed(mock_rgb)
-            depth_mock = torch.zeros(1, 1, self.image_height, self.image_width)
+            depth_mock = torch.zeros(1, 1, 224, 224)
             depth_map = F.interpolate(depth_mock, size=features.shape[1:3], mode='bilinear')
             for stage in self.stages:
                 _, features, depth_map = stage(features, depth_map)
@@ -314,16 +310,14 @@ class DFormerEncoder(Encoder):
             depth = depth.reshape(B * T, 1, H, W)
         else:
             B = rgb.shape[0]
-
-        rgb_features = self.patch_embed(rgb)
-        H_patches, W_patches = rgb_features.shape[1:3]
+            T = 1
+        rgb_features, H_patches, W_patches  = self.patch_embed(rgb, return_patch_size=True)  # (B, H_patches, W_patches, C)
         depth_map = F.interpolate(
             depth,
             size=(H_patches, W_patches),
             mode='bilinear',
             align_corners=False
         )
-
         features = rgb_features
         for stage in self.stages:
             output_features, next_features, depth_map = stage(features, depth_map)

@@ -29,13 +29,16 @@ class SequentialFusion(FusionModule, abc.ABC):
     def _setup_layers(self, feature_keys_to_dims: dict[str, int | tuple]):
         """Build projection layers..."""
         input_dims_raw = [feature_keys_to_dims[feat] for feat in self.input_features]
-        # Type narrow to only ints (flat features)
         input_dims: list[int] = []
         for feat_name, dim in zip(self.input_features, input_dims_raw):
             if isinstance(dim, tuple):
-                raise ValueError(f"SequentialFusion requires flat dimensions, but '{feat_name}' has dimension {dim}. "
-                    f"Use SpatialFusion for spatial features.")
-            input_dims.append(dim)
+                if len(dim)>2:
+                    raise ValueError(f"SequentialFusion requires flat or sequential dimensions, but '{feat_name}' has dimension {dim}. "
+                        f"Use SpatialFusion for spatial features.")
+                proj_dim = dim[-1]
+            else:
+                proj_dim = dim
+            input_dims.append(proj_dim)
         self.projections = nn.ModuleList([
             nn.Linear(dim, self.hidden_dim)
             for dim in input_dims

@@ -6,7 +6,7 @@ import torch.nn as nn
 import numpy as np
 from hydra.utils import instantiate
 
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import Cameras, POSITION_ACTION_KEY
 from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.algorithm.behavior_cloning import BehavioralCloning

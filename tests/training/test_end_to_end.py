@@ -20,8 +20,8 @@ from refactoring.data.constants import (
     GripperType,
     Cameras,
 )
-from refactoring.data.normalize.normalizer import LinearNormalizer
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.normalization.normalizer import LinearNormalizer
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.models.policy import Policy
 from refactoring.models.encoding.pipeline import EncodingPipeline
 from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
@@ -403,7 +403,7 @@ class TestACTPolicyEndToEnd:
         pipeline.encoders = encoders
         pipeline.conditional_encoders = nn.ModuleDict()
         pipeline.fusion_stages = fusion_stages
-        pipeline.encoder_to_outputs = encoder_outputs
+        pipeline.encoders_to_outputs = encoder_outputs
         pipeline._feature_keys_to_dims = feature_keys_to_dims
         pipeline._consumed_features = set()  # Initialize consumed features tracker
 
@@ -666,7 +666,7 @@ class TestPhaseACTEndToEnd:
         pipeline.encoders = encoders
         pipeline.conditional_encoders = nn.ModuleDict()
         pipeline.fusion_stages = fusion_stages
-        pipeline.encoder_to_outputs = encoder_outputs
+        pipeline.encoders_to_outputs = encoder_outputs
         pipeline._feature_keys_to_dims = feature_keys_to_dims
         pipeline._consumed_features = set()  # Initialize consumed features tracker
 
@@ -957,7 +957,7 @@ class TestACTPolicyWithVAEEndToEnd:
         pipeline.encoders = encoders
         pipeline.conditional_encoders = nn.ModuleDict()
         pipeline.fusion_stages = fusion_stages
-        pipeline.encoder_to_outputs = encoder_outputs
+        pipeline.encoders_to_outputs = encoder_outputs
         pipeline._feature_keys_to_dims = feature_keys_to_dims
         pipeline._consumed_features = set()  # Initialize consumed features tracker
 
@@ -975,7 +975,7 @@ class TestACTPolicyWithVAEEndToEnd:
 
         encoder = VAETransformerEncoder(
             embedding_dimension=256,
-            vae_latent_dimension=32,
+            latent_dimension=32,
             prediction_horizon=10,
             device=str(device),
             number_of_heads=8,

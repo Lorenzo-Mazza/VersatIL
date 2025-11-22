@@ -16,23 +16,21 @@ class LearnedPositionalEncoding1D(PositionalEncoding1D):
         self,
         embedding_dimension: int,
         position_source: str = PositionSource.TENSOR_INDICES.value,
-        precompute_encodings: bool = True,
         maximum_length: int = 5000,
         mlp_hidden_dimensions: list[int] | None = None,
         mlp_activation: Callable | None = nn.SiLU,
     ):
         if maximum_length is None:
             raise ValueError("maximum_length must be provided for 1D learned encoding")
-        self.learned_encoding = nn.Embedding(maximum_length, embedding_dimension)
-
         super().__init__(
             embedding_dimension=embedding_dimension,
             position_source=position_source,
-            precompute_encodings=precompute_encodings,
+            precompute_encodings=False,
             maximum_length=maximum_length,
             mlp_hidden_dimensions=mlp_hidden_dimensions,
             mlp_activation=mlp_activation,
         )
+        self.learned_encoding = nn.Embedding(maximum_length, embedding_dimension)
 
     def _compute_encodings(self, input_values: torch.Tensor) -> torch.Tensor:
         if self.maximum_length is None:
@@ -57,14 +55,14 @@ class LearnedPositionalEncoding2D(PositionalEncoding2D):
         if max_height is None or max_width is None:
             raise ValueError("max_height and max_width must be provided for 2D learned encoding")
         half_dim = embedding_dimension // 2
-        self.row_encoding = nn.Embedding(max_height, half_dim)
-        self.col_encoding = nn.Embedding(max_width, half_dim)
 
         super().__init__(
             embedding_dimension=embedding_dimension,
             mlp_hidden_dimensions=mlp_hidden_dimensions,
             mlp_activation=mlp_activation,
         )
+        self.row_encoding = nn.Embedding(max_height, half_dim)
+        self.col_encoding = nn.Embedding(max_width, half_dim)
 
     def _compute_encodings(self, input_values: torch.Tensor) -> torch.Tensor:
         height, width = input_values.shape

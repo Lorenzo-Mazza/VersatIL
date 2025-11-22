@@ -25,14 +25,15 @@ from omegaconf import MISSING
 
 from refactoring.configs.main import MainConfig
 from refactoring.configs.policy import PolicyConfig
-from refactoring.configs.task.task import TaskConfig, ActionSpace, ObservationSpace
+from refactoring.configs.data.task import TaskSpaceConfig
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.configs.encoding.pipeline import EncodingPipelineConfig
 from refactoring.configs.encoding.encoder import RGBCNNEncoderConfig, ProprioceptiveEncoderConfig, DepthCNNEncoderConfig
 from refactoring.configs.encoding.fusion import ConcatFusionConfig, MLPFusionConfig
 from refactoring.configs.decoding.decoder import ACTConfig
 from refactoring.configs.decoding.action_head import MixtureOfExpertsHeadConfig, MLPActionHeadConfig
 from refactoring.configs.training import TrainingConfig
-from refactoring.configs.task.dataloader import DataLoaderConfig
+from refactoring.configs.data.dataloader import DataLoaderConfig
 from refactoring.data.constants import (
     Cameras,
     POSITION_ACTION_KEY,
@@ -44,12 +45,12 @@ from refactoring.models.decoding.constants import MoERoutingType
 
 
 # ============================================================================
-# 1. Task Configuration
+# 1. TaskSpace Configuration
 # ============================================================================
 
 @dataclass
-class PhaseACTTaskConfig(TaskConfig):
-    """Task configuration for phase-conditioned manipulation."""
+class PhaseACTTaskConfig(TaskSpaceConfig):
+    """TaskSpace configuration for phase-conditioned manipulation."""
 
     # Action space: 3D position + gripper
     action_space: ActionSpace = field(default_factory=lambda: ActionSpace(
@@ -186,7 +187,7 @@ class PhaseACTEncodingConfig(EncodingPipelineConfig):
 # Base action head for position (used by all phase experts)
 position_base_head = MLPActionHeadConfig(
     input_dim=256,  # ACT hidden_dim
-    output_dim=3,   # 3D position
+    output_dim=3,  # 3D position
     hidden_dims=[128],  # Single hidden layer (256 -> 128 -> 3)
     activation='silu',
     dropout=0.1,
@@ -361,7 +362,7 @@ class PhaseACTDataLoaderConfig(DataLoaderConfig):
 class PhaseACTMainConfig(MainConfig):
     """Complete configuration for Phase ACT experiment."""
 
-    task: TaskConfig = field(default_factory=PhaseACTTaskConfig)
+    task: TaskSpaceConfig = field(default_factory=PhaseACTTaskConfig)
     policy: PolicyConfig = field(default_factory=PhaseACTPolicyConfig)
     training: TrainingConfig = field(default_factory=PhaseACTTrainingConfig)
     dataloader: DataLoaderConfig = field(default_factory=PhaseACTDataLoaderConfig)

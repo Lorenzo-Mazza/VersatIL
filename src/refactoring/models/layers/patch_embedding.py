@@ -54,10 +54,7 @@ class PatchEmbedding(nn.Module):
 
     def _build_progressive_projection(self, norm_layer: type[nn.Module]) -> nn.Module:
         """Progressive downsampling like DFormer."""
-
         # Progressive: downsample by 2 at each stage
-        # For patch_size=16: 2 stages (8x downsample total needs adjustment)
-        # For patch_size=4: 2 stages works perfectly
         stages = []
         current_dim = self.in_chans
         # Stage 1: in_chans -> embedding_dimension // 2, stride 2
@@ -93,7 +90,6 @@ class PatchEmbedding(nn.Module):
         """Overlapping patches with smaller stride."""
         stride = self.patch_size // 2
         padding = self.patch_size // 4
-
         return nn.Conv2d(
             self.in_chans,
             self.embed_dim,
@@ -103,22 +99,30 @@ class PatchEmbedding(nn.Module):
         )
 
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, return_patch_size: bool = False) -> torch.Tensor | tuple[torch.Tensor, int, int]:
         """
         Args:
             x: Tensor of images with shape (batch size, channels, height, width)
+            return_patch_size: If True, also return the effective patch size after embedding.
 
         Returns:
             For PROGRESSIVE: Tensor of shape (batch size, H', W', embedding_dim)
             For STANDARD/OVERLAPPING: Tensor of shape (batch size, N, embedding_dim) where N = num_patches
         """
         x = self.projection(x)  # (B, embedding_dimension, H', W')
+        _, _, H, W = x.shape
         if self.embed_type == PatchEmbedType.PROGRESSIVE.value:
             x = x.permute(0, 2, 3, 1)  # (B, H', W', embedding_dimension)
-            return x
+            if return_patch_size:
+                return x, H, W
+            else:
+                return x
         x = x.flatten(2).transpose(1, 2)
         x = self.norm(x)
-        return x
+        if return_patch_size:
+            return x, H, W
+        else:
+            return x
 
 
 class PatchMerging(nn.Module):

@@ -37,8 +37,8 @@ class PositionalEncoding(abc.ABC, nn.Module):
     ):
         super().__init__()
         self.embedding_dimension = embedding_dimension
-        self.maximum_length = maximum_length if precompute_encodings else None
-
+        self.maximum_length = maximum_length
+        self.precompute_encodings = precompute_encodings
         self.mlp_network = None  # An extra learnable MLP layer after positional encoding.
         if mlp_hidden_dimensions:
             # Use nn.SiLU as default if mlp_activation is None
@@ -83,7 +83,7 @@ class PositionalEncoding1D(PositionalEncoding, abc.ABC):
         encodings: torch.Tensor
         if self.position_source == PositionSource.TENSOR_INDICES.value:
             seq_len = input_tensor.size(0)
-            if self.precomputed_encodings is not None:
+            if self.precompute_encodings:
                 encodings = self.precomputed_encodings[:seq_len].clone().detach()
             else:
                 encodings = self._compute_encodings(torch.arange(seq_len).to(input_tensor.device))

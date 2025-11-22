@@ -3,9 +3,9 @@
 import pytest
 import torch
 
-from refactoring.models.layers.constants import NormalizationType
-from refactoring.models.layers.gpt_transformer.normalization import create_normalization_layer
-from refactoring.models.layers.rms_norm import RMSNorm
+from refactoring.models.layers.normalization.constants import NormalizationType
+from refactoring.models.layers.normalization.factory import create_normalization_layer
+from refactoring.models.layers.normalization.rms_norm import RMSNorm
 
 
 @pytest.mark.unit

@@ -2,13 +2,12 @@ import copy
 
 import torch
 import torch.nn as nn
-
 from refactoring.models.layers.activation import ActivationFunction
-from refactoring.models.layers.positional_encoding.base import add_positional_encoding
+from refactoring.models.layers.detr_transformer.attention import FlashAttention
 
 
 class TransformerEncoderLayer(nn.Module):
-    """Transformer encoder layer with pre/post normalization support."""
+    """Transformer encoder layer with pre- and post- normalization support."""
     def __init__(
             self,
             embedding_dimension: int,
@@ -20,9 +19,8 @@ class TransformerEncoderLayer(nn.Module):
     ):
         super().__init__()
         self.normalize_before = normalize_before
-        self.self_attention = nn.MultiheadAttention(
-            embed_dim=embedding_dimension, num_heads=number_of_heads, dropout=dropout, batch_first=False
-        )
+        self.self_attention = FlashAttention(embedding_dimension=embedding_dimension,
+                                        number_of_heads=number_of_heads, dropout=dropout)
         self.feedforward_linear1 = nn.Linear(embedding_dimension, feedforward_dimension)
         self.feedforward_dropout = nn.Dropout(dropout)
         self.feedforward_linear2 = nn.Linear(feedforward_dimension, embedding_dimension)
@@ -30,7 +28,22 @@ class TransformerEncoderLayer(nn.Module):
         self.normalization2 = nn.LayerNorm(embedding_dimension)
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
-        self.activation = ActivationFunction(activation).to_torch_activation()()
+        if activation == ActivationFunction.SWIGLU.value:
+            self.activation = ActivationFunction(activation).to_torch_activation()(
+                input_dim=embedding_dimension, hidden_dim=feedforward_dimension)
+            self.feedforward_network = nn.Sequential(
+                self.activation,
+                self.feedforward_dropout,
+                self.feedforward_linear2,
+            )
+        else:
+            self.activation = ActivationFunction(activation).to_torch_activation()()
+            self.feedforward_network = nn.Sequential(
+                self.feedforward_linear1,
+                self.activation,
+                self.feedforward_dropout,
+                self.feedforward_linear2,
+            )
 
 
     def forward(
@@ -47,25 +60,21 @@ class TransformerEncoderLayer(nn.Module):
         """
         residual = source
         source = self.normalization1(source) if self.normalize_before else source
-        # DETR-style: Add positional encoding to queries and keys, but not to values
-        query = key = add_positional_encoding(source, positional_encoding)
         source = self.self_attention(
-            query, key, value=source,
-            attn_mask=source_mask,
+            query=source,
+            key=source,
+            value=source,
+            query_positional_encoding=positional_encoding,
+            attention_mask=source_mask,
             key_padding_mask=source_key_padding_mask,
-        )[0]
+        )
         source = residual + self.dropout1(source)
         source = source if self.normalize_before else self.normalization1(source)
         residual = source
         source = self.normalization2(source) if self.normalize_before else source
-        source = self.feedforward_linear2(
-            self.feedforward_dropout(
-                self.activation(self.feedforward_linear1(source))
-            )
-        )
+        source = self.feedforward_network(source)
         source = residual + self.dropout2(source)
-        source = source if self.normalize_before else self.normalization2(source)
-        return source
+        return source if self.normalize_before else self.normalization2(source) # (B, T, C)
 
 
 class TransformerEncoder(nn.Module):
@@ -101,13 +110,13 @@ class TransformerEncoder(nn.Module):
         """Forward pass through all encoder layers.
 
         Args:
-            source: Input tensor of shape (sequence_length, batch, model_dimension).
-            mask: Attention mask of shape (sequence_length, sequence_length).
-            source_key_padding_mask: Padding mask of shape (batch, sequence_length).
-            positional_encoding: Positional encoding of shape (sequence_length, batch, model_dimension).
+            source: Input tensor of shape (batch size, sequence_length, embedding_dimension).
+            mask: Attention mask of shape (sequence_length, sequence_length) where True indicates padding tokens.
+            source_key_padding_mask: Padding mask of shape (batch size, sequence_length), where True indicates padding tokens.
+            positional_encoding: Positional encoding of shape (batch size, sequence_length, embedding_dimension).
 
         Returns:
-            Output tensor of shape (sequence_length, batch, model_dimension).
+            Output tensor of shape (batch size, sequence_length, embedding_dimension).
         """
         output = source
         for layer in self.layers:
@@ -117,7 +126,6 @@ class TransformerEncoder(nn.Module):
                 source_key_padding_mask=source_key_padding_mask,
                 positional_encoding=positional_encoding,
             )
-
         if self.normalization is not None:
             output = self.normalization(output)
         return output

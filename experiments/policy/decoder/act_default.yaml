@@ -1,11 +1,14 @@
 # ACT Decoder Configuration
 # Action Chunking Transformer with DETR-style encoder-decoder
+defaults:
+  - act
 
 _target_: refactoring.models.decoding.decoders.factory.act.ACT
 
 # Input features from encoding pipeline
 input_keys:
-  - visual_features
+  - left_image
+  - right_image
 
 # Transformer architecture
 embedding_dimension: 512
@@ -25,13 +28,21 @@ action_heads:
     _target_: refactoring.models.decoding.action_heads.ActionHead
     input_dim: ${policy.decoder.embedding_dimension}
     output_dim: ${task.action_space.position_dim}
-    blocks: null
+    blocks:
+      - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
+        input_dim: ${policy.decoder.embedding_dimension}
+        output_dim: 128
+        activation: ${activation_function:SWIGLU}
 
   gripper_action:
     _target_: refactoring.models.decoding.action_heads.ActionHead
     input_dim: ${policy.decoder.embedding_dimension}
     output_dim: ${task.action_space.gripper_dim}
-    blocks: null
+    blocks:
+      - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
+        input_dim: ${policy.decoder.embedding_dimension}
+        output_dim: 128
+        activation: ${activation_function:SWIGLU}
 
 # References to task/policy configs (Hydra interpolation)
 observation_horizon: ${task.observation_horizon}

@@ -1,4 +1,6 @@
 # Experiment configuration for FAST decoder on bowel retraction
+defaults:
+  - base
 
 name: ${now:%Y%m%d_%H%M%S}_br_cf_fast
 seed: 42

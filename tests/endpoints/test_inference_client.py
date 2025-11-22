@@ -8,8 +8,9 @@ from unittest.mock import Mock, patch, MagicMock
 
 from refactoring.configs.experiment import ExperimentConfig
 from refactoring.configs.main import MainConfig
-from refactoring.configs.task.task import TaskConfig, ActionSpace, ObservationSpace
-from refactoring.configs.task.dataloader import DataloaderConfig
+from refactoring.configs.data.task import TaskSpaceConfig
+from refactoring.data.task import ActionSpace, ObservationSpace
+from refactoring.configs.data.dataloader import DataLoaderConfig
 from refactoring.configs.training import TrainingConfig
 from refactoring.configs.policy import PolicyConfig
 from refactoring.configs.inference import InferenceConfig
@@ -37,7 +38,7 @@ class TestInferenceClientConfigLoading:
                     checkpoint_path=str(checkpoint_dir),
                 )
 
-    def test_inference_client_loads_config_from_checkpoint_dir(self, tmp_path, simple_policy):
+    def test_inference_client_loads_config_from_checkpoint_dir(self, tmp_path, simple_policy, minimal_yaml_config_factory):
         """Test that InferenceClient successfully loads config.yaml."""
         # Create workspace to save config
         config = MainConfig(
@@ -47,7 +48,7 @@ class TestInferenceClientConfigLoading:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value],
                     use_proprio_base_frame=True,
@@ -58,7 +59,7 @@ class TestInferenceClientConfigLoading:
                 ),
                 observation_horizon=1,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(
+                dataloader=DataLoaderConfig(
                     batch_size=2,
                     image_height=270,
                     image_width=480,
@@ -69,7 +70,16 @@ class TestInferenceClientConfigLoading:
             inference=InferenceConfig(),
         )
 
-        workspace = Workspace(config)
+        original_yaml = minimal_yaml_config_factory(
+            task={
+                "action_space": {"has_position": True},
+                "observation_space": {"camera_keys": ["left"]},
+                "observation_horizon": 1,
+                "prediction_horizon": 4,
+                "dataloader": {"batch_size": 2, "image_height": 270, "image_width": 480}
+            }
+        )
+        workspace = Workspace(config, original_yaml_config=original_yaml)
 
         # Create a fake checkpoint file
         checkpoint_path = workspace.output_dir / "latest.ckpt"
@@ -95,7 +105,7 @@ class TestInferenceClientConfigLoading:
                 assert hasattr(client, "config")
                 assert client.config is not None
 
-    def test_inference_client_uses_config_for_parameters(self, tmp_path):
+    def test_inference_client_uses_config_for_parameters(self, tmp_path, minimal_yaml_config_factory):
         """Test that InferenceClient uses config parameters correctly."""
         # Create config with specific parameters
         obs_space = ObservationSpace(
@@ -122,12 +132,12 @@ class TestInferenceClientConfigLoading:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=obs_space,
                 action_space=action_space,
                 observation_horizon=2,
                 prediction_horizon=16,
-                dataloader=DataloaderConfig(
+                dataloader=DataLoaderConfig(
                     batch_size=32,
                     image_height=480,
                     image_width=640,
@@ -138,7 +148,17 @@ class TestInferenceClientConfigLoading:
             inference=InferenceConfig(),
         )
 
-        workspace = Workspace(config)
+        original_yaml = minimal_yaml_config_factory(
+            task={
+                "action_space": {"has_position": True, "has_orientation": False, "has_gripper": True},
+                "observation_space": {"camera_keys": ["left", "right", "depth"]},
+                "observation_horizon": 2,
+                "prediction_horizon": 16,
+                "dataloader": {"batch_size": 32, "image_height": 480, "image_width": 640}
+            },
+            inference={"temperature": 1.0}
+        )
+        workspace = Workspace(config, original_yaml_config=original_yaml)
         checkpoint_path = workspace.output_dir / "latest.ckpt"
         checkpoint_path.touch()
 
@@ -187,7 +207,7 @@ class TestInferenceClientConfigLoading:
                 assert call_kwargs["obs_robot_frame"] is True
                 assert call_kwargs["obs_camera_frame"] is True
 
-    def test_inference_client_image_dimensions_from_config(self, tmp_path, simple_policy):
+    def test_inference_client_image_dimensions_from_config(self, tmp_path, simple_policy, minimal_yaml_config_factory):
         """Test that InferenceClient reads image dimensions from config."""
         image_h, image_w = 360, 540
         config = MainConfig(
@@ -197,7 +217,7 @@ class TestInferenceClientConfigLoading:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value],
                     use_proprio_base_frame=True,
@@ -208,7 +228,7 @@ class TestInferenceClientConfigLoading:
                 ),
                 observation_horizon=1,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(
+                dataloader=DataLoaderConfig(
                     batch_size=2,
                     image_height=image_h,
                     image_width=image_w,
@@ -219,7 +239,14 @@ class TestInferenceClientConfigLoading:
             inference=InferenceConfig(),
         )
 
-        workspace = Workspace(config)
+        original_yaml = minimal_yaml_config_factory(
+            task={
+                "action_space": {"has_position": True},
+                "observation_space": {"camera_keys": ["left"]},
+                "dataloader": {"image_height": image_h, "image_width": image_w}
+            }
+        )
+        workspace = Workspace(config, original_yaml_config=original_yaml)
         checkpoint_path = workspace.output_dir / "latest.ckpt"
         checkpoint_path.touch()
 
@@ -246,7 +273,7 @@ class TestInferenceClientConfigLoading:
 class TestInferenceClientIntegrationWithWorkspace:
     """Test that inference client works with workspace-saved config."""
 
-    def test_end_to_end_config_flow(self, tmp_path, simple_policy):
+    def test_end_to_end_config_flow(self, tmp_path, simple_policy, minimal_yaml_config_factory):
         """Test complete flow: workspace saves config -> inference client loads it."""
         # Step 1: Create and save config via workspace
         config = MainConfig(
@@ -257,7 +284,7 @@ class TestInferenceClientIntegrationWithWorkspace:
                 seed=777,
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value, Cameras.RIGHT.value],
                     use_proprio_base_frame=True,
@@ -273,7 +300,7 @@ class TestInferenceClientIntegrationWithWorkspace:
                 ),
                 observation_horizon=1,
                 prediction_horizon=8,
-                dataloader=DataloaderConfig(
+                dataloader=DataLoaderConfig(
                     batch_size=16,
                     image_height=224,
                     image_width=224,
@@ -284,7 +311,17 @@ class TestInferenceClientIntegrationWithWorkspace:
             inference=InferenceConfig(),
         )
 
-        workspace = Workspace(config)
+        original_yaml = minimal_yaml_config_factory(
+            experiment={"seed": 777},
+            task={
+                "action_space": {"has_position": True, "has_gripper": True},
+                "observation_space": {"camera_keys": ["left", "right"]},
+                "observation_horizon": 1,
+                "prediction_horizon": 8,
+                "dataloader": {"batch_size": 16, "image_height": 224, "image_width": 224}
+            }
+        )
+        workspace = Workspace(config, original_yaml_config=original_yaml)
 
         # Step 2: Verify config was saved
         config_path = workspace.output_dir / "config.yaml"
@@ -325,7 +362,7 @@ class TestInferenceClientIntegrationWithWorkspace:
                 assert call_kwargs["obs_robot_frame"] is True
                 assert call_kwargs["obs_camera_frame"] is False
 
-    def test_checkpoint_not_found_error(self, tmp_path):
+    def test_checkpoint_not_found_error(self, tmp_path, minimal_yaml_config_factory):
         """Test that InferenceClient raises error if no checkpoint file exists."""
         # Create workspace to save config
         config = MainConfig(
@@ -335,7 +372,7 @@ class TestInferenceClientIntegrationWithWorkspace:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value],
                     use_proprio_base_frame=True,
@@ -346,14 +383,22 @@ class TestInferenceClientIntegrationWithWorkspace:
                 ),
                 observation_horizon=1,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(batch_size=2),
+                dataloader=DataLoaderConfig(batch_size=2),
             ),
             training=TrainingConfig(num_epochs=1),
             policy=PolicyConfig(),
             inference=InferenceConfig(),
         )
 
-        workspace = Workspace(config)
+        original_yaml = minimal_yaml_config_factory(
+            task={
+                "action_space": {"has_position": True},
+                "observation_space": {"camera_keys": ["left"]},
+                "observation_horizon": 1,
+                "prediction_horizon": 4
+            }
+        )
+        workspace = Workspace(config, original_yaml_config=original_yaml)
 
         # Don't create checkpoint file
 

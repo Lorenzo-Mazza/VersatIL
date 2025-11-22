@@ -1,15 +1,5 @@
 import enum
 
-
-class EncoderType(str, enum.Enum):
-    """Available encoder types."""
-    RGB_IMAGE = "rgb_encoder"
-    DEPTH = "depth_encoder"
-    LANGUAGE = "language_encoder"
-    PROPRIOCEPTIVE = "proprioceptive_encoder"
-    IMAGE_TEXT = "image_text_encoder"
-    RGB_DEPTH = "rgb_depth_encoder"
-
 class RGBBackboneType(str, enum.Enum):
     """Available RGB image encoder backbones."""
     #Convolutional Neural Networks (CNNs)
@@ -46,16 +36,14 @@ class AttentionImplementation(str, enum.Enum):
     FLASH_ATTENTION_2 = "flash_attention_2" # using Dao-AILab/flash-attention
 
 
-
-
 class PoolingMethod(str, enum.Enum):
     """Feature pooling methods for Convolutional and Transformer encoders."""
     LEARNED_AGGREGATION = "learned_aggregation"  # learned attention aggregation of patch tokens/feature channels
     DEFAULT = "default" # use [CLS] token in ViT, max pooling in CNNs or pooled output in VLMs
     SPATIAL_SOFTMAX = "spatial_softmax" # Spatial Softmax pooling for CNN feature maps
     AVERAGE = "average_pooling" # Global Average Pooling (GAP) for CNN feature maps or mean pooling for Transformer tokens
+    MAX = "max_pooling" # Global Max Pooling for CNN feature maps
     NONE = "none" # Return full spatial features or last hidden state tokens without pooling
-
 
 
 class LanguageEncoderType(str, enum.Enum):
@@ -67,8 +55,6 @@ class LanguageEncoderType(str, enum.Enum):
     QWEN_2_1_5B = "Qwen/Qwen2-1.5B"
 
 
-
-
 class EncoderOutputKeys(str, enum.Enum):
     """Types of encoder output keys to use for extracting an output feature from an encoder."""
     RGB = "image"
@@ -76,8 +62,9 @@ class EncoderOutputKeys(str, enum.Enum):
     LANGUAGE = "language"
     DEPTH = "depth"
     PROPRIOCEPTIVE = "proprio"
-    TOKEN_MASK= "token_mask"
-    DEFAULT = "default"
+    TOKEN_EMBEDDING= "token_embedding"
+    PADDING_MASK = "padding_mask"
+
 
 SPATIAL_FEATURES = [
     EncoderOutputKeys.RGB.value,

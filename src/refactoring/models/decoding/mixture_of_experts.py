@@ -119,7 +119,7 @@ class BaseMixtureOfExperts(nn.Module):
         Returns:
             Sequential module containing normalization (optional) and MLP
         """
-        if hidden_dims is None:
+        if hidden_dims is None or len(hidden_dims) == 0:
             hidden_dims = [input_dim // 2]
 
         layers: list[nn.Module] = []

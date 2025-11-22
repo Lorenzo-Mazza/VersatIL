@@ -62,14 +62,16 @@ class MLPBlock(ActionHeadBlock):
             normalization: Whether to apply layer normalization before MLP
         """
         super().__init__()
+        if output_dim is None and not hidden_dims:
+            raise ValueError("Either output_dim or hidden_dims must be specified.")
+        self.input_dim = input_dim
+        self.output_dim = output_dim or hidden_dims[-1]
         self.norm = nn.LayerNorm(input_dim) if normalization else nn.Identity()
-
-        activation_fn = ActivationFunction(activation).to_torch_activation()
         self.mlp = MLP(
             input_dim=input_dim,
             hidden_dims=hidden_dims,
             output_dim=output_dim,
-            activation_function=activation_fn,
+            activation_function=ActivationFunction(activation).to_torch_activation(),
             dropout=dropout,
         )
 
@@ -111,6 +113,8 @@ class AttentionBlock(ActionHeadBlock):
         """
         super().__init__()
         self.norm = nn.LayerNorm(embedding_dimension) if normalization else nn.Identity()
+        self.input_dim = embedding_dimension
+        self.output_dim = embedding_dimension
         self.attention = nn.MultiheadAttention(
             embed_dim=embedding_dimension,
             num_heads=num_heads,
@@ -137,8 +141,7 @@ class AttentionBlock(ActionHeadBlock):
 class ResidualBlock(ActionHeadBlock):
     """Residual block wrapper for any ActionHeadBlock.
 
-    Wraps another block and adds a residual connection around it. Useful for
-    building deep action heads with skip connections.
+    Wraps another block and adds a residual connection around it.
     """
 
     def __init__(self, block: ActionHeadBlock, dropout: float = 0.0):
@@ -150,6 +153,10 @@ class ResidualBlock(ActionHeadBlock):
         """
         super().__init__()
         self.block = block
+        self.input_dim = block.input_dim
+        self.output_dim = block.output_dim
+        if self.input_dim != self.output_dim:
+            raise ValueError("Input and output dimensions must match for ResidualBlock.")
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
 
     def forward(self, action_embedding: torch.Tensor) -> torch.Tensor:

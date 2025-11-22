@@ -63,6 +63,7 @@ class TestDepthCNNEncoderInitialization:
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
         (PoolingMethod.AVERAGE.value, 1),
+        (PoolingMethod.LEARNED_AGGREGATION.value, 1),
     ])
     def test_init_all_backbones(self, backbone, pooling_method, expected_multiplier):
         """Test initialization with all backbones and pooling methods."""
@@ -115,17 +116,6 @@ class TestDepthCNNEncoderInitialization:
             )
 
 
-    def test_init_custom_image_size(self):
-        """Test initialization with custom image dimensions."""
-        encoder = DepthCNNEncoder(
-            input_keys=Cameras.DEPTH.value,
-            backbone=RGBBackboneType.RESNET18.value,
-            image_height=128,
-            image_width=128,
-        )
-
-        assert encoder.image_height == 128
-        assert encoder.image_width == 128
 
 
     def test_get_output_specification(self):
@@ -173,6 +163,7 @@ class TestDepthCNNEncoderForward:
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
         (PoolingMethod.AVERAGE.value, 1),
+        (PoolingMethod.LEARNED_AGGREGATION.value, 1),
     ])
     def test_forward_4d_input(self, input_dict_4d, backbone, pooling_method, expected_multiplier):
         """Test forward pass with 4D input (B, C, H, W) for all backbones."""
@@ -205,6 +196,7 @@ class TestDepthCNNEncoderForward:
     @pytest.mark.parametrize("pooling_method,expected_multiplier", [
         (PoolingMethod.SPATIAL_SOFTMAX.value, 2),
         (PoolingMethod.AVERAGE.value, 1),
+        (PoolingMethod.LEARNED_AGGREGATION.value, 1),
     ])
     def test_forward_5d_input(self, input_dict_5d, backbone, pooling_method, expected_multiplier):
         """Test forward pass with 5D input (B, T, C, H, W) for selected backbones."""
@@ -507,6 +499,8 @@ class TestDepthCNNEncoderIntegration:
     @pytest.mark.parametrize("pooling_method", [
         PoolingMethod.SPATIAL_SOFTMAX.value,
         PoolingMethod.AVERAGE.value,
+        PoolingMethod.LEARNED_AGGREGATION.value,
+
     ])
     def test_temporal_consistency(self, pooling_method):
         """Test temporal processing maintains consistency."""

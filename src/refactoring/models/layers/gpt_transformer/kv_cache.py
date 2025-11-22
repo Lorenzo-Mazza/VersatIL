@@ -42,6 +42,7 @@ class DecoderKVCache:
         layers: List of LayerKVCache, one per decoder layer
     """
     layers: list[LayerKVCache]
+    key_padding_mask: torch.Tensor | None = None # (B, cache_len) bool, True = masked (do not attend)
 
     def get_length(self) -> int:
         """Get current sequence length (from first layer).

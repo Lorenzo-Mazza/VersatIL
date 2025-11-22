@@ -1,0 +1,28 @@
+_target_: albumentations.Compose
+transforms:
+  - _target_: albumentations.ColorJitter
+    brightness: 0.4
+    contrast: 0.5
+    saturation: 0.6
+    hue: 0.2
+    p: 0.7
+  - _target_: albumentations.RandomSunFlare
+    flare_roi: [0, 0, 1, 0.5]
+    src_color: [255, 255, 255]
+    p: 0.8
+  - _target_: albumentations.RandomBrightnessContrast
+    brightness_limit: 0.5
+    contrast_limit: 0.5
+    p: 0.7
+  - _target_: albumentations.RandomGamma
+    gamma_limit: [70, 130]
+    p: 0.5
+  - _target_: albumentations.CLAHE
+    clip_limit: 6.0
+    p: 0.5
+  - _target_: albumentations.RandomShadow
+    p: 0.6
+  - _target_: albumentations.ImageCompression
+    quality_lower: 30
+    quality_upper: 100
+    p: 0.3

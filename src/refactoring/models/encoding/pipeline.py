@@ -3,6 +3,7 @@ import logging
 import torch
 import torch.nn as nn
 
+from refactoring.data.tokenization import Tokenizer
 from refactoring.models.encoding.encoders.base import EncoderOutput, EncodingMixin
 from refactoring.models.encoding.encoders.conditional import ConditionalEncoder
 from refactoring.models.encoding.fusion.base import FusionModule
@@ -51,8 +52,7 @@ class EncodingPipeline(nn.Module):
         self._setup_fusion_modules(fusion_stages=fusion_stages)
         self._validate_pipeline()
 
-    @property
-    def flat_encoder_feature_names(self) -> set[str]:
+    def flatten_encoder_feature_names(self) -> set[str]:
         """Get a flat list of all encoder output feature names.
 
         Note:
@@ -130,12 +130,12 @@ class EncodingPipeline(nn.Module):
         """Validates the entire pipeline configuration."""
         self._validate_encoder_outputs()
         available_features = self._validate_conditional_encoders()
-        available_features = self._validate_fusion_stages(available_features)
+        self._validate_fusion_stages(available_features)
 
 
     def _validate_encoder_outputs(self) -> None:
         """Validates encoder output keys for duplicates."""
-        all_outputs = list(self.flat_encoder_feature_names)
+        all_outputs = list(self.flatten_encoder_feature_names())
         if len(all_outputs) != len(set(all_outputs)):
             raise ValueError("Duplicate output keys detected from encoders")
 
@@ -223,7 +223,7 @@ class EncodingPipeline(nn.Module):
 
         Returns:
             Dictionary of final features. Features consumed by fusion modules are NOT included.
-            Only encoder features not consumed by fusion, and fusion outputs are returned.
+            Only encoder features not consumed by fusion and fusion outputs are returned.
 
         Note:
             Fusion modules consume their input features. For example, if fusion combines
@@ -310,23 +310,56 @@ class EncodingPipeline(nn.Module):
         }
 
 
-    def set_tokenizer(self, tokenizer):
-        """Set tokenizer for binning proprioceptive data.
+    def set_tokenizer(self, tokenizer: Tokenizer | None = None):
+        """Set tokenizer and validate vocab sizes.
 
         This method is called by Policy.set_tokenizer() to pass the tokenizer
-        to the encoders. Only encoders that tokenize proprioceptive data should
-        use this tokenizer.
+        to the encoders. Also validates that observation tokenizer vocab size
+        matches language/VLM encoder vocab sizes.
 
         Args:
             tokenizer: Tokenizer instance from data pipeline (can be None)
+
+        Raises:
+            ValueError: If observation tokenizer vocab size doesn't match encoder vocab sizes
         """
         for encoder_name, encoder in self.encoders.items():
-        #TODO: This "hasattr" check is ugly, we could consider extending the encoders to have a common interface for this
-            if hasattr(encoder, "set_tokenizer"):
-                encoder.set_tokenizer(tokenizer)
+            assert isinstance(encoder, EncodingMixin)
+            if encoder.input_specification.requires_tokenized:
+                if tokenizer is None or tokenizer.observation_tokenizer is None:
+                    raise ValueError(
+                        f"Encoder '{encoder_name}' requires tokenized input, "
+                        f"but no observation tokenizer is available."
+                    )
+                data_vocab_size = tokenizer.observation_tokenizer.vocab_size
+                if hasattr(encoder, 'set_tokenizer_vocab_size'):  # Embedder encoder
+                    encoder.set_tokenizer_vocab_size(data_vocab_size)
+                encoder_vocab_size = encoder.get_vocab_size()
+                if encoder_vocab_size != data_vocab_size:
+                    raise ValueError(
+                        f"Vocab size mismatch: Observation tokenizer has vocab_size={data_vocab_size}, "
+                        f"but encoder '{encoder_name}' expects vocab_size={encoder_vocab_size}. "
+                        f"Ensure the observation tokenizer's tokenizer_model matches the encoder's model. "
+                        f"Observation tokenizer model: {tokenizer.observation_tokenizer.tokenizer_model}"
+                    )
+
         for encoder_name, encoder in self.conditional_encoders.items():
-            if hasattr(encoder, "set_tokenizer"):
-                encoder.set_tokenizer(tokenizer)
+            assert isinstance(encoder, EncodingMixin)
+            if encoder.input_specification.requires_tokenized:
+                if tokenizer is None or tokenizer.observation_tokenizer is None:
+                    raise ValueError(
+                        f"Encoder '{encoder_name}' requires tokenized input, "
+                        f"but no observation tokenizer is available."
+                    )
+                data_vocab_size = tokenizer.observation_tokenizer.vocab_size
+                encoder_vocab_size = encoder.get_vocab_size()
+                if encoder_vocab_size != data_vocab_size:
+                    raise ValueError(
+                        f"Vocab size mismatch: Observation tokenizer has vocab_size={data_vocab_size}, "
+                        f"but encoder '{encoder_name}' expects vocab_size={encoder_vocab_size}. "
+                        f"Ensure the observation tokenizer's tokenizer_model matches the encoder's model. "
+                        f"Observation tokenizer model: {tokenizer.observation_tokenizer.tokenizer_model}"
+                    )
 
 
     def __repr__(self) -> str:

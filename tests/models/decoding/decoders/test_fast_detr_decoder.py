@@ -3,19 +3,19 @@ import numpy as np
 import pytest
 import torch
 
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
     ACTION_KEY,
     GRIPPER_ACTION_KEY,
-    IS_PAD_KEY,
+    IS_PAD_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
     POSITION_ACTION_KEY,
     Cameras,
     GripperType,
     OrientationRepresentation,
 )
-from refactoring.data.tokenize.tokenizer import Tokenizer
-from refactoring.models.decoding.constants import ACTION_TOKENS_KEY
+from refactoring.data.tokenization.tokenizer import Tokenizer
+from refactoring.models.decoding.constants import PREDICTED_ACTION_TOKENS_KEY
 from refactoring.models.decoding.decoders.factory.fast_detr_decoder import FASTDETRDecoder
 
 
@@ -128,7 +128,7 @@ def actions_dict(batch_size, prediction_horizon, action_space, device):
             0, 2, (batch_size, prediction_horizon, action_space.gripper_dim), device=device
         ).float()
 
-    actions[IS_PAD_KEY] = torch.zeros(
+    actions[IS_PAD_ACTION_KEY] = torch.zeros(
         batch_size, prediction_horizon, 1, dtype=torch.bool, device=device
     )
 
@@ -389,11 +389,11 @@ class TestFASTDETRDecoderForwardPass:
 
         predictions = decoder(spatial_features, actions=actions_dict)
 
-        # Training returns ACTION_TOKENS_KEY (logits) and target tokens
-        assert ACTION_TOKENS_KEY in predictions
-        assert f"{ACTION_TOKENS_KEY}_target" in predictions
-        assert predictions[ACTION_TOKENS_KEY].shape[0] == batch_size
-        assert predictions[ACTION_TOKENS_KEY].shape[2] == vocab_size
+        # Training returns PREDICTED_ACTION_TOKENS_KEY (logits) and target tokens
+        assert PREDICTED_ACTION_TOKENS_KEY in predictions
+        assert f"{PREDICTED_ACTION_TOKENS_KEY}_target" in predictions
+        assert predictions[PREDICTED_ACTION_TOKENS_KEY].shape[0] == batch_size
+        assert predictions[PREDICTED_ACTION_TOKENS_KEY].shape[2] == vocab_size
 
     def test_forward_inference_without_actions(
         self,
@@ -478,15 +478,15 @@ class TestFASTDETRDecoderForwardPass:
             POSITION_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 3, device=device),
             ORIENTATION_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 4, device=device),
             GRIPPER_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 1, device=device),
-            IS_PAD_KEY: torch.zeros(batch_size, prediction_horizon, 1, dtype=torch.bool, device=device),
+            IS_PAD_ACTION_KEY: torch.zeros(batch_size, prediction_horizon, 1, dtype=torch.bool, device=device),
         }
 
         # Mark last 5 timesteps as padding for first sample
-        actions[IS_PAD_KEY][0, 5:] = True
+        actions[IS_PAD_ACTION_KEY][0, 5:] = True
 
         predictions = decoder(spatial_features, actions=actions)
 
-        assert ACTION_TOKENS_KEY in predictions
+        assert PREDICTED_ACTION_TOKENS_KEY in predictions
 
 
 @pytest.mark.unit
@@ -505,7 +505,7 @@ class TestFASTDETRDecoderTokenizationDetokenization:
         batch_size,
         tokenizer,
     ):
-        """Test _tokenize_actions creates ACTION_TOKENS_KEY with EOS (no BOS in FAST)."""
+        """Test _tokenize_actions creates PREDICTED_ACTION_TOKENS_KEY with EOS (no BOS in FAST)."""
         decoder = FASTDETRDecoder(
             input_keys=["rgb_features"],
             action_space=action_space,
@@ -531,13 +531,13 @@ class TestFASTDETRDecoderTokenizationDetokenization:
 
         tokenized = decoder._tokenize_actions(actions)
 
-        assert ACTION_TOKENS_KEY in tokenized
-        assert IS_PAD_KEY in tokenized
-        assert tokenized[ACTION_TOKENS_KEY].dtype == torch.long
+        assert PREDICTED_ACTION_TOKENS_KEY in tokenized
+        assert IS_PAD_ACTION_KEY in tokenized
+        assert tokenized[PREDICTED_ACTION_TOKENS_KEY].dtype == torch.long
 
         # FAST doesn't use BOS - check that last non-pad token is EOS
-        token_ids = tokenized[ACTION_TOKENS_KEY]
-        is_pad = tokenized[IS_PAD_KEY]
+        token_ids = tokenized[PREDICTED_ACTION_TOKENS_KEY]
+        is_pad = tokenized[IS_PAD_ACTION_KEY]
         # Find last non-pad token for first sample
         non_pad_mask = ~is_pad[0]
         non_pad_indices = torch.where(non_pad_mask)[0]

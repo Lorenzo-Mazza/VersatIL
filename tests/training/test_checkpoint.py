@@ -11,8 +11,9 @@ from omegaconf import OmegaConf
 
 from refactoring.configs.experiment import ExperimentConfig
 from refactoring.configs.main import MainConfig
-from refactoring.configs.task.task import TaskConfig, ActionSpace, ObservationSpace
-from refactoring.configs.task.dataloader import DataloaderConfig
+from refactoring.configs.data.task import TaskSpaceConfig
+from refactoring.data.task import ActionSpace, ObservationSpace
+from refactoring.configs.data.dataloader import DataLoaderConfig
 from refactoring.configs.training import TrainingConfig, OptimizerConfig
 from refactoring.configs.policy import PolicyConfig
 from refactoring.configs.inference import InferenceConfig
@@ -20,9 +21,9 @@ from refactoring.workspace import Workspace
 from refactoring.training.lightning_policy import LightningPolicy
 from refactoring.training.callbacks import EMACallback
 from refactoring.data.constants import Cameras, GripperType, OrientationRepresentation, ACTION_KEY
-from refactoring.data.tokenize.tokenizer import Tokenizer
-from refactoring.data.tokenize.action_tokenizer import ActionTokenizer
-from refactoring.data.tokenize.binning_tokenizer import BinningTokenizer
+from refactoring.data.tokenization.tokenizer import Tokenizer
+from refactoring.data.tokenization.action_tokenizer import ActionTokenizer
+from refactoring.data.tokenization.binning_tokenizer import BinningTokenizer
 
 
 @pytest.mark.unit
@@ -40,7 +41,7 @@ class TestCheckpointSaving:
                 use_wandb=False,
                 checkpoint_every=1,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value],
                     use_proprio_base_frame=True,
@@ -55,7 +56,7 @@ class TestCheckpointSaving:
                 ),
                 observation_horizon=1,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(batch_size=2),
+                dataloader=DataLoaderConfig(batch_size=2),
             ),
             training=TrainingConfig(
                 num_epochs=2,
@@ -241,7 +242,7 @@ class TestResumeFromCheckpoint:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value],
                     use_proprio_base_frame=True,
@@ -252,7 +253,7 @@ class TestResumeFromCheckpoint:
                 ),
                 observation_horizon=1,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(batch_size=2),
+                dataloader=DataLoaderConfig(batch_size=2),
             ),
             training=TrainingConfig(
                 num_epochs=10,
@@ -279,7 +280,7 @@ class TestResumeFromCheckpoint:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value],
                     use_proprio_base_frame=True,
@@ -290,7 +291,7 @@ class TestResumeFromCheckpoint:
                 ),
                 observation_horizon=1,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(batch_size=2),
+                dataloader=DataLoaderConfig(batch_size=2),
             ),
             training=TrainingConfig(
                 num_epochs=10,
@@ -358,7 +359,7 @@ class TestWorkspaceLoadCheckpoint:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value],
                     use_proprio_base_frame=True,
@@ -373,7 +374,7 @@ class TestWorkspaceLoadCheckpoint:
                 ),
                 observation_horizon=1,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(batch_size=2),
+                dataloader=DataLoaderConfig(batch_size=2),
             ),
             training=TrainingConfig(
                 num_epochs=2,
@@ -925,7 +926,7 @@ class TestWorkspaceConfigSaving:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value],
                     use_proprio_base_frame=True,
@@ -940,7 +941,7 @@ class TestWorkspaceConfigSaving:
                 ),
                 observation_horizon=1,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(batch_size=2),
+                dataloader=DataLoaderConfig(batch_size=2),
             ),
             training=TrainingConfig(num_epochs=2),
             policy=PolicyConfig(),
@@ -963,7 +964,7 @@ class TestWorkspaceConfigSaving:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value],
                     use_proprio_base_frame=True,
@@ -974,7 +975,7 @@ class TestWorkspaceConfigSaving:
                 ),
                 observation_horizon=1,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(batch_size=2),
+                dataloader=DataLoaderConfig(batch_size=2),
             ),
             training=TrainingConfig(num_epochs=2),
             policy=PolicyConfig(),
@@ -997,7 +998,7 @@ class TestWorkspaceConfigSaving:
                 seed=42,
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value, Cameras.RIGHT.value],
                     use_proprio_base_frame=True,
@@ -1012,7 +1013,7 @@ class TestWorkspaceConfigSaving:
                 ),
                 observation_horizon=2,
                 prediction_horizon=16,
-                dataloader=DataloaderConfig(batch_size=32),
+                dataloader=DataLoaderConfig(batch_size=32),
             ),
             training=TrainingConfig(num_epochs=100, use_ema=True),
             policy=PolicyConfig(),
@@ -1042,7 +1043,7 @@ class TestWorkspaceConfigSaving:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value, Cameras.RIGHT.value, Cameras.DEPTH.value],
                     use_proprio_base_frame=True,
@@ -1052,7 +1053,7 @@ class TestWorkspaceConfigSaving:
                 action_space=ActionSpace(has_position=True, position_dim=3),
                 observation_horizon=1,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(batch_size=2),
+                dataloader=DataLoaderConfig(batch_size=2),
             ),
             training=TrainingConfig(num_epochs=2),
             policy=PolicyConfig(),
@@ -1082,7 +1083,7 @@ class TestWorkspaceConfigSaving:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value],
                     use_proprio_base_frame=True,
@@ -1102,7 +1103,7 @@ class TestWorkspaceConfigSaving:
                 ),
                 observation_horizon=1,
                 prediction_horizon=30,
-                dataloader=DataloaderConfig(batch_size=2),
+                dataloader=DataLoaderConfig(batch_size=2),
             ),
             training=TrainingConfig(num_epochs=2),
             policy=PolicyConfig(),
@@ -1137,7 +1138,7 @@ class TestWorkspaceConfigSaving:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value],
                     use_proprio_base_frame=True,
@@ -1148,7 +1149,7 @@ class TestWorkspaceConfigSaving:
                 ),
                 observation_horizon=1,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(batch_size=2),
+                dataloader=DataLoaderConfig(batch_size=2),
             ),
             training=TrainingConfig(num_epochs=2),
             policy=PolicyConfig(),
@@ -1174,7 +1175,7 @@ class TestWorkspaceConfigSaving:
                 device="cpu",
                 use_wandb=False,
             ),
-            task=TaskConfig(
+            task=TaskSpaceConfig(
                 observation_space=ObservationSpace(
                     camera_keys=[Cameras.LEFT.value],
                     use_proprio_base_frame=True,
@@ -1185,7 +1186,7 @@ class TestWorkspaceConfigSaving:
                 ),
                 observation_horizon=1,
                 prediction_horizon=4,
-                dataloader=DataloaderConfig(batch_size=2),
+                dataloader=DataLoaderConfig(batch_size=2),
             ),
             training=TrainingConfig(num_epochs=2),
             policy=PolicyConfig(),

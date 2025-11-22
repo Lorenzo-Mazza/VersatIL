@@ -1,9 +1,11 @@
 """Positional encoding for GPT transformer."""
+import logging
 
 import torch
 import torch.nn as nn
 
 from refactoring.models.layers.constants import PositionalEncodingType
+from refactoring.models.layers.positional_encoding.base import PositionalEncoding1D
 from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
 from refactoring.models.layers.positional_encoding.rotary import RotaryPositionalEncoding1D
 from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
@@ -16,7 +18,7 @@ def create_positional_encoding(
     num_heads: int | None = None,
     base_frequency: float = 10000.0,
     learnable_frequencies: bool = False,
-) -> nn.Module:
+) -> PositionalEncoding1D | RotaryPositionalEncoding1D:
     """Factory function to create positional encoding.
 
     Args:
@@ -59,7 +61,7 @@ def create_positional_encoding(
         )
 
 
-def apply_positional_encoding(
+def apply_rope_positional_encoding(
     queries: torch.Tensor,
     keys: torch.Tensor,
     positional_encoding: nn.Module,
@@ -98,11 +100,7 @@ def apply_positional_encoding(
 
         return queries, keys
 
-    elif isinstance(positional_encoding, SinusoidalPositionalEncoding1D):
-        # Sinusoidal: already applied to embeddings before attention
-        # No additional operation needed here
-        return queries, keys
-
     else:
         # Unknown type - return unchanged
+        logging.warning("Positional encoding module is not an instance of RotaryPositionalEncoding. Skipping.")
         return queries, keys

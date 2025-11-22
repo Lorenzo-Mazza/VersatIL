@@ -13,7 +13,9 @@ import torchvision.transforms.functional as tvf
 from torch import nn
 
 from refactoring.data.constants import POSITION_ACTION_KEY
+from refactoring.data.transform import normalize_observation
 from refactoring.models.constants import ExplanationType
+from refactoring.models.policy import Policy
 
 
 class PolicyExplainerWrapper(nn.Module):
@@ -23,7 +25,7 @@ class PolicyExplainerWrapper(nn.Module):
     methods by providing a __call__ method that matches the expected signature.
     """
 
-    def __init__(self, policy):
+    def __init__(self, policy: Policy):
         """Initialize wrapper.
 
         Args:
@@ -42,13 +44,10 @@ class PolicyExplainerWrapper(nn.Module):
         Returns:
             Tuple with predictions as first element (for compatibility with explainer's unpacking)
         """
-        # Normalize observations
-        normalized_obs = self.policy.normalize_observations(observation)
-        # Encode features
+        normalized_obs = normalize_observation(observation=observation,
+                                               normalizer=self.policy.normalizer, observation_space=self.policy.observation_space)
         features = self.policy.encoding_pipeline(normalized_obs)
-        # Decode actions (without algorithm wrapper - direct decoder call)
         predictions = self.policy.decoder(features, actions=None)
-        # Return as tuple for unpacking compatibility
         return (predictions,)
 
 

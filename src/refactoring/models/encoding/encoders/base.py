@@ -61,6 +61,8 @@ class EncoderInput:
     conditioning_key: str | None = None
     conditioning_required: list[str] = field(default_factory=list)
     conditioning_one_of_groups: list[list[str]] = field(default_factory=list)
+    # For validating the data tokenizer vocabulary to be consistent with the encoder language models
+    requires_tokenized: bool = False
 
     def __post_init__(self):
         if isinstance(self.keys, str):
@@ -128,4 +130,8 @@ class EncodingMixin(nn.Module, abc.ABC):
     def get_output_specification(self) -> EncoderOutput:
         """Get encoder structured output specification."""
         raise NotImplementedError
+
+    def get_vocab_size(self) -> int | None:
+        """Get vocabulary size if applicable, else None."""
+        return None
 

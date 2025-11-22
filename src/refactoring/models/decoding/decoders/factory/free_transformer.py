@@ -10,8 +10,8 @@ and generates action chunks non-autoregressively.
 import torch
 from torch import nn
 
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
-from refactoring.data.constants import IS_PAD_KEY
+from refactoring.data.task import ActionSpace, ObservationSpace
+from refactoring.data.constants import IS_PAD_ACTION_KEY
 from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.constants import FeatureType, LATENT_KEY, BINARY_LOGITS_KEY
 from refactoring.models.decoding.decoders import ActionDecoder, DecoderInput
@@ -167,7 +167,7 @@ class FreeTransformer(ActionDecoder):
         Returns:
             Tuple of (latent_codes, binary_logits)
         """
-        action_keys = [key for key in sorted(gt_actions.keys()) if key != IS_PAD_KEY]
+        action_keys = [key for key in sorted(gt_actions.keys()) if key != IS_PAD_ACTION_KEY]
         gt_actions_concat = torch.cat([gt_actions[key] for key in action_keys], dim=-1)
         action_embeds = self.action_embedding(gt_actions_concat)
         # Self-attend action embeddings to get encoder mid-features

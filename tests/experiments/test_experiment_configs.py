@@ -25,10 +25,10 @@ from refactoring.data.constants import (
     POSITION_ACTION_KEY,
     GRIPPER_ACTION_KEY,
     OBSERVATION_KEY,
-    IS_PAD_KEY,
+    IS_PAD_ACTION_KEY,
 )
-from refactoring.data.normalize.normalizer import LinearNormalizer
-from refactoring.data.tokenize.tokenizer import Tokenizer
+from refactoring.data.normalization.normalizer import LinearNormalizer
+from refactoring.data.tokenization.tokenizer import Tokenizer
 from refactoring.models.policy import Policy
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -53,7 +53,7 @@ def create_dummy_normalizer(config: DictConfig) -> LinearNormalizer:
     Returns:
         LinearNormalizer with identity parameters for all observation and action keys
     """
-    from refactoring.data.normalize.normalizer import SingleFieldLinearNormalizer
+    from refactoring.data.normalization.normalizer import SingleFieldLinearNormalizer
 
     obs_space = instantiate(config.task.observation_space)
     action_space = instantiate(config.task.action_space)
@@ -96,7 +96,7 @@ def create_dummy_tokenizer(config: DictConfig, device: str = 'cpu') -> Tokenizer
         return None
 
     tokenization_config = config.task.dataloader.tokenization
-    if not tokenization_config.enabled or not tokenization_config.tokenize_actions:
+    if not tokenization_config.tokenize_actions:
         return None
 
     action_space = instantiate(config.task.action_space)
@@ -214,7 +214,7 @@ def create_dummy_batch(config: DictConfig, batch_size: int = 2) -> Dict[str, tor
             0, num_phases, (batch_size, prediction_horizon, 1), dtype=torch.long
         )
 
-    batch[IS_PAD_KEY] = torch.zeros(batch_size, prediction_horizon, dtype=torch.bool)
+    batch[IS_PAD_ACTION_KEY] = torch.zeros(batch_size, prediction_horizon, dtype=torch.bool)
 
     return batch
 

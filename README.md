@@ -610,7 +610,7 @@ schema_keys = schema.get_required_zarr_keys()  # What's actually in Zarr
 
 missing = set(required_zarr_keys) - set(schema_keys)
 if missing:
-    raise ValueError(f"Task requests {missing} but schema doesn't provide them")
+    raise ValueError(f"TaskSpace requests {missing} but schema doesn't provide them")
 ```
 
 ### Adding a New Dataset Schema

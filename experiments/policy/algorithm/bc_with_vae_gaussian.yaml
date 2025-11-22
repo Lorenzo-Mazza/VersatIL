@@ -3,25 +3,29 @@
 # Architecture:
 # - Posterior: VAE encoder q(z|a,s) for encoding actions during training
 # - Prior: Simple N(0,I) Gaussian prior for sampling during inference
-# - Decoder: Direct behavioral cloning
+# - Algorithm: behavioral cloning
+defaults:
+  - posterior/vae@posterior_encoder
+  - prior/gaussian@prior
+  - variational
 
 _target_: refactoring.models.decoding.algorithm.variational.VariationalAlgorithm
 
-# Base algorithm: Behavioral Cloning
 base_algorithm:
   _target_: refactoring.models.decoding.algorithm.behavior_cloning.BehavioralCloning
 
-# Posterior encoder q(z|a,s): VAE
 posterior_encoder:
   _target_: refactoring.models.decoding.latent.vae_posterior.VAETransformerEncoder
-  latent_dim: 32
-  output_dim: 512
+  latent_dimension: 32
+  embedding_dimension: 512
   prediction_horizon: ${policy.prediction_horizon}
+  observation_horizon: ${policy.observation_horizon}
   number_of_heads: 8
   feedforward_dimension: 2048
   number_of_encoder_layers: 4
   dropout_rate: 0.1
   device: ${policy.device}
 
-# Prior p(z): Auto-creates GaussianPrior when null
-prior: null
+prior:
+  latent_dimension: 32
+

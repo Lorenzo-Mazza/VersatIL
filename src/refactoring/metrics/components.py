@@ -8,19 +8,17 @@ from refactoring.data.constants import (
     GRIPPER_ACTION_KEY,
     PHASE_LABEL_KEY,
     POSITION_ACTION_KEY,
-    GripperType, IS_PAD_KEY,
+    GripperType, TOKENIZED_ACTIONS_KEY,
 )
 from refactoring.metrics.base import BaseLoss, LossOutput, reduce_loss_with_padding
 from refactoring.metrics.constants import (
-    MEAN_KEY,
-    VARIANCE_KEY,
     MetadataKey,
     MetricKey,
 )
 from refactoring.models.decoding.constants import (
     PRIOR_PREDICTION_KEY,
     PRIOR_TARGET_KEY,
-    BINARY_LOGITS_KEY, ACTION_TOKENS_TARGET_KEY, ACTION_TOKENS_KEY,
+    BINARY_LOGITS_KEY, PREDICTED_ACTION_TOKENS_KEY, MU_KEY, LOGVAR_KEY, ACTION_LOGITS_KEY,
 )
 
 
@@ -197,7 +195,7 @@ class GripperLoss(BaseLoss):
 class KLDivergenceLoss(BaseLoss):
     """KL divergence loss for VAE latent distributions."""
 
-    def __init__(self, weight: float = 0.0001):
+    def __init__(self, weight: float = 10.0):
         """Initialize KL divergence loss.
 
         Args:
@@ -212,7 +210,7 @@ class KLDivergenceLoss(BaseLoss):
         Returns:
             Set containing VAE latent distribution keys (mu, logvar)
         """
-        return {MEAN_KEY, VARIANCE_KEY}
+        return {MU_KEY, LOGVAR_KEY}
 
     def forward(
         self,
@@ -230,10 +228,10 @@ class KLDivergenceLoss(BaseLoss):
         Returns:
             LossOutput with KL divergence loss
         """
-        if MEAN_KEY not in predictions or VARIANCE_KEY not in predictions:
-            raise ValueError(f"Predictions must contain keys '{MEAN_KEY}' and '{VARIANCE_KEY}' for KLDivergenceLoss.")
-        mu = predictions[MEAN_KEY]
-        logvar = predictions[VARIANCE_KEY]
+        if MU_KEY not in predictions or LOGVAR_KEY not in predictions:
+            raise ValueError(f"Predictions must contain keys '{MU_KEY}' and '{LOGVAR_KEY}' for KLDivergenceLoss.")
+        mu = predictions[MU_KEY]
+        logvar = predictions[LOGVAR_KEY]
 
         kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=-1)
         kld_mean = kld.mean()
@@ -555,29 +553,18 @@ class PhaseClassificationLoss(BaseLoss):
 
 
 class ActionTokenLoss(BaseLoss):
-    """Cross-entropy loss for tokenized actions.
-
-    For tokenized decoders (e.g., FAST), expects predictions to contain:
-    - '{ACTION_TOKENS_KEY}': logits (B, horizon, vocab_size)
-    - '{ACTION_TOKENS_KEY}_target': ground truth token IDs (B, horizon)
-    - 'is_pad': optional padding mask (B, horizon)
-
-    The targets and is_pad parameters are ignored.
-    """
+    """Cross-entropy loss for tokenized actions."""
 
     def __init__(
         self,
-        ignore_index: int = 0,
         label_smoothing: float = 0.0,
     ):
         """Initialize action token loss.
 
         Args:
-            ignore_index: Index to ignore in loss computation (for padding)
             label_smoothing: Label smoothing factor [0, 1]
         """
         super().__init__()
-        self.ignore_index = ignore_index
         self.label_smoothing = label_smoothing
 
     def get_required_keys(self) -> set[str]:
@@ -586,7 +573,7 @@ class ActionTokenLoss(BaseLoss):
         Returns:
             Empty set since target ground-truth tokens are in predictions
         """
-        return {ACTION_TOKENS_KEY}
+        return {ACTION_LOGITS_KEY}
 
     def forward(
         self,
@@ -598,46 +585,34 @@ class ActionTokenLoss(BaseLoss):
 
         Args:
             predictions: Dictionary containing:
-                - '{ACTION_TOKENS_KEY}': logits (B, horizon, vocab_size)
-                - '{ACTION_TOKENS_KEY}_target': ground truth token IDs (B, horizon)
+                - '{ACTION_LOGITS_KEY}': logits (B, horizon, vocab_size)
+                - '{TOKENIZED_ACTIONS_KEY}': ground truth token IDs (B, horizon)
                 - 'is_pad': optional padding mask (B, horizon)
-            targets: Ignored (kept for interface compatibility)
-            is_pad: Ignored (kept for interface compatibility)
+            targets: Dictionary containing ground truth tokens
+            is_pad: Optional padding mask
 
         Returns:
             LossOutput with per-key cross-entropy losses
         """
-        component_losses = {}
-        # Get padding mask from predictions if available
-        token_pad_mask = predictions.get(IS_PAD_KEY, None)
-        if ACTION_TOKENS_KEY not in predictions or ACTION_TOKENS_TARGET_KEY not in predictions:
+        if ACTION_LOGITS_KEY not in predictions:
             raise ValueError(
-                f"Predictions must contain keys '{ACTION_TOKENS_TARGET_KEY, ACTION_TOKENS_KEY}' for ActionTokenLoss."
+                f"Predictions must contain keys '{ACTION_LOGITS_KEY}' for ActionTokenLoss."
             )
-        pred_logits = predictions[ACTION_TOKENS_KEY]
-        target_tokens = predictions[ACTION_TOKENS_TARGET_KEY]
-        if target_tokens.dim() == 3 and target_tokens.shape[-1] == 1:
-            target_tokens = target_tokens.squeeze(-1)
-
-        batch_size, horizon, vocab_size = pred_logits.shape
-        pred_flat = pred_logits.reshape(-1, vocab_size)
-        target_flat = target_tokens.reshape(-1).long()
-        if token_pad_mask is not None:
-            is_pad_flat = token_pad_mask.reshape(-1)
-            target_flat = target_flat.clone()
-            target_flat[is_pad_flat] = self.ignore_index
-
+        pred_logits = predictions[ACTION_LOGITS_KEY] # (B, num_tokens, vocab_size)
+        target_tokens = targets[TOKENIZED_ACTIONS_KEY] # (B, num_tokens)
+        vocab_size = pred_logits.shape[-1]
+        num_tokens = pred_logits.shape[1]
+        logits = pred_logits.view(-1, vocab_size, num_tokens)  # (B × 256, 1024)
         ce_loss = F.cross_entropy(
-            pred_flat,
-            target_flat,
-            ignore_index=self.ignore_index,
+            logits,
+            target_tokens,
             label_smoothing=self.label_smoothing,
+            reduction="none"
         )
-        component_losses[f"{ACTION_TOKENS_KEY}_cross_entropy"] = ce_loss
+        ce_loss = reduce_loss_with_padding(ce_loss, is_pad, reduction="mean")
         return LossOutput(
             total_loss=ce_loss,
-            component_losses=component_losses,
-            metadata={},
+            component_losses={MetricKey.ACTION_TOKEN_CROSS_ENTROPY.value: ce_loss},
         )
 
 

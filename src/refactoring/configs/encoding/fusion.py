@@ -3,9 +3,12 @@ from dataclasses import dataclass
 
 from omegaconf import MISSING
 
+from refactoring.models.encoding.fusion.constants import ConcatDimension
+from refactoring.models.layers.activation import ActivationFunction
+
 
 @dataclass
-class FusionModule:
+class FusionConfig:
     """A fusion module that combines multiple input features into one representation."""
     _target_: str = MISSING
     input_features: list[str] = MISSING
@@ -14,23 +17,26 @@ class FusionModule:
 
 
 @dataclass
-class ConcatFusionModule(FusionModule):
+class ConcatFusionConfig(FusionConfig):
     _target_: str = "refactoring.models.encoding.fusion.concat.ConcatFusion"
 
 
 @dataclass
-class AttentionFusionModule(FusionModule):
+class AttentionFusionConfig(FusionConfig):
     _target_: str = "refactoring.models.encoding.fusion.attention.AttentionFusion"
     num_heads: int = 8
     dropout: float = 0.1
+    input_feature_query: str | None = None
 
 @dataclass
-class MLPFusionModule(FusionModule):
+class MLPFusionConfig(FusionConfig):
     _target_: str = "refactoring.models.encoding.fusion.mlp.MLPFusion"
     mlp_hidden_dims: list[int] = MISSING
-    activation_name: str = "gelu"
+    activation_name: str = ActivationFunction.GELU.value
     dropout: float = 0.1
 
+
 @dataclass
-class SpatialFusionModule(FusionModule):
+class SpatialFusionConfig(FusionConfig):
     _target_: str = "refactoring.models.encoding.fusion.spatial.SpatialFusion"
+    concat_dim: str = ConcatDimension.WIDTH.value

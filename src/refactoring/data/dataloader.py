@@ -5,43 +5,51 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.utils.data as data
-from hydra.utils import instantiate
+from omegaconf import DictConfig
 
-from refactoring.configs import MainConfig
-from refactoring.data.constants import (
-    EPISODE_FILENAME,
-    PHASE_LABEL_KEY,
-)
+from refactoring.configs.data.tokenizer import TokenizationConfig
+from refactoring.data.constants import PHASE_LABEL_KEY
 from refactoring.data.episodic_dataset import EpisodicDataset
-from refactoring.data.normalize.normalizer import LinearNormalizer
+from refactoring.data.normalization.normalizer import LinearNormalizer
 from refactoring.data.preprocessing.create_zarr import create_replay_buffer
 from refactoring.data.preprocessing.replay_buffer import ReplayBuffer
 from refactoring.data.schemas.base import DatasetSchema
-from refactoring.data.tokenize.tokenizer import Tokenizer
+from refactoring.configs.data.dataloader import DataLoaderConfig
+from refactoring.data.task import ActionSpace, ObservationSpace
+from refactoring.data.tokenization.tokenizer import Tokenizer, validate_tokenizer_config
 
 
 def get_dataloaders(
-    config: MainConfig,
+    config: DictConfig,
 ) -> tuple[data.DataLoader, data.DataLoader, LinearNormalizer, Tokenizer | None, float | None]:
     """Create train and validation dataloaders with normalizer and optional tokenizer.
 
     Args:
-        config: Main configuration object from Hydra
+        config: Main configuration object instantiated by Hydra
 
     Returns:
         Tuple of (train_loader, val_loader, normalizer, tokenizer, gripper_class_weights)
+
+    Note: The type hint for `config` indicates `DictConfig`, but at runtime hydra instantiates a `MainConfig` with
+      all target fields resolved into python objects.
     """
-    schema: DatasetSchema = instantiate(config.task.dataset_schema)
+    schema: DatasetSchema = config.task.dataset_schema
+    action_space:ActionSpace = config.task.action_space
+    observation_space:ObservationSpace = config.task.observation_space
+    dataloader_config:DataLoaderConfig = config.task.dataloader
+    tokenization_config: TokenizationConfig = dataloader_config.tokenization
+
+    validate_dataloader_config(dataloader_config)
+    validate_tokenizer_config(tokenization_config)
+
+    #schema.zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/dataset.zarr"
+
     logging.info(f"Using dataset schema: {schema.__class__.__name__}")
-    datasets_paths = _collect_dataset_paths(schema.dataset_folders)
+    datasets_paths = _collect_dataset_paths(schema.dataset_folders, schema.dataset_filename)
     logging.info(f"Found {len(datasets_paths)} episodes across {len(schema.dataset_folders)} folders")
 
     _ensure_zarr_exists(schema=schema, datasets_paths=datasets_paths)
 
-    action_space = instantiate(config.task.action_space)
-    observation_space = instantiate(config.task.observation_space)
-    dataloader_config = instantiate(config.task.dataloader)
-    tokenization_config = dataloader_config.tokenization if dataloader_config.tokenization.enabled else None
 
     train_dataset = EpisodicDataset(
         zarr_path=schema.zarr_path,
@@ -65,21 +73,20 @@ def get_dataloaders(
         observation_space=observation_space,
     )
 
-    # Get normalizer and tokenizer
-    device = torch.device(config.experiment.device)
-
-
     normalizer, tokenizer = train_dataset.get_normalizer_and_tokenizer(
         winsorize_depth=dataloader_config.winsorize_depth,
         depth_winsorize_quantiles=dataloader_config.depth_winsorize_quantiles,
         winsorize_kinematics=dataloader_config.winsorize_kinematics,
         kinematics_winsorize_quantiles=dataloader_config.kinematics_winsorize_quantiles,
         tokenization_config=tokenization_config,
-        device=device,
+        device=torch.device("cpu"),  # Keep on CPU for DataLoader workers
     )
+    train_dataset.set_normalizer(normalizer)
+    val_dataset.set_normalizer(normalizer)
+    train_dataset.set_tokenizer(tokenizer)
+    val_dataset.set_tokenizer(tokenizer)
 
-    # Share denoising thresholds with validation dataset
-    if config.task.action_space.denoise_actions:
+    if action_space.denoise_actions:
         val_dataset.action_processor.action_denoising_threshold = (
             train_dataset.action_processor.action_denoising_threshold
         )
@@ -87,7 +94,6 @@ def get_dataloaders(
             train_dataset.action_processor.orientation_denoising_threshold
         )
 
-    # Create dataloaders
     train_loader = data.DataLoader(
         train_dataset,
         batch_size=config.task.dataloader.batch_size,
@@ -116,15 +122,44 @@ def get_dataloaders(
     return train_loader, val_loader, normalizer, tokenizer, gripper_positive_class_weights
 
 
-def _collect_dataset_paths(dataset_folders: list[str]) -> list[str]:
+def validate_dataloader_config(config: DataLoaderConfig):
+    """Validate Dataloader configuration."""
+    if config.batch_size <= 0:
+        raise ValueError(f"batch_size must be positive, got {config.batch_size}")
+    if config.num_workers < 0:
+        raise ValueError(f"num_workers cannot be negative, got {config.num_workers}")
+    if config.image_height <= 0:
+        raise ValueError(f"image_height must be positive, got {config.image_height}")
+    if config.image_width <= 0:
+        raise ValueError(f"image_width must be positive, got {config.image_width}")
+    if not 0 < config.val_ratio < 1:
+        raise ValueError(f"val_ratio must be in range (0, 1), got {config.val_ratio}")
+    if not 0 < config.total_ratio <= 1:
+        raise ValueError(f"total_ratio must be in range (0, 1], got {config.total_ratio}")
+    if config.skip_initial_episode_steps < 0:
+        raise ValueError(
+            f"skip_initial_episode_steps cannot be negative, "
+            f"got {config.skip_initial_episode_steps}"
+        )
+    if config.downsample_factor < 1:
+        raise ValueError(f"downsample_factor must be >= 1, got {config.downsample_factor}")
+    if config.action_backward_shift < 0:
+        raise ValueError(
+            f"action_backward_shift cannot be negative, "
+            f"got {config.action_backward_shift}"
+        )
+
+
+def _collect_dataset_paths(dataset_folders: list[str], episode_filename: str) -> list[str]:
     """Collect all episode CSV paths from dataset folders."""
     datasets_paths = []
     for folder in dataset_folders:
         root_path = Path(folder)
         episode_dirs = [
-            d for d in root_path.iterdir() if d.is_dir() and (d / EPISODE_FILENAME).exists()
+            d for d in root_path.iterdir() if d.is_dir() and (d / episode_filename).exists()
         ]
-        datasets_paths.extend([str(d / EPISODE_FILENAME) for d in episode_dirs])
+        datasets_paths.extend([str(d / episode_filename) for d in episode_dirs])
+    datasets_paths = datasets_paths[:4]
     return datasets_paths
 
 
@@ -134,6 +169,7 @@ def _ensure_zarr_exists(
 ) -> None:
     """Create zarr if it doesn't exist or is invalid."""
     zarr_path = schema.zarr_path
+    #zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/dataset.zarr"
     need_create = True
     required_keys = schema.get_required_zarr_keys()
     if Path(zarr_path).exists():
@@ -175,3 +211,5 @@ def _log_phase_distributions(
         )
         phase_counts_val = np.bincount(phase_labels_val, minlength=5)
         logging.info(f"Val phase distribution: {dict(enumerate(phase_counts_val.tolist()))}")  # type: ignore[arg-type]
+
+

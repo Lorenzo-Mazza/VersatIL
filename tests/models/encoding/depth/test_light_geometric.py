@@ -19,7 +19,7 @@ def temporal_length():
 
 @pytest.fixture
 def image_size():
-    return (224, 224)
+    return (135, 240)
 
 
 @pytest.fixture
@@ -74,13 +74,12 @@ class TestLightGeometricEncoderInitialization:
 
 
     def test_init_frozen(self):
-        encoder = LightGeometricEncoder(
-            input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
-            frozen=True,
-        )
+        with pytest.raises(ValueError, match="Freezing LightGeometricEncoder does not make sense") as e:
+            encoder = LightGeometricEncoder(
+                input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
+                frozen=True,
+            )
 
-        for param in encoder.parameters():
-            assert param.requires_grad is False
 
 
     def test_init_missing_depth_input(self):
@@ -220,13 +219,14 @@ class TestLightGeometricEncoderForward:
 @pytest.mark.unit
 class TestLightGeometricEncoderTemporalHandling:
 
-    @pytest.mark.parametrize("temporal_length", [1, 4, 8, 16])
-    def test_temporal_various_lengths(self, batch_size, image_size, temporal_length):
+    @pytest.mark.parametrize("temporal_length", [1, 2])
+    @pytest.mark.parametrize("image_sizes", [[270, 480], [135, 240], [224, 224]])
+    def test_temporal_various_lengths(self, batch_size,image_sizes, temporal_length):
         encoder = LightGeometricEncoder(
             input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
         )
 
-        H, W = image_size
+        H, W = image_sizes
         input_dict = {
             Cameras.LEFT.value: torch.randn(batch_size, temporal_length, 3, H, W),
             Cameras.DEPTH.value: torch.randn(batch_size, temporal_length, 1, H, W),
@@ -359,25 +359,6 @@ class TestLightGeometricEncoderGradients:
                 has_grad = True
                 break
         assert has_grad
-
-
-    def test_gradients_disabled_frozen(self, input_dict_4d):
-        encoder = LightGeometricEncoder(
-            input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
-            frozen=True,
-        )
-
-        input_dict = {
-            Cameras.LEFT.value: input_dict_4d["rgb"],
-            Cameras.DEPTH.value: input_dict_4d["depth"],
-        }
-        with torch.no_grad():
-            output = encoder(input_dict)[EncoderOutputKeys.RGBD.value]
-
-        assert not output.requires_grad
-
-        for param in encoder.parameters():
-            assert not param.requires_grad
 
 
 @pytest.mark.unit

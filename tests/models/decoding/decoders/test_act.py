@@ -6,12 +6,12 @@ import warnings
 from refactoring.models.decoding.decoders.factory.act import ACT
 from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.action_heads.blocks import MLPBlock
-from refactoring.configs.task.task import ActionSpace, ObservationSpace
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
     POSITION_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
     GRIPPER_ACTION_KEY,
-    IS_PAD_KEY,
+    IS_PAD_ACTION_KEY,
     Cameras,
     OrientationRepresentation,
     GripperType,
@@ -190,7 +190,7 @@ def actions_dict(batch_size, prediction_horizon, action_space, device):
             0, 2, (batch_size, prediction_horizon, action_space.gripper_dim), device=device
         ).float()
 
-    actions[IS_PAD_KEY] = torch.zeros(
+    actions[IS_PAD_ACTION_KEY] = torch.zeros(
         batch_size, prediction_horizon, dtype=torch.bool, device=device
     )
 
@@ -349,7 +349,7 @@ class TestACTFeaturePreparation:
 
         with warnings.catch_warnings(record=True) as warning_list:
             warnings.simplefilter("always")
-            spatial_features = decoder._prepare_image_features(spatial_features_single)
+            spatial_features = decoder._tokenize_visual_features(spatial_features_single)
 
         # Should project 2048 channels to embedding_dimension
         batch_size = spatial_features_single["rgb_left_features"].shape[0]
@@ -384,7 +384,7 @@ class TestACTFeaturePreparation:
 
         with warnings.catch_warnings(record=True) as warning_list:
             warnings.simplefilter("always")
-            spatial_features = decoder._prepare_image_features(spatial_features_multi_camera)
+            spatial_features = decoder._tokenize_visual_features(spatial_features_multi_camera)
 
         # Should concatenate along width (dim=3)
         batch_size = spatial_features_multi_camera["rgb_left_features"].shape[0]
@@ -418,7 +418,7 @@ class TestACTFeaturePreparation:
 
         with warnings.catch_warnings(record=True) as warning_list:
             warnings.simplefilter("always")
-            spatial_features = decoder._prepare_image_features(spatial_features_mismatched)
+            spatial_features = decoder._tokenize_visual_features(spatial_features_mismatched)
 
         # All features should be projected to embedding_dimension and concatenated
         batch_size = spatial_features_mismatched["rgb_left_features"].shape[0]
@@ -808,7 +808,7 @@ class TestACTEdgeCases:
 
         # Only flat features, no spatial features
         with pytest.raises(ValueError, match="No spatial features found"):
-            decoder._prepare_image_features(flat_features_single)
+            decoder._tokenize_visual_features(flat_features_single)
 
     def test_temporal_spatial_features(
         self,
@@ -841,7 +841,7 @@ class TestACTEdgeCases:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            spatial_features = decoder._prepare_image_features(features)
+            spatial_features = decoder._tokenize_visual_features(features)
 
         # ACT only uses most recent timestep, not full temporal history
         expected_batch = batch_size
@@ -1429,7 +1429,7 @@ class TestACTEncoderInputPrepending:
             embedding_dimension=embedding_dimension,
         )
 
-        spatial_features = decoder._prepare_image_features(spatial_features_single)
+        spatial_features = decoder._tokenize_visual_features(spatial_features_single)
         flat_features = decoder._prepare_flat_features(spatial_features_single)
 
         # Flat features should be None
@@ -1478,7 +1478,7 @@ class TestACTEncoderInputPrepending:
             embedding_dimension=embedding_dimension,
         )
 
-        spatial_features = decoder._prepare_image_features(spatial_features_single)
+        spatial_features = decoder._tokenize_visual_features(spatial_features_single)
         latent_embedding = torch.randn(batch_size, embedding_dimension, device=device)
 
         # Prepare encoder input
@@ -1532,7 +1532,7 @@ class TestACTEncoderInputPrepending:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            spatial_features = decoder._prepare_image_features(features)
+            spatial_features = decoder._tokenize_visual_features(features)
             flat_features = decoder._prepare_flat_features(features)
 
         # Flat features should exist
@@ -1591,7 +1591,7 @@ class TestACTEncoderInputPrepending:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            spatial_features = decoder._prepare_image_features(features)
+            spatial_features = decoder._tokenize_visual_features(features)
             flat_features = decoder._prepare_flat_features(features)
 
         latent_embedding = torch.randn(batch_size, embedding_dimension, device=device)
