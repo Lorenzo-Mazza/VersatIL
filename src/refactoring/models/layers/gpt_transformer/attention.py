@@ -87,6 +87,7 @@ class CachedAttention(nn.Module):
             embedding_dimension,
             bias=bias,
         )
+        self.output_projection.SQUARE_ROOT_WEIGHT = True # Flag for initialization (GPT2 style)
 
     def compute_query_key_value(
         self,

@@ -115,6 +115,7 @@ class TransformerDecoderLayer(nn.Module):
             dimension=embedding_dimension,
             epsilon=normalization_epsilon,
         )
+        self.feedforward_network[-1].SQUARE_ROOT_WEIGHT = True # Flag for initialization (GPT2 style)
         self.dropout = nn.Dropout(dropout)
 
     def forward(

@@ -6,6 +6,7 @@ import math
 
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType
+from refactoring.models.layers.normalization.ada_norm import AdaNorm
 from refactoring.models.layers.normalization.constants import NormalizationType
 from refactoring.models.layers.gpt_transformer.decoder_layer import TransformerDecoderLayer
 from refactoring.models.layers.gpt_transformer.kv_cache import DecoderKVCache, LayerKVCache, initialize_decoder_cache
@@ -16,6 +17,8 @@ from refactoring.models.layers.positional_encoding.rotary import RotaryPositiona
 from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
 from refactoring.models.layers.normalization.rms_norm import RMSNorm
 
+
+RESIDUAL_STREAM_FLAG = "SQUARE_ROOT_WEIGHT" # Used for initialization flag
 
 class GPTDecoder(nn.Module):
     """GPT-style autoregressive decoder, with KV caching, extended to support cross-attention.
@@ -118,28 +121,28 @@ class GPTDecoder(nn.Module):
 
     def _init_weights(self, module):
         """Initialize the weights."""
+        # Reinitialize selected weights subject to the OpenAI GPT-2 Paper Scheme:
+        # > A modified initialization which accounts for the accumulation on the residual path with model depth. Scale
+        # > the weights of residual layers at initialization by a factor of 1/√N where N is the # of residual layers.
+        # > -- GPT-2 :: https://openai.com/blog/better-language-models/
+        if hasattr(module, RESIDUAL_STREAM_FLAG):  # Residual stream correction
+            num_norm_layers = 3 if self.use_cross_attention else 2
+            std = self.initializer_range / math.sqrt(num_norm_layers * self.number_of_layers)
+        else:
+            std = self.initializer_range
         if isinstance(module, nn.Linear):
-            module.weight.data.normal_(mean=0.0, std=self.initializer_range)
+            module.weight.data.normal_(mean=0.0, std=std)
             if module.bias is not None:
                 module.bias.data.zero_()
         elif isinstance(module, nn.Embedding):
             module.weight.data.normal_(mean=0.0, std=self.initializer_range)
             if module.padding_idx is not None:
                 module.weight.data[module.padding_idx].zero_()
-        elif isinstance(module, (nn.LayerNorm, RMSNorm)):
+        elif isinstance(module, (nn.LayerNorm, RMSNorm, AdaNorm)):
             if hasattr(module, 'bias') and module.bias is not None:
                 module.bias.data.zero_()
             if hasattr(module, 'weight') and module.weight is not None:
                 module.weight.data.fill_(1.0)
-        # Reinitialize selected weights subject to the OpenAI GPT-2 Paper Scheme:
-        # > A modified initialization which accounts for the accumulation on the residual path with model depth. Scale
-        # > the weights of residual layers at initialization by a factor of 1/√N where N is the # of residual layers.
-        # > -- GPT-2 :: https://openai.com/blog/better-language-models/
-        #
-        for name, p in module.named_parameters():
-            if 'output_projection.weight' in name or 'feedforward_network' in name:
-                num_norm_layers = 3 if self.use_cross_attention else 2
-                p.data.normal_(mean=0.0, std=(self.initializer_range / math.sqrt(num_norm_layers * self.number_of_layers)))
 
 
     def generate_causal_mask(
