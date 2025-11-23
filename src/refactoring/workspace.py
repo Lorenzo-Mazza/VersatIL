@@ -53,7 +53,6 @@ class Workspace:
         """
         self.config: MainConfig = config
         self.original_yaml_config = original_yaml_config
-
         self._ensure_configs_are_dataclasses()
         self.exp_name = config.experiment.name
         self.output_dir = Path(config.experiment.checkpoint_folder) / self.exp_name
@@ -66,6 +65,7 @@ class Workspace:
         self.val_loader: data.DataLoader | None = None
         self.normalizer: LinearNormalizer | None = None
         self.tokenizer: Tokenizer | None = None
+        self.logger = None
 
         self.gripper_class_weights: torch.Tensor | None = None
         logging.info(f"Workspace initialized for experiment: {self.exp_name}")
@@ -106,6 +106,7 @@ class Workspace:
 
     def run(self):
         """Run the complete training workflow."""
+        self.logger = self._create_logger()
         self._setup_data()
         self._setup_policy()
         self.lightning_policy._train_dataloader = self.train_loader
@@ -181,7 +182,6 @@ class Workspace:
     def _setup_trainer(self):
         """Setup PyTorch Lightning trainer with callbacks and logger."""
         callbacks = self._create_callbacks()
-        logger = self._create_logger()
         strategy = self._create_strategy()
         gradient_clip_val = None
         if self.config.training.clip_gradient_norm:
@@ -197,7 +197,7 @@ class Workspace:
             accelerator="gpu" if "cuda" in self.config.experiment.device else "cpu",
             devices="auto" if self.config.experiment.distributed else 1,
             strategy=strategy,
-            logger=logger,
+            logger=self.logger,
             callbacks=callbacks,
             gradient_clip_val=gradient_clip_val,
             accumulate_grad_batches=self.config.training.gradient_accumulate_every,
