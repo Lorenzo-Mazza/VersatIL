@@ -1,4 +1,3 @@
-
 defaults:
   - token_loss@loss_modules.token_loss
   - _self_
@@ -17,4 +16,4 @@ loss_modules:
 # Weights for each loss module (multiplied by module's internal weight)
 weights:
   token_loss: 1.0
-  binary_kl: 5.0  # High weight for discrete latent regularization
+  binary_kl: 5.0
