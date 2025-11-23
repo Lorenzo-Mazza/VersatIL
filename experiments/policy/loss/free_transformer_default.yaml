@@ -1,5 +1,6 @@
 defaults:
   - token_loss@loss_modules.token_loss
+  - binary_kl@loss_modules.binary_kl
   - _self_
 
 _target_: refactoring.metrics.CompositeLoss

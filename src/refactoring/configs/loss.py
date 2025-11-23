@@ -57,6 +57,9 @@ class BinaryKLDivergenceLossConfig(BaseLossConfig):
     _target_: str = "refactoring.metrics.BinaryKLDivergenceLoss"
     weight: float = 0.0001
     free_bits: float = 0.0
+    latent_bits: int = MISSING
+    entropy_weight: float = 0.005
+
 
 
 @dataclass
