@@ -315,15 +315,12 @@ class BinaryKLDivergenceLoss(BaseLoss):
         # Apply free bits threshold: max(0, KL - κ)
         if self.free_bits > 0:
             kl = torch.clamp(kl - self.free_bits, min=0.0)
-
-        # Apply padding mask if provided
-        kl_reduced = reduce_loss_with_padding(kl, is_pad, reduction="mean")
         entropy = - (probs * torch.log(probs + eps) + (1 - probs) * torch.log(1 - probs + eps))  # (B,T,H)
-        kl_reduced += -self.entropy_weight * entropy.mean()
-
+        kl = kl.mean()
+        kl += -self.entropy_weight * entropy.mean()
         return LossOutput(
-            total_loss=self.weight * kl_reduced,
-            component_losses={MetricKey.KL_DIVERGENCE.value: kl_reduced},
+            total_loss=self.weight * kl,
+            component_losses={MetricKey.KL_DIVERGENCE.value: kl},
         )
 
 
