@@ -304,7 +304,7 @@ class BinaryKLDivergenceLoss(BaseLoss):
             code_indices = torch.argmax(latent_codes, dim=-1).flatten()  # (B*token_len,)
             unique_codes = torch.unique(code_indices).numel()
             total_codes = 2 ** self.latent_bits
-            usage_pct = (unique_codes / total_codes) * 100
+            usage_pct = (unique_codes / total_codes)
             all_component_losses[MetricKey.LATENT_CODE_USAGE.value] = usage_pct
 
         logits = predictions[BINARY_LOGITS_KEY]  # (B, T, H) or (B, H)

@@ -18,7 +18,7 @@ class MetricKey(str, Enum):
     KL_DIVERGENCE = "kl_divergence"
     RAW_KL_DIVERGENCE = "raw_kl_divergence"
     CLAMPED_KL_DIVERGENCE = "clamped_kl"
-    LATENT_CODE_USAGE = "latent_usage_percentage"
+    LATENT_CODE_USAGE = "latent_usage_ratio"
     POSTERIOR_ENTROPY = "posterior_entropy"
     SINKHORN_LOSS = "sinkhorn_loss"
     LENGTH_LOSS = "length_loss"
@@ -31,7 +31,7 @@ class MetricKey(str, Enum):
     FLOW_MATCHING_LOSS = "flow_matching_loss"
     OPTIMAL_TRANSPORT_LOSS = "optimal_transport_loss"
     ACTION_TOKEN_CROSS_ENTROPY = "action_token_cross_entropy"
-    TOKEN_ACCURACY = "token_accuracy"
+    TOKEN_ACCURACY = "token_accuracy_ratio"
     PERPLEXITY = "perplexity"
 
 
