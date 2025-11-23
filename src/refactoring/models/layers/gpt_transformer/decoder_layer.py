@@ -142,7 +142,8 @@ class TransformerDecoderLayer(nn.Module):
             positional_encoding: Optional rotary positional encoding module
 
         Returns:
-            Tuple of (output_states, updated_cache)
+            Tuple of (hidden_states, new_cache), where hidden_states has shape (B, query_len, D) and
+            new_cache is a LayerKVCache or None.
 
         Raises:
             ValueError: If use_self_attention_cache=True for non-autoregressive model

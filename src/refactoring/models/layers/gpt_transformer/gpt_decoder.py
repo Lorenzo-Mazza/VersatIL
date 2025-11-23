@@ -6,6 +6,7 @@ import math
 
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType
+from refactoring.models.layers.gpt_transformer.masking import create_full_padding_mask
 from refactoring.models.layers.normalization.ada_norm import AdaNorm
 from refactoring.models.layers.normalization.constants import NormalizationType
 from refactoring.models.layers.gpt_transformer.decoder_layer import TransformerDecoderLayer
@@ -145,33 +146,6 @@ class GPTDecoder(nn.Module):
                 module.weight.data.fill_(1.0)
 
 
-    def generate_causal_mask(
-        self,
-        sequence_length: int,
-        device: torch.device,
-    ) -> torch.Tensor:
-        """Generate causal attention mask.
-
-        Args:
-            sequence_length: Sequence length
-            device: Device to create mask on
-
-        Returns:
-            Causal mask (1, 1, seq_len, seq_len) as boolean tensor where True means masked position
-
-        Note:
-            This mask uses the opposite convention as torch.nn.scaled_dot_product_attention.
-            This mask uses the same convention as torch.nn.MultiHeadAttention.
-        """
-        # Create triangular matrix mask with True for future positions
-        mask = torch.triu(
-            torch.ones(sequence_length, sequence_length, device=device, dtype=torch.bool),
-            diagonal=1 # `True`s start above the main diagonal
-        )
-        mask = mask.unsqueeze(0).unsqueeze(0) #(1, 1, seq_len, seq_len)
-        return mask
-
-
     def precompute_cross_attention_kv(
         self,
         encoded_features: torch.Tensor,
@@ -221,12 +195,12 @@ class GPTDecoder(nn.Module):
         """Forward pass through decoder.
 
         Args:
-            hidden_states: Input token embeddings (B, seq_len, D)
+            hidden_states: Input token embeddings (B, query_length, D)
             encoded_features: Encoder visual features (B, num_features, D). Required if self.use_cross_attention=True
-            self_attention_mask: Optional custom self-attention mask (B, 1, seq_len, seq_len) where True means masked.
+            self_attention_mask: Optional custom self-attention mask (B, 1, query_length, query_length) where True means masked.
                If None, generates standard triangular causal mask.
             cross_attention_mask: Optional mask for cross-attention, where True means masked position.
-            key_padding_mask: Optional key padding mask for padded observation tokens (B, seq_len) where True means masked.
+            key_padding_mask: Optional current key padding mask for padded observation tokens (B, query_length) where True means masked.
             decoder_cache: Optional cached K/V from previous steps
             use_cache: Whether to return updated cache
 
@@ -236,46 +210,21 @@ class GPTDecoder(nn.Module):
         batch_size = hidden_states.shape[0]
         device = hidden_states.device
         query_length = hidden_states.shape[1]
+        cache_length = decoder_cache.get_length() if decoder_cache else 0
+        cached_key_padding_mask = decoder_cache.key_padding_mask if decoder_cache else None
+        total_mask, full_key_padding_mask = create_full_padding_mask(
+            key_padding_mask=key_padding_mask,
+            cached_key_padding_mask=cached_key_padding_mask,
+            self_attention_mask=self_attention_mask,
+            batch_size=batch_size,
+            query_length=query_length,
+            cache_length=cache_length,
+            device=device,
+        ) # (B, 1, query_length, key_length), (B, key_length), where key_length = cache_length + query_length
+
         if isinstance(self.positional_encoding, (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D)):
             hidden_states = self.positional_encoding(hidden_states)
 
-        cache_length = decoder_cache.get_length() if decoder_cache else 0
-        key_length = cache_length + query_length
-        cached_key_padding_mask = decoder_cache.key_padding_mask if decoder_cache else None
-        full_key_padding_mask = None
-        if key_padding_mask is not None:
-            if cached_key_padding_mask is None:
-                full_key_padding_mask = key_padding_mask # (B, seq_len + 0 = key_length)
-            else:
-                full_key_padding_mask = torch.cat((cached_key_padding_mask, key_padding_mask), dim=1) # (B, total_len)
-        else:
-            # full_key_padding_mask is None
-            if cached_key_padding_mask is not None:
-                full_key_padding_mask = torch.cat(
-                    (cached_key_padding_mask, torch.zeros(batch_size, query_length, device=device, dtype=torch.bool)), dim=1
-                ) # (B, total_len)
-
-        if self_attention_mask is None:
-            causal_mask = self.generate_causal_mask(key_length, device)  # (1, 1, key_length, key_length)
-            total_mask = causal_mask[:, :, -query_length:, :]  # (1,1,query_length,key_length)
-            if full_key_padding_mask is not None:
-                padding_mask = full_key_padding_mask.unsqueeze(1).unsqueeze(1)  # (B,1,1,key_length)
-                # Broadcasting to (B,1,query_length,key_length)
-                total_mask = total_mask | padding_mask
-        else:
-            # self_attention_mask (B, 1, query_length, query_length)
-            # total_mask (B, 1, query_length, key_length)
-            total_mask = torch.zeros(batch_size, 1, query_length, key_length, dtype=torch.bool, device=device)
-            if full_key_padding_mask is not None:
-                padding_mask = full_key_padding_mask.unsqueeze(1).unsqueeze(1)  # (B, 1, 1, key_length)
-                # Broadcasting to (B,1, query_length, key_length)
-                total_mask |= padding_mask
-            # Slicing the query_length elements in total mask
-            # total_mask[:, :, :, cache_length:] has shape (B,1, query_length, query_length)
-            total_mask[:, :, :, cache_length:] |= self_attention_mask
-
-
-        # Precompute cross-attention K/V if using cross-attention
         cross_kv_per_layer = None
         if self.use_cross_attention:
             if decoder_cache is not None and decoder_cache.layers[0].cross_attention_keys is not None:
@@ -288,7 +237,6 @@ class GPTDecoder(nn.Module):
                     raise ValueError("encoded_features required when use_cross_attention=True and no cached cross KV")
                 cross_kv_per_layer = self.precompute_cross_attention_kv(encoded_features)
 
-        # Initialize or get cache
         layer_caches = None
         if decoder_cache is not None:
             layer_caches = decoder_cache.layers
@@ -303,6 +251,8 @@ class GPTDecoder(nn.Module):
             )
 
         new_layer_caches = []
+
+        # Compute decoder layers forward pass
         for layer_index, layer in enumerate(self.layers):
             original_layer_cache = layer_caches[layer_index] if layer_caches is not None else None
             # Build layer cache with self KV and optional cross KV
@@ -325,7 +275,6 @@ class GPTDecoder(nn.Module):
                 cross_attention_keys=cross_keys,
                 cross_attention_values=cross_values,
             )
-            # Compute decoder layers forward pass
             rope_pe = self.positional_encoding if isinstance(self.positional_encoding, RotaryPositionalEncoding) else None
             hidden_states, new_layer_cache = layer(
                 hidden_states=hidden_states,

@@ -203,7 +203,8 @@ class CachedAttention(nn.Module):
             use_cross_attention_cache: If True, use precomputed cross-attention K/V from cache
 
         Returns:
-            Tuple of (attention_output, updated_cache)
+            Tuple of (attention_output, updated_cache), where attention_output has shape (B, query_len, D) and
+            updated_cache is a LayerKVCache or None.
         """
         if use_cross_attention_cache and layer_cache is not None:
             if layer_cache.cross_attention_keys is None or layer_cache.cross_attention_values is None:
