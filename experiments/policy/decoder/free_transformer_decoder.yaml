@@ -1,7 +1,7 @@
-# Free Transformer Decoder Configuration
-# Uses discrete latent variables injected at the middle layer
 defaults:
   - free_transformer
+
+
 _target_: refactoring.models.decoding.decoders.factory.free_transformer.FreeTransformerDecoder
 
 # Input features from encoding pipeline
@@ -15,8 +15,9 @@ number_of_heads: 8
 number_of_key_value_heads: 2
 feedforward_dimension: 1024
 number_of_encoder_layers: 1  # Encoder for latent prediction (training only)
-number_of_decoder_layers: 6  # Must be even (split at midpoint for latent injection)
-latent_bits: 16  # Number of bits for latent codes (2^16 = 65536 codes)
+number_of_decoder_layers: 4  # Must be even (split at midpoint for latent injection)
+latent_bits: 4  # Number of bits for latent codes (2^16 = 65536 codes)
+max_seq_len: 1024
 
 activation: ${activation_function:SWIGLU}
 normalization_type: ${normalization:RMS_NORM}

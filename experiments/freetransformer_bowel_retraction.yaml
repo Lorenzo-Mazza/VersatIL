@@ -10,7 +10,7 @@ defaults:
   - task/observation_space: stereo_rgb_proprio
   - training: act_default
   - policy/encoding_pipeline: stereo_rgb_token_embedder
-  - policy/decoder: free_transformer
+  - policy/decoder: free_transformer_decoder
   - policy/algorithm: behavioral_cloning
   - policy/loss: free_transformer_default
   - inference: act_default

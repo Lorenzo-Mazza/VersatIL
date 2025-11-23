@@ -27,6 +27,7 @@ from refactoring.models.layers.transformer_input_builder import TransformerInput
 
 class FreeTransformerDecoder(ActionDecoder):
     """Free Transformer for action decoding with discrete latent codes. """
+    supports_tokenized_actions: bool = True
     def __init__(
         self,
         input_keys: list[str],
@@ -166,7 +167,7 @@ class FreeTransformerDecoder(ActionDecoder):
         device = self.temperature.device
         self.vocab_size = tokenizer.action_tokenizer.vocab_size
         self.token_embedding = nn.Embedding(self.vocab_size, self.embedding_dimension).to(device)
-        nn.init.normal_(self.token_embedding.weight, mean=0.0, std=self.gpt_decoder.initializer_range)
+        nn.init.normal_(self.token_embedding.weight, mean=0.0, std=self.free_transformer.initializer_range)
         lm_head = nn.Linear(self.embedding_dimension, self.vocab_size, bias=False, device=device)
         lm_head.weight = self.token_embedding.weight  # tie output weights to input embedding weights, like in GPT-2
         self.action_heads[ACTION_LOGITS_KEY] = lm_head
@@ -241,7 +242,7 @@ class FreeTransformerDecoder(ActionDecoder):
             key_padding_mask=feature_token_mask,
             self_attention_mask=prefix_self_mask,
             decoder_cache=None,
-            use_cache=False,
+            use_cache=True,
         )  # (B, query_len, D), None, cache_dict
         generated_tokens = []
         next_token_embedding = None

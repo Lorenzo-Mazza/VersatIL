@@ -259,6 +259,8 @@ class FreeTransformer(nn.Module):
         self.number_of_decoder_layers = number_of_decoder_layers
         self.number_of_encoder_layers = number_of_encoder_layers
         self.embedding_dimension = embedding_dimension
+        self.latent_dim = latent_dim
+        self.latent_bits = latent_bits
         self.number_of_heads = number_of_heads
         self.maximum_sequence_length = maximum_sequence_length
         self.initializer_range = initializer_range
@@ -442,7 +444,7 @@ class FreeTransformer(nn.Module):
         # Generate latent
         mid_features_mask = key_padding_mask # (B, query_length) or None
         if self.training:
-            latent_emb = self.latent_encoder(mid_features=mid_features, mid_features_mask=mid_features_mask)
+            latent_emb = self.latent_encoder(mid_features=mid_features, mid_features_mask=mid_features_mask) # (B, query_length, D)
             # (B, query_length, 2^H), (B, query_length, H)
             latent_codes, bit_logits = self.binary_mapper(latent_emb, deterministic=deterministic)
         else:
@@ -451,9 +453,24 @@ class FreeTransformer(nn.Module):
             latent_codes = F.one_hot(uniform_indices, num_classes=self.latent_dim).float()  # (B, query_len, 2^H)
             bit_logits = None
 
-        # Forward pass through second half of decoder layers with latent conditioning
-        hidden_states = mid_features
-        for layer in self.decoder_layers[self.number_of_decoder_layers // 2:]:
+        # Forward pass through latent-conditioned mid decoder layer
+        layer = self.decoder_layers[self.number_of_decoder_layers // 2]
+        cache = decoder_caches[mid_cache_idx] if decoder_caches is not None else None
+        hidden_states, new_cache = layer(
+            hidden_states=mid_features,
+            encoded_features=None,
+            self_attention_mask=total_mask,
+            cross_attention_mask=None,
+            layer_cache=cache,
+            use_cache=use_cache,
+            positional_encoding=rope_pe,
+            latent=latent_codes,
+        )
+        if use_cache:
+            new_decoder_layer_caches.append(new_cache)
+        mid_cache_idx += 1
+
+        for layer in self.decoder_layers[self.number_of_decoder_layers // 2 +1:]:
             cache = decoder_caches[mid_cache_idx] if decoder_caches is not None else None
             hidden_states, new_cache = layer(
                 hidden_states=hidden_states,
@@ -463,7 +480,6 @@ class FreeTransformer(nn.Module):
                 layer_cache=cache,
                 use_cache=use_cache,
                 positional_encoding=rope_pe,
-                latent=latent_codes,
             )
             if use_cache:
                 new_decoder_layer_caches.append(new_cache)

@@ -293,6 +293,11 @@ class BinaryKLDivergenceLoss(BaseLoss):
             )
 
         logits = predictions[BINARY_LOGITS_KEY]  # (B, T, H) or (B, H)
+        if logits is None: # Inference, zero loss
+            return LossOutput(
+                total_loss=torch.tensor(0.0, device=next(iter(predictions.values())).device),
+                component_losses={MetricKey.KL_DIVERGENCE.value: torch.tensor(0.0)},
+            )
 
         # P(B_h=1) = sigmoid(L_h) for each bit
         probs = torch.sigmoid(logits)  # (B, T, H) or (B, H)
