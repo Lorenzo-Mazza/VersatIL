@@ -268,6 +268,7 @@ class BinaryKLDivergenceLoss(BaseLoss):
         self.weight = weight
         self.entropy_weight = entropy_weight
         self.free_bits = free_bits
+        self.latent_bits = latent_bits
 
     def get_required_keys(self) -> set[str]:
         """Get required keys for binary KL divergence loss.
