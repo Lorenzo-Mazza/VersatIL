@@ -29,3 +29,4 @@ tune_lr: false
 early_stopping_patience: 100
 reduce_lr_on_plateau: true
 reduce_lr_patience: 10
+reduce_lr_cooldown: 10

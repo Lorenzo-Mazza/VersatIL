@@ -87,3 +87,4 @@ class TrainingConfig:
     # ReduceLROnPlateau - reduce learning rate when validation loss plateaus
     reduce_lr_on_plateau: bool = False  # If True, reduce LR when val_loss plateaus
     reduce_lr_patience: int = 10  # Number of epochs with no improvement before reducing LR
+    reduce_lr_cooldown: int = 10 # Number of epochs to wait after LR reduction before resuming normal operation

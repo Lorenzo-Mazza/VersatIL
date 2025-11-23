@@ -292,6 +292,7 @@ class Workspace:
         if self.config.training.reduce_lr_on_plateau:
             reduce_lr_callback = ReduceLROnPlateauCallback(
                 patience=self.config.training.reduce_lr_patience,
+                cooldown=self.config.training.reduce_lr_cooldown,
             )
             callbacks.append(reduce_lr_callback)
             logging.info(f"Added ReduceLROnPlateau callback (patience={self.config.training.reduce_lr_patience})")
