@@ -33,3 +33,4 @@ policy:
 # Override specific parameters from defaults/command line if needed
 # For example, to use different batch size:
 # task.dataloader.batch_size: 64
+# srun --gres=gpu:rtxa5000:1  --mem=100G --cpus-per-task=20   --time=72:00:00 python -m src.refactoring.endpoints.train --config-name fast_gpt_decoder_bowel_retraction task.dataloader.batch_size=64 training.lr_warmup_steps=2000 training.early_stopping_patience=200

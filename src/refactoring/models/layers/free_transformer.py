@@ -377,8 +377,9 @@ class FreeTransformer(nn.Module):
             key_padding_mask: torch.Tensor | None = None,
             decoder_cache: DecoderKVCache | None = None,
             use_cache: bool = False,
-            deterministic: bool = False
-    ) -> tuple[torch.Tensor, torch.Tensor | None, DecoderKVCache | None]:
+            deterministic: bool = False,
+            is_inference: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, DecoderKVCache | None]:
         """Forward pass through Free transformer with midpoint latent injection.
 
         Args:
@@ -389,10 +390,12 @@ class FreeTransformer(nn.Module):
             decoder_cache: Optional cached K/V from previous steps
             use_cache: Whether to return updated cache
             deterministic: Whether to use deterministic latent sampling (inference) or stochastic (training)
+            is_inference: Whether the model is in inference mode (no logits, sample directly from one-hot vector).
 
         Returns:
-            Tuple of (hidden_states, bit_logits, new_cache), where hidden_states has shape (B, query_len, D),
-             optional bit_logits has shape (B, query_len, latent_bits)  and new_cache is a LayerKVCache or None.
+            Tuple of (hidden_states, bit_logits, latent_codes, new_cache), where hidden_states has shape (B, query_len, D),
+             optional bit_logits has shape (B, query_len, latent_bits), latent_codes has shape (B, query_len, 2**latent_bits),
+             and new_cache is a LayerKVCache or None.
         """
         if isinstance(self.positional_encoding, (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D)):
             hidden_states = self.positional_encoding(hidden_states)
@@ -443,7 +446,7 @@ class FreeTransformer(nn.Module):
 
         # Generate latent
         mid_features_mask = key_padding_mask # (B, query_length) or None
-        if self.training:
+        if self.training or not is_inference:
             latent_emb = self.latent_encoder(mid_features=mid_features, mid_features_mask=mid_features_mask) # (B, query_length, D)
             # (B, query_length, 2^H), (B, query_length, H)
             latent_codes, bit_logits = self.binary_mapper(latent_emb, deterministic=deterministic)
@@ -492,4 +495,4 @@ class FreeTransformer(nn.Module):
                 else None
             )
 
-        return hidden_states, bit_logits, new_decoder_cache
+        return hidden_states, bit_logits, latent_codes, new_decoder_cache

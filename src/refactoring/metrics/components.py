@@ -18,7 +18,7 @@ from refactoring.metrics.constants import (
 from refactoring.models.decoding.constants import (
     PRIOR_PREDICTION_KEY,
     PRIOR_TARGET_KEY,
-    BINARY_LOGITS_KEY, PREDICTED_ACTION_TOKENS_KEY, MU_KEY, LOGVAR_KEY, ACTION_LOGITS_KEY,
+    BINARY_LOGITS_KEY, PREDICTED_ACTION_TOKENS_KEY, MU_KEY, LOGVAR_KEY, ACTION_LOGITS_KEY, LATENT_CODES,
 )
 
 
@@ -251,11 +251,17 @@ class BinaryKLDivergenceLoss(BaseLoss):
     Based on "The Free Transformer" (Fleuret, 2025) - arXiv:2510.17558
     """
 
-    def __init__(self, weight: float = 5.0, entropy_weight: float = 0.01, free_bits: float = 2 * math.log(2)):
+    def __init__(self,
+                 weight: float = 5.0,
+                 entropy_weight: float = 0.01,
+                 latent_bits: float = 64,
+                 free_bits: float = 2 * math.log(2)):
         """Initialize binary KL divergence loss.
 
         Args:
             weight: Weight for KL divergence loss
+            entropy_weight: Weight for the entropy regularization term
+            latent_bits: Number of bits of the latent codes.
             free_bits: Free bits threshold (only penalize KL above this value)
         """
         super().__init__()
@@ -291,36 +297,51 @@ class BinaryKLDivergenceLoss(BaseLoss):
             raise ValueError(
                 f"Predictions must contain key '{BINARY_LOGITS_KEY}' for BinaryKLDivergenceLoss."
             )
+        all_component_losses = {}
+        if LATENT_CODES in predictions:
+            latent_codes = predictions[LATENT_CODES]  # (B, token_len, 2^H)
+            code_indices = torch.argmax(latent_codes, dim=-1).flatten()  # (B*token_len,)
+            unique_codes = torch.unique(code_indices).numel()
+            total_codes = 2 ** self.latent_bits
+            usage_pct = (unique_codes / total_codes) * 100
+            all_component_losses[MetricKey.LATENT_CODE_USAGE] = usage_pct
 
         logits = predictions[BINARY_LOGITS_KEY]  # (B, T, H) or (B, H)
         if logits is None: # Inference, zero loss
             return LossOutput(
                 total_loss=torch.tensor(0.0, device=next(iter(predictions.values())).device),
-                component_losses={MetricKey.KL_DIVERGENCE.value: torch.tensor(0.0)},
+                component_losses=all_component_losses,
             )
 
         # P(B_h=1) = sigmoid(L_h) for each bit
         probs = torch.sigmoid(logits)  # (B, T, H) or (B, H)
-
         # KL divergence for independent Bernoulli vs uniform Bernoulli(0.5)
         # KL(Bernoulli(p) || Bernoulli(0.5)) = p*log(2p) + (1-p)*log(2(1-p))
         eps = 1e-8  # For numerical stability
         kl_per_bit = probs * torch.log(2 * probs + eps) + (1 - probs) * torch.log(
             2 * (1 - probs) + eps
         )
-
         # Sum over bits to get total KL per token
-        kl = kl_per_bit.sum(dim=-1)  # (B, T) or (B,)
+        kl_per_token = kl_per_bit.sum(dim=-1)  # (B, T)
+        raw_kl_mean = kl_per_token.mean()  # Scalar (mean over B,T)
+        all_component_losses[MetricKey.RAW_KL_DIVERGENCE.value] = raw_kl_mean
 
         # Apply free bits threshold: max(0, KL - κ)
         if self.free_bits > 0:
-            kl = torch.clamp(kl - self.free_bits, min=0.0)
-        entropy = - (probs * torch.log(probs + eps) + (1 - probs) * torch.log(1 - probs + eps))  # (B,T,H)
-        kl = kl.mean()
-        kl += -self.entropy_weight * entropy.mean()
+            clamped_kl_per_token = torch.clamp(kl_per_token - self.free_bits, min=0.0)  # (B, T)
+            clamped_kl_mean = clamped_kl_per_token.mean()  # Scalar
+        else:
+            clamped_kl_mean = raw_kl_mean
+
+        all_component_losses[MetricKey.CLAMPED_KL_DIVERGENCE.value] = clamped_kl_mean
+        entropy = - (probs * torch.log(probs + eps) + (1 - probs) * torch.log(1 - probs + eps))  # (B,token_len,H)
+        clamped_kl_mean += -self.entropy_weight * entropy.mean() # Scalar (avg over B,T,H)
+        all_component_losses[MetricKey.POSTERIOR_ENTROPY] = entropy.mean()
+        all_component_losses[MetricKey.KL_DIVERGENCE.value] = clamped_kl_mean
+
         return LossOutput(
-            total_loss=self.weight * kl,
-            component_losses={MetricKey.KL_DIVERGENCE.value: kl},
+            total_loss=self.weight * clamped_kl_mean,
+            component_losses=all_component_losses,
         )
 
 
@@ -604,7 +625,7 @@ class ActionTokenLoss(BaseLoss):
         target_tokens = targets[TOKENIZED_ACTIONS_KEY] # (B, num_tokens)
         vocab_size = pred_logits.shape[-1]
         num_tokens = pred_logits.shape[1]
-        logits = pred_logits.view(-1, vocab_size, num_tokens)  # (B × 256, 1024)
+        logits = pred_logits.view(-1, vocab_size, num_tokens)  # (B, vocab_size, num_tokens)
         ce_loss = F.cross_entropy(
             logits,
             target_tokens,
@@ -612,9 +633,17 @@ class ActionTokenLoss(BaseLoss):
             reduction="none"
         )
         ce_loss = reduce_loss_with_padding(ce_loss, is_pad, reduction="mean")
+        predicted_tokens = torch.argmax(pred_logits, dim=-1)  # (B, seq) over C=dim=-1 (no view needed)
+        correct = (predicted_tokens == target_tokens).float()  # (B, seq)
+        accuracy = reduce_loss_with_padding(correct, is_pad, reduction="mean") * 100  # Scalar %
+        perplexity = torch.exp(ce_loss)  # Scalar
         return LossOutput(
             total_loss=ce_loss,
-            component_losses={MetricKey.ACTION_TOKEN_CROSS_ENTROPY.value: ce_loss},
+            component_losses={
+                MetricKey.ACTION_TOKEN_CROSS_ENTROPY.value: ce_loss,
+                MetricKey.PERPLEXITY: perplexity,
+                MetricKey.TOKEN_ACCURACY: accuracy,
+            },
         )
 
 

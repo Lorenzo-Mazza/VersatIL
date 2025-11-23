@@ -14,7 +14,7 @@ from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import TOKENIZED_ACTIONS_KEY
 from refactoring.data.tokenization import Tokenizer
 from refactoring.models.decoding.action_masking import make_attention_mask
-from refactoring.models.decoding.constants import BINARY_LOGITS_KEY, ACTION_LOGITS_KEY, PREDICTED_ACTION_TOKENS_KEY
+from refactoring.models.decoding.constants import BINARY_LOGITS_KEY, ACTION_LOGITS_KEY, PREDICTED_ACTION_TOKENS_KEY, LATENT_CODES
 from refactoring.models.decoding.decoders import ActionDecoder, DecoderInput
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import PositionalEncodingType, AttentionType
@@ -205,18 +205,21 @@ class FreeTransformerDecoder(ActionDecoder):
                 "No room for any action tokens. "
                 "Consider increasing max_seq_len or reducing feature token count.")
 
-        decoder_output, bit_logits,  _ = self.free_transformer(
+        decoder_output, bit_logits, latent_codes,  _ = self.free_transformer(
             hidden_states=full_token_sequence,
             key_padding_mask=feature_token_mask,
             decoder_cache=None,
             use_cache=False,
             self_attention_mask=full_attention_mask,
+            is_inference=False
         )  # (B, query_len, D), (B, query_len, 2**latent_dim), None
         action_outputs = decoder_output[:, prefix_len:, :]  # (B, action_token_len, D)
         logits = self.action_heads[ACTION_LOGITS_KEY](action_outputs)  # (B, action_token_len, vocab_size)
         return {
             ACTION_LOGITS_KEY: logits,
             BINARY_LOGITS_KEY: bit_logits,
+            LATENT_CODES: latent_codes
+
         }
 
     def _forward_inference(
@@ -237,23 +240,25 @@ class FreeTransformerDecoder(ActionDecoder):
         prefix_len = feature_tokens.shape[1]
         current_sequence = feature_tokens
         prefix_self_mask = torch.zeros(batch_size, 1, prefix_len, prefix_len, dtype=torch.bool, device=self.device)
-        decoder_output, _,  decoder_cache = self.free_transformer(
+        decoder_output, _, latent_codes,  decoder_cache = self.free_transformer(
             hidden_states=current_sequence,
             key_padding_mask=feature_token_mask,
             self_attention_mask=prefix_self_mask,
             decoder_cache=None,
             use_cache=True,
+            is_inference=True
         )  # (B, query_len, D), None, cache_dict
         generated_tokens = []
         next_token_embedding = None
         for step in range(self.max_seq_len - prefix_len):
             if step > 0:
-                decoder_output, _, decoder_cache = self.free_transformer(
+                decoder_output, _, latent_codes, decoder_cache = self.free_transformer(
                     hidden_states=next_token_embedding,
                     key_padding_mask=feature_token_mask,
                     self_attention_mask=None, # Causal mask handled internally
                     decoder_cache=decoder_cache,
                     use_cache=True,
+                    is_inference=True
                 )
             last_output = decoder_output[:, -1:, :]  # (B, 1, embedding_dimension)
             head = self.action_heads[ACTION_LOGITS_KEY]
@@ -268,7 +273,8 @@ class FreeTransformerDecoder(ActionDecoder):
             generated_tokens.append(next_token)
 
         return {
-            PREDICTED_ACTION_TOKENS_KEY: torch.cat(generated_tokens, dim=1)  # (B, max_seq_len)
+            PREDICTED_ACTION_TOKENS_KEY: torch.cat(generated_tokens, dim=1),  # (B, max_seq_len)
+            LATENT_CODES: latent_codes
         }
 
 

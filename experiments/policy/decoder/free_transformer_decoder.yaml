@@ -16,7 +16,7 @@ number_of_key_value_heads: 2
 feedforward_dimension: 1024
 number_of_encoder_layers: 1  # Encoder for latent prediction (training only)
 number_of_decoder_layers: 4  # Must be even (split at midpoint for latent injection)
-latent_bits: 4  # Number of bits for latent codes (2^16 = 65536 codes)
+latent_bits: 6  # Number of bits for latent codes (2^16 = 65536 codes)
 max_seq_len: 1024
 
 activation: ${activation_function:SWIGLU}
