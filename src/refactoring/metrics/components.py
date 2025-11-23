@@ -336,12 +336,12 @@ class BinaryKLDivergenceLoss(BaseLoss):
 
         all_component_losses[MetricKey.CLAMPED_KL_DIVERGENCE.value] = clamped_kl_mean
         entropy = - (probs * torch.log(probs + eps) + (1 - probs) * torch.log(1 - probs + eps))  # (B,token_len,H)
-        clamped_kl_mean += -self.entropy_weight * entropy.mean() # Scalar (avg over B,T,H)
+        regularized_kl = clamped_kl_mean -self.entropy_weight * entropy.mean() # Scalar (avg over B,T,H)
         all_component_losses[MetricKey.POSTERIOR_ENTROPY.value] = entropy.mean()
-        all_component_losses[MetricKey.KL_DIVERGENCE.value] = clamped_kl_mean
+        all_component_losses[MetricKey.KL_DIVERGENCE.value] = regularized_kl
 
         return LossOutput(
-            total_loss=self.weight * clamped_kl_mean,
+            total_loss=self.weight * regularized_kl,
             component_losses=all_component_losses,
         )
 
