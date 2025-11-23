@@ -305,7 +305,7 @@ class BinaryKLDivergenceLoss(BaseLoss):
             unique_codes = torch.unique(code_indices).numel()
             total_codes = 2 ** self.latent_bits
             usage_pct = (unique_codes / total_codes) * 100
-            all_component_losses[MetricKey.LATENT_CODE_USAGE] = usage_pct
+            all_component_losses[MetricKey.LATENT_CODE_USAGE.value] = usage_pct
 
         logits = predictions[BINARY_LOGITS_KEY]  # (B, T, H) or (B, H)
         if logits is None: # Inference, zero loss
@@ -337,7 +337,7 @@ class BinaryKLDivergenceLoss(BaseLoss):
         all_component_losses[MetricKey.CLAMPED_KL_DIVERGENCE.value] = clamped_kl_mean
         entropy = - (probs * torch.log(probs + eps) + (1 - probs) * torch.log(1 - probs + eps))  # (B,token_len,H)
         clamped_kl_mean += -self.entropy_weight * entropy.mean() # Scalar (avg over B,T,H)
-        all_component_losses[MetricKey.POSTERIOR_ENTROPY] = entropy.mean()
+        all_component_losses[MetricKey.POSTERIOR_ENTROPY.value] = entropy.mean()
         all_component_losses[MetricKey.KL_DIVERGENCE.value] = clamped_kl_mean
 
         return LossOutput(
@@ -636,14 +636,14 @@ class ActionTokenLoss(BaseLoss):
         ce_loss = reduce_loss_with_padding(ce_loss, is_pad, reduction="mean")
         predicted_tokens = torch.argmax(pred_logits, dim=-1)  # (B, seq) over C=dim=-1 (no view needed)
         correct = (predicted_tokens == target_tokens).float()  # (B, seq)
-        accuracy = reduce_loss_with_padding(correct, is_pad, reduction="mean") * 100  # Scalar %
+        accuracy = reduce_loss_with_padding(correct, is_pad, reduction="mean")  # Scalar %
         perplexity = torch.exp(ce_loss)  # Scalar
         return LossOutput(
             total_loss=ce_loss,
             component_losses={
                 MetricKey.ACTION_TOKEN_CROSS_ENTROPY.value: ce_loss,
-                MetricKey.PERPLEXITY: perplexity,
-                MetricKey.TOKEN_ACCURACY: accuracy,
+                MetricKey.PERPLEXITY.value: perplexity,
+                MetricKey.TOKEN_ACCURACY.value: accuracy,
             },
         )
 
