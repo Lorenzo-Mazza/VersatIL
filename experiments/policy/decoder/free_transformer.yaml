@@ -1,41 +1,33 @@
 # Free Transformer Decoder Configuration
-# Based on "The Free Transformer" (Fleuret, 2025) - arXiv:2510.17558
 # Uses discrete latent variables injected at the middle layer
-
-_target_: refactoring.models.decoding.decoders.factory.free_transformer.FreeTransformer
+defaults:
+  - free_transformer
+_target_: refactoring.models.decoding.decoders.factory.free_transformer.FreeTransformerDecoder
 
 # Input features from encoding pipeline
 input_keys:
-  - fused_features
+  - left_image
+  - right_image
+  - embedder_token_embedding
 
-# Transformer architecture
 embedding_dimension: 512
 number_of_heads: 8
+number_of_key_value_heads: 2
 feedforward_dimension: 1024
 number_of_encoder_layers: 1  # Encoder for latent prediction (training only)
 number_of_decoder_layers: 6  # Must be even (split at midpoint for latent injection)
-
-# Latent configuration
 latent_bits: 16  # Number of bits for latent codes (2^16 = 65536 codes)
 
-# Architecture details
-dropout_rate: 0.1
-use_rope: true  # Use Rotary Position Embeddings
-rope_base: 10000.0
+activation: ${activation_function:SWIGLU}
+normalization_type: ${normalization:RMS_NORM}
+attention_type: ${attention:GROUPED_QUERY}
+dropout_rate: 0.2
+attention_dropout: 0.1
+positional_encoding_type: ${pos_encoding:ROPE}
+temperature: 10.0
+learnable_temperature: true
+deterministic: true
 
-# Action heads
-action_heads:
-  position_action:
-    _target_: refactoring.models.decoding.action_heads.ActionHead
-    input_dim: ${policy.decoder.embedding_dimension}
-    output_dim: ${task.action_space.position_dim}
-    blocks: null
-
-  gripper_action:
-    _target_: refactoring.models.decoding.action_heads.ActionHead
-    input_dim: ${policy.decoder.embedding_dimension}
-    output_dim: ${task.action_space.gripper_dim}
-    blocks: null
 
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}

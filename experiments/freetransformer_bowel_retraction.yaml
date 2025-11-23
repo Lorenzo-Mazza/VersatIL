@@ -1,14 +1,15 @@
-# Free Transformer experiment for bowel retraction task
-# Uses discrete latent variables for multi-modal action prediction
+_target_: refactoring.configs.main.MainConfig
 
 defaults:
-  - experiment: bowel_retraction_act
+  - task: base
+  - policy: base
+  - experiment: bowel_retraction_fast_decoder
   - task/dataset_schema: bowel_retraction_v2
-  - task/dataloader: act_default
-  - task/action_space: br_position_gripper_deltas_cf
-  - task/observation_space: br_rgb_proprio_cf
+  - task/dataloader: fast_tokenized
+  - task/action_space: deltas_cf_pos_gripper
+  - task/observation_space: stereo_rgb_proprio
   - training: act_default
-  - policy/encoding_pipeline: rgb_resnet18_proprio_mlp_fusion
+  - policy/encoding_pipeline: stereo_rgb_token_embedder
   - policy/decoder: free_transformer
   - policy/algorithm: behavioral_cloning
   - policy/loss: free_transformer_default
@@ -16,16 +17,17 @@ defaults:
   - _self_
 
 task:
-  observation_horizon: 4 # Number of past observations
-  prediction_horizon: 10  # Chunk size
+  observation_horizon: 2
+  prediction_horizon: 10
 
 policy:
   _target_: refactoring.models.policy.Policy
   observation_space: ${task.observation_space}
   action_space: ${task.action_space}
   prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
   device: ${experiment.device}
-  validate_loss_keys: true
+  validate_loss_keys: false
 
 # Override specific parameters from defaults/command line if needed
 # For example, to use different batch size:

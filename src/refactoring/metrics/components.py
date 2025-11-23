@@ -1,5 +1,5 @@
 """Individual loss components for action prediction tasks."""
-
+import math
 
 import torch
 import torch.nn.functional as F
@@ -251,7 +251,7 @@ class BinaryKLDivergenceLoss(BaseLoss):
     Based on "The Free Transformer" (Fleuret, 2025) - arXiv:2510.17558
     """
 
-    def __init__(self, weight: float = 0.0001, entropy_weight: float = 0.01, free_bits: float = 0.0):
+    def __init__(self, weight: float = 5.0, entropy_weight: float = 0.01, free_bits: float = 2 * math.log(2)):
         """Initialize binary KL divergence loss.
 
         Args:

@@ -142,25 +142,28 @@ class FreeTransformerConfig(DecodingNetworkConfig):
     The Free Transformer injects learnable discrete latent variables at the middle layer
     of a transformer decoder, enabling conditional generation through variational inference.
 
-    Uses modern architecture components:
-    - RMSNorm for pre-normalization
-    - SwiGLU for feedforward activation
-    - Binary mapper for discrete latent codes (2^latent_bits total codes)
-
     Note:
         The encoder is only used during training to predict latent codes.
         During inference, latents are sampled from a uniform prior.
     """
-    _target_: str = "refactoring.models.decoding.decoders.factory.free_transformer.FreeTransformer"
+    _target_: str = "refactoring.models.decoding.decoders.factory.free_transformer.FreeTransformerDecoder"
     embedding_dimension: int = 256
-    number_of_heads: int = 8
-    feedforward_dimension: int = 1024
     number_of_decoder_layers: int = 6  # Must be even (split at midpoint for latent injection)
     number_of_encoder_layers: int = 1  # Encoder for latent prediction (training only)
     latent_bits: int = 16  # Number of bits for latent codes (2^16 = 65536 codes)
+    max_seq_len: int = 512  # Maximum input and output sequence length (features + action tokens)
+    number_of_heads: int = 8  # Number of query attention heads
+    number_of_key_value_heads: int | None = None  # Number of K/V heads for GQA (None = same as heads = MHA)
+    feedforward_dimension: int | None = None  # FFN hidden dimension (default: 4 * embedding_dimension)
+    activation: str = ActivationFunction.SWIGLU.value  # Activation function
+    normalization_type: str = NormalizationType.RMS_NORM.value  # Normalization type
+    attention_type: str = AttentionType.GROUPED_QUERY.value  # Attention type
     dropout_rate: float = 0.1
-    use_rope: bool = False  # Rotary positional embeddings (not yet fully implemented)
-    rope_base: float = 10000.0
+    attention_dropout: float = 0.0
+    positional_encoding_type: str | None = PositionalEncodingType.ROPE.value  # Type of positional encoding
+    temperature: float = 1.0  # Sampling temperature
+    learnable_temperature: bool = False  # If True, make temperature a learnable parameter
+    deterministic: bool = True  # If True, use greedy decoding during inference
 
 
 @dataclass

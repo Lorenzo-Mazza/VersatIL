@@ -10,7 +10,7 @@ that computes the full soft distribution over all 2^H codes.
 
 import torch
 import torch.nn as nn
-
+import torch.nn.functional as F
 
 class BinaryMapper(nn.Module):
     """Binary mapper for discrete latent sampling with gradient pass-through.
@@ -43,12 +43,11 @@ class BinaryMapper(nn.Module):
         self.latent_bits = latent_bits
         self.latent_dim = 2**latent_bits  # 2^H dimensional one-hot vectors
         self.embedding_dimension = embedding_dimension
-
-        # Learned projection to latent logits
         self.logit_projection = nn.Linear(embedding_dimension, latent_bits)
 
         # Precompute bit patterns for all possible codes (0 to 2^H - 1)
-        # Shape: (2^H, H) where each row is the binary representation of an index
+        # Shape: (2^H, H) where each row is the binary representation of an index d (from 0 to 2^H - 1),
+        # as an H-length vector of 0s and 1s (bits b_0 to b_{H-1}).
         all_indices = torch.arange(self.latent_dim)
         bit_patterns = torch.zeros(self.latent_dim, latent_bits)
         for h in range(latent_bits):
@@ -61,32 +60,40 @@ class BinaryMapper(nn.Module):
         G_{t,d} = ∏_{h=0}^{H-1} [σ(L_{t,h})^{b_h} · (1-σ(L_{t,h}))^{1-b_h}]
 
         Args:
-            logits: Bit logits (..., H)
+            logits: Bit logits (B, T, H)
 
         Returns:
-            Soft distribution over codes (..., 2^H)
+            Soft distribution over codes (B, T, 2^H)
         """
+        *batch_dims, H = logits.shape # (B*T, H)
+        if H != self.latent_bits:
+            raise ValueError(f"Logits last dimension {H} does not match latent_bits {self.latent_bits}")
         # Compute probabilities for each bit
         probs = torch.sigmoid(logits)  # (..., H)
-        # Expand dimensions for broadcasting
-        probs_expanded = probs.unsqueeze(-2)  # (..., 1, H)
-        bit_patterns = self.bit_patterns  # (2^H, H)
+        log_probs = torch.log(probs.clamp(min=1e-8))  # log σ(L_h) (..., H)
+        log_one_minus_probs = torch.log((1 - probs).clamp(min=1e-8))  # log (1-σ(L_h)) (..., H)
+        # Expand dimensions for broadcasting and vectorized computation in parallel
+        *batch_dims, H = logits.shape # (B*T, H)
+        bit_patterns_expanded = self.bit_patterns.unsqueeze(0).expand(*batch_dims, self.latent_dim, H)  # (..., 2^H, H)
         # Compute probability for each code d
         # For each bit h: σ(L_h)^{b_h} · (1-σ(L_h))^{1-b_h}
         # = σ(L_h) if b_h=1, else (1-σ(L_h))
-        prob_if_one = probs_expanded  # (..., 1, H)
-        prob_if_zero = 1 - probs_expanded  # (..., 1, H)
+        log_prob_if_one = log_probs.unsqueeze(-2)  # (..., 1, H)
+        log_prob_if_zero = log_one_minus_probs.unsqueeze(-2)  # (..., 1, H)
         # Select probability based on bit pattern
         # bit_patterns: (2^H, H) with values 0 or 1
-        log_probs = torch.where(
-            bit_patterns.unsqueeze(0) == 1,  # (1, 2^H, H)
-            torch.log(prob_if_one + 1e-8),  # (..., 1, H)
-            torch.log(prob_if_zero + 1e-8),  # (..., 1, H)
+        log_probs_per_code = torch.where(
+            (bit_patterns_expanded == 1).to(torch.bool),  # type: ignore[union-attr]
+            log_prob_if_one,  # broadcasts to (..., 2^H, H)
+            log_prob_if_zero,
         )  # (..., 2^H, H)
         # Product over bits = sum of log probabilities
-        log_soft_dist = log_probs.sum(dim=-1)  # (..., 2^H)
+        log_soft_dist = log_probs_per_code.sum(dim=-1)  # (..., 2^H)
+        # Numerical stability: softmax over log (prevents underflow/overflow)
         soft_dist = torch.exp(log_soft_dist)  # (..., 2^H)
+        soft_dist = soft_dist / soft_dist.sum(dim=-1, keepdim=True).clamp(min=1e-8)  # Normalize; clamp avoids div0 (rare)
         return soft_dist
+
 
     def forward(
         self,
@@ -128,7 +135,7 @@ class BinaryMapper(nn.Module):
         # Compute soft distribution G_t
         g_soft = self._compute_soft_distribution(logits)  # (..., 2^H)
 
-        # Straight-through estimator: Y_t + G_t - detach(G_t)
+        # Straight-through estimator trick: Y_t + G_t - detach(G_t)
         # Forward: hard one-hot Y_t
         # Backward: gradients from soft distribution G_t
         one_hot = y_hard + g_soft - g_soft.detach()

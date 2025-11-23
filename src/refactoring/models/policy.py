@@ -163,7 +163,7 @@ class Policy(nn.Module):
                 valid_auxiliary_keys.add(PRIOR_TARGET_KEY)  # Prior targets (for learned priors)
 
         # Free Transformer binary logits (for discrete latent codes)
-        if self.decoder.__class__.__name__ == "FreeTransformer":
+        if self.decoder.__class__.__name__ == "FreeTransformerDecoder":
             valid_auxiliary_keys.add(BINARY_LOGITS_KEY)
 
         required_keys = self.loss_module.get_required_keys()

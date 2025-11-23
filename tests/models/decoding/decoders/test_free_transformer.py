@@ -2,7 +2,7 @@
 import pytest
 import torch
 
-from refactoring.models.decoding.decoders.factory.free_transformer import FreeTransformer
+from refactoring.models.decoding.decoders.factory.free_transformer import FreeTransformerDecoder
 from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.action_heads.blocks import MLPBlock
 from refactoring.data.task import ActionSpace, ObservationSpace
@@ -191,7 +191,7 @@ class TestFreeTransformerInitialization:
         embedding_dimension,
     ):
         """Test basic initialization."""
-        decoder = FreeTransformer(
+        decoder = FreeTransformerDecoder(
             input_keys=["proprioceptive_features"],
             action_space=action_space,
             action_heads=action_heads,
@@ -226,7 +226,7 @@ class TestFreeTransformerInitialization:
     ):
         """Test initialization with custom latent bits."""
         for latent_bits in [8, 12, 16]:
-            decoder = FreeTransformer(
+            decoder = FreeTransformerDecoder(
                 input_keys=["proprioceptive_features"],
                 action_space=action_space,
                 action_heads=action_heads,
@@ -251,7 +251,7 @@ class TestFreeTransformerInitialization:
         device,
     ):
         """Test initialization with custom architecture parameters."""
-        decoder = FreeTransformer(
+        decoder = FreeTransformerDecoder(
             input_keys=["proprioceptive_features"],
             action_space=action_space,
             action_heads=action_heads,
@@ -288,7 +288,7 @@ class TestFreeTransformerFeaturePreparation:
         flat_features_single,
     ):
         """Test preparing single flat feature."""
-        decoder = FreeTransformer(
+        decoder = FreeTransformerDecoder(
             input_keys=["proprioceptive_features"],
             action_space=action_space,
             action_heads=action_heads,
@@ -316,7 +316,7 @@ class TestFreeTransformerFeaturePreparation:
         flat_features_mismatched,
     ):
         """Test preparing flat features with mismatched dimensions."""
-        decoder = FreeTransformer(
+        decoder = FreeTransformerDecoder(
             input_keys=["language_embedding", "proprioceptive_features"],
             action_space=action_space,
             action_heads=action_heads,
@@ -344,7 +344,7 @@ class TestFreeTransformerFeaturePreparation:
         batch_size,
     ):
         """Test that spatial features raise error."""
-        decoder = FreeTransformer(
+        decoder = FreeTransformerDecoder(
             input_keys=["rgb_features"],
             action_space=action_space,
             action_heads=action_heads,
@@ -380,7 +380,7 @@ class TestFreeTransformerForwardPass:
         actions_dict,
     ):
         """Test forward pass during training with actions."""
-        decoder = FreeTransformer(
+        decoder = FreeTransformerDecoder(
             input_keys=["proprioceptive_features"],
             action_space=action_space,
             action_heads=action_heads,
@@ -429,7 +429,7 @@ class TestFreeTransformerForwardPass:
         flat_features_single,
     ):
         """Test forward pass during inference without actions."""
-        decoder = FreeTransformer(
+        decoder = FreeTransformerDecoder(
             input_keys=["proprioceptive_features"],
             action_space=action_space,
             action_heads=action_heads,
@@ -473,7 +473,7 @@ class TestFreeTransformerForwardPass:
             "proprioceptive_features": torch.randn(batch_size, observation_horizon, 128, device=device)
         }
 
-        decoder = FreeTransformer(
+        decoder = FreeTransformerDecoder(
             input_keys=["proprioceptive_features"],
             action_space=action_space,
             action_heads=action_heads,
@@ -509,7 +509,7 @@ class TestFreeTransformerLatentEncoding:
         actions_dict,
     ):
         """Test latent encoding from ground-truth actions."""
-        decoder = FreeTransformer(
+        decoder = FreeTransformerDecoder(
             input_keys=["proprioceptive_features"],
             action_space=action_space,
             action_heads=action_heads,
@@ -542,7 +542,7 @@ class TestFreeTransformerLatentEncoding:
         batch_size,
     ):
         """Test sampling latent from uniform prior."""
-        decoder = FreeTransformer(
+        decoder = FreeTransformerDecoder(
             input_keys=["proprioceptive_features"],
             action_space=action_space,
             action_heads=action_heads,
@@ -580,7 +580,7 @@ class TestFreeTransformerActionHeads:
         batch_size,
     ):
         """Test applying action heads to embeddings."""
-        decoder = FreeTransformer(
+        decoder = FreeTransformerDecoder(
             input_keys=["proprioceptive_features"],
             action_space=action_space,
             action_heads=action_heads,
@@ -647,7 +647,7 @@ class TestFreeTransformerParametrized:
             ),
         }
 
-        decoder = FreeTransformer(
+        decoder = FreeTransformerDecoder(
             input_keys=["proprioceptive_features"],
             action_space=action_space,
             action_heads=action_heads,
@@ -696,7 +696,7 @@ class TestFreeTransformerParametrized:
             ),
         }
 
-        decoder = FreeTransformer(
+        decoder = FreeTransformerDecoder(
             input_keys=["proprioceptive_features"],
             action_space=action_space,
             action_heads=action_heads,
@@ -749,7 +749,7 @@ class TestFreeTransformerParametrized:
             ),
         }
 
-        decoder = FreeTransformer(
+        decoder = FreeTransformerDecoder(
             input_keys=["proprioceptive_features"],
             action_space=action_space,
             action_heads=action_heads,
