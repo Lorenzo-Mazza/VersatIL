@@ -14,25 +14,22 @@ encoders:
     pretrained: true
     frozen: true
     pooling_method: none
-    image_height: ${task.dataloader.image_height}
-    image_width: ${task.dataloader.image_width} 
 
-  right_rgb:
+  right:
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
-    input_keys: ${cameras:RIGHT}
+    input_keys:
+     - ${cameras:RIGHT}
     backbone: ${rgb_backbone:RESNET18}
     pretrained: false
     frozen: false
     pooling_method: none
     use_group_norm: true
-    image_height: ${task.dataloader.image_height}
-    image_width: ${task.dataloader.image_width}
 
 # Fusion: Spatially fuse DFormer and right camera features
 fusion_stages:
   - _target_: refactoring.models.encoding.fusion.spatial.SpatialFusion
     input_features:
       - dformer
-      - right_rgb
+      - right
     output_name: visual_features
     hidden_dim: 256  # Project each encoder to 256 channels before fusion

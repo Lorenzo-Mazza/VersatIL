@@ -12,8 +12,6 @@ encoders:
     frozen: false
     pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
     use_group_norm: true
-    image_height: ${task.dataloader.image_height}
-    image_width: ${task.dataloader.image_width}
 
   right_rgb:
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
@@ -23,15 +21,13 @@ encoders:
     frozen: false
     pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
     use_group_norm: true
-    image_height: ${task.dataloader.image_height}
-    image_width: ${task.dataloader.image_width}
 
   camera_frame:
     _target_: refactoring.models.encoding.encoders.proprioceptive.base.ProprioceptiveEncoder
     input_keys:
       - ${obs_key:PROPRIO_CAMERA_FRAME}
     output_dim: 32
-# Fusion: concatenate all observation features
+
 fusion_stages:
   - _target_: refactoring.models.encoding.fusion.mlp.MLPFusion
     input_features:
