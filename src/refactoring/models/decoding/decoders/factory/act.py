@@ -74,7 +74,7 @@ class ACT(ActionDecoder):
         decoder_input = DecoderInput(
             keys=input_keys,
             required_types=[FeatureType.SPATIAL.value],
-            requires_actions=True
+            requires_actions=False
         )
         super().__init__(
             decoder_input=decoder_input,

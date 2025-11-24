@@ -6,18 +6,19 @@ from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.constants import FeatureType
 from refactoring.models.decoding.decoders import ActionDecoder, DecoderInput
 from refactoring.models.layers.activation import ActivationFunction
-from refactoring.models.layers.feature_projection import FeatureProjection
+from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
 from refactoring.models.layers.positional_encoding.sinusoidal import (
-    SinusoidalPositionalEncoding1D,
+ SinusoidalPositionalEncoding2D,
 )
+from refactoring.models.layers.transformer_input_builder import TransformerInputBuilder
 
 
 class ActionTransformer(ActionDecoder):
     """Vanilla action transformer for action decoding.
 
     This architecture:
-    - Receives a list of flat features from the encoding/fusion block.
-    - Uses fixed positional encodings.
+    - Receives observation features from the encoding/fusion block and tokenizes them into a list of tokens.
+    - Uses 2D fixed positional encodings for image tokens, 1D learnable pe for sequential or flat features.
     - Decodes the action chunks using a standard transformer decoder from torch.nn.
     """
     def __init__(
@@ -33,14 +34,14 @@ class ActionTransformer(ActionDecoder):
             number_of_heads: int = 8,
             feedforward_dimension: int = 512,
             number_of_decoder_layers: int = 6,
-            activation: str = ActivationFunction.RELU.value,
+            activation: str = ActivationFunction.GELU.value,
             dropout_rate: float = 0.1,
             normalize_before: bool = False,
     ):
         decoder_input = DecoderInput(
             keys=input_keys,
-            requires_actions=False,
-            required_types=[FeatureType.FLAT.value]
+            required_types=[FeatureType.SPATIAL.value],
+            requires_actions=False
         )
         super().__init__(
             decoder_input=decoder_input,
@@ -53,7 +54,7 @@ class ActionTransformer(ActionDecoder):
         )
         self.embedding_dimension = embedding_dimension
         self.prediction_horizon = prediction_horizon
-        self.embedding_projection = nn.LazyLinear(self.embedding_dimension)
+        self.number_of_decoder_layers = number_of_decoder_layers
         self.decoder_layer = nn.TransformerDecoderLayer(d_model=embedding_dimension,
                                                         nhead=number_of_heads,
                                                         batch_first=True,
@@ -62,46 +63,32 @@ class ActionTransformer(ActionDecoder):
                                                         norm_first=normalize_before,
                                                         dim_feedforward=feedforward_dimension
                                                         )
-        self.transformer_decoder = nn.TransformerDecoder(self.decoder_layer, num_layers=number_of_decoder_layers)
-        self.flat_feature_projection = FeatureProjection(
+        self._build_transformer_components()
+        self.to(self.device)
+
+
+    def _build_transformer_components(self):
+        """Build core transformer encoder-decoder and positional encodings."""
+        image_positional_encoding = SinusoidalPositionalEncoding2D(
+            embedding_dimension=self.embedding_dimension,
+            normalize=True
+        )
+        temporal_positional_encoding = None
+        if self.observation_horizon > 1:
+            temporal_positional_encoding = LearnedPositionalEncoding1D(embedding_dimension=self.embedding_dimension)
+        # This layer transforms input features into a sequence of token embeddings + positional encodings
+        self.input_sequence_builder = TransformerInputBuilder(
             embedding_dim=self.embedding_dimension,
-            warn_on_projection=True,
-            raise_on_mismatch=False,
+            has_time_dim=self.observation_horizon > 1,
+            spatial_positional_encoding_layer=image_positional_encoding,
+            flat_positional_encoding_layer=LearnedPositionalEncoding1D(
+                embedding_dimension=self.embedding_dimension,
+            ),
+            temporal_positional_encoding_layer=temporal_positional_encoding,
         )
-        self.fixed_positional_encoding_input = SinusoidalPositionalEncoding1D(embedding_dimension=embedding_dimension,
-                                                                              mlp_hidden_dimensions=None)
-        self.fixed_positional_encoding = SinusoidalPositionalEncoding1D(embedding_dimension=embedding_dimension,
-                                                                              mlp_hidden_dimensions=None)
+        self.learnable_query = nn.Embedding(self.prediction_horizon, self.embedding_dimension) # (pred_horizon, emb)
+        self.action_decoder = nn.TransformerDecoder(self.decoder_layer, num_layers=self.number_of_decoder_layers)
 
-
-    def _prepare_flat_features(self, features: dict[str, torch.Tensor]) -> torch.Tensor | None:
-        """Extract and project flat features (proprioceptive, language, latent, etc.).
-
-        Uses the FeatureProjection utility to handle features with different
-        dimensions. If mismatches are detected, warnings will be issued.
-
-        Args:
-            features: Dictionary of encoded features
-
-        Returns:
-            Concatenated flat features (B, total_embedding_dimension) or None if no flat features
-
-        Raises:
-            ValueError: If no flat features are found
-        """
-        flat_features_dict = {}
-        for key, feature in features.items():
-            if self.has_history and len(feature.shape) == 3:
-                batch_size, temporal_length, embedding_size = feature.shape
-                feature = feature.reshape(batch_size * temporal_length, embedding_size)
-            if len(feature.shape)==2:
-                flat_features_dict[key] = feature
-        if len(flat_features_dict) == 0:
-            raise ValueError("No flat features found. Action Transformer requires at least 1 flat feature as input.")
-        return self.flat_feature_projection.project_and_concatenate(
-            flat_features_dict,
-            concatenation_dimension=-1,
-        )
 
 
     def _apply_action_heads(self, action_embeddings: torch.Tensor) -> dict[str, torch.Tensor]:
@@ -116,7 +103,6 @@ class ActionTransformer(ActionDecoder):
         predictions = {}
         for action_key, head in self.action_heads.items():
             predictions[action_key] = head(action_embeddings)
-
         return predictions
 
 
@@ -136,27 +122,12 @@ class ActionTransformer(ActionDecoder):
             Dictionary containing:
                 - Action head predictions (e.g. position, orientation, gripper)
         """
-        for key in features:
-            if (features[key].shape == 4 and not self.has_history) or (features[key].shape == 5 and  self.has_history):
-                raise ValueError("Action transformer decoder does not support spatial features."
-                                 " Please flatten your features before passing them to the decoder.")
-
-        flat_feature_vector = self._prepare_flat_features(features=features)
-        flat_feature_vector = self.embedding_projection(flat_feature_vector)  # Shape: (B*T_obs if has_history else B, embedding_dimension)
-        # Reshape to 3D (B, S, embedding_dimension) where S = observation_horizon or 1
-        if self.has_history:
-            batch_size = flat_feature_vector.size(0) // self.observation_horizon
-            flat_feature_vector = flat_feature_vector.reshape(batch_size, self.observation_horizon,
-                                                              self.embedding_dimension)  # Shape: (B, T_obs, embedding_dimension)
-        else:
-            batch_size = flat_feature_vector.size(0)
-            flat_feature_vector = flat_feature_vector.unsqueeze(1)  # Shape: (B, 1, embedding_dimension)
-        flat_feature_vector = flat_feature_vector.permute(1, 0, 2)  # Shape: (S, B, embedding_dimension)
-        flat_feature_vector = self.fixed_positional_encoding_input(flat_feature_vector)  # Shape: (S, B, embedding_dimension)
-        flat_feature_vector = flat_feature_vector.permute(1, 0, 2)
-        query = self.fixed_positional_encoding(torch.zeros(self.prediction_horizon, batch_size, self.embedding_dimension, dtype=torch.float32).to(self.device))
-        query = query.permute(1, 0, 2) # Shape: (B, S, embedding_dimension)
-        action_embeddings = self.transformer_decoder(tgt=query, memory=flat_feature_vector)
+        obs_tokens, obs_pos_encodings, obs_padding_mask = self.input_sequence_builder(features) # (B, obs_token_len, embedding_dimension)
+        batch_size = obs_tokens.shape[0]
+        query_positional_encoding = self.learnable_query.weight.unsqueeze(0).repeat(batch_size, 1, 1) # (B, pred_horizon, embedding_dimension)
+        query = torch.zeros_like(query_positional_encoding).to(self.device)
+        query += query_positional_encoding
+        action_embeddings = self.action_decoder(tgt=query, memory=obs_tokens, memory_key_padding_mask=obs_padding_mask)
         predictions = self._apply_action_heads(action_embeddings)
         return predictions
 
