@@ -14,7 +14,7 @@ optimizer:
     - name: vision_encoders
       lr: 5.0e-6
       weight_decay: 1.0e-5
-      params_pattern: "encoding_pipeline\\.encoders\\.(left_rgb|right_rgb)\\."
+      params_pattern: "encoding_pipeline\\.encoders\\.(left|right)\\."
 
 clip_gradient_norm: true
 clip_max_norm: 1.0
@@ -26,7 +26,7 @@ use_ema: true
 ema_power: 0.999
 
 tune_lr: false
-early_stopping_patience: 100
+early_stopping_patience: 200
 reduce_lr_on_plateau: true
 reduce_lr_patience: 10
 reduce_lr_cooldown: 50
