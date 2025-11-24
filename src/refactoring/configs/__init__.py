@@ -12,7 +12,7 @@ from refactoring.configs.decoding.decoder import (
     ACTConfig,
     DecodingNetworkConfig,
     FreeTransformerConfig,
-    MixtureOfExpertsDecoderConfig, FASTGPTDecoderConfig, FASTDETRDecoderConfig,
+    MixtureOfExpertsDecoderConfig, FASTGPTDecoderConfig, FASTDETRDecoderConfig, MoEFreeTransformerConfig,
 )
 from refactoring.configs.decoding.latent import LatentActionEncoderConfig, LatentPriorConfig, VAETransformerEncoderConfig, GaussianPriorConfig, \
     DiffusionPriorConfig
@@ -191,6 +191,7 @@ def register_configs():
     cs.store(group="policy/decoder", name="gpt", node=FASTGPTDecoderConfig)
     cs.store(group="policy/decoder", name="fastdetr", node=FASTDETRDecoderConfig)
     cs.store(group="policy/decoder", name="free_transformer", node=FreeTransformerConfig)
+    cs.store(group="policy/decoder", name="moe_free_transformer", node=MoEFreeTransformerConfig)
     cs.store(group="policy/decoder", name="moe", node=MixtureOfExpertsDecoderConfig)
     cs.store(group="policy/decoder/action_head", name="base", node=ActionHeadConfig)
     cs.store(group="policy/decoder/action_head", name="moe", node=MixtureOfExpertsHeadConfig)

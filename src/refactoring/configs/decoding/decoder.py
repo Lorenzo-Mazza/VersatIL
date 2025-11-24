@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 from omegaconf import MISSING
 
-from refactoring.configs.decoding.action_head import ActionHeadConfig
+from refactoring.configs.decoding.action_head import ActionHeadConfig, MixtureOfExpertsHeadConfig
 from refactoring.configs.data.task import ActionSpaceConfig, ObservationSpaceConfig
 from refactoring.models.decoding.constants import MoERoutingType
 from refactoring.models.layers.activation import ActivationFunction
@@ -113,6 +113,7 @@ class ActionTransformerConfig(DecodingNetworkConfig):
     normalize_before: bool = False
 
 
+
 # TODO: Implement these decoder architectures
 # @dataclass
 # class UNetConfig(DecodingNetworkConfig):
@@ -176,6 +177,21 @@ class FreeTransformerConfig(DecodingNetworkConfig):
     temperature: float = 1.0  # Sampling temperature
     learnable_temperature: bool = False  # If True, make temperature a learnable parameter
     deterministic: bool = True  # If True, use greedy decoding during inference
+
+
+
+class MoEFreeTransformerConfig(FreeTransformerConfig):
+    """Mixture of Experts head with Free Transformer configuration."""
+    _target_: str = "refactoring.models.decoding.decoders.factory.moe_free_transformer.MoEFreeTransformer"
+    num_experts: int = 5
+    gating_network_dims: list[int] | None = None
+    routing_type: str = MoERoutingType.SOFT.value
+    gating_activation: str = ActivationFunction.SILU.value
+    top_k: int = 2,
+    expert_temperature: float = 1.0,
+    learnable_expert_temperature: bool = False,
+    gating_dropout: float = 0.1,
+    gating_normalization: bool = True,
 
 
 @dataclass
