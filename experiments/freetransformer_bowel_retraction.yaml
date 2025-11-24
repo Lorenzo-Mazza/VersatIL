@@ -7,8 +7,8 @@ defaults:
   - task/dataset_schema: bowel_retraction_v2
   - task/dataloader: fast_tokenized
   - task/action_space: deltas_cf_pos_gripper
+  - task/observation_space: stereo_rgb_proprio
   - training: gpt_decoder_default
-  - training: act_default
   - policy/encoding_pipeline: stereo_rgb_token_embedder
   - policy/decoder: free_transformer_decoder
   - policy/algorithm: behavioral_cloning
