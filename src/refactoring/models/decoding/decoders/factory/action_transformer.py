@@ -54,11 +54,12 @@ class ActionTransformer(ActionDecoder):
         )
         self.embedding_dimension = embedding_dimension
         self.prediction_horizon = prediction_horizon
+        self.observation_horizon = observation_horizon
         self.number_of_decoder_layers = number_of_decoder_layers
         self.decoder_layer = nn.TransformerDecoderLayer(d_model=embedding_dimension,
                                                         nhead=number_of_heads,
                                                         batch_first=True,
-                                                        activation=activation,
+                                                        activation=ActivationFunction(activation).to_torch_activation(),
                                                         dropout=dropout_rate,
                                                         norm_first=normalize_before,
                                                         dim_feedforward=feedforward_dimension

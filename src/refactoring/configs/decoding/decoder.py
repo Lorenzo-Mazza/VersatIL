@@ -101,6 +101,18 @@ class FASTGPTDecoderConfig(DecodingNetworkConfig):
     deterministic: bool = True  # If True, use greedy decoding during inference
 
 
+class ActionTransformerConfig(DecodingNetworkConfig):
+    """Action Transformer architecture configuration."""
+    _target_: str = "refactoring.models.decoding.decoders.factory.action_transformer.ActionTransformer"
+    embedding_dimension: int = 256
+    number_of_heads: int = 8
+    feedforward_dimension: int = 512
+    number_of_decoder_layers: int = 6
+    activation: str = ActivationFunction.GELU.value
+    dropout_rate: float = 0.1
+    normalize_before: bool = False
+
+
 # TODO: Implement these decoder architectures
 # @dataclass
 # class UNetConfig(DecodingNetworkConfig):
