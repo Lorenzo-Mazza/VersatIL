@@ -5,7 +5,6 @@ _target_: refactoring.metrics.PhaseActionLoss
 
 action_keys: null
 
-# Action reconstruction weights (from phase_act.json)
 mse_weight: 0.0
 l1_weight: 0.8  # Phase ACT uses L1 instead of MSE
 gripper_bce_weight: 0.05

@@ -27,6 +27,11 @@ positional_encoding_type: ${pos_encoding:ROPE}
 temperature: 10.0
 learnable_temperature: true
 deterministic: true
+action_heads:
+  action_logits:
+    _target_: refactoring.models.decoding.action_heads.ActionHead
+    input_dim: ${policy.decoder.embedding_dimension}
+    output_dim: 1 # Will be overriden at runtime based on vocabulary size
 
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}

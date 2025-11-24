@@ -13,6 +13,7 @@ from torch import nn
 from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import TOKENIZED_ACTIONS_KEY
 from refactoring.data.tokenization import Tokenizer
+from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.action_masking import make_attention_mask
 from refactoring.models.decoding.constants import BINARY_LOGITS_KEY, ACTION_LOGITS_KEY, PREDICTED_ACTION_TOKENS_KEY, LATENT_CODES
 from refactoring.models.decoding.decoders import ActionDecoder, DecoderInput
@@ -30,6 +31,7 @@ class FreeTransformerDecoder(ActionDecoder):
     supports_tokenized_actions: bool = True
     def __init__(
         self,
+        action_heads: dict[str, ActionHead],
         input_keys: list[str],
         action_space: ActionSpace,
         observation_space: ObservationSpace,
@@ -53,11 +55,11 @@ class FreeTransformerDecoder(ActionDecoder):
         temperature: float = 1.0,
         learnable_temperature: bool = False,
         deterministic: bool = True,
-        action_heads: None = None,
     ):
         """Initialize Free Transformer Decoder.
 
         Args:
+            action_heads: Action heads for different action components (only ACTION_LOGITS_KEY used here).
             input_keys: List of feature keys required from encoding pipeline
             action_space: Action space configuration
             observation_space: Observation space configuration
@@ -99,9 +101,10 @@ class FreeTransformerDecoder(ActionDecoder):
         self.temperature = temperature
         self.learnable_temperature = learnable_temperature
         self.deterministic = deterministic
-        action_heads = {
-            ACTION_LOGITS_KEY: nn.Linear(1,1),  # Placeholder, will be replaced in set_tokenizer
-        }
+        if action_heads.keys() !={ACTION_LOGITS_KEY}:
+            raise ValueError(f"FreeTransformerDecoder only supports ACTION_LOGITS_KEY in action_heads. Make sure to use key {ACTION_LOGITS_KEY}"
+                             " in your hydra config.")
+        self.action_heads = action_heads
         decoder_input = DecoderInput(
             keys=input_keys,
             requires_actions=True,
@@ -166,12 +169,27 @@ class FreeTransformerDecoder(ActionDecoder):
             raise ValueError("FreeTransformerDecoder requires a tokenizer for tokenized action prediction.")
         device = self.temperature.device
         self.vocab_size = tokenizer.action_tokenizer.vocab_size
-        self.token_embedding = nn.Embedding(self.vocab_size, self.embedding_dimension).to(device)
-        nn.init.normal_(self.token_embedding.weight, mean=0.0, std=self.free_transformer.initializer_range)
-        lm_head = nn.Linear(self.embedding_dimension, self.vocab_size, bias=False, device=device)
-        lm_head.weight = self.token_embedding.weight  # tie output weights to input embedding weights, like in GPT-2
-        self.action_heads[ACTION_LOGITS_KEY] = lm_head
+        output_block_in_features = self.action_heads[ACTION_LOGITS_KEY].output_proj.in_features
+        if output_block_in_features != self.embedding_dimension:
+            token_input_embedding = nn.Embedding(self.vocab_size, output_block_in_features).to(device)
+            token_projection = nn.Linear(output_block_in_features, self.embedding_dimension).to(device)
+            self.token_embedding = nn.Sequential(
+                token_input_embedding,
+                token_projection
+            ).to(device)
+            nn.init.normal_(token_input_embedding.weight, mean=0.0, std=self.free_transformer.initializer_range)
+            nn.init.normal_(token_projection.weight, mean=0.0, std=self.free_transformer.initializer_range)
+        else:
+            token_input_embedding = nn.Embedding(self.vocab_size, self.embedding_dimension).to(device)
+            self.token_embedding = token_input_embedding
+            nn.init.normal_(token_input_embedding.weight, mean=0.0, std=self.free_transformer.initializer_range)
+
+        lm_head = nn.Linear(output_block_in_features, self.vocab_size, bias=False, device=device)
+        lm_head.weight = token_input_embedding.weight  # tie output weights to input embedding weights, like in GPT-2
+        self.action_heads[ACTION_LOGITS_KEY].output_dim = self.vocab_size
+        self.action_heads[ACTION_LOGITS_KEY].output_proj = lm_head  # Replace final projection with tied head
         super().set_tokenizer(tokenizer)
+
 
     def _forward_training(
         self,

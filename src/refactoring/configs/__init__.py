@@ -50,6 +50,7 @@ from refactoring.data.constants import (
 )
 from refactoring.data.tokenization import ActionTokenizer
 from refactoring.metrics.components import ActionTokenLoss
+from refactoring.models.decoding.constants import ACTION_LOGITS_KEY
 from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod, LanguageEncoderType
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
@@ -109,6 +110,7 @@ def register_resolvers():
             "POSITION": POSITION_ACTION_KEY,
             "ORIENTATION": ORIENTATION_ACTION_KEY,
             "GRIPPER": GRIPPER_ACTION_KEY,
+            "ACTION_TOKENS": ACTION_LOGITS_KEY
         }
         OmegaConf.register_new_resolver("action_key", lambda name: action_key_map[name])
     if not OmegaConf.has_resolver("obs_key"):

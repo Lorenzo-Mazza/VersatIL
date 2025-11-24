@@ -67,6 +67,7 @@ class MLPBlock(ActionHeadBlock):
         self.input_dim = input_dim
         self.output_dim = output_dim or hidden_dims[-1]
         self.norm = nn.LayerNorm(input_dim) if normalization else nn.Identity()
+
         self.mlp = MLP(
             input_dim=input_dim,
             hidden_dims=hidden_dims,

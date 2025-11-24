@@ -2,8 +2,6 @@ defaults:
   - moe_free_transformer
 
 
-_target_: refactoring.models.decoding.decoders.factory.free_transformer.FreeTransformerDecoder
-
 # Input features from encoding pipeline
 input_keys:
   - left_image

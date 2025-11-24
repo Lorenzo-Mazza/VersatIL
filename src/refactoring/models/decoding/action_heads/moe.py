@@ -74,7 +74,6 @@ class MoEHead(BaseMixtureOfExperts):
             num_experts = len(experts)
         elif base_expert is not None and num_experts is not None:
             expert_list = self._create_experts_from_instance(base_expert, num_experts)
-            # Move experts to correct device
             expert_list = [expert.to(device) for expert in expert_list]
         else:
             raise ValueError("Must provide either 'experts' or 'base_expert' with 'num_experts'")
