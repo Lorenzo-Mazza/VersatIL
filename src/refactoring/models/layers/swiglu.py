@@ -42,6 +42,14 @@ class SwiGLU(nn.Module):
         super().__init__()
         self.gate_proj = nn.Linear(input_dim, hidden_dim, bias=bias)
         self.value_proj = nn.Linear(input_dim, hidden_dim, bias=bias)
+        self._init_weights()
+
+
+    def _init_weights(self):
+        """Variance-preserving initialization for SwiGLU."""
+        nn.init.kaiming_uniform_(self.gate_proj.weight, mode='fan_in', nonlinearity='relu')
+        nn.init.kaiming_uniform_(self.value_proj.weight, mode='fan_in', nonlinearity='linear')
+
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply SwiGLU activation.

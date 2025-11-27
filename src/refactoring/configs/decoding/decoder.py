@@ -183,15 +183,7 @@ class FreeTransformerConfig(DecodingNetworkConfig):
 class MoEFreeTransformerConfig(FreeTransformerConfig):
     """Free Transformer with Mixture of Experts head  configuration."""
     _target_: str = "refactoring.models.decoding.decoders.factory.moe_free_transformer.MoEFreeTransformer"
-    num_experts: int = 5
-    gating_network_dims: list[int] | None = None
-    routing_type: str = MoERoutingType.SOFT.value
-    gating_activation: str = ActivationFunction.SILU.value
-    top_k: int = 2
-    expert_temperature: float = 1.0
-    learnable_expert_temperature: bool = False
-    gating_dropout: float = 0.1
-    gating_normalization: bool = True
+    action_heads: dict[str,MixtureOfExpertsHeadConfig] = MISSING
 
 
 @dataclass

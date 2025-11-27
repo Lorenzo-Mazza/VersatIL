@@ -379,7 +379,9 @@ class FreeTransformer(nn.Module):
             use_cache: bool = False,
             deterministic: bool = False,
             is_inference: bool = False,
-    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, DecoderKVCache | None]:
+            return_latent_embeddings: bool = False,
+    ) -> (tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, DecoderKVCache | None] |
+          tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor, DecoderKVCache | None]):
         """Forward pass through Free transformer with midpoint latent injection.
 
         Args:
@@ -391,11 +393,13 @@ class FreeTransformer(nn.Module):
             use_cache: Whether to return updated cache
             deterministic: Whether to use deterministic latent sampling (inference) or stochastic (training)
             is_inference: Whether the model is in inference mode (no logits, sample directly from one-hot vector).
+            return_latent_embeddings: Whether to return the latent embeddings from the latent encoder.
 
         Returns:
             Tuple of (hidden_states, bit_logits, latent_codes, new_cache), where hidden_states has shape (B, query_len, D),
              optional bit_logits has shape (B, query_len, latent_bits), latent_codes has shape (B, query_len, 2**latent_bits),
              and new_cache is a LayerKVCache or None.
+            If return_latent_embeddings is True, also returns latent embeddings with shape (B, query_len, D).
         """
         if isinstance(self.positional_encoding, (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D)):
             hidden_states = self.positional_encoding(hidden_states)
@@ -451,6 +455,7 @@ class FreeTransformer(nn.Module):
             # (B, query_length, 2^H), (B, query_length, H)
             latent_codes, bit_logits = self.binary_mapper(latent_emb, deterministic=deterministic)
         else:
+            latent_emb = self.latent_encoder(mid_features=mid_features, mid_features_mask=mid_features_mask) # (B, query_length, D)
             # Uniform prior sample
             uniform_indices = torch.randint(0, self.latent_dim, (batch_size, query_length), device=device, dtype=torch.long)
             latent_codes = F.one_hot(uniform_indices, num_classes=self.latent_dim).float()  # (B, query_len, 2^H)
@@ -494,5 +499,6 @@ class FreeTransformer(nn.Module):
                 if use_cache
                 else None
             )
-
+        if return_latent_embeddings:
+            return hidden_states, bit_logits, latent_codes, latent_emb, new_decoder_cache
         return hidden_states, bit_logits, latent_codes, new_decoder_cache

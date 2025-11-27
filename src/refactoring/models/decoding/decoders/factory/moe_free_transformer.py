@@ -1,15 +1,18 @@
 """A MoE action decoder which utilizes the latent layer of the Free Transformer as gating for multiple action heads."""
 
 import torch
+from torch import nn
 
 from refactoring.data.constants import TOKENIZED_ACTIONS_KEY, ACTION_KEY, IS_PAD_ACTION_KEY
 from refactoring.data.tokenization import Tokenizer
+from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.action_heads.moe import MoEHead
 from refactoring.models.decoding.action_masking import make_attention_mask
-from refactoring.models.decoding.constants import ROUTING_WEIGHT, ACTION_LOGITS_KEY, MoERoutingType, LATENT_KEY, BINARY_LOGITS_KEY, LATENT_CODES, \
-    PREDICTED_ACTION_TOKENS_KEY, EXPERT_USAGE
+from refactoring.models.decoding.constants import ROUTING_WEIGHT, ACTION_LOGITS_KEY, BINARY_LOGITS_KEY, LATENT_CODES, \
+    PREDICTED_ACTION_TOKENS_KEY
+from refactoring.models.decoding.decoders import ActionDecoder
 from refactoring.models.decoding.decoders.factory.free_transformer import FreeTransformerDecoder
-from refactoring.models.layers.activation import ActivationFunction
+from refactoring.models.layers.swiglu import SwiGLU
 
 
 class MoEFreeTransformer(FreeTransformerDecoder):
@@ -27,56 +30,44 @@ class MoEFreeTransformer(FreeTransformerDecoder):
 
     def __init__(self,
                  *args,
-                 num_experts: int,
-                 gating_network_dims: list[int]|None=None,
-                 routing_type: str = MoERoutingType.SOFT.value,
-                 gating_activation: str = ActivationFunction.SILU.value,
-                 top_k: int = 2,
-                 expert_temperature: float = 1.0,
-                 learnable_expert_temperature: bool = False,
-                 gating_dropout: float = 0.1,
-                 gating_normalization: bool = True,
                  **kwargs):
         """Initialize MoeFreeTransformer decoder.
 
         Args:
             *args, **kwargs: Arguments passed to the base FreeTransformer decoder.
         """
-        self.num_experts = num_experts
-        self.gating_network_dims = gating_network_dims
-        self.routing_type = routing_type
-        self.gating_activation = gating_activation
-        self.top_k = top_k
-        self.expert_temperature = expert_temperature
-        self.learnable_expert_temperature = learnable_expert_temperature
-        self.gating_dropout = gating_dropout
-        self.gating_normalization = gating_normalization
-        self.moe_head = None  # Will be set in set_tokenizer
-        super().__init__(*args, **kwargs)
+        super().__init__(*args,**kwargs)
+        self.moe_action_head: MoEHead = self.action_heads[ACTION_LOGITS_KEY]
+        self.expert_gating_projection = None
 
 
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
-        super().set_tokenizer(tokenizer)  # Call base first (sets token_embedding, base action_heads, vocab_size)
-        device = self.device
-        vocab_size = self.vocab_size
-        base_expert = self.action_heads[ACTION_LOGITS_KEY]
-        self.moe_head = MoEHead(
-            output_dim=vocab_size,
-            device=device,
-            base_expert=base_expert,
-            num_experts=self.num_experts,
-            gating_input_dim=self.free_transformer.embedding_dimension,
-            gating_hidden_dims=self.gating_network_dims,
-            gating_activation=self.gating_activation,
-            routing_type=self.routing_type,
-            top_k=self.top_k,
-            temperature=self.expert_temperature,
-            learnable_temperature=self.learnable_expert_temperature,
-            gating_dropout=self.gating_dropout,
-            gating_normalization=self.gating_normalization,
-            gating_feature_key=None,
+        if tokenizer is None or tokenizer.action_tokenizer is None:
+            raise ValueError("FreeTransformerDecoder requires a tokenizer for tokenized action prediction.")
+        device = self.temperature.device
+        self.vocab_size = tokenizer.action_tokenizer.vocab_size
+        self.moe_action_head.output_dim = self.vocab_size
+        token_input_embedding = nn.Embedding(self.vocab_size, self.embedding_dimension).to(device)
+        nn.init.normal_(token_input_embedding.weight, mean=0.0, std=self.free_transformer.initializer_range)
+        self.token_embedding = token_input_embedding
+        for expert in self.moe_action_head.experts:
+            expert:ActionHead
+            output_block_in_features = expert.output_proj.in_features
+            expert_out = nn.Linear(output_block_in_features, self.vocab_size, bias=True, device=device)
+            nn.init.kaiming_uniform_(expert_out.weight, nonlinearity='linear')
+            nn.init.zeros_(expert_out.bias)
+            expert.output_dim = self.vocab_size
+            expert.output_proj = expert_out  # Replace final projection with expert head
+        expert_gating_projection = nn.Linear(
+            self.free_transformer.embedding_dimension,
+            self.moe_action_head.num_experts,
+            bias=False,
+            device=device
         )
-        self.action_heads[ACTION_LOGITS_KEY] = self.moe_head  # Replaces base
+        nn.init.normal_(expert_gating_projection.weight, mean=0.0, std=self.free_transformer.initializer_range)
+        self.expert_gating_projection = expert_gating_projection
+        ActionDecoder.set_tokenizer(self, tokenizer)  # Call action decoder base, free transformer base would raise error
+
 
 
     def _forward_training(
@@ -97,20 +88,22 @@ class MoEFreeTransformer(FreeTransformerDecoder):
         if full_token_sequence.shape[1] > self.max_seq_len:
             raise ValueError(f"Input token length {full_token_sequence.shape[1]} > max_seq_len {self.max_seq_len}.")
 
-        decoder_output, bit_logits, latent_codes, _ = self.free_transformer(
+        decoder_output, bit_logits, latent_codes, latent_embeddings, _ = self.free_transformer(
             hidden_states=full_token_sequence,
             key_padding_mask=feature_token_mask,
             decoder_cache=None,
             use_cache=False,
             self_attention_mask=full_attention_mask,
-            is_inference=False
+            is_inference=False,
+            return_latent_embeddings=True,
         )
-        padding_action_mask = actions.get(IS_PAD_ACTION_KEY, None)
+        latent_action_embeddings = latent_embeddings[:, prefix_len:, :]  # (B, action_len, emb_dim)
         action_outputs = decoder_output[:, prefix_len:, :]  # (B, action_len, emb_dim)
-        latent_weights = self.free_transformer.latent_encoder(mid_features=action_outputs, mid_features_mask=padding_action_mask) # (B, action_len, latent_dim)
-        logits_dict = self.moe_head(
-            expert_features=action_outputs,
-            gating_features=latent_weights
+        latent_weights = self.expert_gating_projection(latent_action_embeddings) # (B, action_len, num_experts)
+        routing_weights = torch.softmax(latent_weights, dim=-1) # (B, action_len, num_experts)
+        logits_dict = self.moe_action_head(
+            features=action_outputs,
+            routing_weights=routing_weights
         )
         logits = logits_dict[ACTION_KEY]
         expert_usage = logits_dict[ROUTING_WEIGHT]
@@ -131,20 +124,21 @@ class MoEFreeTransformer(FreeTransformerDecoder):
         prefix_len = feature_tokens.shape[1]
         current_sequence = feature_tokens
         prefix_self_mask = torch.zeros(batch_size, 1, prefix_len, prefix_len, dtype=torch.bool, device=self.device)
-        decoder_output, _, latent_codes,  decoder_cache = self.free_transformer(
+        decoder_output, _, latent_codes, latent_embeddings, decoder_cache = self.free_transformer(
             hidden_states=current_sequence,
             key_padding_mask=feature_token_mask,
             self_attention_mask=prefix_self_mask,
             decoder_cache=None,
             use_cache=True,
-            is_inference=True
+            is_inference=True,
+            return_latent_embeddings=True,
         )
         generated_tokens = []
         expert_usages = []
         next_token_embedding = None
         for step in range(self.max_seq_len - prefix_len):
             if step > 0:
-                decoder_output, _, latent_codes, decoder_cache = self.free_transformer(
+                decoder_output, _, latent_codes, latent_embeddings, decoder_cache = self.free_transformer(
                     hidden_states=next_token_embedding,
                     key_padding_mask=feature_token_mask,
                     self_attention_mask=None, # Causal mask handled internally
@@ -153,10 +147,12 @@ class MoEFreeTransformer(FreeTransformerDecoder):
                     is_inference=True
                 )
             last_output = decoder_output[:, -1:, :]  # (B, 1, embedding_dimension)
-            latent_weights = self.free_transformer.latent_encoder(mid_features=last_output, mid_features_mask=None) # (B, 1, latent_dim)
-            logits_dict = self.moe_head(
-                expert_features=last_output,
-                gating_features=latent_weights
+            latent_action_embeddings = latent_embeddings[:, -1:, :]  # (B, 1, emb_dim)
+            latent_weights = self.expert_gating_projection(latent_action_embeddings)  # (B, 1, num_experts)
+            routing_weights = torch.softmax(latent_weights, dim=-1) # (B, 1, num_experts)
+            logits_dict = self.moe_action_head(
+                features=last_output,
+                routing_weights=routing_weights
             )
             logits = logits_dict[ACTION_KEY] #(B, 1, vocab_size)
             logits_scaled = logits / self.temperature.clamp(min=0.01)

@@ -75,6 +75,8 @@ class MLPBlock(ActionHeadBlock):
             activation_function=ActivationFunction(activation).to_torch_activation(),
             dropout=dropout,
         )
+        self.post_norm = nn.LayerNorm(self.output_dim) if normalization else nn.Identity()
+
 
     def forward(self, action_embedding: torch.Tensor) -> torch.Tensor:
         """Forward pass through normalized MLP.
@@ -85,7 +87,7 @@ class MLPBlock(ActionHeadBlock):
         Returns:
             Output tensor with same shape
         """
-        result: torch.Tensor = self.mlp(self.norm(action_embedding))
+        result: torch.Tensor = self.post_norm(self.mlp(self.norm(action_embedding)))
         return result
 
 

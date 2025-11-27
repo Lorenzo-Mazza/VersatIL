@@ -123,11 +123,13 @@ class MoEHead(BaseMixtureOfExperts):
             # Deep copy creates a completely independent module with separate weights
             expert = copy.deepcopy(base_expert)
             for module in expert.modules():
-                # Give each expert its own parameter initialization.
                 if hasattr(module, 'reset_parameters'):
                     module.reset_parameters()
-
+            for module in expert.modules():
+                if hasattr(module, '_init_weights'):
+                    module._init_weights()
             experts.append(expert)
+
         return experts
 
     def forward(
@@ -147,7 +149,7 @@ class MoEHead(BaseMixtureOfExperts):
                 - routing_weights: Computed routing weights
                 - expert_outputs: Individual expert predictions (stacked)
         """
-        weights = self.compute_routing_weights(features, routing_weights)
+        weights = self.compute_routing_weights(features, external_weights=routing_weights)
 
         expert_outputs = [expert(features) for expert in self.experts]
         expert_outputs_stacked = torch.stack(expert_outputs, dim=-2)
