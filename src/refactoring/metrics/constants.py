@@ -64,3 +64,4 @@ class MetadataKey(str, Enum):
     """Keys for metadata stored in LossOutput."""
     PHASE_LOGITS = "phase_logits"
     PHASE_LABELS = "phase_labels"
+    EXPERT_USAGE = "expert_usage"

@@ -195,6 +195,21 @@ class ConfusionMatrixCallback(Callback):
                     step=trainer.global_step,
                 )
             plt.close(fig)
+        expert_usage = pl_module.train_metrics.compute_expert_usage()
+        if expert_usage is not None:
+            fig, ax = plt.subplots(figsize=(8, 6))
+            sns.barplot(x=list(range(len(expert_usage))), y=expert_usage, ax=ax)
+            ax.set_xlabel("Expert Index")
+            ax.set_ylabel("Average Usage Ratio")
+            ax.set_title("Train Phase Expert Usage")
+            plt.tight_layout()
+            if trainer.logger is not None:
+                wandb_image = self._figure_to_wandb_image(fig)
+                trainer.logger.log_metrics(
+                    {"train_phase_expert_usage": wandb_image},  # type: ignore[dict-item]
+                    step=trainer.global_step,
+                )
+            plt.close(fig)
 
     def on_validation_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
         """Log validation confusion matrix at end of epoch.
@@ -217,6 +232,22 @@ class ConfusionMatrixCallback(Callback):
                     step=trainer.global_step,
                 )
             plt.close(fig)
+        expert_usage = pl_module.val_metrics.compute_expert_usage()
+        if expert_usage is not None:
+            fig, ax = plt.subplots(figsize=(8, 6))
+            sns.barplot(x=list(range(len(expert_usage))), y=expert_usage, ax=ax)
+            ax.set_xlabel("Expert Index")
+            ax.set_ylabel("Average Usage Ratio")
+            ax.set_title("Val Phase Expert Usage")
+            plt.tight_layout()
+            if trainer.logger is not None:
+                wandb_image = self._figure_to_wandb_image(fig)
+                trainer.logger.log_metrics(
+                    {"val_phase_expert_usage": wandb_image},  # type: ignore[dict-item]
+                    step=trainer.global_step,
+                )
+            plt.close(fig)
+
 
     def _create_confusion_matrix_figure(self, cm: np.ndarray, title: str) -> plt.Figure:
         """Create a seaborn heatmap figure for the confusion matrix.

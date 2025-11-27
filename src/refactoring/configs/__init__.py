@@ -28,7 +28,7 @@ from refactoring.configs.experiment import ExperimentConfig
 from refactoring.configs.inference import InferenceConfig
 from refactoring.configs.loss import CompositeLossConfig, PhaseActionLossConfig, ActionReconstructionLossConfig, RegressionLossConfig, BaseLossConfig, \
     GripperLossConfig, KLDivergenceLossConfig, BinaryKLDivergenceLossConfig, TrajectoryLengthLossConfig, TrajectorySmoothnessConfig, \
-    PhaseClassificationLossConfig, ActionTokenLossConfig
+    PhaseClassificationLossConfig, ActionTokenLossConfig, MoELossConfig
 from refactoring.configs.main import MainConfig
 from refactoring.configs.policy import PolicyConfig
 from refactoring.configs.data.task import TaskSpaceConfig, ActionSpaceConfig, ObservationSpaceConfig
@@ -170,6 +170,7 @@ def register_configs():
     cs.store(group="policy/loss", name="traj_smooth", node=TrajectorySmoothnessConfig)
     cs.store(group="policy/loss", name="phase_classification", node=PhaseClassificationLossConfig)
     cs.store(group="policy/loss", name="token_loss", node=ActionTokenLossConfig)
+    cs.store(group="policy/loss", name="moe_loss", node=MoELossConfig)
 
 
     cs.store(group="policy/encoding_pipeline", name="base", node=ImageEncoderConfig)

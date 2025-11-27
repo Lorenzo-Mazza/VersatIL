@@ -1,0 +1,8 @@
+defaults:
+  - free_transformer_default@loss_modules.moe_loss.base_loss
+  - _self_
+
+_target_: refactoring.metrics.CompositeLoss
+loss_modules:
+    moe_loss:
+      _target_: refactoring.metrics.MoELoss

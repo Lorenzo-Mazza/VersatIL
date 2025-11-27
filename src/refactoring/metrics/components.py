@@ -18,7 +18,7 @@ from refactoring.metrics.constants import (
 from refactoring.models.decoding.constants import (
     PRIOR_PREDICTION_KEY,
     PRIOR_TARGET_KEY,
-    BINARY_LOGITS_KEY, PREDICTED_ACTION_TOKENS_KEY, MU_KEY, LOGVAR_KEY, ACTION_LOGITS_KEY, LATENT_CODES,
+    BINARY_LOGITS_KEY, MU_KEY, LOGVAR_KEY, ACTION_LOGITS_KEY, LATENT_CODES, ROUTING_WEIGHT,
 )
 
 
@@ -710,3 +710,43 @@ class PriorDenoisingLoss(BaseLoss):
 
 
 
+class MoELoss(BaseLoss):
+    """Wrapper for any BaseLoss to add MoE expert usage metric from routing weights."""
+
+    def __init__(self, base_loss: BaseLoss):
+        """Initialize MoE wrapper.
+
+        Args:
+            base_loss: Any BaseLoss instance to wrap (e.g., RegressionLoss(...))
+        """
+        super().__init__()
+        self.base_loss = base_loss
+
+    def get_required_keys(self) -> set[str]:
+        """Union of base loss keys plus routing weight."""
+        return self.base_loss.get_required_keys()
+
+    def forward(
+        self,
+        predictions: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        is_pad: torch.Tensor | None = None,
+    ) -> LossOutput:
+        """Passthrough base loss, then add expert_usage from routing weights."""
+        base_output: LossOutput = self.base_loss(predictions, targets, is_pad)
+        metadata = base_output.metadata if base_output.metadata is not None else {}
+        required_keys = self.base_loss.get_required_keys()
+        for action_key in required_keys:
+            routing_key = f'{action_key}_{ROUTING_WEIGHT}'
+            if routing_key in predictions:
+                expert_usage = predictions[routing_key]
+                if expert_usage.dim() > 0:
+                    expert_usage = expert_usage.mean(dim=list(range(expert_usage.ndim - 1))) # Mean over all but last dim, which is num_experts
+                usage_key = f'{action_key}_{MetadataKey.EXPERT_USAGE.value}'
+                metadata[usage_key] = expert_usage
+
+        return LossOutput(
+            total_loss=base_output.total_loss,
+            component_losses=base_output.component_losses,
+            metadata=metadata,
+        )

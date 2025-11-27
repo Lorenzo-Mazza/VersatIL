@@ -21,6 +21,7 @@ from refactoring.metrics.components import (
     RegressionLoss,
     TrajectoryLengthLoss,
     TrajectorySmoothness,
+    MoELoss
 )
 from refactoring.metrics.composite import (
     ActionReconstructionLoss,
@@ -56,4 +57,5 @@ __all__ = [
     "LossModuleName",
     "PredictionKey",
     "TargetKey",
+    "MoELoss",
 ]

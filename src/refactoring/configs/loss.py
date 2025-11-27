@@ -140,3 +140,8 @@ class CompositeLossConfig(BaseLossConfig):
     weights: dict[str, float] | None = None
 
 
+@dataclass
+class MoELossConfig:
+    """Configuration for Mixture of Experts (MoE) loss."""
+    _target_: str = "refactoring.metrics.MoELoss"
+    base_loss: BaseLossConfig = MISSING

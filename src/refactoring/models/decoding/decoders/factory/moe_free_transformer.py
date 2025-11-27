@@ -111,7 +111,7 @@ class MoEFreeTransformer(FreeTransformerDecoder):
             ACTION_LOGITS_KEY: logits,
             BINARY_LOGITS_KEY: bit_logits,
             LATENT_CODES: latent_codes,
-            ROUTING_WEIGHT: expert_usage,
+            f"{ACTION_LOGITS_KEY}_{ROUTING_WEIGHT}": expert_usage,
         }
 
 
@@ -168,6 +168,6 @@ class MoEFreeTransformer(FreeTransformerDecoder):
 
         return {
             PREDICTED_ACTION_TOKENS_KEY: torch.cat(generated_tokens, dim=1),  # (B, max_seq_len)
-            ROUTING_WEIGHT: torch.cat(expert_usages, dim=1),  # (B, max_seq_len, num_experts)
+            f"{ACTION_LOGITS_KEY}_{ROUTING_WEIGHT}": torch.cat(expert_usages, dim=1),  # (B, max_seq_len, num_experts)
         }
 

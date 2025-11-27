@@ -41,7 +41,7 @@ class MetricsAccumulator:
     total_loss: float = 0.0
     component_metrics: dict[str, float] = field(default_factory=dict)
     num_batches: int = 0
-    metadata: dict[str, list] = field(default_factory=dict)
+    metadata: dict[str, list | torch.Tensor] = field(default_factory=dict)
 
     def add_loss_output(self, loss_output: LossOutput):
         """Add a loss output to the accumulator.
@@ -145,6 +145,18 @@ class MetricsAccumulator:
 
         result: np.ndarray = cm
         return result
+
+    def compute_expert_usage(self) -> np.ndarray | None:
+        """Compute average expert usage from metadata if available.
+
+        Returns:
+            Expert usage ratio per expert as numpy array, or None if no expert usage data
+        """
+        if MetadataKey.EXPERT_USAGE.value not in self.metadata:
+            return None
+
+        return self.metadata[MetadataKey.EXPERT_USAGE.value].numpy()
+
 
     def to_dict(self) -> dict[str, float]:
         """Convert to dictionary of averaged metrics.
