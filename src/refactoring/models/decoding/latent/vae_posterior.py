@@ -1,5 +1,4 @@
 """Transformer-based VAE latent action encoder."""
-import copy
 
 import torch
 from torch import nn
@@ -8,7 +7,6 @@ from refactoring.models.decoding.constants import LOGVAR_KEY, MU_KEY, STATE_FEAT
 from refactoring.models.decoding.latent.base_posterior import LatentActionEncoder
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.detr_transformer.vae_transformer import VAE
-from tests.models.decoding.test_moe_decoder import observation_horizon
 
 
 class VAETransformerEncoder(LatentActionEncoder):
