@@ -1,25 +1,23 @@
-# Phase ACT Decoder Configuration
-# ACT with phase prediction capabilities
+defaults:
+  - phase_act
 
 _target_: refactoring.models.decoding.decoders.factory.phase_act.PhaseACT
 
 # Input features from encoding pipeline
 input_keys:
-  - visual_features
+  - left_depth_rgbd
+  - right_rgb
 
-# Transformer architecture (same as ACT)
 embedding_dimension: 512
 number_of_heads: 8
 feedforward_dimension: 3200
 number_of_encoder_layers: 4
 number_of_decoder_layers: 7
 
-# Architecture details
-activation: relu
+activation: ${activation_function:GELU}
 dropout_rate: 0.1
 normalize_before: false
 
-# Phase-specific settings
 phase_routing_key: phase_label
 
 # Action heads with MoE for phase-conditioned predictions
@@ -58,10 +56,8 @@ action_heads:
     learnable_temperature: true
     routing_type: soft
 
-# References to task/policy configs (Hydra interpolation)
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}
 action_space: ${task.action_space}
-
 observation_space: ${task.observation_space}
 device: ${experiment.device}

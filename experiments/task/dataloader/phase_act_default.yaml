@@ -11,7 +11,7 @@ image_height: 270
 image_width: 480
 
 # Normalization
-image_norm_type: zero_to_one
+image_norm_type: imagenet
 depth_norm_type: imagenet
 kinematics_norm_type: gaussian
 winsorize_depth: true

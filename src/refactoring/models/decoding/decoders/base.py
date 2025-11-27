@@ -135,7 +135,10 @@ class ActionDecoder(nn.Module, ABC):
         Args:
             tokenizer: Tokenizer instance from data pipeline (can be None)
         """
-        if self.supports_tokenized_actions and tokenizer is None:
+        if not self.supports_tokenized_actions:
+            self.tokenizer = None
+            return
+        if tokenizer is None:
             raise ValueError("Tokenizer must be provided for tokenized action decoders.")
         self.tokenizer = tokenizer.action_tokenizer
 

@@ -6,8 +6,8 @@ defaults:
   - experiment: bowel_retraction_act
   - task/dataset_schema: bowel_retraction_v2
   - task/dataloader: act_default
-  - task/action_space: br_position_gripper_deltas_cf
-  - task/observation_space: br_rgb_only
+  - task/action_space: deltas_cf_pos_gripper
+  - task/observation_space: stereo_rgb
   - training: act_default
   - policy/encoding_pipeline: stereo_rgb
   - policy/decoder: act_default

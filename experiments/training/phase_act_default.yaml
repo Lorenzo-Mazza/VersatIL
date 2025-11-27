@@ -23,10 +23,7 @@ lr_schedule: null
 use_ema: false
 
 # Stochastic Weight Averaging (SWA)
-swa_lrs: null  # Set to a float (e.g., 0.05) to enable SWA
-swa_epoch_start: 0.8  # Start SWA at 80% of training
-swa_annealing_epochs: 10  # Anneal LR over 10 epochs
-
+swa_lrs: null
 tune_lr: false  # Automatically find optimal learning rate
 
 early_stopping_patience: 10

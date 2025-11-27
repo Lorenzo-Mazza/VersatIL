@@ -79,11 +79,11 @@ class SpatialFusion(FusionModule):
 
         match self.concat_dim:
             case ConcatDimension.CHANNEL.value:
-                dim = 2 if has_time else 1
+                dim = 1
             case ConcatDimension.HEIGHT.value:
-                dim = 3 if has_time else 2
+                dim = 2
             case ConcatDimension.WIDTH.value:
-                dim = 4 if has_time else 3
+                dim = 3
             case _:
                 raise ValueError(f"Invalid concat_dim '{self.concat_dim}'.")
 

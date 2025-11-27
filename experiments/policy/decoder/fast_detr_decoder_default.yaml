@@ -2,8 +2,8 @@ defaults:
   - fastdetr
 
 input_keys:
-  - left_image
-  - right_image
+  - left_rgb
+  - right_rgb
 
 max_seq_len: 512
 

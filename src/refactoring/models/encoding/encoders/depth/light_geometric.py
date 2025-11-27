@@ -71,14 +71,37 @@ class LightGeometricEncoder(Encoder):
 
     def _setup_pooling(self):
         """Setup mock pooling head. The actual pooling head will be created in forward()."""
+        with torch.no_grad():
+            mock_input = torch.zeros(1, 3, 224, 224)
+            mock_depth = torch.zeros(1, 1, 224, 224)
+            _, H_patches, W_patches = self.encode_features(rgb_image=mock_input, depth_map=mock_depth)
         mock_pooling_head = create_pooling_head(
             pooling_method=self.pooling_method,
             feature_channels=self.embedding_dimension,
-            spatial_height=self.patch_size,
-            spatial_width=self.patch_size,
+            spatial_height=H_patches,
+            spatial_width=W_patches,
         )
         self.pooling_head = None # Will be created in forward() with correct patch dimensions
         self.output_dim = mock_pooling_head.get_output_dim(self.embedding_dimension)
+
+
+    def encode_features(self, rgb_image: torch.Tensor, depth_map: torch.Tensor) -> tuple[torch.Tensor, int, int]:
+        """Encode RGB and depth features into joint RGBD features using geometric attention.
+
+        Args:
+            rgb_image: RGB image tensor of shape (B, C, H, W)
+            depth_map: Depth map tensor of shape (B, 1, H, W)
+        Returns:
+            Tensor of shape (B, embedding_dimension, H_patches, W_patches), H_patches, W_patches.
+        """
+        features, H_patches, W_patches = self.patch_embed(rgb_image, return_patch_size=True)  # (B, N_patches, embedding_dimension)
+        features = self.norm(features)
+        features = features.reshape(rgb_image.shape[0], H_patches, W_patches, self.embedding_dimension)
+        depth_map_resized = F.interpolate(depth_map, size=(H_patches, W_patches), mode='bilinear', align_corners=False)
+        features = self.attention_block(features, depth_map_resized) # (B, H_patches, W_patches, embedding_dimension)
+        features = self.norm(features)
+        features = features.permute(0, 3, 1, 2).contiguous() # (B, embedding_dimension, H_patches, W_patches)
+        return features, H_patches, W_patches
 
 
 
@@ -96,13 +119,7 @@ class LightGeometricEncoder(Encoder):
             B = rgb.shape[0]
             T = 1
 
-        features, H_patches, W_patches = self.patch_embed(rgb, return_patch_size=True)  # (B, N_patches, embedding_dimension)
-        features = self.norm(features)
-        features = features.reshape(B if not has_time else B*T, H_patches, W_patches, self.embedding_dimension)
-        depth_map = F.interpolate(depth, size=(H_patches, W_patches), mode='bilinear', align_corners=False)
-        features = self.attention_block(features, depth_map) # (B, H_patches, W_patches, embedding_dimension)
-        features = self.norm(features)
-        features = features.permute(0, 3, 1, 2).contiguous() # (B, embedding_dimension, H_patches, W_patches)
+        features, H_patches, W_patches = self.encode_features(rgb, depth)  # (B*T, embedding_dimension, H_patches, W_patches)
         if self.pooling_head is None:
             self.pooling_head = create_pooling_head(
                 pooling_method=self.pooling_method,

@@ -1,21 +1,45 @@
-# Phase ACT Loss Configuration
-# Adds phase classification loss on top of action reconstruction
+# The syntax to validate against structured configs is always: `config_name in the configs.init.py`@`field path in the yaml file to validate`
+defaults:
+  - regression@loss_modules.moe_loss.base_loss.loss_modules.regression_loss
+  - gripper@loss_modules.moe_loss.base_loss.loss_modules.gripper_loss
+  - kl@loss_modules.moe_loss.base_loss.loss_modules.kl_divergence
+  - traj_len@loss_modules.moe_loss.base_loss.loss_modules.trajectory_length
+  - phase_classification@loss_modules.moe_loss.base_loss.loss_modules.phase_classification_loss
+  - _self_
 
-_target_: refactoring.metrics.PhaseActionLoss
+_target_: refactoring.metrics.CompositeLoss
+loss_modules:
+  moe_loss:
+    _target_: refactoring.metrics.MoELoss
+    base_loss:
+      _target_: refactoring.metrics.CompositeLoss
+      loss_modules:
+        regression_loss:
+          _target_: refactoring.metrics.RegressionLoss
+          action_keys:
+            - ${action_key:POSITION}
+          mse_weight: 0.0
+          l1_weight: 0.8
+          huber_weight: 0.0
 
-action_keys: null
+        gripper_loss:
+          _target_: refactoring.metrics.GripperLoss
+          gripper_type: ${gripper:BINARY}
+          bce_weight: 0.05
 
-mse_weight: 0.0
-l1_weight: 0.8  # Phase ACT uses L1 instead of MSE
-gripper_bce_weight: 0.05
-kl_weight: 100.0  # VAE KL divergence
-length_weight: 0.001  # sinkhorn_weight in old config
-smoothness_weight: 0.0
+        kl_divergence:
+            _target_: refactoring.metrics.KLDivergenceLoss
+            weight: 100.0
 
-# Phase classification weights
-phase_ce_weight: 0.1  # Cross-entropy for phase prediction
-phase_entropy_weight: 0.01  # Entropy regularization
-label_smoothing: 0.0
+        trajectory_length:
+            _target_: refactoring.metrics.TrajectoryLengthLoss
+            weight: 0.001
+            action_key: ${action_key:POSITION}
 
-gripper_type: ${gripper:BINARY}
-use_vae: true
+        phase_classification_loss:
+          cross_entropy_weight: 0.1
+          entropy_weight: 0.01
+          label_smoothing: 0.0
+
+
+

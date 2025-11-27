@@ -204,7 +204,7 @@ class Policy(nn.Module):
             Decoder output dictionary containing action predictions and any architecture-specific outputs.
         """
         obs = batch[OBSERVATION_KEY]
-        actions = batch.get(ACTION_KEY, None) if self.decoder.decoder_input.requires_actions else None
+        actions = batch.get(ACTION_KEY, None)
         features = self.encoding_pipeline(obs)
         return self.algorithm.forward(features=features, actions=actions, network=self.decoder)
 

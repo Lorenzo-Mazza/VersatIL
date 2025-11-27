@@ -57,7 +57,7 @@ class LanguageEncoderType(str, enum.Enum):
 
 class EncoderOutputKeys(str, enum.Enum):
     """Types of encoder output keys to use for extracting an output feature from an encoder."""
-    RGB = "image"
+    RGB = "rgb"
     RGBD = "rgbd"
     LANGUAGE = "language"
     DEPTH = "depth"

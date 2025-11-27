@@ -6,8 +6,8 @@ _target_: refactoring.models.decoding.decoders.factory.free_transformer.FreeTran
 
 # Input features from encoding pipeline
 input_keys:
-  - left_image
-  - right_image
+  - left_rgb
+  - right_rgb
   - embedder_token_embedding
 
 embedding_dimension: 512

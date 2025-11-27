@@ -1,10 +1,12 @@
 """Configuration classes for different action decoder architectures."""
 from dataclasses import dataclass, field
+from typing import Any
 
 from omegaconf import MISSING
 
 from refactoring.configs.decoding.action_head import ActionHeadConfig, MixtureOfExpertsHeadConfig
 from refactoring.configs.data.task import ActionSpaceConfig, ObservationSpaceConfig
+from refactoring.data.constants import PHASE_LABEL_KEY
 from refactoring.models.decoding.constants import MoERoutingType
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
@@ -15,7 +17,7 @@ from refactoring.models.layers.normalization.constants import NormalizationType
 class DecodingNetworkConfig:
     """Base architecture configuration."""
     _target_: str = MISSING
-    action_heads: dict[str, ActionHeadConfig] | None = None
+    action_heads: dict[str, Any] | None = None # Any means ActionHeadConfig | MixtureOfExpertsHeadConfig, but custom union type aliases don't work well with omegaconf
     input_keys: list[str] = MISSING
     observation_space: ObservationSpaceConfig = "${policy.observation_space}"  # type: ignore[assignment]
     action_space: ActionSpaceConfig = "${policy.action_space}"  # type: ignore[assignment]
@@ -43,6 +45,16 @@ class ACTConfig(DecodingNetworkConfig):
     dropout_rate: float = 0.1
     normalize_before: bool = False
 
+@dataclass
+class PhaseACTConfig(ACTConfig):
+    """Phase-conditioned ACT decoder with MoE routing.
+
+    Extends the base ACT architecture to support phase-based expert routing.
+    The phase classifier head produces routing logits that are used to route
+    position and gripper predictions through phase-specific expert networks.
+    """
+    _target_: str = "refactoring.models.decoding.decoders.factory.phase_act.PhaseACT"
+    phase_routing_key: str = PHASE_LABEL_KEY  # Key for the phase classifier head that provides routing weights
 
 @dataclass
 class FASTDETRDecoderConfig(DecodingNetworkConfig):
