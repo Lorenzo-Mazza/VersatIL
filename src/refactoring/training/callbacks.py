@@ -227,7 +227,7 @@ class ExpertUsageCallback(Callback):
             Matplotlib figure
         """
         fig, ax = plt.subplots(figsize=(8, 6))
-        sns.barplot(x=list(range(len(expert_usage))), y=expert_usage, ax=ax)
+        sns.barplot(x=list(range((expert_usage.shape[0]))), y=expert_usage, ax=ax)
         ax.set_xlabel("Expert Index")
         ax.set_ylabel("Average Usage Ratio")
         ax.set_title(title)
@@ -327,22 +327,6 @@ class ConfusionMatrixCallback(Callback):
         plt.tight_layout()
         return fig
 
-    def _create_expert_usage_figure(self, expert_usage: np.ndarray, title: str) -> plt.Figure:
-        """Create a bar plot figure for expert usage.
-
-        Args:
-            expert_usage: Expert usage ratios as numpy array
-            title: Title for the plot
-        Returns:
-            Matplotlib figure
-        """
-        fig, ax = plt.subplots(figsize=(8, 6))
-        sns.barplot(x=list(range(len(expert_usage))), y=expert_usage, ax=ax)
-        ax.set_xlabel("Expert Index")
-        ax.set_ylabel("Average Usage Ratio")
-        ax.set_title(title)
-        plt.tight_layout()
-        return fig
 
 
 class GradientNormCallback(Callback):
