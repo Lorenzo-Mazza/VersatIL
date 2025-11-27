@@ -155,7 +155,7 @@ class MetricsAccumulator:
         expert_usages = {}
         for key in self.metadata.keys():
             if MetadataKey.EXPERT_USAGE.value in key:
-                all_usage = torch.cat(self.metadata[key], dim=0)
+                all_usage = torch.stack(self.metadata[key], dim=0)
                 logging.info(f"Computing expert usage for key: {key} with shape {all_usage.shape}")
                 expert_usages[key] =  all_usage.mean(dim=0).numpy()
         if len(expert_usages.keys()) == 0:
