@@ -146,16 +146,20 @@ class MetricsAccumulator:
         result: np.ndarray = cm
         return result
 
-    def compute_expert_usage(self) -> np.ndarray | None:
+    def compute_expert_usage(self) -> dict[str, np.ndarray] | None:
         """Compute average expert usage from metadata if available.
 
         Returns:
             Expert usage ratio per expert as numpy array, or None if no expert usage data
         """
-        if MetadataKey.EXPERT_USAGE.value not in self.metadata:
+        expert_usages = {}
+        for key in self.metadata.keys():
+            if MetadataKey.EXPERT_USAGE.value in key:
+                expert_usages[key] =  self.metadata[key].numpy()
+        if len(expert_usages.keys()) == 0:
             return None
-
-        return self.metadata[MetadataKey.EXPERT_USAGE.value].numpy()
+        else:
+            return expert_usages
 
 
     def to_dict(self) -> dict[str, float]:

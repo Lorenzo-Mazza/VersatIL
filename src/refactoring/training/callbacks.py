@@ -195,21 +195,17 @@ class ConfusionMatrixCallback(Callback):
                     step=trainer.global_step,
                 )
             plt.close(fig)
-        expert_usage = pl_module.train_metrics.compute_expert_usage()
-        if expert_usage is not None:
-            fig, ax = plt.subplots(figsize=(8, 6))
-            sns.barplot(x=list(range(len(expert_usage))), y=expert_usage, ax=ax)
-            ax.set_xlabel("Expert Index")
-            ax.set_ylabel("Average Usage Ratio")
-            ax.set_title("Train Phase Expert Usage")
-            plt.tight_layout()
-            if trainer.logger is not None:
-                wandb_image = self._figure_to_wandb_image(fig)
-                trainer.logger.log_metrics(
-                    {"train_phase_expert_usage": wandb_image},  # type: ignore[dict-item]
-                    step=trainer.global_step,
-                )
-            plt.close(fig)
+        expert_usages = pl_module.train_metrics.compute_expert_usage()
+        if expert_usages is not None:
+            for key, expert_usage in expert_usages.items():
+                fig = self._create_expert_usage_figure(expert_usage, f"Train {key}")
+                if trainer.logger is not None:
+                    wandb_image = self._figure_to_wandb_image(fig)
+                    trainer.logger.log_metrics(
+                        {f"train_{key}": wandb_image},  # type: ignore[dict-item]
+                        step=trainer.global_step,
+                    )
+                plt.close(fig)
 
     def on_validation_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
         """Log validation confusion matrix at end of epoch.
@@ -232,21 +228,17 @@ class ConfusionMatrixCallback(Callback):
                     step=trainer.global_step,
                 )
             plt.close(fig)
-        expert_usage = pl_module.val_metrics.compute_expert_usage()
-        if expert_usage is not None:
-            fig, ax = plt.subplots(figsize=(8, 6))
-            sns.barplot(x=list(range(len(expert_usage))), y=expert_usage, ax=ax)
-            ax.set_xlabel("Expert Index")
-            ax.set_ylabel("Average Usage Ratio")
-            ax.set_title("Val Phase Expert Usage")
-            plt.tight_layout()
-            if trainer.logger is not None:
-                wandb_image = self._figure_to_wandb_image(fig)
-                trainer.logger.log_metrics(
-                    {"val_phase_expert_usage": wandb_image},  # type: ignore[dict-item]
-                    step=trainer.global_step,
-                )
-            plt.close(fig)
+        expert_usages = pl_module.val_metrics.compute_expert_usage()
+        if expert_usages is not None:
+            for key, expert_usage in expert_usages.items():
+                fig = self._create_expert_usage_figure(expert_usage, f"Val {key}")
+                if trainer.logger is not None:
+                    wandb_image = self._figure_to_wandb_image(fig)
+                    trainer.logger.log_metrics(
+                        {f"val_{key}": wandb_image},  # type: ignore[dict-item]
+                        step=trainer.global_step,
+                    )
+                plt.close(fig)
 
 
     def _create_confusion_matrix_figure(self, cm: np.ndarray, title: str) -> plt.Figure:
@@ -281,6 +273,24 @@ class ConfusionMatrixCallback(Callback):
         plt.tight_layout()
         return fig
 
+    def _create_expert_usage_figure(self, expert_usage: np.ndarray, title: str) -> plt.Figure:
+        """Create a bar plot figure for expert usage.
+
+        Args:
+            expert_usage: Expert usage ratios as numpy array
+            title: Title for the plot
+        Returns:
+            Matplotlib figure
+        """
+        fig, ax = plt.subplots(figsize=(8, 6))
+        sns.barplot(x=list(range(len(expert_usage))), y=expert_usage, ax=ax)
+        ax.set_xlabel("Expert Index")
+        ax.set_ylabel("Average Usage Ratio")
+        ax.set_title(title)
+        plt.tight_layout()
+        return fig
+
+
     def _figure_to_wandb_image(self, fig: plt.Figure) -> wandb.Image:
         """Convert matplotlib figure to WandB image.
 
@@ -290,15 +300,10 @@ class ConfusionMatrixCallback(Callback):
         Returns:
             WandB image object
         """
-        # Save figure to buffer
         buf = io.BytesIO()
         fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
         buf.seek(0)
-
-        # Load as PIL image
         pil_img = Image.open(buf)
-
-        # Convert to WandB image
         return wandb.Image(pil_img)
 
 
