@@ -21,12 +21,13 @@ from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.dataloader import get_dataloaders
 from refactoring.data.normalization.normalizer import LinearNormalizer
 from refactoring.data.tokenization import Tokenizer
+from refactoring.metrics import MoELoss
 from refactoring.models.policy import Policy
 from refactoring.training.callbacks import (
     ConfusionMatrixCallback,
     EMACallback,
     GradientNormCallback,
-    ReduceLROnPlateauCallback,
+    ReduceLROnPlateauCallback, ExpertUsageCallback,
 )
 from refactoring.training.lightning_policy import LightningPolicy
 
@@ -296,6 +297,11 @@ class Workspace:
             )
             callbacks.append(reduce_lr_callback)
             logging.info(f"Added ReduceLROnPlateau callback (patience={self.config.training.reduce_lr_patience})")
+
+        if any(isinstance(module, MoELoss) for module in self.policy.loss_module.loss_modules.values()):
+            expert_usage_callback = ExpertUsageCallback(log_every_n_epochs=1)
+            callbacks.append(expert_usage_callback)
+            logging.info("Added ExpertUsage callback for MoE loss")
 
         return callbacks
 

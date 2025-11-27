@@ -155,7 +155,8 @@ class MetricsAccumulator:
         expert_usages = {}
         for key in self.metadata.keys():
             if MetadataKey.EXPERT_USAGE.value in key:
-                expert_usages[key] =  self.metadata[key].numpy()
+                all_usage = torch.cat(self.metadata[key], dim=0)
+                expert_usages[key] =  all_usage.mean(dim=0).numpy()
         if len(expert_usages.keys()) == 0:
             return None
         else:
@@ -169,12 +170,9 @@ class MetricsAccumulator:
             Dictionary of metric values including optional phase metrics
         """
         metrics = self.average()
-
-        # Add phase metrics if available
         phase_metrics = self.compute_phase_metrics()
         if phase_metrics:
             metrics.update(phase_metrics)
-
         return metrics
 
     def reset(self):

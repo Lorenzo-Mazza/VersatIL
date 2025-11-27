@@ -156,6 +156,84 @@ class EMACallback(Callback):
             pl_module.policy = self._original_policy
             delattr(self, "_original_policy")
 
+class ExpertUsageCallback(Callback):
+    """Callback to log expert usage statistics for mixture-of-experts models.
+
+    Logs expert usage ratios as bar plots to WandB at the end of each epoch.
+    """
+
+    def __init__(self, log_every_n_epochs: int = 1):
+        """Initialize expert usage callback.
+
+        Args:
+            log_every_n_epochs: Log expert usage every N epochs
+        """
+        super().__init__()
+        self.log_every_n_epochs = log_every_n_epochs
+
+    def on_train_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        """Log training expert usage at end of epoch.
+
+        Args:
+            trainer: Lightning trainer
+            pl_module: Lightning module
+        """
+        if trainer.current_epoch % self.log_every_n_epochs != 0:
+            return
+
+        expert_usages = pl_module.train_metrics.compute_expert_usage()
+        print(f"Expert usages at epoch end: {expert_usages}")
+        print(f"Metadata : {pl_module.train_metrics.metadata}")
+        if expert_usages is not None:
+            for key, expert_usage in expert_usages.items():
+                fig = self._create_expert_usage_figure(expert_usage, f"Train {key}")
+                if trainer.logger is not None:
+                    wandb_image = _figure_to_wandb_image(fig)
+                    trainer.logger.log_metrics(
+                        {f"train_{key}": wandb_image},  # type: ignore[dict-item]
+                        step=trainer.global_step,
+                    )
+                plt.close(fig)
+
+
+    def on_validation_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        """Log validation expert usage picture at end of epoch.
+
+        Args:
+            trainer: Lightning trainer
+            pl_module: Lightning module
+        """
+        if trainer.current_epoch % self.log_every_n_epochs != 0:
+            return
+        expert_usages = pl_module.val_metrics.compute_expert_usage()
+        if expert_usages is not None:
+            for key, expert_usage in expert_usages.items():
+                fig = self._create_expert_usage_figure(expert_usage, f"Val {key}")
+                if trainer.logger is not None:
+                    wandb_image = _figure_to_wandb_image(fig)
+                    trainer.logger.log_metrics(
+                        {f"val_{key}": wandb_image},  # type: ignore[dict-item]
+                        step=trainer.global_step,
+                    )
+                plt.close(fig)
+
+    def _create_expert_usage_figure(self, expert_usage: np.ndarray, title: str) -> plt.Figure:
+        """Create a bar plot figure for expert usage.
+
+        Args:
+            expert_usage: Expert usage ratios as numpy array
+            title: Title for the plot
+        Returns:
+            Matplotlib figure
+        """
+        fig, ax = plt.subplots(figsize=(8, 6))
+        sns.barplot(x=list(range(len(expert_usage))), y=expert_usage, ax=ax)
+        ax.set_xlabel("Expert Index")
+        ax.set_ylabel("Average Usage Ratio")
+        ax.set_title(title)
+        plt.tight_layout()
+        return fig
+
 
 class ConfusionMatrixCallback(Callback):
     """Callback to log confusion matrices for phase classification models.
@@ -188,26 +266,12 @@ class ConfusionMatrixCallback(Callback):
         if cm is not None:
             fig = self._create_confusion_matrix_figure(cm, "Train Phase Confusion Matrix")
             if trainer.logger is not None:
-                # Convert to WandB image
-                wandb_image = self._figure_to_wandb_image(fig)
+                wandb_image = _figure_to_wandb_image(fig)
                 trainer.logger.log_metrics(
                     {"train_phase_confusion_matrix": wandb_image},  # type: ignore[dict-item]
                     step=trainer.global_step,
                 )
             plt.close(fig)
-        expert_usages = pl_module.train_metrics.compute_expert_usage()
-        print(f"Expert usages at epoch end: {expert_usages}")
-        print(f"Metadata : {pl_module.train_metrics.metadata}")
-        if expert_usages is not None:
-            for key, expert_usage in expert_usages.items():
-                fig = self._create_expert_usage_figure(expert_usage, f"Train {key}")
-                if trainer.logger is not None:
-                    wandb_image = self._figure_to_wandb_image(fig)
-                    trainer.logger.log_metrics(
-                        {f"train_{key}": wandb_image},  # type: ignore[dict-item]
-                        step=trainer.global_step,
-                    )
-                plt.close(fig)
 
     def on_validation_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
         """Log validation confusion matrix at end of epoch.
@@ -223,24 +287,12 @@ class ConfusionMatrixCallback(Callback):
         if cm is not None:
             fig = self._create_confusion_matrix_figure(cm, "Val Phase Confusion Matrix")
             if trainer.logger is not None:
-                # Convert to WandB image
-                wandb_image = self._figure_to_wandb_image(fig)
+                wandb_image = _figure_to_wandb_image(fig)
                 trainer.logger.log_metrics(
                     {"val_phase_confusion_matrix": wandb_image},  # type: ignore[dict-item]
                     step=trainer.global_step,
                 )
             plt.close(fig)
-        expert_usages = pl_module.val_metrics.compute_expert_usage()
-        if expert_usages is not None:
-            for key, expert_usage in expert_usages.items():
-                fig = self._create_expert_usage_figure(expert_usage, f"Val {key}")
-                if trainer.logger is not None:
-                    wandb_image = self._figure_to_wandb_image(fig)
-                    trainer.logger.log_metrics(
-                        {f"val_{key}": wandb_image},  # type: ignore[dict-item]
-                        step=trainer.global_step,
-                    )
-                plt.close(fig)
 
 
     def _create_confusion_matrix_figure(self, cm: np.ndarray, title: str) -> plt.Figure:
@@ -291,22 +343,6 @@ class ConfusionMatrixCallback(Callback):
         ax.set_title(title)
         plt.tight_layout()
         return fig
-
-
-    def _figure_to_wandb_image(self, fig: plt.Figure) -> wandb.Image:
-        """Convert matplotlib figure to WandB image.
-
-        Args:
-            fig: Matplotlib figure
-
-        Returns:
-            WandB image object
-        """
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
-        buf.seek(0)
-        pil_img = Image.open(buf)
-        return wandb.Image(pil_img)
 
 
 class GradientNormCallback(Callback):
@@ -510,3 +546,19 @@ class ReduceLROnPlateauCallback(Callback):
             prog_bar=True,
             logger=True,
         )
+
+
+def _figure_to_wandb_image(fig: plt.Figure) -> wandb.Image:
+    """Convert matplotlib figure to WandB image.
+
+    Args:
+        fig: Matplotlib figure
+
+    Returns:
+        WandB image object
+    """
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
+    buf.seek(0)
+    pil_img = Image.open(buf)
+    return wandb.Image(pil_img)
