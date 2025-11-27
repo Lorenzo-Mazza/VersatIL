@@ -2,7 +2,6 @@
 
 import copy
 import io
-import logging
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -227,7 +226,6 @@ class ExpertUsageCallback(Callback):
         Returns:
             Matplotlib figure
         """
-        logging.info(f"Creating expert usage figure with data: {expert_usage}")
         fig, ax = plt.subplots(figsize=(8, 6))
         sns.barplot(x=list(range(len(expert_usage))), y=expert_usage, ax=ax)
         ax.set_xlabel("Expert Index")
