@@ -227,7 +227,7 @@ class ExpertUsageCallback(Callback):
             Matplotlib figure
         """
         fig, ax = plt.subplots(figsize=(8, 6))
-        sns.barplot(x=list(range(len(expert_usage))), y=expert_usage, ax=ax)
+        sns.barplot(x=np.arange(len(expert_usage)), y=expert_usage, ax=ax)
         ax.set_xlabel("Expert Index")
         ax.set_ylabel("Average Usage Ratio")
         ax.set_title(title)
