@@ -1,6 +1,7 @@
 defaults:
   - encoder/image/cnn@encoders.left
   - encoder/image/cnn@encoders.right
+  - encoder/language@encoders.instruction
   - _self_
 
 _target_: refactoring.models.encoding.pipeline.EncodingPipeline
@@ -26,11 +27,9 @@ encoders:
     pooling_method: none
     use_group_norm: true
 
-  embedder:
-    _target_: refactoring.models.encoding.encoders.language.embedder.Embedder
-    max_token_len: 128
-    embedding_dim: 512
+  instruction:
+    model_name: ${language_model:GEMMA_2B}
+    pretrained: true
+    frozen: true
 
-# No fusion stage needed - FASTGPTDecoder handles combining flat RGB features
-# with sequential language token embeddings internally via _prepare_feature_tokens
 fusion_stages: []

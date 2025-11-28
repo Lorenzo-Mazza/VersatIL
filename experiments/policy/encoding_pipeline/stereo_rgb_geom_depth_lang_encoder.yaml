@@ -1,5 +1,8 @@
-# Encoding pipeline for RGB + Depth with geometric attention fusion
-# Uses DFormerV2 for depth-aware encoding
+defaults:
+  - encoder/image/cnn@encoders.left
+  - encoder/image/cnn@encoders.right
+  - encoder/language@encoders.instruction
+  - _self_
 
 _target_: refactoring.models.encoding.pipeline.EncodingPipeline
 
@@ -23,3 +26,10 @@ encoders:
     pooling_method: none
     use_group_norm: true
 
+
+  instruction:
+    model_name: ${language_model:GEMMA_2B}
+    pretrained: true
+    frozen: true
+
+fusion_stages: []

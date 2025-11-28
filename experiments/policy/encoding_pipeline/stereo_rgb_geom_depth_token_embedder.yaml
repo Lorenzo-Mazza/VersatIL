@@ -1,5 +1,7 @@
-# Encoding pipeline for RGB + Depth with geometric attention fusion
-# Uses DFormerV2 for depth-aware encoding
+defaults:
+  - encoder/image/cnn@encoders.left
+  - encoder/image/cnn@encoders.right
+  - _self_
 
 _target_: refactoring.models.encoding.pipeline.EncodingPipeline
 
@@ -16,10 +18,18 @@ encoders:
   right:
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys:
-     - ${cameras:RIGHT}
-    backbone: ${rgb_backbone:RESNET18}
+    - ${cameras:RIGHT}
+    backbone: ${rgb_backbone:EFFICIENTNET_B0}
     pretrained: false
     frozen: false
     pooling_method: none
     use_group_norm: true
 
+  embedder:
+    _target_: refactoring.models.encoding.encoders.language.embedder.Embedder
+    max_token_len: 128
+    embedding_dim: 512
+
+# No fusion stage needed - FASTGPTDecoder handles combining flat RGB features
+# with sequential language token embeddings internally via _prepare_feature_tokens
+fusion_stages: []

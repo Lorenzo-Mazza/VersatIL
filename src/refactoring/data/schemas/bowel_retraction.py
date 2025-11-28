@@ -28,7 +28,7 @@ BOWEL_RETRACTION_RIGHT_IMAGE_KEY = "frameRightPath"
 BOWEL_RETRACTION_RECTIFIED_LEFT_IMAGE_KEY = "frameLeftRectifiedPath"
 BOWEL_RETRACTION_RECTIFIED_RIGHT_IMAGE_KEY = "frameRightRectifiedPath"
 BOWEL_RETRACTION_EPISODE_FILENAME = "episode.csv"
-
+BOWEL_RETRACTION_LANGUAGE_KEY = "language"
 
 class BowelRetractionSchema(DatasetSchema):
     """Schema for the bowel retraction zarr dataset.
@@ -58,7 +58,7 @@ class BowelRetractionSchema(DatasetSchema):
                 camera_frame_proprio_keys=BOWEL_RETRACTION_CAMERA_FRAME_COLS,
                 gripper_state_keys=[BOWEL_RETRACTION_GRIPPER_COL],
                 camera_keys=[Cameras.LEFT.value, Cameras.RIGHT.value, Cameras.DEPTH.value],
-                language_key=None,
+                language_key=BOWEL_RETRACTION_LANGUAGE_KEY,
                 use_rectified_images=True,
                 image_width=480,
                 image_height=270,
@@ -121,3 +121,5 @@ class BowelRetractionSchema(DatasetSchema):
             depth_path
         )
         return depth_path
+
+

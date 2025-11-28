@@ -61,13 +61,6 @@ class ProprioEncoderConfig(EncoderConfig):
 
 
 @dataclass
-class LanguageEncoderConfig(EncoderConfig):
-    """Language encoder configuration."""
-    _target_: str = "refactoring.models.encoding.encoders.language.language.LanguageEncoder"
-    model_name: str = LanguageEncoderType.BERT_BASE.value
-    pooling_method: str = PoolingMethod.NONE.value
-
-@dataclass
 class VLMEncoderConfig(EncoderConfig):
     """Vision-Language Model encoder configuration."""
     _target_: str = "refactoring.models.encoding.encoders.multimodal.vlm.VLMEncoder"
@@ -75,8 +68,20 @@ class VLMEncoderConfig(EncoderConfig):
     pooling_method: str = PoolingMethod.NONE.value
 
 
+# These two configs don't inherit from EncoderConfig because their input keys are fixed, i.e. `TOKENIZED_OBSERVATIONS_KEY`
+
 @dataclass
-class EmbedderConfig(EncoderConfig):
+class LanguageEncoderConfig:
+    """Language encoder configuration."""
+    _target_: str = "refactoring.models.encoding.encoders.language.language.LanguageEncoder"
+    model_name: str = LanguageEncoderType.BERT_BASE.value
+    pooling_method: str = PoolingMethod.NONE.value
+    pretrained: bool = False
+    frozen : bool = False
+
+
+@dataclass
+class EmbedderConfig:
     """Embedding layer encoder configuration.
 
     Simple encoder consisting of a single nn.Embedding layer that converts token IDs
