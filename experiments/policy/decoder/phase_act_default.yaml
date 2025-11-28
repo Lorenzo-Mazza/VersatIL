@@ -7,7 +7,7 @@ _target_: refactoring.models.decoding.decoders.factory.phase_act.PhaseACT
 input_keys:
   - left_rgb
   - right_rgb
-  - instruction_token_embedding
+  - embedder_token_embedding
 
 embedding_dimension: 512
 number_of_heads: 8
