@@ -20,7 +20,6 @@ class LanguageEncoder(Encoder):
     """Language encoder using Transformers library."""
     def __init__(
             self,
-            input_keys: str | list[str],
             pretrained: bool,
             frozen: bool,
             pooling_method: str = PoolingMethod.DEFAULT.value,
@@ -29,14 +28,14 @@ class LanguageEncoder(Encoder):
     ):
         """
         Args:
-            input_keys: Keys for text input in input dict
             pretrained: Whether to use pretrained weights
             frozen: Whether to freeze backbone weights
             pooling_method: How to extract features from transformer output
             model_name: Model identifier from LanguageEncoderType
             attention_type: Attention implementation to use
         """
-        specification = EncoderInput(keys=input_keys, required=[TOKENIZED_OBSERVATIONS_KEY], requires_tokenized=True)
+        specification = EncoderInput(keys=[TOKENIZED_OBSERVATIONS_KEY, IS_PAD_OBSERVATION_KEY],
+                                     required=[TOKENIZED_OBSERVATIONS_KEY], requires_tokenized=True)
         super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
         self.language_key = TOKENIZED_OBSERVATIONS_KEY
         self.pooling_method = pooling_method
