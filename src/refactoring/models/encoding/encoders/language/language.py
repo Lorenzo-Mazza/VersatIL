@@ -57,12 +57,16 @@ class LanguageEncoder(Encoder):
 
     def _build_encoder(self):
         """Build language encoder and tokenizer."""
-        config = AutoConfig.from_pretrained(self.model_name)
+        self.config = AutoConfig.from_pretrained(self.model_name)
         if self.pretrained:
-            self.encoder = AutoModel.from_pretrained(self.model_name,attn_implementation=self.attention_type, use_safetensors=True)
+            self.encoder = AutoModel.from_pretrained(
+                self.model_name,
+                attn_implementation=self.attention_type,
+                use_safetensors=True,
+                dtype=torch.bfloat16
+            )
         else:
-            config = AutoConfig.from_pretrained(self.model_name)
-            self.encoder = AutoModel.from_config(config, attn_implementation=self.attention_type)
+            self.encoder = AutoModel.from_config(self.config, attn_implementation=self.attention_type)
 
 
 
@@ -164,9 +168,12 @@ class LanguageEncoder(Encoder):
             "input_ids": text_input_ids.to(self.encoder.device),
             "attention_mask": attention_mask.to(self.encoder.device),
         }
+        print(f"[LANG DEBUG] Final input seq: {text_input_ids.shape[1]}, expected <= {self.max_token_len}")
         outputs = self.encoder(**encoder_inputs, return_dict=True)
         features = self._pool_features(outputs)
         padding_mask = ~attention_mask # B, max_token_len*T, True for padding positions
+        print(f"[DEBUG] Final features shape: {features.shape} | Padding mask shape: {padding_mask.shape}")
+
         if has_time:
             features = features.reshape(B, T, *features.shape[1:])
             if padding_mask.ndim >= 2:

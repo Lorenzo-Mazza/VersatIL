@@ -116,7 +116,7 @@ class TestLanguageEncoderForward:
 
         encoder = LanguageEncoder(
             model_name=model_name,
-            pretrained=False,
+            pretrained=True,
             frozen=True,
             pooling_method=pooling_method,
         )
@@ -135,7 +135,7 @@ class TestLanguageEncoderForward:
         output = output_dict[EncoderOutputKeys.LANGUAGE.value]
         mask_output = output_dict[mask_expected_key]
         assert output.shape == (batch_size, *expected_dim)
-        assert output.dtype == torch.float32
+        assert output.dtype == torch.bfloat16
         assert not torch.isnan(output).any()
         assert not torch.isinf(output).any()
         if mask_expected_dim is not None:
@@ -169,7 +169,7 @@ class TestLanguageEncoderForward:
         output = output_dict[EncoderOutputKeys.LANGUAGE.value]
         mask_output = output_dict[mask_expected_key]
         assert output.shape == (batch_size, temporal_length, *expected_dim)
-        assert output.dtype == torch.float32
+        assert output.dtype == torch.bfloat16
         assert not torch.isnan(output).any()
         assert not torch.isinf(output).any()
         if mask_expected_dim is not None:
@@ -190,7 +190,7 @@ class TestLanguageEncoderForward:
         output = encoder(text_inputs_batch)[EncoderOutputKeys.LANGUAGE.value]
 
         assert output.shape == (batch_size, 768)
-        assert output.dtype == torch.float32
+        assert output.dtype == torch.bfloat16
         assert not torch.isnan(output).any()
 
         if feature_method == PoolingMethod.LEARNED_AGGREGATION.value:
