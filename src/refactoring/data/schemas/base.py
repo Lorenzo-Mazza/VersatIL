@@ -137,6 +137,37 @@ class DatasetSchema(abc.ABC):
         else:
             return df[self.phase_label_key].values.astype(np.uint8)  # type: ignore[no-any-return]
 
+    def extract_language_instruction(self, df: pd.DataFrame) -> np.ndarray | None:
+        """Extract language instruction from CSV.
+
+        This is the language instruction associated with the episode (if available).
+
+        Args:
+            df: DataFrame with episode data
+
+        Returns:
+            Array of shape (T,) or None if not available
+        """
+        if not self.raw_observations.language_key:
+            raise ValueError("Language instruction requested but no key defined in schema.")
+        else:
+            return df[self.raw_observations.language_key].astype(str).values  # type: ignore[no-any-return]
+
+
+    def extract_custom_observations(self, df: pd.DataFrame, modality_name: str) -> np.ndarray:
+        """Extract custom observation modality from CSV.
+
+        These are user-defined observation modalities (if available).
+
+        Args:
+            df: DataFrame with episode data
+            modality_name: Name of the custom observation modality
+       """
+        if modality_name not in self.raw_observations.custom_obs_keys:
+            raise ValueError(f"Custom observation '{modality_name}' requested but no keys defined in schema.")
+        else:
+            keys = self.raw_observations.custom_obs_keys[modality_name]
+            return df[keys].values.astype(np.float32)  # type: ignore[no-any-return]
 
     @abc.abstractmethod
     def get_image_path_column(self, camera: str) -> str:

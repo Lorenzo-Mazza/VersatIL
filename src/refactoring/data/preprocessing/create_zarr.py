@@ -15,7 +15,7 @@ from refactoring.data.constants import (
     PHASE_LABEL_KEY,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
-    Cameras,
+    Cameras, LANGUAGE_KEY,
 )
 from refactoring.data.schemas.base import DatasetSchema
 
@@ -120,12 +120,11 @@ def _append_observations(
         data_group[PHASE_LABEL_KEY].append(phase_labels[:, np.newaxis])  # type: ignore[union-attr, index]
 
     if obs.language_key:
-        lang_data = episode[obs.language_key].astype(str).values
-        data_group[obs.language_key].append(lang_data)  # type: ignore[union-attr]
+        data_group[LANGUAGE_KEY].append(schema.extract_language_instruction(episode))  # type: ignore[union-attr]
 
     for modality_name, keys in obs.custom_obs_keys.items():
-        custom_data = episode[keys].values.astype(np.float32)
-        data_group[modality_name].append(custom_data)  # type: ignore[union-attr]
+        data_group[modality_name].append(schema.extract_custom_observations(
+            df=episode, modality_name=modality_name))  # type: ignore[union-attr]
 
 
 def _append_images(
