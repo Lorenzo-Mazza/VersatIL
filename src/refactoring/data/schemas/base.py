@@ -21,7 +21,7 @@ from refactoring.data.constants import (
     PHASE_LABEL_KEY,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
-    Cameras,
+    Cameras, LANGUAGE_KEY,
 )
 
 
@@ -268,7 +268,7 @@ class DatasetSchema(abc.ABC):
             }
 
         if obs.language_key:
-            specs[obs.language_key] = {
+            specs[LANGUAGE_KEY] = {
                 'shape': (0,),
                 'chunks': (100,),
                 'dtype': 'str',
