@@ -194,6 +194,6 @@ class ACT(ActionDecoder):
         # This creates a sequence of input tokens and positional encodings in the format ACT expects
         input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(features) # (B, pred_horizon, embedding_dimension)
         action_embeddings = self._decode_actions(input_tokens=input_tokens, positional_encodings=pos_encodings,
-                                                 padding_mask=None)
+                                                 padding_mask=padding_mask)
         predictions = self._apply_action_heads(action_embeddings)
         return predictions

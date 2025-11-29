@@ -14,7 +14,7 @@ wandb_entity: null
 device: cuda
 distributed: false
 
-precision: ${precision:FP16_MIXED}  # PyTorch Lightning precision (FP32, FP16_MIXED, BF16_MIXED, etc.)
+precision: ${precision:BF16_MIXED}  # PyTorch Lightning precision (FP32, FP16_MIXED, BF16_MIXED, etc.)
 float32_matmul_precision: ${float32_matmul:MEDIUM}  # Tensor Cores for float32 (HIGHEST, HIGH, MEDIUM, or null)
 
 checkpoint_every: 20

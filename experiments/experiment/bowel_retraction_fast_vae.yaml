@@ -19,7 +19,7 @@ device: cuda
 distributed: false
 
 # Training precision and performance
-precision: ${precision:FP16_MIXED}
+precision: ${precision:BF16_MIXED}
 float32_matmul_precision: ${float32_matmul:MEDIUM}
 
 # Checkpointing and validation

@@ -8,6 +8,6 @@ observation_tokenizer:
   observation_keys:
     - ${obs_key:PROPRIO_CAMERA_FRAME}
     - ${obs_key:LANGUAGE}
-  max_token_len: 128
+  max_token_len: 64
   bin_continuous_data: true
 

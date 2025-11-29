@@ -27,7 +27,7 @@ encoders:
 
   embedder:
     _target_: refactoring.models.encoding.encoders.language.embedder.Embedder
-    max_token_len: 128
+    max_token_len: 64
     embedding_dim: 512
 
 # No fusion stage needed - FASTGPTDecoder handles combining flat RGB features
