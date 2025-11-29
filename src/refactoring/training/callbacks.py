@@ -182,8 +182,6 @@ class ExpertUsageCallback(Callback):
             return
 
         expert_usages = pl_module.train_metrics.compute_expert_usage()
-        print(f"Expert usages at epoch end: {expert_usages}")
-        print(f"Metadata : {pl_module.train_metrics.metadata}")
         if expert_usages is not None:
             for key, expert_usage in expert_usages.items():
                 fig = self._create_expert_usage_figure(expert_usage, f"Train {key}")
