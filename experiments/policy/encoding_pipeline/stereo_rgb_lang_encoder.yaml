@@ -31,5 +31,6 @@ encoders:
     model_name: ${language_model:GEMMA_2B}
     pretrained: true
     frozen: true
+    max_token_len: ${task.dataloader.tokenization.observation_tokenizer.max_token_len}
 
 fusion_stages: []
