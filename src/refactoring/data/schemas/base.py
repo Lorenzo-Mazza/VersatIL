@@ -215,7 +215,7 @@ class DatasetSchema(abc.ABC):
         if self.has_phase_labels:
             keys.append(PHASE_LABEL_KEY)
         if self.raw_observations.language_key:
-            keys.append(self.raw_observations.language_key)
+            keys.append(LANGUAGE_KEY)
         if self.raw_observations.custom_obs_keys:
             keys.extend(self.raw_observations.custom_obs_keys.keys())
         return keys
