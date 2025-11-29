@@ -25,6 +25,7 @@ class LanguageEncoder(Encoder):
             pooling_method: str = PoolingMethod.DEFAULT.value,
             model_name: str = LanguageEncoderType.BERT_BASE.value,
             attention_type: str = AttentionImplementation.SDPA.value,
+            max_token_len: int = 128,
     ):
         """
         Args:
@@ -33,6 +34,7 @@ class LanguageEncoder(Encoder):
             pooling_method: How to extract features from transformer output
             model_name: Model identifier from LanguageEncoderType
             attention_type: Attention implementation to use
+            max_token_len: Maximum token sequence length for the encoder
         """
         specification = EncoderInput(keys=[TOKENIZED_OBSERVATIONS_KEY, IS_PAD_OBSERVATION_KEY],
                                      required=[TOKENIZED_OBSERVATIONS_KEY], requires_tokenized=True)
@@ -41,6 +43,7 @@ class LanguageEncoder(Encoder):
         self.pooling_method = pooling_method
         self.attention_type = attention_type
         self.model_name = model_name
+        self.max_token_len = max_token_len
         self._build_encoder()
         self.feature_dim = self.encoder.config.hidden_size
         self.pooling_head: LearnedAggregation | None = None
@@ -61,7 +64,6 @@ class LanguageEncoder(Encoder):
             config = AutoConfig.from_pretrained(self.model_name)
             self.encoder = AutoModel.from_config(config, attn_implementation=self.attention_type)
 
-        self.max_text_length = config.max_position_embeddings
 
 
 
@@ -71,8 +73,8 @@ class LanguageEncoder(Encoder):
             self.pooling_head = LearnedAggregation(self.feature_dim).to(self.encoder.device)
 
         if self.pooling_method == PoolingMethod.NONE.value:
-            self.output_dim = (self.max_text_length, self.feature_dim)
-            self.padding_dim = self.max_text_length
+            self.output_dim = (self.max_token_len, self.feature_dim)
+            self.padding_dim = self.max_token_len
         else:
             self.output_dim = self.feature_dim
             self.padding_dim = 1
@@ -98,15 +100,15 @@ class LanguageEncoder(Encoder):
 
 
     def _pad_text_inputs(self, text_input_ids: torch.Tensor, language_mask: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor | None]:
-        """Pad or truncate text inputs to max_text_length."""
-        if text_input_ids.shape[1] > self.max_text_length:
-            text_input_ids = text_input_ids[:, :self.max_text_length]
+        """Pad or truncate text inputs to max_token_len."""
+        if text_input_ids.shape[1] > self.max_token_len:
+            text_input_ids = text_input_ids[:, :self.max_token_len]
             if language_mask is not None:
-                language_mask = language_mask[:, :self.max_text_length]
-            logging.warning(f"Input text length {text_input_ids.shape[1]} exceeds max_text_length "
-                            f"{self.max_text_length}. Truncating input.")
-        elif text_input_ids.shape[1] < self.max_text_length:
-            pad_length = self.max_text_length - text_input_ids.shape[1]
+                language_mask = language_mask[:, :self.max_token_len]
+            logging.warning(f"Input text length {text_input_ids.shape[1]} exceeds max_token_len "
+                            f"{self.max_token_len}. Truncating input.")
+        elif text_input_ids.shape[1] < self.max_token_len:
+            pad_length = self.max_token_len - text_input_ids.shape[1]
             pad_tensor = torch.zeros((text_input_ids.shape[0], pad_length), dtype=text_input_ids.dtype,
                                      device=text_input_ids.device)
             text_input_ids = torch.cat([text_input_ids, pad_tensor], dim=1)
@@ -114,8 +116,8 @@ class LanguageEncoder(Encoder):
                 pad_mask = torch.ones((language_mask.shape[0], pad_length), dtype=language_mask.dtype,
                                       device=language_mask.device)
                 language_mask = torch.cat([language_mask, pad_mask], dim=1)
-            logging.warning(f"Input text length {text_input_ids.shape[1]} less than max_text_length "
-                            f"{self.max_text_length}. Padding input.")
+            logging.warning(f"Input text length {text_input_ids.shape[1]} less than max_token_len "
+                            f"{self.max_token_len}. Padding input.")
         return text_input_ids, language_mask
 
 
@@ -164,12 +166,12 @@ class LanguageEncoder(Encoder):
         }
         outputs = self.encoder(**encoder_inputs, return_dict=True)
         features = self._pool_features(outputs)
-        padding_mask = ~attention_mask # B, max_text_length*T, True for padding positions
+        padding_mask = ~attention_mask # B, max_token_len*T, True for padding positions
         if has_time:
             features = features.reshape(B, T, *features.shape[1:])
             if padding_mask.ndim >= 2:
                 if self.pooling_method == PoolingMethod.NONE.value:
-                    padding_mask = padding_mask.reshape(B, T, self.max_text_length)
+                    padding_mask = padding_mask.reshape(B, T, self.max_token_len)
                 else:
                     padding_mask = torch.zeros(B, T, dtype=torch.bool, device=features.device)
         else:

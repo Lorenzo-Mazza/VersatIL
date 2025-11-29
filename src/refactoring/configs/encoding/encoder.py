@@ -78,6 +78,7 @@ class LanguageEncoderConfig:
     pooling_method: str = PoolingMethod.NONE.value
     pretrained: bool = False
     frozen : bool = False
+    max_token_len: int = 128
 
 
 @dataclass

@@ -69,7 +69,6 @@ class TestLanguageEncoderInitialization:
     @pytest.mark.parametrize("model_name,expected_dim", LANGUAGE_MODELS)
     def test_initialization(self, model_name, expected_dim):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=model_name,
             pretrained=True,
             frozen=True,
@@ -83,7 +82,6 @@ class TestLanguageEncoderInitialization:
 
     def test_get_output_specification(self):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
@@ -95,19 +93,9 @@ class TestLanguageEncoderInitialization:
         assert isinstance(spec.features, list)
         assert EncoderOutputKeys.LANGUAGE.value in spec.dimensions
 
-    def test_init_missing_language_key(self):
-        with pytest.raises(ValueError, match="Missing required inputs"):
-            LanguageEncoder(
-                input_keys="invalid_key",
-                model_name=LanguageEncoderType.BERT_BASE.value,
-                pretrained=True,
-                frozen=True,
-                pooling_method=PoolingMethod.AVERAGE.value,
-            )
 
     def test_init_frozen(self):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
@@ -127,17 +115,16 @@ class TestLanguageEncoderForward:
     def test_forward_batch_input(self, model_name, expected_dim, text_inputs_batch, batch_size, pooling_method):
 
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=model_name,
             pretrained=False,
             frozen=True,
             pooling_method=pooling_method,
         )
         if pooling_method == PoolingMethod.NONE.value:
-            expected_dim = (encoder.max_text_length, expected_dim)
+            expected_dim = (encoder.max_token_len, expected_dim)
         else:
             expected_dim = (expected_dim,)
-        mask_expected_dim = encoder.max_text_length if pooling_method == PoolingMethod.NONE.value else None
+        mask_expected_dim = encoder.max_token_len if pooling_method == PoolingMethod.NONE.value else None
         mask_expected_key = f"{EncoderOutputKeys.LANGUAGE.value}_{EncoderOutputKeys.PADDING_MASK.value}"
         output_dict = encoder(text_inputs_batch)
 
@@ -161,17 +148,16 @@ class TestLanguageEncoderForward:
     @pytest.mark.parametrize("pooling_method", [PoolingMethod.NONE.value, PoolingMethod.AVERAGE.value, PoolingMethod.LEARNED_AGGREGATION.value])
     def test_forward_temporal_input(self, model_name, expected_dim, text_inputs_temporal, batch_size, temporal_length, pooling_method):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=model_name,
             pretrained=False,
             frozen=True,
             pooling_method=pooling_method,
         )
         if pooling_method == PoolingMethod.NONE.value:
-            expected_dim = (encoder.max_text_length, expected_dim)
+            expected_dim = (encoder.max_token_len, expected_dim)
         else:
             expected_dim = (expected_dim,)
-        mask_expected_dim = encoder.max_text_length if pooling_method == PoolingMethod.NONE.value else None
+        mask_expected_dim = encoder.max_token_len if pooling_method == PoolingMethod.NONE.value else None
         mask_expected_key = f"{EncoderOutputKeys.LANGUAGE.value}_{EncoderOutputKeys.PADDING_MASK.value}"
 
         output_dict = encoder(text_inputs_temporal)
@@ -195,7 +181,6 @@ class TestLanguageEncoderForward:
     @pytest.mark.parametrize("feature_method", pooling_methodS)
     def test_pooling_methods(self, feature_method, text_inputs_batch, batch_size):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
@@ -215,7 +200,6 @@ class TestLanguageEncoderForward:
 
     def test_different_texts_produce_different_features(self, token_inputs_factory):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
@@ -236,7 +220,6 @@ class TestLanguageEncoderForward:
 
     def test_same_text_produces_same_features(self, token_inputs_factory):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
@@ -260,7 +243,6 @@ class TestLanguageEncoderEdgeCases:
 
     def test_single_word_input(self, token_inputs_factory):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
@@ -275,7 +257,6 @@ class TestLanguageEncoderEdgeCases:
 
     def test_long_text_truncation(self, token_inputs_factory):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
@@ -290,7 +271,6 @@ class TestLanguageEncoderEdgeCases:
 
     def test_batch_size_one(self, token_inputs_factory):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
@@ -304,7 +284,6 @@ class TestLanguageEncoderEdgeCases:
 
     def test_variable_length_temporal(self, token_inputs_factory):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
@@ -326,7 +305,6 @@ class TestLanguageEncoderOutputDims:
     @pytest.mark.parametrize("model_name,expected_dim", LANGUAGE_MODELS)
     def test_output_specification_structure(self, model_name, expected_dim):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=model_name,
             pretrained=True,
             frozen=True,
@@ -349,7 +327,6 @@ class TestLanguageEncoderGradients:
     @pytest.mark.parametrize("model_name", [m[0] for m in LANGUAGE_MODELS])
     def test_gradients_enabled_unfrozen(self, model_name, text_inputs_batch):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=model_name,
             pretrained=True,
             frozen=False,
@@ -369,7 +346,6 @@ class TestLanguageEncoderGradients:
     @pytest.mark.parametrize("model_name", [m[0] for m in LANGUAGE_MODELS])
     def test_gradients_disabled_frozen(self, model_name, text_inputs_batch):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=model_name,
             pretrained=True,
             frozen=True,
@@ -390,7 +366,6 @@ class TestLanguageEncoderIntegration:
 
     def test_complete_forward_backward_pass(self, text_inputs_batch):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=False,
@@ -407,7 +382,6 @@ class TestLanguageEncoderIntegration:
 
     def test_eval_mode_no_gradients(self, text_inputs_batch):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
@@ -423,7 +397,6 @@ class TestLanguageEncoderIntegration:
 
     def test_consistent_output_shapes(self, token_inputs_factory):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
@@ -441,7 +414,6 @@ class TestLanguageEncoderIntegration:
 
     def test_different_feature_methods_produce_different_outputs(self, text_inputs_batch):
         encoder_cls = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
@@ -449,7 +421,6 @@ class TestLanguageEncoderIntegration:
         )
 
         encoder_gap = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
@@ -468,7 +439,6 @@ class TestLanguageEncoderIntegration:
 
     def test_different_sequence_lengths(self, token_inputs_factory):
         encoder = LanguageEncoder(
-            input_keys=TOKENIZED_OBSERVATIONS_KEY,
             model_name=LanguageEncoderType.BERT_BASE.value,
             pretrained=True,
             frozen=True,
