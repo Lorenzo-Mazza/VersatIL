@@ -3,6 +3,7 @@ import logging
 import torch
 import torch.nn as nn
 
+from pytorch_utils import dict_apply
 from refactoring.data.tokenization import Tokenizer
 from refactoring.models.encoding.encoders.base import EncoderOutput, EncodingMixin
 from refactoring.models.encoding.encoders.conditional import ConditionalEncoder
@@ -268,6 +269,7 @@ class EncodingPipeline(nn.Module):
         for consumed_feat in self._consumed_features:
             features.pop(consumed_feat, None)
 
+        features = dict_apply(features, lambda x: x.squeeze()) # Remove time dimension if present and equal to 1
         return features
 
     def get_feature_names(self) -> list[str]:

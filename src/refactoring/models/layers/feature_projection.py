@@ -32,14 +32,17 @@ class FeatureProjection(nn.Module):
     def __init__(
         self,
         embedding_dim: int,
+        has_time_dim: bool = False,
     ):
         """Initialize feature projection module.
 
         Args:
             embedding_dim: Target embedding dimension for all features
+            has_time_dim: Whether features may have a time dimension (default: False)
         """
         super().__init__()
         self.embedding_dim = embedding_dim
+        self.has_time_dim = has_time_dim
         # These two dicts are doing exactly the same mathematical operation. But using linear projections
         # for spatial features would require transposing the tensors,  so we use conv2d instead.
         self.linear_projections = nn.ModuleDict()
@@ -88,18 +91,21 @@ class FeatureProjection(nn.Module):
         """
         projected = {}
         for feature_name, feature in features.items():
-            has_time = False
             B, T = None, None
             if feature.ndim == 5:
-                has_time = True
                 B, T, _, _, _= feature.shape
                 feature = feature.reshape(B * T, *feature.shape[2:]) #(B*T, C, H, W)
-            is_spatial = len(feature.shape) > 3
+            if self.has_time_dim and feature.ndim == 4:
+                B, T, _, _ = feature.shape
+                feature = feature.reshape(B * T, *feature.shape[2:])
+                is_spatial = False
+            else:
+                is_spatial = len(feature.shape) > 3
             projection_dict = self.spatial_projections if is_spatial else self.linear_projections
             if feature_name not in projection_dict:
                 projection_dict[feature_name] = self._create_projection_layer(feature)
             feature_projection = projection_dict[feature_name](feature)
-            if has_time:
+            if self.has_time_dim:
                 feature_projection = feature_projection.reshape(B, T, *feature_projection.shape[1:])
             projected[feature_name] = feature_projection
         return projected
