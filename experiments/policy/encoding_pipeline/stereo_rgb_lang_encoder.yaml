@@ -32,5 +32,6 @@ encoders:
     pretrained: true
     frozen: true
     max_token_len: ${task.dataloader.tokenization.observation_tokenizer.max_token_len}
+    pooling_method: none
 
 fusion_stages: []
