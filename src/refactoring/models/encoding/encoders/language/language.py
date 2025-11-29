@@ -168,11 +168,9 @@ class LanguageEncoder(Encoder):
             "input_ids": text_input_ids.to(self.encoder.device),
             "attention_mask": attention_mask.to(self.encoder.device),
         }
-        print(f"[LANG DEBUG] Final input seq: {text_input_ids.shape[1]}, expected <= {self.max_token_len}")
         outputs = self.encoder(**encoder_inputs, return_dict=True)
         features = self._pool_features(outputs)
         padding_mask = ~attention_mask # B, max_token_len*T, True for padding positions
-        print(f"[DEBUG] Final features shape: {features.shape} | Padding mask shape: {padding_mask.shape}")
 
         if has_time:
             features = features.reshape(B, T, *features.shape[1:])

@@ -71,7 +71,7 @@ class TransformerInputBuilder(nn.Module):
     ):
         super().__init__()
         self.embedding_dim = embedding_dim
-        self.projection = FeatureProjection(embedding_dim)
+        self.projection = FeatureProjection(embedding_dim, has_time_dim=has_time_dim)
         if spatial_positional_encoding_layer is not None:
             if not isinstance(spatial_positional_encoding_layer, PositionalEncoding2D):
                 raise ValueError("spatial_positional_encoding_layer must be PositionalEncoding2D.")

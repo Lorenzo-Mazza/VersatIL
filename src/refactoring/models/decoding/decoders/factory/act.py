@@ -194,11 +194,7 @@ class ACT(ActionDecoder):
             If LATENT_KEY is present in features, it will be used as an extra token embedding for the transformer cross-attention.
         """
         # This creates a sequence of input tokens and positional encodings in the format ACT expects
-        for key, feature in features.items():
-            logging.info(f"ACT forward input feature key: {key}, shape: {feature.shape}")
         input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(features) # (B, pred_horizon, embedding_dimension)
-        logging.info(f"ACT input_tokens shape: {input_tokens.shape}, pos_encodings shape: {pos_encodings.shape}, "
-                     f"padding_mask shape: {padding_mask.shape if padding_mask is not None else None}")
         action_embeddings = self._decode_actions(input_tokens=input_tokens, positional_encodings=pos_encodings,
                                                  padding_mask=padding_mask)
         predictions = self._apply_action_heads(action_embeddings)
