@@ -227,6 +227,8 @@ class ExpertUsageCallback(Callback):
         fig, ax = plt.subplots(figsize=(8, 6))
         expert_usage_list = [float(val) for val in expert_usage]
         sns.barplot(x=np.arange(len(expert_usage_list)), y=expert_usage_list, ax=ax)
+        ax.set_xticks(np.arange(len(expert_usage_list)))
+        ax.set_xticklabels([str(i) for i in np.arange(len(expert_usage_list))])  # Explicit numeric strings
         ax.set_xlabel("Expert Index")
         ax.set_ylabel("Average Usage Ratio")
         ax.set_title(title)
