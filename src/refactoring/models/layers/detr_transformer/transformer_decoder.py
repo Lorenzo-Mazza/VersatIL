@@ -1,10 +1,15 @@
 import copy
+import math
 
 import torch
 import torch.nn as nn
 
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.detr_transformer.attention import FlashAttention
+from refactoring.models.layers.normalization.ada_norm import AdaNorm
+from refactoring.models.layers.normalization.rms_norm import RMSNorm
+
+RESIDUAL_STREAM_FLAG = "SQUARE_ROOT_WEIGHT"
 
 
 class TransformerDecoderLayer(nn.Module):
@@ -59,6 +64,7 @@ class TransformerDecoderLayer(nn.Module):
                 self.feedforward_dropout,
                 self.feedforward_linear2,
             )
+        self.feedforward_linear2.SQUARE_ROOT_WEIGHT = True  # Flag for initialization (GPT-2 style)
 
 
     def forward(
@@ -132,6 +138,7 @@ class TransformerDecoder(nn.Module):
             number_of_layers: int,
             normalization: nn.Module | None = None,
             return_intermediate: bool = False,
+            initializer_range: float = 0.02,
     ):
         """Initialize transformer decoder.
 
@@ -140,6 +147,7 @@ class TransformerDecoder(nn.Module):
             number_of_layers: Number of decoder layers.
             normalization: Optional final normalization layer.
             return_intermediate: If True, return outputs from all layers stacked.
+            initializer_range: Standard deviation for weight initialization.
         """
         super().__init__()
         self.layers = nn.ModuleList([
@@ -148,6 +156,31 @@ class TransformerDecoder(nn.Module):
         self.number_of_layers = number_of_layers
         self.normalization = normalization
         self.return_intermediate = return_intermediate
+        self.initializer_range = initializer_range
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        """Initialize the weights."""
+        # > A modified initialization which accounts for the accumulation on the residual path with model depth. Scale
+        # > the weights of residual layers at initialization by a factor of 1/√N where N is the # of residual layers.
+        if hasattr(module, RESIDUAL_STREAM_FLAG):  # Residual stream correction
+            num_norm_layers = 3 # Two attention + one FFN normalization layers
+            std = self.initializer_range / math.sqrt(num_norm_layers * self.number_of_layers)
+        else:
+            std = self.initializer_range
+        if isinstance(module, nn.Linear):
+            module.weight.data.normal_(mean=0.0, std=std)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.Embedding):
+            module.weight.data.normal_(mean=0.0, std=self.initializer_range)
+            if module.padding_idx is not None:
+                module.weight.data[module.padding_idx].zero_()
+        elif isinstance(module, (nn.LayerNorm, RMSNorm, AdaNorm)):
+            if hasattr(module, 'bias') and module.bias is not None:
+                module.bias.data.zero_()
+            if hasattr(module, 'weight') and module.weight is not None:
+                module.weight.data.fill_(1.0)
 
 
     def forward(

@@ -74,14 +74,14 @@ class Transformer(nn.Module):
             normalization=decoder_normalization,
             return_intermediate=return_intermediate_decoder,
         )
-        self._reset_parameters()
+        #self._reset_parameters()
 
 
-    def _reset_parameters(self):
-        """Initialize parameters with Xavier uniform distribution."""
-        for parameter in self.parameters():
-            if parameter.dim() > 1:
-                nn.init.xavier_uniform_(parameter)
+    #def _reset_parameters(self):
+    #    """Initialize parameters with Xavier uniform distribution."""
+    #    for parameter in self.parameters():
+    ##        if parameter.dim() > 1:
+     #           nn.init.xavier_uniform_(parameter)
 
 
     def forward(

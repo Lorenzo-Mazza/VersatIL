@@ -17,6 +17,7 @@ class FlashAttention(nn.Module):
         self.k_proj = nn.Linear(embedding_dimension, embedding_dimension)
         self.v_proj = nn.Linear(embedding_dimension, embedding_dimension)
         self.out_proj = nn.Linear(embedding_dimension, embedding_dimension)
+        self.out_proj.SQUARE_ROOT_WEIGHT = True # Flag for initialization (GPT2 style)
         self.dropout = dropout
 
     def forward(
