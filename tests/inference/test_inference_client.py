@@ -323,7 +323,7 @@ class TestInferenceClientInitialization:
         assert client.policy is not None
         assert client.image_height == 224
         assert client.image_width == 224
-        assert client.action_horizon == 10
+        assert client.prediction_horizon == 10
 
         mock_super_init.assert_called_once()
         mock_load_checkpoint.assert_called_once()

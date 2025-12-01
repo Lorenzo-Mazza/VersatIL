@@ -17,7 +17,7 @@ from refactoring.data.constants import (
     Cameras,
 )
 from refactoring.data.tokenization import Tokenizer
-from refactoring.data.transform import unnormalize_actions, detokenize_actions, normalize_observation
+from refactoring.data.transform import unnormalize_actions, detokenize_actions, normalize_observation, tokenize_observation
 from refactoring.models.decoding.constants import (BINARY_LOGITS_KEY, LATENT_KEY, LOGVAR_KEY, MU_KEY,
                                                    PRIOR_PREDICTION_KEY, PRIOR_TARGET_KEY)
 
@@ -244,6 +244,8 @@ class Policy(nn.Module):
         obs_dict = to_device(obs_dict, self.device) # Move nested observations to policy's device
         normalized_obs = normalize_observation(observation=obs_dict,
                                                normalizer=self.normalizer, observation_space=self.observation_space)
+        if self.tokenizer is not None and self.tokenizer.observation_tokenizer is not None:
+            normalized_obs = tokenize_observation(observation=normalized_obs, obs_tokenizer=self.tokenizer.observation_tokenizer)
         features = self.encoding_pipeline(normalized_obs)
         predictions = self.algorithm.predict(features=features, network=self.decoder)
         if TOKENIZED_ACTIONS_KEY in predictions:
