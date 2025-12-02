@@ -137,17 +137,16 @@ class VariationalAlgorithm(DecodingAlgorithm):
             where prior_outputs contains predictions and targets for prior loss
         """
         latent_output = self.posterior_encoder.encode(actions=actions, observations=features)
-        latent_embedding = latent_output[LATENT_KEY] # (B, posterior.latent_dim)
+        z = latent_output[LATENT_KEY] # (B, posterior.latent_dim)
         state_features = latent_output[STATE_FEATURE_KEYS]
         mu = latent_output[MU_KEY]# (B, posterior.latent_dim)
         logvar = latent_output[LOGVAR_KEY] # (B, posterior.latent_dim)
-        z = reparametrize(mu, logvar)
         conditioning = self._extract_conditioning(features)
         prior_outputs = self.prior.forward(
             target_latents=z.detach(), # Detach z to prevent gradients flowing to posterior encoder
             conditioning=conditioning,
         )
-        return latent_embedding, mu, logvar, prior_outputs, state_features
+        return z, mu, logvar, prior_outputs, state_features
 
     def _sample_prior(
         self,

@@ -235,6 +235,14 @@ class KLDivergenceLoss(BaseLoss):
 
         kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=-1)
         kld_mean = kld.mean()
+        if kld_mean < 0:
+            print(f"Warning: Negative KL divergence encountered: {kld_mean.item()}")
+            print(f"per_dim_kl: min={kld.min().item():.4f}, max={kld.max().item():.4f}")
+            print(f"logvar min: {logvar.min()}, max: {logvar.max()}")
+            print(f"mu min: {mu.min()}, max: {mu.max()}")
+            print(f"NaN in logvar: {torch.isnan(logvar).any()}")
+            print(f"NaN in mu: {torch.isnan(mu).any()}")
+            print(f"Inf in logvar: {torch.isinf(logvar).any()}")
 
         return LossOutput(
             total_loss=self.weight * kld_mean,
