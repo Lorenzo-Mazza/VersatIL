@@ -26,8 +26,6 @@ class BehavioralCloning(DecodingAlgorithm):
         VariationalAlgorithm(BehavioralCloning(), VAETransformerEncoder(...))
     """
 
-    supports_tokenized_actions: bool = True
-
     def __init__(self):
         """Initialize Behavioral Cloning algorithm."""
         super().__init__()
@@ -53,7 +51,6 @@ class BehavioralCloning(DecodingAlgorithm):
                 - 'gripper_action': Predicted gripper actions if used (B, T, D_grip)
                 - Additional architecture-specific outputs (e.g., 'is_pad')
         """
-        # Direct prediction without latent variables
         return network(features=features, actions=actions)  # type: ignore[no-any-return]
 
     def predict(
@@ -74,5 +71,4 @@ class BehavioralCloning(DecodingAlgorithm):
                 - 'orientation_action': Predicted orientation actions if used (B, T, D_ori)
                 - 'gripper_action': Predicted gripper actions if used (B, T, D_grip)
         """
-        # Direct prediction without latent variables
         return network(features, actions=None)  # type: ignore[no-any-return]

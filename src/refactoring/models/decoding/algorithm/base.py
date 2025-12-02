@@ -16,11 +16,6 @@ class DecodingAlgorithm(nn.Module, abc.ABC):
     Pure algorithms should not contain latent variable logic - use VariationalAlgorithm wrapper
     to add variational inference capabilities to any algorithm.
 
-    Attributes:
-        supports_tokenized_actions: Whether this algorithm can work with discrete tokenized actions.
-            - True: Algorithm supports both continuous (regression) and discrete (classification) actions
-            - False: Algorithm only works with continuous actions (e.g., diffusion, flow matching)
-
     Examples:
         # Pure algorithm (deterministic)
         algorithm = BehavioralCloning()
@@ -32,8 +27,6 @@ class DecodingAlgorithm(nn.Module, abc.ABC):
             prior=GaussianPrior(...)  # or DiffusionPrior(...) for learned prior
         )
     """
-
-    supports_tokenized_actions: bool = False
 
     def __init__(self):
         """Initialize decoding algorithm."""

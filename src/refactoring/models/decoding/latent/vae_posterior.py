@@ -1,7 +1,6 @@
 """Transformer-based VAE latent action encoder."""
 
 import torch
-from torch import nn
 
 from refactoring.models.decoding.constants import LOGVAR_KEY, MU_KEY, STATE_FEATURE_KEYS, LATENT_KEY
 from refactoring.models.decoding.latent.base_posterior import LatentActionEncoder
@@ -78,11 +77,6 @@ class VAETransformerEncoder(LatentActionEncoder):
             prediction_horizon=prediction_horizon,
             observation_horizon=observation_horizon,
             device=device,
-        )
-        # Latent to embedding projection, output dimension matches embedding_dimension
-        self.latent_output_projection = nn.Linear(
-            latent_dimension,
-            self.embedding_dimension
         )
         self.to(device)
 
