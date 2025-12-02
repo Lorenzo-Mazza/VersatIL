@@ -36,6 +36,14 @@ def parse_args() -> argparse.Namespace:
         help="Path to checkpoint directory",
     )
     parser.add_argument(
+        "--checkpoint-name",
+        type=str,
+        required=True,
+        help="Path to checkpoint torch model name",
+    )
+
+    # latest-39.ckpt
+    parser.add_argument(
         "--temporal-agg",
         type=int,
         default=1,
@@ -67,6 +75,7 @@ def main():
         model_server_address=args.model_server_address,
         model_server_port=args.model_server_port,
         checkpoint_path=args.checkpoint_path,
+        checkpoint_name=args.checkpoint_name, 
         temporal_agg=args.temporal_agg,
         device=device,
         update_rate_hz=args.update_frequency,

@@ -143,8 +143,8 @@ class SampleBuilder:
             # the sampler now fetches action_backward_shift extra prior observations at the start of padded_data, effectively offsetting the entire sequence
             img = padded_data[cam][self.action_backward_shift: self.action_backward_shift + self.obs_horizon]
             if cam != Cameras.DEPTH.value:
-                img = img.astype(np.float32) / 255.0
                 img = self.augmentation_pipeline.apply_rgb_augmentations(img, angle)
+                img = img.astype(np.float32) / 255.0
                 # Convert to (T, C, H, W)
                 img = np.moveaxis(img, -1, 1)
             else:
