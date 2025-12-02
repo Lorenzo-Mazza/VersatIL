@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytorch_lightning as pl
 import torch
+from hydra.core.hydra_config import HydraConfig
 from omegaconf import OmegaConf, DictConfig
 from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint, StochasticWeightAveraging
 from pytorch_lightning.loggers import WandbLogger
@@ -55,8 +56,13 @@ class Workspace:
         self.config: MainConfig = config
         self.original_yaml_config = original_yaml_config
         self._ensure_configs_are_dataclasses()
-        self.exp_name = config.experiment.name
-        self.output_dir = Path(config.experiment.checkpoint_folder) / self.exp_name
+        hydra_cfg = HydraConfig.get()
+        main_config_name = hydra_cfg.job.config_name if hydra_cfg.job.config_name else "experiment"
+        additional_exp_name = config.experiment.name
+        self.exp_name = f"{main_config_name}/{additional_exp_name}"
+        self.config.experiment.name = self.exp_name
+        self.original_yaml_config.experiment.name = self.exp_name
+        self.output_dir = Path(config.experiment.checkpoint_folder) / main_config_name / additional_exp_name
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._set_seed()
         self.policy: Policy | None = None
@@ -67,7 +73,6 @@ class Workspace:
         self.normalizer: LinearNormalizer | None = None
         self.tokenizer: Tokenizer | None = None
         self.logger = None
-
         self.gripper_class_weights: torch.Tensor | None = None
         logging.info(f"Workspace initialized for experiment: {self.exp_name}")
         logging.info(f"Output directory: {self.output_dir}")
@@ -101,7 +106,10 @@ class Workspace:
         initialization to ensure the config is available for later use.
         """
         config_path = self.output_dir / "config.yaml"
-        OmegaConf.save(self.original_yaml_config, config_path)
+        # Resolve all interpolations before saving
+        resolved_config = OmegaConf.to_container(self.original_yaml_config, resolve=True)
+        resolved_config_dict = OmegaConf.create(resolved_config)
+        OmegaConf.save(resolved_config_dict, config_path)
         logging.info(f"Config saved to {config_path}")
 
 

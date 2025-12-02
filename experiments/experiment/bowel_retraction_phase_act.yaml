@@ -1,7 +1,7 @@
 defaults:
   - base
 
-name: ${now:%Y%m%d_%H%M%S}_phaseact_br_cf_overlapping_data
+name: phase_act_${now:%Y%m%d_%H%M%S}_br_cf_overlapping_data
 seed: 42
 
 checkpoint_folder: /mnt/cluster/workspaces/mazzalore/bowel_retraction/
