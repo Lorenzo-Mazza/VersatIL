@@ -168,9 +168,16 @@ class ObservationTokenizer:
                 data = observations[key]
                 if key == LANGUAGE_KEY:
                     if isinstance(data, list):
-                        text = data[i] if batch_size > 1 else data[0] if data else ""
+                        if batch_size > 1:
+                            text_list = data[i]
+                            text = text_list if isinstance(text_list, str) else " ".join(text_list)
+                        else:
+                            text_list = data[0] if data else []
+                            text = text_list if isinstance(text_list, str) else " ".join(text_list)
                     else:
+                        assert isinstance(data, str)
                         text = data
+
                     cleaned = text.lower().strip().replace("_", " ").replace("\n", " ")
                     parts.append(f"Task: {cleaned}")
                 else:

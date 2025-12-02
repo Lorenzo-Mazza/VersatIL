@@ -370,26 +370,22 @@ class Workspace:
     def _initialize_lazy_modules(self):
         """Initialize lazy modules by doing a dummy forward pass."""
         if self.train_loader is None or len(self.train_loader) == 0:
-            logging.warning("No training data → skipping lazy module initialization")
-            return
+            raise RuntimeError("Train loader is not initialized or empty, cannot initialize lazy modules")
 
-        try:
-            data_iter = iter(self.train_loader)
-            batch = next(data_iter)
-            batch = normalize_sample(sample=batch, normalizer=self.normalizer,
-                                      observation_space=self.config.task.observation_space, action_space=self.config.task.action_space)
-            batch = tokenize_sample(sample=batch, tokenizer=self.tokenizer)
+        data_iter = iter(self.train_loader)
+        batch = next(data_iter)
+        batch = normalize_sample(sample=batch, normalizer=self.normalizer,
+                                  observation_space=self.config.task.observation_space, action_space=self.config.task.action_space)
+        batch = tokenize_sample(sample=batch, tokenizer=self.tokenizer)
 
-            device = torch.device(self.config.experiment.device)
-            batch = to_device(batch, device)
-            self.lightning_policy.to(device)
-            self.lightning_policy.eval()
-            with torch.no_grad():
-                _ = self.lightning_policy.training_step(batch, 0)
-            self.lightning_policy.train()
-            logging.info("Lazy modules initialized successfully")
-        except Exception as e:
-            logging.warning(f"Failed to initialize lazy modules: {e}")
+        device = torch.device(self.config.experiment.device)
+        batch = to_device(batch, device)
+        self.lightning_policy.to(device)
+        self.lightning_policy.eval()
+        with torch.no_grad():
+            _ = self.lightning_policy.training_step(batch, 0)
+        self.lightning_policy.train()
+        logging.info("Lazy modules initialized successfully")
 
     def _tune_hyperparameters(self):
         """Run hyperparameter tuning if enabled.
