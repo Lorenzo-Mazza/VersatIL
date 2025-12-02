@@ -9,7 +9,7 @@ defaults:
   - task/action_space: deltas_cf_pos_gripper_phase
   - task/observation_space: stereo_rgb_language_proprio_cf
   - training: phase_act_default
-  - policy/encoding_pipeline: stereo_rgb_lang_encoder
+  - policy/encoding_pipeline: stereo_rgb_token_embedder
   - policy/decoder: phase_act_language
   - policy/algorithm: bc_with_vae_gaussian
   - policy/loss: phase_act_default
@@ -27,9 +27,4 @@ policy:
   prediction_horizon: ${task.prediction_horizon}
   device: ${experiment.device}
   validate_loss_keys: true
-  decoder:
-    input_keys:
-      - left_rgb
-      - right_rgb
-      - instruction_language
 
