@@ -489,7 +489,6 @@ class ActionTokenizer:
             tokenizer_chain=state_dict["tokenizer_chain"],
             use_pretrained_fast=state_dict["use_pretrained_fast"],
             language_tokenizer_model=state_dict["language_tokenizer_model"],
-            fast_vocab_size=state_dict["fast_vocab_size"],
             num_special_tokens_to_skip=state_dict["num_special_tokens_to_skip"],
             device=device,
         )

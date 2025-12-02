@@ -107,6 +107,18 @@ class ObservationTokenizer:
         """
         if not self._is_fitted:
             raise RuntimeError("Tokenizer must be fitted before encoding")
+        first_tensor = next((v for v in observations.values() if isinstance(v, torch.Tensor)), None)
+        has_time_dim = first_tensor is not None and first_tensor.ndim >= 3
+        batch_size, time_steps = None, None
+        if has_time_dim:
+            batch_size = first_tensor.shape[0]
+            time_steps = first_tensor.shape[1]
+            # Flatten (B, T, ...) -> (B*T, ...)
+            observations = {
+                k: v.reshape(-1, *v.shape[2:]) if isinstance(v, torch.Tensor) else v
+                for k, v in observations.items()
+            }
+
         prompts = self._build_prompts(observations)
         tokenized = self.language_tokenizer(
             prompts,
@@ -117,6 +129,11 @@ class ObservationTokenizer:
         )
         tokens = tokenized["input_ids"]
         is_pad = ~tokenized["attention_mask"].to(torch.bool)
+        if has_time_dim:
+            # Reshape (B*T, seq) -> (B, T, seq)
+            tokens = tokens.reshape(batch_size, time_steps, -1)
+            is_pad = is_pad.reshape(batch_size, time_steps, -1)
+
         return {
             TOKENIZED_OBSERVATIONS_KEY: tokens.to(self.device),
             IS_PAD_OBSERVATION_KEY: is_pad.to(self.device),

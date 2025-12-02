@@ -274,6 +274,7 @@ def to_device(x, device):
         x,
         {
             torch.Tensor: lambda x, d = device: x.to(d),
+            str: lambda x: x,
             type(None): lambda x: x,
         }
     )

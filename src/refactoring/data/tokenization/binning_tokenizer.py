@@ -168,7 +168,6 @@ class BinningTokenizer:
         """
         return {
             "num_bins": self.num_bins,
-            "device": str(self.device),
             "bin_edges": self.bin_edges.cpu() if self.bin_edges is not None else None,
             "is_fitted": self._is_fitted,
         }
@@ -180,7 +179,6 @@ class BinningTokenizer:
             state_dict: State dictionary from state_dict().
         """
         self.num_bins = state_dict["num_bins"]
-        self.device = torch.device(state_dict["device"])
         self._is_fitted = state_dict["is_fitted"]
 
         if state_dict["bin_edges"] is not None:

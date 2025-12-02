@@ -269,7 +269,8 @@ class EncodingPipeline(nn.Module):
         for consumed_feat in self._consumed_features:
             features.pop(consumed_feat, None)
 
-        features = dict_apply(features, lambda x: x.squeeze()) # Remove time dimension if present and equal to 1
+        # Squeeze time dimension if it's 1
+        features = dict_apply(features, lambda x: x.squeeze(1) if x.ndim > 1 and x.shape[1] == 1 else x)
         return features
 
     def get_feature_names(self) -> list[str]:
