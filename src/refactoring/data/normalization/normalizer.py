@@ -263,8 +263,18 @@ class SingleFieldLinearNormalizer(DictOfTensorMixin):
 
 
     def get_output_stats(self):
-        return dict_apply(self.params_dict['input_stats'], self.normalize)
-
+        input_stats = self.params_dict['input_stats']
+        scale = self.params_dict['scale']
+        dict_to_return = {}
+        if 'min' in input_stats:
+            dict_to_return['min'] = self.normalize(input_stats['min'])
+        if 'max' in input_stats:
+            dict_to_return['max'] = self.normalize(input_stats['max'])
+        if 'mean' in input_stats:
+            dict_to_return['mean'] = self.normalize(input_stats['mean'])
+        if 'std' in input_stats:
+            dict_to_return['std'] = torch.abs(scale) * input_stats['std']
+        return dict_to_return
 
     def __call__(self, x: torch.Tensor | np.ndarray) -> torch.Tensor:
         return self.normalize(x)
@@ -306,7 +316,7 @@ def _fit(data: torch.Tensor | np.ndarray,
     input_mean = tensor_data.mean(dim=0)
     input_std = tensor_data.std(dim=0)
     if mode == KinematicsNormalizationType.GAUSSIAN.value:
-        input_std = torch.clamp(input_std, min=1e-2)  # avoid too small std
+        input_std = torch.clamp(input_std, min=1e-3)  # avoid too small std
 
     # compute scale and offset
     if mode == KinematicsNormalizationType.MIN_MAX.value:

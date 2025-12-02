@@ -14,7 +14,7 @@ from refactoring.data.constants import (
     PROPRIO_OBS_CAMERA_FRAME_KEY,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
     Cameras,
-    GripperType, LANGUAGE_KEY, ACTION_KEY,
+    GripperType, LANGUAGE_KEY,
 )
 from refactoring.data.normalization.image_normalizer import (
     get_depth_image_normalizer,
@@ -104,7 +104,7 @@ class NormalizerBuilder:
             **kwargs
         )
         self._setup_image_normalizers(normalizer, device, winsorize_depth)
-        self._log_normalizer_stats(normalizer)
+        self._log_normalizer_stats(normalizer, proprio_data)
 
         return normalizer
 
@@ -271,18 +271,32 @@ class NormalizerBuilder:
             f"mean: {cam_array.mean()}, std: {cam_array.std()}"
         )
 
-    def _log_normalizer_stats(self, normalizer: LinearNormalizer) -> None:
+    def _log_normalizer_stats(self, normalizer: LinearNormalizer, proprio_data: dict[str, np.ndarray]) -> None:
         """Log normalizer statistics.
 
         Args:
             normalizer: Configured normalizer
+            proprio_data: Proprioceptive data used for fitting
         """
+
+
+        def tensor_to_str(t: torch.Tensor) -> str:
+            """Convert tensor to clean string without metadata."""
+            return '[' + ', '.join(f'{x:.4f}' for x in t.detach().cpu().numpy()) + ']'
+
         if POSITION_ACTION_KEY in normalizer.params_dict:
             stats = normalizer[POSITION_ACTION_KEY].get_input_stats()
             logging.info(
                 f"Position kinematics stats - "
-                f"min: {stats['min']}, max: {stats['max']}, "
-                f"mean: {stats['mean']}, std: {stats['std']}"
+                f"min: {tensor_to_str(stats['min'])}, max: {tensor_to_str(stats['max'])}, "
+                f"mean: {tensor_to_str(stats['mean'])}, std: {tensor_to_str(stats['std'])}"
+            )
+            logging.info(
+                f"Normalized position kinematics stats - "
+                f"mean: {normalizer[POSITION_ACTION_KEY].normalize(proprio_data[POSITION_ACTION_KEY]).mean()}, "
+                f"std: {normalizer[POSITION_ACTION_KEY].normalize(proprio_data[POSITION_ACTION_KEY]).std()},"
+                f"min:  {normalizer[POSITION_ACTION_KEY].normalize(proprio_data[POSITION_ACTION_KEY]).min()}, "
+                f"max:  {normalizer[POSITION_ACTION_KEY].normalize(proprio_data[POSITION_ACTION_KEY]).max()}"
             )
         for cam in self.observation_space.camera_keys:
             output_stats = normalizer[cam].get_output_stats()
