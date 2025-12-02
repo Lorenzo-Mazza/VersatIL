@@ -5,7 +5,7 @@ _target_: refactoring.models.decoding.decoders.factory.phase_act.PhaseACT
 
 # Key is always "{encoder_name}_{EncoderOutputType.value}" for each encoder in the encoding pipeline
 input_keys:
-  - left_rgb
+  - left_depth_rgbd
   - right_rgb
 
 embedding_dimension: 512

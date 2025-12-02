@@ -10,7 +10,7 @@ defaults:
   - task/observation_space: stereo_rgb_language_proprio_cf
   - training: phase_act_default
   - policy/encoding_pipeline: stereo_rgb_token_embedder
-  - policy/decoder: phase_act_default
+  - policy/decoder: phase_act_language
   - policy/algorithm: bc_with_vae_gaussian
   - policy/loss: phase_act_default
   - inference: act_default
