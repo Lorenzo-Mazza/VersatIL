@@ -8,6 +8,11 @@ import logging
 import os
 import time
 
+from refactoring.models.policy import Policy
+from refactoring.training.constants import PrecisionType, MAP_PRECISION_TO_DTYPE
+
+logging.basicConfig(level=logging.INFO)
+
 import albumentations as A
 import hydra
 import numpy as np
@@ -36,6 +41,7 @@ class InferenceClient(AbstractModelClient):
         self,
         device: torch.device,
         checkpoint_path: str,
+        checkpoint_name: str = "last.ckpt",
         model_server_address: str = "127.0.0.1",
         model_server_port: int = 5555,
         temporal_agg: bool = True,
@@ -43,6 +49,7 @@ class InferenceClient(AbstractModelClient):
         exponential_decay: float = 0.01,
         update_rate_hz: float | None = None,
         timing_log: bool = False,
+        precision: str = PrecisionType.BF16_MIXED.value,
         **kwargs,
     ):
         """Initialize inference client.
@@ -50,6 +57,7 @@ class InferenceClient(AbstractModelClient):
         Args:
             device: Device to run inference on
             checkpoint_path: Path to checkpoint directory
+            checkpoint_name: Name of the checkpoint file (default: "latest.ckpt")
             model_server_address: Address of the model server controlling the robot
             model_server_port: Port of the model server
             temporal_agg: Whether to use temporal aggregation for actions
@@ -57,22 +65,28 @@ class InferenceClient(AbstractModelClient):
             exponential_decay: Exponential decay factor for temporal aggregation
             update_rate_hz: Update frequency in Hz (overrides checkpoint config)
             timing_log: Whether to log timing information
+            precision: Precision type for model inference
             **kwargs: Additional arguments passed to AbstractModelClient
         """
         self.checkpoint_path = checkpoint_path
+        self.checkpoint_name = checkpoint_name
         self.device = device
         self.temporal_agg = temporal_agg
         self.favor_more_recent = favor_more_recent
         self.exponential_decay = exponential_decay
         self.tokenizer = None
         self.timing_log = timing_log
+        self.precision = precision
+        logging.info("Loading policy and config...")
         self._load_model()
+        logging.info("Policy and config loaded successfully.")
         self.observation_horizon = self.policy.decoder.observation_horizon
         self.prediction_horizon = self.policy.prediction_horizon
         self.image_height = self.config.task.dataloader.image_height
         self.image_width = self.config.task.dataloader.image_width
         self.action_dim = self.policy.action_space.get_total_action_dim()
         self.use_depth = Cameras.DEPTH.value in self.policy.observation_space.camera_keys
+
         obs_space = self.policy.observation_space
         action_space = self.policy.action_space
         if update_rate_hz is None:
@@ -143,12 +157,8 @@ class InferenceClient(AbstractModelClient):
         self.current_all_grippers = None
 
 
-    def _load_model(self) -> LightningPolicy:
-        """Load model and config from checkpoint.
-
-        Returns:
-            Loaded LightningPolicy model
-        """
+    def _load_model(self) -> None:
+        """Load config and policy from checkpoint."""
         config_path = os.path.join(self.checkpoint_path, "config.yaml")
         if not os.path.exists(config_path):
             raise FileNotFoundError(
@@ -158,30 +168,32 @@ class InferenceClient(AbstractModelClient):
         logging.info(f"Loading config from {config_path}")
         config = hydra.utils.instantiate(OmegaConf.load(config_path))
         self.config: MainConfig = config
-        checkpoint_file = os.path.join(self.checkpoint_path, "latest.ckpt")
-        if not os.path.exists(checkpoint_file):
-            checkpoint_file = os.path.join(self.checkpoint_path, "last.ckpt")
+        checkpoint_file = os.path.join(self.checkpoint_path, self.checkpoint_name)
         if not os.path.exists(checkpoint_file):
             raise FileNotFoundError(
                 f"No checkpoint found at {checkpoint_file}. "
-                f"Expected 'latest.ckpt' or 'last.ckpt'"
+                f"Expected {self.checkpoint_name} in checkpoint directory."
             )
-        logging.info(f"Loading model from {checkpoint_file}")
-        self.model = LightningPolicy.load_from_checkpoint(
-            checkpoint_file,
-            map_location=self.device,
-        )
-        self.model.eval()
-        self.policy = self.model.policy
+        logging.info(f"Loading model and tokenizer from {checkpoint_file}")
         tokenizer_path = os.path.join(self.checkpoint_path, "tokenizer")
         if os.path.exists(tokenizer_path):
             self.tokenizer = Tokenizer.from_pretrained(tokenizer_path, device=self.device)
-            self.policy.set_tokenizer(self.tokenizer)
             logging.info(f"Tokenizer loaded from {tokenizer_path}")
         else:
             self.tokenizer = None
 
-        if self.use_depth:
+        self.policy: Policy = self.config.policy
+        if self.tokenizer is not None:
+            self.tokenizer.to(self.device)
+            self.policy.set_tokenizer(self.tokenizer)
+            logging.info("Resized policy layers via set_tokenizer (obs/action vocab)")
+
+        self.policy.to(self.device).eval()
+        checkpoint = torch.load(checkpoint_file, map_location=self.device, weights_only=False)
+        lightning_module = LightningPolicy(policy=self.policy, training_config=self.config.training)
+        lightning_module.load_state_dict(checkpoint['state_dict'], strict=False)
+
+        if Cameras.DEPTH.value in self.policy.observation_space.camera_keys:
             depth_stats = self.policy.normalizer[Cameras.DEPTH.value].params_dict['input_stats']
             self.depth_min = float(depth_stats['min'].item())
             self.depth_max = float(depth_stats['max'].item())
@@ -189,8 +201,7 @@ class InferenceClient(AbstractModelClient):
         else:
             self.depth_min = None
             self.depth_max = None
-
-        return self.model
+        logging.info("Model and config successfully loaded.")
 
     def get_actions_from_model(self) -> list[Action]:
         """Compute next actions using the trained policy model.
@@ -277,7 +288,7 @@ class InferenceClient(AbstractModelClient):
             obs_dict[Cameras.DEPTH.value] = depth_imgs
 
         if self.request_language_instruction:
-            language_instruction = self.language_instruction_buffer[-1]
+            language_instruction = self.language_instruction_buffer[-self.observation_buffer_size :]
             obs_dict[LANGUAGE_KEY] = language_instruction
 
 
@@ -300,8 +311,9 @@ class InferenceClient(AbstractModelClient):
             inference_start_time = time.time()
             logging.info(f"[TIMING] Model inference started at: {inference_start_time:.6f}")
 
-        with torch.no_grad():
-            action_dict = self.policy.predict_action(obs_dict=obs_dict)
+        with torch.autocast(device_type=str(self.device), dtype=MAP_PRECISION_TO_DTYPE[self.precision]):
+            with torch.no_grad():
+                action_dict = self.policy.predict_action(obs_dict=obs_dict)
 
         if self.has_position:
             self.current_all_position_actions = action_dict[POSITION_ACTION_KEY]
