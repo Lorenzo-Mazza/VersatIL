@@ -63,7 +63,6 @@ class LanguageEncoder(Encoder):
                 self.model_name,
                 attn_implementation=self.attention_type,
                 use_safetensors=True,
-                dtype=torch.bfloat16
             )
         else:
             self.encoder = AutoModel.from_config(self.config, attn_implementation=self.attention_type)
