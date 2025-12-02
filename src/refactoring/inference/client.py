@@ -91,12 +91,13 @@ class InferenceClient(AbstractModelClient):
         action_space = self.policy.action_space
         if update_rate_hz is None:
             update_rate_hz = 10.0
+        
         super().__init__(
             model_server_address=model_server_address,
             model_server_port=model_server_port,
             observation_buffer_size=self.observation_horizon,
             request_depth=self.use_depth,
-            request_rectified_images=False,
+            request_rectified_images=True,
             request_gripper_state=action_space.has_gripper,
             request_language_instruction=obs_space.use_language,
             predicts_in_camera_frame=action_space.predict_in_camera_frame,
