@@ -230,15 +230,14 @@ class KLDivergenceLoss(BaseLoss):
         """
         if MU_KEY not in predictions or LOGVAR_KEY not in predictions:
             raise ValueError(f"Predictions must contain keys '{MU_KEY}' and '{LOGVAR_KEY}' for KLDivergenceLoss.")
-        mu = predictions[MU_KEY]
-        logvar = predictions[LOGVAR_KEY]
-
+        mu = predictions[MU_KEY].float() # Using fp32 float for stability
+        logvar = predictions[LOGVAR_KEY].float()
         kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=-1)
+        if kld.min() < 0:
+            print(f"Warning: Negative KL divergence encountered: min={kld.min().item():.4f}")
+            print(f"per_dim_kl: min={kld.min().item():.4f}, max={kld.max().item():.4f}")
+        kld = torch.clamp(kld, min=0.0)
         kld_mean = kld.mean()
-        if kld_mean < 0:
-            print(f"Warning: Negative KL divergence encountered: {kld_mean.item()}")
-            kld = torch.clamp(kld, min=0.0)
-            kld_mean = kld.mean()
 
         return LossOutput(
             total_loss=self.weight * kld_mean,
