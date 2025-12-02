@@ -124,8 +124,8 @@ class GripperLoss(BaseLoss):
     def __init__(
         self,
         gripper_type: str = GripperType.BINARY.value,
-        bce_weight: float = 1.0,
-        mse_weight: float = 1.0,
+        bce_weight: float = 0.005,
+        mse_weight: float = 0.0,
         pos_weight: torch.Tensor | None = None,
     ):
         """Initialize gripper loss.
@@ -237,12 +237,8 @@ class KLDivergenceLoss(BaseLoss):
         kld_mean = kld.mean()
         if kld_mean < 0:
             print(f"Warning: Negative KL divergence encountered: {kld_mean.item()}")
-            print(f"per_dim_kl: min={kld.min().item():.4f}, max={kld.max().item():.4f}")
-            print(f"logvar min: {logvar.min()}, max: {logvar.max()}")
-            print(f"mu min: {mu.min()}, max: {mu.max()}")
-            print(f"NaN in logvar: {torch.isnan(logvar).any()}")
-            print(f"NaN in mu: {torch.isnan(mu).any()}")
-            print(f"Inf in logvar: {torch.isinf(logvar).any()}")
+            kld = torch.clamp(kld, min=0.0)
+            kld_mean = kld.mean()
 
         return LossOutput(
             total_loss=self.weight * kld_mean,
@@ -360,7 +356,7 @@ class TrajectoryLengthLoss(BaseLoss):
     Penalizes differences between predicted and ground truth trajectory lengths.
     """
 
-    def __init__(self, weight: float = 0.1, action_key: str = POSITION_ACTION_KEY):
+    def __init__(self, weight: float = 0.001, action_key: str = POSITION_ACTION_KEY):
         """Initialize trajectory length loss.
 
         Args:
@@ -426,7 +422,7 @@ class TrajectoryLengthLoss(BaseLoss):
 class TrajectorySmoothness(BaseLoss):
     """Loss for trajectory smoothness (acceleration regularization)."""
 
-    def __init__(self, weight: float = 0.01, action_key: str = POSITION_ACTION_KEY):
+    def __init__(self, weight: float = 0.001, action_key: str = POSITION_ACTION_KEY):
         """Initialize smoothness loss.
 
         Args:
@@ -497,8 +493,8 @@ class PhaseClassificationLoss(BaseLoss):
 
     def __init__(
         self,
-        cross_entropy_weight: float = 1.0,
-        entropy_weight: float = 0.0,
+        cross_entropy_weight: float = 0.1,
+        entropy_weight: float = 0.01,
         label_smoothing: float = 0.0,
     ):
         """Initialize phase classification loss.
