@@ -46,10 +46,8 @@ from refactoring.data.constants import (
     ORIENTATION_ACTION_KEY,
     POSITION_ACTION_KEY,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
-    PROPRIO_OBS_ROBOT_FRAME_KEY, TOKENIZED_OBSERVATIONS_KEY, GRIPPER_STATE_OBS_KEY, TokenizerType,
+    PROPRIO_OBS_ROBOT_FRAME_KEY, TOKENIZED_OBSERVATIONS_KEY, GRIPPER_STATE_OBS_KEY, TokenizerType, KinematicsNormalizationType,
 )
-from refactoring.data.tokenization import ActionTokenizer
-from refactoring.metrics.components import ActionTokenLoss
 from refactoring.models.decoding.constants import ACTION_LOGITS_KEY
 from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod, LanguageEncoderType
 from refactoring.models.layers.activation import ActivationFunction
@@ -104,6 +102,8 @@ def register_resolvers():
         OmegaConf.register_new_resolver("pos_encoding", lambda name: PositionalEncodingType[name].value)
     if not OmegaConf.has_resolver("tokenizer_type"):
         OmegaConf.register_new_resolver("tokenizer_type", lambda name: TokenizerType[name].value)
+    if not OmegaConf.has_resolver("normalization_type"):
+        OmegaConf.register_new_resolver("normalization_type", lambda name: KinematicsNormalizationType[name].value)
 
     if not OmegaConf.has_resolver("action_key"):
         action_key_map = {

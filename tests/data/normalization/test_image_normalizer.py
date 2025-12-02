@@ -312,7 +312,9 @@ class TestCreateImageNormalizer:
         assert len(normalizer.normalizers) == 2
 
 
-    def test_round_trip_normalization(self, scalar_stats, test_tensor_scalar):
+    @pytest.mark.parametrize("norm_type", [ImageNormalizationType.MINUS_ONE_TO_ONE.value,
+                                           ImageNormalizationType.IMAGENET.value, ImageNormalizationType.ZERO_TO_ONE.value])
+    def test_round_trip_normalization(self, scalar_stats, test_tensor_scalar, norm_type):
         normalizer = create_image_normalizer(
             input_min=scalar_stats['input_min'],
             input_max=scalar_stats['input_max'],
@@ -571,3 +573,44 @@ class TestLinearNormalizerIntegration:
         loaded_out = new_normalizer['rgb'].normalize(test_data)
 
         assert torch.allclose(orig_out, loaded_out, atol=1e-6)
+
+
+class TestEndToEndRoundtrip:
+
+    @pytest.mark.parametrize("norm_type", [
+        ImageNormalizationType.ZERO_TO_ONE.value,
+        ImageNormalizationType.MINUS_ONE_TO_ONE.value,
+        ImageNormalizationType.IMAGENET.value
+    ])
+    def test_rgb_roundtrip(self, norm_type):
+        # Fake RGB dataset: batch of [0,1] images (assumes pre-scaled from uint8/255)
+        fake_rgb = torch.rand(200, 3, 64, 64)  # batch=4, channels=3, H/W=64
+        normalizer = get_rgb_image_normalizer(norm_type=norm_type)
+        normalized = normalizer.normalize(fake_rgb)
+        recovered = normalizer.unnormalize(normalized)
+        assert torch.allclose(fake_rgb, recovered, atol=1e-6)
+
+    @pytest.mark.parametrize("norm_type", [
+        ImageNormalizationType.ZERO_TO_ONE.value,
+        ImageNormalizationType.MINUS_ONE_TO_ONE.value,
+        ImageNormalizationType.IMAGENET.value
+    ])
+    def test_depth_roundtrip(self, norm_type):
+        # Fake depth dataset: batch of [0, max_depth] single-channel images
+        max_depth = 5.0  # e.g., meters
+        fake_depth = torch.rand(200, 1, 64, 64) * max_depth
+        # Compute stats from fake data (mimics _setup_depth_normalizer)
+        input_min = fake_depth.min().item()
+        input_max = fake_depth.max().item()
+        input_mean = fake_depth.mean().item()
+        input_std = fake_depth.std().item()
+        normalizer = get_depth_image_normalizer(
+            input_min=input_min,
+            input_max=input_max,
+            input_mean=input_mean,
+            input_std=input_std,
+            norm_type=norm_type
+        )
+        normalized = normalizer.normalize(fake_depth)
+        recovered = normalizer.unnormalize(normalized)
+        assert torch.allclose(fake_depth, recovered, atol=1e-6)

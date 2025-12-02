@@ -15,7 +15,7 @@ image_width: 480
 # Normalization
 image_norm_type: imagenet
 depth_norm_type: imagenet
-kinematics_norm_type: gaussian
+kinematics_norm_type: ${normalization_type:GAUSSIAN}
 winsorize_depth: true
 depth_winsorize_quantiles: [0.01, 0.99]
 winsorize_kinematics: true
