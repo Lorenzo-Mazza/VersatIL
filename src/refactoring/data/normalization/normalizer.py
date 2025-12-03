@@ -316,7 +316,7 @@ def _fit(data: torch.Tensor | np.ndarray,
     input_mean = tensor_data.mean(dim=0)
     input_std = tensor_data.std(dim=0)
     if mode == KinematicsNormalizationType.GAUSSIAN.value:
-        input_std = torch.clamp(input_std, min=1e-3)  # avoid too small std
+        input_std = torch.clamp(input_std, min=1e-2)  # avoid too small std
 
     # compute scale and offset
     if mode == KinematicsNormalizationType.MIN_MAX.value:
