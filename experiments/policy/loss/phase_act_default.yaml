@@ -19,7 +19,7 @@ loss_modules:
           action_keys:
             - ${action_key:POSITION}
           mse_weight: 0.0
-          l1_weight: 0.8
+          l1_weight: 1.0
           huber_weight: 0.0
 
         gripper_loss:

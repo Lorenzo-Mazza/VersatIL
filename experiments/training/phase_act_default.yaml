@@ -26,4 +26,4 @@ use_ema: false
 swa_lrs: null
 tune_lr: false  # Automatically find optimal learning rate
 
-early_stopping_patience: 10
+early_stopping_patience: 20
