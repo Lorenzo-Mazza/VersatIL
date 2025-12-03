@@ -223,7 +223,7 @@ class GPTDecoder(nn.Module):
         ) # (B, 1, query_length, key_length), (B, key_length), where key_length = cache_length + query_length
 
         if isinstance(self.positional_encoding, (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D)):
-            hidden_states = self.positional_encoding(hidden_states)
+            hidden_states += self.positional_encoding(hidden_states)
 
         cross_kv_per_layer = None
         if self.use_cross_attention:
