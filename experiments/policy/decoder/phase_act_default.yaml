@@ -52,7 +52,7 @@ action_heads:
           output_dim: null  # Outputs 256, then ActionHead projects 256 -> position_dim
           dropout: ${policy.decoder.dropout_rate}
           activation: ${activation_function:SILU}
-    temperature: 100.0
+    temperature: 10.0
     learnable_temperature: true
     routing_type: soft
 
@@ -73,7 +73,7 @@ action_heads:
           output_dim: null  # Outputs 128, then ActionHead projects 128 -> gripper_dim
           dropout: ${policy.decoder.dropout_rate}
           activation: ${activation_function:SILU}
-    temperature: 100.0
+    temperature: 10.0
     learnable_temperature: true
     routing_type: soft
 
