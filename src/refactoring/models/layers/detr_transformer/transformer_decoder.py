@@ -92,6 +92,7 @@ class TransformerDecoderLayer(nn.Module):
             key=target,
             value=target,
             query_positional_encoding=query_positional_encoding,
+            key_positional_encoding=query_positional_encoding,
             attention_mask=target_mask,
             key_padding_mask=target_key_padding_mask,
         )

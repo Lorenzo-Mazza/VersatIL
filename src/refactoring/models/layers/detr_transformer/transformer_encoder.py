@@ -65,6 +65,7 @@ class TransformerEncoderLayer(nn.Module):
             key=source,
             value=source,
             query_positional_encoding=positional_encoding,
+            key_positional_encoding=positional_encoding,
             attention_mask=source_mask,
             key_padding_mask=source_key_padding_mask,
         )
