@@ -402,7 +402,7 @@ class FreeTransformer(nn.Module):
             If return_latent_embeddings is True, also returns latent embeddings with shape (B, query_len, D).
         """
         if isinstance(self.positional_encoding, (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D)):
-            hidden_states = self.positional_encoding(hidden_states)
+            hidden_states += self.positional_encoding(hidden_states)
         batch_size = hidden_states.shape[0]
         device = hidden_states.device
         query_length = hidden_states.shape[1]
