@@ -264,7 +264,7 @@ class Workspace:
         early_stopping_callback = EarlyStopping(
             monitor="val_loss",
             mode="min",
-            patience=100,
+            patience=self.config.training.early_stopping_patience,
             verbose=True,
         )
         callbacks.append(early_stopping_callback)
