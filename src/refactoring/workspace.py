@@ -376,7 +376,8 @@ class Workspace:
         batch = next(data_iter)
         batch = normalize_sample(sample=batch, normalizer=self.normalizer,
                                   observation_space=self.config.task.observation_space, action_space=self.config.task.action_space)
-        batch = tokenize_sample(sample=batch, tokenizer=self.tokenizer)
+        if self.tokenizer is not None:
+            batch = tokenize_sample(sample=batch, tokenizer=self.tokenizer)
 
         device = torch.device(self.config.experiment.device)
         batch = to_device(batch, device)
