@@ -14,7 +14,7 @@ feedforward_dimension: 3200
 number_of_encoder_layers: 4
 number_of_decoder_layers: 7
 
-activation: ${activation_function:GELU}
+activation: ${activation_function:RELU}
 dropout_rate: 0.1
 normalize_before: false
 
