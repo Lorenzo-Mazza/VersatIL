@@ -14,7 +14,7 @@ predict_in_camera_frame: true
 
 # Use deltas (incremental movements) instead of absolute positions
 deltas_as_actions: true
-denoise_actions: false
+denoise_actions: true
 
 task_has_phases: true
 number_of_phases: 5
