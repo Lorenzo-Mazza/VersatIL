@@ -253,7 +253,7 @@ class Workspace:
         checkpoint_callback_latest = ModelCheckpoint(
             dirpath=self.output_dir,
             filename="latest-{epoch:02d}",
-            save_top_k=-1,  # Save all
+            save_top_k=1,  # Save only last
             every_n_epochs=self.config.experiment.checkpoint_every,
             save_last=True,
             verbose=True,
