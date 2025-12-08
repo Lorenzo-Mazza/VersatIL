@@ -184,7 +184,7 @@ class MetricsAccumulator:
 
         # Concatenate latent variables: list of (B, latent_dim) -> (N, latent_dim)
         all_z = torch.cat(self.metadata[MetadataKey.LATENT_Z.value], dim=0)
-        z = all_z.numpy()
+        z = all_z.float().numpy()
 
         # Handle phase labels: reduce (B, prediction_horizon) -> (N,) using mode
         phase_per_sample = None
