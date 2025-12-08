@@ -20,9 +20,9 @@ from refactoring.models.layers.transformer_input_builder import TransformerInput
 
 
 class FASTDETRDecoder(ActionDecoder):
-    """FAST DETR decoder for tokenized action prediction.
+    """FAST Detection-Transformer decoder for tokenized action prediction.
 
-    Uses DETR-style non-autoregressive transformer to generate
+    Uses ACT-style non-autoregressive transformer to generate
      sequences of discrete action tokens.
     """
 

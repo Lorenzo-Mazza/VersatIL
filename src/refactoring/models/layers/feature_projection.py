@@ -95,7 +95,8 @@ class FeatureProjection(nn.Module):
             if feature.ndim == 5:
                 B, T, _, _, _= feature.shape
                 feature = feature.reshape(B * T, *feature.shape[2:]) #(B*T, C, H, W)
-            if self.has_time_dim and feature.ndim == 4:
+                is_spatial = True
+            elif self.has_time_dim and feature.ndim == 4:
                 B, T, _, _ = feature.shape
                 feature = feature.reshape(B * T, *feature.shape[2:])
                 is_spatial = False
@@ -105,7 +106,7 @@ class FeatureProjection(nn.Module):
             if feature_name not in projection_dict:
                 projection_dict[feature_name] = self._create_projection_layer(feature)
             feature_projection = projection_dict[feature_name](feature)
-            if self.has_time_dim:
+            if self.has_time_dim and B is not None and T is not None:
                 feature_projection = feature_projection.reshape(B, T, *feature_projection.shape[1:])
             projected[feature_name] = feature_projection
         return projected

@@ -22,9 +22,9 @@ from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.dataloader import get_dataloaders
 from refactoring.data.normalization.normalizer import LinearNormalizer
 from refactoring.data.tokenization import Tokenizer
-from refactoring.data.transform import normalize_sample, tokenize_sample
 from refactoring.metrics import MoELoss
 from refactoring.models.decoding.algorithm import VariationalAlgorithm
+from refactoring.models.decoding.decoders.factory.free_transformer import FreeTransformerDecoder
 from refactoring.models.policy import Policy
 from refactoring.training.callbacks import (
     ConfusionMatrixCallback,
@@ -300,7 +300,7 @@ class Workspace:
             callbacks.append(cm_callback)
             logging.info("Added ConfusionMatrix callback for phase classification")
 
-        if isinstance(self.policy.algorithm, VariationalAlgorithm):
+        if isinstance(self.policy.algorithm, VariationalAlgorithm) or isinstance(self.policy.decoder, FreeTransformerDecoder):
             latent_vis_callback = LatentVisualizationCallback(
                 log_every_n_epochs=self.config.experiment.val_every,
             )
@@ -382,11 +382,6 @@ class Workspace:
 
         data_iter = iter(self.train_loader)
         batch = next(data_iter)
-        batch = normalize_sample(sample=batch, normalizer=self.normalizer,
-                                  observation_space=self.config.task.observation_space, action_space=self.config.task.action_space)
-        if self.tokenizer is not None:
-            batch = tokenize_sample(sample=batch, tokenizer=self.tokenizer)
-
         device = torch.device(self.config.experiment.device)
         batch = to_device(batch, device)
         self.lightning_policy.to(device)

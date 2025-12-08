@@ -255,7 +255,7 @@ class FASTGPTDecoder(ActionDecoder):
         target_token_ids = actions[TOKENIZED_ACTIONS_KEY]  # (B, action_token_len)
         action_token_embeddings = self.token_embedding(target_token_ids)  # (B, action_token_len, emb_dim)
         # query_len = prefix_len + action_token_len
-        full_attention_mask = make_attention_mask(
+        full_attention_mask, _ = make_attention_mask(
             feature_tokens=feature_tokens,
             action_tokens=action_token_embeddings,
             feature_token_mask=feature_token_mask,

@@ -6,7 +6,7 @@ def make_attention_mask(
         action_tokens: torch.Tensor,
         feature_tokens: torch.Tensor,
         feature_token_mask: torch.Tensor | None = None,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Compute attention mask with bidirectional prefix and causal actions.
 
     Args:
@@ -16,6 +16,7 @@ def make_attention_mask(
 
     Returns:
         full_padding_mask: Attention mask (B, 1, total_len, total_len)
+        full_key_padding_mask: Key padding mask (B, total_len)
 
     Note: True indicates masked tokens, False indicates valid tokens. Action padding is handled in loss computation.
     """
@@ -36,7 +37,7 @@ def make_attention_mask(
         (feature_token_mask, torch.zeros(batch_size, action_len, dtype=torch.bool, device=feature_tokens.device)),
         dim=1
     )  # (B, total_len)
-    key_padding_mask = key_padding_mask.unsqueeze(1).unsqueeze(2)  # (B, 1, 1, total_len)
-    full_padding_mask = full_padding_mask | key_padding_mask.expand(-1, -1, total_len, -1)  # (B, 1, total_len, total_len)
+    key_padding_mask_4d = key_padding_mask.unsqueeze(1).unsqueeze(2)  # (B, 1, 1, total_len)
+    full_padding_mask = full_padding_mask | key_padding_mask_4d.expand(-1, -1, total_len, -1)  # (B, 1, total_len, total_len)
     full_padding_mask[:, :, :prefix_len, prefix_len:] = True  # Prefix tokens cannot attend to future action tokens
-    return full_padding_mask
+    return full_padding_mask, key_padding_mask  # (B, 1, total_len, total_len), (B, total_len)

@@ -212,7 +212,7 @@ class FreeTransformerDecoder(ActionDecoder):
         action_token_embeddings = self.token_embedding(target_token_ids)  # (B, action_token_len, emb_dim)
         # query_len = prefix_len + action_token_len
 
-        full_attention_mask = make_attention_mask(
+        full_attention_mask, full_key_padding_mask = make_attention_mask(
             feature_tokens=feature_tokens,
             action_tokens=action_token_embeddings,
             feature_token_mask=feature_token_mask,
@@ -225,7 +225,7 @@ class FreeTransformerDecoder(ActionDecoder):
 
         decoder_output, bit_logits, latent_codes,  _ = self.free_transformer(
             hidden_states=full_token_sequence,
-            key_padding_mask=feature_token_mask,
+            key_padding_mask=full_key_padding_mask,
             decoder_cache=None,
             use_cache=False,
             self_attention_mask=full_attention_mask,

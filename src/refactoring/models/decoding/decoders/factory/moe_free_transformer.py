@@ -79,7 +79,7 @@ class MoEFreeTransformer(FreeTransformerDecoder):
         prefix_len = feature_tokens.shape[1]
         target_token_ids = actions[TOKENIZED_ACTIONS_KEY]
         action_token_embeddings = self.token_embedding(target_token_ids)
-        full_attention_mask = make_attention_mask(
+        full_attention_mask, full_key_padding_mask = make_attention_mask(
             feature_tokens=feature_tokens,
             action_tokens=action_token_embeddings,
             feature_token_mask=feature_token_mask,
@@ -90,7 +90,7 @@ class MoEFreeTransformer(FreeTransformerDecoder):
 
         decoder_output, bit_logits, latent_codes, latent_embeddings, _ = self.free_transformer(
             hidden_states=full_token_sequence,
-            key_padding_mask=feature_token_mask,
+            key_padding_mask=full_key_padding_mask,
             decoder_cache=None,
             use_cache=False,
             self_attention_mask=full_attention_mask,
