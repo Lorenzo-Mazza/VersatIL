@@ -155,11 +155,44 @@ class MetricsAccumulator:
         for key in self.metadata.keys():
             if MetadataKey.EXPERT_USAGE.value in key:
                 all_usage = torch.stack(self.metadata[key], dim=0)
-                expert_usages[key] =  all_usage.mean(dim=0).numpy()
+                expert_usages[key] = all_usage.mean(dim=0).numpy()
         if len(expert_usages.keys()) == 0:
             return None
         else:
             return expert_usages
+
+    def compute_latent_visualization_data(
+        self,
+    ) -> tuple[np.ndarray, np.ndarray | None] | None:
+        """Compute latent visualization data with aligned phase labels.
+
+        Handles the shape mismatch between:
+        - Latent z: (B, latent_dim) - one per sample
+        - Phase labels: (B, prediction_horizon) - multiple per sample
+
+        Reduces phase labels to one per sample using mode (most frequent phase
+        in each action chunk), which represents the dominant phase for that latent.
+
+        Returns:
+            Tuple of (z, phase_per_sample) where:
+                - z: (N, latent_dim) latent samples
+                - phase_per_sample: (N,) dominant phase per sample, or None if unavailable
+            Returns None if no latent data available.
+        """
+        if MetadataKey.LATENT_Z.value not in self.metadata:
+            return None
+
+        # Concatenate latent variables: list of (B, latent_dim) -> (N, latent_dim)
+        all_z = torch.cat(self.metadata[MetadataKey.LATENT_Z.value], dim=0)
+        z = all_z.numpy()
+
+        # Handle phase labels: reduce (B, prediction_horizon) -> (N,) using mode
+        phase_per_sample = None
+        if MetadataKey.PHASE_LABELS.value in self.metadata:
+            all_phases = torch.cat(self.metadata[MetadataKey.PHASE_LABELS.value], dim=0)
+            phase_per_sample = torch.mode(all_phases, dim=1).values.numpy()
+
+        return z, phase_per_sample
 
 
     def to_dict(self) -> dict[str, float]:

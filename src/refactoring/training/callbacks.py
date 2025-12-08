@@ -10,6 +10,7 @@ import torch
 import wandb
 from PIL import Image
 from pytorch_lightning.callbacks import Callback
+from sklearn.manifold import TSNE
 from torch.nn.modules.batchnorm import _BatchNorm
 from torch.optim.lr_scheduler import ReduceLROnPlateau as TorchReduceLROnPlateau
 
@@ -529,6 +530,96 @@ class ReduceLROnPlateauCallback(Callback):
             prog_bar=True,
             logger=True,
         )
+
+
+class LatentVisualizationCallback(Callback):
+    """Visualize VAE latent space with phase coloring.
+
+    Creates t-SNE projections of the latent space colored by dominant phase
+    to show whether different action modes are disentangled.
+    """
+
+    def __init__(self, log_every_n_epochs: int = 5, max_samples: int = 5000):
+        """Initialize latent visualization callback.
+
+        Args:
+            log_every_n_epochs: Log visualization every N epochs.
+            max_samples: Maximum samples for t-SNE (subsamples if exceeded).
+        """
+        super().__init__()
+        self.log_every_n_epochs = log_every_n_epochs
+        self.max_samples = max_samples
+
+    def on_validation_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
+        """Create and log latent space visualization at end of validation epoch."""
+        if trainer.current_epoch % self.log_every_n_epochs != 0:
+            return
+
+        latent_data = pl_module.val_metrics.compute_latent_visualization_data()
+        if latent_data is None:
+            return
+
+        z, phase_per_sample = latent_data
+        fig = self._create_latent_figure(z, phase_per_sample)
+
+        if trainer.logger is not None:
+            wandb_image = _figure_to_wandb_image(fig)
+            trainer.logger.log_metrics(
+                {"latent_space_analysis": wandb_image},
+                step=trainer.global_step,
+            )
+        plt.close(fig)
+
+    def _create_latent_figure(
+        self, z: np.ndarray, phases: np.ndarray | None
+    ) -> plt.Figure:
+        """Create t-SNE visualization of latent space.
+
+        Args:
+            z: Latent samples (N, latent_dim).
+            phases: Dominant phase per sample (N,), or None.
+
+        Returns:
+            Matplotlib figure with latent space visualization.
+        """
+        if z.shape[0] > self.max_samples:
+            idx = np.random.choice(z.shape[0], self.max_samples, replace=False)
+            z = z[idx]
+            if phases is not None:
+                phases = phases[idx]
+
+        perplexity = min(30, z.shape[0] - 1)
+        reducer = TSNE(n_components=2, random_state=42, perplexity=perplexity)
+        z_2d = reducer.fit_transform(z)
+
+        fig, ax = plt.subplots(figsize=(10, 8))
+
+        if phases is not None:
+            n_phases = int(phases.max()) + 1
+            scatter = ax.scatter(
+                z_2d[:, 0],
+                z_2d[:, 1],
+                c=phases,
+                cmap="tab10",
+                alpha=0.6,
+                s=10,
+                vmin=0,
+                vmax=n_phases - 1,
+            )
+            cbar = plt.colorbar(scatter, ax=ax, label="Phase")
+            cbar.set_ticks(range(n_phases))
+            ax.set_title("Latent Space t-SNE (colored by dominant phase)")
+        else:
+            ax.scatter(z_2d[:, 0], z_2d[:, 1], alpha=0.6, s=10)
+            ax.set_title("Latent Space t-SNE")
+
+        ax.set_xlabel("t-SNE Dimension 1")
+        ax.set_ylabel("t-SNE Dimension 2")
+        plt.tight_layout()
+        return fig
+
 
 
 def _figure_to_wandb_image(fig: plt.Figure) -> wandb.Image:

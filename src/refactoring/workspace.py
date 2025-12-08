@@ -24,12 +24,13 @@ from refactoring.data.normalization.normalizer import LinearNormalizer
 from refactoring.data.tokenization import Tokenizer
 from refactoring.data.transform import normalize_sample, tokenize_sample
 from refactoring.metrics import MoELoss
+from refactoring.models.decoding.algorithm import VariationalAlgorithm
 from refactoring.models.policy import Policy
 from refactoring.training.callbacks import (
     ConfusionMatrixCallback,
     EMACallback,
     GradientNormCallback,
-    ReduceLROnPlateauCallback, ExpertUsageCallback,
+    ReduceLROnPlateauCallback, ExpertUsageCallback, LatentVisualizationCallback,
 )
 from refactoring.training.lightning_policy import LightningPolicy
 
@@ -298,6 +299,13 @@ class Workspace:
             )
             callbacks.append(cm_callback)
             logging.info("Added ConfusionMatrix callback for phase classification")
+
+        if isinstance(self.policy.algorithm, VariationalAlgorithm):
+            latent_vis_callback = LatentVisualizationCallback(
+                log_every_n_epochs=self.config.experiment.val_every,
+            )
+            callbacks.append(latent_vis_callback)
+            logging.info("Added LatentVisualization callback for variational algorithm")
 
         if self.config.training.reduce_lr_on_plateau:
             reduce_lr_callback = ReduceLROnPlateauCallback(

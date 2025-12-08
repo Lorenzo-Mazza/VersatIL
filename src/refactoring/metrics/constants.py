@@ -66,3 +66,6 @@ class MetadataKey(str, Enum):
     PHASE_LOGITS = "phase_logits"
     PHASE_LABELS = "phase_labels"
     EXPERT_USAGE = "expert_usage"
+    LATENT_Z = "latent_z"
+    LATENT_MU = "latent_mu"
+    LATENT_LOGVAR = "latent_logvar"

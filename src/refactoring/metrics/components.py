@@ -228,8 +228,8 @@ class KLDivergenceLoss(BaseLoss):
         Returns:
             LossOutput with KL divergence loss
         """
-        if MU_KEY not in predictions or LOGVAR_KEY not in predictions:
-            raise ValueError(f"Predictions must contain keys '{MU_KEY}' and '{LOGVAR_KEY}' for KLDivergenceLoss.")
+        if not all(k in predictions for k in [LATENT_KEY, LOGVAR_KEY, MU_KEY]):
+            raise ValueError(f"Predictions must contain '{LATENT_KEY}', '{MU_KEY}', and '{LOGVAR_KEY}' for KLDivergenceLoss.")
         mu = predictions[MU_KEY].float() # Using fp32 float for stability
         logvar = predictions[LOGVAR_KEY].float()
         kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=-1)
@@ -238,10 +238,16 @@ class KLDivergenceLoss(BaseLoss):
             print(f"per_dim_kl: min={kld.min().item():.4f}, max={kld.max().item():.4f}")
         kld = torch.clamp(kld, min=0.0)
         kld_mean = kld.mean()
+        metadata = {
+            MetadataKey.LATENT_Z.value: predictions[LATENT_KEY],
+            MetadataKey.LATENT_MU.value: mu,
+            MetadataKey.LATENT_LOGVAR.value: logvar
+        }
 
         return LossOutput(
             total_loss=self.weight * kld_mean,
             component_losses={MetricKey.KL_DIVERGENCE.value: kld_mean},
+            metadata=metadata
         )
 
 
@@ -414,8 +420,8 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         Returns:
             LossOutput with MMD loss.
         """
-        if LATENT_KEY not in predictions:
-            raise ValueError(f"Predictions must contain '{LATENT_KEY}'.")
+        if not all(k in predictions for k in [LATENT_KEY, LOGVAR_KEY, MU_KEY]):
+            raise ValueError(f"Predictions must contain '{LATENT_KEY}', '{MU_KEY}', and '{LOGVAR_KEY}' for MaximumMeanDiscrepancyLoss.")
 
         z = predictions[LATENT_KEY]  # (B, latent_dim)
         z_prior = torch.randn_like(z)  # samples from N(0, I)
@@ -426,9 +432,16 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
 
         # MMD² = E[k(z,z')] + E[k(p,p')] - 2E[k(z,p)]
         mmd = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
+        metadata = {
+            MetadataKey.LATENT_Z.value: z,
+            MetadataKey.LATENT_MU.value: predictions[MU_KEY],
+            MetadataKey.LATENT_LOGVAR.value: predictions[LOGVAR_KEY]
+        }
+
         return LossOutput(
             total_loss=self.weight * mmd,
             component_losses={MetricKey.MMD_LOSS.value: mmd},
+            metadata=metadata,
         )
 
 
