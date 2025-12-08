@@ -21,7 +21,7 @@ from refactoring.models.layers.normalization.ada_norm import AdaNorm
 from refactoring.models.layers.normalization.constants import NormalizationType
 from refactoring.models.layers.normalization.factory import create_normalization_layer
 from refactoring.models.layers.normalization.rms_norm import RMSNorm
-from refactoring.models.layers.binary_mapper import BinaryMapper
+from refactoring.models.layers.free_transformer.binary_mapper import BinaryMapper
 from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
 from refactoring.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
 from refactoring.models.layers.activation import ActivationFunction
@@ -161,6 +161,7 @@ class FreeTransformerLatentEncoder(nn.Module):
         attention_type: str = AttentionType.GROUPED_QUERY.value,
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
+        use_global_latent: bool = False,
     ):
         super().__init__()
         self.learned_query = nn.Parameter(torch.randn(1, 1, embedding_dimension))
@@ -179,6 +180,7 @@ class FreeTransformerLatentEncoder(nn.Module):
             normalization_epsilon=normalization_epsilon,
             autoregressive=False,   # non-causal self-attention on the query
         )
+        self.use_global_latent = use_global_latent
         self.layers = nn.ModuleList([copy.deepcopy(layer) for _ in range(number_of_layers)])
         self.final_normalization = create_normalization_layer(normalization_type, embedding_dimension, normalization_epsilon)
 
@@ -200,7 +202,10 @@ class FreeTransformerLatentEncoder(nn.Module):
             Output target tensor with shape (B, T, embedding_dimension), representing latent embeddings.
         """
         B, T, D = mid_features.shape
-        target = self.learned_query.expand(B, T, -1) # (B, T, embedding_dimension)
+        if self.use_global_latent:
+            target = self.learned_query.expand(B, 1, -1)  # (B, 1, embedding_dimension)
+        else:
+            target = self.learned_query.expand(B, T, -1) # (B, T, embedding_dimension)
         if mid_features_mask is not None:
             # Expand (B, T) -> (B, 1, 1, T) for broadcast in cross-attn (Q=T, K=T)
             mid_features_mask = mid_features_mask.unsqueeze(1).unsqueeze(2)
@@ -247,6 +252,7 @@ class FreeTransformer(nn.Module):
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 2048,
         bias: bool = True,
+        use_global_latent: bool = False,
         normalization_epsilon: float = 1e-6,
         initializer_range: float = 0.02,
     ):
@@ -258,6 +264,7 @@ class FreeTransformer(nn.Module):
 
         self.number_of_decoder_layers = number_of_decoder_layers
         self.number_of_encoder_layers = number_of_encoder_layers
+        self.use_global_latent = use_global_latent
         self.embedding_dimension = embedding_dimension
         self.latent_dim = latent_dim
         self.latent_bits = latent_bits
@@ -337,6 +344,7 @@ class FreeTransformer(nn.Module):
             attention_type=attention_type,
             bias=bias,
             normalization_epsilon=normalization_epsilon,
+            use_global_latent=use_global_latent
         )
         self.binary_mapper = BinaryMapper(
             latent_bits=latent_bits,
@@ -400,6 +408,9 @@ class FreeTransformer(nn.Module):
              optional bit_logits has shape (B, query_len, latent_bits), latent_codes has shape (B, query_len, 2**latent_bits),
              and new_cache is a LayerKVCache or None.
             If return_latent_embeddings is True, also returns latent embeddings with shape (B, query_len, D).
+
+        Note:
+            If self.use_global_latent is True, bit logits, latent codes and latent embeddings have all shape (B, 1, D).
         """
         if isinstance(self.positional_encoding, (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D)):
             hidden_states += self.positional_encoding(hidden_states)
@@ -451,14 +462,18 @@ class FreeTransformer(nn.Module):
         # Generate latent
         mid_features_mask = key_padding_mask # (B, query_length) or None
         if self.training or not is_inference:
-            latent_emb = self.latent_encoder(mid_features=mid_features, mid_features_mask=mid_features_mask) # (B, query_length, D)
-            # (B, query_length, 2^H), (B, query_length, H)
-            latent_codes, bit_logits = self.binary_mapper(latent_emb, deterministic=deterministic)
+            z = self.latent_encoder(mid_features=mid_features, mid_features_mask=mid_features_mask) # (B, query_length or 1, D)
+            # (B, query_length or 1, 2^H), (B, query_length or 1, H)
+            latent_codes, bit_logits = self.binary_mapper(z, deterministic=deterministic)
         else:
-            latent_emb = self.latent_encoder(mid_features=mid_features, mid_features_mask=mid_features_mask) # (B, query_length, D)
+            z = self.latent_encoder(mid_features=mid_features, mid_features_mask=mid_features_mask) # (B, query_length or 1, D)
             # Uniform prior sample
-            uniform_indices = torch.randint(0, self.latent_dim, (batch_size, query_length), device=device, dtype=torch.long)
-            latent_codes = F.one_hot(uniform_indices, num_classes=self.latent_dim).float()  # (B, query_len, 2^H)
+            if self.use_global_latent:
+                query_dim = 1
+            else:
+                query_dim = query_length
+            uniform_indices = torch.randint(0, self.latent_dim, (batch_size, query_dim), device=device, dtype=torch.long)
+            latent_codes = F.one_hot(uniform_indices, num_classes=self.latent_dim).float()  # (B, query_length or 1, 2^H)
             bit_logits = None
 
         # Forward pass through latent-conditioned mid decoder layer
@@ -500,5 +515,5 @@ class FreeTransformer(nn.Module):
                 else None
             )
         if return_latent_embeddings:
-            return hidden_states, bit_logits, latent_codes, latent_emb, new_decoder_cache
+            return hidden_states, bit_logits, latent_codes, z, new_decoder_cache
         return hidden_states, bit_logits, latent_codes, new_decoder_cache

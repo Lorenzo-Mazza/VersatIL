@@ -10,7 +10,6 @@ that computes the full soft distribution over all 2^H codes.
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 class BinaryMapper(nn.Module):
     """Binary mapper for discrete latent sampling with gradient pass-through.

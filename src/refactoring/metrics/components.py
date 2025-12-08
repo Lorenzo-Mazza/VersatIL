@@ -511,7 +511,7 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
         if BINARY_LOGITS_KEY not in predictions:
             raise ValueError(f"Predictions must contain '{BINARY_LOGITS_KEY}'for BinaryMaximumMeanDiscrepancyLoss.")
 
-        logits = predictions[BINARY_LOGITS_KEY]  # (B, H)
+        logits = predictions[BINARY_LOGITS_KEY]  # (B, T, H)
         probs = torch.sigmoid(logits.float())  # Cast to fp32 for stability
         z_hard = torch.bernoulli(probs)
         z = z_hard - probs.detach() + probs  # Straight-through: forward=hard, backward=soft

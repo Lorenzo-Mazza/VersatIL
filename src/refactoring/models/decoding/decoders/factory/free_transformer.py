@@ -15,11 +15,11 @@ from refactoring.data.constants import TOKENIZED_ACTIONS_KEY
 from refactoring.data.tokenization import Tokenizer
 from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.action_masking import make_attention_mask
-from refactoring.models.decoding.constants import BINARY_LOGITS_KEY, ACTION_LOGITS_KEY, PREDICTED_ACTION_TOKENS_KEY, LATENT_CODES
+from refactoring.models.decoding.constants import BINARY_LOGITS_KEY, ACTION_LOGITS_KEY, PREDICTED_ACTION_TOKENS_KEY, LATENT_CODES, LATENT_KEY
 from refactoring.models.decoding.decoders import ActionDecoder, DecoderInput
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import PositionalEncodingType, AttentionType
-from refactoring.models.layers.free_transformer import FreeTransformer
+from refactoring.models.layers.free_transformer.free_transformer import FreeTransformer
 from refactoring.models.layers.normalization.constants import NormalizationType
 from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
 from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding2D, SinusoidalPositionalEncoding1D
@@ -55,6 +55,7 @@ class FreeTransformerDecoder(ActionDecoder):
         temperature: float = 1.0,
         learnable_temperature: bool = False,
         deterministic: bool = True,
+        use_global_latent: bool = True,
     ):
         """Initialize Free Transformer Decoder.
 
@@ -79,6 +80,7 @@ class FreeTransformerDecoder(ActionDecoder):
             learnable_temperature: If True, make temperature a learnable parameter
             deterministic: If True, use greedy decoding during inference
             action_heads: Not used, placeholder for compatibility
+            use_global_latent: If True, use a single latent code for the entire action sequence
         """
         self.action_space = action_space
         self.observation_space = observation_space
@@ -101,6 +103,7 @@ class FreeTransformerDecoder(ActionDecoder):
         self.temperature = temperature
         self.learnable_temperature = learnable_temperature
         self.deterministic = deterministic
+        self.use_global_latent = use_global_latent
         if action_heads.keys() !={ACTION_LOGITS_KEY}:
             raise ValueError(f"FreeTransformerDecoder only supports ACTION_LOGITS_KEY in action_heads. Make sure to use key {ACTION_LOGITS_KEY}"
                              " in your hydra config.")
@@ -161,6 +164,7 @@ class FreeTransformerDecoder(ActionDecoder):
             attention_dropout=self.attention_dropout,
             positional_encoding_type=self.positional_encoding_type,
             maximum_sequence_length=self.max_seq_len,
+            use_global_latent=self.use_global_latent
         )
 
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
@@ -223,21 +227,22 @@ class FreeTransformerDecoder(ActionDecoder):
                 "No room for any action tokens. "
                 "Consider increasing max_seq_len or reducing feature token count.")
 
-        decoder_output, bit_logits, latent_codes,  _ = self.free_transformer(
+        decoder_output, bit_logits, latent_codes, z,  _ = self.free_transformer(
             hidden_states=full_token_sequence,
             key_padding_mask=full_key_padding_mask,
             decoder_cache=None,
             use_cache=False,
             self_attention_mask=full_attention_mask,
-            is_inference=False
+            is_inference=False,
+            return_latent_embeddings=True
         )  # (B, query_len, D), (B, query_len, 2**latent_dim), None
         action_outputs = decoder_output[:, prefix_len:, :]  # (B, action_token_len, D)
         logits = self.action_heads[ACTION_LOGITS_KEY](action_outputs)  # (B, action_token_len, vocab_size)
         return {
             ACTION_LOGITS_KEY: logits,
             BINARY_LOGITS_KEY: bit_logits,
-            LATENT_CODES: latent_codes
-
+            LATENT_CODES: latent_codes,
+            LATENT_KEY: z,
         }
 
     def _forward_inference(
@@ -258,25 +263,27 @@ class FreeTransformerDecoder(ActionDecoder):
         prefix_len = feature_tokens.shape[1]
         current_sequence = feature_tokens
         prefix_self_mask = torch.zeros(batch_size, 1, prefix_len, prefix_len, dtype=torch.bool, device=self.device)
-        decoder_output, _, latent_codes,  decoder_cache = self.free_transformer(
+        decoder_output, _, latent_codes, z, decoder_cache = self.free_transformer(
             hidden_states=current_sequence,
             key_padding_mask=feature_token_mask,
             self_attention_mask=prefix_self_mask,
             decoder_cache=None,
             use_cache=True,
-            is_inference=True
+            is_inference=True,
+            return_latent_embeddings=True
         )  # (B, query_len, D), None, cache_dict
         generated_tokens = []
         next_token_embedding = None
         for step in range(self.max_seq_len - prefix_len):
             if step > 0:
-                decoder_output, _, latent_codes, decoder_cache = self.free_transformer(
+                decoder_output, _, latent_codes, z, decoder_cache = self.free_transformer(
                     hidden_states=next_token_embedding,
                     key_padding_mask=feature_token_mask,
                     self_attention_mask=None, # Causal mask handled internally
                     decoder_cache=decoder_cache,
                     use_cache=True,
-                    is_inference=True
+                    is_inference=True,
+                    return_latent_embeddings=True
                 )
             last_output = decoder_output[:, -1:, :]  # (B, 1, embedding_dimension)
             head = self.action_heads[ACTION_LOGITS_KEY]
@@ -292,7 +299,8 @@ class FreeTransformerDecoder(ActionDecoder):
 
         return {
             PREDICTED_ACTION_TOKENS_KEY: torch.cat(generated_tokens, dim=1),  # (B, max_seq_len)
-            LATENT_CODES: latent_codes
+            LATENT_CODES: latent_codes,
+            LATENT_KEY: z,
         }
 
 

@@ -11,7 +11,7 @@ loss_modules:
 
     binary_kl:
       _target_: refactoring.metrics.BinaryKLDivergenceLoss
-      free_bits: 0.1  # 2 * math.log(2) ≈1.386 nats
+      free_bits: 1.3  # 2 * math.log(2) ≈1.386 nats
       latent_bits: ${policy.decoder.latent_bits}
       entropy_weight: 0.0001
 

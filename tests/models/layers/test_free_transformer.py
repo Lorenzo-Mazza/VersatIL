@@ -2,7 +2,7 @@
 import pytest
 import torch
 
-from refactoring.models.layers.free_transformer import (
+from refactoring.models.layers.free_transformer.free_transformer import (
     FreeTransformerDecoderBlock,
     LatentConditionedTransformerBlock,
     FreeTransformerEncoderBlock,

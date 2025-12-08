@@ -189,6 +189,7 @@ class FreeTransformerConfig(DecodingNetworkConfig):
     temperature: float = 1.0  # Sampling temperature
     learnable_temperature: bool = False  # If True, make temperature a learnable parameter
     deterministic: bool = True  # If True, use greedy decoding during inference
+    use_global_latent: bool = True  # If True, use a single global latent code for the entire sequence
 
 
 @dataclass
