@@ -610,7 +610,7 @@ class LatentVisualizationCallback(Callback):
                 vmax=n_phases - 0.5,
             )
             plt.colorbar(scatter, ax=ax, label="Phase", ticks=range(n_phases))
-            ax.set_title("Latent Space t-SNE (colored by dominant phase)")
+            ax.set_title("Latent Space t-SNE (colored by phase mode)")
         else:
             ax.scatter(z_2d[:, 0], z_2d[:, 1], alpha=0.6, s=10)
             ax.set_title("Latent Space t-SNE")
