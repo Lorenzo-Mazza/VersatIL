@@ -18,7 +18,7 @@ from refactoring.metrics.constants import (
 from refactoring.models.decoding.constants import (
     PRIOR_PREDICTION_KEY,
     PRIOR_TARGET_KEY,
-    BINARY_LOGITS_KEY, MU_KEY, LOGVAR_KEY, ACTION_LOGITS_KEY, LATENT_CODES, ROUTING_WEIGHT,
+    BINARY_LOGITS_KEY, MU_KEY, LOGVAR_KEY, ACTION_LOGITS_KEY, LATENT_CODES, ROUTING_WEIGHT, LATENT_KEY,
 )
 
 
@@ -346,6 +346,89 @@ class BinaryKLDivergenceLoss(BaseLoss):
         return LossOutput(
             total_loss=self.weight * regularized_kl,
             component_losses=all_component_losses,
+        )
+
+
+class MaximumMeanDiscrepancyLoss(BaseLoss):
+    """MMD loss for regularizing latent distributions toward a prior.
+
+    Note:
+        From Info-VAE/MMD-VAE (https://ermongroup.github.io/blog/a-tutorial-on-mmd-variational-autoencoders/)
+         Uses RBF kernel for robust distribution matching, to encourage q(z|x) ≈ p(z)
+         where p(z) = N(0, I).
+    """
+
+
+    def __init__(
+            self,
+            weight: float = 1.0,
+    ):
+        """Initialize MMD loss.
+
+        Args:
+            weight: Loss weight.
+        """
+        super().__init__()
+        self.weight = weight
+
+
+    def get_required_keys(self) -> set[str]:
+        """Returns required prediction keys: {LATENT_KEY}."""
+        return {LATENT_KEY}
+
+
+    def _compute_kernel(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Compute RBF kernel with dimension-normalized bandwidth.
+
+        Uses implicit bandwidth σ² ∝ dim for scale invariance across
+        different latent dimensionalities.
+
+        Args:
+            x: First set of points (N, D).
+            y: Second set of points (M, D).
+
+        Returns:
+            Kernel matrix (N, M).
+        """
+        dim = x.size(1)
+        x = x.unsqueeze(1)  # (N, 1, D)
+        y = y.unsqueeze(0)  # (1, M, D)
+        # Mean squared difference, normalized by dim
+        mean_sq_diff = (x - y).pow(2).mean(dim=2)  # (N, M)
+        return torch.exp(-mean_sq_diff / dim)
+
+
+    def forward(
+            self,
+            predictions: dict[str, torch.Tensor],
+            targets: dict[str, torch.Tensor],
+            is_pad: torch.Tensor | None = None,
+    ) -> LossOutput:
+        """Compute MMD between latent samples and standard Gaussian prior.
+
+        Args:
+            predictions: Must contain LATENT_KEY with shape (B, latent_dim).
+            targets: Unused (prior is implicit).
+            is_pad: Unused.
+
+        Returns:
+            LossOutput with MMD loss.
+        """
+        if LATENT_KEY not in predictions:
+            raise ValueError(f"Predictions must contain '{LATENT_KEY}'.")
+
+        z = predictions[LATENT_KEY]  # (B, latent_dim)
+        z_prior = torch.randn_like(z)  # samples from N(0, I)
+
+        k_zz = self._compute_kernel(z, z)
+        k_pp = self._compute_kernel(z_prior, z_prior)
+        k_zp = self._compute_kernel(z, z_prior)
+
+        # MMD² = E[k(z,z')] + E[k(p,p')] - 2E[k(z,p)]
+        mmd = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
+        return LossOutput(
+            total_loss=self.weight * mmd,
+            component_losses={MetricKey.MMD_LOSS.value: mmd},
         )
 
 

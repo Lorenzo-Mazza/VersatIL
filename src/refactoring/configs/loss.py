@@ -60,6 +60,12 @@ class BinaryKLDivergenceLossConfig(BaseLossConfig):
     latent_bits: int = MISSING
     entropy_weight: float = 0.005
 
+@dataclass
+class MaximumMeanDiscrepancyLossConfig(BaseLossConfig):
+    """Configuration for Maximum Mean Discrepancy (MMD) loss."""
+    _target_: str = "refactoring.metrics.MaximumMeanDiscrepancyLoss"
+    weight: float = 1.0
+
 
 
 @dataclass

@@ -197,11 +197,11 @@ class VariationalAlgorithm(DecodingAlgorithm):
         """
         if actions is None:
             raise ValueError("Actions must be provided during training for variational algorithm.")
-        latent_embedding, mu, logvar, prior_outputs, obs_features = self._encode_posterior(
+        z, mu, logvar, prior_outputs, obs_features = self._encode_posterior(
             features=features,
             actions=actions,
         )
-        features_with_latent = {**features, LATENT_KEY: latent_embedding} # (B, latent_dimension)
+        features_with_latent = {**features, LATENT_KEY: z} # (B, latent_dimension)
         predictions = self.base_algorithm.forward(
             network=network,
             features=features_with_latent,
@@ -211,6 +211,8 @@ class VariationalAlgorithm(DecodingAlgorithm):
             predictions[MU_KEY] = mu
         if logvar is not None:
             predictions[LOGVAR_KEY] = logvar
+        if z is not None:
+            predictions[LATENT_KEY] = z
         if prior_outputs is not None and len(prior_outputs) > 0:
             if PRIOR_PREDICTION_KEY in prior_outputs:
                 predictions[PRIOR_PREDICTION_KEY] = prior_outputs[PRIOR_PREDICTION_KEY]

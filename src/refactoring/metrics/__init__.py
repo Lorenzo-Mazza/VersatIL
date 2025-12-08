@@ -17,11 +17,13 @@ from refactoring.metrics.components import (
     BinaryKLDivergenceLoss,
     GripperLoss,
     KLDivergenceLoss,
+    MaximumMeanDiscrepancyLoss,
     PhaseClassificationLoss,
     RegressionLoss,
     TrajectoryLengthLoss,
     TrajectorySmoothness,
-    MoELoss
+    MoELoss,
+
 )
 from refactoring.metrics.composite import (
     ActionReconstructionLoss,
@@ -43,6 +45,7 @@ __all__ = [
     "RegressionLoss",
     "GripperLoss",
     "KLDivergenceLoss",
+    "MaximumMeanDiscrepancyLoss",
     "BinaryKLDivergenceLoss",
     "TrajectoryLengthLoss",
     "TrajectorySmoothness",
