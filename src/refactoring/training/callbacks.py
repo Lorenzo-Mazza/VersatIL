@@ -598,18 +598,18 @@ class LatentVisualizationCallback(Callback):
 
         if phases is not None:
             n_phases = int(phases.max()) + 1
+            cmap = plt.cm.get_cmap("tab10", n_phases)
             scatter = ax.scatter(
                 z_2d[:, 0],
                 z_2d[:, 1],
                 c=phases,
-                cmap="tab10",
+                cmap=cmap,
                 alpha=0.6,
                 s=10,
-                vmin=0,
-                vmax=n_phases - 1,
+                vmin=-0.5,
+                vmax=n_phases - 0.5,
             )
-            cbar = plt.colorbar(scatter, ax=ax, label="Phase")
-            cbar.set_ticks(range(n_phases))
+            plt.colorbar(scatter, ax=ax, label="Phase", ticks=range(n_phases))
             ax.set_title("Latent Space t-SNE (colored by dominant phase)")
         else:
             ax.scatter(z_2d[:, 0], z_2d[:, 1], alpha=0.6, s=10)
