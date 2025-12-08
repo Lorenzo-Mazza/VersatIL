@@ -324,7 +324,7 @@ class BinaryKLDivergenceLoss(BaseLoss):
             )
 
         # P(B_h=1) = sigmoid(L_h) for each bit
-        probs = torch.sigmoid(logits)  # (B, T, H) or (B, H)
+        probs = torch.sigmoid(logits.float())  # (B, T, H) or (B, H), cast to fp32 for stability
         # KL divergence for independent Bernoulli vs uniform Bernoulli(0.5)
         # KL(Bernoulli(p) || Bernoulli(0.5)) = p*log(2p) + (1-p)*log(2(1-p))
         eps = 1e-8  # For numerical stability
@@ -512,7 +512,7 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
             raise ValueError(f"Predictions must contain '{BINARY_LOGITS_KEY}'for BinaryMaximumMeanDiscrepancyLoss.")
 
         logits = predictions[BINARY_LOGITS_KEY]  # (B, H)
-        probs = torch.sigmoid(logits)
+        probs = torch.sigmoid(logits.float())  # Cast to fp32 for stability
         z_hard = torch.bernoulli(probs)
         z = z_hard - probs.detach() + probs  # Straight-through: forward=hard, backward=soft
         z_prior = torch.bernoulli(0.5 * torch.ones_like(z))  # samples from Bernoulli(0.5)
