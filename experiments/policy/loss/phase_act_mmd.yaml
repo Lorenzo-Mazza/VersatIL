@@ -2,7 +2,6 @@
 defaults:
   - regression@loss_modules.moe_loss.base_loss.loss_modules.regression_loss
   - gripper@loss_modules.moe_loss.base_loss.loss_modules.gripper_loss
-  - kl@loss_modules.moe_loss.base_loss.loss_modules.kl_divergence
   - traj_len@loss_modules.moe_loss.base_loss.loss_modules.trajectory_length
   - phase_classification@loss_modules.moe_loss.base_loss.loss_modules.phase_classification_loss
   - mmd@loss_modules.moe_loss.base_loss.loss_modules.maximum_mean_discrepancy
