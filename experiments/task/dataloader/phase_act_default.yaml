@@ -34,5 +34,5 @@ center_episode_start: false
 action_backward_shift: 0
 
 # Train/val split
-val_ratio: 0.4
+val_ratio: 0.1
 total_ratio: 1.0
