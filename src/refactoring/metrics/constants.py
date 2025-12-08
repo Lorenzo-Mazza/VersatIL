@@ -19,6 +19,7 @@ class MetricKey(str, Enum):
     RAW_KL_DIVERGENCE = "raw_kl_divergence"
     CLAMPED_KL_DIVERGENCE = "clamped_kl"
     MMD_LOSS = "mmd_loss"
+    BINARY_MMD_LOSS = "binary_mmd_loss"
     LATENT_CODE_USAGE = "latent_usage_ratio"
     POSTERIOR_ENTROPY = "posterior_entropy"
     SINKHORN_LOSS = "sinkhorn_loss"

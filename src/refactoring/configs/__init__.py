@@ -1,3 +1,5 @@
+from tokenize import group
+
 from hydra.core.config_store import ConfigStore
 from omegaconf import OmegaConf
 
@@ -28,7 +30,7 @@ from refactoring.configs.experiment import ExperimentConfig
 from refactoring.configs.inference import InferenceConfig
 from refactoring.configs.loss import CompositeLossConfig, PhaseActionLossConfig, ActionReconstructionLossConfig, RegressionLossConfig, BaseLossConfig, \
     GripperLossConfig, KLDivergenceLossConfig, BinaryKLDivergenceLossConfig, TrajectoryLengthLossConfig, TrajectorySmoothnessConfig, \
-    PhaseClassificationLossConfig, ActionTokenLossConfig, MoELossConfig, MaximumMeanDiscrepancyLossConfig
+    PhaseClassificationLossConfig, ActionTokenLossConfig, MoELossConfig, MaximumMeanDiscrepancyLossConfig, BinaryMaximumMeanDiscrepancyLossConfig
 from refactoring.configs.main import MainConfig
 from refactoring.configs.policy import PolicyConfig
 from refactoring.configs.data.task import TaskSpaceConfig, ActionSpaceConfig, ObservationSpaceConfig
@@ -167,6 +169,7 @@ def register_configs():
     cs.store(group="policy/loss", name="gripper", node=GripperLossConfig)
     cs.store(group="policy/loss", name="kl", node=KLDivergenceLossConfig)
     cs.store(group="policy/loss", name="mmd", node=MaximumMeanDiscrepancyLossConfig)
+    cs.store(group="policy/loss", name="binary_mmd", node=BinaryMaximumMeanDiscrepancyLossConfig)
     cs.store(group="policy/loss", name="binary_kl", node=BinaryKLDivergenceLossConfig)
     cs.store(group="policy/loss", name="traj_len", node=TrajectoryLengthLossConfig)
     cs.store(group="policy/loss", name="traj_smooth", node=TrajectorySmoothnessConfig)

@@ -348,10 +348,13 @@ class BinaryKLDivergenceLoss(BaseLoss):
         regularized_kl = clamped_kl_mean -self.entropy_weight * entropy.mean() # Scalar (avg over B,T,H)
         all_component_losses[MetricKey.POSTERIOR_ENTROPY.value] = entropy.mean()
         all_component_losses[MetricKey.KL_DIVERGENCE.value] = regularized_kl
-
+        metadata = {
+            MetadataKey.LATENT_Z.value: torch.bernoulli(probs),
+        }
         return LossOutput(
             total_loss=self.weight * regularized_kl,
             component_losses=all_component_losses,
+            metadata=metadata,
         )
 
 
@@ -420,27 +423,110 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         Returns:
             LossOutput with MMD loss.
         """
-        if not all(k in predictions for k in [LATENT_KEY, LOGVAR_KEY, MU_KEY]):
-            raise ValueError(f"Predictions must contain '{LATENT_KEY}', '{MU_KEY}', and '{LOGVAR_KEY}' for MaximumMeanDiscrepancyLoss.")
+        if not all(k in predictions for k in [LATENT_KEY]):
+            raise ValueError(f"Predictions must contain '{LATENT_KEY}'for MaximumMeanDiscrepancyLoss.")
 
         z = predictions[LATENT_KEY]  # (B, latent_dim)
         z_prior = torch.randn_like(z)  # samples from N(0, I)
-
         k_zz = self._compute_kernel(z, z)
         k_pp = self._compute_kernel(z_prior, z_prior)
         k_zp = self._compute_kernel(z, z_prior)
-
         # MMD² = E[k(z,z')] + E[k(p,p')] - 2E[k(z,p)]
         mmd = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
         metadata = {
             MetadataKey.LATENT_Z.value: z,
-            MetadataKey.LATENT_MU.value: predictions[MU_KEY],
-            MetadataKey.LATENT_LOGVAR.value: predictions[LOGVAR_KEY]
         }
+        if MU_KEY in predictions and LOGVAR_KEY in predictions:
+            metadata[MetadataKey.LATENT_MU.value] = predictions[MU_KEY]
+            metadata[MetadataKey.LATENT_LOGVAR.value] = predictions[LOGVAR_KEY]
 
         return LossOutput(
             total_loss=self.weight * mmd,
             component_losses={MetricKey.MMD_LOSS.value: mmd},
+            metadata=metadata,
+        )
+
+class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
+    """MMD loss for regularizing binary latent distributions toward a uniform prior.
+
+    Uses RBF kernel for robust distribution matching, to encourage q(b|x) ≈ p(b)
+    where p(b) = Bernoulli(0.5) independent for each bit.
+    """
+
+    def __init__(
+            self,
+            weight: float = 1.0,
+    ):
+        """Initialize binary MMD loss.
+
+        Args:
+            weight: Loss weight.
+        """
+        super().__init__()
+        self.weight = weight
+
+
+    def get_required_keys(self) -> set[str]:
+        """Returns required prediction keys: {BINARY_LOGITS_KEY}."""
+        return {BINARY_LOGITS_KEY}
+
+
+    def _compute_kernel(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Compute RBF kernel with dimension-normalized bandwidth.
+
+        Uses implicit bandwidth σ² ∝ dim for scale invariance across
+        different latent dimensionalities.
+
+        Args:
+            x: First set of points (N, D).
+            y: Second set of points (M, D).
+
+        Returns:
+            Kernel matrix (N, M).
+        """
+        dim = x.size(1)
+        x = x.unsqueeze(1)  # (N, 1, D)
+        y = y.unsqueeze(0)  # (1, M, D)
+        # Mean squared difference, normalized by dim
+        mean_sq_diff = (x - y).pow(2).mean(dim=2)  # (N, M)
+        return torch.exp(-mean_sq_diff / dim)
+
+
+    def forward(
+            self,
+            predictions: dict[str, torch.Tensor],
+            targets: dict[str, torch.Tensor],
+            is_pad: torch.Tensor | None = None,
+    ) -> LossOutput:
+        """Compute MMD between binary latent samples and uniform Bernoulli prior.
+
+        Args:
+            predictions: Must contain BINARY_LOGITS_KEY with shape (B, H).
+            targets: Unused (prior is implicit).
+            is_pad: Unused.
+
+        Returns:
+            LossOutput with MMD loss.
+        """
+        if BINARY_LOGITS_KEY not in predictions:
+            raise ValueError(f"Predictions must contain '{BINARY_LOGITS_KEY}'for BinaryMaximumMeanDiscrepancyLoss.")
+
+        logits = predictions[BINARY_LOGITS_KEY]  # (B, H)
+        probs = torch.sigmoid(logits)
+        z_hard = torch.bernoulli(probs)
+        z = z_hard - probs.detach() + probs  # Straight-through: forward=hard, backward=soft
+        z_prior = torch.bernoulli(0.5 * torch.ones_like(z))  # samples from Bernoulli(0.5)
+        k_zz = self._compute_kernel(z, z)
+        k_pp = self._compute_kernel(z_prior, z_prior)
+        k_zp = self._compute_kernel(z, z_prior)
+        # MMD² = E[k(z,z')] + E[k(p,p')] - 2E[k(z,p)]
+        mmd = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
+        metadata = {
+            MetadataKey.LATENT_Z.value: z,
+        }
+        return LossOutput(
+            total_loss=self.weight * mmd,
+            component_losses={MetricKey.BINARY_MMD_LOSS.value: mmd},
             metadata=metadata,
         )
 

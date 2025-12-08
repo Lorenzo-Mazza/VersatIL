@@ -66,6 +66,12 @@ class MaximumMeanDiscrepancyLossConfig(BaseLossConfig):
     _target_: str = "refactoring.metrics.MaximumMeanDiscrepancyLoss"
     weight: float = 1.0
 
+@dataclass
+class BinaryMaximumMeanDiscrepancyLossConfig(BaseLossConfig):
+    """Configuration for Binary Maximum Mean Discrepancy (MMD) loss."""
+    _target_: str = "refactoring.metrics.BinaryMaximumMeanDiscrepancyLoss"
+    weight: float = 1.0
+
 
 
 @dataclass
