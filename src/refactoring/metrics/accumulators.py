@@ -182,8 +182,11 @@ class MetricsAccumulator:
         if MetadataKey.LATENT_Z.value not in self.metadata:
             return None
 
-        # Concatenate latent variables: list of (B, latent_dim) -> (N, latent_dim)
+        # Concatenate latent variables
         all_z = torch.cat(self.metadata[MetadataKey.LATENT_Z.value], dim=0)
+        # Handle 3D latents (B, T, H) from Free Transformer by flattening
+        if all_z.ndim == 3:
+            all_z = all_z.view(all_z.shape[0], -1)  # (N, T, H) -> (N, T*H)
         z = all_z.float().numpy()
 
         # Handle phase labels: reduce (B, prediction_horizon) -> (N,) using mode
