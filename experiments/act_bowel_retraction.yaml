@@ -17,7 +17,7 @@ defaults:
   - _self_
 
 task:
-  observation_horizon: 2
+  observation_horizon: 1
   prediction_horizon: 10
 
 policy:
