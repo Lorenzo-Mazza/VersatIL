@@ -9,9 +9,9 @@ shuffle: true
 image_height: 270
 image_width: 480
 
-image_norm_type: zero_to_one  # zero_to_one, minus_one_to_one, imagenet
-depth_norm_type: zero_to_one
-kinematics_norm_type: gaussian  # gaussian, min_max, zero_to_one
+image_norm_type:  ${image_norm_type:IMAGENET}  # zero_to_one, minus_one_to_one, imagenet
+depth_norm_type:  ${image_norm_type:IMAGENET}
+kinematics_norm_type: ${kinematics_norm_type:GAUSSIAN}  # gaussian, min_max, zero_to_one
 winsorize_depth: true
 depth_winsorize_quantiles: [0.01, 0.99]
 winsorize_kinematics: true
@@ -20,11 +20,11 @@ kinematics_winsorize_quantiles: [0.01, 0.99]
 # Sampling strategy, random chunk samples one random chunk per episode, overlapping uses sliding window over the whole dataset.
 sampling_mode: overlapping
 
-skip_initial_episode_steps: 5
+skip_initial_episode_steps: 0
 downsample_factor: 1
 center_episode_start: false
 
 # Action shifting (ACT latency compensation)
-action_backward_shift: 1
-val_ratio: 0.4
+action_backward_shift: 0
+val_ratio: 0.1
 total_ratio: 1.0
