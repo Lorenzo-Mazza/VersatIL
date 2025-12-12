@@ -144,6 +144,23 @@ class PhaseActionLossConfig(BaseLossConfig):
 
 
 @dataclass
+class FixedVarianceGaussianNLLossConfig(BaseLossConfig):
+    """Configuration for fixed variance Gaussian Negative Log-Likelihood loss."""
+    _target_: str = "refactoring.metrics.FixedVarianceGaussianNLLoss"
+    action_keys: list[str] = MISSING
+    sigmas: dict[str, float] | None = None
+    per_key_weights: dict[str, float] | None = None
+    weight: float = 1.0
+
+@dataclass
+class FixedVarianceGripperMixtureNLLoss(BaseLossConfig):
+    """Configuration for gripper Mixture Negative Log-Likelihood loss."""
+    _target_: str = "refactoring.metrics.FixedVarianceGripperMixtureNLLoss"
+    gripper_type: str = GripperType.BINARY.value
+    sigma : float = 0.5
+    weight: float = 1.0
+
+@dataclass
 class CompositeLossConfig(BaseLossConfig):
     """Configuration for composite loss with custom modules."""
 

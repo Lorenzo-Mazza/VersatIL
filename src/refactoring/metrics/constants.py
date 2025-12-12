@@ -35,6 +35,8 @@ class MetricKey(str, Enum):
     ACTION_TOKEN_CROSS_ENTROPY = "action_token_cross_entropy"
     TOKEN_ACCURACY = "token_accuracy_ratio"
     PERPLEXITY = "perplexity"
+    ACTION_NLL = "action_negative_log_likelihood"
+    GRIPPER_NLL = "gripper_negative_log_likelihood"
 
 
 class LossModuleName(str, Enum):
