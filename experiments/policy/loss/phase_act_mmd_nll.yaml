@@ -21,6 +21,7 @@ loss_modules:
 
         gripper_nll:
           gripper_type: ${task.action_space.gripper_type}
+          weight: 0.05
 
         maximum_mean_discrepancy:
             weight: 50.0
