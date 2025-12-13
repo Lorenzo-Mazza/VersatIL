@@ -20,15 +20,15 @@ base_expert:
     - right_rgb
   embedding_dimension: 256
   number_of_heads: 8
-  number_of_key_value_heads: 2
+  number_of_key_value_heads: null
   feedforward_dimension: 1024
   number_of_layers: 4
   activation: ${activation_function:SWIGLU}
   normalization_type: ${normalization:RMS_NORM}
-  attention_type: ${attention:GROUPED_QUERY}
+  attention_type: ${attention:MULTI_HEAD}
   dropout_rate: 0.1
   attention_dropout: 0.05
-  positional_encoding_type: ${pos_encoding:ROPE}
+  positional_encoding_type: ${pos_encoding:SINUSOIDAL}
 
   action_heads:
     position_action:
