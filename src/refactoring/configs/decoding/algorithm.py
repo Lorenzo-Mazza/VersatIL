@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from omegaconf import MISSING
 
 from refactoring.configs.decoding.latent import (
-    LatentActionEncoderConfig,
-    LatentPriorConfig,
+    PosteriorLatentEncoderConfig,
+    PriorLatentEncoderConfig,
 )
 from refactoring.models.decoding.constants import (
     BetaSchedule,
@@ -100,7 +100,7 @@ class VariationalAlgorithmConfig(DecodingAlgorithmConfig):
     """
     _target_: str = "refactoring.models.decoding.algorithm.variational.VariationalAlgorithm"
     base_algorithm: DecodingAlgorithmConfig = MISSING  # type: ignore[assignment]
-    posterior_encoder: LatentActionEncoderConfig = MISSING  # type: ignore[assignment]
-    prior: LatentPriorConfig  = MISSING
+    posterior_encoder: PosteriorLatentEncoderConfig = MISSING  # type: ignore[assignment]
+    prior: PriorLatentEncoderConfig  = MISSING
 
 

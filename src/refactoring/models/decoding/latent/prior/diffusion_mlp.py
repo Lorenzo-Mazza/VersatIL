@@ -17,16 +17,16 @@ from refactoring.models.layers.diffusion_process import (
     setup_inference_timesteps, SchedulerType,
 )
 from refactoring.models.decoding.constants import PRIOR_PREDICTION_KEY, PRIOR_TARGET_KEY
-from refactoring.models.decoding.latent import LatentPrior
+from refactoring.models.decoding.latent import PriorLatentEncoder
 from refactoring.models.layers.mlp import MLP
 from refactoring.models.layers.activation import ActivationFunction
 
 
-class DiffusionPrior(LatentPrior):
-    """Diffusion-based learned prior for latent variable models.
+class DiffusionPrior(PriorLatentEncoder):
+    """Diffusion-based learned prior network.
 
-    Learns to sample from p(z|s) using a simple diffusion MLP model, where z is the latent
-    variable and s is the conditioning (state features). This is used instead of
+    Learns to sample from the conditional p(z|s) using a simple diffusion MLP model, where z is the latent
+    variable and s is the conditioning (state features). A learnable prior can be used instead of
     a standard Gaussian prior N(0,I) to better match the posterior distribution.
     An example use case can be found in https://arxiv.org/html/2508.01622v2.
 
@@ -103,20 +103,20 @@ class DiffusionPrior(LatentPrior):
         )
         self.to(torch.device(device))
 
-    def sample_prior(self, batch_size: int, conditioning: torch.Tensor | None = None) -> torch.Tensor:
+    def sample_prior(self, batch_size: int, observations: torch.Tensor | None = None) -> torch.Tensor:
         """Sample latent variable from learned prior p(z|s) via reverse diffusion.
 
         Args:
             batch_size: Number of samples to generate
-            conditioning: Conditioning features (state) with shape (batch_size, conditioning_dim)
+            observations: Conditioning features (state) with shape (batch_size, conditioning_dim)
 
         Returns:
             Sampled latent embeddings (batch_size, latent_dim)
         """
         device = next(self.parameters()).device
-        if conditioning is None:
+        if observations is None:
             # Unconditional sampling
-            conditioning = torch.zeros(batch_size, self.conditioning_dim, device=device)
+            observations = torch.zeros(batch_size, self.conditioning_dim, device=device)
         # Start from pure noise
         z_t = torch.randn(batch_size, self.latent_dimension, device=device)
         setup_inference_timesteps(self.noise_scheduler, self.num_inference_steps)
@@ -125,7 +125,7 @@ class DiffusionPrior(LatentPrior):
         for t in self.noise_scheduler.timesteps:
             timestep = torch.tensor([t], device=device).float().view(1, 1).expand(batch_size, 1)
             timestep_embed = self.timestep_mlp(timestep / self.num_train_timesteps)
-            model_input = torch.cat([z_t, conditioning, timestep_embed], dim=-1)
+            model_input = torch.cat([z_t, observations, timestep_embed], dim=-1)
             predicted_noise = self.denoising_network(model_input)
             # Compute previous sample using scheduler
             z_t = self.noise_scheduler.step(predicted_noise, t, z_t).prev_sample
@@ -134,14 +134,14 @@ class DiffusionPrior(LatentPrior):
     def forward(
         self,
         target_latents: torch.Tensor,
-        conditioning: torch.Tensor,
+        observations: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Compute denoising loss for training the prior to match posterior samples.
 
         Args:
             target_latents: Latent samples from posterior q(z|a,s) with shape (B, latent_dim)
                 These should be detached to prevent gradients flowing back to posterior
-            conditioning: Conditioning features (state) with shape (B, conditioning_dim)
+            observations: Dictionary of observation features used as conditioning.
 
         Returns:
             Prior network output dictionary containing:
@@ -163,7 +163,8 @@ class DiffusionPrior(LatentPrior):
 
         timestep_input = timesteps.float().unsqueeze(1) / self.num_train_timesteps
         timestep_embed = self.timestep_mlp(timestep_input)
-        model_input = torch.cat([noisy_latents, conditioning, timestep_embed], dim=-1)
+        # TODO: This needs to be fixed. Currently assumes observations is a single tensor.
+        model_input = torch.cat([noisy_latents, observations, timestep_embed], dim=-1)
         predicted_noise = self.denoising_network(model_input)
         return {
             PRIOR_PREDICTION_KEY: predicted_noise,

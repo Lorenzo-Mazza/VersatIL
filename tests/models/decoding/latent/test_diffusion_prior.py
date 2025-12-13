@@ -1,9 +1,8 @@
 """Tests for DiffusionPrior learned prior for variational models."""
 import pytest
 import torch
-from refactoring.models.decoding.latent.diffusion_prior import DiffusionPrior
+from refactoring.models.decoding.latent.prior.diffusion_mlp import DiffusionPrior
 from refactoring.models.decoding.constants import PRIOR_PREDICTION_KEY, PRIOR_TARGET_KEY
-from refactoring.models.layers.activation import ActivationFunction
 
 
 @pytest.mark.unit
@@ -105,7 +104,7 @@ class TestDiffusionPriorSamplePrior:
         conditioning = torch.randn(batch_size, conditioning_dim, device=device)
 
         # Sample from prior
-        latent_samples = prior.sample_prior(batch_size=batch_size, conditioning=conditioning)
+        latent_samples = prior.sample_prior(batch_size=batch_size, observations=conditioning)
 
         # Check output shape
         assert latent_samples.shape == (batch_size, latent_dim)
@@ -126,7 +125,7 @@ class TestDiffusionPriorSamplePrior:
         )
 
         # Sample without conditioning
-        latent_samples = prior.sample_prior(batch_size=batch_size, conditioning=None)
+        latent_samples = prior.sample_prior(batch_size=batch_size, observations=None)
 
         # Should still produce valid samples (using zero conditioning)
         assert latent_samples.shape == (batch_size, latent_dim)
@@ -147,7 +146,7 @@ class TestDiffusionPriorSamplePrior:
 
         for batch_size in [1, 4, 8]:
             conditioning = torch.randn(batch_size, conditioning_dim, device=device)
-            latent_samples = prior.sample_prior(batch_size=batch_size, conditioning=conditioning)
+            latent_samples = prior.sample_prior(batch_size=batch_size, observations=conditioning)
             assert latent_samples.shape == (batch_size, latent_dim)
 
     def test_sample_prior_deterministic_with_seed(self, device):
@@ -168,10 +167,10 @@ class TestDiffusionPriorSamplePrior:
 
         # Sample twice with same seed
         torch.manual_seed(42)
-        samples1 = prior.sample_prior(batch_size=batch_size, conditioning=conditioning)
+        samples1 = prior.sample_prior(batch_size=batch_size, observations=conditioning)
 
         torch.manual_seed(42)
-        samples2 = prior.sample_prior(batch_size=batch_size, conditioning=conditioning)
+        samples2 = prior.sample_prior(batch_size=batch_size, observations=conditioning)
 
         # Should be identical
         assert torch.allclose(samples1, samples2, atol=1e-6)
@@ -198,7 +197,7 @@ class TestDiffusionPriorForward:
         conditioning = torch.randn(batch_size, conditioning_dim, device=device)
 
         # Forward pass
-        outputs = prior.forward(target_latents=target_latents, conditioning=conditioning)
+        outputs = prior.forward(target_latents=target_latents, observations=conditioning)
 
         # Check outputs are dictionary with predictions and targets
         assert isinstance(outputs, dict)
@@ -226,7 +225,7 @@ class TestDiffusionPriorForward:
         conditioning = torch.randn(batch_size, conditioning_dim, device=device)
 
         # Forward pass
-        outputs = prior.forward(target_latents=target_latents, conditioning=conditioning)
+        outputs = prior.forward(target_latents=target_latents, observations=conditioning)
 
         # Compute loss manually (MSE between prediction and target)
         loss = torch.nn.functional.mse_loss(
@@ -260,7 +259,7 @@ class TestDiffusionPriorForward:
         # Forward multiple times - predictions should vary due to random timesteps
         predictions = []
         for _ in range(5):
-            outputs = prior.forward(target_latents=target_latents, conditioning=conditioning)
+            outputs = prior.forward(target_latents=target_latents, observations=conditioning)
             predictions.append(outputs[PRIOR_PREDICTION_KEY].detach().cpu())
 
         # Not all predictions should be identical (random timestep sampling)
@@ -328,7 +327,7 @@ class TestDiffusionPriorIntegration:
             optimizer.zero_grad()
 
             # Get predictions and targets
-            outputs = prior.forward(target_latents=target_latents, conditioning=conditioning)
+            outputs = prior.forward(target_latents=target_latents, observations=conditioning)
 
             # Compute loss (MSE between prediction and target)
             loss = torch.nn.functional.mse_loss(
@@ -368,7 +367,7 @@ class TestDiffusionPriorIntegration:
         conditioning = torch.randn(batch_size, conditioning_dim, device=device)
 
         # Sample from prior
-        samples = prior.sample_prior(batch_size=batch_size, conditioning=conditioning)
+        samples = prior.sample_prior(batch_size=batch_size, observations=conditioning)
 
         # Check that samples are not NaN or Inf
         assert not torch.isnan(samples).any()

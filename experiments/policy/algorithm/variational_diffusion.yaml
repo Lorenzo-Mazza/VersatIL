@@ -21,7 +21,7 @@ base_algorithm:
   clip_sample: true
 
 posterior_encoder:
-  _target_: refactoring.models.decoding.latent.vae_posterior.VAETransformerEncoder
+  _target_: refactoring.models.decoding.latent.posterior.transformer_encoder.VAETransformerEncoder
   latent_dimension: 32
   embedding_dimension: 512
   prediction_horizon: ${policy.prediction_horizon}
@@ -33,7 +33,7 @@ posterior_encoder:
   device: ${policy.device}
 
 prior:
-  _target_: refactoring.models.decoding.latent.diffusion_prior.DiffusionPrior
+  _target_: refactoring.models.decoding.latent.prior.diffusion_prior.DiffusionPrior
   latent_dimension: 32
   conditioning_dim: 512  # Should match flat encoded features dimension
   hidden_dims: [256, 256]

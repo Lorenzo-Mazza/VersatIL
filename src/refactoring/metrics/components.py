@@ -18,7 +18,8 @@ from refactoring.metrics.constants import (
 from refactoring.models.decoding.constants import (
     PRIOR_PREDICTION_KEY,
     PRIOR_TARGET_KEY,
-    BINARY_LOGITS_KEY, MU_KEY, LOGVAR_KEY, ACTION_LOGITS_KEY, LATENT_CODES, ROUTING_WEIGHT, LATENT_KEY, EXPERT_OUTPUTS,
+    BINARY_LOGITS_KEY, MU_KEY, LOGVAR_KEY, ACTION_LOGITS_KEY, LATENT_CODES, ROUTING_WEIGHT, LATENT_KEY, EXPERT_OUTPUTS, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY,
+    PRIOR_LATENT_KEY,
 )
 
 
@@ -228,20 +229,30 @@ class KLDivergenceLoss(BaseLoss):
         Returns:
             LossOutput with KL divergence loss
         """
-        if not all(k in predictions for k in [LATENT_KEY, LOGVAR_KEY, MU_KEY]):
-            raise ValueError(f"Predictions must contain '{LATENT_KEY}', '{MU_KEY}', and '{LOGVAR_KEY}' for KLDivergenceLoss.")
-        mu = predictions[MU_KEY].float() # Using fp32 float for stability
-        logvar = predictions[LOGVAR_KEY].float()
-        kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=-1)
+        required_keys = [LATENT_KEY, LOGVAR_KEY, MU_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY, PRIOR_LATENT_KEY]
+        if not all(k in predictions for k in required_keys):
+            raise ValueError(f"Predictions must contain all {required_keys}' for KLDivergenceLoss.")
+        mu_posterior = predictions[MU_KEY].float() # Using fp32 float for stability
+        logvar_posterior = predictions[LOGVAR_KEY].float()
+        mu_prior = predictions[PRIOR_MU_KEY].float()
+        logvar_prior = predictions[PRIOR_LOGVAR_KEY].float()
+        std_posterior = (0.5 * logvar_posterior).exp()
+        std_prior = (0.5 * logvar_prior).exp()
+        posterior = torch.distributions.Normal(mu_posterior, std_posterior)
+        prior = torch.distributions.Normal(mu_prior, std_prior)
+        kld = torch.distributions.kl_divergence(posterior, prior).sum(dim=-1)
         if kld.min() < 0:
             print(f"Warning: Negative KL divergence encountered: min={kld.min().item():.4f}")
             print(f"per_dim_kl: min={kld.min().item():.4f}, max={kld.max().item():.4f}")
         kld = torch.clamp(kld, min=0.0)
         kld_mean = kld.mean()
         metadata = {
-            MetadataKey.LATENT_Z.value: predictions[LATENT_KEY],
-            MetadataKey.LATENT_MU.value: mu,
-            MetadataKey.LATENT_LOGVAR.value: logvar
+            MetadataKey.POSTERIOR_Z.value: predictions[LATENT_KEY],
+            MetadataKey.POSTERIOR_MU.value: mu_posterior,
+            MetadataKey.POSTERIOR_LOGVAR.value: logvar_posterior,
+            MetadataKey.PRIOR_Z.value: predictions[PRIOR_LATENT_KEY],
+            MetadataKey.PRIOR_MU.value: mu_prior,
+            MetadataKey.PRIOR_LOGVAR.value: logvar_prior,
         }
 
         return LossOutput(
@@ -349,7 +360,7 @@ class BinaryKLDivergenceLoss(BaseLoss):
         all_component_losses[MetricKey.POSTERIOR_ENTROPY.value] = entropy.mean()
         all_component_losses[MetricKey.KL_DIVERGENCE.value] = regularized_kl
         metadata = {
-            MetadataKey.LATENT_Z.value: torch.bernoulli(probs),
+            MetadataKey.POSTERIOR_Z.value: torch.bernoulli(probs),
         }
         return LossOutput(
             total_loss=self.weight * regularized_kl,
@@ -434,10 +445,10 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         # MMD² = E[k(z,z')] + E[k(p,p')] - 2E[k(z,p)]
         mmd = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
         metadata = {
-            MetadataKey.LATENT_Z.value: z,
+            MetadataKey.POSTERIOR_Z.value: z,
         }
         if MU_KEY in predictions and LOGVAR_KEY in predictions:
-            metadata[MetadataKey.LATENT_MU.value] = predictions[MU_KEY]
+            metadata[MetadataKey.POSTERIOR_MU.value] = predictions[MU_KEY]
             metadata[MetadataKey.LATENT_LOGVAR.value] = predictions[LOGVAR_KEY]
 
         return LossOutput(
@@ -522,7 +533,7 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
         # MMD² = E[k(z,z')] + E[k(p,p')] - 2E[k(z,p)]
         mmd = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
         metadata = {
-            MetadataKey.LATENT_Z.value: z,
+            MetadataKey.POSTERIOR_Z.value: z,
         }
         return LossOutput(
             total_loss=self.weight * mmd,

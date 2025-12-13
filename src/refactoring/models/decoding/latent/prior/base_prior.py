@@ -1,15 +1,16 @@
-"""Abstract base class for learned latent priors."""
+"""Abstract base class for latent prior networks."""
 import abc
 
 import torch
 from torch import nn as nn
 
 
-class LatentPrior(nn.Module, abc.ABC):
-    """Abstract base class for learned priors over latent spaces.
+class PriorLatentEncoder(nn.Module, abc.ABC):
+    """Abstract base class for prior parametrizations over a latent space z, which can be either learned (through a NN)
+      or fixed.
 
-    Latent priors model the distribution p(z|s) where z is a latent variable
-    and s is optional conditioning (e.g., state/observation features).
+    Latent priors model the conditional distribution p(z|s) where z is a latent variable
+    and s is an optional conditioning of observations (if the prior distribution is learned).
 
     Design:
         - forward() takes target latents and conditioning, returns predictions and targets
@@ -33,7 +34,7 @@ class LatentPrior(nn.Module, abc.ABC):
     def forward(
         self,
         target_latents: torch.Tensor,
-        conditioning: torch.Tensor,
+        observations: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Compute prior predictions for training.
 
@@ -43,9 +44,9 @@ class LatentPrior(nn.Module, abc.ABC):
 
         Args:
             target_latents: Clean latent samples, shape (B, latent_dim)
-                These are typically sampled from the posterior q(z|a,s) and
-                should be DETACHED to prevent gradients flowing to posterior.
-            conditioning: Conditioning features (state), shape (B, conditioning_dim)
+                These are sampled from the approximate posterior q_phi(z|a,s) and
+                should be detached to prevent gradients flowing twice to the approximate posterior.
+            observations: Dictionary of conditioning features, typically the observations at current state.
 
         Returns:
             Dictionary containing predictions and targets for loss computation.
@@ -57,16 +58,16 @@ class LatentPrior(nn.Module, abc.ABC):
     def sample_prior(
         self,
         batch_size: int,
-        conditioning: torch.Tensor | None = None,
+        observations: dict[str, torch.Tensor] | None = None,
     ) -> torch.Tensor:
         """Sample latent variable from learned prior p(z|s).
 
         During inference, we don't have ground-truth actions (and thus no
-        posterior samples), so we sample directly from the prior.
+        posterior samples), so we sample directly from the (conditional) prior.
 
         Args:
             batch_size: Number of samples to generate
-            conditioning: Optional conditioning features (state), shape (B, conditioning_dim)
+            observations: Optional dictionary of conditioning features
 
         Returns:
             Sampled latent embeddings, shape (batch_size, embedding_dim)

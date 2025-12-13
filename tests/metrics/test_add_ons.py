@@ -14,7 +14,6 @@ pytest.importorskip("geomloss")
 import torch
 
 from refactoring.data.constants import POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY
-from refactoring.models.decoding.constants import STATE_FEATURE_KEYS
 from refactoring.metrics.constants import MetricKey
 
 
@@ -167,27 +166,6 @@ class TestOptimalTransportLossForward:
         assert loss_output.total_loss.item() >= 0
         assert MetricKey.OPTIMAL_TRANSPORT_LOSS.value in loss_output.component_losses
 
-    def test_forward_with_state_features(self, OptimalTransportLoss, device, batch_size, horizon, position_dim, state_dim):
-        """Test forward pass with state feature augmentation."""
-        loss_fn = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY],
-            weight=0.1,
-            lambda_state=1.0,  # Include state features
-        )
-
-        predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            STATE_FEATURE_KEYS: torch.randn(batch_size, state_dim, device=device),  # State features
-        }
-        targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-        }
-
-        loss_output = loss_fn(predictions, targets)
-
-        assert loss_output.total_loss.item() >= 0
-        assert MetricKey.OPTIMAL_TRANSPORT_LOSS.value in loss_output.component_losses
-
     def test_forward_with_padding_mask(self, OptimalTransportLoss, device, batch_size, horizon, position_dim):
         """Test forward pass with padding mask."""
         loss_fn = OptimalTransportLoss(
@@ -305,85 +283,6 @@ class TestOptimalTransportLossErrorHandling:
             loss_fn(predictions, targets)
 
 
-@pytest.mark.slow
-class TestOptimalTransportLossStateBehavior:
-    """Test state feature augmentation behavior."""
-
-    def test_state_features_ignored_when_lambda_zero(self, OptimalTransportLoss, device, batch_size, horizon, position_dim, state_dim):
-        """Test that state features are ignored when lambda_state=0."""
-        loss_fn = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY],
-            weight=1.0,
-            lambda_state=0.0,  # Should ignore states
-        )
-
-        # Predictions WITH state features
-        predictions_with_state = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            STATE_FEATURE_KEYS: torch.randn(batch_size, state_dim, device=device),
-        }
-
-        # Predictions WITHOUT state features (same actions)
-        predictions_no_state = {
-            POSITION_ACTION_KEY: predictions_with_state[POSITION_ACTION_KEY].clone(),
-        }
-
-        targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-        }
-
-        loss_with_state = loss_fn(predictions_with_state, targets)
-        loss_no_state = loss_fn(predictions_no_state, targets)
-
-        # Losses should be identical since lambda_state=0
-        assert torch.isclose(loss_with_state.total_loss, loss_no_state.total_loss, rtol=1e-4)
-
-    def test_state_features_used_when_lambda_positive(self, OptimalTransportLoss, device, batch_size, horizon, position_dim, state_dim):
-        """Test that state features change the loss computation when lambda_state>0.
-
-        Note: State features augment BOTH pred and target with the same states,
-        creating a composite metric ||a - a'||^2 + lambda ||s - s'||^2 where s=s'.
-        This changes the effective distance metric but doesn't create different losses
-        for different prediction states with the same actions.
-
-        Instead, we test that having state features present changes the loss
-        compared to not having them.
-        """
-        loss_fn_with_lambda = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY],
-            weight=1.0,
-            lambda_state=2.0,
-        )
-
-        loss_fn_no_lambda = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY],
-            weight=1.0,
-            lambda_state=0.0,
-        )
-
-        predictions_with_state = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            STATE_FEATURE_KEYS: torch.randn(batch_size, state_dim, device=device),
-        }
-
-        # Same predictions but without state key
-        predictions_no_state = {
-            POSITION_ACTION_KEY: predictions_with_state[POSITION_ACTION_KEY].clone(),
-        }
-
-        targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-        }
-
-        loss_with_lambda = loss_fn_with_lambda(predictions_with_state, targets)
-        loss_no_lambda = loss_fn_no_lambda(predictions_no_state, targets)
-
-        # The presence of state features (with lambda_state > 0) changes the metric,
-        # so losses should differ. Note: They may be close if states don't contribute much.
-        # We're mainly testing that the code path executes without error.
-        assert loss_with_lambda.total_loss.item() >= 0
-        assert loss_no_lambda.total_loss.item() >= 0
-
 
 @pytest.mark.slow
 class TestOptimalTransportLossGradients:
@@ -411,25 +310,3 @@ class TestOptimalTransportLossGradients:
         assert predictions[POSITION_ACTION_KEY].grad is not None
         assert not torch.allclose(predictions[POSITION_ACTION_KEY].grad, torch.zeros_like(predictions[POSITION_ACTION_KEY].grad))
 
-    def test_gradients_with_state_features(self, OptimalTransportLoss, device, batch_size, horizon, position_dim, state_dim):
-        """Test gradients with state feature augmentation."""
-        loss_fn = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY],
-            weight=1.0,
-            lambda_state=1.0,
-        )
-
-        predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device, requires_grad=True),
-            STATE_FEATURE_KEYS: torch.randn(batch_size, state_dim, device=device, requires_grad=True),
-        }
-        targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-        }
-
-        loss_output = loss_fn(predictions, targets)
-        loss_output.total_loss.backward()
-
-        # Check gradients for both actions and states
-        assert predictions[POSITION_ACTION_KEY].grad is not None
-        assert predictions[STATE_FEATURE_KEYS].grad is not None

@@ -5,25 +5,24 @@ import torch
 import torch.nn as nn
 
 
-class LatentActionEncoder(nn.Module, abc.ABC):
-    """Abstract base class for encoding actions into latent representations, i.e. by modeling the latent posterior `q(z|a,s)`.
+class PosteriorLatentEncoder(nn.Module, abc.ABC):
+    """Abstract base class for posterior encoders, used for modeling the conditional posterior `q_\phi(z|a,s)`.
 
-    Latent action encoders transform action sequences into lower-dimensional
-    latent embeddings that capture action variability and execution style.
-    They are used by decoding algorithms (e.g., BehavioralCloning with VAE)
-    to model multi-modal action distributions.
+    Posterior encoders learn lower-dimensional latent embeddings conditioned on privileged
+     information such as expert actions (a) and optionally observations (s),
+     in order to learn a latent representation of the target action multi-modality and execution style.
+     They are trained with variational inference to learn a conditional latent distribution that is close to
+     a prior probability p(z) (which can also be learned, ref. latent/prior package) .
 
     Design:
         - Supports both action-only and action+observation conditioning
         - Returns dictionary with LATENT_KEY + algorithm-specific auxiliary outputs
         - Provides sample_prior() for inference (when actions unavailable)
 
-    Example (VAE):
-        Returns {LATENT_KEY: z, MU_KEY: mu, LOGVAR_KEY: logvar}
     """
 
     def __init__(self, latent_dimension: int, device: str):
-        """Initialize latent action encoder."""
+        """Initialize posterior encoder."""
         super().__init__()
         self.latent_dimension = latent_dimension
         self.device = torch.device(device)

@@ -138,34 +138,21 @@ class BaseMixtureOfExperts(nn.Module):
         return nn.Sequential(*layers).to(device)
 
     def compute_routing_weights(
-        self, features: torch.Tensor | dict[str, torch.Tensor], external_weights: torch.Tensor | None = None
+        self, features: torch.Tensor, external_weights: torch.Tensor | None = None
     ) -> torch.Tensor:
         """Compute routing weights from input or external source.
 
         Args:
-            features: Input tensor or dict of tensors
+            features: Input tensor for gating network
             external_weights: Optional external routing logits/probabilities
 
         Returns:
             Normalized routing weights (B, [horizon,] num_experts)
 
-        Raises:
-            ValueError: If gating_feature_key is specified but not found in features dict
         """
         if external_weights is not None:
             logits = external_weights
         elif self.has_gating_network:
-            if isinstance(features, dict):
-                if self.gating_feature_key is not None:
-                    if self.gating_feature_key not in features:
-                        raise ValueError(
-                            f"Gating feature key '{self.gating_feature_key}' not found in features. "
-                            f"Available keys: {list(features.keys())}"
-                        )
-                    features = features[self.gating_feature_key]
-                else:
-                    # Default behavior: use first available feature
-                    features = next(iter(features.values()))
             if self.gating_network is None:
                 raise RuntimeError("gating_network must be initialized when has_gating_network is True")
             logits = self.gating_network(features)
@@ -273,10 +260,10 @@ class BaseMixtureOfExperts(nn.Module):
             Weighted combination of top-k expert outputs with expert dimension summed out
         """
         if weights.ndim == 3:
-            weights = weights.transpose(1, 2)
+            weights = weights.transpose(1, 2) # (B, E, H)
 
-        top_k_weights, top_k_indices = torch.topk(weights, self.top_k, dim=-1)
-        top_k_weights = top_k_weights / (top_k_weights.sum(dim=-1, keepdim=True) + 1e-8)
+        top_k_weights, top_k_indices = torch.topk(weights, self.top_k, dim=1) # (B, k, H)
+        top_k_weights = top_k_weights / (top_k_weights.sum(dim=1, keepdim=True) + 1e-8)
 
         indices_expanded = top_k_indices
         for _ in range(stacked_predictions.ndim - top_k_indices.ndim):

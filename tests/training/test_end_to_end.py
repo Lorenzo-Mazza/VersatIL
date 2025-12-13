@@ -31,7 +31,7 @@ from refactoring.models.decoding.decoders.factory.act import ACT
 from refactoring.models.decoding.decoders.factory.phase_act import PhaseACT
 from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.action_heads.moe import MoEHead
-from refactoring.models.decoding.latent.vae_posterior import VAETransformerEncoder
+from refactoring.models.decoding.latent.posterior.transformer_encoder import VAETransformerEncoder
 from refactoring.models.decoding.constants import MU_KEY, LOGVAR_KEY
 from refactoring.metrics.composite import ActionReconstructionLoss, PhaseActionLoss
 from tests.conftest import DummyNormalizer

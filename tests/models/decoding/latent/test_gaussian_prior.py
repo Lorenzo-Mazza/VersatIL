@@ -156,9 +156,9 @@ class TestGaussianPriorSamplePrior:
             infer_constant_prior=True,  # Use constant to make test deterministic
         )
 
-        samples1 = prior.sample_prior(batch_size=4, conditioning=None)
+        samples1 = prior.sample_prior(batch_size=4, observations=None)
         conditioning = torch.randn(4, 64, device=device)
-        samples2 = prior.sample_prior(batch_size=4, conditioning=conditioning)
+        samples2 = prior.sample_prior(batch_size=4, observations=conditioning)
 
         # Constant prior should produce same samples regardless of conditioning
         assert torch.allclose(samples1, samples2)

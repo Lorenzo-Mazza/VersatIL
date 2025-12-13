@@ -134,7 +134,7 @@ if __name__ == "__main__":
 
     dataset_path = args.dataset_path
     # Find all episode directories (excluding metadata files)
-    episodes_paths = [os.path.join(dataset_path, i, EPISODE_FILENAME) for i in os.listdir(dataset_path) if i not in ['dataset.zarr', 'README.md']]
+    episodes_paths = [os.path.join(dataset_path, i, EPISODE_FILENAME) for i in os.listdir(dataset_path) if i not in ['dataset.zarr', 'EADME.md']]
 
     # Process each episode with progress bar
     for episode_path in tqdm(episodes_paths, desc="Processing episodes"):

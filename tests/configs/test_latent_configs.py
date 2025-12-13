@@ -10,9 +10,9 @@ from refactoring.configs.decoding.latent import (
     GaussianPriorConfig,
     DiffusionPriorConfig,
 )
-from refactoring.models.decoding.latent.vae_posterior import VAETransformerEncoder
-from refactoring.models.decoding.latent.gaussian_prior import GaussianPrior
-from refactoring.models.decoding.latent.diffusion_prior import DiffusionPrior
+from refactoring.models.decoding.latent.posterior.transformer_encoder import VAETransformerEncoder
+from refactoring.models.decoding.latent.prior.gaussian_prior import GaussianPrior
+from refactoring.models.decoding.latent.prior.diffusion_mlp import DiffusionPrior
 
 
 @pytest.mark.unit

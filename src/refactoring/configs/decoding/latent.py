@@ -7,15 +7,15 @@ from refactoring.models.layers.activation import ActivationFunction
 
 
 @dataclass
-class LatentActionEncoderConfig:
-    """Base latent action encoder configuration (for posteriors)."""
+class PosteriorLatentEncoderConfig:
+    """Base posterior encoder configuration."""
     _target_: str = MISSING
     latent_dimension: int = MISSING
     device: str = "${policy.device}"
 
 
 @dataclass
-class LatentPriorConfig:
+class PriorLatentEncoderConfig:
     """Base latent prior configuration."""
     _target_: str = MISSING
     latent_dimension: int = MISSING
@@ -23,13 +23,13 @@ class LatentPriorConfig:
 
 
 @dataclass
-class VAETransformerEncoderConfig(LatentActionEncoderConfig):
+class VAETransformerEncoderConfig(PosteriorLatentEncoderConfig):
     """Transformer-based VAE latent action encoder configuration.
 
     This encoder uses a transformer architecture to encode action sequences into
     a latent space via variational inference.
     """
-    _target_: str = "refactoring.models.decoding.latent.vae_posterior.VAETransformerEncoder"
+    _target_: str = "refactoring.models.decoding.latent.posterior.transformer_encoder.VAETransformerEncoder"
     latent_dimension: int = MISSING
     embedding_dimension: int = MISSING
     prediction_horizon: int = "${policy.prediction_horizon}"  # type: ignore[assignment]
@@ -45,7 +45,7 @@ class VAETransformerEncoderConfig(LatentActionEncoderConfig):
 
 
 @dataclass
-class GaussianPriorConfig(LatentPriorConfig):
+class GaussianPriorConfig(PriorLatentEncoderConfig):
     """Standard Gaussian N(0, I) prior configuration.
 
     Simple non-learned prior that samples from a standard normal distribution.
@@ -55,12 +55,30 @@ class GaussianPriorConfig(LatentPriorConfig):
         latent_dim: Dimension of latent variable z
         device: Device to place prior on
     """
-    _target_: str = "refactoring.models.decoding.latent.gaussian_prior.GaussianPrior"
+    _target_: str = "refactoring.models.decoding.latent.prior.gaussian_prior.GaussianPrior"
     latent_dimension: int = 32
 
 
 @dataclass
-class DiffusionPriorConfig(LatentPriorConfig):
+class PriorTransformerEncoderConfig(PriorLatentEncoderConfig):
+    _target_: str = "refactoring.models.decoding.latent.prior.transformer_encoder.PriorTransformerEncoder"
+    latent_dimension: int = MISSING
+    embedding_dimension: int = MISSING
+    prediction_horizon: int = "${policy.prediction_horizon}"  # type: ignore[assignment]
+    observation_horizon: int = "${policy.observation_horizon}"  # type: ignore[assignment]
+    device: str = "${policy.device}"  # type: ignore[assignment]
+    number_of_heads: int = 8
+    feedforward_dimension: int = 512
+    number_of_encoder_layers: int = 4
+    activation: str = ActivationFunction.SWIGLU.value
+    dropout_rate: float = 0.1
+    normalize_before: bool = False
+    exclude_keys : list[str] | None = None
+
+
+
+@dataclass
+class DiffusionPriorConfig(PriorLatentEncoderConfig):
     """Diffusion-based learned prior configuration.
 
     Uses a diffusion MLP to learn p(z|s) instead of using N(0,I) prior.
@@ -79,7 +97,7 @@ class DiffusionPriorConfig(LatentPriorConfig):
         dropout: Dropout rate
         device: Device to place prior on
     """
-    _target_: str = "refactoring.models.decoding.latent.diffusion_prior.DiffusionPrior"
+    _target_: str = "refactoring.models.decoding.latent.prior.diffusion_mlp.DiffusionPrior"
 
     latent_dimension: int = 32
     conditioning_dim: int = 128  # Should match the sum of the dimension of the flat state features

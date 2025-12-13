@@ -15,15 +15,13 @@ This ensures the import only happens when the loss is actually configured.
 import torch
 
 from refactoring.metrics import BaseLoss, LossOutput, MetricKey
-from refactoring.models.decoding.constants import STATE_FEATURE_KEYS
 
 
 class OptimalTransportLoss(BaseLoss):
     """Computes Kantorovich Optimal Transport (K-OT) loss using Sinkhorn divergence.
 
     This loss regularizes action distributions by computing a differentiable OT cost
-    between predicted and target actions, optionally augmented with state features
-    for cross-condition matching in multi-modal policies.
+    between predicted and target actions.
 
     Note:
         This loss requires the optional dependencies geomloss and pykeops.
@@ -43,7 +41,6 @@ class OptimalTransportLoss(BaseLoss):
         action_keys: list[str],
         weight: float = 0.1,
         epsilon: float = 0.01,
-        lambda_state: float = 1.0,
     ):
         """Initializes the OptimalTransportLoss.
 
@@ -51,14 +48,12 @@ class OptimalTransportLoss(BaseLoss):
             action_keys: List of keys for action tensors in predictions and targets.
             weight: Scaling factor for the total loss.
             epsilon: Regularization parameter for Sinkhorn (blur = sqrt(epsilon)).
-            lambda_state: Weight for state distance in the OT cost.
 
         Raises:
             ImportError: If geomloss is not installed.
         """
         super().__init__()
         self.weight = weight
-        self.lambda_state = lambda_state
         self.action_keys = action_keys
         # Lazy import to avoid PyKeOps compilation overhead unless this loss is used
         try:
@@ -75,7 +70,7 @@ class OptimalTransportLoss(BaseLoss):
         """Gets the required keys for predictions and targets.
 
         Returns:
-            Set of required action keys (and optionally state features if lambda_state > 0).
+            Set of required action keys.
         """
         return set(self.action_keys)
 
@@ -87,13 +82,11 @@ class OptimalTransportLoss(BaseLoss):
     ) -> LossOutput:
         """Computes the forward pass for the OT loss.
 
-        Flattens and masks actions (and states if used), augments with scaled states
-        for composite cost ||a - a'||^2 + lambda ||s - s'||^2 via embedding trick,
-        then applies Sinkhorn OT.
+        Flattens and masks actions  for composite cost ||a - a'||^2 then applies Sinkhorn OT.
 
         Args:
-            predictions: Dict of predicted tensors (actions and optionally state features).
-            targets: Dict of target tensors (actions).
+            predictions: Dict of predicted action tensors.
+            targets: Dict of target action tensors.
             is_pad: Optional padding mask (B, horizon); True where padded.
 
         Returns:
@@ -117,17 +110,6 @@ class OptimalTransportLoss(BaseLoss):
             pred_a = pred_a[flat_mask]
             target_a = target_a[flat_mask]
 
-        # States (B, sdim); repeat along horizon then flatten/mask.
-        has_states = self.lambda_state > 0 and STATE_FEATURE_KEYS in predictions
-        if has_states:
-            states = predictions[STATE_FEATURE_KEYS]  # (B, sdim)
-            sdim = states.shape[-1]
-            flat_states = states.unsqueeze(1).expand(B, horizon, sdim).reshape(-1, sdim)
-            if is_pad is not None:
-                flat_states = flat_states[flat_mask]
-            sqrt_lambda = self.lambda_state ** 0.5
-            pred_a = torch.cat((pred_a, sqrt_lambda * flat_states), dim=-1)
-            target_a = torch.cat((target_a, sqrt_lambda * flat_states), dim=-1)
 
         # Geomloss Sinkhorn (i.e. Optimal Transport cost in Euclidean space).
         ot_loss = self.ot(pred_a, target_a)

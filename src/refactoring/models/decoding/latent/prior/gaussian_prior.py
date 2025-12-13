@@ -1,19 +1,20 @@
-"""Simple Gaussian prior for variational models.
+"""Fixed Gaussian prior for variational inference.
 
 This module implements a standard Gaussian N(0, I) prior for latent variable models.
 Unlike learned priors (e.g., DiffusionPrior), this prior requires no training and
 simply samples from a standard normal distribution.
 
 This is the default prior used when no learned prior is specified, providing
-a simple baseline for variational models.
+the traditional approach for imposing a gaussian distribution for the inference model (the approximated posterior q_\phi(z|x)).
 """
 
 import torch
 
-from refactoring.models.decoding.latent import LatentPrior
+from refactoring.models.decoding.constants import PRIOR_MU_KEY, PRIOR_LOGVAR_KEY, PRIOR_LATENT_KEY
+from refactoring.models.decoding.latent import PriorLatentEncoder
 
 
-class GaussianPrior(LatentPrior):
+class GaussianPrior(PriorLatentEncoder):
     """Standard Gaussian N(0, I) prior for latent variable models.
 
     Args:
@@ -36,13 +37,13 @@ class GaussianPrior(LatentPrior):
     def sample_prior(
         self,
         batch_size: int,
-        conditioning: torch.Tensor | None = None,
+        observations: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Sample latent variable from standard multivariate (z dimensional) Gaussian N(0, I).
 
         Args:
             batch_size: Number of samples to generate
-            conditioning: Optional conditioning features (ignored for Gaussian prior)
+            observations: Optional conditioning features (ignored for Gaussian prior)
 
         Returns:
             Sampled latent z vector of dimension (batch_size, latent_dim)
@@ -59,11 +60,14 @@ class GaussianPrior(LatentPrior):
     def forward(
         self,
         target_latents: torch.Tensor,
-        conditioning: torch.Tensor,
+        observations: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
-        """No-op forward pass for Gaussian prior (no training needed).
-
-        For a standard Gaussian prior, there is no training objective since
-        the prior distribution is fixed. This method returns an empty dictionary
-        to indicate no prior loss should be computed."""
-        return {}
+        """Forward pass for a fixed Gaussian prior, returning zero mu and unit logvar."""
+        mu = torch.zeros_like(target_latents, device=self.device)
+        logvar = torch.zeros_like(target_latents, device=self.device)
+        z = torch.randn(mu.size(0), self.latent_dimension, device=self.device)
+        return {
+            PRIOR_MU_KEY: mu,
+            PRIOR_LOGVAR_KEY: logvar,
+            PRIOR_LATENT_KEY: z,
+        }

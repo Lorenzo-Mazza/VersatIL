@@ -70,12 +70,13 @@ MU_KEY = "mu"  # VAE latent mean
 LOGVAR_KEY = "logvar"  # VAE latent log variance
 PRIOR_PREDICTION_KEY = "prior_prediction"  # Prior network prediction
 PRIOR_TARGET_KEY = "prior_target"  # Prior network target
+PRIOR_MU_KEY = "prior_mu"  # Prior latent mean
+PRIOR_LOGVAR_KEY = "prior_logvar"  # Prior latent log variance
+PRIOR_LATENT_KEY = "prior_latent"  # Prior latent embedding (z)
 
 # Free Transformer keys
 BINARY_LOGITS_KEY = "binary_logits"  # Binary mapper logits for KL divergence
 LATENT_CODES = "latent_codes"  # Sampled latent z
-# This key is used to store state features in the algorithm outputs for computing OT loss.
-STATE_FEATURE_KEYS = "state_features"
 
 # Action logits and predicted action tokens keys
 ACTION_LOGITS_KEY = "action_logits"

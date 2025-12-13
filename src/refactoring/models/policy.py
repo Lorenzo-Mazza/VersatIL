@@ -19,14 +19,13 @@ from refactoring.data.constants import (
 from refactoring.data.tokenization import Tokenizer
 from refactoring.data.transform import unnormalize_actions, detokenize_actions, normalize_observation, tokenize_observation
 from refactoring.models.decoding.constants import (BINARY_LOGITS_KEY, LATENT_KEY, LOGVAR_KEY, MU_KEY,
-                                                   PRIOR_PREDICTION_KEY, PRIOR_TARGET_KEY)
+                                                    PRIOR_LATENT_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY)
 
 from refactoring.data.normalization.normalizer import LinearNormalizer
 from refactoring.metrics.base import BaseLoss, LossOutput
 from refactoring.models.decoding.algorithm.base import DecodingAlgorithm
 from refactoring.models.decoding.algorithm.variational import VariationalAlgorithm
 from refactoring.models.decoding.decoders import MoEDecoder
-from refactoring.models.decoding.latent.gaussian_prior import GaussianPrior
 from refactoring.models.decoding.decoders.base import ActionDecoder
 from refactoring.models.encoding.pipeline import EncodingPipeline
 from refactoring.data.constants import TOKENIZED_ACTIONS_KEY
@@ -154,13 +153,7 @@ class Policy(nn.Module):
 
         valid_auxiliary_keys: set[str] = set()
         if isinstance(self.algorithm, VariationalAlgorithm):
-            valid_auxiliary_keys.add(LATENT_KEY)  # Latent embedding
-            valid_auxiliary_keys.add(MU_KEY)  # Posterior mean
-            valid_auxiliary_keys.add(LOGVAR_KEY)  # Posterior log variance
-            # Only add prior keys for learned priors (not GaussianPrior)
-            if not isinstance(self.algorithm.prior, GaussianPrior):
-                valid_auxiliary_keys.add(PRIOR_PREDICTION_KEY)  # Prior predictions (for learned priors)
-                valid_auxiliary_keys.add(PRIOR_TARGET_KEY)  # Prior targets (for learned priors)
+            valid_auxiliary_keys.update({LATENT_KEY, MU_KEY, LOGVAR_KEY, PRIOR_LATENT_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY})
 
         # Free Transformer binary logits (for discrete latent codes)
         if self.decoder.__class__.__name__ == "FreeTransformerDecoder":

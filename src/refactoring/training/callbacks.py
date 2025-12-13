@@ -561,25 +561,32 @@ class LatentVisualizationCallback(Callback):
         if latent_data is None:
             return
 
-        z, phase_per_sample = latent_data
-        fig = self._create_latent_figure(z, phase_per_sample)
+        z, z_prior, phase_per_sample = latent_data
+        posterior_fig = self._create_latent_figure(z, phase_per_sample, title="Posterior latent space")
+        prior_fig = self._create_latent_figure(z_prior, phase_per_sample, title="Prior latent space")
 
         if trainer.logger is not None:
-            wandb_image = _figure_to_wandb_image(fig)
+            wandb_posterior_image = _figure_to_wandb_image(posterior_fig)
+            wandb_prior_image = _figure_to_wandb_image(prior_fig)
             trainer.logger.log_metrics(
-                {"latent_space_analysis": wandb_image},
+                {"posterior_latent_space_analysis": wandb_posterior_image,
+                    "prior_latent_space_analysis": wandb_prior_image
+                 },
                 step=trainer.global_step,
             )
-        plt.close(fig)
+        plt.close(posterior_fig)
+        plt.close(prior_fig)
+
 
     def _create_latent_figure(
-        self, z: np.ndarray, phases: np.ndarray | None
+        self, z: np.ndarray, phases: np.ndarray | None, title: str = ""
     ) -> plt.Figure:
         """Create t-SNE visualization of latent space.
 
         Args:
             z: Latent samples (N, latent_dim).
             phases: Dominant phase per sample (N,), or None.
+            title: Title for the plot.
 
         Returns:
             Matplotlib figure with latent space visualization.
@@ -610,10 +617,10 @@ class LatentVisualizationCallback(Callback):
                 vmax=n_phases - 0.5,
             )
             plt.colorbar(scatter, ax=ax, label="Phase", ticks=range(n_phases))
-            ax.set_title("Latent Space t-SNE (colored by phase mode)")
+            ax.set_title(f"{title} t-SNE (colored by phase mode)")
         else:
             ax.scatter(z_2d[:, 0], z_2d[:, 1], alpha=0.6, s=10)
-            ax.set_title("Latent Space t-SNE")
+            ax.set_title(f"{title}  t-SNE")
 
         ax.set_xlabel("t-SNE Dimension 1")
         ax.set_ylabel("t-SNE Dimension 2")

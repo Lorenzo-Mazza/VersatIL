@@ -16,8 +16,8 @@ from refactoring.configs.decoding.decoder import (
     FreeTransformerConfig,
     MixtureOfExpertsDecoderConfig, FASTGPTDecoderConfig, FASTDETRDecoderConfig, MoEFreeTransformerConfig, PhaseACTConfig,
 )
-from refactoring.configs.decoding.latent import LatentActionEncoderConfig, LatentPriorConfig, VAETransformerEncoderConfig, GaussianPriorConfig, \
-    DiffusionPriorConfig
+from refactoring.configs.decoding.latent import PosteriorLatentEncoderConfig, PriorLatentEncoderConfig, VAETransformerEncoderConfig, GaussianPriorConfig, \
+    DiffusionPriorConfig, PriorTransformerEncoderConfig
 from refactoring.configs.encoding.encoder import (
     DepthCNNEncoderConfig,
     EncoderConfig,
@@ -64,7 +64,7 @@ __all__ = ["MainConfig","ExperimentConfig", "TrainingConfig", "OptimizerConfig",
            "DecodingNetworkConfig", "ACTConfig", "FreeTransformerConfig", "MixtureOfExpertsDecoderConfig",
            "InferenceConfig", "DataLoaderConfig",
            "DecodingAlgorithmConfig", "BehavioralCloningConfig", "DiffusionConfig", "FlowMatchingConfig", "VariationalAlgorithmConfig",
-           "LatentActionEncoderConfig", "LatentPriorConfig", "VAETransformerEncoderConfig", "GaussianPriorConfig", "DiffusionPriorConfig",
+           "PosteriorLatentEncoderConfig", "PriorLatentEncoderConfig", "VAETransformerEncoderConfig", "GaussianPriorConfig", "DiffusionPriorConfig",
            "ActionHeadConfig", "MixtureOfExpertsHeadConfig",
            "ActionHeadBlockConfig", "AttentionBlockConfig", "MLPBlockConfig", "ResidualBlockConfig",
            "FusionConfig", "ConcatFusionConfig", "AttentionFusionConfig", "MLPFusionConfig", "SpatialFusionConfig",
@@ -156,11 +156,12 @@ def register_configs():
     cs.store(group="policy/algorithm", name="diffusion", node=DiffusionConfig)
     cs.store(group="policy/algorithm", name="flowmatching", node=FlowMatchingConfig)
     cs.store(group="policy/algorithm", name="variational", node=VariationalAlgorithmConfig)
-    cs.store(group="policy/algorithm/posterior", name="base", node=LatentActionEncoderConfig)
-    cs.store(group="policy/algorithm/prior", name="base", node=LatentPriorConfig)
-    cs.store(group="policy/algorithm/posterior", name="vae", node=VAETransformerEncoderConfig)
+    cs.store(group="policy/algorithm/posterior", name="base", node=PosteriorLatentEncoderConfig)
+    cs.store(group="policy/algorithm/prior", name="base", node=PriorLatentEncoderConfig)
+    cs.store(group="policy/algorithm/posterior", name="transformerencoder", node=VAETransformerEncoderConfig)
     cs.store(group="policy/algorithm/prior", name="gaussian", node=GaussianPriorConfig)
     cs.store(group="policy/algorithm/prior", name="diffusion", node=DiffusionPriorConfig)
+    cs.store(group="policy/algorithm/prior", name="transformerencoder", node=PriorTransformerEncoderConfig)
 
     cs.store(group="policy/loss", name="composite", node=CompositeLossConfig)
     cs.store(group="policy/loss", name="phase_action", node=PhaseActionLossConfig)

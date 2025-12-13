@@ -163,7 +163,7 @@ class MetricsAccumulator:
 
     def compute_latent_visualization_data(
         self,
-    ) -> tuple[np.ndarray, np.ndarray | None] | None:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None] | None:
         """Compute latent visualization data with aligned phase labels.
 
         Handles the shape mismatch between:
@@ -174,28 +174,35 @@ class MetricsAccumulator:
         in each action chunk), which represents the dominant phase for that latent.
 
         Returns:
-            Tuple of (z, phase_per_sample) where:
-                - z: (N, latent_dim) latent samples
+            Tuple of (z, z_prior, phase_per_sample) where:
+                - z: (N, latent_dim) latent posterior samples, or None if unavailable
+                - z_prior: (N, latent_dim) latent prior samples, or None if unavailable
                 - phase_per_sample: (N,) dominant phase per sample, or None if unavailable
             Returns None if no latent data available.
         """
-        if MetadataKey.LATENT_Z.value not in self.metadata:
-            return None
-
-        # Concatenate latent variables
-        all_z = torch.cat(self.metadata[MetadataKey.LATENT_Z.value], dim=0)
-        # Handle 3D latents (B, T, H) from Free Transformer by flattening
-        if all_z.ndim == 3:
-            all_z = all_z.view(all_z.shape[0], -1)  # (N, T, H) -> (N, T*H)
-        z = all_z.float().numpy()
-
-        # Handle phase labels: reduce (B, prediction_horizon) -> (N,) using mode
-        phase_per_sample = None
+        z, z_prior, phase_per_sample = None, None, None
         if MetadataKey.PHASE_LABELS.value in self.metadata:
             all_phases = torch.cat(self.metadata[MetadataKey.PHASE_LABELS.value], dim=0)
+            # Handle phase labels: reduce (B, prediction_horizon) -> (N,) using mode
             phase_per_sample = torch.mode(all_phases, dim=1).values.numpy()
 
-        return z, phase_per_sample
+        if MetadataKey.POSTERIOR_Z.value in self.metadata:
+            # Concatenate latent variables
+            all_z = torch.cat(self.metadata[MetadataKey.POSTERIOR_Z.value], dim=0)
+            # Handle 3D latents (B, T, H) from Free Transformer by flattening
+            if all_z.ndim == 3:
+                all_z = all_z.view(all_z.shape[0], -1)  # (N, T, H) -> (N, T*H)
+            z = all_z.float().numpy()
+
+        if MetadataKey.PRIOR_Z.value in self.metadata:
+            # Concatenate latent variables
+            all_prior_z = torch.cat(self.metadata[MetadataKey.PRIOR_Z.value], dim=0)
+            # Handle 3D latents (B, T, H) from Free Transformer by flattening
+            if all_prior_z.ndim == 3:
+                all_prior_z = all_prior_z.view(all_prior_z.shape[0], -1)  # (N, T, H) -> (N, T*H)
+            z_prior = all_prior_z.float().numpy()
+
+        return z, z_prior, phase_per_sample
 
 
     def to_dict(self) -> dict[str, float]:
