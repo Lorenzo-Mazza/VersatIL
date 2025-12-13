@@ -4,8 +4,8 @@ import pytest
 import torch
 
 from refactoring.models.layers.constants import AttentionType
-from refactoring.models.layers.gpt_transformer.attention import CachedAttention
-from refactoring.models.layers.gpt_transformer.kv_cache import LayerKVCache
+from refactoring.models.layers.transformer.attention import CachedAttention
+from refactoring.models.layers.transformer.kv_cache import LayerKVCache
 
 
 @pytest.mark.unit

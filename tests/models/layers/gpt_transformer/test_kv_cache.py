@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from refactoring.models.layers.gpt_transformer.kv_cache import (
+from refactoring.models.layers.transformer.kv_cache import (
     DecoderKVCache,
     LayerKVCache,
     initialize_decoder_cache,

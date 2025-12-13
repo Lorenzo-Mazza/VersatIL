@@ -1150,9 +1150,11 @@ class MoELoss(BaseLoss):
         super().__init__()
         self.base_loss = base_loss
 
+
     def get_required_keys(self) -> set[str]:
         """Union of base loss keys plus routing weight."""
-        return self.base_loss.get_required_keys()
+        return self.base_loss.get_required_keys() | {ROUTING_WEIGHT}
+
 
     def forward(
         self,
@@ -1163,16 +1165,9 @@ class MoELoss(BaseLoss):
         """Passthrough base loss, then add expert_usage from routing weights."""
         base_output: LossOutput = self.base_loss(predictions, targets, is_pad)
         metadata = base_output.metadata if base_output.metadata is not None else {}
-        required_keys = self.base_loss.get_required_keys()
-        for action_key in required_keys:
-            routing_key = f'{action_key}_{ROUTING_WEIGHT}'
-            if routing_key in predictions:
-                expert_usage = predictions[routing_key]
-                if expert_usage.dim() > 0:
-                    expert_usage = expert_usage.mean(dim=list(range(expert_usage.ndim - 1))) # Mean over all but last dim, which is num_experts
-                usage_key = f'{action_key}_{MetadataKey.EXPERT_USAGE.value}'
-                metadata[usage_key] = expert_usage
-
+        expert_usage = predictions[ROUTING_WEIGHT]
+        expert_usage = expert_usage.mean(dim=list(range(expert_usage.ndim - 1)))  # Mean over all but last dim, which is num_experts
+        metadata[MetadataKey.EXPERT_USAGE.value] = expert_usage
         return LossOutput(
             total_loss=base_output.total_loss,
             component_losses=base_output.component_losses,

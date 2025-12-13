@@ -5,8 +5,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from refactoring.models.layers.constants import AttentionType
-from refactoring.models.layers.gpt_transformer.kv_cache import LayerKVCache
-from refactoring.models.layers.gpt_transformer.positional_encoding import apply_rope_positional_encoding
+from refactoring.models.layers.transformer.kv_cache import LayerKVCache
+from refactoring.models.layers.transformer.positional_encoding import apply_rope_positional_encoding
 
 
 class CachedAttention(nn.Module):

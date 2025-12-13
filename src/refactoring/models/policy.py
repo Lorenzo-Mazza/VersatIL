@@ -8,18 +8,15 @@ from refactoring.common.tensor_ops import to_device
 from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
     ACTION_KEY,
-    GRIPPER_ACTION_KEY,
     IS_PAD_ACTION_KEY,
     OBSERVATION_KEY,
-    ORIENTATION_ACTION_KEY,
-    PHASE_LABEL_KEY,
-    POSITION_ACTION_KEY,
     Cameras,
 )
 from refactoring.data.tokenization import Tokenizer
 from refactoring.data.transform import unnormalize_actions, detokenize_actions, normalize_observation, tokenize_observation
+from refactoring.models.decoding.action_heads import MoEHead
 from refactoring.models.decoding.constants import (BINARY_LOGITS_KEY, LATENT_KEY, LOGVAR_KEY, MU_KEY,
-                                                    PRIOR_LATENT_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY)
+                                                   PRIOR_LATENT_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY, ROUTING_WEIGHT)
 
 from refactoring.data.normalization.normalizer import LinearNormalizer
 from refactoring.metrics.base import BaseLoss, LossOutput
@@ -129,50 +126,31 @@ class Policy(nn.Module):
         )
 
     def validate_loss_keys(self):
-        """Validate that all loss keys are defined in the action space or are valid auxiliary keys.
-
+        """Validate that all loss keys are defined in the decoder heads or in the algorithm.
         This ensures that the loss module doesn't try to compute losses for
         actions or auxiliary keys that aren't part of the configuration.
 
         Raises:
             ValueError: If loss keys are invalid
         """
-        valid_action_keys: set[str] = set()
-        if self.decoder.supports_tokenized_actions:
-            return # Skip validation if using tokenized actions
-        if self.action_space.has_position:
-            valid_action_keys.add(POSITION_ACTION_KEY)
-        if self.action_space.has_orientation:
-            valid_action_keys.add(ORIENTATION_ACTION_KEY)
-        if self.action_space.has_gripper:
-            valid_action_keys.add(GRIPPER_ACTION_KEY)
-        if self.action_space.task_has_phases:
-            valid_action_keys.add(PHASE_LABEL_KEY)
-        if self.action_space.custom_action_dims:
-            valid_action_keys.update(self.action_space.custom_action_dims.keys())
-
-        valid_auxiliary_keys: set[str] = set()
+        valid_loss_keys: set[str] = set()
+        valid_loss_keys.update(self.decoder.action_heads.keys())
         if isinstance(self.algorithm, VariationalAlgorithm):
-            valid_auxiliary_keys.update({LATENT_KEY, MU_KEY, LOGVAR_KEY, PRIOR_LATENT_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY})
-
-        # Free Transformer binary logits (for discrete latent codes)
+            valid_loss_keys.update({LATENT_KEY, MU_KEY, LOGVAR_KEY, PRIOR_LATENT_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY})
+        if isinstance(self.decoder, MoEDecoder) or any(isinstance(h, MoEHead) for h in self.decoder.action_heads.values()):
+            valid_loss_keys.add(ROUTING_WEIGHT)
         if self.decoder.__class__.__name__ == "FreeTransformerDecoder":
-            valid_auxiliary_keys.add(BINARY_LOGITS_KEY)
-
+            valid_loss_keys.add(BINARY_LOGITS_KEY)
         required_keys = self.loss_module.get_required_keys()
         if self.decoder.supports_tokenized_actions:
-            valid_auxiliary_keys.add(TOKENIZED_ACTIONS_KEY)
-
-        valid_keys = valid_action_keys | valid_auxiliary_keys
-        invalid_keys = required_keys - valid_keys
-
+            valid_loss_keys.add(TOKENIZED_ACTIONS_KEY)
+        invalid_keys = required_keys - valid_loss_keys
         if invalid_keys:
             raise ValueError(
                 f"Loss module references keys {invalid_keys} that are not "
                 f"defined in the action space or auxiliary keys. "
-                f"Valid action keys: {valid_action_keys}. "
-                f"Valid auxiliary keys: {valid_auxiliary_keys}. "
-                f"Please update your loss configuration or action space."
+                f"Valid loss keys: {valid_loss_keys}. "
+                f"Please update your loss configuration or decoder."
             )
 
     def set_normalizer(self, normalizer: LinearNormalizer):

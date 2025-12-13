@@ -69,7 +69,6 @@ class PhaseACT(ACT):
         phase_head = self.action_heads[self.phase_routing_key]
         phase_logits = phase_head(action_embeddings)  # (B, prediction horizon, num_phases)
         predictions[self.phase_routing_key] = phase_logits
-
         for action_key, head in self.action_heads.items():
             if action_key == self.phase_routing_key:
                 continue  # Already computed above
@@ -77,12 +76,10 @@ class PhaseACT(ACT):
             if isinstance(head, MoEHead):
                 output = head(
                     action_embeddings,
-                    routing_weights=phase_logits  # Phase-based routing
+                    gating_feature=phase_logits  # Phase-based routing
                 )
                 predictions[action_key] = output[ACTION_KEY]
-
-                # Store routing weights and single expert outputs as extra info
-                predictions[f'{action_key}_{ROUTING_WEIGHT}'] = output[ROUTING_WEIGHT]
+                predictions[ROUTING_WEIGHT] = output[ROUTING_WEIGHT] # This will be overwritten but is the same for all MoE heads
                 predictions[f'{action_key}_{EXPERT_OUTPUTS}'] = output[EXPERT_OUTPUTS]
             else:
                 predictions[action_key] = head(action_embeddings)

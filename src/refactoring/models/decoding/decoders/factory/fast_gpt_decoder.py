@@ -3,7 +3,6 @@
 Similarly to the FAST-pi0 model, it uses a GPT-style autoregressive decoder (only self-attention)
 to generate sequences of tokenized actions.
 """
-import logging
 
 import torch
 import torch.nn as nn
@@ -25,7 +24,7 @@ from refactoring.models.decoding.decoders.base import ActionDecoder, DecoderInpu
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
 from refactoring.models.layers.normalization.constants import NormalizationType
-from refactoring.models.layers.gpt_transformer.gpt_decoder import GPTDecoder
+from refactoring.models.layers.transformer.autoregressive_decoder import GPTDecoder
 from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
 from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding2D, SinusoidalPositionalEncoding1D
 from refactoring.models.layers.transformer_input_builder import TransformerInputBuilder

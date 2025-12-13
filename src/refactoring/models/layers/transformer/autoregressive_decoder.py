@@ -6,13 +6,13 @@ import math
 
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType
-from refactoring.models.layers.gpt_transformer.masking import create_full_padding_mask
+from refactoring.models.layers.transformer.masking import create_full_padding_mask
 from refactoring.models.layers.normalization.ada_norm import AdaNorm
 from refactoring.models.layers.normalization.constants import NormalizationType
-from refactoring.models.layers.gpt_transformer.decoder_layer import TransformerDecoderLayer
-from refactoring.models.layers.gpt_transformer.kv_cache import DecoderKVCache, LayerKVCache, initialize_decoder_cache
+from refactoring.models.layers.transformer.decoder_layer import TransformerDecoderLayer
+from refactoring.models.layers.transformer.kv_cache import DecoderKVCache, LayerKVCache, initialize_decoder_cache
 from refactoring.models.layers.normalization.factory import create_normalization_layer
-from refactoring.models.layers.gpt_transformer.positional_encoding import create_positional_encoding
+from refactoring.models.layers.transformer.positional_encoding import create_positional_encoding
 from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
 from refactoring.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
 from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
@@ -199,7 +199,7 @@ class GPTDecoder(nn.Module):
             encoded_features: Encoder visual features (B, num_features, D). Required if self.use_cross_attention=True
             self_attention_mask: Optional custom self-attention mask (B, 1, query_length, query_length) where True means masked.
                If None, generates standard triangular causal mask.
-            cross_attention_mask: Optional mask for cross-attention, where True means masked position.
+            cross_attention_mask: Optional mask for cross-attention, where True means masked position with shape (B,1, query length, key length).
             key_padding_mask: Optional current key padding mask for padded observation tokens (B, query_length) where True means masked.
             decoder_cache: Optional cached K/V from previous steps
             use_cache: Whether to return updated cache

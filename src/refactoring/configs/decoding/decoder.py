@@ -113,16 +113,21 @@ class FASTGPTDecoderConfig(DecodingNetworkConfig):
     deterministic: bool = True  # If True, use greedy decoding during inference
 
 
+@dataclass
 class ActionTransformerConfig(DecodingNetworkConfig):
     """Action Transformer architecture configuration."""
     _target_: str = "refactoring.models.decoding.decoders.factory.action_transformer.ActionTransformer"
     embedding_dimension: int = 256
-    number_of_heads: int = 8
-    feedforward_dimension: int = 512
-    number_of_decoder_layers: int = 6
-    activation: str = ActivationFunction.GELU.value
+    number_of_heads: int = 8  # Number of query attention heads
+    number_of_key_value_heads: int | None = None  # Number of K/V heads for GQA (None = same as heads = MHA)
+    feedforward_dimension: int | None = None  # FFN hidden dimension (default: 4 * embedding_dimension)
+    number_of_layers: int = 6
+    activation: str = ActivationFunction.SWIGLU.value  # Activation function
+    normalization_type: str = NormalizationType.RMS_NORM.value  # Normalization type
+    attention_type: str = AttentionType.GROUPED_QUERY.value  # Attention type
     dropout_rate: float = 0.1
-    normalize_before: bool = False
+    attention_dropout: float = 0.0
+    positional_encoding_type: str | None = PositionalEncodingType.ROPE.value  # Type of positional encoding
 
 
 
@@ -201,32 +206,12 @@ class MoEFreeTransformerConfig(FreeTransformerConfig):
 
 @dataclass
 class MixtureOfExpertsDecoderConfig(DecodingNetworkConfig):
-    """Mixture of Experts (MoE) decoder configuration.
-
-    Supports two modes:
-    1. Explicit experts: Pass list of DecodingNetworkConfig
-    2. Config-based (recommended): Pass base_expert_config and num_experts
-
-    Example:
-        moe_config = MixtureOfExpertsDecoderConfig(
-            base_expert_config=ACTConfig(...),
-            num_experts=5,
-            gating_input_dim=256,
-            routing_type=MoERoutingType.SOFT.value,
-            gating_feature_key="latent",  # Use latent from VAE for routing
-        )
-
-    Note:
-        base_expert_config should be typed as DictConfig | dict to prevent
-        Hydra from instantiating it prematurely. The MoEDecoder will
-        instantiate it num_experts times internally.
-    """
+    """Mixture of Experts (MoE) decoder configuration."""
     _target_: str = "refactoring.models.decoding.decoders.mixture_of_experts.MoEDecoder"
-
-    base_expert_config: dict = field(default_factory=dict)
+    base_expert: Any = MISSING
     num_experts: int = MISSING
-    expert_configs: list[dict] = field(default_factory=list)
-
+    gating_feature_key: str = MISSING
+    inference_gating_key: str | None = None # If None, uses gating_feature_key
     gating_input_dim: int | None = None
     gating_hidden_dims: list[int] = field(default_factory=list)
     routing_type: str = MoERoutingType.SOFT.value
@@ -235,4 +220,3 @@ class MixtureOfExpertsDecoderConfig(DecodingNetworkConfig):
     learnable_temperature: bool = False
     gating_dropout: float = 0.1
     gating_normalization: bool = True
-    gating_feature_key: str | None = None  # Key to use as input feature for routing

@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from refactoring.models.layers.constants import PositionalEncodingType
-from refactoring.models.layers.gpt_transformer.positional_encoding import (
+from refactoring.models.layers.transformer.positional_encoding import (
     apply_rope_positional_encoding,
     create_positional_encoding,
 )

@@ -29,7 +29,7 @@ def create_full_padding_mask(
         cache_length: int,
         device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor | None]:
-    """Create full key padding mask by combining cached and current masks.
+    """Create full causal self attention mask and full key padding mask by combining cached and current masks.
 
     Args:
         key_padding_mask: Current key padding mask (B, query_length) with True=padding.
@@ -39,11 +39,14 @@ def create_full_padding_mask(
         query_length: Current query length.
         cache_length: Cached sequence length.
         device: Device to create mask on.
+
     Returns:
         Tuple with:
           total_mask: Updated self-attention mask (B, 1, query_length, key_length) where True=masked.
           full_key_padding_mask: Combined key padding mask (B, key_length) with True=padding.
 
+    Note:
+        This function always applies causal masking if the self_attention_mask is None.
     """
     key_length = cache_length + query_length
     full_key_padding_mask = None

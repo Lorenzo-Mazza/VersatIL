@@ -6,8 +6,8 @@ import torch.nn as nn
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType
 from refactoring.models.layers.normalization.constants import NormalizationType
-from refactoring.models.layers.gpt_transformer.attention import CachedAttention
-from refactoring.models.layers.gpt_transformer.kv_cache import LayerKVCache
+from refactoring.models.layers.transformer.attention import CachedAttention
+from refactoring.models.layers.transformer.kv_cache import LayerKVCache
 from refactoring.models.layers.normalization.factory import create_normalization_layer
 from refactoring.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
 from refactoring.models.layers.swiglu import SwiGLU

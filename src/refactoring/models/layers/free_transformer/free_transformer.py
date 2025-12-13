@@ -13,10 +13,10 @@ import torch.nn.functional as F
 from typing import Optional
 
 from refactoring.models.layers.constants import AttentionType
-from refactoring.models.layers.gpt_transformer import TransformerDecoderLayer, LayerKVCache, DecoderKVCache, \
+from refactoring.models.layers.transformer import TransformerDecoderLayer, LayerKVCache, DecoderKVCache, \
     initialize_decoder_cache, create_positional_encoding
-from refactoring.models.layers.gpt_transformer.gpt_decoder import RESIDUAL_STREAM_FLAG
-from refactoring.models.layers.gpt_transformer.masking import create_full_padding_mask
+from refactoring.models.layers.transformer.autoregressive_decoder import RESIDUAL_STREAM_FLAG
+from refactoring.models.layers.transformer.masking import create_full_padding_mask
 from refactoring.models.layers.normalization.ada_norm import AdaNorm
 from refactoring.models.layers.normalization.constants import NormalizationType
 from refactoring.models.layers.normalization.factory import create_normalization_layer

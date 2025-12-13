@@ -152,7 +152,7 @@ class MoEFreeTransformer(FreeTransformerDecoder):
             routing_weights = torch.softmax(latent_weights, dim=-1) # (B, 1, num_experts)
             logits_dict = self.moe_action_head(
                 features=last_output,
-                routing_weights=routing_weights
+                gating_feature=routing_weights
             )
             logits = logits_dict[ACTION_KEY] #(B, 1, vocab_size)
             logits_scaled = logits / self.temperature.clamp(min=0.01)

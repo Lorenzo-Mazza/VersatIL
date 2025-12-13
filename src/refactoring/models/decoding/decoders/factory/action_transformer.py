@@ -6,21 +6,18 @@ from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.constants import FeatureType
 from refactoring.models.decoding.decoders import ActionDecoder, DecoderInput
 from refactoring.models.layers.activation import ActivationFunction
+from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
+from refactoring.models.layers.normalization.constants import NormalizationType
 from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
 from refactoring.models.layers.positional_encoding.sinusoidal import (
  SinusoidalPositionalEncoding2D,
 )
+from refactoring.models.layers.transformer import BidirectionalDecoder
 from refactoring.models.layers.transformer_input_builder import TransformerInputBuilder
 
 
 class ActionTransformer(ActionDecoder):
-    """Vanilla action transformer for action decoding.
-
-    This architecture:
-    - Receives observation features from the encoding/fusion block and tokenizes them into a list of tokens.
-    - Uses 2D fixed positional encodings for image tokens, 1D learnable pe for sequential or flat features.
-    - Decodes the action chunks using a standard transformer decoder from torch.nn.
-    """
+    """Bidirectional Transformer decoder which decodes action chunks with cross-attention to  observation tokens."""
     def __init__(
             self,
             input_keys: list[str],
@@ -32,11 +29,15 @@ class ActionTransformer(ActionDecoder):
             device: str,
             embedding_dimension: int = 256,
             number_of_heads: int = 8,
-            feedforward_dimension: int = 512,
-            number_of_decoder_layers: int = 6,
-            activation: str = ActivationFunction.GELU.value,
+            number_of_key_value_heads: int | None = None,
+            feedforward_dimension: int | None = None,
+            number_of_layers: int = 6,
+            activation: str = ActivationFunction.SWIGLU.value,
+            normalization_type: str = NormalizationType.RMS_NORM.value,
+            attention_type: str = AttentionType.MULTI_HEAD.value,
             dropout_rate: float = 0.1,
-            normalize_before: bool = False,
+            attention_dropout: float = 0.0,
+            positional_encoding_type: str | None = PositionalEncodingType.ROPE.value,
     ):
         decoder_input = DecoderInput(
             keys=input_keys,
@@ -55,15 +56,16 @@ class ActionTransformer(ActionDecoder):
         self.embedding_dimension = embedding_dimension
         self.prediction_horizon = prediction_horizon
         self.observation_horizon = observation_horizon
-        self.number_of_decoder_layers = number_of_decoder_layers
-        self.decoder_layer = nn.TransformerDecoderLayer(d_model=embedding_dimension,
-                                                        nhead=number_of_heads,
-                                                        batch_first=True,
-                                                        activation=ActivationFunction(activation).to_torch_activation(),
-                                                        dropout=dropout_rate,
-                                                        norm_first=normalize_before,
-                                                        dim_feedforward=feedforward_dimension
-                                                        )
+        self.number_of_layers = number_of_layers
+        self.activation = activation
+        self.dropout_rate = dropout_rate
+        self.feedforward_dimension = feedforward_dimension
+        self.number_of_heads = number_of_heads
+        self.number_of_key_value_heads = number_of_key_value_heads
+        self.normalization_type = normalization_type
+        self.attention_type = attention_type
+        self.attention_dropout = attention_dropout
+        self.positional_encoding_type = positional_encoding_type
         self._build_transformer_components()
         self.to(self.device)
 
@@ -88,7 +90,19 @@ class ActionTransformer(ActionDecoder):
             temporal_positional_encoding_layer=temporal_positional_encoding,
         )
         self.learnable_query = nn.Embedding(self.prediction_horizon, self.embedding_dimension) # (pred_horizon, emb)
-        self.action_decoder = nn.TransformerDecoder(self.decoder_layer, num_layers=self.number_of_decoder_layers)
+        self.action_decoder = BidirectionalDecoder(
+            number_of_layers=self.number_of_layers,
+            embedding_dimension=self.embedding_dimension,
+            number_of_heads=self.number_of_heads,
+            number_of_key_value_heads=self.number_of_key_value_heads,
+            feedforward_dimension=self.feedforward_dimension,
+            dropout=self.dropout_rate,
+            attention_dropout=self.attention_dropout,
+            activation=self.activation,
+            normalization_type=self.normalization_type,
+            attention_type=self.attention_type,
+
+        )
 
 
 
@@ -125,10 +139,12 @@ class ActionTransformer(ActionDecoder):
         """
         obs_tokens, obs_pos_encodings, obs_padding_mask = self.input_sequence_builder(features) # (B, obs_token_len, embedding_dimension)
         batch_size = obs_tokens.shape[0]
-        query_positional_encoding = self.learnable_query.weight.unsqueeze(0).repeat(batch_size, 1, 1) # (B, pred_horizon, embedding_dimension)
-        query = torch.zeros_like(query_positional_encoding).to(self.device)
-        query += query_positional_encoding
-        action_embeddings = self.action_decoder(tgt=query, memory=obs_tokens, memory_key_padding_mask=obs_padding_mask)
+        query = self.learnable_query.weight.unsqueeze(0).repeat(batch_size, 1, 1) # (B, pred_horizon, embedding_dimension)
+        action_embeddings = self.action_decoder(
+            hidden_states=query,
+            encoded_features=obs_tokens,
+            query_padding_mask=None,
+            memory_padding_mask=obs_padding_mask)
         predictions = self._apply_action_heads(action_embeddings)
         return predictions
 

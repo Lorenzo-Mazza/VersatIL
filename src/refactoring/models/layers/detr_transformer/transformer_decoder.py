@@ -119,21 +119,6 @@ class TransformerDecoderLayer(nn.Module):
         return target # (B, target_length, C)
 
 
-def generate_causal_mask(size: int, device: torch.device) -> torch.Tensor:
-    """Generate causal attention mask.
-
-    Args:
-        size: Sequence length
-        device: Device for tensor
-
-    Returns:
-        Causal mask (size, size) as boolean tensor where True means masked position
-    """
-    # Return boolean mask: True for positions that should be masked (future positions)
-    mask = torch.triu(torch.ones(size, size, device=device, dtype=torch.bool), diagonal=1)
-    return mask
-
-
 class TransformerDecoder(nn.Module):
     """Stack of transformer decoder layers."""
     def __init__(

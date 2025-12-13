@@ -14,7 +14,7 @@ from refactoring.configs.decoding.decoder import (
     ACTConfig,
     DecodingNetworkConfig,
     FreeTransformerConfig,
-    MixtureOfExpertsDecoderConfig, FASTGPTDecoderConfig, FASTDETRDecoderConfig, MoEFreeTransformerConfig, PhaseACTConfig,
+    MixtureOfExpertsDecoderConfig, FASTGPTDecoderConfig, FASTDETRDecoderConfig, MoEFreeTransformerConfig, PhaseACTConfig, ActionTransformerConfig,
 )
 from refactoring.configs.decoding.latent import PosteriorLatentEncoderConfig, PriorLatentEncoderConfig, VAETransformerEncoderConfig, GaussianPriorConfig, \
     DiffusionPriorConfig, PriorTransformerEncoderConfig
@@ -51,7 +51,7 @@ from refactoring.data.constants import (
     PROPRIO_OBS_CAMERA_FRAME_KEY,
     PROPRIO_OBS_ROBOT_FRAME_KEY, TOKENIZED_OBSERVATIONS_KEY, GRIPPER_STATE_OBS_KEY, TokenizerType, KinematicsNormalizationType, ImageNormalizationType,
 )
-from refactoring.models.decoding.constants import ACTION_LOGITS_KEY
+from refactoring.models.decoding.constants import ACTION_LOGITS_KEY, LATENT_KEY, MoERoutingType
 from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod, LanguageEncoderType
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
@@ -123,9 +123,12 @@ def register_resolvers():
             "PROPRIO_ROBOT_FRAME": PROPRIO_OBS_ROBOT_FRAME_KEY,
             "LANGUAGE": LANGUAGE_KEY,
             "GRIPPER_STATE_OBS_KEY": GRIPPER_STATE_OBS_KEY,
-            "TOKENIZED_OBSERVATIONS_KEY": TOKENIZED_OBSERVATIONS_KEY
+            "TOKENIZED_OBSERVATIONS_KEY": TOKENIZED_OBSERVATIONS_KEY,
+            "LATENT_KEY": LATENT_KEY,
         }
         OmegaConf.register_new_resolver("obs_key", lambda name: obs_key_map[name])
+    if not OmegaConf.has_resolver("moe_routing_type"):
+        OmegaConf.register_new_resolver("moe_routing_type", lambda name: MoERoutingType[name].value)
 
 
 def register_configs():
@@ -201,6 +204,7 @@ def register_configs():
     cs.store(group="policy/decoder", name="base", node=DecodingNetworkConfig)
     cs.store(group="policy/decoder", name="act", node=ACTConfig)
     cs.store(group="policy/decoder", name="phase_act", node=PhaseACTConfig)
+    cs.store(group="policy/decoder", name="action_transformer", node=ActionTransformerConfig)
 
     cs.store(group="policy/decoder", name="gpt", node=FASTGPTDecoderConfig)
     cs.store(group="policy/decoder", name="fastdetr", node=FASTDETRDecoderConfig)

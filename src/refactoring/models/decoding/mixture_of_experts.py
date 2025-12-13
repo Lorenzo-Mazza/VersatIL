@@ -37,7 +37,6 @@ class BaseMixtureOfExperts(nn.Module):
         learnable_temperature: bool = False,
         gating_dropout: float = 0.1,
         gating_normalization: bool = True,
-        gating_feature_key: str | None = None,
     ):
         """Initialize Mixture of Experts routing logic.
 
@@ -53,30 +52,22 @@ class BaseMixtureOfExperts(nn.Module):
             learnable_temperature: Whether temperature should be a learnable parameter
             gating_dropout: Dropout rate in gating network
             gating_normalization: Whether to normalize inputs to gating network
-            gating_feature_key: Key to use for extracting gating features from feature dict.
-                If None, uses first available feature. For Variational policies, typically 'latent'.
         """
-        super().__init__()
-
+        nn.Module.__init__(self)
         if num_experts == 0:
             raise ValueError("Must provide at least one expert")
-
-        self.num_experts = num_experts
-        self.routing_type = routing_type
-        self.top_k = min(top_k, num_experts)
-        self.gating_feature_key = gating_feature_key
-
         valid_routing_types = [e.value for e in MoERoutingType]
         if routing_type not in valid_routing_types:
             raise ValueError(
                 f"Invalid routing_type: {routing_type}. Expected one of {valid_routing_types}"
             )
 
+        self.num_experts = num_experts
+        self.routing_type = routing_type
+        self.top_k = min(top_k, num_experts)
         self.has_gating_network = gating_input_dim is not None
         self.gating_network: nn.Sequential | None
         if self.has_gating_network:
-            if gating_input_dim is None:
-                raise ValueError("gating_input_dim must be set when has_gating_network is True")
             self.gating_network = self._build_gating_network(
                 input_dim=gating_input_dim,
                 hidden_dims=gating_hidden_dims,
@@ -87,7 +78,6 @@ class BaseMixtureOfExperts(nn.Module):
             )
         else:
             self.gating_network = None
-
         if learnable_temperature:
             self.temperature = nn.Parameter(
                 torch.tensor(temperature, dtype=torch.float32), requires_grad=True
@@ -96,6 +86,7 @@ class BaseMixtureOfExperts(nn.Module):
             self.register_buffer(
                 "temperature", torch.tensor(temperature, dtype=torch.float32)
             )
+
 
     def _build_gating_network(
         self,
@@ -121,11 +112,9 @@ class BaseMixtureOfExperts(nn.Module):
         """
         if hidden_dims is None or len(hidden_dims) == 0:
             hidden_dims = [input_dim // 2]
-
         layers: list[nn.Module] = []
         if normalization:
             layers.append(nn.LayerNorm(input_dim))
-
         mlp = MLP(
             input_dim=input_dim,
             hidden_dims=hidden_dims,
@@ -134,45 +123,36 @@ class BaseMixtureOfExperts(nn.Module):
             dropout=dropout,
         )
         layers.append(mlp)
-
         return nn.Sequential(*layers).to(device)
 
+
     def compute_routing_weights(
-        self, features: torch.Tensor, external_weights: torch.Tensor | None = None
+        self, features: torch.Tensor
     ) -> torch.Tensor:
         """Compute routing weights from input or external source.
 
         Args:
             features: Input tensor for gating network
-            external_weights: Optional external routing logits/probabilities
 
         Returns:
             Normalized routing weights (B, [horizon,] num_experts)
 
         """
-        if external_weights is not None:
-            logits = external_weights
-        elif self.has_gating_network:
-            if self.gating_network is None:
-                raise RuntimeError("gating_network must be initialized when has_gating_network is True")
+        if self.has_gating_network:
             logits = self.gating_network(features)
         else:
-            raise ValueError(
-                "Either gating_input_dim must be provided at initialization "
-                "or external routing_weights must be passed to forward()"
-            )
-
+            logits = features
         logits = logits / self.temperature
         return F.softmax(logits, dim=-1)
 
+
     def get_expert_specialization(
-        self, features: torch.Tensor, external_routing: torch.Tensor | None = None
+        self, gating_feature: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
         """Analyze expert usage patterns.
 
         Args:
-            features: Input features
-            external_routing: Optional external routing weights
+            gating_feature: Input gating feature
 
         Returns:
             Dictionary with expert_usage, routing_entropy, top_expert_confidence
@@ -182,16 +162,16 @@ class BaseMixtureOfExperts(nn.Module):
             the model's training state. Caller should set model to eval mode if needed.
         """
         with torch.no_grad():
-            weights = self.compute_routing_weights(features, external_routing)
+            weights = self.compute_routing_weights(gating_feature)
             expert_usage = weights.mean(dim=tuple(range(weights.ndim - 1)))
             entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=-1).mean()
             top_expert_confidence = weights.max(dim=-1)[0].mean()
-
         return {
             EXPERT_USAGE: expert_usage,
             ROUTING_ENTROPY: entropy,
             TOP_EXPERT_CONFIDENCE: top_expert_confidence,
         }
+
 
     def _apply_routing(
         self,
@@ -212,13 +192,13 @@ class BaseMixtureOfExperts(nn.Module):
             Combined output tensor with expert dimension removed
         """
         stacked = torch.stack(expert_outputs, dim=1)
-
         if self.routing_type == MoERoutingType.SOFT.value:
             return self._combine_soft(stacked, weights)
         elif self.routing_type == MoERoutingType.TOP_K.value:
             return self._combine_topk(stacked, weights)
         else:
             raise ValueError(f"Unknown routing type: {self.routing_type}")
+
 
     def _combine_soft(
         self, stacked_predictions: torch.Tensor, weights: torch.Tensor
@@ -243,6 +223,7 @@ class BaseMixtureOfExperts(nn.Module):
             expanded_weights = expanded_weights.unsqueeze(-1)
         return (stacked_predictions * expanded_weights).sum(dim=1)
 
+
     def _combine_topk(
         self, stacked_predictions: torch.Tensor, weights: torch.Tensor
     ) -> torch.Tensor:
@@ -262,21 +243,17 @@ class BaseMixtureOfExperts(nn.Module):
         if weights.ndim == 3:
             weights = weights.transpose(1, 2) # (B, E, H)
 
-        top_k_weights, top_k_indices = torch.topk(weights, self.top_k, dim=1) # (B, k, H)
+        top_k_weights, top_k_indices = torch.topk(weights, self.top_k, dim=1) # (B, k)
         top_k_weights = top_k_weights / (top_k_weights.sum(dim=1, keepdim=True) + 1e-8)
-
         indices_expanded = top_k_indices
         for _ in range(stacked_predictions.ndim - top_k_indices.ndim):
             indices_expanded = indices_expanded.unsqueeze(-1)
 
-        expand_shape = list(stacked_predictions.shape)
+        expand_shape = list(stacked_predictions.shape) # [B, num_experts, pred_horizon, action_dim]
         expand_shape[1] = self.top_k
-        indices_expanded = indices_expanded.expand(expand_shape)
-
-        top_k_outputs = torch.gather(stacked_predictions, dim=1, index=indices_expanded)
-
+        indices_expanded = indices_expanded.expand(expand_shape) # (B, k, pred_horizon, action_dim)
+        top_k_outputs = torch.gather(stacked_predictions, dim=1, index=indices_expanded) # (B, k, pred_horizon, action_dim)
         expanded_weights = top_k_weights
         for _ in range(top_k_outputs.ndim - top_k_weights.ndim):
-            expanded_weights = expanded_weights.unsqueeze(-1)
-
+            expanded_weights = expanded_weights.unsqueeze(-1) # (B, k, 1, 1)
         return (top_k_outputs * expanded_weights).sum(dim=1)

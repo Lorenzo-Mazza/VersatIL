@@ -90,10 +90,10 @@ class MoEHead(BaseMixtureOfExperts):
             learnable_temperature=learnable_temperature,
             gating_dropout=gating_dropout,
             gating_normalization=gating_normalization,
-            gating_feature_key=gating_feature_key,
         )
 
         self.output_dim = output_dim
+        self.gating_feature_key = gating_feature_key
         for i, expert in enumerate(expert_list):
             if expert.output_dim != output_dim:
                 raise ValueError(f"Expert {i} output_dim={expert.output_dim} does not match expected {output_dim}")
@@ -135,13 +135,13 @@ class MoEHead(BaseMixtureOfExperts):
     def forward(
         self,
         features: torch.Tensor,
-        routing_weights: torch.Tensor | None = None,
+        gating_feature: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
         """Forward pass through mixture of experts.
 
         Args:
             features: Input features for action prediction
-            routing_weights: Optional external routing weights (if not using gating network)
+            gating_feature: gating feature for combining expert outputs
 
         Returns:
             Dictionary containing:
@@ -149,13 +149,10 @@ class MoEHead(BaseMixtureOfExperts):
                 - routing_weights: Computed routing weights
                 - expert_outputs: Individual expert predictions (stacked)
         """
-        weights = self.compute_routing_weights(features, external_weights=routing_weights)
-
+        weights = self.compute_routing_weights(gating_feature) # (B, num_experts)
         expert_outputs = [expert(features) for expert in self.experts]
         expert_outputs_stacked = torch.stack(expert_outputs, dim=-2)
-
         final_output = self._apply_routing(expert_outputs, weights)
-
         return {
             ACTION_KEY: final_output,
             ROUTING_WEIGHT: weights,
