@@ -14,13 +14,14 @@ from refactoring.models.decoding.latent.posterior.base_posterior import Posterio
 from refactoring.models.decoding.latent.reparametrize import reparametrize
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.detr_transformer import TransformerEncoder, TransformerEncoderLayer
-from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
+from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
+from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D, SinusoidalPositionalEncoding2D
 from refactoring.models.layers.transformer_input_builder import TransformerInputBuilder
 
 
 
 class VAETransformerEncoder(PosteriorLatentEncoder):
-    """Transformer-based Variational Autoencoder for encoding actions into latent space.
+    """Transformer-based posterior encoder for encoding actions into latent space.
 
     Args:
         embedding_dimension: Transformer hidden dimension
@@ -87,7 +88,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         self.prediction_horizon = prediction_horizon
         self.observation_horizon = observation_horizon
         self.device = device
-        self.vae_encoder = TransformerEncoder(
+        self.transformer_encoder = TransformerEncoder(
             encoder_layer=TransformerEncoderLayer(
                 embedding_dimension=self.embedding_dimension,
                 number_of_heads=self.number_of_heads,
@@ -99,14 +100,21 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             number_of_layers=self.number_of_encoder_layers,
             normalization=nn.LayerNorm(self.embedding_dimension) if self.normalize_before else None
         )
+        temporal_positional_encoding = None
+        if self.observation_horizon > 1:
+            temporal_positional_encoding = LearnedPositionalEncoding1D(embedding_dimension=self.embedding_dimension)
+
         self.input_sequence_builder = TransformerInputBuilder(
             embedding_dim=self.embedding_dimension,
             has_time_dim=self.observation_horizon > 1,
-            spatial_positional_encoding_layer=None,
+            spatial_positional_encoding_layer=
+            SinusoidalPositionalEncoding2D(embedding_dimension=self.embedding_dimension,
+            normalize=True),
             flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
                 embedding_dimension=self.embedding_dimension,
                 maximum_length=1000,
             ),
+            temporal_positional_encoding_layer=temporal_positional_encoding,
         )
         self.cls_token = nn.Embedding(1, self.embedding_dimension) # CLS input token
         self.latent_stats_projection = nn.Linear(
@@ -141,12 +149,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         if observations is not None:
             input_observations = {
                 k: v for k, v in observations.items()
-                if not (
-                        k in self.exclude_keys # Custom excluded keys
-                        or (v.ndim == 4 and self.observation_horizon == 1) # Image observation are excluded by default
-                        or v.ndim == 5
-                )
-            }
+                if not (k in self.exclude_keys)}
         else:
             input_observations = {}
 
@@ -167,7 +170,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(batch_size, 1, 1) # (B, 1, emb_dim)
         input_observations[CLASS_TOKEN_KEY] = cls_embedding
         input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(input_observations) # (B, seq_len, embedding_dimension)
-        encoder_output = self.vae_encoder(
+        encoder_output = self.transformer_encoder(
             input_tokens,
             positional_encoding=pos_encodings,
             source_key_padding_mask=padding_mask

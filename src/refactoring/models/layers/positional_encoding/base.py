@@ -77,17 +77,31 @@ class PositionalEncoding1D(PositionalEncoding, abc.ABC):
             if self.maximum_length is None:
                 raise ValueError("maximum_length must be set when precompute_encodings=True")
             precomputed_encodings = self._compute_encodings(torch.arange(self.maximum_length).float())
-            self.register_buffer("precomputed_encodings", precomputed_encodings.unsqueeze(1))  # [maximum_length, 1, embedding_dimension]
+            self.register_buffer("precomputed_encodings", precomputed_encodings.unsqueeze(0))  # [1, maximum_length, embedding_dimension]
 
     def forward(self, input_tensor: torch.Tensor) -> torch.Tensor:
+        """Compute positional encodings for input tensor.
+
+        Args:
+            input_tensor: Input tensor with batch-first convention.
+                - For TENSOR_INDICES: shape (batch_size, seq_len, ...) or (batch_size, seq_len)
+                - For SCALAR: shape (batch_size,) containing scalar values to encode
+
+        Returns:
+            Positional encodings with shape:
+                - For TENSOR_INDICES: (batch_size, seq_len, embedding_dimension)
+                - For SCALAR: (batch_size, embedding_dimension)
+        """
         encodings: torch.Tensor
         if self.position_source == PositionSource.TENSOR_INDICES.value:
-            seq_len = input_tensor.size(0)
+            batch_size = input_tensor.size(0)
+            seq_len = input_tensor.size(1)
             if self.precompute_encodings:
-                encodings = self.precomputed_encodings[:seq_len].clone().detach()
+                encodings = self.precomputed_encodings[:, :seq_len, :]  # [1, seq_len, embedding_dimension]
             else:
                 encodings = self._compute_encodings(torch.arange(seq_len).to(input_tensor.device))
-            encodings = encodings.repeat(1, input_tensor.size(1), 1)  # [sequence_length, batch_size, embedding_dimension]
+                encodings = encodings.unsqueeze(0)  # [1, seq_len, embedding_dimension]
+            encodings = encodings.expand(batch_size, -1, -1)  # [batch_size, seq_len, embedding_dimension]
         elif self.position_source == PositionSource.SCALAR.value:
             encodings = self._compute_encodings(input_tensor)  # [batch_size, embedding_dimension]
         else:

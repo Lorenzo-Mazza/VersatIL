@@ -162,8 +162,8 @@ class TransformerInputBuilder(nn.Module):
                 raise ValueError(f"Feature '{name}' has unsupported shape {x.shape}")
 
             padding_mask = features.get(f"{name}_padding_mask", None)
-            if padding_mask is None and ACTION_KEY in name:
-                padding_mask = action_padding_mask
+            if padding_mask is None and ACTION_KEY in name and action_padding_mask is not None:
+                padding_mask = action_padding_mask.clone()
             if padding_mask is not None:
                 padding_mask = padding_mask.to(torch.bool)
                 match padding_mask.ndim:
@@ -179,24 +179,19 @@ class TransformerInputBuilder(nn.Module):
             else:
                 reshaped_mask = torch.zeros(B, T*tokens_per_frame, dtype=torch.bool, device=x.device) # B , T*Seq
 
-            if is_spatial:
-                if self.spatial_positional_encoding_layer is not None:
-                    pe_2d = self.spatial_positional_encoding_layer(torch.zeros(1, 1, H, W, device=x.device))  # (1, Emb, H, W)
-                    pe_flat = pe_2d.flatten(2).transpose(1, 2)  # (1, HW, Emb)
-                    if self.temporal_positional_encoding_layer is not None and self.has_time_dim:
-                        pe_spatial = pe_flat.repeat(1, T, 1) # (1, T*H*W, Emb)
-                        pe_time = self.temporal_positional_encoding_layer(torch.zeros(T, 1, 1, device=x.device)) # (1, T, Emb)
-                        pe_time = pe_time.repeat_interleave(H * W, dim=1)  # (1, T*H*W, Emb)
-                        pe = pe_spatial + pe_time  # (1,T*H*W, Emb)
-                    else:
-                        pe = pe_flat.repeat(1, T, 1) if self.has_time_dim else pe_flat  # (1, T*H*W, Emb) or (1, H*W, Emb)
-
-                    pe = pe.repeat(B, 1, 1) # (B, seq_len, Emb)
-                    spatial_positional_encodings.append(pe)
+            if is_spatial and self.spatial_positional_encoding_layer is not None:
+                pe_2d = self.spatial_positional_encoding_layer(torch.zeros(1, 1, H, W, device=x.device))  # (1, Emb, H, W)
+                pe_flat = pe_2d.flatten(2).transpose(1, 2)  # (1, HW, Emb)
+                if self.temporal_positional_encoding_layer is not None and self.has_time_dim:
+                    pe_spatial = pe_flat.repeat(1, T, 1) # (1, T*H*W, Emb)
+                    pe_time = self.temporal_positional_encoding_layer(torch.zeros(1, T, 1, device=x.device)) # (1, T, Emb)
+                    pe_time = pe_time.repeat_interleave(H * W, dim=1)  # (1, T*H*W, Emb)
+                    pe = pe_spatial + pe_time  # (1,T*H*W, Emb)
                 else:
-                    spatial_positional_encodings.append(
-                        torch.zeros(B, T*H*W, self.embedding_dim, device=x.device)
-                    )  # (B, T*H*W, Emb)
+                    pe = pe_flat.repeat(1, T, 1) if self.has_time_dim else pe_flat  # (1, T*H*W, Emb) or (1, H*W, Emb)
+
+                pe = pe.repeat(B, 1, 1) # (B, seq_len, Emb)
+                spatial_positional_encodings.append(pe)
 
 
             if is_spatial:
@@ -219,20 +214,33 @@ class TransformerInputBuilder(nn.Module):
         flat_tokens = torch.cat(flat_tokens_list, dim=1) if flat_tokens_list else None  # (B, L_flat, Emb)
         tokens = torch.cat([t for t in [spatial_tokens, flat_tokens] if t is not None], dim=1) # (B, Total_Seq, Emb)
 
-        spatial_positional_encodings = torch.cat(spatial_positional_encodings, dim=1) if spatial_positional_encodings else None
-        flat_positional_encodings = None
-        if flat_tokens is not None:
+        # Compute positional encodings based on configuration
+        B = tokens.shape[0]
+        if self.spatial_positional_encoding_layer is None:
+            # No spatial PE: apply flat PE to ALL tokens (spatial + flat)
             if self.flat_positional_encoding_layer is not None:
-                flat_positional_encodings = self.flat_positional_encoding_layer(
-                    torch.zeros(1, flat_tokens.shape[1], device=flat_tokens.device)
-                )  # (1, L_flat, Emb)
-                flat_positional_encodings = flat_positional_encodings.repeat(B, 1, 1)  # (B, L_flat, Emb)
+                positional_encodings = self.flat_positional_encoding_layer(
+                    torch.zeros(1, tokens.shape[1], device=tokens.device)
+                )  # (1, Total_Seq, Emb)
+                positional_encodings = positional_encodings.expand(B, -1, -1)  # (B, Total_Seq, Emb)
             else:
-                flat_positional_encodings = torch.zeros(
-                    B, flat_tokens.shape[1], self.embedding_dim, device=flat_tokens.device
-                )  # (B, L_flat, Emb)
-        pe_list = [p for p in [spatial_positional_encodings, flat_positional_encodings] if p is not None]
-        positional_encodings = torch.cat(pe_list, dim=1) if pe_list else None # (B, Total_Seq, Emb)
+                positional_encodings = None
+        else:
+            # Spatial PE exists: use separate spatial PE + flat PE
+            spatial_positional_encodings = torch.cat(spatial_positional_encodings, dim=1) if spatial_positional_encodings else None
+            flat_positional_encodings = None
+            if flat_tokens is not None:
+                if self.flat_positional_encoding_layer is not None:
+                    flat_positional_encodings = self.flat_positional_encoding_layer(
+                        torch.zeros(1, flat_tokens.shape[1], device=flat_tokens.device)
+                    )  # (1, L_flat, Emb)
+                    flat_positional_encodings = flat_positional_encodings.expand(B, -1, -1)  # (B, L_flat, Emb)
+                else:
+                    flat_positional_encodings = torch.zeros(
+                        B, flat_tokens.shape[1], self.embedding_dim, device=flat_tokens.device
+                    )  # (B, L_flat, Emb)
+            pe_list = [p for p in [spatial_positional_encodings, flat_positional_encodings] if p is not None]
+            positional_encodings = torch.cat(pe_list, dim=1) if pe_list else None  # (B, Total_Seq, Emb)
 
         padding_mask = torch.cat(spatial_mask_list + flat_mask_list, dim=1) # (B, Total_Seq)
         if not padding_mask.any():
