@@ -211,7 +211,7 @@ class KLDivergenceLoss(BaseLoss):
         Returns:
             Set containing VAE latent distribution keys (mu, logvar)
         """
-        return {MU_KEY, LOGVAR_KEY}
+        return {LATENT_KEY, PRIOR_LATENT_KEY, MU_KEY, LOGVAR_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY}
 
     def forward(
         self,
@@ -229,9 +229,8 @@ class KLDivergenceLoss(BaseLoss):
         Returns:
             LossOutput with KL divergence loss
         """
-        required_keys = [LATENT_KEY, LOGVAR_KEY, MU_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY, PRIOR_LATENT_KEY]
-        if not all(k in predictions for k in required_keys):
-            raise ValueError(f"Predictions must contain all {required_keys}' for KLDivergenceLoss.")
+        if not all(k in predictions for k in self.get_required_keys()):
+            raise ValueError(f"Predictions must contain all {self.get_required_keys()}' for KLDivergenceLoss.")
         mu_posterior = predictions[MU_KEY].float() # Using fp32 float for stability
         logvar_posterior = predictions[LOGVAR_KEY].float()
         mu_prior = predictions[PRIOR_MU_KEY].float()
@@ -393,8 +392,8 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
 
 
     def get_required_keys(self) -> set[str]:
-        """Returns required prediction keys: {LATENT_KEY}."""
-        return {LATENT_KEY}
+        """Returns required prediction keys."""
+        return {LATENT_KEY, PRIOR_LATENT_KEY, MU_KEY, LOGVAR_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY}
 
 
     def _compute_kernel(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -434,22 +433,24 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         Returns:
             LossOutput with MMD loss.
         """
-        if not all(k in predictions for k in [LATENT_KEY]):
-            raise ValueError(f"Predictions must contain '{LATENT_KEY}'for MaximumMeanDiscrepancyLoss.")
+        if not all(k in predictions for k in self.get_required_keys()):
+            raise ValueError(f"Predictions must contain '{self.get_required_keys()}'for MaximumMeanDiscrepancyLoss.")
 
-        z = predictions[LATENT_KEY]  # (B, latent_dim)
-        z_prior = torch.randn_like(z)  # samples from N(0, I)
-        k_zz = self._compute_kernel(z, z)
+        z_posterior = predictions[LATENT_KEY]  # (B, latent_dim)
+        z_prior = predictions[PRIOR_LATENT_KEY]
+        k_zz = self._compute_kernel(z_posterior, z_posterior)
         k_pp = self._compute_kernel(z_prior, z_prior)
-        k_zp = self._compute_kernel(z, z_prior)
+        k_zp = self._compute_kernel(z_posterior, z_prior)
         # MMD² = E[k(z,z')] + E[k(p,p')] - 2E[k(z,p)]
         mmd = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
         metadata = {
-            MetadataKey.POSTERIOR_Z.value: z,
+            MetadataKey.POSTERIOR_Z.value: z_posterior,
+            MetadataKey.POSTERIOR_MU.value: predictions[MU_KEY],
+            MetadataKey.POSTERIOR_LOGVAR.value: predictions[LOGVAR_KEY],
+            MetadataKey.PRIOR_Z.value: z_prior,
+            MetadataKey.PRIOR_MU.value: predictions[PRIOR_MU_KEY],
+            MetadataKey.PRIOR_LOGVAR.value: predictions[PRIOR_LOGVAR_KEY],
         }
-        if MU_KEY in predictions and LOGVAR_KEY in predictions:
-            metadata[MetadataKey.POSTERIOR_MU.value] = predictions[MU_KEY]
-            metadata[MetadataKey.LATENT_LOGVAR.value] = predictions[LOGVAR_KEY]
 
         return LossOutput(
             total_loss=self.weight * mmd,
