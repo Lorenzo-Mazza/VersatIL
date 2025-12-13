@@ -155,10 +155,7 @@ class CachedAttention(nn.Module):
 
         sdpa_mask = None
         if attention_mask is not None:
-            mask_shape = (batch_size, self.number_of_heads, query_length, keys.shape[2])  #(B, num_heads, query_len, key_len)
-            sdpa_mask = torch.full(mask_shape, False, dtype=torch.bool, device=queries.device)
-            sdpa_mask = sdpa_mask.masked_fill_(attention_mask, True)  # Broadcast over num_heads
-            sdpa_mask = ~sdpa_mask # False means don't attend/padded
+            sdpa_mask = ~attention_mask if attention_mask is not None else None  # False means don't attend/padded
             # cf. https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html
 
         attended_values = F.scaled_dot_product_attention(
