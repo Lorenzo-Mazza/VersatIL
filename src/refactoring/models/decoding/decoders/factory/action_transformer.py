@@ -3,7 +3,7 @@ from torch import nn
 
 from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.models.decoding.action_heads import ActionHead
-from refactoring.models.decoding.constants import FeatureType
+from refactoring.models.decoding.constants import FeatureType, LATENT_KEY
 from refactoring.models.decoding.decoders import ActionDecoder, DecoderInput
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
@@ -137,6 +137,8 @@ class ActionTransformer(ActionDecoder):
             Dictionary containing:
                 - Action head predictions (e.g. position, orientation, gripper)
         """
+        if LATENT_KEY in features:
+            features.pop(LATENT_KEY)
         obs_tokens, obs_pos_encodings, obs_padding_mask = self.input_sequence_builder(features) # (B, obs_token_len, embedding_dimension)
         batch_size = obs_tokens.shape[0]
         query = self.learnable_query.weight.unsqueeze(0).repeat(batch_size, 1, 1) # (B, pred_horizon, embedding_dimension)

@@ -5,7 +5,7 @@ _target_: refactoring.models.decoding.decoders.moe.MoEDecoder
 gating_feature_key: ${obs_key:LATENT_KEY}
 temperature: 10.0
 learnable_temperature: true
-routing_type: ${moe_routing_type:TOP_K}
+routing_type: ${moe_routing_type:SOFT}
 num_experts: 12
 gating_activation: ${activation_function:SILU}
 gating_input_dim: ${policy.algorithm.posterior_encoder.latent_dimension}
@@ -18,11 +18,11 @@ base_expert:
   input_keys:
     - left_rgb
     - right_rgb
-  embedding_dimension: 128
+  embedding_dimension: 256
   number_of_heads: 8
   number_of_key_value_heads: 2
-  feedforward_dimension: 512
-  number_of_layers: 2
+  feedforward_dimension: 1024
+  number_of_layers: 4
   activation: ${activation_function:SWIGLU}
   normalization_type: ${normalization:RMS_NORM}
   attention_type: ${attention:GROUPED_QUERY}
