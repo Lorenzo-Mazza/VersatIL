@@ -83,7 +83,7 @@ class CVAEConfig:
     batch_size: int = 16
     learning_rate: float = 1e-4
     num_epochs: int = 100
-    latent_loss_weight: float = 50.0  # Weight for latent regularization (MMD or KL)
+    latent_loss_weight: float = 500.0  # Weight for latent regularization (MMD or KL)
     recon_weight: float = 1.0
 
     # Latent regularization settings
@@ -1703,7 +1703,7 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--latent_dim", type=int, default=256)
-    parser.add_argument("--latent_loss_weight", type=float, default=50.0,
+    parser.add_argument("--latent_loss_weight", type=float, default=500.0,
                         help="Weight for latent regularization loss (MMD or KL)")
     parser.add_argument("--recon_weight", type=float, default=1.0)
     parser.add_argument("--eval_every", type=int, default=1,
