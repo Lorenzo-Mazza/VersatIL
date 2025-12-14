@@ -1141,14 +1141,20 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
 class MoELoss(BaseLoss):
     """Wrapper for any BaseLoss to add MoE expert usage metric from routing weights."""
 
-    def __init__(self, base_loss: BaseLoss):
+    def __init__(self, base_loss: BaseLoss, entropy_weight: float = 0.0,):
         """Initialize MoE wrapper.
 
         Args:
             base_loss: Any BaseLoss instance to wrap (e.g., RegressionLoss(...))
+            entropy_weight: Weight for entropy regularization on global routing weights.
+
+        Note: The entropy term enforces the use of multiple experts and tries to prevent the model
+         to only select a few of the available experts.
         """
         super().__init__()
         self.base_loss = base_loss
+        self.entropy_weight = entropy_weight
+
 
 
     def get_required_keys(self) -> set[str]:
@@ -1162,14 +1168,22 @@ class MoELoss(BaseLoss):
         targets: dict[str, torch.Tensor],
         is_pad: torch.Tensor | None = None,
     ) -> LossOutput:
-        """Passthrough base loss, then add expert_usage from routing weights."""
+        """Passthrough base loss, then add expert_usage from routing weights and optionally add entropy term."""
         base_output: LossOutput = self.base_loss(predictions, targets, is_pad)
         metadata = base_output.metadata if base_output.metadata is not None else {}
-        expert_usage = predictions[ROUTING_WEIGHT]
-        expert_usage = expert_usage.mean(dim=list(range(expert_usage.ndim - 1)))  # Mean over all but last dim, which is num_experts
+        component_losses = dict(base_output.component_losses)
+        entropy_loss = 0.0
+        pi = predictions[ROUTING_WEIGHT]  # (B, T, num_experts)
+        if self.entropy_weight != 0.0:
+            entropy = -(pi * torch.log(pi + 1e-8)).sum(dim=-1)  # (B, T)
+            entropy_mean = reduce_loss_with_padding(entropy, is_pad, reduction="mean")
+            component_losses[f'{MetricKey.EXPERTS_ENTROPY.value}'] = entropy_mean
+            entropy_loss = - self.entropy_weight * entropy_mean  # negative to maximize
+        expert_usage = pi.mean(dim=list(range(pi.ndim - 1)))  # Mean over all but last dim, which is num_experts
         metadata[MetadataKey.EXPERT_USAGE.value] = expert_usage
         return LossOutput(
-            total_loss=base_output.total_loss,
-            component_losses=base_output.component_losses,
+            total_loss=base_output.total_loss + entropy_loss,
+            component_losses=component_losses,
             metadata=metadata,
         )
+

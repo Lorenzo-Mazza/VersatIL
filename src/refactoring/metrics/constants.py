@@ -37,6 +37,7 @@ class MetricKey(str, Enum):
     PERPLEXITY = "perplexity"
     ACTION_NLL = "action_negative_log_likelihood"
     GRIPPER_NLL = "gripper_negative_log_likelihood"
+    EXPERTS_ENTROPY = "experts_entropy"
 
 
 class LossModuleName(str, Enum):

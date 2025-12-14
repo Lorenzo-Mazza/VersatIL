@@ -10,6 +10,7 @@ _target_: refactoring.metrics.CompositeLoss
 loss_modules:
   moe_loss:
     _target_: refactoring.metrics.MoELoss
+    entropy_weight: 0.1
     base_loss:
       _target_: refactoring.metrics.CompositeLoss
       loss_modules:
