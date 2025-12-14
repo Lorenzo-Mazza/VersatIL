@@ -64,11 +64,11 @@ class CVAEConfig:
 
     # Architecture
     embedding_dim: int = 512
-    latent_dim: int = 512
+    latent_dim: int = 256
     num_heads: int = 8
     num_encoder_layers: int = 4
-    num_decoder_layers: int = 6
-    feedforward_dim: int = 2048
+    num_decoder_layers: int = 8
+    feedforward_dim: int = 3200
     dropout: float = 0.1
 
     # Image encoder
@@ -1450,6 +1450,22 @@ class FIDCalculator:
             features = inception(images)
         return features
 
+    def _matrix_sqrt(self, matrix: torch.Tensor) -> torch.Tensor:
+        """Compute matrix square root using eigendecomposition.
+
+        Args:
+            matrix: Symmetric positive semi-definite matrix
+
+        Returns:
+            Matrix square root
+        """
+        # Use eigendecomposition for numerical stability
+        eigenvalues, eigenvectors = torch.linalg.eigh(matrix)
+        # Clamp small negative eigenvalues (numerical errors)
+        eigenvalues = torch.clamp(eigenvalues, min=0.0)
+        sqrt_eigenvalues = torch.sqrt(eigenvalues)
+        return eigenvectors @ torch.diag(sqrt_eigenvalues) @ eigenvectors.T
+
     def compute_fid(
         self,
         real_images: torch.Tensor,
@@ -1457,6 +1473,8 @@ class FIDCalculator:
         already_normalized: bool = False,
     ) -> float:
         """Compute FID between real and generated images.
+
+        FID = ||μ_real - μ_gen||² + Tr(Σ_real + Σ_gen - 2*sqrt(Σ_real @ Σ_gen))
 
         Args:
             real_images: Real images (B, C, H, W)
@@ -1469,14 +1487,39 @@ class FIDCalculator:
         if real_features is None or gen_features is None:
             return float('nan')
 
-        # Compute statistics
+        # Compute mean
         mu_real = real_features.mean(dim=0)
         mu_gen = gen_features.mean(dim=0)
 
-        diff = mu_real - mu_gen
-        fid_approx = diff.dot(diff).item()
+        # Compute covariance (unbiased)
+        n_real = real_features.shape[0]
+        n_gen = gen_features.shape[0]
 
-        return fid_approx
+        # Center features
+        real_centered = real_features - mu_real
+        gen_centered = gen_features - mu_gen
+
+        # Covariance matrices
+        sigma_real = (real_centered.T @ real_centered) / (n_real - 1)
+        sigma_gen = (gen_centered.T @ gen_centered) / (n_gen - 1)
+
+        # FID = ||mu_diff||^2 + Tr(sigma_real + sigma_gen - 2*sqrt(sigma_real @ sigma_gen))
+        mu_diff = mu_real - mu_gen
+        mean_term = mu_diff.dot(mu_diff)
+
+        # Compute sqrt(sigma_real @ sigma_gen)
+        # For numerical stability, compute sqrt(sigma_real) @ sigma_gen @ sqrt(sigma_real), then sqrt
+        try:
+            sqrt_sigma_real = self._matrix_sqrt(sigma_real)
+            product = sqrt_sigma_real @ sigma_gen @ sqrt_sigma_real
+            sqrt_product = self._matrix_sqrt(product)
+            cov_term = torch.trace(sigma_real) + torch.trace(sigma_gen) - 2 * torch.trace(sqrt_product)
+        except Exception as e:
+            logger.warning(f"FID covariance computation failed: {e}. Using mean-only approximation.")
+            cov_term = torch.tensor(0.0, device=real_features.device)
+
+        fid = (mean_term + cov_term).item()
+        return max(0.0, fid)  # FID should be non-negative
 
 
 # =============================================================================
@@ -1659,7 +1702,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--image_size", type=int, default=224)
-    parser.add_argument("--latent_dim", type=int, default=512)
+    parser.add_argument("--latent_dim", type=int, default=256)
     parser.add_argument("--latent_loss_weight", type=float, default=50.0,
                         help="Weight for latent regularization loss (MMD or KL)")
     parser.add_argument("--recon_weight", type=float, default=1.0)
