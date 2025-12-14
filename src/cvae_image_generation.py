@@ -1425,7 +1425,14 @@ class FIDCalculator:
                 return None
         return self._inception
 
-    def _extract_features(self, images: torch.Tensor) -> torch.Tensor | None:
+    def _extract_features(self, images: torch.Tensor, already_normalized: bool = False) -> torch.Tensor | None:
+        """Extract Inception features from images.
+
+        Args:
+            images: Input images (B, C, H, W)
+            already_normalized: If True, images are already ImageNet normalized.
+                               If False, images are in [0, 1] range.
+        """
         inception = self._get_inception()
         if inception is None:
             return None
@@ -1433,10 +1440,11 @@ class FIDCalculator:
         # Resize to 299x299
         images = F.interpolate(images, size=(299, 299), mode="bilinear", align_corners=False)
 
-        # Normalize
-        mean = torch.tensor([0.485, 0.456, 0.406], device=images.device).view(1, 3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225], device=images.device).view(1, 3, 1, 1)
-        images = (images - mean) / std
+        # Only normalize if not already normalized
+        if not already_normalized:
+            mean = torch.tensor([0.485, 0.456, 0.406], device=images.device).view(1, 3, 1, 1)
+            std = torch.tensor([0.229, 0.224, 0.225], device=images.device).view(1, 3, 1, 1)
+            images = (images - mean) / std
 
         with torch.no_grad():
             features = inception(images)
@@ -1446,10 +1454,17 @@ class FIDCalculator:
         self,
         real_images: torch.Tensor,
         generated_images: torch.Tensor,
+        already_normalized: bool = False,
     ) -> float:
-        """Compute FID between real and generated images."""
-        real_features = self._extract_features(real_images)
-        gen_features = self._extract_features(generated_images)
+        """Compute FID between real and generated images.
+
+        Args:
+            real_images: Real images (B, C, H, W)
+            generated_images: Generated images (B, C, H, W)
+            already_normalized: If True, images are already ImageNet normalized.
+        """
+        real_features = self._extract_features(real_images, already_normalized=already_normalized)
+        gen_features = self._extract_features(generated_images, already_normalized=already_normalized)
 
         if real_features is None or gen_features is None:
             return float('nan')
@@ -1552,7 +1567,8 @@ def evaluate(
     if fid_calculator and real_for_fid:
         real_all = torch.cat(real_for_fid, dim=0)[:512].to(device)
         gen_all = torch.cat(gen_for_fid, dim=0)[:512].to(device)
-        total_losses["fid"] = fid_calculator.compute_fid(real_all, gen_all)
+        # Images are already ImageNet normalized from the dataloader
+        total_losses["fid"] = fid_calculator.compute_fid(real_all, gen_all, already_normalized=True)
 
     return total_losses
 
@@ -1639,11 +1655,11 @@ def main():
     parser.add_argument("--image_dir", type=str, default="/mnt/cluster/workspaces/mazzalore/celeb/image/images")
     parser.add_argument("--captions_file", type=str, default="/mnt/cluster/workspaces/mazzalore/celeb/text/celeba-caption")
     parser.add_argument("--output_dir", type=str, default="./outputs/cvae")
-    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--image_size", type=int, default=224)
-    parser.add_argument("--latent_dim", type=int, default=64)
+    parser.add_argument("--latent_dim", type=int, default=512)
     parser.add_argument("--latent_loss_weight", type=float, default=50.0,
                         help="Weight for latent regularization loss (MMD or KL)")
     parser.add_argument("--recon_weight", type=float, default=1.0)
