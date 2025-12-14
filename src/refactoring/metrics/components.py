@@ -1176,7 +1176,12 @@ class MoELoss(BaseLoss):
         pi = predictions[ROUTING_WEIGHT]  # (B, T, num_experts)
         if self.entropy_weight != 0.0:
             entropy = -(pi * torch.log(pi + 1e-8)).sum(dim=-1)  # (B, T)
-            entropy_mean = reduce_loss_with_padding(entropy, is_pad, reduction="mean")
+            if entropy.dim() == 2:
+                # (B, T) -> reduce with padding
+                entropy_mean = reduce_loss_with_padding(entropy, is_pad, reduction="mean")
+            else:
+                # if we have B only (when the experts are not chunk-dependent)
+                entropy_mean = entropy.mean()
             component_losses[f'{MetricKey.EXPERTS_ENTROPY.value}'] = entropy_mean
             entropy_loss = - self.entropy_weight * entropy_mean  # negative to maximize
         expert_usage = pi.mean(dim=list(range(pi.ndim - 1)))  # Mean over all but last dim, which is num_experts
