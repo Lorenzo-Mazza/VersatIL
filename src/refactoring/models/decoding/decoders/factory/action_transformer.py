@@ -101,7 +101,6 @@ class ActionTransformer(ActionDecoder):
             activation=self.activation,
             normalization_type=self.normalization_type,
             attention_type=self.attention_type,
-
         )
 
 
@@ -140,6 +139,7 @@ class ActionTransformer(ActionDecoder):
         if LATENT_KEY in features:
             features.pop(LATENT_KEY)
         obs_tokens, obs_pos_encodings, obs_padding_mask = self.input_sequence_builder(features) # (B, obs_token_len, embedding_dimension)
+        obs_tokens = obs_tokens + obs_pos_encodings
         batch_size = obs_tokens.shape[0]
         query = self.learnable_query.weight.unsqueeze(0).repeat(batch_size, 1, 1) # (B, pred_horizon, embedding_dimension)
         action_embeddings = self.action_decoder(
