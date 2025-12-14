@@ -10,23 +10,23 @@ base_algorithm:
 
 posterior_encoder:
   _target_: refactoring.models.decoding.latent.posterior.transformer_encoder.VAETransformerEncoder
-  latent_dimension: 32
-  embedding_dimension: 512
+  latent_dimension: 128
+  embedding_dimension: 256
   prediction_horizon: ${policy.prediction_horizon}
   observation_horizon: ${policy.observation_horizon}
   number_of_heads: 8
-  feedforward_dimension: 2048
+  feedforward_dimension: 1024
   number_of_encoder_layers: 4
   dropout_rate: 0.1
   device: ${policy.device}
 
 prior:
-  latent_dimension: 32
-  embedding_dimension: 128
+  latent_dimension: 128
+  embedding_dimension: 256
   prediction_horizon: ${policy.prediction_horizon}
   observation_horizon: ${policy.observation_horizon}
-  number_of_heads: 4
-  feedforward_dimension: 512
-  number_of_encoder_layers: 1
+  number_of_heads: 8
+  feedforward_dimension: 1024
+  number_of_encoder_layers: 4
   dropout_rate: 0.1
   device: ${policy.device}
