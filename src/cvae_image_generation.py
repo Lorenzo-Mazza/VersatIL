@@ -23,7 +23,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset
 from torchvision import transforms
 from torchvision.utils import save_image
 from tqdm import tqdm
@@ -47,7 +47,7 @@ from refactoring.models.decoding.constants import (
 )
 from refactoring.models.layers.transformer_input_builder import TransformerInputBuilder
 from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D, SinusoidalPositionalEncoding2D
-from refactoring.metrics.components import MaximumMeanDiscrepancyLoss, RegressionLoss
+from refactoring.metrics.components import MaximumMeanDiscrepancyLoss, KLDivergenceLoss, RegressionLoss
 from refactoring.metrics.base import LossOutput
 from refactoring.data.constants import TOKENIZED_OBSERVATIONS_KEY, IS_PAD_OBSERVATION_KEY
 
@@ -83,8 +83,12 @@ class CVAEConfig:
     batch_size: int = 16
     learning_rate: float = 1e-4
     num_epochs: int = 100
-    mmd_weight: float = 1.0
+    latent_loss_weight: float = 50.0  # Weight for latent regularization (MMD or KL)
     recon_weight: float = 1.0
+
+    # Latent regularization settings
+    latent_loss: str = "mmd"  # "mmd" or "kl" - type of latent regularization
+    prior_type: str = "learned"  # "learned" or "gaussian" - type of prior
 
     # Augmentation
     augmentation_strength: str = "strong"  # "none", "light", "medium", "strong"
@@ -943,6 +947,67 @@ class PriorEncoder(nn.Module):
 
 
 # =============================================================================
+# Gaussian Prior p(z) = N(0, I) - Simple fixed prior (no learning)
+# =============================================================================
+class GaussianPrior(nn.Module):
+    """Standard Gaussian N(0, I) prior for latent variable models.
+
+    Unlike learned priors (e.g., PriorEncoder), this prior requires no training
+    and simply samples from a standard normal distribution.
+
+    This is the traditional VAE prior that encourages the posterior q(z|x,c)
+    to match a standard Gaussian distribution.
+
+    Args:
+        latent_dim: Dimension of latent variable z
+    """
+
+    def __init__(self, latent_dim: int):
+        """Initialize Gaussian prior."""
+        super().__init__()
+        self.latent_dim = latent_dim
+
+    def forward(
+        self,
+        text_tokens: torch.Tensor,
+        text_padding_mask: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor]:
+        """Return fixed Gaussian prior parameters (mu=0, logvar=0).
+
+        Args:
+            text_tokens: Text sequence tokens (B, seq_len, text_feature_dim)
+                         Used only to get batch size and device.
+            text_padding_mask: Text padding mask (B, seq_len), ignored.
+
+        Returns:
+            Dict with PRIOR_LATENT_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY
+        """
+        B = text_tokens.shape[0]
+        device = text_tokens.device
+
+        # Fixed prior: N(0, I)
+        mu = torch.zeros(B, self.latent_dim, device=device)
+        logvar = torch.zeros(B, self.latent_dim, device=device)
+
+        # Sample from standard normal
+        z = torch.randn(B, self.latent_dim, device=device)
+
+        return {
+            PRIOR_LATENT_KEY: z,
+            PRIOR_MU_KEY: mu,
+            PRIOR_LOGVAR_KEY: logvar,
+        }
+
+    def sample(
+        self,
+        text_tokens: torch.Tensor,
+        text_padding_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Sample from prior (standard normal)."""
+        return self.forward(text_tokens, text_padding_mask)[PRIOR_LATENT_KEY]
+
+
+# =============================================================================
 # Image Decoder p(x|z, c) - Cross-attention to ALL text tokens
 # =============================================================================
 class ImageDecoder(nn.Module):
@@ -1115,16 +1180,24 @@ class ConditionalVAE(nn.Module):
             dropout=config.dropout,
         )
 
-        # Prior encoder p(z|c) - takes ALL text tokens
-        self.prior = PriorEncoder(
-            embedding_dim=config.embedding_dim,
-            latent_dim=config.latent_dim,
-            text_feature_dim=text_feature_dim,
-            num_heads=config.num_heads,
-            num_layers=config.num_encoder_layers,
-            feedforward_dim=config.feedforward_dim,
-            dropout=config.dropout,
-        )
+        # Prior p(z|c) - learned (transformer) or fixed (Gaussian N(0,I))
+        self.prior_type = config.prior_type
+        if config.prior_type == "learned":
+            self.prior = PriorEncoder(
+                embedding_dim=config.embedding_dim,
+                latent_dim=config.latent_dim,
+                text_feature_dim=text_feature_dim,
+                num_heads=config.num_heads,
+                num_layers=config.num_encoder_layers,
+                feedforward_dim=config.feedforward_dim,
+                dropout=config.dropout,
+            )
+            logger.info("Using LEARNED prior (transformer-based)")
+        elif config.prior_type == "gaussian":
+            self.prior = GaussianPrior(latent_dim=config.latent_dim)
+            logger.info("Using GAUSSIAN prior N(0, I)")
+        else:
+            raise ValueError(f"Unknown prior_type: {config.prior_type}. Must be 'learned' or 'gaussian'.")
 
         # Image decoder p(x|z, c) - cross-attention to ALL text tokens
         self.decoder = ImageDecoder(
@@ -1250,31 +1323,45 @@ class ConditionalVAE(nn.Module):
 
 
 # =============================================================================
-# Loss Functions (Using existing MaximumMeanDiscrepancyLoss from components.py)
+# Loss Functions (Using existing losses from refactoring.metrics.components)
 # =============================================================================
 class CVAELoss(nn.Module):
-    """Combined loss for CVAE training: MMD + Reconstruction.
+    """Combined loss for CVAE training: (MMD or KL) + Reconstruction.
 
-    Uses existing MaximumMeanDiscrepancyLoss from refactoring.metrics.components.
+    Supports switching between MMD and KL divergence for latent regularization.
+
+    Args:
+        latent_loss_type: Type of latent regularization ("mmd" or "kl")
+        latent_loss_weight: Weight for latent regularization loss
+        recon_weight: Weight for reconstruction loss
     """
 
     def __init__(
         self,
-        mmd_weight: float = 1.0,
+        latent_loss_type: str = "mmd",
+        latent_loss_weight: float = 50.0,
         recon_weight: float = 1.0,
     ):
         super().__init__()
-        self.mmd_weight = mmd_weight
+        self.latent_loss_type = latent_loss_type
+        self.latent_loss_weight = latent_loss_weight
         self.recon_weight = recon_weight
 
-        # Reuse existing MMD loss from refactoring.metrics.components
-        self.mmd_loss_fn = MaximumMeanDiscrepancyLoss(weight=mmd_weight)
+        # Choose latent regularization loss based on type
+        if latent_loss_type == "mmd":
+            self.latent_loss_fn = MaximumMeanDiscrepancyLoss(weight=latent_loss_weight)
+        elif latent_loss_type == "kl":
+            self.latent_loss_fn = KLDivergenceLoss(weight=latent_loss_weight)
+        else:
+            raise ValueError(f"Unknown latent_loss_type: {latent_loss_type}. Must be 'mmd' or 'kl'.")
+
+        logger.info(f"Using {latent_loss_type.upper()} loss for latent regularization (weight={latent_loss_weight})")
 
     def forward(
         self,
         outputs: dict[str, torch.Tensor],
         target_images: torch.Tensor,
-    ) -> dict[str, torch.Tensor]:
+    ) -> LossOutput:
         """Compute CVAE loss.
 
         Args:
@@ -1282,7 +1369,7 @@ class CVAELoss(nn.Module):
             target_images: Ground truth images
 
         Returns:
-            Dict with total_loss and component losses
+            LossOutput with total_loss and component losses
         """
         reconstructed = outputs["reconstructed"]
 
@@ -1291,25 +1378,27 @@ class CVAELoss(nn.Module):
         recon_mse = F.mse_loss(reconstructed, target_images)
         recon_loss = recon_l1 + 0.1 * recon_mse
 
-        # MMD loss using existing component
-        # MaximumMeanDiscrepancyLoss expects predictions dict with LATENT_KEY, PRIOR_LATENT_KEY, etc.
-        mmd_output: LossOutput = self.mmd_loss_fn(
+        # Latent regularization loss (MMD or KL)
+        latent_output: LossOutput = self.latent_loss_fn(
             predictions=outputs,
-            targets={},  # MMD doesn't need targets, only latent samples
+            targets={},  # Latent losses don't need targets
         )
-        mmd_loss = mmd_output.total_loss
+        latent_loss = latent_output.total_loss
 
         # Total loss
-        total_loss = self.recon_weight * recon_loss + mmd_loss  # mmd already weighted
+        total_loss = self.recon_weight * recon_loss + latent_loss  # latent loss already weighted
+
+        # Build component losses dict
+        component_losses = {
+            "recon_loss": recon_loss,
+            "recon_l1": recon_l1,
+            "recon_mse": recon_mse,
+            f"{self.latent_loss_type}_loss": latent_loss,
+        }
 
         return LossOutput(
             total_loss=total_loss,
-            component_losses={
-                "recon_loss": recon_loss,
-                "recon_l1": recon_l1,
-                "recon_mse": recon_mse,
-                "mmd_loss": mmd_loss,
-            },
+            component_losses=component_losses,
         )
 
 
@@ -1387,7 +1476,8 @@ def train_epoch(
 ) -> dict[str, float]:
     """Train for one epoch."""
     model.train()
-    total_losses = {"total_loss": 0.0, "recon_loss": 0.0, "mmd_loss": 0.0}
+    latent_loss_key = f"{loss_fn.latent_loss_type}_loss"
+    total_losses = {"total_loss": 0.0, "recon_loss": 0.0, "latent_loss": 0.0}
     num_batches = 0
 
     pbar = tqdm(dataloader, desc="Training")
@@ -1407,13 +1497,13 @@ def train_epoch(
 
         total_losses["total_loss"] += loss_output.total_loss.item()
         total_losses["recon_loss"] += loss_output.component_losses["recon_loss"].item()
-        total_losses["mmd_loss"] += loss_output.component_losses["mmd_loss"].item()
+        total_losses["latent_loss"] += loss_output.component_losses[latent_loss_key].item()
         num_batches += 1
 
         pbar.set_postfix({
             "loss": f"{loss_output.total_loss.item():.4f}",
             "recon": f"{loss_output.component_losses['recon_loss'].item():.4f}",
-            "mmd": f"{loss_output.component_losses['mmd_loss'].item():.4f}",
+            f"{loss_fn.latent_loss_type}": f"{loss_output.component_losses[latent_loss_key].item():.4f}",
         })
 
     for k in total_losses:
@@ -1432,7 +1522,8 @@ def evaluate(
 ) -> dict[str, float]:
     """Evaluate model."""
     model.eval()
-    total_losses = {"total_loss": 0.0, "recon_loss": 0.0, "mmd_loss": 0.0}
+    latent_loss_key = f"{loss_fn.latent_loss_type}_loss"
+    total_losses = {"total_loss": 0.0, "recon_loss": 0.0, "latent_loss": 0.0}
     num_batches = 0
 
     real_for_fid = []
@@ -1448,7 +1539,7 @@ def evaluate(
 
         total_losses["total_loss"] += loss_output.total_loss.item()
         total_losses["recon_loss"] += loss_output.component_losses["recon_loss"].item()
-        total_losses["mmd_loss"] += loss_output.component_losses["mmd_loss"].item()
+        total_losses["latent_loss"] += loss_output.component_losses[latent_loss_key].item()
         num_batches += 1
 
         if fid_calculator and len(real_for_fid) < 32:
@@ -1553,11 +1644,22 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--latent_dim", type=int, default=64)
-    parser.add_argument("--mmd_weight", type=float, default=1.0)
+    parser.add_argument("--latent_loss_weight", type=float, default=50.0,
+                        help="Weight for latent regularization loss (MMD or KL)")
     parser.add_argument("--recon_weight", type=float, default=1.0)
-    parser.add_argument("--eval_every", type=int, default=10)
+    parser.add_argument("--eval_every", type=int, default=1,
+                        help="Evaluate on validation set every N epochs")
     parser.add_argument("--save_every", type=int, default=10)
     parser.add_argument("--text_model", type=str, default="google-bert/bert-base-uncased")
+    parser.add_argument("--train_ratio", type=float, default=0.7,
+                        help="Ratio of data for training (rest for validation)")
+    # Latent regularization arguments
+    parser.add_argument("--latent_loss", type=str, default="mmd",
+                        choices=["mmd", "kl"],
+                        help="Type of latent regularization loss: 'mmd' (Maximum Mean Discrepancy) or 'kl' (KL Divergence)")
+    parser.add_argument("--prior_type", type=str, default="learned",
+                        choices=["learned", "gaussian"],
+                        help="Type of prior: 'learned' (transformer-based) or 'gaussian' (fixed N(0,I))")
     # Augmentation arguments
     parser.add_argument("--augmentation", type=str, default="strong",
                         choices=["none", "light", "medium", "strong"],
@@ -1583,8 +1685,10 @@ def main():
         batch_size=args.batch_size,
         learning_rate=args.lr,
         num_epochs=args.epochs,
-        mmd_weight=args.mmd_weight,
+        latent_loss_weight=args.latent_loss_weight,
         recon_weight=args.recon_weight,
+        latent_loss=args.latent_loss,
+        prior_type=args.prior_type,
         text_model=args.text_model,
         augmentation_strength=args.augmentation,
         use_horizontal_flip=not args.no_horizontal_flip,
@@ -1612,7 +1716,9 @@ def main():
                 "batch_size": config.batch_size,
                 "learning_rate": config.learning_rate,
                 "num_epochs": config.num_epochs,
-                "mmd_weight": config.mmd_weight,
+                "latent_loss_weight": config.latent_loss_weight,
+                "latent_loss": config.latent_loss,
+                "prior_type": config.prior_type,
                 "recon_weight": config.recon_weight,
                 "text_model": config.text_model,
                 "augmentation_strength": config.augmentation_strength,
@@ -1622,8 +1728,9 @@ def main():
         )
         logger.info(f"WandB initialized: {wandb.run.url}")
 
-    # Dataset & DataLoader (training with augmentation)
-    train_dataset = ImageCaptionDataset(
+    # Dataset & DataLoader with train/val split
+    # Create full dataset first (with training transforms to get image list)
+    full_dataset = ImageCaptionDataset(
         image_dir=args.image_dir,
         captions_file=args.captions_file,
         image_size=config.image_size,
@@ -1634,6 +1741,36 @@ def main():
         is_training=True,
     )
 
+    # Split indices for train/val (70/30 by default)
+    total_size = len(full_dataset)
+    train_size = int(total_size * args.train_ratio)
+    val_size = total_size - train_size
+
+    # Create index-based split (deterministic)
+    indices = list(range(total_size))
+    np.random.seed(42)  # For reproducibility
+    np.random.shuffle(indices)
+    train_indices = indices[:train_size]
+    val_indices = indices[train_size:]
+
+    logger.info(f"Dataset split: {train_size} train, {val_size} val (ratio: {args.train_ratio:.2f})")
+
+    # Create train dataset (with augmentation)
+    train_dataset = Subset(full_dataset, train_indices)
+
+    # Create val dataset (without augmentation)
+    val_dataset_base = ImageCaptionDataset(
+        image_dir=args.image_dir,
+        captions_file=args.captions_file,
+        image_size=config.image_size,
+        tokenizer_model=config.text_model,
+        max_caption_length=config.max_caption_length,
+        augmentation_strength="none",  # No augmentation for validation
+        use_horizontal_flip=False,
+        is_training=False,
+    )
+    val_dataset = Subset(val_dataset_base, val_indices)
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=config.batch_size,
@@ -1641,6 +1778,15 @@ def main():
         num_workers=4,
         pin_memory=True,
         drop_last=True,
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=config.batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True,
+        drop_last=False,
     )
 
     # Model
@@ -1656,69 +1802,76 @@ def main():
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.num_epochs, eta_min=1e-6)
 
     # Loss
-    loss_fn = CVAELoss(mmd_weight=config.mmd_weight, recon_weight=config.recon_weight)
+    loss_fn = CVAELoss(
+        latent_loss_type=config.latent_loss,
+        latent_loss_weight=config.latent_loss_weight,
+        recon_weight=config.recon_weight,
+    )
 
     # FID
     fid_calculator = FIDCalculator(device=config.device)
 
     # Training
-    best_loss = float("inf")
+    best_val_loss = float("inf")
+    latent_loss_name = config.latent_loss.upper()  # "MMD" or "KL"
 
     for epoch in range(config.num_epochs):
         logger.info(f"\nEpoch {epoch + 1}/{config.num_epochs}")
 
+        # Train
         train_losses = train_epoch(model, train_loader, optimizer, loss_fn, config.device)
         logger.info(f"Train - Loss: {train_losses['total_loss']:.4f}, "
-                    f"Recon: {train_losses['recon_loss']:.4f}, MMD: {train_losses['mmd_loss']:.4f}")
+                    f"Recon: {train_losses['recon_loss']:.4f}, {latent_loss_name}: {train_losses['latent_loss']:.4f}")
 
         # Log training metrics to wandb
         if use_wandb:
             wandb.log({
                 "train/total_loss": train_losses["total_loss"],
                 "train/recon_loss": train_losses["recon_loss"],
-                "train/mmd_loss": train_losses["mmd_loss"],
+                f"train/{config.latent_loss}_loss": train_losses["latent_loss"],
                 "train/learning_rate": scheduler.get_last_lr()[0],
                 "epoch": epoch + 1,
             }, step=epoch + 1)
 
         scheduler.step()
 
-        # Evaluation every eval_every epochs
+        # Validation every eval_every epochs
         if (epoch + 1) % args.eval_every == 0:
-            eval_losses = evaluate(model, train_loader, loss_fn, config.device, fid_calculator)
-            fid_str = f", FID: {eval_losses.get('fid', float('nan')):.2f}"
-            logger.info(f"Eval - Loss: {eval_losses['total_loss']:.4f}, "
-                        f"Recon: {eval_losses['recon_loss']:.4f}, MMD: {eval_losses['mmd_loss']:.4f}{fid_str}")
+            val_losses = evaluate(model, val_loader, loss_fn, config.device, fid_calculator)
+            fid_str = f", FID: {val_losses.get('fid', float('nan')):.2f}"
+            logger.info(f"Val - Loss: {val_losses['total_loss']:.4f}, "
+                        f"Recon: {val_losses['recon_loss']:.4f}, {latent_loss_name}: {val_losses['latent_loss']:.4f}{fid_str}")
 
-            # Log eval metrics to wandb
+            # Log validation metrics to wandb
             if use_wandb:
-                eval_log = {
-                    "eval/total_loss": eval_losses["total_loss"],
-                    "eval/recon_loss": eval_losses["recon_loss"],
-                    "eval/mmd_loss": eval_losses["mmd_loss"],
+                val_log = {
+                    "val/total_loss": val_losses["total_loss"],
+                    "val/recon_loss": val_losses["recon_loss"],
+                    f"val/{config.latent_loss}_loss": val_losses["latent_loss"],
                 }
-                if "fid" in eval_losses and not np.isnan(eval_losses["fid"]):
-                    eval_log["eval/fid"] = eval_losses["fid"]
-                wandb.log(eval_log, step=epoch + 1)
+                if "fid" in val_losses and not np.isnan(val_losses["fid"]):
+                    val_log["val/fid"] = val_losses["fid"]
+                wandb.log(val_log, step=epoch + 1)
 
-            if eval_losses["total_loss"] < best_loss:
-                best_loss = eval_losses["total_loss"]
+            # Save best model based on validation loss
+            if val_losses["total_loss"] < best_val_loss:
+                best_val_loss = val_losses["total_loss"]
                 torch.save({
                     "epoch": epoch,
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
-                    "loss": best_loss,
+                    "loss": best_val_loss,
                 }, os.path.join(args.output_dir, "best_model.pt"))
-                logger.info(f"Saved best model (loss: {best_loss:.4f})")
+                logger.info(f"Saved best model (val_loss: {best_val_loss:.4f})")
 
                 if use_wandb:
-                    wandb.log({"eval/best_loss": best_loss}, step=epoch + 1)
+                    wandb.log({"val/best_loss": best_val_loss}, step=epoch + 1)
 
-        # Generate and save samples every 10 epochs (or save_every)
+        # Generate and save samples every save_every epochs
         if (epoch + 1) % args.save_every == 0:
             save_samples(
                 model,
-                train_loader,
+                val_loader,  # Use validation loader for samples
                 config.device,
                 os.path.join(args.output_dir, f"samples_epoch_{epoch + 1}"),
                 epoch=epoch + 1,
@@ -1734,7 +1887,7 @@ def main():
 
     # Final wandb logging
     if use_wandb:
-        wandb.log({"final/best_loss": best_loss})
+        wandb.log({"final/best_val_loss": best_val_loss})
         wandb.finish()
 
     logger.info("Training complete!")
