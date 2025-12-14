@@ -63,12 +63,12 @@ class CVAEConfig:
     image_channels: int = 3
 
     # Architecture
-    embedding_dim: int = 512
-    latent_dim: int = 256
+    embedding_dim: int = 1024
+    latent_dim: int = 1024
     num_heads: int = 8
     num_encoder_layers: int = 4
     num_decoder_layers: int = 8
-    feedforward_dim: int = 3200
+    feedforward_dim: int = 4092
     dropout: float = 0.1
 
     # Image encoder
@@ -1702,7 +1702,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--image_size", type=int, default=224)
-    parser.add_argument("--latent_dim", type=int, default=256)
+    parser.add_argument("--latent_dim", type=int, default=1024)
     parser.add_argument("--latent_loss_weight", type=float, default=500.0,
                         help="Weight for latent regularization loss (MMD or KL)")
     parser.add_argument("--recon_weight", type=float, default=1.0)
