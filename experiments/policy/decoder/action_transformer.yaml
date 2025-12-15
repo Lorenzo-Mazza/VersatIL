@@ -1,5 +1,5 @@
 defaults:
-  - action_transformer
+  - simple_action_transformer
 
 input_keys:
   - left_rgb

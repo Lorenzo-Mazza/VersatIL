@@ -204,7 +204,7 @@ def register_configs():
     cs.store(group="policy/decoder", name="base", node=DecodingNetworkConfig)
     cs.store(group="policy/decoder", name="act", node=ACTConfig)
     cs.store(group="policy/decoder", name="phase_act", node=PhaseACTConfig)
-    cs.store(group="policy/decoder", name="action_transformer", node=ActionTransformerConfig)
+    cs.store(group="policy/decoder", name="simple_action_transformer", node=ActionTransformerConfig)
 
     cs.store(group="policy/decoder", name="gpt", node=FASTGPTDecoderConfig)
     cs.store(group="policy/decoder", name="fastdetr", node=FASTDETRDecoderConfig)
