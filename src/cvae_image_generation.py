@@ -1700,7 +1700,7 @@ def main():
     parser.add_argument("--output_dir", type=str, default="./outputs/cvae")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=2000)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--latent_dim", type=int, default=256)
     parser.add_argument("--latent_loss_weight", type=float, default=5.0,
