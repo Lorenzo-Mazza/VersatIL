@@ -80,7 +80,7 @@ class CVAEConfig:
     max_caption_length: int = 32  # Short captions (~15-20 words)
 
     # Training
-    batch_size: int = 16
+    batch_size: int = 64
     learning_rate: float = 1e-4
     num_epochs: int = 100
     latent_loss_weight: float = 50.0  # Weight for latent regularization (MMD or KL)
@@ -1699,11 +1699,11 @@ def main():
     parser.add_argument("--captions_file", type=str, default="/mnt/cluster/workspaces/mazzalore/celeb/text/celeba-caption")
     parser.add_argument("--output_dir", type=str, default="./outputs/cvae")
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=2000)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--latent_dim", type=int, default=256)
-    parser.add_argument("--latent_loss_weight", type=float, default=50.0,
+    parser.add_argument("--latent_loss_weight", type=float, default=5.0,
                         help="Weight for latent regularization loss (MMD or KL)")
     parser.add_argument("--recon_weight", type=float, default=1.0)
     parser.add_argument("--eval_every", type=int, default=1,
