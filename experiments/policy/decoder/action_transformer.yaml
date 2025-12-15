@@ -8,7 +8,7 @@ embedding_dimension: 512
 number_of_heads: 8
 number_of_key_value_heads: 2
 feedforward_dimension: 3200
-number_of_layers: 6
+number_of_layers: 8
 activation: ${activation_function:SWIGLU}
 normalization_type: ${normalization:RMS_NORM}
 attention_type: ${attention:GROUPED_QUERY}
