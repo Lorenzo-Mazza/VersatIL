@@ -136,8 +136,6 @@ class ActionTransformer(ActionDecoder):
             Dictionary containing:
                 - Action head predictions (e.g. position, orientation, gripper)
         """
-        if LATENT_KEY in features:
-            features.pop(LATENT_KEY)
         obs_tokens, obs_pos_encodings, obs_padding_mask = self.input_sequence_builder(features) # (B, obs_token_len, embedding_dimension)
         obs_tokens = obs_tokens + obs_pos_encodings
         batch_size = obs_tokens.shape[0]

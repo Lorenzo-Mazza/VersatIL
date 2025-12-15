@@ -118,9 +118,9 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
             gating_key = self.gating_feature_key
         gating_feature = features[gating_key] # (B, embedding dimension)
         mixing_probabilities = self.compute_routing_weights(gating_feature) # (B, num_experts)
+        features.pop(gating_key)
         streams = [torch.cuda.Stream() for _ in self.expert_decoders]
         expert_outputs = [None] * len(self.expert_decoders)
-
         for i, (expert, stream) in enumerate(zip(self.expert_decoders, streams)):
             with torch.cuda.stream(stream):
                 expert_outputs[i] = expert(features, actions)
