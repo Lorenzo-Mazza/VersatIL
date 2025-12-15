@@ -1,0 +1,36 @@
+_target_: refactoring.configs.main.MainConfig
+
+defaults:
+  - task: base
+  - policy: base
+  - experiment: bowel_retraction_act
+  - task/dataset_schema: bowel_retraction_v2
+  - task/dataloader: act_default
+  - task/action_space: deltas_cf_pos_gripper
+  - task/observation_space: stereo_rgb
+  - training: act_default
+  - policy/encoding_pipeline: stereo_rgb
+  - policy/decoder: action_transformer
+  - policy/algorithm: bc_with_learned_prior
+  - policy/loss: mmd_act
+  - inference: act_default
+  - _self_
+
+task:
+  observation_horizon: 1
+  prediction_horizon: 10
+
+policy:
+  _target_: refactoring.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: true
+
+# Override specific parameters from defaults/command line if needed
+# For example, to use different batch size:
+# task.dataloader.batch_size: 64
+# To override specific config components from command line, you can do for example
+# ```policy/loss=mmd_act``` to use MMD instead of KL in your loss
