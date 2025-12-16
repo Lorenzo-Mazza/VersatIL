@@ -1,11 +1,24 @@
-_target_: refactoring.metrics.ActionReconstructionLoss
+defaults:
+  - regression@loss_modules.regression_loss
+  - gripper@loss_modules.gripper_loss
+  - traj_len@loss_modules.trajectory_length
+  - _self_
 
-action_keys: null
-mse_weight: 1.0
-l1_weight: 0.0
-gripper_bce_weight: 1.0
-kl_weight: 0.0
-length_weight: 0.0
-smoothness_weight: 0.0
-gripper_type: ${gripper:BINARY}
-use_vae: false
+_target_: refactoring.metrics.CompositeLoss
+loss_modules:
+    regression_loss:
+      _target_: refactoring.metrics.RegressionLoss
+      action_keys:
+        - ${action_key:POSITION}
+      mse_weight: 1.0
+      l1_weight: 0.0
+      huber_weight: 0.0
+
+    gripper_loss:
+      _target_: refactoring.metrics.GripperLoss
+      gripper_type: ${gripper:BINARY}
+      bce_weight: 0.05
+
+    trajectory_length:
+        _target_: refactoring.metrics.TrajectoryLengthLoss
+        weight: 0.001

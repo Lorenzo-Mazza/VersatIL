@@ -4,36 +4,27 @@
 _target_: refactoring.models.encoding.pipeline.EncodingPipeline
 
 encoders:
-  left_rgb:
+  left: # Output features will be accessible via "left_rgb"
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys: ${cameras:LEFT}
     backbone: ${rgb_backbone:RESNET18}
     pretrained: false
     frozen: false
-    pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
+    pooling_method: ${pooling_method:MAX}
     use_group_norm: true
 
-  right_rgb:
+  right: # Output features will be accessible via "right_rgb"
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys: ${cameras:RIGHT}
     backbone: ${rgb_backbone:RESNET18}
     pretrained: false
     frozen: false
-    pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
+    pooling_method: ${pooling_method:MAX}
     use_group_norm: true
 
-  camera_frame:
+  camera_frame: # Output features will be accessible via "camera_frame_proprio"
     _target_: refactoring.models.encoding.encoders.proprioceptive.base.ProprioceptiveEncoder
     input_keys:
       - ${obs_key:PROPRIO_CAMERA_FRAME}
     output_dim: 32
 
-fusion_stages:
-  - _target_: refactoring.models.encoding.fusion.mlp.MLPFusion
-    input_features:
-      - left_rgb_image
-      - right_rgb_image
-      - camera_frame_proprio
-    output_name: fused_features
-    hidden_dim: 256  # Project each encoder to 256 channels before fusion
-    mlp_hidden_dims: [512]

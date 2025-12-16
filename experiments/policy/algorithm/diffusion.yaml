@@ -1,3 +1,5 @@
+defaults:
+  - diffusion_process
 _target_: refactoring.models.decoding.algorithm.diffusion.Diffusion
 
 scheduler_type: ddim

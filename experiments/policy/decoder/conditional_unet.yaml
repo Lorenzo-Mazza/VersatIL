@@ -2,9 +2,11 @@
 
 _target_: refactoring.models.decoding.decoders.factory.conditional_unet_decoder.ConditionalUNetDecoder
 
-# Input features from encoding pipeline
+# Key is always "{encoder_name}_{EncoderOutputType.value}" for each encoder in the encoding pipeline
 input_keys:
-  - fused_features     
+  - left_rgb
+  - right_rgb
+  - camera_frame_proprio
 
 # Diffusion timestep embedding dimension
 embedding_dimension: 256
