@@ -7,14 +7,18 @@ import torch
 import torch.utils.data as data
 from omegaconf import DictConfig
 
+from refactoring.configs.data.dataloader import DataLoaderConfig
 from refactoring.configs.data.tokenizer import TokenizationConfig
 from refactoring.data.constants import PHASE_LABEL_KEY
 from refactoring.data.episodic_dataset import EpisodicDataset
 from refactoring.data.normalization.normalizer import LinearNormalizer
 from refactoring.data.preprocessing.create_zarr_from_csv import create_replay_buffer
+from refactoring.data.preprocessing.create_zarr_from_hdf5 import (
+    create_replay_buffer_from_hdf5,
+)
 from refactoring.data.preprocessing.replay_buffer import ReplayBuffer
 from refactoring.data.schemas.base import DatasetSchema
-from refactoring.configs.data.dataloader import DataLoaderConfig
+from refactoring.data.schemas.hdf5 import Hdf5DatasetSchema
 from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.tokenization.tokenizer import Tokenizer, validate_tokenizer_config
 
@@ -45,10 +49,7 @@ def get_dataloaders(
     #schema.zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/dataset.zarr"
 
     logging.info(f"Using dataset schema: {schema.__class__.__name__}")
-    datasets_paths = _collect_dataset_paths(schema.dataset_folders, schema.dataset_filename)
-    logging.info(f"Found {len(datasets_paths)} episodes across {len(schema.dataset_folders)} folders")
-
-    _ensure_zarr_exists(schema=schema, datasets_paths=datasets_paths)
+    _ensure_zarr_exists(schema=schema)
 
 
     train_dataset = EpisodicDataset(
@@ -163,15 +164,18 @@ def _collect_dataset_paths(dataset_folders: list[str], episode_filename: str) ->
     return datasets_paths
 
 
-def _ensure_zarr_exists(
-        schema: DatasetSchema,
-        datasets_paths: list[str],
-) -> None:
-    """Create zarr if it doesn't exist or is invalid."""
+def _ensure_zarr_exists(schema: DatasetSchema) -> None:
+    """Create zarr if it doesn't exist or is invalid.
+
+    Dispatches to the appropriate creation function based on schema type:
+    - Hdf5DatasetSchema: Uses hdf5_paths from schema directly
+    - CsvDatasetSchema: Collects episode CSV paths from dataset_folders
+    """
     zarr_path = schema.zarr_path
     #zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/dataset.zarr"
     need_create = True
     required_keys = schema.get_required_zarr_keys()
+
     if Path(zarr_path).exists():
         try:
             logging.info(f"Loading existing replay buffer from {zarr_path}")
@@ -183,7 +187,13 @@ def _ensure_zarr_exists(
 
     if need_create:
         logging.info(f"Creating zarr replay buffer at: {zarr_path}")
-        create_replay_buffer(schema=schema, datasets_paths=datasets_paths)
+        if isinstance(schema, Hdf5DatasetSchema):
+            logging.info(f"Processing {len(schema.hdf5_paths)} HDF5 files")
+            create_replay_buffer_from_hdf5(schema=schema)
+        else:
+            datasets_paths = _collect_dataset_paths(schema.dataset_folders, schema.dataset_filename)
+            logging.info(f"Found {len(datasets_paths)} episodes across {len(schema.dataset_folders)} folders")
+            create_replay_buffer(schema=schema, datasets_paths=datasets_paths)
 
 
 def _log_phase_distributions(

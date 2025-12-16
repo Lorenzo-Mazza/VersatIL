@@ -2,7 +2,7 @@
 defaults:
   - base
 
-name: fast_decoder_${now:%Y%m%d_%H%M%S}_br_cf_fast
+name: ${now:%Y%m%d_%H%M%S}
 seed: 42
 
 # Checkpoint and logging

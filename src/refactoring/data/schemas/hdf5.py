@@ -14,13 +14,13 @@ from refactoring.data.schemas.base import DatasetSchema
 class Hdf5DatasetSchema(DatasetSchema):
     """Abstract schema for HDF5-based datasets.
 
-    HDF5 datasets store all data (observations, images, actions) in a single file.
+    HDF5 datasets store all data (observations, images, actions) in HDF5 files.
     Subclasses define the HDF5 structure and extraction logic via `extract_episode`.
     """
 
     def __init__(
         self,
-        hdf5_path: str,
+        hdf5_paths: list[str],
         zarr_path: str,
         raw_observations: RawObservationsConfig,
         has_phase_labels: bool = False,
@@ -31,7 +31,7 @@ class Hdf5DatasetSchema(DatasetSchema):
         """Initialize the HDF5 dataset schema.
 
         Args:
-            hdf5_path: Path to the HDF5 file
+            hdf5_paths: List of paths to HDF5 files
             zarr_path: Path to save/load the zarr file
             raw_observations: Configuration for raw observations
             has_phase_labels: Whether dataset has phase labels
@@ -46,14 +46,17 @@ class Hdf5DatasetSchema(DatasetSchema):
             raw_observations=raw_observations,
             has_phase_labels=has_phase_labels,
         )
-        self.hdf5_path = hdf5_path
+        self.hdf5_paths = hdf5_paths
         self.obs_group_path = obs_group_path
         self.actions_key = actions_key
         self.extract_language_from_filename = extract_language_from_filename
 
     @abc.abstractmethod
-    def get_demo_names(self) -> list[str]:
-        """Get list of demo names in the HDF5 file.
+    def get_demo_names(self, hdf5_path: str) -> list[str]:
+        """Get list of demo names in the specified HDF5 file.
+
+        Args:
+            hdf5_path: Path to the HDF5 file
 
         Returns:
             List of demo identifiers (e.g., ["demo_0", "demo_1", ...])
@@ -70,10 +73,13 @@ class Hdf5DatasetSchema(DatasetSchema):
         """Extract all data from a single HDF5 demo group."""
         ...
 
-    def get_language_from_filename(self) -> str:
+    def get_language_from_filename(self, hdf5_path: str) -> str:
         """Extract task language from the HDF5 filename.
 
         Override in subclasses when extract_language_from_filename=True.
+
+        Args:
+            hdf5_path: Path to the HDF5 file to extract language from.
 
         Returns:
             Task language instruction string

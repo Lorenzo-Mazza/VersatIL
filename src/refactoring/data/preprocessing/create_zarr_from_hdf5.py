@@ -13,12 +13,12 @@ from refactoring.data.schemas.hdf5 import Hdf5DatasetSchema
 
 
 def create_replay_buffer_from_hdf5(schema: Hdf5DatasetSchema) -> None:
-    """Creates a Zarr-based replay buffer from an HDF5 file.
+    """Creates a Zarr-based replay buffer from multiple HDF5 files.
 
     Args:
-        schema: Hdf5DatasetSchema instance with HDF5 and zarr paths configured
+        schema: Hdf5DatasetSchema instance with HDF5 paths and zarr path configured
     """
-    print(f"Creating Zarr dataset at {schema.zarr_path} from {schema.hdf5_path}")
+    print(f"Creating Zarr dataset at {schema.zarr_path} from {len(schema.hdf5_paths)} HDF5 files")
     print(f"Using dataset schema: {schema.__class__.__name__}")
 
     store = zarr.storage.LocalStore(schema.zarr_path)
@@ -44,20 +44,23 @@ def create_replay_buffer_from_hdf5(schema: Hdf5DatasetSchema) -> None:
 
     _create_zarr_arrays(data_group=data_group, schema=schema, compressor=compressor)
 
-    # Insert each episode into the zarr dataset
+    # Insert episodes from each HDF5 file into the zarr dataset
     with threadpool_limits(1):
-        with h5py.File(schema.hdf5_path, "r") as f:
-            demo_names = sorted(f["data"].keys(), key=lambda x: int(x.split("_")[1]))
+        for hdf5_path in schema.hdf5_paths:
+            print(f"  Processing: {hdf5_path}")
+            with h5py.File(hdf5_path, "r") as f:
+                demo_names = schema.get_demo_names(hdf5_path)
+                demo_names_sorted = sorted(demo_names, key=lambda x: int(x.split("_")[1]))
 
-            for demo_name in demo_names:
-                demo_group = f[f"data/{demo_name}"]
-                episode_data = schema.extract_episode(demo_group, resizer, depth_resizer)
+                for demo_name in demo_names_sorted:
+                    demo_group = f[f"data/{demo_name}"]
+                    episode_data = schema.extract_episode(demo_group, resizer, depth_resizer)
 
-                for key, array in episode_data.items():
-                    data_group[key].append(array)
+                    for key, array in episode_data.items():
+                        data_group[key].append(array)
 
-                cumulative_len += len(next(iter(episode_data.values())))
-                episode_ends.append(cumulative_len)
+                    cumulative_len += len(next(iter(episode_data.values())))
+                    episode_ends.append(cumulative_len)
 
     meta_group.create_array(
         'episode_ends',

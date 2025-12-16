@@ -6,12 +6,12 @@ import numpy as np
 
 from refactoring.configs.data.dataset.raw_observations import RawObservationsConfig
 from refactoring.data.constants import (
-    Cameras,
-    GripperType,
     GRIPPER_STATE_OBS_KEY,
     LANGUAGE_KEY,
     PRECOMPUTED_ACTIONS_KEY,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
+    Cameras,
+    GripperType,
 )
 from refactoring.data.schemas.hdf5 import Hdf5DatasetSchema
 
@@ -20,6 +20,8 @@ class LiberoSchema(Hdf5DatasetSchema):
     """Schema for LIBERO HDF5 datasets.
 
     LIBERO datasets have precomputed actions and store all data in HDF5 format.
+    Each HDF5 file represents a single task with multiple demos.
+
     Structure per demo:
         - actions: (T, 7) - position delta (3) + orientation delta (3) + gripper (1)
         - obs/agentview_rgb: (T, 128, 128, 3)
@@ -33,18 +35,16 @@ class LiberoSchema(Hdf5DatasetSchema):
 
     def __init__(
             self,
-            hdf5_path: str,
+            hdf5_paths: list[str],
             zarr_path: str,
             raw_observation_config: RawObservationsConfig | None = None,
-            task_name: str | None = None,
     ):
         """Initialize the LIBERO schema.
 
         Args:
-            hdf5_path: Path to the LIBERO HDF5 file
+            hdf5_paths: List of paths to LIBERO HDF5 files. Each file is a separate task.
             zarr_path: Path to save/load the zarr file
             raw_observation_config: Configuration for raw observations. If None, uses defaults.
-            task_name: Task name extracted from the HDF5 filename. If None, extracted automatically.
         """
         if raw_observation_config is None:
             raw_observation_config = RawObservationsConfig(
@@ -67,7 +67,7 @@ class LiberoSchema(Hdf5DatasetSchema):
             )
 
         super().__init__(
-            hdf5_path=hdf5_path,
+            hdf5_paths=hdf5_paths,
             zarr_path=zarr_path,
             raw_observations=raw_observation_config,
             has_phase_labels=False,
@@ -75,11 +75,14 @@ class LiberoSchema(Hdf5DatasetSchema):
             actions_key="actions",
             extract_language_from_filename=True,
         )
-        self.task_name = task_name
 
-    def get_demo_names(self) -> list[str]:
-        """Get list of demo names in the HDF5 file."""
-        with h5py.File(self.hdf5_path, "r") as f:
+    def get_demo_names(self, hdf5_path: str) -> list[str]:
+        """Get list of demo names in the specified HDF5 file.
+
+        Args:
+            hdf5_path: Path to the HDF5 file.
+        """
+        with h5py.File(hdf5_path, "r") as f:
             return list(f["data"].keys())
 
     def extract_episode(
@@ -117,7 +120,8 @@ class LiberoSchema(Hdf5DatasetSchema):
 
         if self.extract_language_from_filename:
             episode_len = self._get_episode_length(demo_group)
-            task_language = self.get_language_from_filename()
+            hdf5_path = demo_group.file.filename
+            task_language = self.get_language_from_filename(hdf5_path)
             data[LANGUAGE_KEY] = np.array([task_language] * episode_len)
         elif obs_config.language_key and obs_config.language_key in obs_group:
             data[LANGUAGE_KEY] = obs_group[obs_config.language_key][:].astype(str)
@@ -144,14 +148,15 @@ class LiberoSchema(Hdf5DatasetSchema):
         first_key = next(iter(obs_group.keys()))
         return obs_group[first_key].shape[0]
 
-    def get_language_from_filename(self) -> str:
+    def get_language_from_filename(self, hdf5_path: str) -> str:
         """Extract task language from LIBERO HDF5 filename.
 
         LIBERO filenames follow pattern: task_name_demo.hdf5
         E.g., "pick_up_the_black_bowl_demo.hdf5" -> "pick up the black bowl"
+
+        Args:
+            hdf5_path: Path to the HDF5 file.
         """
-        if self.task_name:
-            return self.task_name
-        filename = self.hdf5_path.rsplit('/', 1)[-1]
-        task_name = filename.rstrip('_demo.hdf5').replace('_', ' ')
+        filename = hdf5_path.rsplit('/', 1)[-1]
+        task_name = filename.removesuffix('_demo.hdf5').replace('_', ' ')
         return task_name

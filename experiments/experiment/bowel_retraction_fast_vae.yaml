@@ -2,7 +2,7 @@
 defaults:
   - base
 
-name: fast_vae_${now:%Y%m%d_%H%M%S}_br_cf_fast_vae
+name: ${now:%Y%m%d_%H%M%S}
 seed: 42
 
 # Checkpoint and logging
