@@ -35,6 +35,7 @@ class ActionSpaceConfig:
     custom_action_dims: dict[str, int] = field(default_factory=dict)
     task_has_phases: bool = False
     number_of_phases: int = 5
+    use_precomputed_actions: bool = False
 
 
 @dataclass
