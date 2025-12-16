@@ -1,5 +1,5 @@
-_target_: refactoring.data.schemas.libero.LiberoSchema
-hdf5_path:
+_target_: refactoring.data.schemas.custom.libero.LiberoSchema
+hdf5_paths:
  - /mnt/cluster/workspaces/mazzalore/libero-pro/libero/datasets/libero_10/pick_up_the_alphabet_soup_and_place_it_in_the_basket_demo.hdf5
  - /mnt/cluster/workspaces/mazzalore/libero-pro/libero/datasets/libero_10/pick_up_the_bbq_sauce_and_place_it_in_the_basket_demo.hdf5
  - /mnt/cluster/workspaces/mazzalore/libero-pro/libero/datasets/libero_10/pick_up_the_butter_and_place_it_in_the_basket_demo.hdf5
