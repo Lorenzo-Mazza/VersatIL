@@ -121,6 +121,9 @@ def add_noise_to_tensor(
             - noisy_tensor: Input with added noise, same shape as clean
             - noise: The sampled noise that was added, same shape as clean
     """
+    # Ensure tensor is float for noise generation (handles integer gripper actions)
+    if not clean.is_floating_point():
+        clean = clean.float()
     noise = torch.randn_like(clean)
     noisy = noise_scheduler.add_noise(clean, noise, timesteps)
     return noisy, noise
