@@ -6,10 +6,23 @@ This schema is instantiated via Hydra configuration files.
 """
 import re
 
+import albumentations as A
+import cv2
+import numpy as np
+import pandas as pd
+
 from refactoring.configs.data.dataset.image_path import ImagePathConfig
 from refactoring.configs.data.dataset.raw_observations import RawObservationsConfig
-from refactoring.data.constants import Cameras, GripperType
-from refactoring.data.schemas.base import DatasetSchema
+from refactoring.data.constants import (
+    Cameras,
+    GripperType,
+    GRIPPER_STATE_OBS_KEY,
+    LANGUAGE_KEY,
+    PHASE_LABEL_KEY,
+    PROPRIO_OBS_CAMERA_FRAME_KEY,
+    PROPRIO_OBS_ROBOT_FRAME_KEY,
+)
+from refactoring.data.schemas.csv import CsvDatasetSchema
 
 BOWEL_RETRACTION_ROBOT_FRAME_COLS = [
     "relative_tip_position_x",
@@ -30,7 +43,8 @@ BOWEL_RETRACTION_RECTIFIED_RIGHT_IMAGE_KEY = "frameRightRectifiedPath"
 BOWEL_RETRACTION_EPISODE_FILENAME = "episode.csv"
 BOWEL_RETRACTION_LANGUAGE_KEY = "language"
 
-class BowelRetractionSchema(DatasetSchema):
+
+class BowelRetractionSchema(CsvDatasetSchema):
     """Schema for the bowel retraction zarr dataset.
 
     This dataset contains:
@@ -41,7 +55,6 @@ class BowelRetractionSchema(DatasetSchema):
 
     Instantiated via Hydra.
     """
-
 
     def __init__(
             self,
@@ -93,21 +106,65 @@ class BowelRetractionSchema(DatasetSchema):
             phase_label_key=BOWEL_RETRACTION_PHASE_COL if has_phase_labels else None,
         )
 
+    def extract_episode(
+        self,
+        episode: pd.DataFrame,
+        resizer: A.Resize | A.NoOp,
+        depth_resizer: A.Resize | A.NoOp,
+    ) -> dict[str, np.ndarray]:
+        """Extract all data from a bowel retraction episode.
 
-    def get_image_path_column(self, camera: str) -> str:
-        """Get CSV column name for image paths."""
+        Args:
+            episode: DataFrame with episode data
+            resizer: Albumentations resizer for RGB images
+            depth_resizer: Albumentations resizer for depth images
+
+        Returns:
+            Dictionary mapping zarr keys to numpy arrays
+        """
+        data = {}
+        obs = self.raw_observations
+        if obs.robot_frame_proprio_keys:
+            data[PROPRIO_OBS_ROBOT_FRAME_KEY] = episode[obs.robot_frame_proprio_keys].values.astype(np.float32)
+        if obs.camera_frame_proprio_keys:
+            data[PROPRIO_OBS_CAMERA_FRAME_KEY] = episode[obs.camera_frame_proprio_keys].values.astype(np.float32)
+        if obs.gripper_state_keys:
+            data[GRIPPER_STATE_OBS_KEY] = episode[obs.gripper_state_keys].values.astype(np.float32)
+        if self.has_phase_labels:
+            data[PHASE_LABEL_KEY] = episode[self.phase_label_key].values.astype(np.uint8)[:, np.newaxis]
+        if obs.language_key:
+            data[LANGUAGE_KEY] = episode[obs.language_key].astype(str).values
+        for modality_name in obs.custom_obs_keys:
+            keys = obs.custom_obs_keys[modality_name]
+            data[modality_name] = episode[keys].values.astype(np.float32)
+        # Images - BowelRetraction computes depth path from left RGB image path
+        for cam in obs.camera_keys:
+            if cam == Cameras.DEPTH.value:
+                left_col = self._get_rgb_column(Cameras.LEFT.value)
+                paths = [self._compute_depth_path(p) for p in episode[left_col]]
+                images = [depth_resizer(image=np.load(p))['image'] for p in paths]
+            else:
+                col = self._get_rgb_column(cam)
+                images = [
+                    resizer(image=cv2.cvtColor(cv2.imread(p), cv2.COLOR_BGR2RGB))['image']
+                    for p in episode[col]
+                ]
+            data[cam] = np.stack(images)
+
+        return data
+
+    def _get_rgb_column(self, camera: str) -> str:
+        """Get CSV column name for RGB image paths."""
         cfg = self.image_path_config
         if camera == Cameras.LEFT.value:
             return cfg.rectified_left_image_key if self.raw_observations.use_rectified_images else cfg.left_image_key
         elif camera == Cameras.RIGHT.value:
             return cfg.rectified_right_image_key if self.raw_observations.use_rectified_images else cfg.right_image_key
         else:
-            raise ValueError(f"Unknown camera: {camera}")
+            raise ValueError(f"Unknown RGB camera: {camera}")
 
-
-    def compute_depth_path(self, base_image_path: str) -> str:
-        """Compute depth file path from left image path using config patterns."""
-        # TODO: we should store depth paths directly in the csv instead of computing them on the fly.
+    def _compute_depth_path(self, base_image_path: str) -> str:
+        """Compute depth file path from left RGB image path using config patterns."""
         cfg = self.image_path_config
         dir_to_sub = (
             cfg.rectified_left_dir_pattern

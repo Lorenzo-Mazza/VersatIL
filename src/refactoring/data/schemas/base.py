@@ -1,7 +1,7 @@
 """Abstract dataset schema for defining dataset-specific configurations.
 
-This module provides a flexible framework for supporting multiple datasets with
-different CSV structures and observation modalities.
+This module provides a framework for supporting multiple datasets with
+different storage formats (CSV, HDF5) and observation modalities.
 
 Schemas define the structure of stored data (what's in the zarr file).
 They do not define how data is used at runtime (that's determined by task config).
@@ -10,15 +10,16 @@ Schemas are instantiated via Hydra using the _target_ pattern in config files.
 """
 
 import abc
+from typing import Any
 
+import albumentations as A
 import numpy as np
-import pandas as pd
 
-from refactoring.configs.data.dataset.image_path import ImagePathConfig
 from refactoring.configs.data.dataset.raw_observations import RawObservationsConfig
 from refactoring.data.constants import (
     GRIPPER_STATE_OBS_KEY,
     PHASE_LABEL_KEY,
+    PRECOMPUTED_ACTIONS_KEY,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
     Cameras, LANGUAGE_KEY,
@@ -28,174 +29,58 @@ from refactoring.data.constants import (
 class DatasetSchema(abc.ABC):
     """Abstract base class for dataset schemas.
 
+    Defines common interface for zarr array creation, key management, and episode extraction.
+    Subclasses (CsvDatasetSchema, Hdf5DatasetSchema) define format-specific data extraction.
+
     Note:
         A schema defines the raw data structure for a specific dataset, including:
         - What observations are available (position, gripper state, etc.).
         - What action modalities exist (position, orientation, gripper).
-        - How to extract data from CSV files.
-        - How to locate images and depth maps.
+        - How to extract episode data via `extract_episode`.
 
         The schema is used when creating the zarr file from the raw episodic data.
-        Schemas are instantiated via Hydra - subclasses should be specified in config files using the _target_ field.
     """
 
     def __init__(
         self,
-        dataset_folders: list[str],
         zarr_path: str,
-        dataset_filename: str,
         raw_observations: RawObservationsConfig,
-        image_path_config: ImagePathConfig,
         has_phase_labels: bool = False,
-        phase_label_key: str | None = None,
     ):
         """Initialize the dataset schema.
 
         Args:
-            dataset_folders: List of dataset folder paths
             zarr_path: Path to save/load the zarr file
-            dataset_filename: Name and format of the dataset file in each folder
-            raw_observations: Configuration for the raw observations stored in the csv
-            image_path_config: Configuration for image paths
+            raw_observations: Configuration for raw observations
             has_phase_labels: Whether dataset has phase labels
-            phase_label_key: CSV column name for phase labels
         """
-        self.dataset_folders = dataset_folders
         self.zarr_path = zarr_path
-        self.dataset_filename = dataset_filename
         self.raw_observations = raw_observations
-        self.image_path_config = image_path_config
         self.has_phase_labels = has_phase_labels
-        self.phase_label_key = phase_label_key
-
-
-    def extract_robot_frame_obs(self, df: pd.DataFrame) -> np.ndarray:
-        """Extract robot frame observations from CSV.
-
-        These are positions/states in the robot's coordinate frame.
-        Used when creating zarr files and computing actions at runtime.
-
-        Args:
-            df: DataFrame with episode data
-
-        Returns:
-            Array of shape (T, robot_frame_dim)
-        """
-        if not self.raw_observations.robot_frame_proprio_keys:
-            raise ValueError("Robot frame observations requested but no keys defined in schema.")
-        else:
-            return df[self.raw_observations.robot_frame_proprio_keys].values.astype(np.float32)  # type: ignore[no-any-return]
-
-    def extract_camera_frame_obs(self, df: pd.DataFrame) -> np.ndarray:
-        """Extract camera frame observations from CSV.
-
-        These are positions/states in the camera's coordinate frame.
-        Used when creating zarr files and computing actions at runtime.
-
-        Args:
-            df: DataFrame with episode data
-
-        Returns:
-            Array of shape (T, camera_frame_dim)
-        """
-        if not self.raw_observations.camera_frame_proprio_keys:
-            raise ValueError("Camera frame observations requested but no keys defined in schema.")
-        else:
-            return df[self.raw_observations.camera_frame_proprio_keys].values.astype(np.float32)  # type: ignore[no-any-return]
-
-    def extract_gripper_state(self, df: pd.DataFrame) -> np.ndarray:
-        """Extract gripper state from CSV.
-
-        This is the gripper's current state (open/close or continuous value).
-        Used when creating zarr files. At runtime, next timestep's gripper state
-        becomes the gripper action.
-
-        Args:
-            df: DataFrame with episode data
-
-        Returns:
-            Array of shape (T, gripper_dim)
-        """
-        if not self.raw_observations.gripper_state_keys:
-            raise ValueError("Gripper state requested but no keys defined in schema.")
-        else:
-            return df[self.raw_observations.gripper_state_keys].values.astype(np.float32)  # type: ignore[no-any-return]
-
-    def extract_phase_labels(self, df: pd.DataFrame) -> np.ndarray | None:
-        """Extract phase labels from CSV.
-
-        These are task phase annotations (if available).
-
-        Args:
-            df: DataFrame with episode data
-
-        Returns:
-            Array of shape (T,) or None if not available
-        """
-        if not self.has_phase_labels:
-            raise ValueError("Phase labels requested but schema indicates none are available.")
-        else:
-            return df[self.phase_label_key].values.astype(np.uint8)  # type: ignore[no-any-return]
-
-    def extract_language_instruction(self, df: pd.DataFrame) -> np.ndarray | None:
-        """Extract language instruction from CSV.
-
-        This is the language instruction associated with the episode (if available).
-
-        Args:
-            df: DataFrame with episode data
-
-        Returns:
-            Array of shape (T,) or None if not available
-        """
-        if not self.raw_observations.language_key:
-            raise ValueError("Language instruction requested but no key defined in schema.")
-        else:
-            return df[self.raw_observations.language_key].astype(str).values  # type: ignore[no-any-return]
-
-
-    def extract_custom_observations(self, df: pd.DataFrame, modality_name: str) -> np.ndarray:
-        """Extract custom observation modality from CSV.
-
-        These are user-defined observation modalities (if available).
-
-        Args:
-            df: DataFrame with episode data
-            modality_name: Name of the custom observation modality
-       """
-        if modality_name not in self.raw_observations.custom_obs_keys:
-            raise ValueError(f"Custom observation '{modality_name}' requested but no keys defined in schema.")
-        else:
-            keys = self.raw_observations.custom_obs_keys[modality_name]
-            return df[keys].values.astype(np.float32)  # type: ignore[no-any-return]
 
     @abc.abstractmethod
-    def get_image_path_column(self, camera: str) -> str:
-        """Get the CSV column name for image paths.
+    def extract_episode(
+        self,
+        episode_source: Any,
+        resizer: A.Resize | A.NoOp,
+        depth_resizer: A.Resize | A.NoOp,
+    ) -> dict[str, np.ndarray]:
+        """Extract all data from an episode source.
+
+        Each schema defines its own extraction logic based on raw_observations config.
+        The episode_source type depends on the schema format:
+        - CsvDatasetSchema: pd.DataFrame
+        - Hdf5DatasetSchema: h5py.Group
 
         Args:
-            camera: Camera name (from Cameras enum)
+            episode_source: Format-specific episode data source
+            resizer: Albumentations resizer for RGB images
+            depth_resizer: Albumentations resizer for depth images
 
         Returns:
-            Column name for image paths
+            Dictionary mapping zarr keys to numpy arrays
         """
-        raise NotImplementedError("Subclasses must implement get_image_path_column")
-
-
-    @abc.abstractmethod
-    def compute_depth_path(self, base_image_path: str) -> str:
-        """Compute depth file path from a base image path.
-
-        Uses regex replacement to convert base image path to corresponding depth path.
-
-        Args:
-            base_image_path: Base path
-
-        Returns:
-            Path to corresponding depth file
-        """
-        raise NotImplementedError("Subclasses must implement compute_depth_path")
-
+        raise NotImplementedError("Subclasses must implement extract_episode")
 
     def get_required_zarr_keys(self) -> list[str]:
         """Get all required zarr keys based on schema configuration.
@@ -204,7 +89,7 @@ class DatasetSchema(abc.ABC):
             List of all required zarr key names
         """
         keys = []
-        if len(self.raw_observations.camera_keys)>0:
+        if len(self.raw_observations.camera_keys) > 0:
             keys.extend(self.raw_observations.camera_keys)
         if self.raw_observations.robot_frame_proprio_keys:
             keys.append(PROPRIO_OBS_ROBOT_FRAME_KEY)
@@ -218,8 +103,9 @@ class DatasetSchema(abc.ABC):
             keys.append(LANGUAGE_KEY)
         if self.raw_observations.custom_obs_keys:
             keys.extend(self.raw_observations.custom_obs_keys.keys())
+        if self.raw_observations.has_precomputed_actions:
+            keys.append(PRECOMPUTED_ACTIONS_KEY)
         return keys
-
 
     def get_zarr_array_specs(self) -> dict:
         """Get specifications for all zarr arrays to create.
@@ -299,5 +185,13 @@ class DatasetSchema(abc.ABC):
                     'dtype': 'uint8',
                     'needs_compressor': True
                 }
+
+        if obs.has_precomputed_actions:
+            specs[PRECOMPUTED_ACTIONS_KEY] = {
+                'shape': (0, obs.precomputed_action_dim),
+                'chunks': (100, obs.precomputed_action_dim),
+                'dtype': 'float32',
+                'needs_compressor': True
+            }
 
         return specs

@@ -11,6 +11,7 @@ from refactoring.data.constants import (
     GRIPPER_STATE_OBS_KEY,
     ORIENTATION_ACTION_KEY,
     POSITION_ACTION_KEY,
+    PRECOMPUTED_ACTIONS_KEY,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
     Cameras,
@@ -117,6 +118,70 @@ class NormalizerBuilder:
         Returns:
             Dictionary of (winsorized) proprioceptive data
         """
+        action_space = self.action_processor.action_space
+
+        if action_space.use_precomputed_actions:
+            proprio_data = self._read_precomputed_actions()
+        else:
+            proprio_data = self._compute_actions_from_buffer()
+
+        if self.observation_space.use_gripper_state:
+            gripper_obs = self.replay_buffer[GRIPPER_STATE_OBS_KEY][:]
+            proprio_data[GRIPPER_STATE_OBS_KEY] = gripper_obs
+
+        if self.observation_space.use_proprio_base_frame or self.observation_space.use_proprio_camera_frame:
+            if self.observation_space.use_proprio_base_frame:
+                proprio_data[PROPRIO_OBS_ROBOT_FRAME_KEY] = self.replay_buffer[PROPRIO_OBS_ROBOT_FRAME_KEY][:]
+            if self.observation_space.use_proprio_camera_frame:
+                proprio_data[PROPRIO_OBS_CAMERA_FRAME_KEY] = self.replay_buffer[PROPRIO_OBS_CAMERA_FRAME_KEY][:]
+
+        for key in self.observation_space.custom_obs_keys:
+            proprio_data[key] = self.replay_buffer[key][:]
+
+        if winsorize and self.kinematics_winsorize_quantiles:
+            proprio_data = self._apply_winsorization(
+                proprio_data,
+                self.kinematics_winsorize_quantiles
+            )
+
+        return proprio_data
+
+    def _read_precomputed_actions(self) -> dict[str, np.ndarray]:
+        """Read precomputed actions from buffer and split into components.
+
+        Returns:
+            Dictionary with action arrays split by modality
+        """
+        precomputed = self.replay_buffer[PRECOMPUTED_ACTIONS_KEY][:]
+        if len(precomputed) == 0:
+            raise ValueError("Replay buffer is empty. Cannot compute normalization statistics.")
+
+        action_space = self.action_processor.action_space
+        action_dict = {}
+        idx = 0
+
+        if action_space.has_position:
+            pos_end = idx + action_space.position_dim
+            action_dict[POSITION_ACTION_KEY] = precomputed[:, idx:pos_end]
+            idx = pos_end
+
+        if action_space.has_orientation:
+            ori_end = idx + action_space.orientation_dim
+            action_dict[ORIENTATION_ACTION_KEY] = precomputed[:, idx:ori_end]
+            idx = ori_end
+
+        if action_space.has_gripper:
+            gripper_end = idx + action_space.gripper_dim
+            action_dict[GRIPPER_ACTION_KEY] = precomputed[:, idx:gripper_end]
+
+        return action_dict
+
+    def _compute_actions_from_buffer(self) -> dict[str, np.ndarray]:
+        """Compute actions from observations in replay buffer.
+
+        Returns:
+            Dictionary with computed action arrays
+        """
         action_key = PROPRIO_OBS_CAMERA_FRAME_KEY if self.action_processor.predict_in_camera_frame else PROPRIO_OBS_ROBOT_FRAME_KEY
         obs_for_actions = self.replay_buffer[action_key][:]
         if len(obs_for_actions) == 0:
@@ -144,25 +209,6 @@ class NormalizerBuilder:
                     gripper_curr, gripper_next
                 )
                 proprio_data[GRIPPER_ACTION_KEY] = gripper_actions
-
-        if self.observation_space.use_gripper_state:
-            gripper_obs = self.replay_buffer[GRIPPER_STATE_OBS_KEY][:]
-            proprio_data[GRIPPER_STATE_OBS_KEY] = gripper_obs
-
-        if self.observation_space.use_proprio_base_frame or self.observation_space.use_proprio_camera_frame:
-            if self.observation_space.use_proprio_base_frame:
-                proprio_data[PROPRIO_OBS_ROBOT_FRAME_KEY] = self.replay_buffer[PROPRIO_OBS_ROBOT_FRAME_KEY][:]
-            if self.observation_space.use_proprio_camera_frame:
-                proprio_data[PROPRIO_OBS_CAMERA_FRAME_KEY] = self.replay_buffer[PROPRIO_OBS_CAMERA_FRAME_KEY][:]
-
-        for key in self.observation_space.custom_obs_keys:
-            proprio_data[key] = self.replay_buffer[key][:]
-
-        if winsorize and self.kinematics_winsorize_quantiles:
-            proprio_data = self._apply_winsorization(
-                proprio_data,
-                self.kinematics_winsorize_quantiles
-            )
 
         return proprio_data
 
@@ -437,16 +483,18 @@ class NormalizerBuilder:
             action_components.append(action_dict[key])
         all_actions = np.concatenate(action_components, axis=-1)
 
-        # Compute adjusted episode ends for the masked action array
-        # Actions are computed from consecutive obs pairs, excluding cross-episode transitions
-        # So each episode loses 1 action (the transition between episodes)
+        # Compute adjusted episode ends for the action array
+        # For computed actions: N obs -> N-1 actions (loses 1 per episode)
+        # For precomputed actions: N obs -> N actions (no adjustment)
+        use_precomputed = self.action_processor.action_space.use_precomputed_actions
         adjusted_episode_ends = []
         cumulative = 0
         for i in range(len(self.episode_ends)):
             if i == 0:
-                episode_length = self.episode_ends[i] - 1  # First episode: N obs -> N-1 actions
+                episode_length = self.episode_ends[i] if use_precomputed else self.episode_ends[i] - 1
             else:
-                episode_length = (self.episode_ends[i] - self.episode_ends[i-1]) - 1
+                raw_length = self.episode_ends[i] - self.episode_ends[i-1]
+                episode_length = raw_length if use_precomputed else raw_length - 1
             cumulative += episode_length
             adjusted_episode_ends.append(cumulative)
 

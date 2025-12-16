@@ -1,0 +1,16 @@
+# LIBERO action space with precomputed actions
+# Actions are 7D: position delta (3) + orientation delta (3) + gripper (1)
+has_position: true
+position_dim: 3
+has_orientation: true
+orientation_dim: 3
+orientation_repr: ${orientation:EULER}
+has_gripper: true
+gripper_type: ${gripper:CONTINUOUS}
+gripper_dim: 1
+use_gripper_class_weights: false
+predict_in_camera_frame: false  # LIBERO uses robot frame
+deltas_as_actions: true
+denoise_actions: false
+task_has_phases: false
+use_precomputed_actions: true

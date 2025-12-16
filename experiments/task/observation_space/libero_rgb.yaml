@@ -1,0 +1,9 @@
+# LIBERO observation space with two RGB cameras
+use_proprio_base_frame: true
+use_proprio_camera_frame: false
+use_gripper_state: true
+gripper_type: ${gripper:CONTINUOUS}
+camera_keys:
+  - ${cameras:AGENTVIEW}
+  - ${cameras:EYE_IN_HAND}
+use_language: true

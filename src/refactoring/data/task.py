@@ -1,6 +1,15 @@
 from refactoring.configs.data.dataloader import DataLoaderConfig
-from refactoring.data.constants import OrientationRepresentation, GripperType, PROPRIO_OBS_CAMERA_FRAME_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY, GRIPPER_STATE_OBS_KEY, \
-    PHASE_LABEL_KEY, LANGUAGE_KEY, VALID_CAMERAS
+from refactoring.data.constants import (
+    OrientationRepresentation,
+    GripperType,
+    PROPRIO_OBS_CAMERA_FRAME_KEY,
+    PROPRIO_OBS_ROBOT_FRAME_KEY,
+    GRIPPER_STATE_OBS_KEY,
+    PHASE_LABEL_KEY,
+    LANGUAGE_KEY,
+    VALID_CAMERAS,
+    PRECOMPUTED_ACTIONS_KEY,
+)
 from refactoring.data.schemas.base import DatasetSchema
 
 
@@ -23,6 +32,7 @@ class ActionSpace:
         custom_action_dims: dict[str, int] = None,
         task_has_phases: bool = False,
         number_of_phases: int = 5,
+        use_precomputed_actions: bool = False,
     ):
         """Initialize ActionSpace.
 
@@ -42,6 +52,7 @@ class ActionSpace:
             custom_action_dims: Dictionary of custom action dimensions
             task_has_phases: Whether the task has distinct phases
             number_of_phases: Number of phases in the task
+            use_precomputed_actions: Whether the actions are going to be computed on-the-fly based on observations or already stored.
         """
         self.has_position = has_position
         self.position_dim = position_dim
@@ -58,6 +69,7 @@ class ActionSpace:
         self.custom_action_dims = custom_action_dims if custom_action_dims is not None else {}
         self.task_has_phases = task_has_phases
         self.number_of_phases = number_of_phases
+        self.use_precomputed_actions = use_precomputed_actions
 
 
 
@@ -89,16 +101,22 @@ class ActionSpace:
             List of keys to load from replay buffer
         """
         keys = []
-        if self.has_position or self.has_orientation:
-            if self.predict_in_camera_frame:
-                keys.append(PROPRIO_OBS_CAMERA_FRAME_KEY)
-            else:
-                keys.append(PROPRIO_OBS_ROBOT_FRAME_KEY)
-        if self.has_gripper:
-            keys.append(GRIPPER_STATE_OBS_KEY)
-        if self.task_has_phases:
-            keys.append(PHASE_LABEL_KEY)
-        return keys
+        if self.use_precomputed_actions:
+            keys.append(PRECOMPUTED_ACTIONS_KEY)
+            if self.task_has_phases:
+                keys.append(PHASE_LABEL_KEY)
+            return keys
+        else:
+            if self.has_position or self.has_orientation:
+                if self.predict_in_camera_frame:
+                    keys.append(PROPRIO_OBS_CAMERA_FRAME_KEY)
+                else:
+                    keys.append(PROPRIO_OBS_ROBOT_FRAME_KEY)
+            if self.has_gripper:
+                keys.append(GRIPPER_STATE_OBS_KEY)
+            if self.task_has_phases:
+                keys.append(PHASE_LABEL_KEY)
+            return keys
 
 
 class ObservationSpace:

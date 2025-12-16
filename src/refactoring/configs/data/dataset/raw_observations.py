@@ -31,6 +31,9 @@ class RawObservationsConfig:
     has_gripper: bool = False
     gripper_type: str = GripperType.BINARY.value
     gripper_dim: int = 1
+    # Precomputed actions (for datasets with pre-recorded actions like LIBERO)
+    has_precomputed_actions: bool = False
+    precomputed_action_dim: int = 0
 
 
 

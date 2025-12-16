@@ -13,6 +13,10 @@ from refactoring.data.augmentation.augmentation_pipeline import AugmentationPipe
 from refactoring.data.constants import (
     GRIPPER_ACTION_KEY,
     GRIPPER_STATE_OBS_KEY,
+    GripperType,
+    ORIENTATION_ACTION_KEY,
+    POSITION_ACTION_KEY,
+    PRECOMPUTED_ACTIONS_KEY,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
     SamplingMode,
@@ -313,11 +317,19 @@ class EpisodicDataset(data.Dataset):
     def _compute_sample_actions(
             self, padded_data: dict[str, np.ndarray]
     ) -> dict[str, np.ndarray]:
-        """Compute actions for a single sample."""
-        action_key = PROPRIO_OBS_CAMERA_FRAME_KEY if self.action_processor.predict_in_camera_frame else PROPRIO_OBS_ROBOT_FRAME_KEY
-        obs_for_action = padded_data[action_key]
+        """Compute actions for a single sample.
+
+        If use_precomputed_actions is True, extracts actions directly from the zarr.
+        Otherwise, computes actions from current/next observations.
+        """
         action_slice_start = self.obs_horizon - 1
         action_slice_end = action_slice_start + self.pred_horizon
+
+        if self.action_space.use_precomputed_actions:
+            return self._extract_precomputed_actions(padded_data, action_slice_start, action_slice_end)
+
+        action_key = PROPRIO_OBS_CAMERA_FRAME_KEY if self.action_processor.predict_in_camera_frame else PROPRIO_OBS_ROBOT_FRAME_KEY
+        obs_for_action = padded_data[action_key]
         next_obs = obs_for_action[action_slice_start + 1:action_slice_end + 1]
         curr_obs = obs_for_action[action_slice_start:action_slice_end]
         action_dict = self.action_processor.compute_actions_from_observations(curr_obs, next_obs)
@@ -328,6 +340,44 @@ class EpisodicDataset(data.Dataset):
             next_gripper = padded_gripper[action_slice_start + 1: action_slice_end + 1]
             gripper_actions = self.action_processor.compute_gripper_actions(curr_gripper, next_gripper)
             action_dict[GRIPPER_ACTION_KEY] = gripper_actions
+
+        return action_dict
+
+    def _extract_precomputed_actions(
+            self,
+            padded_data: dict[str, np.ndarray],
+            action_slice_start: int,
+            action_slice_end: int,
+    ) -> dict[str, np.ndarray]:
+        """Extract precomputed actions from padded data and split into components.
+
+        Args:
+            padded_data: Dictionary containing PRECOMPUTED_ACTIONS_KEY
+            action_slice_start: Start index for action slice
+            action_slice_end: End index for action slice
+
+        Returns:
+            Dictionary with action arrays split by modality
+        """
+        precomputed = padded_data[PRECOMPUTED_ACTIONS_KEY]
+        actions = precomputed[action_slice_start:action_slice_end]
+
+        action_dict = {}
+        idx = 0
+
+        if self.action_space.has_position:
+            pos_end = idx + self.action_space.position_dim
+            action_dict[POSITION_ACTION_KEY] = actions[:, idx:pos_end]
+            idx = pos_end
+
+        if self.action_space.has_orientation:
+            ori_end = idx + self.action_space.orientation_dim
+            action_dict[ORIENTATION_ACTION_KEY] = actions[:, idx:ori_end]
+            idx = ori_end
+
+        if self.action_space.has_gripper:
+            gripper_end = idx + self.action_space.gripper_dim
+            action_dict[GRIPPER_ACTION_KEY] = actions[:, idx:gripper_end]
 
         return action_dict
 
@@ -411,11 +461,27 @@ class EpisodicDataset(data.Dataset):
         self.sample_builder.normalizer = normalizer
 
     def get_gripper_positive_class_imbalance_weight(self) -> float:
-        """Get class imbalance weight for gripper actions."""
+        """Get class imbalance weight for binary gripper actions.
+
+        This is only meaningful for binary grippers where we want to compute
+        the ratio of negative to positive samples for class-weighted BCE loss.
+
+        Returns:
+            Weight for positive class (ratio of negative to positive samples)
+
+        Raises:
+            ValueError: If gripper is not configured or is not binary type
+        """
         if not self.action_space.has_gripper:
             raise ValueError("Gripper actions are not being predicted")
+        if self.action_space.gripper_type != GripperType.BINARY.value:
+            raise ValueError(
+                f"Class imbalance weights only supported for binary grippers, "
+                f"got gripper_type={self.action_space.gripper_type}"
+            )
 
-        gripper_actions = self.replay_buffer[GRIPPER_STATE_OBS_KEY][:].squeeze(-1)
+        gripper_actions = self.replay_buffer[GRIPPER_STATE_OBS_KEY][:]
+        gripper_actions = gripper_actions.reshape(-1)
         number_of_positive_actions = gripper_actions.sum()
         number_of_negative_actions = len(gripper_actions) - number_of_positive_actions
         result: float = number_of_negative_actions / number_of_positive_actions

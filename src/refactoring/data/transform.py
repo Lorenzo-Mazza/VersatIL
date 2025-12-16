@@ -193,10 +193,11 @@ def detokenize_actions(
         current_idx += ori_dim
 
     if action_space.has_gripper:
+        gripper_dim = action_space.gripper_dim
         if action_space.gripper_type == GripperType.BINARY.value:
             # Binary gripper: round to 0 or 1
-            action_dict[GRIPPER_ACTION_KEY] = torch.round(actions[..., current_idx:current_idx + 1]).long()
+            action_dict[GRIPPER_ACTION_KEY] = torch.round(actions[..., current_idx:current_idx + gripper_dim]).long()
         else:
-            action_dict[GRIPPER_ACTION_KEY] = actions[..., current_idx:current_idx + 1]
-        current_idx += 1
+            action_dict[GRIPPER_ACTION_KEY] = actions[..., current_idx:current_idx + gripper_dim]
+        current_idx += gripper_dim
     return action_dict

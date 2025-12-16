@@ -12,11 +12,31 @@ import enum
 
 class Cameras(enum.Enum):
     """Enum for camera names."""
+    # TSO datasets cameras
     LEFT = 'left'
     RIGHT = 'right'
     DEPTH = 'depth'
+    # LIBERO cameras
+    AGENTVIEW = 'agentview_rgb'
+    EYE_IN_HAND = 'eye_in_hand_rgb'
+
 
 VALID_CAMERAS = [cam.value for cam in Cameras]
+
+
+class ProprioKey(str, enum.Enum):
+    """Enum for proprioceptive observation keys."""
+    # TSO datasets proprioceptive keys
+    ROBOT_FRAME = "proprio_robot_frame"
+    CAMERA_FRAME = "proprio_camera_frame"
+    # LIBERO proprioceptive keys
+    EE_POS = "ee_pos"
+    EE_ORI = "ee_ori"
+    EE_STATES = "ee_states"
+    JOINT_STATES = "joint_states"
+
+
+VALID_PROPRIO_KEYS = [key.value for key in ProprioKey]
 
 class ImageNormalizationType(str, enum.Enum):
     """Enum for image normalization types."""
@@ -69,6 +89,7 @@ ACTION_KEY = "action"
 POSITION_ACTION_KEY = "position_action"
 ORIENTATION_ACTION_KEY = "orientation_action"
 GRIPPER_ACTION_KEY = "gripper_action"
+PRECOMPUTED_ACTIONS_KEY = "precomputed_actions"  # For datasets with pre-recorded actions (e.g., LIBERO)
 IS_PAD_ACTION_KEY = "is_pad"
 IS_PAD_OBSERVATION_KEY = "is_pad_observation"
 TOKENIZED_OBSERVATIONS_KEY = "tokenized_observations"

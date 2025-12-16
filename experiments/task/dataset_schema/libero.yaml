@@ -1,0 +1,3 @@
+_target_: refactoring.data.schemas.libero.LiberoSchema
+hdf5_path: ???  # Set path to LIBERO HDF5 file
+zarr_path: ???  # Set path to output zarr file

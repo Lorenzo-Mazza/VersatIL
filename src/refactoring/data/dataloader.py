@@ -11,7 +11,7 @@ from refactoring.configs.data.tokenizer import TokenizationConfig
 from refactoring.data.constants import PHASE_LABEL_KEY
 from refactoring.data.episodic_dataset import EpisodicDataset
 from refactoring.data.normalization.normalizer import LinearNormalizer
-from refactoring.data.preprocessing.create_zarr import create_replay_buffer
+from refactoring.data.preprocessing.create_zarr_from_csv import create_replay_buffer
 from refactoring.data.preprocessing.replay_buffer import ReplayBuffer
 from refactoring.data.schemas.base import DatasetSchema
 from refactoring.configs.data.dataloader import DataLoaderConfig
