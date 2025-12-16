@@ -47,19 +47,20 @@ class DepthCNNEncoder(Encoder):
 
 
     def _setup_pooling(self):
-        """Setup pooling layer based on configuration."""
+        """Setup mock pooling head. The actual pooling head will be created in forward()."""
         with torch.no_grad():
-            mock_input = torch.zeros(1, 1, 224, 224)
+            mock_input = torch.zeros(1, 3, 224, 224)
             mock_output: BackboneOutput = self.backbone(mock_input)
-            mock_features = mock_output.feature_maps[-1]  # type: ignore[index]
+            mock_features = mock_output.feature_maps[0]  # type: ignore[index]
             _, c, h, w = mock_features.shape
-        self.pooling_head = create_pooling_head(
+        mock_pooling_head = create_pooling_head(
             pooling_method=self.pooling_method,
             feature_channels=self.feature_dim,
             spatial_height=h,
             spatial_width=w,
         )
-        self.output_dim = self.pooling_head.get_output_dim(self.feature_dim)
+        self.pooling_head = None # Will be created in forward() with correct patch dimensions
+        self.output_dim = mock_pooling_head.get_output_dim(self.feature_dim)
 
 
     def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
@@ -87,6 +88,15 @@ class DepthCNNEncoder(Encoder):
             has_time = False
         backbone_output = self.backbone(img)
         features = backbone_output.feature_maps[-1]
+        _, _, H_feature_maps, W_feature_maps = features.shape
+        if self.pooling_head is None:
+            self.pooling_head = create_pooling_head(
+                pooling_method=self.pooling_method,
+                feature_channels=self.feature_dim,
+                spatial_height=H_feature_maps,
+                spatial_width=W_feature_maps,
+            ).to(self.device)
+
         pooled_features = self.pooling_head(features)
         if has_time:
             pooled_features = pooled_features.reshape(B, T, *pooled_features.shape[1:])  # Batch, Time, Features

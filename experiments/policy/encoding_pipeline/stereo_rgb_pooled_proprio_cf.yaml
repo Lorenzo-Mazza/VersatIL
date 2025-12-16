@@ -10,7 +10,7 @@ encoders:
     backbone: ${rgb_backbone:RESNET18}
     pretrained: false
     frozen: false
-    pooling_method: ${pooling_method:MAX}
+    pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
     use_group_norm: true
 
   right: # Output features will be accessible via "right_rgb"
@@ -19,7 +19,7 @@ encoders:
     backbone: ${rgb_backbone:RESNET18}
     pretrained: false
     frozen: false
-    pooling_method: ${pooling_method:MAX}
+    pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
     use_group_norm: true
 
   camera_frame: # Output features will be accessible via "camera_frame_proprio"

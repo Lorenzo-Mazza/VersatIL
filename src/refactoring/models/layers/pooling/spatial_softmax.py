@@ -26,14 +26,9 @@ class SpatialSoftmax(nn.Module):
         self.channel = channel
         self.learnable_temperature = learnable_temperature
         if self.learnable_temperature:
-            temperature_param = nn.Parameter(torch.ones(1) * temperature, requires_grad=True)
-            self.register_parameter("temperature", temperature_param)
-            self.temperature = temperature_param
+            self.temperature = nn.Parameter(torch.ones(1) * temperature, requires_grad=True)
         else:
-            # temperature held constant after initialization
-            temperature_param = nn.Parameter(torch.ones(1) * temperature, requires_grad=False)
-            self.register_buffer("temperature", temperature_param)
-            self.temperature = temperature_param
+            self.register_buffer("temperature", torch.ones(1) * temperature)
         pos_x, pos_y = torch.meshgrid(
             torch.linspace(-1, 1, width),
             torch.linspace(-1, 1, height),

@@ -1,0 +1,109 @@
+"""torch.nn.Module to construct an input feature vector to use as conditioner for a U-Net."""
+
+import torch
+from torch import nn as nn
+
+from refactoring.data.constants import IS_PAD_ACTION_KEY
+from refactoring.models.decoding.constants import CLASS_TOKEN_KEY
+from refactoring.models.encoding.encoders.constants import EncoderOutputKeys
+from refactoring.models.layers.feature_projection import FeatureProjection
+
+
+class UNetInputBuilder(nn.Module):
+    """Builds a flattened conditioning vector for U-Net decoders from multi-modal features.
+
+    This module takes a dictionary of encoded features (from various encoders like
+    RGB, depth, proprioceptive, etc.), projects them to a common embedding dimension,
+    and concatenates them into a single conditioning vector suitable for U-Net input.
+
+    Features are processed based on their dimensionality:
+        - 2D (B, Emb): Used directly (pooled/single token features)
+        - 3D (B, Seq, Emb): Flattened to (B, Seq*Emb)
+        - 4D with time (B, T, Seq, Emb): Flattened to (B, T*Seq*Emb)
+        - 4D spatial or 5D: Not supported (must be pooled first)
+
+    Class tokens (if present) are appended at the end of the feature vector.
+
+    Args:
+        embedding_dim: Target dimension for projecting all features.
+        has_time_dim: If True, expects temporal dimension in features (B, T, ...).
+
+    Example:
+        >>> builder = UNetInputBuilder(embedding_dim=256, has_time_dim=False)
+        >>> features = {"rgb_pooled": torch.randn(4, 512), "proprio": torch.randn(4, 64)}
+        >>> conditioning = builder(features)  # Shape: (4, 256 + 256)
+    """
+
+    def __init__(
+            self,
+            embedding_dim: int,
+            has_time_dim: bool = False,
+    ):
+        super().__init__()
+        self.embedding_dim = embedding_dim
+        self.projection = FeatureProjection(embedding_dim, has_time_dim=has_time_dim)
+        self.has_time_dim = has_time_dim
+
+    def forward(self, features: dict[str, torch.Tensor]) -> torch.Tensor | None:
+        """Project and concatenate features into a single conditioning vector.
+
+        Args:
+            features: Dictionary mapping feature names to tensors. Padding masks
+                and pad action keys are automatically filtered out.
+
+        Returns:
+            Concatenated feature tensor of shape (B, total_features * embedding_dim),
+            or None if no valid features are provided.
+
+        Raises:
+            ValueError: If a feature has an unsupported shape (4D spatial or 5D).
+        """
+        clean_features = {
+            k: v for k, v in features.items()
+            if not EncoderOutputKeys.PADDING_MASK.value in k and k != IS_PAD_ACTION_KEY
+        }
+        projected = self.projection(clean_features) # Project all features to common embedding dim
+        flat_features_list = []
+        cls_token = None
+        for name in sorted(projected.keys()):
+            x = projected[name]
+            if x.ndim == 2:  # pooled / single token (always T=1)
+                feature_embedding = x # (B, Emb)
+            elif x.ndim == 3:
+                B, _, _ = x.shape
+                feature_embedding = x.reshape(B, -1)  # (B, Seq*Emb)
+            elif x.ndim == 4:
+                if self.has_time_dim:  # (B, T, Seq, Emb)
+                    B, _, _, _ = x.shape
+                    feature_embedding = x.reshape(B, -1) # (B, T*Seq*Emb)
+                else:  # spatial (B, Emb, H, W)
+                    raise ValueError(
+                        f"4D feature '{name}' with no time dimension is not supported as input to U-Net Decoder. "
+                        "Please pool your features accordingly using the encoding pipeline."
+                    )
+            elif x.ndim == 5:  # temporal spatial (B, T, Emb, H, W)
+                raise ValueError(f"5D feature {name} is not supported as input to U-Net Decoder. "
+                                 f"Please pool your features accordingly using the encoding pipeline.")
+            else:
+                raise ValueError(f"Feature '{name}' has unsupported shape {x.shape}")
+
+            if CLASS_TOKEN_KEY in name:
+                cls_token = feature_embedding
+            else:
+                flat_features_list.append(feature_embedding)
+
+        # Append cls token at the end, if present
+        if cls_token is not None:
+            flat_features_list.append(cls_token)
+
+        return torch.cat(flat_features_list, dim=-1) if flat_features_list else None  # (B, Total_len*Emb)
+
+
+
+
+
+
+
+
+
+

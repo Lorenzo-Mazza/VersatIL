@@ -164,13 +164,14 @@ class ConditionalCNNEncoder(ConditionalEncoder):
                 x = block(x, dummy_condition)
             _, c, h, w = x.shape
 
-        self.pooling_head = create_pooling_head(
+        mock_pooling_head = create_pooling_head(
             pooling_method=self.pooling_method,
             feature_channels=self.feature_dim,
             spatial_height=h,
             spatial_width=w,
         )
-        self.output_dim = self.pooling_head.get_output_dim(self.feature_dim)
+        self.pooling_head = None # Will be created in forward() with correct patch dimensions
+        self.output_dim = mock_pooling_head.get_output_dim(self.feature_dim)
 
 
     def forward(
@@ -212,6 +213,15 @@ class ConditionalCNNEncoder(ConditionalEncoder):
             x = block(x, conditioning)
         for block in self.layer4:
             x = block(x, conditioning)
+
+        _, _, H_feature_maps, W_feature_maps = x.shape
+        if self.pooling_head is None:
+            self.pooling_head = create_pooling_head(
+                pooling_method=self.pooling_method,
+                feature_channels=self.feature_dim,
+                spatial_height=H_feature_maps,
+                spatial_width=W_feature_maps,
+            ).to(self.device)
         pooled_features = self.pooling_head(x)
         if has_time:
             # Reshape back to (B, T, C) or (B, T, C, H, W)

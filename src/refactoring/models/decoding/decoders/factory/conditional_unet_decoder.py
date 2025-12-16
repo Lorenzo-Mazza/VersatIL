@@ -14,6 +14,7 @@ from refactoring.models.decoding.constants import FeatureType, TIMESTEP_KEY
 from refactoring.models.decoding.decoders.base import DecoderInput
 from refactoring.models.layers.conditional_unet import ConditionalUnet1D
 from refactoring.models.decoding.decoders.base import ActionDecoder
+from refactoring.models.layers.unet_input_builder import UNetInputBuilder
 
 
 class ConditionalUNetDecoder(ActionDecoder):
@@ -75,6 +76,12 @@ class ConditionalUNetDecoder(ActionDecoder):
             raises_for_types=[FeatureType.SPATIAL.value],
             requires_actions=True,
         )
+        for k, head in action_heads.items():
+            if len(head.blocks)>0:
+                logging.warning(
+                    f"Action heads are ignored by ConditionalUNetDecoder, but one was provided for action '{k}'. Skipping."
+                )
+                action_heads[k].blocks = nn.ModuleList()  # Replace with identity; U-Net handles all processing
 
         super().__init__(
             decoder_input=decoder_input,
@@ -104,17 +111,18 @@ class ConditionalUNetDecoder(ActionDecoder):
 
         self._global_conditioning_dimension: Optional[int] = None
         self._feature_projections: Optional[nn.ModuleDict] = None
+        self.unet_conditioning_builder = UNetInputBuilder(embedding_dim=embedding_dimension, has_time_dim=self.observation_horizon>1)
 
         # U-Net will be lazily initialized on first forward pass
         # (once we know the global conditioning dimension)
-        self._unet: Optional[ConditionalUnet1D] = None
+        self._unet: ConditionalUnet1D | None = None
 
 
-    def _initialize_unet(self, global_conditioning_dimension: int):
+    def _initialize_unet(self, global_conditioning_dimension: int | None=None):
         """Lazily initialize the U-Net once we know the global conditioning dimension.
 
         Args:
-            global_conditioning_dimension: Dimensionality of global conditioning vector
+            global_conditioning_dimension: Dimensionality of optional global conditioning vector
         """
         self._global_conditioning_dimension = global_conditioning_dimension
         self._unet = ConditionalUnet1D(
@@ -133,68 +141,26 @@ class ConditionalUNetDecoder(ActionDecoder):
 
     def _prepare_global_conditioning(
         self, features: dict[str, torch.Tensor]
-    ) -> torch.Tensor:
+    ) -> torch.Tensor | None:
         """Extract and flatten all observation features for global FiLM conditioning.
 
         Args:
             features: Dictionary of encoded features from the encoding pipeline
 
         Returns:
-            Global conditioning tensor of shape (batch_size, global_conditioning_dimension)
+            Global conditioning tensor of shape (batch_size, global_conditioning_dimension) or None if no features.
         
         Note:
             This method creates the U-Net lazily when firstly called.
 
         Raises:
-            ValueError: If spatial features provided, or if feature shapes are invalid
+            ValueError: If spatial features provided, or if feature shapes are invalid.
         """
-        batch_size = None
-        feature_tensors = []
-
-        for key in self.decoder_input.keys:
-            if key == TIMESTEP_KEY:
-                continue
-            if key not in features:
-                raise ValueError(f"Expected feature '{key}' not found in features dict. Available keys: {list(features.keys())}")
-            feature = features[key]
-            if batch_size is None:
-                batch_size = feature.shape[0]
-            if len(feature.shape) == 4:  # Spatial: (B, C, H, W)
-                raise ValueError(
-                    f"Spatial features not supported by ConditionalUNetDecoder. "
-                    f"Feature '{key}' has shape {feature.shape} (4D spatial). "
-                    f"Please use pooling in the encoding pipeline to flatten spatial features "
-                    f"before passing to this decoder."
-                )
-            elif len(feature.shape) == 3:  # Sequential: (B, T, D)
-                # Flatten temporal dimension into feature dimension (Diffusion Policy approach)
-                feature = feature.reshape(batch_size, -1) # (B, T, D) -> (B, T*D)
-            elif len(feature.shape) == 2:  # Flat: (B, D)
-                # Keep as-is - this is the expected format
-                pass
-            elif len(feature.shape) == 1:  # Flat: (B,)
-                # Add feature dimension
-                feature = feature.unsqueeze(-1)
-            else:
-                raise ValueError(
-                    f"Unexpected feature shape for key '{key}': {feature.shape}. "
-                    f"Expected 2D (flat), 3D (sequential), but not 4D (spatial)."
-                )
-
-            feature_tensors.append(feature)
-
-        if not feature_tensors:
-            raise ValueError(
-                "No valid features found for global conditioning. "
-                f"Input keys: {self.decoder_input.keys}, Features: {list(features.keys())}"
-            )
-
-        # Concatenate all features
-        global_conditioning = torch.cat(feature_tensors, dim=-1)  # (B, sum of all dimensions)
-
+        global_conditioning = self.unet_conditioning_builder(features)
         # Lazy initialization of U-Net on first forward pass
         if self._unet is None:
-            self._initialize_unet(global_conditioning.shape[-1])
+            conditioning_dim = global_conditioning.shape[-1] if global_conditioning is not None else None
+            self._initialize_unet(conditioning_dim)
 
         return global_conditioning
 
@@ -232,7 +198,7 @@ class ConditionalUNetDecoder(ActionDecoder):
                 "The algorithm should inject timesteps into features."
             )
 
-        timesteps = features[TIMESTEP_KEY]  # (B,) or (B, 1)
+        timesteps = features.pop(TIMESTEP_KEY)  # (B,) or (B, 1)
         if len(timesteps.shape) == 2:
             timesteps = timesteps.squeeze(-1)
 
@@ -241,12 +207,13 @@ class ConditionalUNetDecoder(ActionDecoder):
         action_tensors = []
         for action_key in sorted(actions.keys()):
             action_tensors.append(actions[action_key])
-        noisy_actions = torch.cat(action_tensors, dim=-1)  # (B, T, action_dimension)
+        noisy_actions = torch.cat(action_tensors, dim=-1)  # (B, T, total_action_dimension)
 
         # Prepare global conditioning
         global_conditioning = self._prepare_global_conditioning(features)  # (B, global_conditioning_dimension)
 
         # Run U-Net denoising
+        assert self._unet is not None, "U-Net should be initialized by now."
         denoised = self._unet(
             noisy_input=noisy_actions,
             timesteps=timesteps,
@@ -261,7 +228,7 @@ class ConditionalUNetDecoder(ActionDecoder):
             head = self.action_heads[action_key]
             end_index = start_index + head.output_dim
             action_slice = denoised[..., start_index:end_index]  # (B, T, action_dimension_i)
-            outputs[action_key] = head(action_slice)
+            outputs[action_key] = action_slice
             start_index = end_index
 
         return outputs

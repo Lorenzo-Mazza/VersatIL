@@ -79,10 +79,10 @@ class IdentityPooling(PoolingHead):
     """No pooling - returns features unchanged."""
 
 
-    def __init__(self, spatial_height: int, spatial_width: int, channels: int):
+    def __init__(self, channels: int):
         super().__init__()
-        self.spatial_height = spatial_height
-        self.spatial_width = spatial_width
+        self.spatial_height = -1 # Unknown at initialization
+        self.spatial_width = -1 # Unknown at initialization
         self.channels = channels
 
 
@@ -137,7 +137,7 @@ def create_pooling_head(
         case PoolingMethod.MAX.value | PoolingMethod.DEFAULT.value:
             return MaxPooling()
         case PoolingMethod.NONE.value:
-            return IdentityPooling(spatial_height, spatial_width, feature_channels)
+            return IdentityPooling(feature_channels)
         case PoolingMethod.LEARNED_AGGREGATION.value:
             return LearnedAggregationPooling(feature_channels)
         case _:

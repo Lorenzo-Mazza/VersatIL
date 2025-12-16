@@ -259,13 +259,14 @@ class DFormerEncoder(Encoder):
                 _, features, depth_map = stage(features, depth_map)
             B, H_final, W_final, C_final = features.shape
 
-        self.pooling_head = create_pooling_head(
+        mock_pooling_head = create_pooling_head(
             pooling_method=self.pooling_method,
-            feature_channels=self.feature_dim,
+            feature_channels=self.embedding_dimension,
             spatial_height=H_final,
             spatial_width=W_final,
         )
-        self.output_dim = self.pooling_head.get_output_dim(self.feature_dim)
+        self.pooling_head = None # Will be created in forward() with correct patch dimensions
+        self.output_dim = mock_pooling_head.get_output_dim(self.embedding_dimension)
 
 
     def _load_checkpoint(self, checkpoint_path: str):
@@ -323,7 +324,15 @@ class DFormerEncoder(Encoder):
             output_features, next_features, depth_map = stage(features, depth_map)
             features = next_features
 
-        final_features = features.permute(0, 3, 1, 2).contiguous()
+        final_features = features.permute(0, 3, 1, 2).contiguous() # (B, C, H_feature_maps, W_feature_maps)
+        _, _, H_feature_maps, W_feature_maps = final_features.shape
+        if self.pooling_head is None:
+            self.pooling_head = create_pooling_head(
+                pooling_method=self.pooling_method,
+                feature_channels=self.embedding_dimension,
+                spatial_height=H_patches,
+                spatial_width=W_patches,
+            ).to(self.device)
         pooled_features = self.pooling_head(final_features)
         if has_time:
             pooled_features = pooled_features.reshape(B, T, *pooled_features.shape[1:])  # Batch, Time, Features

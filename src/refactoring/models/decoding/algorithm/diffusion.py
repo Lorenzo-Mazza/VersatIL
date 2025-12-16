@@ -18,7 +18,7 @@ See diffusion_process.py for detailed documentation of these components.
 
 import torch
 
-from refactoring.data.constants import POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY, GRIPPER_ACTION_KEY
+from refactoring.data.constants import POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY, GRIPPER_ACTION_KEY, IS_PAD_ACTION_KEY
 from refactoring.models.decoding.algorithm.base import DecodingAlgorithm
 from refactoring.models.layers.diffusion_process import (
     DiffusionSchedulerConfig,
@@ -140,7 +140,11 @@ class Diffusion(DecodingAlgorithm):
         # Add noise to all action components using shared diffusion process
         noisy_actions = {}
         noise = {}
+        is_pad = None
         for key, action in actions.items():
+            if key == IS_PAD_ACTION_KEY:
+                is_pad = action
+                continue  # Skip padding mask
             noisy_actions[key], noise[key] = add_noise_to_tensor(
                 clean=action,
                 noise_scheduler=self.noise_scheduler,
@@ -166,6 +170,7 @@ class Diffusion(DecodingAlgorithm):
             **predictions,
             TARGET_DIFFUSION_KEY: target,
             NOISE_KEY: noise,
+            IS_PAD_ACTION_KEY: is_pad,
             TIMESTEP_KEY: timesteps,
         }
 

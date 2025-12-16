@@ -9,7 +9,7 @@ defaults:
   - task/action_space: deltas_cf_pos_gripper
   - task/observation_space: stereo_rgb_proprio_cf
   - training: diffusion_default
-  - policy/encoding_pipeline: stereo_rgb_pooled_proprio_fusion
+  - policy/encoding_pipeline: stereo_rgb_pooled_proprio_cf
   - policy/decoder: conditional_unet
   - policy/algorithm: diffusion
   - policy/loss: mse

@@ -49,23 +49,28 @@ class ConditionalModulation(nn.Module):
 
     def init_parameters(self):
         """Initialize weights based on strategy."""
+        scale_linears = [m for m in self.scale_linear.modules() if isinstance(m, nn.Linear)]
         if self.init_strategy == "identity":
-            nn.init.constant_(self.scale_linear.weight, 0)
-            nn.init.constant_(self.scale_linear.bias, 1)
+            for layer in scale_linears:
+                nn.init.constant_(layer.weight, 0)
+                if layer.bias is not None:
+                    nn.init.constant_(layer.bias, 1)
             if self.use_shift:
                 nn.init.constant_(self.shift_linear.weight, 0)
                 nn.init.constant_(self.shift_linear.bias, 0)
-
         elif self.init_strategy == "xavier":
-            nn.init.xavier_uniform_(self.scale_linear.weight)
-            nn.init.zeros_(self.scale_linear.bias)
+            for layer in scale_linears:
+                nn.init.xavier_uniform_(layer.weight)
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
             if self.use_shift:
                 nn.init.xavier_uniform_(self.shift_linear.weight)
                 nn.init.zeros_(self.shift_linear.bias)
-
         elif self.init_strategy == "zero":
-            nn.init.zeros_(self.scale_linear.weight)
-            nn.init.zeros_(self.scale_linear.bias)
+            for layer in scale_linears:
+                nn.init.zeros_(layer.weight)
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
             if self.use_shift:
                 nn.init.zeros_(self.shift_linear.weight)
                 nn.init.zeros_(self.shift_linear.bias)

@@ -126,7 +126,7 @@ class LightGeometricEncoder(Encoder):
                 feature_channels=self.embedding_dimension,
                 spatial_height=H_patches,
                 spatial_width=W_patches,
-            )
+            ).to(self.device)
 
         pooled_features = self.pooling_head(features)
         if has_time:
