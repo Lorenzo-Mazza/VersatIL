@@ -4,9 +4,9 @@
 import torch
 from torchcfm.conditional_flow_matching import ConditionalFlowMatcher
 
-from refactoring.data.constants import POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY, GRIPPER_ACTION_KEY
+from refactoring.data.constants import POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY, GRIPPER_ACTION_KEY, IS_PAD_ACTION_KEY
 from refactoring.models.decoding.algorithm.base import DecodingAlgorithm
-from refactoring.models.decoding.constants import TIME_KEY, ODESolver, TARGET_VELOCITY_KEY
+from refactoring.models.decoding.constants import ODESolver, TARGET_VELOCITY_KEY, TIMESTEP_KEY, NOISE_KEY
 from refactoring.models.decoding.decoders.base import ActionDecoder
 
 
@@ -78,40 +78,37 @@ class FlowMatching(DecodingAlgorithm):
         """
         if actions is None:
             raise ValueError("Flow Matching algorithm requires actions during training")
-
         # Sample flow for each action component
         interpolated_actions = {}
         target_velocities = {}
-        times = None
-
+        times, noise, is_pad = None, None, None
         for key, action in actions.items():
+            if key == IS_PAD_ACTION_KEY:
+                is_pad = action
+                continue  # Skip padding mask
             # Sample noise from standard normal
-            noise = torch.randn_like(action)
-
+            noise = torch.randn_like(action.float(), device=action.device)
             # Sample time, interpolated state, and target velocity
             t, x_t, u_t = self.flow_matcher.sample_location_and_conditional_flow(
                 x0=noise, x1=action
             )
-
             interpolated_actions[key] = x_t
             target_velocities[key] = u_t
-
             # Times are the same for all action components
             if times is None:
                 times = t
-
         # Add time to features for conditioning
         # Time is in [0, 1] and has shape (batch_size,)
-        features_with_time = {**features, TIME_KEY: times}
-
+        features_with_time = {**features, TIMESTEP_KEY: times}
         # Predict velocity field
         predictions = network(features_with_time, interpolated_actions)
-
         # Return predictions and targets
         return {
             **predictions,
             TARGET_VELOCITY_KEY: target_velocities,
-            TIME_KEY: times,
+            NOISE_KEY: noise,
+            TIMESTEP_KEY: times,
+            IS_PAD_ACTION_KEY: is_pad,
         }
 
     def predict(
@@ -166,7 +163,7 @@ class FlowMatching(DecodingAlgorithm):
             t_tensor = torch.full((batch_size,), t, device=device, dtype=dtype)
 
             # Add time to features for conditioning
-            features_with_time = {**features, TIME_KEY: t_tensor}
+            features_with_time = {**features, TIMESTEP_KEY: t_tensor}
 
             # Compute velocity at current state
             if self.ode_solver == ODESolver.EULER.value:
@@ -192,7 +189,7 @@ class FlowMatching(DecodingAlgorithm):
                 # Compute v_{t+dt}
                 t_next = (step + 1) / self.num_inference_steps
                 t_next_tensor = torch.full((batch_size,), t_next, device=device, dtype=dtype)
-                features_with_time_next = {**features, TIME_KEY: t_next_tensor}
+                features_with_time_next = {**features, TIMESTEP_KEY: t_next_tensor}
                 v_t_next = network(features_with_time_next, trajectory_tentative)
 
                 # Update using average of velocities
@@ -215,7 +212,7 @@ class FlowMatching(DecodingAlgorithm):
 
                 t_mid = t + dt / 2
                 t_mid_tensor = torch.full((batch_size,), t_mid, device=device, dtype=dtype)
-                features_with_time_mid = {**features, TIME_KEY: t_mid_tensor}
+                features_with_time_mid = {**features, TIMESTEP_KEY: t_mid_tensor}
                 k2 = network(features_with_time_mid, trajectory_k2)
 
                 # k3 = v(t + dt/2, action_embedding + dt*k2/2)
@@ -237,7 +234,7 @@ class FlowMatching(DecodingAlgorithm):
 
                 t_next = t + dt
                 t_next_tensor = torch.full((batch_size,), t_next, device=device, dtype=dtype)
-                features_with_time_next = {**features, TIME_KEY: t_next_tensor}
+                features_with_time_next = {**features, TIMESTEP_KEY: t_next_tensor}
                 k4 = network(features_with_time_next, trajectory_k4)
 
                 # Update: x_{t+dt} = x_t + dt * (k1 + 2*k2 + 2*k3 + k4) / 6

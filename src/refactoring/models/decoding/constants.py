@@ -45,14 +45,10 @@ class ODESolver(str, enum.Enum):
 
 
 # Feature keys for time/timestep conditioning
-TIMESTEP_KEY = "timestep"  # For diffusion models (discrete timestep)
+TIMESTEP_KEY = "timestep"  # For diffusion or flow processes (discrete or continuous timestep)
 TARGET_DIFFUSION_KEY = "target_diffusion"  # Target sample (noisy action) for diffusion
 NOISE_KEY = "noise"
-
-
-# Flow Matching keys
 TARGET_VELOCITY_KEY = "target_velocity"  # Target velocity for flow matching
-TIME_KEY = "time"  # For flow matching (continuous time in [0, 1])
 
 #: Mixture of Experts keys
 EXPERT_USAGE = "expert_usage"

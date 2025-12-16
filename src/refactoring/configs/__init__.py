@@ -157,7 +157,7 @@ def register_configs():
     cs.store(group="policy/algorithm", name="base", node=DecodingAlgorithmConfig)
     cs.store(group="policy/algorithm", name="bc", node=BehavioralCloningConfig)
     cs.store(group="policy/algorithm", name="diffusion_process", node=DiffusionConfig)
-    cs.store(group="policy/algorithm", name="flowmatching", node=FlowMatchingConfig)
+    cs.store(group="policy/algorithm", name="flow", node=FlowMatchingConfig)
     cs.store(group="policy/algorithm", name="variational", node=VariationalAlgorithmConfig)
     cs.store(group="policy/algorithm/posterior", name="base", node=PosteriorLatentEncoderConfig)
     cs.store(group="policy/algorithm/prior", name="base", node=PriorLatentEncoderConfig)
