@@ -2,6 +2,7 @@ defaults:
   - base
   - image_augmentations@color_augmentation: color
   - image_augmentations@spatial_augmentation: spatial
+  - tokenization@tokenization: obs_proprio_cam_language
 
 batch_size: 64
 num_workers: 16
