@@ -28,6 +28,14 @@ policy:
   observation_horizon: ${task.observation_horizon}
   device: ${experiment.device}
   validate_loss_keys: true
+  encoding_pipeline:
+    encoders:
+        left:
+            input_keys:
+              - ${cameras:AGENTVIEW}
+        right:
+            input_keys:
+              - ${cameras:EYE_IN_HAND}
   decoder:
     action_heads:
       orientation_action:
