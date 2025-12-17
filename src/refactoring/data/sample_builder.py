@@ -18,6 +18,7 @@ from refactoring.data.augmentation.augmentation_pipeline import AugmentationPipe
 from refactoring.data.constants import (
     ACTION_KEY,
     GRIPPER_ACTION_KEY,
+    GRIPPER_STATE_OBS_KEY,
     IS_PAD_ACTION_KEY,
     LANGUAGE_KEY,
     OBSERVATION_KEY,
@@ -181,10 +182,13 @@ class SampleBuilder:
         sample: dict[str, Any],
         padded_data: dict[str, np.ndarray],
     ) -> None:
-        """Add additional observations to sample, such as language."""
+        """Add additional observations to sample, such as language and gripper state."""
         if self.observation_space.use_language:
             lang_data = padded_data[LANGUAGE_KEY][self.action_backward_shift : self.action_backward_shift + self.obs_horizon]
             sample[OBSERVATION_KEY][LANGUAGE_KEY] = lang_data.tolist()
+        if self.observation_space.use_gripper_state:
+            gripper_data = padded_data[GRIPPER_STATE_OBS_KEY][self.action_backward_shift : self.action_backward_shift + self.obs_horizon]
+            sample[OBSERVATION_KEY][GRIPPER_STATE_OBS_KEY] = torch.from_numpy(gripper_data).float()
         for key in self.observation_space.custom_obs_keys:
             custom_data = padded_data[key][self.action_backward_shift : self.action_backward_shift + self.obs_horizon]
             sample[OBSERVATION_KEY][key] = torch.from_numpy(custom_data).float() # Assuming float type for custom obs
