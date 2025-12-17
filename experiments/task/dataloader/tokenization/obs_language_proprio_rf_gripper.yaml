@@ -1,0 +1,13 @@
+defaults:
+  - base
+
+tokenize_observations: true
+tokenize_actions: false
+observation_tokenizer:
+  tokenizer_model: ${language_model:GEMMA_2B}
+  observation_keys:
+    - ${obs_key:PROPRIO_ROBOT_FRAME}
+    - ${obs_key:GRIPPER_STATE_OBS_KEY}
+    - ${obs_key:LANGUAGE}
+  max_token_len: 64
+  bin_continuous_data: true
