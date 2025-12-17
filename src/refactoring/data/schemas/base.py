@@ -99,7 +99,7 @@ class DatasetSchema(abc.ABC):
             keys.append(GRIPPER_STATE_OBS_KEY)
         if self.has_phase_labels:
             keys.append(PHASE_LABEL_KEY)
-        if self.raw_observations.language_key:
+        if self.raw_observations.has_language:
             keys.append(LANGUAGE_KEY)
         if self.raw_observations.custom_obs_keys:
             keys.extend(self.raw_observations.custom_obs_keys.keys())
@@ -119,7 +119,7 @@ class DatasetSchema(abc.ABC):
         obs = self.raw_observations
 
         if obs.robot_frame_proprio_keys:
-            dim = len(obs.robot_frame_proprio_keys)
+            dim = obs.position_dim + obs.orientation_dim if obs.has_orientation else obs.position_dim
             specs[PROPRIO_OBS_ROBOT_FRAME_KEY] = {
                 'shape': (0, dim),
                 'chunks': (100, dim),
@@ -128,7 +128,7 @@ class DatasetSchema(abc.ABC):
             }
 
         if obs.camera_frame_proprio_keys:
-            dim = len(obs.camera_frame_proprio_keys)
+            dim = obs.position_dim + obs.orientation_dim if obs.has_orientation else obs.position_dim
             specs[PROPRIO_OBS_CAMERA_FRAME_KEY] = {
                 'shape': (0, dim),
                 'chunks': (100, dim),
@@ -137,7 +137,7 @@ class DatasetSchema(abc.ABC):
             }
 
         if obs.gripper_state_keys:
-            dim = len(obs.gripper_state_keys)
+            dim = obs.gripper_dim
             specs[GRIPPER_STATE_OBS_KEY] = {
                 'shape': (0, dim),
                 'chunks': (100, dim),
@@ -153,7 +153,7 @@ class DatasetSchema(abc.ABC):
                 'needs_compressor': True
             }
 
-        if obs.language_key:
+        if obs.has_language:
             specs[LANGUAGE_KEY] = {
                 'shape': (0,),
                 'chunks': (100,),
