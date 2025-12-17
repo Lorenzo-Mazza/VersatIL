@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import LayerNorm
 
-from refactoring.data.constants import Cameras
+from refactoring.data.constants import Cameras, RGB_CAMERAS
 from refactoring.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from refactoring.models.encoding.encoders.constants import (
     EncoderOutputKeys,
@@ -38,7 +38,7 @@ class LightGeometricEncoder(Encoder):
         pretrained: bool = False,
         frozen: bool = False,
     ):
-        specification = EncoderInput(keys=input_keys,required=[Cameras.DEPTH.value], one_of_groups=[[Cameras.LEFT.value, Cameras.RIGHT.value]])
+        specification = EncoderInput(keys=input_keys,required=[Cameras.DEPTH.value], one_of_groups=[RGB_CAMERAS])
         super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
         if pretrained:
             logging.warning("LightGeometricEncoder does not support pretrained weights. Continuing with random initialization.")

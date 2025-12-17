@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from refactoring.data.constants import Cameras
+from refactoring.data.constants import Cameras, RGB_CAMERAS
 from refactoring.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from refactoring.models.encoding.encoders.constants import (
     EncoderOutputKeys,
@@ -175,7 +175,7 @@ class DFormerEncoder(Encoder):
             frozen: Whether to freeze encoder weights
             checkpoint_path: Path to checkpoint for loading weights
         """
-        specification = EncoderInput(keys=input_keys,required=[Cameras.DEPTH.value], one_of_groups=[[Cameras.LEFT.value, Cameras.RIGHT.value]])
+        specification = EncoderInput(keys=input_keys,required=[Cameras.DEPTH.value], one_of_groups=[RGB_CAMERAS])
         super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
         if variant not in self.VARIANT_CONFIGS:
             raise ValueError(

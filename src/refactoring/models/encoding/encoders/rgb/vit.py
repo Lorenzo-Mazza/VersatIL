@@ -17,7 +17,6 @@ from refactoring.models.layers import LearnedAggregation
 
 
 class ViTEncoder(Encoder):
-    ONE_OF_GROUPS = [[Cameras.LEFT.value, Cameras.RIGHT.value]]
     def __init__(
             self,
             input_keys: str | list[str],
