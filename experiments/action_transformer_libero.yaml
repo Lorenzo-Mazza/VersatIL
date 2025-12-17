@@ -4,7 +4,7 @@ defaults:
   - task: base
   - policy: base
   - experiment: bowel_retraction_act
-  - task/dataset_schema: libero_10
+  - task/dataset_schema: libero_object
   - task/dataloader: libero_default
   - task/action_space: libero_precomputed
   - task/observation_space: libero_rgb
