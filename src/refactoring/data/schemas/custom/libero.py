@@ -38,6 +38,7 @@ class LiberoSchema(Hdf5DatasetSchema):
             hdf5_paths: list[str],
             zarr_path: str,
             raw_observation_config: RawObservationsConfig | None = None,
+            extract_language_from_filename: bool = True
     ):
         """Initialize the LIBERO schema.
 
@@ -45,6 +46,7 @@ class LiberoSchema(Hdf5DatasetSchema):
             hdf5_paths: List of paths to LIBERO HDF5 files. Each file is a separate task.
             zarr_path: Path to save/load the zarr file
             raw_observation_config: Configuration for raw observations. If None, uses defaults.
+            extract_language_from_filename: Whether to use as language instruction the task file name.
         """
         if raw_observation_config is None:
             raw_observation_config = RawObservationsConfig(
@@ -55,6 +57,7 @@ class LiberoSchema(Hdf5DatasetSchema):
                 use_rectified_images=False,
                 image_width=128,
                 image_height=128,
+                has_language=extract_language_from_filename,
                 has_position=True,
                 position_dim=3,
                 has_orientation=True,
@@ -73,7 +76,7 @@ class LiberoSchema(Hdf5DatasetSchema):
             has_phase_labels=False,
             obs_group_path="obs",
             actions_key="actions",
-            extract_language_from_filename=True,
+            extract_language_from_filename=extract_language_from_filename,
         )
 
     def get_demo_names(self, hdf5_path: str) -> list[str]:

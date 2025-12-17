@@ -19,6 +19,8 @@ class RawObservationsConfig:
     image_height: int | None = None
     # Language instruction key (for language-conditioned datasets)
     language_key: str | None = None
+    # Whether the dataset provides language (either via language_key or extracted from filename)
+    has_language: bool = False
     # Custom observation modalities (name -> list of column names).
     # NB: These are assumed to be float values.
     custom_obs_keys: dict[str, list[str]] = field(default_factory=dict)

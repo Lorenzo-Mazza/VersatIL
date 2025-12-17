@@ -179,7 +179,7 @@ class ConfigValidator:
                 missing_keys.append(PROPRIO_OBS_ROBOT_FRAME_KEY)
         if (action_space.has_gripper or obs_space.use_gripper_state) and not raw_obs.gripper_state_keys:
             missing_keys.append(GRIPPER_STATE_OBS_KEY)
-        if obs_space.use_language and not raw_obs.language_key:
+        if obs_space.use_language and not raw_obs.has_language:
             missing_keys.append(LANGUAGE_KEY)
         if action_space.task_has_phases and not schema.has_phase_labels:
             missing_keys.append(PHASE_LABEL_KEY)
