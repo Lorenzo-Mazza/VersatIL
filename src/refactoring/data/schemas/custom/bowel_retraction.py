@@ -72,6 +72,7 @@ class BowelRetractionSchema(CsvDatasetSchema):
                 gripper_state_keys=[BOWEL_RETRACTION_GRIPPER_COL],
                 camera_keys=[Cameras.LEFT.value, Cameras.RIGHT.value, Cameras.DEPTH.value],
                 language_key=BOWEL_RETRACTION_LANGUAGE_KEY,
+                has_language=True,
                 use_rectified_images=True,
                 image_width=480,
                 image_height=270,
