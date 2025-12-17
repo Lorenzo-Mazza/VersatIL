@@ -5,7 +5,7 @@ from transformers.models.timm_wrapper.modeling_timm_wrapper import (
     TimmWrapperModelOutput,
 )
 
-from refactoring.data.constants import Cameras, RGB_CAMERAS
+from refactoring.data.constants import RGB_CAMERAS
 from refactoring.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from refactoring.models.encoding.encoders.constants import (
     EncoderOutputKeys,
