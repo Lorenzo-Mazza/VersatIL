@@ -22,7 +22,7 @@ class Cameras(enum.Enum):
 
 
 VALID_CAMERAS = [cam.value for cam in Cameras]
-
+RGB_CAMERAS = [Cameras.LEFT.value, Cameras.RIGHT.value, Cameras.AGENTVIEW.value, Cameras.EYE_IN_HAND.value]
 
 class ProprioKey(str, enum.Enum):
     """Enum for proprioceptive observation keys."""

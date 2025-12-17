@@ -3,7 +3,7 @@ import torch
 from transformers import TimmBackbone, TimmBackboneConfig
 from transformers.modeling_outputs import BackboneOutput
 
-from refactoring.data.constants import Cameras
+from refactoring.data.constants import Cameras, RGB_CAMERAS
 from refactoring.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from refactoring.models.encoding.encoders.constants import (
     EncoderOutputKeys,
@@ -26,7 +26,7 @@ class CNNEncoder(Encoder):
             pretrained: bool = False,
             frozen: bool = False,
     ):
-        specification = EncoderInput(keys=input_keys,one_of_groups=[[Cameras.LEFT.value, Cameras.RIGHT.value]])
+        specification = EncoderInput(keys=input_keys,one_of_groups=[RGB_CAMERAS])
         super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
         # Validate backbone type at instantiation
         if backbone not in [e.value for e in RGBBackboneType]:

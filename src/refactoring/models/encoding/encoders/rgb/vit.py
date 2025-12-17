@@ -5,7 +5,7 @@ from transformers.models.timm_wrapper.modeling_timm_wrapper import (
     TimmWrapperModelOutput,
 )
 
-from refactoring.data.constants import Cameras
+from refactoring.data.constants import Cameras, RGB_CAMERAS
 from refactoring.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from refactoring.models.encoding.encoders.constants import (
     EncoderOutputKeys,
@@ -27,7 +27,7 @@ class ViTEncoder(Encoder):
             backbone: str = RGBBackboneType.DINOV2_VITB14.value,
     ):
         """Vision Transformer (ViT) encoder using Transformers library and TIMM."""
-        specification = EncoderInput(keys=input_keys,one_of_groups=[[Cameras.LEFT.value, Cameras.RIGHT.value]])
+        specification = EncoderInput(keys=input_keys,one_of_groups=[RGB_CAMERAS])
         super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
         if backbone not in [e.value for e in RGBBackboneType]:
             valid_backbones = [e.value for e in RGBBackboneType if not any(

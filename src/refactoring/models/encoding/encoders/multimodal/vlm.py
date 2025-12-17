@@ -4,7 +4,7 @@ import torch
 from transformers import AutoModel, AutoConfig, AutoImageProcessor
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 
-from refactoring.data.constants import TOKENIZED_OBSERVATIONS_KEY, Cameras, IS_PAD_OBSERVATION_KEY
+from refactoring.data.constants import TOKENIZED_OBSERVATIONS_KEY, Cameras, IS_PAD_OBSERVATION_KEY, RGB_CAMERAS
 from refactoring.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from refactoring.models.encoding.encoders.constants import (
     AttentionImplementation,
@@ -27,7 +27,7 @@ class VLMEncoder(Encoder):
             model_name: str = ImageTextModelType.CLIP_VITB32,
             attention_type: str = AttentionImplementation.SDPA.value,
     ):
-        specification = EncoderInput(keys=input_keys, one_of_groups=[[Cameras.LEFT.value, Cameras.RIGHT.value]],
+        specification = EncoderInput(keys=input_keys, one_of_groups=[[RGB_CAMERAS]],
                                      required=[TOKENIZED_OBSERVATIONS_KEY], requires_tokenized=True)
         super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
         self.camera_key = next(key for key in self.input_specification.keys if key in self.input_specification.one_of_groups[0])

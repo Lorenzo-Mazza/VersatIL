@@ -4,7 +4,7 @@ import timm
 import torch
 import torch.nn as nn
 
-from refactoring.data.constants import Cameras
+from refactoring.data.constants import Cameras, RGB_CAMERAS
 from refactoring.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from refactoring.models.encoding.encoders.conditional import ConditionalEncoder
 from refactoring.models.encoding.encoders.constants import (
@@ -40,7 +40,7 @@ class ConditionalCNNEncoder(ConditionalEncoder):
             pretrained: bool = False,
             frozen: bool = False,
     ):
-        specification = EncoderInput(keys=input_keys,one_of_groups=[[Cameras.LEFT.value, Cameras.RIGHT.value]],
+        specification = EncoderInput(keys=input_keys,one_of_groups=[RGB_CAMERAS],
                                      conditioning_key=condition_key)
         super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
         self.condition_key = condition_key
