@@ -9,8 +9,8 @@ defaults:
   - task/action_space: libero_precomputed
   - task/observation_space: libero_rgb
   - training: act_default
-  - policy/encoding_pipeline: stereo_rgb
-  - policy/decoder: action_transformer
+  - policy/encoding_pipeline: stereo_rgb_token_embedder
+  - policy/decoder: action_transformer_lang
   - policy/algorithm: bc_with_learned_prior
   - policy/loss: mmd_act
   - inference: act_default
