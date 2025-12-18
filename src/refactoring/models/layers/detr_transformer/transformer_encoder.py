@@ -21,7 +21,6 @@ class TransformerEncoderLayer(nn.Module):
         self.normalize_before = normalize_before
         self.self_attention = FlashAttention(embedding_dimension=embedding_dimension,
                                         number_of_heads=number_of_heads, dropout=dropout)
-        self.feedforward_linear1 = nn.Linear(embedding_dimension, feedforward_dimension)
         self.feedforward_dropout = nn.Dropout(dropout)
         self.feedforward_linear2 = nn.Linear(feedforward_dimension, embedding_dimension)
         self.normalization1 = nn.LayerNorm(embedding_dimension)
@@ -38,6 +37,7 @@ class TransformerEncoderLayer(nn.Module):
             )
         else:
             self.activation = ActivationFunction(activation).to_torch_activation()()
+            self.feedforward_linear1 = nn.Linear(embedding_dimension, feedforward_dimension)
             self.feedforward_network = nn.Sequential(
                 self.feedforward_linear1,
                 self.activation,
