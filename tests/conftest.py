@@ -1042,7 +1042,7 @@ def minimal_yaml_config_factory():
                 "prediction_horizon": 4,
                 "dataloader": {"batch_size": 2, "image_height": 4, "image_width": 4},
                 "dataset_schema": {
-                    "_target_": "refactoring.data.schemas.bowel_retraction.BowelRetractionSchema",
+                    "_target_": "refactoring.data.schemas.custom.bowel_retraction.BowelRetractionSchema",
                     "dataset_folders": [],
                     "zarr_path": ""
                 }

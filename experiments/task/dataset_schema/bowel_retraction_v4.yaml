@@ -1,4 +1,4 @@
-_target_: refactoring.data.schemas.bowel_retraction.BowelRetractionSchema
+_target_: refactoring.data.schemas.custom.bowel_retraction.BowelRetractionSchema
 zarr_path: /mnt/cluster/datasets/bowel_retraction/v4/dataset.zarr
 dataset_folders: ["/mnt/cluster/datasets/bowel_retraction/v1", "/mnt/cluster/datasets/bowel_retraction/v2",
 "/mnt/cluster/datasets/bowel_retraction/ex_vivo","/mnt/cluster/datasets/bowel_retraction/ex_vivo2","/mnt/cluster/datasets/bowel_retraction/multi_camera_exp",
