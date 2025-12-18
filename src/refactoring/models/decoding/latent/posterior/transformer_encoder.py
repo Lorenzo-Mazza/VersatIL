@@ -169,7 +169,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             input_observations[IS_PAD_ACTION_KEY] = is_pad
         cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(batch_size, 1, 1) # (B, 1, emb_dim)
         input_observations[CLASS_TOKEN_KEY] = cls_embedding
-        input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(input_observations) # (B, seq_len, embedding_dimension)
+        input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(input_observations) # (B, seq_len, embedding_dimension), CLS token at the end
         encoder_output = self.transformer_encoder(
             input_tokens,
             positional_encoding=pos_encodings,

@@ -16,6 +16,7 @@ from torch import nn as nn
 from refactoring.data.constants import IS_PAD_ACTION_KEY, ACTION_KEY
 from refactoring.models.decoding.constants import CLASS_TOKEN_KEY
 from refactoring.models.encoding.encoders.constants import EncoderOutputKeys
+from refactoring.models.layers.dynamic_feature_embedding import DynamicFeatureEmbedding
 from refactoring.models.layers.feature_projection import FeatureProjection
 from refactoring.models.layers.positional_encoding.base import PositionalEncoding2D, PositionalEncoding1D
 
@@ -68,7 +69,21 @@ class TransformerInputBuilder(nn.Module):
             spatial_positional_encoding_layer: PositionalEncoding2D | None = None,
             flat_positional_encoding_layer: PositionalEncoding1D | None = None,
             temporal_positional_encoding_layer: PositionalEncoding1D | None = None,
+            use_camera_embeddings: bool = True
     ):
+        """Initialize TransformerInputBuilder.
+
+        Args:
+            embedding_dim: Common embedding dimension for all features.
+            has_time_dim: Whether input features include a time dimension.
+            spatial_positional_encoding_layer: Optional 2D positional encoding layer for spatial features.
+            flat_positional_encoding_layer: Optional 1D positional encoding layer for flat/sequential features.
+            temporal_positional_encoding_layer: Optional 1D positional encoding layer for temporal dimension.
+            use_camera_embeddings: Whether to use camera embeddings for multi-camera 2D PE, so that each camera
+                view can be distinguished in the transformer input.
+        Raises:
+            ValueError: If provided positional encoding layers do not match expected types or dimensions.
+        """
         super().__init__()
         self.embedding_dim = embedding_dim
         self.projection = FeatureProjection(embedding_dim, has_time_dim=has_time_dim)
@@ -91,6 +106,7 @@ class TransformerInputBuilder(nn.Module):
         self.temporal_positional_encoding_layer = temporal_positional_encoding_layer
         self.has_time_dim = has_time_dim
         self.flat_positional_encoding_layer = flat_positional_encoding_layer
+        self.camera_embeddings = DynamicFeatureEmbedding(embedding_dim) if use_camera_embeddings else None
 
 
     def forward(self, features: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor | None,
@@ -191,6 +207,8 @@ class TransformerInputBuilder(nn.Module):
                     pe = pe_flat.repeat(1, T, 1) if self.has_time_dim else pe_flat  # (1, T*H*W, Emb) or (1, H*W, Emb)
 
                 pe = pe.repeat(B, 1, 1) # (B, seq_len, Emb)
+                if self.camera_embeddings is not None:
+                    pe = pe + self.camera_embeddings(name, x.device)  # extract camera embeddings with correct key and add to PE
                 spatial_positional_encodings.append(pe)
 
 

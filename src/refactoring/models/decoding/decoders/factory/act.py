@@ -158,7 +158,7 @@ class ACT(ActionDecoder):
             source_positional_encoding=positional_encodings,
             source_key_padding_mask=padding_mask,
             target_positional_encoding=query_positional_encoding
-        )[0]  # (B, pred_horizon, embedding_dimension)  type: ignore[no-any-return]
+        )[-1]  # (B, pred_horizon, embedding_dimension)  type: ignore[no-any-return]
 
 
     def _apply_action_heads(self, action_embeddings: torch.Tensor) -> dict[str, torch.Tensor]:

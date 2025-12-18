@@ -240,7 +240,7 @@ class FASTDETRDecoder(ActionDecoder):
             source_positional_encoding=positional_encodings,
             source_key_padding_mask=padding_mask,
             target_positional_encoding=query_positional_encoding
-        )[0]  # (B, max_seq_len, embedding_dimension)  type: ignore[no-any-return]
+        )[-1]  # (B, max_seq_len, embedding_dimension)  type: ignore[no-any-return]
 
 
 
