@@ -688,7 +688,7 @@ class PhaseClassificationLoss(BaseLoss):
         self,
         cross_entropy_weight: float = 0.1,
         entropy_weight: float = 0.01,
-        label_smoothing: float = 0.0,
+        label_smoothing: float = 0.2,
     ):
         """Initialize phase classification loss.
 
@@ -778,7 +778,7 @@ class ActionTokenLoss(BaseLoss):
 
     def __init__(
         self,
-        label_smoothing: float = 0.0,
+        label_smoothing: float = 0.2,
     ):
         """Initialize action token loss.
 
@@ -1141,7 +1141,7 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
 class MoELoss(BaseLoss):
     """Wrapper for any BaseLoss to add MoE expert usage metric from routing weights."""
 
-    def __init__(self, base_loss: BaseLoss, entropy_weight: float = 0.0,):
+    def __init__(self, base_loss: BaseLoss, entropy_weight: float = 0.01,):
         """Initialize MoE wrapper.
 
         Args:
@@ -1183,7 +1183,9 @@ class MoELoss(BaseLoss):
                 # if we have B only (when the experts are not chunk-dependent)
                 entropy_mean = entropy.mean()
             component_losses[f'{MetricKey.EXPERTS_ENTROPY.value}'] = entropy_mean
-            entropy_loss = - self.entropy_weight * entropy_mean  # negative to maximize
+            # We want to maximize the entropy of the expert usage distribution
+            # Entropy is always positive, so we subtract it to the loss to maximize it.
+            entropy_loss = - self.entropy_weight * entropy_mean
         expert_usage = pi.mean(dim=list(range(pi.ndim - 1)))  # Mean over all but last dim, which is num_experts
         metadata[MetadataKey.EXPERT_USAGE.value] = expert_usage
         return LossOutput(

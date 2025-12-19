@@ -38,8 +38,8 @@ loss_modules:
 
         phase_classification_loss:
           cross_entropy_weight: 0.1
-          entropy_weight: 0.01
-          label_smoothing: 0.0
+          entropy_weight: 0.1
+          label_smoothing: 0.2
 
 
 

@@ -341,12 +341,12 @@ class NormalizerBuilder:
         if POSITION_ACTION_KEY in normalizer.params_dict:
             stats = normalizer[POSITION_ACTION_KEY].get_input_stats()
             logging.info(
-                f"Position kinematics stats - "
+                f"Position action stats before normalization - "
                 f"min: {tensor_to_str(stats['min'])}, max: {tensor_to_str(stats['max'])}, "
                 f"mean: {tensor_to_str(stats['mean'])}, std: {tensor_to_str(stats['std'])}"
             )
             logging.info(
-                f"Normalized position kinematics stats - "
+                f"Normalized position action stats after normalization - "
                 f"mean: {normalizer[POSITION_ACTION_KEY].normalize(proprio_data[POSITION_ACTION_KEY]).mean()}, "
                 f"std: {normalizer[POSITION_ACTION_KEY].normalize(proprio_data[POSITION_ACTION_KEY]).std()},"
                 f"min:  {normalizer[POSITION_ACTION_KEY].normalize(proprio_data[POSITION_ACTION_KEY]).min()}, "
