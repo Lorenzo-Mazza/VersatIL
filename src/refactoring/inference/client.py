@@ -424,7 +424,7 @@ class InferenceClient(AbstractModelClient):
         averaged = {}
         self.all_time_position_actions[
             [self.timestep], self.timestep : self.timestep + self.prediction_horizon
-        ] = self.current_all_position_actions
+        ] = self.current_all_position_actions.float()
         self.all_time_populated_mask[
             [self.timestep], self.timestep : self.timestep + self.prediction_horizon
         ] = True
@@ -436,33 +436,34 @@ class InferenceClient(AbstractModelClient):
             indices = indices[::-1]  # Newest first
         exp_weights = np.exp(-self.exponential_decay * indices)
         exp_weights = exp_weights / exp_weights.sum()
-        exp_weights_t = torch.from_numpy(exp_weights).to(self.device).unsqueeze(dim=1)
+        exp_weights_t = torch.from_numpy(exp_weights).to(self.device).float().unsqueeze(dim=1)
         averaged_pos = (actions_for_curr_step_pos * exp_weights_t).sum(dim=0)
         averaged[POSITION_ACTION_KEY] = averaged_pos
 
         if self.has_orientation:
-            self.all_time_orientations[[self.timestep], self.timestep: self.timestep + self.prediction_horizon] = self.current_all_orientations
+            self.all_time_orientations[[self.timestep], self.timestep: self.timestep + self.prediction_horizon
+            ] = self.current_all_orientations.float()
             actions_for_curr_step_ori = self.all_time_orientations[:, self.timestep][actions_populated]
             indices = np.arange(len(actions_for_curr_step_ori))
             if self.favor_more_recent:
                 indices = indices[::-1]
             exp_weights = np.exp(-self.exponential_decay * indices)
             exp_weights = exp_weights / exp_weights.sum()
-            exp_weights_t = torch.from_numpy(exp_weights).to(self.device).unsqueeze(dim=1)
+            exp_weights_t = torch.from_numpy(exp_weights).to(self.device).float().unsqueeze(dim=1)
             averaged_ori = (actions_for_curr_step_ori * exp_weights_t).sum(dim=0)
             averaged[ORIENTATION_ACTION_KEY] = averaged_ori
 
         if self.policy.action_space.has_gripper:
             self.all_time_grippers[
             [self.timestep], self.timestep: self.timestep + self.prediction_horizon
-            ] = self.current_all_grippers
+            ] = self.current_all_grippers.float()
             actions_for_curr_step_grip = self.all_time_grippers[:, self.timestep][actions_populated]
             indices = np.arange(len(actions_for_curr_step_grip))
             if self.favor_more_recent:
                 indices = indices[::-1]
             exp_weights = np.exp(-self.exponential_decay * indices)
             exp_weights = exp_weights / exp_weights.sum()
-            exp_weights_t = torch.from_numpy(exp_weights).to(self.device).unsqueeze(dim=1)
+            exp_weights_t = torch.from_numpy(exp_weights).to(self.device).float().unsqueeze(dim=1)
             averaged_grip = (actions_for_curr_step_grip * exp_weights_t).sum(dim=0)
             averaged[GRIPPER_ACTION_KEY] = averaged_grip
 
@@ -482,7 +483,7 @@ class InferenceClient(AbstractModelClient):
         Converts absolute predictions to deltas, then applies norm-based denoising
         to filter out noisy small-magnitude deltas.
         """
-        position_action = raw_position_tensor.cpu().detach().numpy()[:3]
+        position_action = raw_position_tensor.cpu().detach().float().numpy()[:3]
         if not self.predicts_delta:
             position_action = position_action - current_robot_position
 
@@ -492,7 +493,7 @@ class InferenceClient(AbstractModelClient):
                 position_action = np.zeros_like(position_action)
 
         if raw_gripper_tensor is not None:
-            raw_gripper_action = raw_gripper_tensor.cpu().detach().numpy()
+            raw_gripper_action = raw_gripper_tensor.cpu().detach().float().numpy()
             if self.gripper_type == GripperType.BINARY.value:
                 gripper_action = raw_gripper_action > 0.5
             else:
@@ -502,7 +503,7 @@ class InferenceClient(AbstractModelClient):
 
         if self.has_orientation:
             assert raw_orientation_tensor is not None
-            orientation_action = raw_orientation_tensor.cpu().detach().numpy()
+            orientation_action = raw_orientation_tensor.cpu().detach().float().numpy()
             # TODO: Here we only handle 3D position + roll (1D orientation). Extend for other representations in the future.
             assert self.orientation_dim == 1
             assert self.has_position
