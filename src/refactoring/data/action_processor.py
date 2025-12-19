@@ -477,18 +477,18 @@ class ActionProcessor:
             raise ValueError(f"Unsupported orientation representation: {ori_repr}")
 
 
-    def plot_action_delta_distribution(self, output_path: str) -> None:
+    def plot_action_delta_distribution(self) -> plt.Figure | None:
         """Plot position and orientation delta distributions before/after denoising.
 
-        Args:
-            output_path: Path to save the plot.
+        Returns:
+            The matplotlib figure, or None if no data available.
         """
-        has_pos = self._position_norms is not None
-        has_ori = self._orientation_angles is not None
+        has_pos = self._position_norms is not None and len(self._position_norms) > 0
+        has_ori = self._orientation_angles is not None and len(self._orientation_angles) > 0
 
         if not has_pos and not has_ori:
             logging.warning("No denoising data available to plot")
-            return
+            return None
 
         sns.set_theme(style="whitegrid", palette="muted")
         num_plots = int(has_pos) + int(has_ori)
@@ -516,7 +516,7 @@ class ActionProcessor:
 
             ax.set_xlabel("log10(Position Delta Norm)", fontsize=11)
             ax.set_ylabel("Count", fontsize=11)
-            ax.set_title("Position Delta Distribution", fontsize=13, fontweight="bold")
+            ax.set_title("Position Action Deltas Distribution", fontsize=13, fontweight="bold")
             ax.legend(frameon=True, fancybox=True)
             plot_idx += 1
 
@@ -542,7 +542,5 @@ class ActionProcessor:
             ax.legend(frameon=True, fancybox=True)
 
         plt.tight_layout()
-        plt.savefig(output_path, dpi=150, bbox_inches="tight", facecolor="white")
-        plt.close()
         sns.reset_defaults()
-        logging.info(f"Saved denoising distribution plot to {output_path}")
+        return fig

@@ -5,9 +5,11 @@ import logging
 import os
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
 import torch
+import wandb
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import OmegaConf, DictConfig
 from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint, StochasticWeightAveraging
@@ -170,8 +172,14 @@ class Workspace:
         logging.info(f"Train dataset size: {len(self.train_loader.dataset)} samples")
         logging.info(f"Val dataset size: {len(self.val_loader.dataset)} samples")
         action_processor = self.train_loader.dataset.action_processor
-        plot_path = self.output_dir / "action_deltas_distribution.png"
-        action_processor.plot_action_delta_distribution(str(plot_path))
+        fig = action_processor.plot_action_delta_distribution()
+        if fig is not None:
+            plot_path = self.output_dir / "action_deltas_distribution.png"
+            fig.savefig(plot_path, dpi=150, bbox_inches="tight", facecolor="white")
+            logging.info(f"Saved action delta distribution plot to {plot_path}")
+            if self.logger is not None:
+                self.logger.experiment.log({"action_delta_distribution": wandb.Image(fig)})
+            plt.close(fig)
         self.position_delta_threshold = action_processor.action_denoising_threshold
         self.orientation_delta_threshold = action_processor.orientation_denoising_threshold
 
