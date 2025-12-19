@@ -694,7 +694,7 @@ class PhaseClassificationLoss(BaseLoss):
 
         Args:
             cross_entropy_weight: Weight for cross-entropy loss
-            entropy_weight: Weight for entropy regularization (negative encourages sparsity)
+            entropy_weight: Weight for entropy regularization (Entropy maximization avoids experts collapse)
             label_smoothing: Label smoothing factor for cross-entropy
         """
         super().__init__()
@@ -759,7 +759,9 @@ class PhaseClassificationLoss(BaseLoss):
                 entropy, is_pad, reduction="mean"
             )
             component_losses[MetricKey.PHASE_ENTROPY.value] = entropy_reduced
-            total_loss = total_loss + self.entropy_weight * entropy_reduced
+            # Entropy is always positive
+            # We want to maximize entropy so we need to subtract it from the loss.
+            total_loss = total_loss - self.entropy_weight * entropy_reduced
 
         metadata = {
             MetadataKey.PHASE_LOGITS.value: pred_logits.detach(),
@@ -1141,7 +1143,7 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
 class MoELoss(BaseLoss):
     """Wrapper for any BaseLoss to add MoE expert usage metric from routing weights."""
 
-    def __init__(self, base_loss: BaseLoss, entropy_weight: float = 0.01,):
+    def __init__(self, base_loss: BaseLoss, entropy_weight: float = 0.0,):
         """Initialize MoE wrapper.
 
         Args:
