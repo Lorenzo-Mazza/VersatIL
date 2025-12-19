@@ -12,20 +12,23 @@ from refactoring.data.constants import KinematicsNormalizationType
 
 
 class LinearNormalizer(DictOfTensorMixin):
-    avaliable_modes = [KinematicsNormalizationType.MIN_MAX.value, KinematicsNormalizationType.GAUSSIAN.value]
+    avaliable_modes = [KinematicsNormalizationType.MIN_MAX.value, KinematicsNormalizationType.GAUSSIAN.value, KinematicsNormalizationType.DEMEAN.value]
 
 
     @torch.no_grad()
     def fit(self,
             data: dict | torch.Tensor | np.ndarray,
-            last_n_dims = 1,
-            dtype = torch.float32,
-            mode = KinematicsNormalizationType.MIN_MAX.value,
-            output_max = 1.,
-            output_min = -1.,
-            range_eps = 1e-4,
-            fit_offset = True,
-            device=None):
+            last_n_dims: int = 1,
+            dtype: torch.dtype = torch.float32,
+            mode: str = KinematicsNormalizationType.MIN_MAX.value,
+            output_max: float = 1.,
+            output_min: float = -1.,
+            range_eps: float = 1e-4,
+            fit_offset: bool = True,
+            device: torch.device | str | None = None,
+            clamp_range: bool = True,
+            min_std: float = 2e-2,
+            min_range: float = 4e-2):
         if isinstance(data, dict):
             for key, value in data.items():
                 self.params_dict[key] = _fit(value,
@@ -36,7 +39,10 @@ class LinearNormalizer(DictOfTensorMixin):
                                              output_min=output_min,
                                              range_eps=range_eps,
                                              fit_offset=fit_offset,
-                                             device=device)
+                                             device=device,
+                                             clamp_range=clamp_range,
+                                             min_std=min_std,
+                                             min_range=min_range)
         else:
             self.params_dict['_default'] = _fit(data,
                                                 last_n_dims=last_n_dims,
@@ -46,7 +52,10 @@ class LinearNormalizer(DictOfTensorMixin):
                                                 output_min=output_min,
                                                 range_eps=range_eps,
                                                 fit_offset=fit_offset,
-                                                device=device            )
+                                                device=device,
+                                                clamp_range=clamp_range,
+                                                min_std=min_std,
+                                                min_range=min_range)
 
 
     def __call__(self, x: dict | torch.Tensor | np.ndarray) -> dict | torch.Tensor:
@@ -177,20 +186,23 @@ class LinearNormalizer(DictOfTensorMixin):
 
 
 class SingleFieldLinearNormalizer(DictOfTensorMixin):
-    avaliable_modes = [KinematicsNormalizationType.MIN_MAX.value, KinematicsNormalizationType.GAUSSIAN.value]
+    avaliable_modes = [KinematicsNormalizationType.MIN_MAX.value, KinematicsNormalizationType.GAUSSIAN.value, KinematicsNormalizationType.DEMEAN.value]
 
 
     @torch.no_grad()
     def fit(self,
             data: torch.Tensor | np.ndarray,
-            last_n_dims = 1,
-            dtype = torch.float32,
-            mode = KinematicsNormalizationType.MIN_MAX.value,
-            output_max = 1.,
-            output_min = -1.,
-            range_eps = 1e-10,
-            fit_offset = True,
-            device='cpu'):
+            last_n_dims: int = 1,
+            dtype: torch.dtype = torch.float32,
+            mode: str = KinematicsNormalizationType.MIN_MAX.value,
+            output_max: float = 1.,
+            output_min: float = -1.,
+            range_eps: float = 1e-10,
+            fit_offset: bool = True,
+            device: torch.device | str | None = 'cpu',
+            clamp_range: bool = True,
+            min_std: float = 2e-2,
+            min_range: float = 4e-2):
         self.params_dict = _fit(data,
                                 last_n_dims=last_n_dims,
                                 dtype=dtype,
@@ -199,7 +211,10 @@ class SingleFieldLinearNormalizer(DictOfTensorMixin):
                                 output_min=output_min,
                                 range_eps=range_eps,
                                 fit_offset=fit_offset,
-                                device=device)
+                                device=device,
+                                clamp_range=clamp_range,
+                                min_std=min_std,
+                                min_range=min_range)
 
 
 
@@ -281,16 +296,38 @@ class SingleFieldLinearNormalizer(DictOfTensorMixin):
 
 
 def _fit(data: torch.Tensor | np.ndarray,
-         last_n_dims = 1,
-         dtype = torch.float32,
-         mode = KinematicsNormalizationType.MIN_MAX.value,
-         output_max = 1.,
-         output_min = -1.,
-         range_eps = 1e-10,
-         fit_offset = True,
-         device = None):  # Add device parameter
+         last_n_dims: int = 1,
+         dtype: torch.dtype = torch.float32,
+         mode: str = KinematicsNormalizationType.MIN_MAX.value,
+         output_max: float = 1.,
+         output_min: float = -1.,
+         range_eps: float = 1e-10,
+         fit_offset: bool = True,
+         device: torch.device | str | None = None,
+         clamp_range: bool = True,
+         min_std: float = 2e-2,
+         min_range: float = 4e-2):
+    """Fit normalization parameters to data.
 
-    assert mode in [KinematicsNormalizationType.MIN_MAX.value, KinematicsNormalizationType.GAUSSIAN.value]
+    Args:
+        data: Input data to fit normalization on.
+        last_n_dims: Number of trailing dimensions to treat as features.
+        dtype: Data type for the normalizer parameters.
+        mode: Normalization mode ('min_max', 'gaussian', or 'demean').
+        output_max: Maximum output value for min_max mode.
+        output_min: Minimum output value for min_max mode.
+        range_eps: Epsilon for detecting constant dimensions.
+        fit_offset: Whether to fit an offset (centering).
+        device: Device to place parameters on.
+        clamp_range: Whether to clamp std/range to minimum values. Useful for
+            datasets with very small action deltas.
+        min_std: Minimum std value when clamp_range=True and mode='gaussian'.
+        min_range: Minimum range value when clamp_range=True and mode='min_max'.
+
+    Returns:
+        ParameterDict with scale, offset, and input_stats.
+    """
+    assert mode in [KinematicsNormalizationType.MIN_MAX.value, KinematicsNormalizationType.GAUSSIAN.value, KinematicsNormalizationType.DEMEAN.value]
 
     assert last_n_dims >= 0
     assert output_max > output_min
@@ -315,8 +352,6 @@ def _fit(data: torch.Tensor | np.ndarray,
     input_max, _ = tensor_data.max(dim=0)
     input_mean = tensor_data.mean(dim=0)
     input_std = tensor_data.std(dim=0)
-    if mode == KinematicsNormalizationType.GAUSSIAN.value:
-        input_std = torch.clamp(input_std, min=2e-2)  # avoid too small std
 
     # compute scale and offset
     if mode == KinematicsNormalizationType.MIN_MAX.value:
@@ -325,6 +360,8 @@ def _fit(data: torch.Tensor | np.ndarray,
             input_range = input_max - input_min
             ignore_dim = input_range < range_eps
             input_range[ignore_dim] = output_max - output_min
+            if clamp_range:
+                input_range = torch.clamp(input_range, min=min_range)
             scale = (output_max - output_min) / input_range
             offset = output_min - scale * input_min
             offset[ignore_dim] = (output_max + output_min) / 2 - input_min[ignore_dim]
@@ -338,16 +375,27 @@ def _fit(data: torch.Tensor | np.ndarray,
             input_abs = torch.maximum(torch.abs(input_min), torch.abs(input_max))
             ignore_dim = input_abs < range_eps
             input_abs[ignore_dim] = output_abs
+            if clamp_range:
+                input_abs = torch.clamp(input_abs, min=min_range)
             # don't scale constant channels
             scale = output_abs / input_abs
             offset = torch.zeros_like(input_mean)
     elif mode == KinematicsNormalizationType.GAUSSIAN.value:
-        ignore_dim = input_std < range_eps
-        scale = input_std.clone()
-        scale[ignore_dim] = 1
-        scale = 1 / scale
+        # Optionally clamp std to avoid too small values
+        std_for_scale = input_std.clone()
+        if clamp_range:
+            std_for_scale = torch.clamp(std_for_scale, min=min_std)
+        ignore_dim = std_for_scale < range_eps
+        std_for_scale[ignore_dim] = 1
+        scale = 1 / std_for_scale
 
         offset = -input_mean * scale if fit_offset else torch.zeros_like(input_mean)
+    elif mode == KinematicsNormalizationType.DEMEAN.value:
+        # Demean only: subtract mean, no scaling
+        scale = torch.ones_like(input_mean)
+        offset = -input_mean if fit_offset else torch.zeros_like(input_mean)
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
 
     # save
     this_params = nn.ParameterDict({

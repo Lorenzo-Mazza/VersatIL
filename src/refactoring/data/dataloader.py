@@ -80,6 +80,9 @@ def get_dataloaders(
         winsorize_kinematics=dataloader_config.winsorize_kinematics,
         kinematics_winsorize_quantiles=dataloader_config.kinematics_winsorize_quantiles,
         tokenization_config=tokenization_config,
+        clamp_kinematics_range=dataloader_config.clamp_kinematics_range,
+        min_kinematics_std=dataloader_config.min_kinematics_std,
+        min_kinematics_range=dataloader_config.min_kinematics_range,
         device=torch.device("cpu"),  # Keep on CPU for DataLoader workers
     )
     train_dataset.set_normalizer(normalizer)
@@ -94,6 +97,7 @@ def get_dataloaders(
         val_dataset.action_processor.orientation_denoising_threshold = (
             train_dataset.action_processor.orientation_denoising_threshold
         )
+        val_dataset.action_processor._denoising_thresholds_computed = True
 
     train_loader = data.DataLoader(
         train_dataset,

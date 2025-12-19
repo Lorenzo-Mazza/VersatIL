@@ -29,6 +29,7 @@ class ActionSpace:
         predict_in_camera_frame: bool = True,
         deltas_as_actions: bool = False,
         denoise_actions: bool = True,
+        denoising_percentile: float = 15.0,
         custom_action_dims: dict[str, int] = None,
         task_has_phases: bool = False,
         number_of_phases: int = 5,
@@ -49,6 +50,7 @@ class ActionSpace:
             predict_in_camera_frame: Whether actions are predicted in camera frame
             deltas_as_actions: Whether actions are deltas from current state
             denoise_actions: Whether to denoise actions during training
+            denoising_percentile: Percentile threshold for denoising (actions below this are zeroed)
             custom_action_dims: Dictionary of custom action dimensions
             task_has_phases: Whether the task has distinct phases
             number_of_phases: Number of phases in the task
@@ -66,6 +68,7 @@ class ActionSpace:
         self.predict_in_camera_frame = predict_in_camera_frame
         self.deltas_as_actions = deltas_as_actions
         self.denoise_actions = denoise_actions
+        self.denoising_percentile = denoising_percentile
         self.custom_action_dims = custom_action_dims if custom_action_dims is not None else {}
         self.task_has_phases = task_has_phases
         self.number_of_phases = number_of_phases

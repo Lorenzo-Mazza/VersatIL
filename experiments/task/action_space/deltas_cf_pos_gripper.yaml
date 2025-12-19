@@ -14,5 +14,6 @@ use_gripper_class_weights: false
 predict_in_camera_frame: true
 deltas_as_actions: true
 # Whether to denoise actions for smoother trajectories
-denoise_actions: false
+denoise_actions: true
+denoising_percentile: 15
 task_has_phases: false

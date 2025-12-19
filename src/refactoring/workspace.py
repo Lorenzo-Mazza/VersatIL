@@ -169,6 +169,12 @@ class Workspace:
 
         logging.info(f"Train dataset size: {len(self.train_loader.dataset)} samples")
         logging.info(f"Val dataset size: {len(self.val_loader.dataset)} samples")
+        action_processor = self.train_loader.dataset.action_processor
+        plot_path = self.output_dir / "action_deltas_distribution.png"
+        action_processor.plot_action_delta_distribution(str(plot_path))
+        self.position_delta_threshold = action_processor.action_denoising_threshold
+        self.orientation_delta_threshold = action_processor.orientation_denoising_threshold
+
 
     def _setup_policy(self):
         """Instantiate policy and wrap with Lightning."""
@@ -176,6 +182,7 @@ class Workspace:
         self.policy: Policy = self.config.policy
         self.policy.set_normalizer(self.normalizer)
         self.policy.set_tokenizer(self.tokenizer)
+        self.policy.set_delta_thresholds(self.position_delta_threshold, self.orientation_delta_threshold)
         # Calculate total training steps for LR scheduling
         # Steps per epoch = len(train_loader) // gradient_accumulate_every
         # Total steps = steps_per_epoch * num_epochs

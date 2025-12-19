@@ -49,6 +49,7 @@ class KinematicsNormalizationType(str, enum.Enum):
     """Enum for kinematics normalization types."""
     MIN_MAX = 'min_max'
     GAUSSIAN = 'gaussian'
+    DEMEAN = 'demean'
 
 
 class SamplingMode(str, enum.Enum):

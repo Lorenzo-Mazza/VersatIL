@@ -126,6 +126,71 @@ class TestSingleFieldLinearNormalizer:
         assert torch.allclose(random_data_4d, unnormalized, atol=1e-6)
 
 
+    def test_demean_normalization(self, random_data_4d):
+        """Test demean normalization (subtract mean only, no scaling)."""
+        normalizer = SingleFieldLinearNormalizer()
+        normalizer.fit(
+            random_data_4d,
+            mode=KinematicsNormalizationType.DEMEAN.value,
+            last_n_dims=0  # Normalize entire tensor
+        )
+
+        normalized = normalizer.normalize(random_data_4d)
+
+        # Check shape
+        assert normalized.shape == random_data_4d.shape
+
+        # Check mean ≈ 0 (data is centered)
+        assert torch.allclose(normalized.mean(), torch.tensor(0.0), atol=1e-5)
+
+        # Check std is preserved (no scaling)
+        assert torch.allclose(normalized.std(), random_data_4d.std(), atol=1e-5)
+
+        # Check invertibility
+        unnormalized = normalizer.unnormalize(normalized)
+        assert torch.allclose(random_data_4d, unnormalized, atol=1e-6)
+
+
+    def test_demean_scale_is_one(self, random_data_4d):
+        """Test that demean normalization has scale = 1."""
+        normalizer = SingleFieldLinearNormalizer()
+        normalizer.fit(
+            random_data_4d,
+            mode=KinematicsNormalizationType.DEMEAN.value,
+            last_n_dims=1
+        )
+
+        # Check that scale is 1 for all dimensions
+        scale = normalizer.params_dict['scale']
+        assert torch.allclose(scale, torch.ones_like(scale), atol=1e-6)
+
+        # Check that offset is -mean
+        offset = normalizer.params_dict['offset']
+        input_stats = normalizer.get_input_stats()
+        assert torch.allclose(offset, -input_stats['mean'], atol=1e-6)
+
+
+    def test_demean_without_offset(self, random_data_4d):
+        """Test demean normalization without offset (identity transformation)."""
+        normalizer = SingleFieldLinearNormalizer()
+        normalizer.fit(
+            random_data_4d,
+            mode=KinematicsNormalizationType.DEMEAN.value,
+            last_n_dims=1,
+            fit_offset=False
+        )
+
+        normalized = normalizer.normalize(random_data_4d)
+
+        # With fit_offset=False, demean should be identity (scale=1, offset=0)
+        assert normalized.shape == random_data_4d.shape
+        assert torch.allclose(normalized, random_data_4d, atol=1e-6)
+
+        # Check that offset is 0
+        offset = normalizer.params_dict['offset']
+        assert torch.allclose(offset, torch.zeros_like(offset), atol=1e-6)
+
+
     @pytest.mark.parametrize("output_min,output_max", [
         (-1.0, 1.0),
         (0.0, 1.0),
@@ -359,6 +424,30 @@ class TestLinearNormalizer:
 
         for key in random_dict_data:
             assert torch.allclose(normalized1[key], normalized2[key], atol=1e-6)
+
+
+    def test_dict_demean_normalization(self, random_dict_data):
+        """Test demean normalization of dictionary data."""
+        normalizer = LinearNormalizer()
+        normalizer.fit(random_dict_data, mode=KinematicsNormalizationType.DEMEAN.value)
+
+        normalized = normalizer.normalize(random_dict_data)
+
+        # Check all keys present
+        assert set(normalized.keys()) == set(random_dict_data.keys())
+
+        # Check shapes preserved and mean is centered
+        for key in random_dict_data:
+            assert normalized[key].shape == random_dict_data[key].shape
+            # Mean should be approximately 0
+            assert torch.allclose(normalized[key].mean(), torch.tensor(0.0), atol=1e-3)
+            # Std should be preserved
+            assert torch.allclose(normalized[key].std(), random_dict_data[key].std(), atol=1e-3)
+
+        # Check invertibility
+        unnormalized = normalizer.unnormalize(normalized)
+        for key in random_dict_data:
+            assert torch.allclose(random_dict_data[key], unnormalized[key], atol=1e-4)
 
 
 class TestSequentialNormalizer:
@@ -619,6 +708,26 @@ class TestEdgeCases:
         assert torch.allclose(normalized, torch.tensor(0.0), atol=1e-5)
 
 
+    def test_demean_constant_data(self):
+        """Test demean normalization with constant data."""
+        data = torch.ones(100, 5) * 7.0
+
+        normalizer = SingleFieldLinearNormalizer()
+        normalizer.fit(data, mode=KinematicsNormalizationType.DEMEAN.value)
+
+        normalized = normalizer.normalize(data)
+
+        # Should handle gracefully
+        assert torch.all(torch.isfinite(normalized))
+
+        # Should map to 0 (centered)
+        assert torch.allclose(normalized, torch.tensor(0.0), atol=1e-5)
+
+        # Should be invertible
+        unnormalized = normalizer.unnormalize(normalized)
+        assert torch.allclose(data, unnormalized, atol=1e-5)
+
+
     def test_negative_data_min_max(self):
         """Test min-max normalization with negative data."""
         data = torch.randn(100, 10) * 10 - 5  # Data centered around -5
@@ -670,3 +779,117 @@ class TestEdgeCases:
         norm64.fit(data_float64, dtype=torch.float64)
         normalized64 = norm64.normalize(data_float64)
         assert normalized64.dtype == torch.float64
+
+
+    def test_clamp_range_min_max(self):
+        """Test that clamp_range parameter works for min_max mode."""
+        # Data with very small range (typical of small action deltas)
+        data = torch.ones(100, 3) * 0.5
+        data += torch.randn(100, 3) * 1e-4  # Very small variation
+
+        # With clamping (default) - should clamp range to min_range
+        normalizer_clamped = SingleFieldLinearNormalizer()
+        normalizer_clamped.fit(
+            data,
+            mode=KinematicsNormalizationType.MIN_MAX.value,
+            last_n_dims=1,
+            clamp_range=True,
+            min_range=0.01
+        )
+
+        # Without clamping - scale could be huge
+        normalizer_unclamped = SingleFieldLinearNormalizer()
+        normalizer_unclamped.fit(
+            data,
+            mode=KinematicsNormalizationType.MIN_MAX.value,
+            last_n_dims=1,
+            clamp_range=False
+        )
+
+        # With clamping, scale should be bounded
+        clamped_scale = normalizer_clamped.params_dict['scale']
+        unclamped_scale = normalizer_unclamped.params_dict['scale']
+
+        # Unclamped scale should be much larger (since range is tiny)
+        assert unclamped_scale.max() > clamped_scale.max()
+
+        # Both should be invertible
+        normalized_clamped = normalizer_clamped.normalize(data)
+        unnormalized_clamped = normalizer_clamped.unnormalize(normalized_clamped)
+        assert torch.allclose(data, unnormalized_clamped, atol=1e-5)
+
+
+    def test_clamp_range_gaussian(self):
+        """Test that clamp_range parameter works for gaussian mode."""
+        # Data with very small std (typical of small action deltas)
+        data = torch.ones(100, 3) * 0.5
+        data += torch.randn(100, 3) * 1e-4  # Very small std
+
+        # With clamping (default) - should clamp std to min_std
+        normalizer_clamped = SingleFieldLinearNormalizer()
+        normalizer_clamped.fit(
+            data,
+            mode=KinematicsNormalizationType.GAUSSIAN.value,
+            last_n_dims=1,
+            clamp_range=True,
+            min_std=0.01
+        )
+
+        # Without clamping - scale could be huge
+        normalizer_unclamped = SingleFieldLinearNormalizer()
+        normalizer_unclamped.fit(
+            data,
+            mode=KinematicsNormalizationType.GAUSSIAN.value,
+            last_n_dims=1,
+            clamp_range=False
+        )
+
+        # With clamping, scale should be bounded (scale = 1/std)
+        clamped_scale = normalizer_clamped.params_dict['scale']
+        unclamped_scale = normalizer_unclamped.params_dict['scale']
+
+        # Unclamped scale should be much larger (since std is tiny)
+        assert unclamped_scale.max() > clamped_scale.max()
+
+        # Both should be invertible
+        normalized_clamped = normalizer_clamped.normalize(data)
+        unnormalized_clamped = normalizer_clamped.unnormalize(normalized_clamped)
+        assert torch.allclose(data, unnormalized_clamped, atol=1e-5)
+
+
+    def test_custom_min_std_and_min_range(self):
+        """Test customization of min_std and min_range parameters."""
+        data = torch.ones(100, 2) * 0.5
+        data += torch.randn(100, 2) * 1e-5  # Tiny variation
+
+        # Gaussian mode with custom min_std
+        custom_min_std = 0.05
+        normalizer = SingleFieldLinearNormalizer()
+        normalizer.fit(
+            data,
+            mode=KinematicsNormalizationType.GAUSSIAN.value,
+            last_n_dims=1,
+            clamp_range=True,
+            min_std=custom_min_std
+        )
+
+        # Scale should be approximately 1/min_std since data std << min_std
+        scale = normalizer.params_dict['scale']
+        expected_scale = 1.0 / custom_min_std
+        assert torch.allclose(scale, torch.tensor([expected_scale, expected_scale]), atol=0.1)
+
+        # Min-max mode with custom min_range
+        custom_min_range = 0.1
+        normalizer_minmax = SingleFieldLinearNormalizer()
+        normalizer_minmax.fit(
+            data,
+            mode=KinematicsNormalizationType.MIN_MAX.value,
+            last_n_dims=1,
+            clamp_range=True,
+            min_range=custom_min_range
+        )
+
+        # Scale should be approximately 2/min_range (for [-1, 1] output) since data range << min_range
+        scale_minmax = normalizer_minmax.params_dict['scale']
+        expected_scale_minmax = 2.0 / custom_min_range
+        assert torch.allclose(scale_minmax, torch.tensor([expected_scale_minmax, expected_scale_minmax]), atol=0.1)

@@ -44,6 +44,9 @@ class NormalizerBuilder:
         depth_winsorize_quantiles: tuple[float, float] | None = (0.01, 0.99),
         kinematics_winsorize_quantiles: tuple[float, float] | None = (0.01, 0.99),
         tokenization_config: TokenizationConfig | None = None,
+        clamp_kinematics_range: bool = True,
+        min_kinematics_std: float = 2e-2,
+        min_kinematics_range: float = 4e-2,
     ):
         """Initialize normalizer builder.
 
@@ -59,6 +62,9 @@ class NormalizerBuilder:
             depth_winsorize_quantiles: Quantiles for depth winsorization (lower, upper).
             kinematics_winsorize_quantiles: Quantiles for kinematics winsorization.
             tokenization_config: Tokenization configuration. If None, no tokenizer created.
+            clamp_kinematics_range: Whether to clamp std/range to minimum values.
+            min_kinematics_std: Minimum std for Gaussian mode when clamp_kinematics_range=True.
+            min_kinematics_range: Minimum range for MinMax mode when clamp_kinematics_range=True.
         """
         self.replay_buffer = replay_buffer
         self.action_processor = action_processor
@@ -71,6 +77,9 @@ class NormalizerBuilder:
         self.kinematics_winsorize_quantiles = kinematics_winsorize_quantiles
         self.tokenization_config = tokenization_config
         self.prediction_horizon = prediction_horizon
+        self.clamp_kinematics_range = clamp_kinematics_range
+        self.min_kinematics_std = min_kinematics_std
+        self.min_kinematics_range = min_kinematics_range
 
 
     def create_normalizer(
@@ -102,6 +111,9 @@ class NormalizerBuilder:
             mode=self.kinematics_norm_type,
             device=device,
             range_eps=1e-10,
+            clamp_range=self.clamp_kinematics_range,
+            min_std=self.min_kinematics_std,
+            min_range=self.min_kinematics_range,
             **kwargs
         )
         self._setup_image_normalizers(normalizer, device, winsorize_depth)
@@ -192,6 +204,10 @@ class NormalizerBuilder:
         valid_mask[cross_indices] = False
         next_obs = obs_for_actions[1:][valid_mask]
         curr_obs = obs_for_actions[:-1][valid_mask]
+
+        if self.action_processor.requires_denoising_setup:
+            self.action_processor.compute_denoising_thresholds(curr_obs, next_obs)
+
         action_dict = self.action_processor.compute_actions_from_observations(curr_obs, next_obs)
 
         proprio_data = {}

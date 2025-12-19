@@ -32,6 +32,7 @@ class ActionSpaceConfig:
     predict_in_camera_frame: bool = True
     deltas_as_actions: bool = False
     denoise_actions: bool = True
+    denoising_percentile: float = 15.0
     custom_action_dims: dict[str, int] = field(default_factory=dict)
     task_has_phases: bool = False
     number_of_phases: int = 5

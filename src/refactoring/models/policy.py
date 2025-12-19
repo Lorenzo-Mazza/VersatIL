@@ -70,6 +70,8 @@ class Policy(nn.Module):
         self.device = torch.device(device)
         self.normalizer: LinearNormalizer = LinearNormalizer()
         self.tokenizer = None  # Set later via set_tokenizer()
+        self.register_buffer("position_delta_threshold", torch.tensor(0.0))
+        self.register_buffer("orientation_delta_threshold", torch.tensor(0.0))
         self.validate_decoder()
         if validate_loss_keys:
             self.validate_loss_keys()
@@ -99,6 +101,7 @@ class Policy(nn.Module):
         # Validate MoE gating feature key if using MoE decoder with gating network
         if isinstance(self.decoder, MoEDecoder):
             self._validate_moe_gating_feature(available_features)
+
 
     def _validate_moe_gating_feature(self, available_features: list[str]):
         """Validate that MoE gating feature key exists in available features or latent encoder.
@@ -153,16 +156,29 @@ class Policy(nn.Module):
                 f"Please update your loss configuration or decoder."
             )
 
+
     def set_normalizer(self, normalizer: LinearNormalizer):
         """Set normalizer for observations and actions."""
         self.normalizer.load_state_dict(normalizer.state_dict())
         self.normalizer.to(self.device)
+
 
     def set_tokenizer(self, tokenizer: Tokenizer | None):
         """Set tokenizer and pass it to the decoder."""
         self.tokenizer = tokenizer
         self.encoding_pipeline.set_tokenizer(tokenizer)
         self.decoder.set_tokenizer(tokenizer)
+
+
+    def set_delta_thresholds(self, position_threshold: float, orientation_threshold: float):
+        """Set the delta denoising thresholds from training data.
+        
+        Note:
+            These thresholds are computed from the dataset's action processor and stored 
+            here to be used at inference time to filter out noisy predictions.
+        """
+        self.position_delta_threshold.fill_(position_threshold)
+        self.orientation_delta_threshold.fill_(orientation_threshold)
 
 
     def forward(self, batch: dict[str, dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:

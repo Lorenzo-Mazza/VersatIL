@@ -26,6 +26,10 @@ class DataLoaderConfig:
     depth_winsorize_quantiles: tuple[float, float] = (0.01, 0.99)
     winsorize_kinematics: bool = True
     kinematics_winsorize_quantiles: tuple[float, float] = (0.01, 0.99)
+    # Kinematics normalization clamping - useful for datasets with very small action deltas
+    clamp_kinematics_range: bool = True
+    min_kinematics_std: float = 1e-2
+    min_kinematics_range: float = 1e-2
     # Tokenization
     tokenization: TokenizationConfig = field(default_factory=TokenizationConfig)
     color_augmentation: AugmentationPipelineConfig  = field(default_factory=AugmentationPipelineConfig)

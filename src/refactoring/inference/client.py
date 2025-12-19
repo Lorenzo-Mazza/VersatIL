@@ -3,6 +3,11 @@
 
 This module provides the InferenceClient class that interfaces with the
 imitation_learning_toolkit's AbstractModelClient for real-time robot control.
+
+Note:
+    The Inference Client uses as convention delta actions for position and orientation.
+    This means that regardless of how the policy was trained (predicting absolute or delta actions),
+    the client will convert absolute predictions to deltas before sending commands to the Policy Server.
 """
 import logging
 import os
@@ -136,6 +141,9 @@ class InferenceClient(AbstractModelClient):
         self.all_time_position_actions = torch.zeros(
             [self.max_timesteps, self.max_timesteps + self.prediction_horizon, self.position_dim]
         ).to(self.device)
+        self.all_time_populated_mask = torch.zeros(
+            [self.max_timesteps, self.max_timesteps + self.prediction_horizon], dtype=torch.bool
+        ).to(self.device)
 
         if self.has_orientation:
             # TODO: Extend to other orientation representations in the future.
@@ -202,6 +210,28 @@ class InferenceClient(AbstractModelClient):
         else:
             self.depth_min = None
             self.depth_max = None
+
+        action_space = self.policy.action_space
+        if action_space.has_position:
+            if hasattr(self.policy, 'position_delta_threshold'):
+                self.position_delta_threshold = float(self.policy.position_delta_threshold.item())
+                logging.info(f"Position delta denoising threshold: {self.position_delta_threshold:.6f}")
+            else:
+                self.position_delta_threshold = 0.0
+                logging.warning("Policy missing position_delta_threshold, denoising disabled for position")
+        else:
+            self.position_delta_threshold = 0.0
+
+        if action_space.has_orientation:
+            if hasattr(self.policy, 'orientation_delta_threshold'):
+                self.orientation_delta_threshold = float(self.policy.orientation_delta_threshold.item())
+                logging.info(f"Orientation delta denoising threshold: {self.orientation_delta_threshold:.6f}")
+            else:
+                self.orientation_delta_threshold = 0.0
+                logging.warning("Policy missing orientation_delta_threshold, denoising disabled for orientation")
+        else:
+            self.orientation_delta_threshold = 0.0
+
         logging.info("Model and config successfully loaded.")
 
     def get_actions_from_model(self) -> list[Action]:
@@ -395,9 +425,12 @@ class InferenceClient(AbstractModelClient):
         self.all_time_position_actions[
             [self.timestep], self.timestep : self.timestep + self.prediction_horizon
         ] = self.current_all_position_actions
-        actions_for_curr_step_pos = self.all_time_position_actions[:, self.timestep]
-        actions_populated_pos = torch.all(actions_for_curr_step_pos != 0, dim=1)
-        actions_for_curr_step_pos = actions_for_curr_step_pos[actions_populated_pos]
+        self.all_time_populated_mask[
+            [self.timestep], self.timestep : self.timestep + self.prediction_horizon
+        ] = True
+        # Use mask to filter populated timesteps
+        actions_populated = self.all_time_populated_mask[:, self.timestep]
+        actions_for_curr_step_pos = self.all_time_position_actions[:, self.timestep][actions_populated]
         indices = np.arange(len(actions_for_curr_step_pos))
         if self.favor_more_recent:
             indices = indices[::-1]  # Newest first
@@ -409,9 +442,7 @@ class InferenceClient(AbstractModelClient):
 
         if self.has_orientation:
             self.all_time_orientations[[self.timestep], self.timestep: self.timestep + self.prediction_horizon] = self.current_all_orientations
-            actions_for_curr_step_ori = self.all_time_orientations[:, self.timestep]
-            actions_populated_ori = torch.all(actions_for_curr_step_ori != 0, dim=1)
-            actions_for_curr_step_ori = actions_for_curr_step_ori[actions_populated_ori]
+            actions_for_curr_step_ori = self.all_time_orientations[:, self.timestep][actions_populated]
             indices = np.arange(len(actions_for_curr_step_ori))
             if self.favor_more_recent:
                 indices = indices[::-1]
@@ -425,9 +456,7 @@ class InferenceClient(AbstractModelClient):
             self.all_time_grippers[
             [self.timestep], self.timestep: self.timestep + self.prediction_horizon
             ] = self.current_all_grippers
-            actions_for_curr_step_grip = self.all_time_grippers[:, self.timestep]
-            actions_populated_grip = torch.all(actions_for_curr_step_grip != 0, dim=1)
-            actions_for_curr_step_grip = actions_for_curr_step_grip[actions_populated_grip]
+            actions_for_curr_step_grip = self.all_time_grippers[:, self.timestep][actions_populated]
             indices = np.arange(len(actions_for_curr_step_grip))
             if self.favor_more_recent:
                 indices = indices[::-1]
@@ -448,17 +477,26 @@ class InferenceClient(AbstractModelClient):
             current_robot_position: np.ndarray,
             current_roll: float,
     ) -> tuple[np.ndarray, np.ndarray | None | bool]:
-        """Post-process raw action tensors for one step (deltas, thresholding, concat)."""
+        """Post-process raw action tensors for one step.
+
+        Converts absolute predictions to deltas, then applies norm-based denoising
+        to filter out noisy small-magnitude deltas.
+        """
         position_action = raw_position_tensor.cpu().detach().numpy()[:3]
         if not self.predicts_delta:
             position_action = position_action - current_robot_position
+
+        if self.position_delta_threshold > 0:
+            position_norm = np.linalg.norm(position_action)
+            if position_norm < self.position_delta_threshold:
+                position_action = np.zeros_like(position_action)
 
         if raw_gripper_tensor is not None:
             raw_gripper_action = raw_gripper_tensor.cpu().detach().numpy()
             if self.gripper_type == GripperType.BINARY.value:
                 gripper_action = raw_gripper_action > 0.5
             else:
-                gripper_action = raw_gripper_action  # Continuous
+                gripper_action = raw_gripper_action
         else:
             gripper_action = None
 
@@ -470,7 +508,13 @@ class InferenceClient(AbstractModelClient):
             assert self.has_position
             if not self.predicts_delta:
                 orientation_action = orientation_action[0] - current_roll
-            robot_action = np.concatenate((position_action, [orientation_action[0]]))
+
+            if self.orientation_delta_threshold > 0:
+                orientation_magnitude = np.abs(orientation_action)
+                if orientation_magnitude < self.orientation_delta_threshold:
+                    orientation_action = 0.0
+
+            robot_action = np.concatenate((position_action, [orientation_action[0] if isinstance(orientation_action, np.ndarray) else orientation_action]))
         else:
             robot_action = np.concatenate((position_action, [0.0]))  # Roll = 0.0 if no orientation predicted
 

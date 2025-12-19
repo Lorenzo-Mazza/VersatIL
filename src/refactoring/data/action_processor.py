@@ -10,6 +10,8 @@ import logging
 
 import numpy as np
 import scipy
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 from refactoring.data.task import ActionSpace
 from refactoring.data.constants import (
@@ -40,8 +42,55 @@ class ActionProcessor:
         self.position_dim = action_space.position_dim if self.has_position else 0
         self.orientation_dim = action_space.orientation_dim if self.has_orientation else 0
         self.gripper_dim = action_space.gripper_dim if self.has_gripper else 0
+        self.denoising_percentile = action_space.denoising_percentile
         self.action_denoising_threshold = 0.0
         self.orientation_denoising_threshold = 0.0
+        self._denoising_thresholds_computed = False
+        self._position_norms: np.ndarray | None = None
+        self._orientation_angles: np.ndarray | None = None
+
+
+    @property
+    def requires_denoising_setup(self) -> bool:
+        """Check if denoising is enabled but thresholds haven't been computed.
+
+        Returns:
+            True if denoise_actions is enabled but thresholds haven't been computed yet.
+        """
+        return self.denoise_actions and not self._denoising_thresholds_computed
+
+
+    def compute_denoising_thresholds(
+        self, curr_obs: np.ndarray, next_obs: np.ndarray
+    ) -> None:
+        """Compute and store denoising thresholds from all training data.
+
+        This must be called before compute_actions_from_observations when
+        denoise_actions is enabled. Should be called once during dataset
+        initialization with all training samples.
+
+        Args:
+            curr_obs: All current observations from training data (N, obs_dim)
+            next_obs: All next observations from training data (N, obs_dim)
+        """
+        if not self.denoise_actions:
+            self._denoising_thresholds_computed = True
+            return
+
+        if self.has_position:
+            curr_pos = curr_obs[:, :self.position_dim]
+            next_pos = next_obs[:, :self.position_dim]
+            self.compute_action_denoising_threshold(next_pos, curr_pos)
+
+        if self.has_orientation:
+            pos_end = self.position_dim
+            ori_end = pos_end + self.orientation_dim
+            curr_ori = curr_obs[:, pos_end:ori_end]
+            next_ori = next_obs[:, pos_end:ori_end]
+            self.compute_orientation_denoising_threshold(next_ori, curr_ori)
+
+        self._denoising_thresholds_computed = True
+
 
     def compute_actions_from_observations(
         self,
@@ -187,13 +236,15 @@ class ActionProcessor:
     ) -> tuple[np.ndarray, np.ndarray]:
         """Apply denoising threshold to position data.
 
-        Computes threshold on first call if not already set, then applies it.
+        Raises:
+            RuntimeError: If denoising thresholds haven't been computed.
         """
-        # Compute threshold on first call if not set
-        if self.action_denoising_threshold == 0.0:
-            self.compute_action_denoising_threshold(next_pos, curr_pos)
+        if self.requires_denoising_setup:
+            raise RuntimeError(
+                "Denoising is enabled but thresholds have not been computed. "
+                "Call compute_denoising_thresholds() with all training data first."
+            )
 
-        # Apply threshold
         if self.action_denoising_threshold > 0:
             diffs = next_pos - curr_pos
             norms = np.linalg.norm(diffs, axis=1)
@@ -201,6 +252,7 @@ class ActionProcessor:
             next_pos[mask] = curr_pos[mask]
 
         return next_pos, curr_pos
+
 
     def compute_action_denoising_threshold(
         self, all_next_pos: np.ndarray, all_curr_pos: np.ndarray
@@ -215,14 +267,31 @@ class ActionProcessor:
         """
         diffs = all_next_pos - all_curr_pos
         norms = np.linalg.norm(diffs, axis=1)
+        self._position_norms = norms
         non_zero_norms = norms[norms > 0]
 
+        logging.info(
+            f"Raw delta position action stats: "
+            f"mean={norms.mean():.6f}, std={norms.std():.6f}, "
+            f"min={norms.min():.6f}, max={norms.max():.6f}, "
+            f"p5={np.percentile(norms, 5):.6f}, p50={np.percentile(norms, 50):.6f}, p95={np.percentile(norms, 95):.6f}"
+        )
+
         if len(non_zero_norms) > 0:
-            self.action_denoising_threshold = np.percentile(non_zero_norms, 5)
+            self.action_denoising_threshold = np.percentile(non_zero_norms, self.denoising_percentile)
+            num_below_threshold = np.sum(norms < self.action_denoising_threshold)
+            pct_below_threshold = 100.0 * num_below_threshold / len(norms)
             logging.info(
-                f"Computed positional action threshold (5th percentile): "
-                f"{self.action_denoising_threshold}. "
-                f"All actions with norm below this will be set to zero."
+                f"Computed delta positional action threshold ({self.denoising_percentile}th percentile): "
+                f"{self.action_denoising_threshold:.6f}. "
+                f"{num_below_threshold}/{len(norms)} ({pct_below_threshold:.1f}%) delta actions will be zeroed."
+            )
+            denoised_norms = np.where(norms < self.action_denoising_threshold, 0.0, norms)
+            logging.info(
+                f"Delta position action stats after denoising: "
+                f"mean={denoised_norms.mean():.6f}, std={denoised_norms.std():.6f}, "
+                f"min={denoised_norms.min():.6f}, max={denoised_norms.max():.6f}, "
+                f"p5={np.percentile(denoised_norms, 5):.6f}, p50={np.percentile(denoised_norms, 50):.6f}, p95={np.percentile(denoised_norms, 95):.6f}"
             )
         else:
             self.action_denoising_threshold = 0.0
@@ -233,13 +302,15 @@ class ActionProcessor:
     ) -> tuple[np.ndarray, np.ndarray]:
         """Apply denoising threshold to orientation data.
 
-        Computes threshold on first call if not already set, then applies it.
+        Raises:
+            RuntimeError: If denoising thresholds haven't been computed.
         """
-        # Compute threshold on first call if not set
-        if self.orientation_denoising_threshold == 0.0:
-            self.compute_orientation_denoising_threshold(next_ori, curr_ori)
+        if self.requires_denoising_setup:
+            raise RuntimeError(
+                "Denoising is enabled but thresholds have not been computed. "
+                "Call compute_denoising_thresholds() with all training data first."
+            )
 
-        # Apply threshold
         if self.orientation_denoising_threshold > 0:
             angles = self._compute_orientation_magnitudes(curr_ori, next_ori)
             mask = angles < self.orientation_denoising_threshold
@@ -259,13 +330,31 @@ class ActionProcessor:
             all_curr_ori: All current orientations from training data (N, orientation_dim)
         """
         angles = self._compute_orientation_magnitudes(all_curr_ori, all_next_ori)
+        self._orientation_angles = angles
         non_zero_angles = angles[angles > 0]
 
+        logging.info(
+            f"Raw orientation action stats: "
+            f"mean={angles.mean():.6f}, std={angles.std():.6f}, "
+            f"min={angles.min():.6f}, max={angles.max():.6f}, "
+            f"p5={np.percentile(angles, 5):.6f}, p50={np.percentile(angles, 50):.6f}, p95={np.percentile(angles, 95):.6f}"
+        )
+
         if len(non_zero_angles) > 0:
-            self.orientation_denoising_threshold = np.percentile(non_zero_angles, 5)
+            self.orientation_denoising_threshold = np.percentile(non_zero_angles, self.denoising_percentile)
+            num_below_threshold = np.sum(angles < self.orientation_denoising_threshold)
+            pct_below_threshold = 100.0 * num_below_threshold / len(angles)
             logging.info(
-                f"Computed orientation threshold (5th percentile): "
-                f"{self.orientation_denoising_threshold}"
+                f"Computed orientation threshold ({self.denoising_percentile}th percentile): "
+                f"{self.orientation_denoising_threshold:.6f}. "
+                f"{num_below_threshold}/{len(angles)} ({pct_below_threshold:.1f}%) actions will be zeroed."
+            )
+            denoised_angles = np.where(angles < self.orientation_denoising_threshold, 0.0, angles)
+            logging.info(
+                f"Orientation action stats after denoising: "
+                f"mean={denoised_angles.mean():.6f}, std={denoised_angles.std():.6f}, "
+                f"min={denoised_angles.min():.6f}, max={denoised_angles.max():.6f}, "
+                f"p5={np.percentile(denoised_angles, 5):.6f}, p50={np.percentile(denoised_angles, 50):.6f}, p95={np.percentile(denoised_angles, 95):.6f}"
             )
         else:
             self.orientation_denoising_threshold = 0.0
@@ -360,3 +449,65 @@ class ActionProcessor:
                 return orientations + z_rotation  # type: ignore[no-any-return]
         else:
             raise ValueError(f"Unsupported orientation representation: {ori_repr}")
+
+
+    def plot_action_delta_distribution(self, output_path: str) -> None:
+        """Plot position and orientation delta distributions before/after denoising.
+
+        Args:
+            output_path: Path to save the plot.
+        """
+        has_pos = self._position_norms is not None
+        has_ori = self._orientation_angles is not None
+
+        if not has_pos and not has_ori:
+            logging.warning("No denoising data available to plot")
+            return
+
+        sns.set_theme(style="whitegrid", palette="muted")
+        num_plots = int(has_pos) + int(has_ori)
+        fig, axes = plt.subplots(1, num_plots, figsize=(7 * num_plots, 5))
+        if num_plots == 1:
+            axes = [axes]
+
+        plot_idx = 0
+
+        if has_pos:
+            ax = axes[plot_idx]
+            norms = self._position_norms
+            threshold = self.action_denoising_threshold
+
+            sns.histplot(norms, bins=100, alpha=0.6, label="Raw", color="steelblue", ax=ax, log_scale=(False, True))
+            if threshold > 0:
+                denoised = np.where(norms < threshold, 0.0, norms)
+                sns.histplot(denoised[denoised > 0], bins=100, alpha=0.6, label="Denoised", color="coral", ax=ax, log_scale=(False, True))
+                ax.axvline(threshold, color="crimson", linestyle="--", linewidth=2, label=f"Threshold: {threshold:.4f}")
+
+            ax.set_xlabel("Position Delta Norm", fontsize=11)
+            ax.set_ylabel("Count (log)", fontsize=11)
+            ax.set_title("Position Delta Distribution", fontsize=13, fontweight="bold")
+            ax.legend(frameon=True, fancybox=True)
+            plot_idx += 1
+
+        if has_ori:
+            ax = axes[plot_idx]
+            angles = self._orientation_angles
+            threshold = self.orientation_denoising_threshold
+
+            sns.histplot(angles, bins=100, alpha=0.6, label="Raw", color="steelblue", ax=ax, log_scale=(False, True))
+            if threshold > 0:
+                denoised = np.where(angles < threshold, 0.0, angles)
+                sns.histplot(denoised[denoised > 0], bins=100, alpha=0.6, label="Denoised", color="coral", ax=ax, log_scale=(False, True))
+                ax.axvline(threshold, color="crimson", linestyle="--", linewidth=2, label=f"Threshold: {threshold:.4f}")
+
+            ax.set_xlabel("Orientation Delta (rad)", fontsize=11)
+            ax.set_ylabel("Count (log)", fontsize=11)
+            ax.set_title("Orientation Delta Distribution", fontsize=13, fontweight="bold")
+            ax.legend(frameon=True, fancybox=True)
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=150, bbox_inches="tight", facecolor="white")
+        plt.close()
+        sns.reset_defaults()
+        logging.info(f"Saved denoising distribution plot to {output_path}")
+

@@ -383,7 +383,13 @@ class EpisodicDataset(data.Dataset):
 
 
     def get_normalizer(
-            self, device: torch.device | None = None, winsorize_depth: bool = True, **kwargs
+            self,
+            device: torch.device | None = None,
+            winsorize_depth: bool = True,
+            clamp_kinematics_range: bool = True,
+            min_kinematics_std: float = 2e-2,
+            min_kinematics_range: float = 4e-2,
+            **kwargs
     ) -> LinearNormalizer:
         """Get normalizer for this dataset."""
         normalizer_builder = NormalizerBuilder(
@@ -395,6 +401,9 @@ class EpisodicDataset(data.Dataset):
             kinematics_norm_type=self.kinematics_norm_type,
             image_norm_type=self.image_norm_type,
             depth_norm_type=self.depth_norm_type,
+            clamp_kinematics_range=clamp_kinematics_range,
+            min_kinematics_std=min_kinematics_std,
+            min_kinematics_range=min_kinematics_range,
         )
 
         return normalizer_builder.create_normalizer(
@@ -409,6 +418,9 @@ class EpisodicDataset(data.Dataset):
         winsorize_kinematics: bool = False,
         kinematics_winsorize_quantiles: tuple[float, float] | None = (0.01, 0.99),
         tokenization_config: TokenizationConfig | None = None,
+        clamp_kinematics_range: bool = True,
+        min_kinematics_std: float = 2e-2,
+        min_kinematics_range: float = 4e-2,
         **kwargs
     ) -> tuple[LinearNormalizer, Tokenizer | None]:
         """Get normalizer and optionally tokenizer for this dataset.
@@ -420,6 +432,9 @@ class EpisodicDataset(data.Dataset):
             winsorize_kinematics: Apply winsorization to kinematics
             kinematics_winsorize_quantiles: Quantiles for kinematics winsorization
             tokenization_config: Tokenization configuration. If None, no tokenizer created.
+            clamp_kinematics_range: Whether to clamp std/range to minimum values.
+            min_kinematics_std: Minimum std for Gaussian mode when clamp_kinematics_range=True.
+            min_kinematics_range: Minimum range for MinMax mode when clamp_kinematics_range=True.
             **kwargs: Additional arguments for normalizer fitting
 
         Returns:
@@ -437,6 +452,9 @@ class EpisodicDataset(data.Dataset):
             kinematics_winsorize_quantiles=kinematics_winsorize_quantiles if winsorize_kinematics else None,
             tokenization_config=tokenization_config,
             prediction_horizon=self.pred_horizon,
+            clamp_kinematics_range=clamp_kinematics_range,
+            min_kinematics_std=min_kinematics_std,
+            min_kinematics_range=min_kinematics_range,
         )
 
         return normalizer_builder.create_normalizer_and_tokenizer(
