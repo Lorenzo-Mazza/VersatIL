@@ -131,9 +131,10 @@ class NormalizerBuilder:
             Dictionary of (winsorized) proprioceptive data
         """
         action_space = self.action_processor.action_space
-
         if action_space.use_precomputed_actions:
             proprio_data = self._read_precomputed_actions()
+            precomputed = self.replay_buffer[PRECOMPUTED_ACTIONS_KEY][:]
+            self.action_processor.compute_delta_statistics_from_precomputed(precomputed)
         else:
             proprio_data = self._compute_actions_from_buffer()
 
@@ -158,6 +159,7 @@ class NormalizerBuilder:
 
         return proprio_data
 
+
     def _read_precomputed_actions(self) -> dict[str, np.ndarray]:
         """Read precomputed actions from buffer and split into components.
 
@@ -165,27 +167,20 @@ class NormalizerBuilder:
             Dictionary with action arrays split by modality
         """
         precomputed = self.replay_buffer[PRECOMPUTED_ACTIONS_KEY][:]
-        if len(precomputed) == 0:
-            raise ValueError("Replay buffer is empty. Cannot compute normalization statistics.")
-
         action_space = self.action_processor.action_space
         action_dict = {}
         idx = 0
-
         if action_space.has_position:
             pos_end = idx + action_space.position_dim
             action_dict[POSITION_ACTION_KEY] = precomputed[:, idx:pos_end]
             idx = pos_end
-
         if action_space.has_orientation:
             ori_end = idx + action_space.orientation_dim
             action_dict[ORIENTATION_ACTION_KEY] = precomputed[:, idx:ori_end]
             idx = ori_end
-
         if action_space.has_gripper:
             gripper_end = idx + action_space.gripper_dim
             action_dict[GRIPPER_ACTION_KEY] = precomputed[:, idx:gripper_end]
-
         return action_dict
 
     def _compute_actions_from_buffer(self) -> dict[str, np.ndarray]:
@@ -204,10 +199,7 @@ class NormalizerBuilder:
         valid_mask[cross_indices] = False
         next_obs = obs_for_actions[1:][valid_mask]
         curr_obs = obs_for_actions[:-1][valid_mask]
-
-        if self.action_processor.requires_denoising_setup:
-            self.action_processor.compute_denoising_thresholds(curr_obs, next_obs)
-
+        self.action_processor.compute_delta_statistics(curr_obs, next_obs)
         action_dict = self.action_processor.compute_actions_from_observations(curr_obs, next_obs)
 
         proprio_data = {}

@@ -60,34 +60,64 @@ class ActionProcessor:
         return self.denoise_actions and not self._denoising_thresholds_computed
 
 
-    def compute_denoising_thresholds(
+    def compute_delta_statistics(
         self, curr_obs: np.ndarray, next_obs: np.ndarray
     ) -> None:
-        """Compute and store denoising thresholds from all training data.
+        """Compute delta action statistics from all training data.
 
-        This must be called before compute_actions_from_observations when
-        denoise_actions is enabled. Should be called once during dataset
-        initialization with all training samples.
+        This is called during dataset initialization.
 
         Args:
             curr_obs: All current observations from training data (N, obs_dim)
             next_obs: All next observations from training data (N, obs_dim)
         """
-        if not self.denoise_actions:
-            self._denoising_thresholds_computed = True
-            return
-
         if self.has_position:
             curr_pos = curr_obs[:, :self.position_dim]
             next_pos = next_obs[:, :self.position_dim]
-            self.compute_action_denoising_threshold(next_pos, curr_pos)
+            self._compute_position_delta_stats(next_pos, curr_pos)
 
         if self.has_orientation:
             pos_end = self.position_dim
             ori_end = pos_end + self.orientation_dim
             curr_ori = curr_obs[:, pos_end:ori_end]
             next_ori = next_obs[:, pos_end:ori_end]
-            self.compute_orientation_denoising_threshold(next_ori, curr_ori)
+            self._compute_orientation_delta_stats(next_ori, curr_ori)
+
+        self._denoising_thresholds_computed = True
+
+
+    def compute_delta_statistics_from_precomputed(
+        self, precomputed_actions: np.ndarray
+    ) -> None:
+        """Compute delta statistics from precomputed actions.
+
+        For datasets with precomputed actions (e.g., LIBERO), the actions
+        are already deltas. We compute delta norms/angles directly from them
+        for plotting and inference threshold computation.
+        """
+        idx = 0
+        if self.has_position:
+            pos_end = idx + self.position_dim
+            position_deltas = precomputed_actions[:, idx:pos_end]
+            norms = np.linalg.norm(position_deltas, axis=1)
+            self._position_norms = norms
+            non_zero_norms = norms[norms > 0]
+            if len(non_zero_norms) > 0:
+                self.action_denoising_threshold = np.percentile(
+                    non_zero_norms, self.denoising_percentile
+                )
+            idx = pos_end
+
+        if self.has_orientation:
+            ori_end = idx + self.orientation_dim
+            orientation_deltas = precomputed_actions[:, idx:ori_end]
+            angles = np.linalg.norm(orientation_deltas, axis=1)
+            self._orientation_angles = angles
+            non_zero_angles = angles[angles > 0]
+            if len(non_zero_angles) > 0:
+                self.orientation_denoising_threshold = np.percentile(
+                    non_zero_angles, self.denoising_percentile
+                )
 
         self._denoising_thresholds_computed = True
 
@@ -242,7 +272,7 @@ class ActionProcessor:
         if self.requires_denoising_setup:
             raise RuntimeError(
                 "Denoising is enabled but thresholds have not been computed. "
-                "Call compute_denoising_thresholds() with all training data first."
+                "Call compute_delta_statistics() with all training data first."
             )
 
         if self.action_denoising_threshold > 0:
@@ -254,12 +284,10 @@ class ActionProcessor:
         return next_pos, curr_pos
 
 
-    def compute_action_denoising_threshold(
+    def _compute_position_delta_stats(
         self, all_next_pos: np.ndarray, all_curr_pos: np.ndarray
     ) -> None:
-        """Compute and store the action denoising threshold from all training data.
-
-        This should be called once during dataset initialization with all training samples.
+        """Compute and store position delta statistics and denoising threshold.
 
         Args:
             all_next_pos: All next positions from training data (N, position_dim)
@@ -277,7 +305,7 @@ class ActionProcessor:
             f"p5={np.percentile(norms, 5):.6f}, p50={np.percentile(norms, 50):.6f}, p95={np.percentile(norms, 95):.6f}"
         )
 
-        if len(non_zero_norms) > 0:
+        if len(non_zero_norms) > 0 and self.denoise_actions:
             self.action_denoising_threshold = np.percentile(non_zero_norms, self.denoising_percentile)
             num_below_threshold = np.sum(norms < self.action_denoising_threshold)
             pct_below_threshold = 100.0 * num_below_threshold / len(norms)
@@ -308,7 +336,7 @@ class ActionProcessor:
         if self.requires_denoising_setup:
             raise RuntimeError(
                 "Denoising is enabled but thresholds have not been computed. "
-                "Call compute_denoising_thresholds() with all training data first."
+                "Call compute_delta_statistics() with all training data first."
             )
 
         if self.orientation_denoising_threshold > 0:
@@ -318,12 +346,10 @@ class ActionProcessor:
 
         return next_ori, curr_ori
 
-    def compute_orientation_denoising_threshold(
+    def _compute_orientation_delta_stats(
         self, all_next_ori: np.ndarray, all_curr_ori: np.ndarray
     ) -> None:
-        """Compute and store the orientation denoising threshold from all training data.
-
-        This should be called once during dataset initialization with all training samples.
+        """Compute and store orientation delta statistics and denoising threshold.
 
         Args:
             all_next_ori: All next orientations from training data (N, orientation_dim)
@@ -340,7 +366,7 @@ class ActionProcessor:
             f"p5={np.percentile(angles, 5):.6f}, p50={np.percentile(angles, 50):.6f}, p95={np.percentile(angles, 95):.6f}"
         )
 
-        if len(non_zero_angles) > 0:
+        if len(non_zero_angles) > 0 and self.denoise_actions:
             self.orientation_denoising_threshold = np.percentile(non_zero_angles, self.denoising_percentile)
             num_below_threshold = np.sum(angles < self.orientation_denoising_threshold)
             pct_below_threshold = 100.0 * num_below_threshold / len(angles)
