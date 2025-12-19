@@ -15,5 +15,5 @@ predict_in_camera_frame: true
 deltas_as_actions: true
 # Whether to denoise actions for smoother trajectories
 denoise_actions: true
-denoising_percentile: 15
+denoising_percentile: 35
 task_has_phases: false
