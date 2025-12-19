@@ -503,14 +503,19 @@ class ActionProcessor:
             norms = self._position_norms
             threshold = self.action_denoising_threshold
 
-            sns.histplot(norms, bins=100, alpha=0.6, label="Raw", color="steelblue", ax=ax, log_scale=(False, True))
-            if threshold > 0:
-                denoised = np.where(norms < threshold, 0.0, norms)
-                sns.histplot(denoised[denoised > 0], bins=100, alpha=0.6, label="Denoised", color="coral", ax=ax, log_scale=(False, True))
-                ax.axvline(threshold, color="crimson", linestyle="--", linewidth=2, label=f"Threshold: {threshold:.4f}")
+            log_norms = np.log10(norms + 1e-10)
+            sns.histplot(log_norms, bins=100, alpha=0.6, label="Raw", color="steelblue", ax=ax)
 
-            ax.set_xlabel("Position Delta Norm", fontsize=11)
-            ax.set_ylabel("Count (log)", fontsize=11)
+            if threshold > 0:
+                log_threshold = np.log10(threshold)
+                denoised = np.where(norms < threshold, 0.0, norms)
+                denoised_nonzero = denoised[denoised > 0]
+                if len(denoised_nonzero) > 0:
+                    sns.histplot(np.log10(denoised_nonzero), bins=100, alpha=0.6, label="Denoised", color="coral", ax=ax)
+                ax.axvline(log_threshold, color="crimson", linestyle="--", linewidth=2, label=f"Threshold: {threshold:.2e}")
+
+            ax.set_xlabel("log10(Position Delta Norm)", fontsize=11)
+            ax.set_ylabel("Count", fontsize=11)
             ax.set_title("Position Delta Distribution", fontsize=13, fontweight="bold")
             ax.legend(frameon=True, fancybox=True)
             plot_idx += 1
@@ -520,14 +525,19 @@ class ActionProcessor:
             angles = self._orientation_angles
             threshold = self.orientation_denoising_threshold
 
-            sns.histplot(angles, bins=100, alpha=0.6, label="Raw", color="steelblue", ax=ax, log_scale=(False, True))
-            if threshold > 0:
-                denoised = np.where(angles < threshold, 0.0, angles)
-                sns.histplot(denoised[denoised > 0], bins=100, alpha=0.6, label="Denoised", color="coral", ax=ax, log_scale=(False, True))
-                ax.axvline(threshold, color="crimson", linestyle="--", linewidth=2, label=f"Threshold: {threshold:.4f}")
+            log_angles = np.log10(angles + 1e-10)
+            sns.histplot(log_angles, bins=100, alpha=0.6, label="Raw", color="steelblue", ax=ax)
 
-            ax.set_xlabel("Orientation Delta (rad)", fontsize=11)
-            ax.set_ylabel("Count (log)", fontsize=11)
+            if threshold > 0:
+                log_threshold = np.log10(threshold)
+                denoised = np.where(angles < threshold, 0.0, angles)
+                denoised_nonzero = denoised[denoised > 0]
+                if len(denoised_nonzero) > 0:
+                    sns.histplot(np.log10(denoised_nonzero), bins=100, alpha=0.6, label="Denoised", color="coral", ax=ax)
+                ax.axvline(log_threshold, color="crimson", linestyle="--", linewidth=2, label=f"Threshold: {threshold:.2e}")
+
+            ax.set_xlabel("log10(Orientation Delta)", fontsize=11)
+            ax.set_ylabel("Count", fontsize=11)
             ax.set_title("Orientation Delta Distribution", fontsize=13, fontweight="bold")
             ax.legend(frameon=True, fancybox=True)
 
@@ -536,4 +546,3 @@ class ActionProcessor:
         plt.close()
         sns.reset_defaults()
         logging.info(f"Saved denoising distribution plot to {output_path}")
-
