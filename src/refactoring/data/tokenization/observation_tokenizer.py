@@ -15,7 +15,7 @@ import numpy as np
 import torch
 from transformers import AutoTokenizer
 
-from refactoring.data.constants import LANGUAGE_KEY, TOKENIZED_OBSERVATIONS_KEY, IS_PAD_OBSERVATION_KEY
+from refactoring.data.constants import TOKENIZED_OBSERVATIONS_KEY, IS_PAD_OBSERVATION_KEY, ObsKey
 from refactoring.data.tokenization.binning_tokenizer import BinningTokenizer
 
 
@@ -74,7 +74,7 @@ class ObservationTokenizer:
             return
 
         for key in self.observation_keys:
-            if key == LANGUAGE_KEY:
+            if key == ObsKey.LANGUAGE.value:
                 continue  # Language doesn't need binning
 
             if key not in observation_data:
@@ -166,7 +166,7 @@ class ObservationTokenizer:
                     continue
 
                 data = observations[key]
-                if key == LANGUAGE_KEY:
+                if key == ObsKey.LANGUAGE.value:
                     if isinstance(data, list):
                         if batch_size > 1:
                             text_list = data[i]

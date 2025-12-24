@@ -70,8 +70,7 @@ class Policy(nn.Module):
         self.device = torch.device(device)
         self.normalizer: LinearNormalizer = LinearNormalizer()
         self.tokenizer = None  # Set later via set_tokenizer()
-        self.register_buffer("position_delta_threshold", torch.tensor(0.0))
-        self.register_buffer("orientation_delta_threshold", torch.tensor(0.0))
+        self.denoising_thresholds = nn.ParameterDict() # Set later via set_denoising_thresholds()
         self.validate_decoder()
         if validate_loss_keys:
             self.validate_loss_keys()
@@ -170,15 +169,19 @@ class Policy(nn.Module):
         self.decoder.set_tokenizer(tokenizer)
 
 
-    def set_delta_thresholds(self, position_threshold: float, orientation_threshold: float):
-        """Set the delta denoising thresholds from training data.
-        
+    def set_denoising_thresholds(self, thresholds: dict[str, float]):
+        """Set the denoising thresholds from training data.
+
+        Args:
+            thresholds: Dictionary mapping observation keys to their denoising thresholds.
+                May be empty for precomputed actions.
+
         Note:
-            These thresholds are computed from the dataset's action processor and stored 
-            here to be used at inference time to filter out noisy predictions.
+            These thresholds are computed from the dataset's action processor and stored
+            in a ParameterDict to persist through checkpointing.
         """
-        self.position_delta_threshold.fill_(position_threshold)
-        self.orientation_delta_threshold.fill_(orientation_threshold)
+        for key, value in thresholds.items():
+            self.denoising_thresholds[key] = nn.Parameter(torch.tensor(value), requires_grad=False)
 
 
     def forward(self, batch: dict[str, dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:

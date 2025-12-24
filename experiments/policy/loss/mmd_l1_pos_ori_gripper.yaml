@@ -21,3 +21,4 @@ loss_modules:
     trajectory_length:
         _target_: refactoring.metrics.TrajectoryLengthLoss
         weight: 0.0
+        action_key: ${proprio_key:EE_POS_ACTION}

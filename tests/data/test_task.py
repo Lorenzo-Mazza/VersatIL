@@ -31,8 +31,7 @@ def action_space_factory():
             'predict_in_camera_frame': True,
             'deltas_as_actions': False,
             'denoise_actions': True,
-            'custom_action_dims': None,
-            'task_has_phases': False,
+            'predict_task_phases': False,
             'number_of_phases': 5,
         }
         defaults.update(kwargs)
@@ -52,7 +51,7 @@ def observation_space_factory():
             'gripper_type': GripperType.BINARY.value,
             'camera_keys': None,
             'use_language': False,
-            'custom_obs_keys': None,
+            'custom_obs_keys_to_column_names': None,
         }
         defaults.update(kwargs)
         return ObservationSpace(**defaults)
@@ -92,7 +91,7 @@ class TestActionSpace:
         assert action_space.gripper_dim == 1
         assert action_space.predict_in_camera_frame is True
         assert action_space.deltas_as_actions is False
-        assert action_space.task_has_phases is False
+        assert action_space.predict_task_phases is False
         assert action_space.number_of_phases == 5
 
     def test_init_custom_values(self, action_space_factory):
@@ -109,7 +108,7 @@ class TestActionSpace:
         assert action_space.orientation_dim == 3
         assert action_space.orientation_repr == OrientationRepresentation.EULER.value
         assert action_space.predict_in_camera_frame is False
-        assert action_space.task_has_phases is True
+        assert action_space.predict_task_phases is True
 
     @pytest.mark.parametrize("has_pos,pos_dim,has_ori,ori_dim,has_grip,grip_dim,has_phases,n_phases,expected", [
         (True, 3, False, 0, True, 1, False, 5, 4),
@@ -137,17 +136,6 @@ class TestActionSpace:
 
         assert action_space.get_total_action_dim() == expected
 
-    def test_get_total_action_dim_with_custom_actions(self, action_space_factory):
-        """Test action dimension calculation with custom actions."""
-        action_space = action_space_factory(
-            has_position=True,
-            position_dim=3,
-            has_gripper=True,
-            gripper_dim=1,
-            custom_action_dims={'force': 3, 'torque': 3}
-        )
-
-        assert action_space.get_total_action_dim() == 10
 
     def test_get_required_zarr_keys_camera_frame(self, action_space_factory):
         """Test required zarr keys for camera frame prediction."""

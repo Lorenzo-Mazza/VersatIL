@@ -29,14 +29,18 @@ from omegaconf import OmegaConf
 from refactoring.configs import MainConfig
 from refactoring.data.action_processor import ActionProcessor
 from refactoring.data.constants import (
-    GRIPPER_ACTION_KEY,
-    POSITION_ACTION_KEY,
-    PROPRIO_OBS_CAMERA_FRAME_KEY,
-    PROPRIO_OBS_ROBOT_FRAME_KEY,
-    Cameras, ORIENTATION_ACTION_KEY, GripperType, LANGUAGE_KEY,
+    BinaryGripperRange,
+    Cameras, GripperType,
 )
 from refactoring.data.tokenization.tokenizer import Tokenizer
 from refactoring.training.lightning_policy import LightningPolicy
+
+PROPRIO_OBS_ROBOT_FRAME_KEY = "proprio_robot_frame"
+PROPRIO_OBS_CAMERA_FRAME_KEY = "proprio_camera_frame"
+LANGUAGE_KEY = "language_instruction"
+POSITION_ACTION_KEY = "position_action"
+ORIENTATION_ACTION_KEY = "orientation_action"
+GRIPPER_ACTION_KEY = "gripper_action"
 
 
 class InferenceClient(AbstractModelClient):
@@ -134,6 +138,11 @@ class InferenceClient(AbstractModelClient):
         self.position_dim = action_space.position_dim if self.has_position else 0
         self.orientation_dim = action_space.orientation_dim if self.has_orientation else 0
         self.gripper_type = action_space.gripper_type if action_space.has_gripper else None
+        self.binary_gripper_range = action_space.binary_gripper_range if action_space.has_gripper else None
+        if self.gripper_type is not None and self.gripper_type==GripperType.BINARY.value and self.binary_gripper_range is None:
+            logging.warning("Gripper binary range is not set. Assuming {0,1}.")
+            self.binary_gripper_range = BinaryGripperRange.ZERO_ONE.value
+
         self.gripper_dim = action_space.gripper_dim if action_space.has_gripper else 0
         if not self.has_position:
             raise ValueError("InferenceClient currently requires position actions.")
@@ -495,7 +504,10 @@ class InferenceClient(AbstractModelClient):
         if raw_gripper_tensor is not None:
             raw_gripper_action = raw_gripper_tensor.cpu().detach().float().numpy()
             if self.gripper_type == GripperType.BINARY.value:
-                gripper_action = raw_gripper_action > 0.5
+                if self.binary_gripper_range == BinaryGripperRange.ZERO_ONE.value:
+                    gripper_action = raw_gripper_action > 0.5  # Model outputs [0, 1]
+                else: 
+                    gripper_action = raw_gripper_action > 0.0  # Model outputs [-1, 1]
             else:
                 gripper_action = raw_gripper_action
         else:

@@ -11,7 +11,6 @@ from refactoring.data.episodic_dataset import EpisodicDataset
 from refactoring.data.preprocessing.replay_buffer import ReplayBuffer
 from refactoring.data.constants import (
     Cameras,
-    SamplingMode,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
     GRIPPER_STATE_OBS_KEY,
@@ -105,7 +104,6 @@ def observation_config_with_language():
 def dataloader_config():
     """Dataloader configuration."""
     config = MagicMock()
-    config.sampling_mode = SamplingMode.OVERLAPPING.value
     config.action_backward_shift = 0
     config.kinematics_norm_type = "min_max"
     config.image_norm_type = "imagenet"
@@ -608,8 +606,6 @@ class TestDatasetLength:
 
     def test_overlapping_mode_length_equals_sampler_length(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
         """Test dataset length in overlapping mode."""
-        dataloader_config.sampling_mode = SamplingMode.OVERLAPPING.value
-
         dataset = EpisodicDataset(
             zarr_path=simple_replay_buffer,
             action_space=action_config,
@@ -623,23 +619,6 @@ class TestDatasetLength:
 
         assert len(dataset) == len(dataset.sampler)
 
-
-    def test_random_chunk_mode_length_equals_episodes(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test dataset length in random chunk mode."""
-        dataloader_config.sampling_mode = SamplingMode.RANDOM_CHUNK.value
-
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        assert len(dataset) == len(dataset.selected_episode_indices)
 
 
 class TestGetItem:

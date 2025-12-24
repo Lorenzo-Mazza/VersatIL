@@ -10,6 +10,14 @@ import torch
 from torch import nn
 
 
+def tensor_to_str(t: torch.Tensor) -> str:
+    """Convert tensor to clean string without torch metadata."""
+    arr = t.detach().cpu().numpy()
+    if arr.ndim == 0:
+        return f'{arr.item():.4f}'
+    return '[' + ', '.join(f'{x:.4f}' for x in arr) + ']'
+
+
 def recursive_dict_list_tuple_apply(x, type_func_dict):
     """
     Recursively apply functions to a nested dictionary or list or tuple, given a dictionary of

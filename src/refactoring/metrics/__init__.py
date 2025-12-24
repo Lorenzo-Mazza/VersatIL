@@ -29,9 +29,7 @@ from refactoring.metrics.components import (
 
 )
 from refactoring.metrics.composite import (
-    ActionReconstructionLoss,
     CompositeLoss,
-    PhaseActionLoss,
 )
 from refactoring.metrics.constants import (
     LossModuleName,
@@ -55,8 +53,6 @@ __all__ = [
     "TrajectorySmoothness",
     "PhaseClassificationLoss",
     "CompositeLoss",
-    "ActionReconstructionLoss",
-    "PhaseActionLoss",
     "FixedVarianceGaussianNLLoss",
     "FixedVarianceGripperMixtureNLLoss",
     "MetricsAccumulator",

@@ -18,7 +18,7 @@ See diffusion_process.py for detailed documentation of these components.
 
 import torch
 
-from refactoring.data.constants import POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY, GRIPPER_ACTION_KEY, IS_PAD_ACTION_KEY
+from refactoring.data.constants import IS_PAD_ACTION_KEY
 from refactoring.models.decoding.algorithm.base import DecodingAlgorithm
 from refactoring.models.layers.diffusion_process import (
     DiffusionSchedulerConfig,
@@ -194,27 +194,12 @@ class Diffusion(DecodingAlgorithm):
         batch_size = first_feature.shape[0]
         device = first_feature.device
         dtype = first_feature.dtype
-        # We need to know the shape of actions to initialize noise
-        # This assumes the network has prediction_horizon and action dimension info
-        prediction_horizon = network.prediction_horizon
 
         # Initialize actions with random noise
         noisy_actions = {}
-
-        # Initialize each action component with appropriate shape
-        if network.use_position_actions:
-            noisy_actions[POSITION_ACTION_KEY] = torch.randn(
-                batch_size, prediction_horizon, network.position_dim,  # type: ignore[arg-type]
-                device=device, dtype=dtype
-            )
-        if network.use_orientation_actions:
-            noisy_actions[ORIENTATION_ACTION_KEY] = torch.randn(
-                batch_size, prediction_horizon, network.orientation_dim,  # type: ignore[arg-type]
-                device=device, dtype=dtype
-            )
-        if network.use_gripper_actions:
-            noisy_actions[GRIPPER_ACTION_KEY] = torch.randn(
-                batch_size, prediction_horizon, network.gripper_dim,  # type: ignore[arg-type]
+        for key, meta in network.action_space.actions_metadata.items():
+            noisy_actions[key] = torch.randn(
+                batch_size, network.prediction_horizon, meta.prediction_dimension,  # type: ignore[arg-type]
                 device=device, dtype=dtype
             )
         setup_inference_timesteps(self.noise_scheduler, self.num_inference_steps)

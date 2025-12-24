@@ -1,15 +1,29 @@
 defaults:
   - base
 
+_target_: refactoring.data.task.ObservationSpace
 
-_target_: "refactoring.data.task.ObservationSpace"
+observations_metadata:
+  ${cameras:LEFT}:
+    _target_: refactoring.data.metadata.CameraMetadata
+    camera_key: ${cameras:LEFT}
+    dtype: uint8
+    channels: 3
+    image_width: 480
+    image_height: 270
 
-use_proprio_base_frame: false
-use_proprio_camera_frame: false
-use_gripper_state: false
-gripper_type: ${gripper:BINARY}
-camera_keys:
-  - ${cameras:LEFT}
-  - ${cameras:RIGHT}
-  - ${cameras:DEPTH}
-use_language: false
+  ${cameras:RIGHT}:
+    _target_: refactoring.data.metadata.CameraMetadata
+    camera_key: ${cameras:RIGHT}
+    dtype: uint8
+    channels: 3
+    image_width: 480
+    image_height: 270
+
+  ${cameras:DEPTH}:
+    _target_: refactoring.data.metadata.CameraMetadata
+    camera_key: ${cameras:DEPTH}
+    dtype: float32
+    channels: 1
+    image_width: 480
+    image_height: 270

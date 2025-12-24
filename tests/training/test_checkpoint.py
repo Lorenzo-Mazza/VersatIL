@@ -1126,7 +1126,7 @@ class TestWorkspaceConfigSaving:
         assert action_space.gripper_type == GripperType.BINARY.value
         assert action_space.deltas_as_actions is True
         assert action_space.predict_in_camera_frame is True
-        assert action_space.task_has_phases is True
+        assert action_space.predict_task_phases is True
         assert action_space.number_of_phases == 5
 
     def test_config_yaml_format(self, tmp_path):

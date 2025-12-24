@@ -4,9 +4,8 @@ from typing import Any
 
 from omegaconf import MISSING
 
-from refactoring.configs.decoding.action_head import ActionHeadConfig, MixtureOfExpertsHeadConfig
+from refactoring.configs.decoding.action_head import MixtureOfExpertsHeadConfig
 from refactoring.configs.data.task import ActionSpaceConfig, ObservationSpaceConfig
-from refactoring.data.constants import PHASE_LABEL_KEY
 from refactoring.models.decoding.constants import MoERoutingType
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
@@ -54,7 +53,7 @@ class PhaseACTConfig(ACTConfig):
     position and gripper predictions through phase-specific expert networks.
     """
     _target_: str = "refactoring.models.decoding.decoders.factory.phase_act.PhaseACT"
-    phase_routing_key: str = PHASE_LABEL_KEY  # Key for the phase classifier head that provides routing weights
+    phase_routing_key: str = MISSING   # Key for the phase classifier head that provides routing weights
 
 @dataclass
 class FASTDETRDecoderConfig(DecodingNetworkConfig):

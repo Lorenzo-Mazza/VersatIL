@@ -2,7 +2,6 @@
 
 Reference: https://arxiv.org/abs/2304.13705
 """
-import logging
 
 import torch
 from torch import nn
@@ -11,7 +10,6 @@ from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.constants import FeatureType
 from refactoring.models.decoding.decoders.base import ActionDecoder, DecoderInput
-from refactoring.models.encoding.encoders.constants import EncoderOutputKeys
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.detr_transformer import Transformer
 from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D

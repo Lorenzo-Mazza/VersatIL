@@ -1,6 +1,18 @@
 import enum
 
 
+class LatentKey(str, enum.Enum):
+    """Enum for latent-related feature keys used in variational models."""
+    POSTERIOR_LATENT = "latent"
+    POSTERIOR_MU = "mu"
+    POSTERIOR_LOGVAR = "logvar"
+    PRIOR_MU = "prior_mu"
+    PRIOR_LOGVAR = "prior_logvar"
+    PRIOR_LATENT = "prior_latent"
+    PRIOR_PREDICTION = "prior_prediction"
+    PRIOR_TARGET = "prior_target"
+
+
 class MoERoutingType(str, enum.Enum):
     """Enum for different Mixture of Experts (MoE) routing strategies."""
     TOP_K = 'top_k'  # Select the top-k experts based on gating scores

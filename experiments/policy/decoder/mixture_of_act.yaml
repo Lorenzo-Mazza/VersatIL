@@ -2,7 +2,7 @@ defaults:
   - action_transformer@base_expert
 
 _target_: refactoring.models.decoding.decoders.moe.MoEDecoder
-gating_feature_key: ${obs_key:LATENT_KEY}
+gating_feature_key: ${latent_key:POSTERIOR_LATENT}
 temperature: 10.0
 learnable_temperature: true
 routing_type: ${moe_routing_type:SOFT}

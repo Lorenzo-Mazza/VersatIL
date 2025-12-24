@@ -15,7 +15,6 @@ from refactoring.configs.experiment import ExperimentConfig
 from refactoring.configs.data.task import TaskSpaceConfig
 from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.configs.data.dataloader import DataLoaderConfig
-from refactoring.configs.data.dataset.schema import DatasetSchemaConfig
 from refactoring.configs.training import TrainingConfig, OptimizerConfig, AdamWConfig
 from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
 from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod

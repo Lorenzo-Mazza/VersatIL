@@ -88,7 +88,7 @@ class TestWorkspaceCallbacks:
         assert len(ema_callbacks) == 0
 
     def test_confusion_matrix_callback_for_phase_models(self, mock_main_config):
-        mock_main_config.task.action_space.task_has_phases = True
+        mock_main_config.task.action_space.predict_task_phases = True
 
         workspace = Workspace(mock_main_config)
         callbacks = workspace._create_callbacks()
@@ -97,7 +97,7 @@ class TestWorkspaceCallbacks:
         assert len(cm_callbacks) == 1
 
     def test_no_confusion_matrix_callback_for_non_phase_models(self, mock_main_config):
-        mock_main_config.task.action_space.task_has_phases = False
+        mock_main_config.task.action_space.predict_task_phases = False
 
         workspace = Workspace(mock_main_config)
         callbacks = workspace._create_callbacks()

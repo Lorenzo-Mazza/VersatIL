@@ -1,42 +1,51 @@
-"""Data constants for the codebase.
-
-All string constants should be defined here to avoid hard-coding throughout the codebase.
-
-Organization:
-    - Enums for type-safe constants
-    - Observation/Action keys for data pipeline
-    - Normalization constants
-"""
+"""Data constants for the data package."""
 import enum
 
 
 class Cameras(enum.Enum):
-    """Enum for camera names."""
-    # TSO datasets cameras
+    """Enum for camera image keys both in the zarr and in the raw datasets."""
+    # TSO datasets
     LEFT = 'left'
     RIGHT = 'right'
     DEPTH = 'depth'
-    # LIBERO cameras
+    # LIBERO
     AGENTVIEW = 'agentview_rgb'
     EYE_IN_HAND = 'eye_in_hand_rgb'
 
 
-VALID_CAMERAS = [cam.value for cam in Cameras]
-RGB_CAMERAS = [Cameras.LEFT.value, Cameras.RIGHT.value, Cameras.AGENTVIEW.value, Cameras.EYE_IN_HAND.value]
+
+class CoordinateSystem(str, enum.Enum):
+    """Enum for different coordinate systems supported by the codebase"""
+    ROBOT_BASE = "robot_base"
+    ROBOT_EE = "robot_ee"
+    CAMERA = "camera"
+    UNKNOWN = "unknown"
+
 
 class ProprioKey(str, enum.Enum):
     """Enum for proprioceptive observation keys."""
-    # TSO datasets proprioceptive keys
-    ROBOT_FRAME = "proprio_robot_frame"
-    CAMERA_FRAME = "proprio_camera_frame"
+    # TSO bowel retraction proprioceptive keys
+    ROBOT_FRAME_CARTESIAN_TIP_POS = "proprio_robot_frame"
+    ROBOT_FRAME_CARTESIAN_TIP_ORI= "tip_ori_robot_frame"
+    CAMERA_FRAME_CARTESIAN_TIP_POS = "proprio_camera_frame"
+    CAMERA_FRAME_CARTESIAN_TIP_ORI = "tip_ori_camera_frame"
     # LIBERO proprioceptive keys
     EE_POS = "ee_pos"
     EE_ORI = "ee_ori"
     EE_STATES = "ee_states"
     JOINT_STATES = "joint_states"
+    EE_POS_ACTION = "ee_pos_action"
+    EE_ORI_ACTION = "ee_ori_action"
+    GRIPPER_STATE_ACTION = "gripper_state_action"
+    ACTION_7D = "action_7d"  # position delta (3) + orientation delta (3) + gripper (1)
 
 
-VALID_PROPRIO_KEYS = [key.value for key in ProprioKey]
+class ObsKey(str, enum.Enum):
+    """Enum for non-proprioceptive observation keys."""
+    GRIPPER_STATE = "gripper_state_obs"
+    LANGUAGE = "language_instruction"
+    PHASE_LABEL = "phase_label"
+
 
 class ImageNormalizationType(str, enum.Enum):
     """Enum for image normalization types."""
@@ -52,24 +61,41 @@ class KinematicsNormalizationType(str, enum.Enum):
     DEMEAN = 'demean'
 
 
-class SamplingMode(str, enum.Enum):
-    """Enum for sampling mode of the dataset."""
-    OVERLAPPING = 'overlapping'
-    RANDOM_CHUNK = 'random_chunk'
-
-
 class OrientationRepresentation(str, enum.Enum):
     """Enum for orientation representation types."""
     ROLL = 'roll'  # roll of the end-effector around the tool axis for a robot controlled with a Remote Center of Motion constraint
     EULER = 'euler' # (roll, pitch, yaw)
-    QUATERNION = 'quaternion' # (w, action_embedding, y, z)
+    QUATERNION = 'quaternion' # (w, x, y, z)
+    # TODO: add LIBERO orientation representation
 
+
+class ActionComputationMethod(str, enum.Enum):
+    """Enumerates the computation methods for obtaining an action from state data."""
+    NEXT_TIMESTEP = 'next_timestep' # Use the next timestep state as the action target
+    DELTA = 'delta' # Subtraction between the current and next timestep
+
+
+class ProprioceptiveType(str, enum.Enum):
+    """Enum for proprioceptive data types. Add here custom proprioceptive types as needed."""
+    POSITION = 'position'
+    ORIENTATION = 'orientation'
+    GRIPPER = 'gripper' # gripper open/close or continuous control action
+    CUSTOM = 'custom' # for any custom action types
 
 
 class GripperType(str, enum.Enum):
     """Enum for gripper action types."""
     BINARY = 'binary'
     CONTINUOUS = 'continuous'
+
+
+class BinaryGripperRange(str, enum.Enum):
+    """Enum for binary gripper value ranges.
+
+    Different datasets use different conventions for binary gripper states:
+    """
+    ZERO_ONE = 'zero_one'
+    MINUS_ONE_ONE = 'minus_one_one'
 
 
 class TokenizerType(str, enum.Enum):
@@ -82,7 +108,6 @@ class TokenizerType(str, enum.Enum):
 OBSERVATION_KEY = "observation"
 PROPRIO_OBS_ROBOT_FRAME_KEY = "proprio_robot_frame"
 PROPRIO_OBS_CAMERA_FRAME_KEY = "proprio_camera_frame"
-GRIPPER_STATE_OBS_KEY = "gripper_state_obs"
 LANGUAGE_KEY = "language_instruction"
 
 #: Action keys
@@ -90,20 +115,20 @@ ACTION_KEY = "action"
 POSITION_ACTION_KEY = "position_action"
 ORIENTATION_ACTION_KEY = "orientation_action"
 GRIPPER_ACTION_KEY = "gripper_action"
-PRECOMPUTED_ACTIONS_KEY = "precomputed_actions"  # For datasets with pre-recorded actions (e.g., LIBERO)
 IS_PAD_ACTION_KEY = "is_pad"
 IS_PAD_OBSERVATION_KEY = "is_pad_observation"
 TOKENIZED_OBSERVATIONS_KEY = "tokenized_observations"
 TOKENIZED_ACTIONS_KEY = "tokenized_actions"
-PHASE_LABEL_KEY = "phase_label"
 
 
 
+VALID_CAMERAS = [cam.value for cam in Cameras]
+RGB_CAMERAS = [Cameras.LEFT.value, Cameras.RIGHT.value, Cameras.AGENTVIEW.value, Cameras.EYE_IN_HAND.value]
 
 
 
 #: ImageNet statistics for normalization
 IMAGENET_RGB_MEAN:list[float] = [0.485, 0.456, 0.406]
 IMAGENET_RGB_STD:list[float] = [0.229, 0.224, 0.225]
-IMAGENET_DEPTH_MEAN: float = 0.48  # Cf. https://github.com/VCIP-RGBD/RGBD-Pretrain/blob/main/data/constants.py#L3
+IMAGENET_DEPTH_MEAN: float = 0.48  # ref. https://github.com/VCIP-RGBD/RGBD-Pretrain/blob/main/data/constants.py#L3
 IMAGENET_DEPTH_STD: float = 0.28

@@ -15,7 +15,8 @@ def create_indices(
     """Builds a list of starting points for fixed-length sequences across multiple episodes.
 
     Episodes are sections of data defined by their ending positions in episode_ends (cumulative, like [5, 10, 15] for episodes of length 5 each).
-    This function finds all possible starting positions where you can pull a sequence of 'sequence_length' steps, allowing some overhang (padding) at the start or end of an episode.
+    This function finds all possible starting positions where you can pull a sequence of 'sequence_length' steps, allowing some overhang (padding)
+     at the start or end of an episode.
     It skips episodes marked False in episode_mask.
     For each valid start, it calculates:
     - Where the sequence actually starts and ends in the full data buffer.

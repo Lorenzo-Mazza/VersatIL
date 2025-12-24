@@ -1,4 +1,9 @@
-_target_: refactoring.data.schemas.custom.bowel_retraction.BowelRetractionSchema
+defaults:
+  - raw_format/bowel_retraction@metadata: bowel_retraction
+  - _self_
+
+_target_: refactoring.data.raw.schemas.csv.CsvDatasetSchema
 zarr_path: /mnt/cluster/datasets/bowel_retraction/v2/dataset_test.zarr
-dataset_folders: ["/mnt/cluster/datasets/bowel_retraction/v1", "/mnt/cluster/datasets/bowel_retraction/v2"]
-has_phase_labels: true
+dataset_folders:
+  - /mnt/cluster/datasets/bowel_retraction/v1
+  - /mnt/cluster/datasets/bowel_retraction/v2

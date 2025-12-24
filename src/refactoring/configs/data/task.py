@@ -9,65 +9,55 @@ from typing import Any
 
 from omegaconf import MISSING
 
-from refactoring.configs import DataLoaderConfig
-from refactoring.data.constants import (
-    GripperType,
-    OrientationRepresentation,
-)
+from refactoring.configs.data.dataloader import DataLoaderConfig
 
 
 @dataclass
 class ActionSpaceConfig:
-    """Configuration for action space."""
+    """Configuration for action space.
+
+    Attributes:
+        actions_metadata: Dict of all action metadata, indexed by zarr store key.
+            Values are OnTheFlyActionMetadataConfig or PrecomputedActionMetadataConfig subclasses.
+        use_gripper_class_weights: Whether to use class weights for binary gripper.
+        denoise_actions: Whether to apply denoising to actions.
+        denoising_percentile: Percentile for denoising threshold.
+    """
     _target_: str = "refactoring.data.task.ActionSpace"
-    has_position: bool = True
-    position_dim: int = 3
-    has_orientation: bool = False
-    orientation_dim: int = 0
-    orientation_repr: str = OrientationRepresentation.ROLL.value
-    has_gripper: bool = True
-    gripper_type: str = GripperType.BINARY.value
-    gripper_dim: int = 1
+    actions_metadata: dict[str, Any] = field(default_factory=dict)
     use_gripper_class_weights: bool = False
-    predict_in_camera_frame: bool = True
-    deltas_as_actions: bool = False
     denoise_actions: bool = True
     denoising_percentile: float = 15.0
-    custom_action_dims: dict[str, int] = field(default_factory=dict)
-    task_has_phases: bool = False
-    number_of_phases: int = 5
-    use_precomputed_actions: bool = False
 
 
 @dataclass
 class ObservationSpaceConfig:
-    """Configuration for observation space."""
+    """Configuration for observation space.
+
+    Attributes:
+        observations_metadata: Dict of all observation metadata, indexed by zarr store key.
+            Values are ObservationMetadataConfig subclasses or CameraMetadataConfig.
+    """
     _target_: str = "refactoring.data.task.ObservationSpace"
-    use_proprio_base_frame: bool = False
-    use_proprio_camera_frame: bool = False
-    use_gripper_state: bool = False
-    gripper_type: str = GripperType.BINARY.value
-    camera_keys: list[str] = field(default_factory=list) # Have to be consistent with constants.data.Cameras.value
-    use_language: bool = False
-    custom_obs_keys: list[str] = field(default_factory=list)
+    observations_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class TaskSpaceConfig:
-    """Task space-specific configuration."""
+    """Task space specific configuration for the experiment run.
+
+    Attributes:
+        dataset_schema: Dataset schema configuration, defining what dataset and zarr store the task uses.
+        dataloader: Data loading and preprocessing configuration.
+        action_space: Action space configuration used by the task at runtime.
+        observation_space: Observation space configuration used by the task at runtime.
+        observation_horizon: Number of history timesteps to include.
+        prediction_horizon: Number of timesteps to predict (action chunk size).
+    """
     _target_: str = "refactoring.data.task.TaskSpace"
-    #: Dataset schema configuration, defining what dataset the task uses
     dataset_schema: Any = MISSING
-    #: Data loading and preprocessing configuration
     dataloader: DataLoaderConfig = MISSING
-    #: Action space used by the task
-    action_space: ActionSpaceConfig = field(default_factory=ActionSpaceConfig)
-    #: Observation space used by the task
-    observation_space: ObservationSpaceConfig = field(default_factory=ObservationSpaceConfig)
-    #: Observation horizon, i.e. history size
+    action_space: ActionSpaceConfig = MISSING
+    observation_space: ObservationSpaceConfig = MISSING
     observation_horizon: int = 1
-    #: Prediction horizon, i.e. chunk size
     prediction_horizon: int = 16
-
-
-

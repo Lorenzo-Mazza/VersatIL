@@ -1,222 +1,342 @@
+"""Task space definitions for runtime data requirements.
+
+This module defines what data an experiment uses at runtime:
+"""
+
+from refactoring.common.omegaconf_ops import resolve_dict_keys
 from refactoring.configs.data.dataloader import DataLoaderConfig
 from refactoring.data.constants import (
-    OrientationRepresentation,
-    GripperType,
-    PROPRIO_OBS_CAMERA_FRAME_KEY,
-    PROPRIO_OBS_ROBOT_FRAME_KEY,
-    GRIPPER_STATE_OBS_KEY,
-    PHASE_LABEL_KEY,
-    LANGUAGE_KEY,
     VALID_CAMERAS,
-    PRECOMPUTED_ACTIONS_KEY,
+    ActionComputationMethod,
+    ObsKey,
 )
-from refactoring.data.schemas.base import DatasetSchema
+from refactoring.data.metadata import (
+    ObservationMetadata,
+    PositionObservationMetadata,
+    OrientationObservationMetadata,
+    GripperObservationMetadata,
+    CameraMetadata,
+    ActionMetadata,
+    PositionActionMetadata,
+    OrientationActionMetadata,
+    GripperActionMetadata,
+    OnTheFlyActionMetadata,
+    PrecomputedActionMetadata,
+)
+from refactoring.data.raw.schemas.base import DatasetSchema
 
 
 class ActionSpace:
-    """Defines what actions the task will predict and how they are computed."""
+    """Defines what actions the task will predict at runtime.
+
+
+    Attributes:
+        actions_metadata: Dict of all action metadata, indexed by zarr store key.
+            Values are OnTheFlyActionMetadata or PrecomputedActionMetadata subclasses.
+        use_gripper_class_weights: Whether to use class weights for binary gripper.
+        denoise_actions: Whether to apply denoising to actions.
+        denoising_percentile: Percentile for denoising threshold.
+    """
+
     def __init__(
         self,
-        has_position: bool = True,
-        position_dim: int = 3,
-        has_orientation: bool = False,
-        orientation_dim: int = 0,
-        orientation_repr: str = OrientationRepresentation.ROLL.value,
-        has_gripper: bool = True,
-        gripper_type: str = GripperType.BINARY.value,
-        gripper_dim: int = 1,
+        actions_metadata: dict[str, ActionMetadata],
         use_gripper_class_weights: bool = False,
-        predict_in_camera_frame: bool = True,
-        deltas_as_actions: bool = False,
         denoise_actions: bool = True,
         denoising_percentile: float = 15.0,
-        custom_action_dims: dict[str, int] = None,
-        task_has_phases: bool = False,
-        number_of_phases: int = 5,
-        use_precomputed_actions: bool = False,
     ):
-        """Initialize ActionSpace.
-
-        Args:
-            has_position: Whether to include position in action space
-            position_dim: Dimension of position action (usually 3)
-            has_orientation: Whether to include orientation in action space
-            orientation_dim: Dimension of orientation action (1, 3, or 4)
-            orientation_repr: Representation of orientation (e.g., roll, euler, quaternion)
-            has_gripper: Whether to include gripper state in action space
-            gripper_type: Type of gripper action (e.g., binary, continuous)
-            gripper_dim: Dimension of gripper action (usually 1)
-            use_gripper_class_weights: Whether to use class weights for gripper loss
-            predict_in_camera_frame: Whether actions are predicted in camera frame
-            deltas_as_actions: Whether actions are deltas from current state
-            denoise_actions: Whether to denoise actions during training
-            denoising_percentile: Percentile threshold for denoising (actions below this are zeroed)
-            custom_action_dims: Dictionary of custom action dimensions
-            task_has_phases: Whether the task has distinct phases
-            number_of_phases: Number of phases in the task
-            use_precomputed_actions: Whether the actions are going to be computed on-the-fly based on observations or already stored.
-        """
-        self.has_position = has_position
-        self.position_dim = position_dim
-        self.has_orientation = has_orientation
-        self.orientation_dim = orientation_dim
-        self.orientation_repr = orientation_repr
-        self.has_gripper = has_gripper
-        self.gripper_type = gripper_type
-        self.gripper_dim = gripper_dim
+        self.actions_metadata = resolve_dict_keys(actions_metadata)
         self.use_gripper_class_weights = use_gripper_class_weights
-        self.predict_in_camera_frame = predict_in_camera_frame
-        self.deltas_as_actions = deltas_as_actions
         self.denoise_actions = denoise_actions
         self.denoising_percentile = denoising_percentile
-        self.custom_action_dims = custom_action_dims if custom_action_dims is not None else {}
-        self.task_has_phases = task_has_phases
-        self.number_of_phases = number_of_phases
-        self.use_precomputed_actions = use_precomputed_actions
 
+    @property
+    def on_the_fly_actions(self) -> dict[str, OnTheFlyActionMetadata]:
+        """Get actions computed on-the-fly from observations."""
+        return {k: v for k, v in self.actions_metadata.items() if isinstance(v, OnTheFlyActionMetadata)}
 
+    @property
+    def precomputed_actions(self) -> dict[str, PrecomputedActionMetadata]:
+        """Get precomputed actions loaded directly from zarr."""
+        return {k: v for k, v in self.actions_metadata.items() if isinstance(v, PrecomputedActionMetadata)}
+
+    @property
+    def position_actions(self) -> dict[str, PositionActionMetadata | OnTheFlyActionMetadata]:
+        """Get all position actions (precomputed or on-the-fly)."""
+        result = {}
+        for k, v in self.actions_metadata.items():
+            if isinstance(v, PositionActionMetadata):
+                result[k] = v
+            elif isinstance(v, OnTheFlyActionMetadata):
+                if isinstance(v.source_metadata, PositionObservationMetadata):
+                    result[k] = v
+        return result
+
+    @property
+    def orientation_actions(self) -> dict[str, OrientationActionMetadata | OnTheFlyActionMetadata]:
+        """Get all orientation actions (precomputed or on-the-fly)."""
+        result = {}
+        for k, v in self.actions_metadata.items():
+            if isinstance(v, OrientationActionMetadata):
+                result[k] = v
+            elif isinstance(v, OnTheFlyActionMetadata):
+                if isinstance(v.source_metadata, OrientationObservationMetadata):
+                    result[k] = v
+        return result
+
+    @property
+    def gripper_actions(self) -> dict[str, GripperActionMetadata | OnTheFlyActionMetadata]:
+        """Get all gripper actions (precomputed or on-the-fly)."""
+        result = {}
+        for k, v in self.actions_metadata.items():
+            if isinstance(v, GripperActionMetadata):
+                result[k] = v
+            elif isinstance(v, OnTheFlyActionMetadata):
+                if isinstance(v.source_metadata, GripperObservationMetadata):
+                    result[k] = v
+        return result
 
 
     def get_total_action_dim(self) -> int:
-        """Calculate total action dimension.
+        """Calculate total action dimension."""
+        return sum(meta.prediction_dimension for meta in self.actions_metadata.values())
 
-        Returns:
-            Total dimension of action space
-        """
-        total = 0
-        if self.has_position:
-            total += self.position_dim
-        if self.has_orientation:
-            total += self.orientation_dim
-        if self.has_gripper:
-            total += self.gripper_dim
-        for dim in self.custom_action_dims.values():
-            total += dim
-        if self.task_has_phases:
-            total += self.number_of_phases
-        return total
+    @property
+    def position_dim(self) -> int:
+        """Get total position action dimension."""
+        dim = 0
+        for meta in self.actions_metadata.values():
+            if isinstance(meta, PositionActionMetadata):
+                dim += meta.prediction_dimension
+            elif isinstance(meta, OnTheFlyActionMetadata):
+                if isinstance(meta.source_metadata, PositionObservationMetadata):
+                    dim += meta.prediction_dimension
+        return dim
+
+    @property
+    def orientation_dim(self) -> int:
+        """Get total orientation action dimension."""
+        dim = 0
+        for meta in self.actions_metadata.values():
+            if isinstance(meta, OrientationActionMetadata):
+                dim += meta.prediction_dimension
+            elif isinstance(meta, OnTheFlyActionMetadata):
+                if isinstance(meta.source_metadata, OrientationObservationMetadata):
+                    dim += meta.prediction_dimension
+        return dim
+
+    @property
+    def gripper_dim(self) -> int:
+        """Get total gripper action dimension."""
+        dim = 0
+        for meta in self.actions_metadata.values():
+            if isinstance(meta, GripperActionMetadata):
+                dim += meta.prediction_dimension
+            elif isinstance(meta, OnTheFlyActionMetadata):
+                if isinstance(meta.source_metadata, GripperObservationMetadata):
+                    dim += meta.prediction_dimension
+        return dim
+
+    @property
+    def has_on_the_fly_actions(self) -> bool:
+        """Check if there are any actions to compute on-the-fly."""
+        return len(self.on_the_fly_actions) > 0
+
+    @property
+    def has_precomputed_actions(self) -> bool:
+        """Check if there are any precomputed actions."""
+        return len(self.precomputed_actions) > 0
+
+    @property
+    def has_delta_actions(self) -> bool:
+        """Check if any actions are computed as deltas."""
+        return any(
+            meta.computation_method == ActionComputationMethod.DELTA.value
+            for meta in self.on_the_fly_actions.values()
+        )
+
+    @property
+    def has_position_actions(self) -> bool:
+        """Check if there are any position actions."""
+        return len(self.position_actions) > 0
+
+    @property
+    def has_orientation_actions(self) -> bool:
+        """Check if there are any orientation actions."""
+        return len(self.orientation_actions) > 0
+
+    @property
+    def has_gripper_actions(self) -> bool:
+        """Check if there are any gripper actions."""
+        return len(self.gripper_actions) > 0
+
+    @property
+    def task_has_phases(self) -> bool:
+        """Check if the task has phase labels."""
+        return ObsKey.PHASE_LABEL.value in self.actions_metadata
 
 
     def get_required_zarr_keys(self) -> list[str]:
-        """Get zarr keys needed for computing actions.
+        """Get zarr keys needed for this action space.
 
         Returns:
             List of keys to load from replay buffer
         """
-        keys = []
-        if self.use_precomputed_actions:
-            keys.append(PRECOMPUTED_ACTIONS_KEY)
-            if self.task_has_phases:
-                keys.append(PHASE_LABEL_KEY)
-            return keys
-        else:
-            if self.has_position or self.has_orientation:
-                if self.predict_in_camera_frame:
-                    keys.append(PROPRIO_OBS_CAMERA_FRAME_KEY)
-                else:
-                    keys.append(PROPRIO_OBS_ROBOT_FRAME_KEY)
-            if self.has_gripper:
-                keys.append(GRIPPER_STATE_OBS_KEY)
-            if self.task_has_phases:
-                keys.append(PHASE_LABEL_KEY)
-            return keys
+        return list(self.actions_metadata.keys())
 
 
 class ObservationSpace:
-    """Defines what observations the task will request and how they are processed."""
+    """Defines what observations the task will load at runtime.
+
+
+    Attributes:
+        observations_metadata: Dict of all observation metadata, indexed by zarr store key.
+            Values are ObservationMetadata subclasses or CameraMetadata.
+    """
+
     def __init__(
         self,
-        use_proprio_base_frame: bool = False,
-        use_proprio_camera_frame: bool = False,
-        use_gripper_state: bool = False,
-        gripper_type: str = GripperType.BINARY.value,
-        camera_keys: list[str] = None,
-        use_language: bool = False,
-        custom_obs_keys: list[str] = None,
+        observations_metadata: dict[str, ObservationMetadata | CameraMetadata],
     ):
-        """Initialize ObservationSpace.
+        self.observations_metadata = resolve_dict_keys(observations_metadata)
 
-        Args:
-            use_proprio_base_frame: Whether to use robot base frame for proprioception
-            use_proprio_camera_frame: Whether to use camera frame for proprioception
-            use_gripper_state: Whether to include gripper state in observations
-            gripper_type: Type of gripper (e.g., binary, continuous)
-            camera_keys: List of camera keys to include in observations
-            use_language: Whether to include language instructions in observations
-            custom_obs_keys: List of custom observation keys to include
-        """
-        self.use_proprio_base_frame = use_proprio_base_frame
-        self.use_proprio_camera_frame = use_proprio_camera_frame
-        self.use_proprioceptive_data = use_proprio_base_frame or use_proprio_camera_frame
-        self.use_gripper_state = use_gripper_state
-        self.gripper_type = gripper_type
-        self.camera_keys = camera_keys if camera_keys is not None else []
-        self.use_language = use_language
-        self.custom_obs_keys = custom_obs_keys if custom_obs_keys is not None else []
+
+    @property
+    def cameras(self) -> dict[str, CameraMetadata]:
+        """Get all camera observations."""
+        return {k: v for k, v in self.observations_metadata.items() if isinstance(v, CameraMetadata)}
+
+    @property
+    def position_observations(self) -> dict[str, PositionObservationMetadata]:
+        """Get all position observations."""
+        return {k: v for k, v in self.observations_metadata.items() if isinstance(v, PositionObservationMetadata)}
+
+    @property
+    def orientation_observations(self) -> dict[str, OrientationObservationMetadata]:
+        """Get all orientation observations."""
+        return {k: v for k, v in self.observations_metadata.items() if isinstance(v, OrientationObservationMetadata)}
+
+    @property
+    def gripper_observations(self) -> dict[str, GripperObservationMetadata]:
+        """Get all gripper state observations."""
+        return {k: v for k, v in self.observations_metadata.items() if isinstance(v, GripperObservationMetadata)}
+
+    @property
+    def proprioceptive_observations(self) -> dict[str, PositionObservationMetadata | OrientationObservationMetadata | GripperObservationMetadata]:
+        """Get all proprioceptive observations (position, orientation, gripper)."""
+        return {
+            k: v for k, v in self.observations_metadata.items()
+            if isinstance(v, (PositionObservationMetadata, OrientationObservationMetadata, GripperObservationMetadata))
+        }
+
+    @property
+    def custom_observations(self) -> dict[str, ObservationMetadata]:
+        """Get custom observations (not position, orientation, gripper, or camera)."""
+        return {
+            k: v for k, v in self.observations_metadata.items()
+            if isinstance(v, ObservationMetadata)
+            and not isinstance(v, (PositionObservationMetadata, OrientationObservationMetadata, GripperObservationMetadata))
+        }
+
+
+    @property
+    def has_cameras(self) -> bool:
+        """Check if any camera observations are included."""
+        return len(self.cameras) > 0
+
+    @property
+    def has_gripper_state(self) -> bool:
+        """Check if gripper state observation is included."""
+        return len(self.gripper_observations) > 0
+
+    @property
+    def has_proprioceptive_state(self) -> bool:
+        """Check if any proprioceptive observations are included."""
+        return len(self.proprioceptive_observations) > 0
+
+    @property
+    def has_proprioceptive_position(self) -> bool:
+        """Check if any position observations are included."""
+        return len(self.position_observations) > 0
+
+
+    @property
+    def has_proprioceptive_orientation(self) -> bool:
+        """Check if any orientation observations are included."""
+        return len(self.orientation_observations) > 0
 
 
     def get_required_zarr_keys(self) -> list[str]:
-        """Get all zarr keys needed for this observation space at runtime.
+        """Get all zarr keys needed for this observation space.
 
         Returns:
             List of keys to load from replay buffer
         """
-        keys = []
-        keys.extend(self.camera_keys)
-        if self.use_proprio_base_frame:
-            keys.append(PROPRIO_OBS_ROBOT_FRAME_KEY)
-        if self.use_proprio_camera_frame:
-            keys.append(PROPRIO_OBS_CAMERA_FRAME_KEY)
-        if self.use_language:
-            keys.append(LANGUAGE_KEY)
-        if self.use_gripper_state:
-            keys.append(GRIPPER_STATE_OBS_KEY)
-        for key in self.custom_obs_keys:
-            keys.append(key)
-        return keys
+        return list(self.observations_metadata.keys())
 
 
 class TaskSpace:
-    """The task space defines what data the experiment will use at runtime."""
+    """Combines action/observation space with dataset schema for runtime.
 
+    The task space validates that requested keys exist in the dataset schema
+    and that metadata is consistent between the schema and task requirements.
+    """
     def __init__(
         self,
         dataset_schema: DatasetSchema,
         dataloader: DataLoaderConfig,
         action_space: ActionSpace,
         observation_space: ObservationSpace,
-        observation_horizon: int = 1,
         prediction_horizon: int = 16,
+        observation_horizon: int = 1,
     ):
+        """Initialize task space.
+
+        Args:
+            dataset_schema: Schema defining what's in the zarr store.
+            dataloader: Data loading configuration.
+            action_space: Actions to predict.
+            observation_space: Observations to load.
+            prediction_horizon: Number of timesteps to predict.
+            observation_horizon: Number of history timesteps to load.
+        """
         self.dataset_schema = dataset_schema
         self.dataloader = dataloader
         self.action_space = action_space
         self.observation_space = observation_space
-        self.observation_horizon = observation_horizon
         self.prediction_horizon = prediction_horizon
+        self.observation_horizon = observation_horizon
+        self._validate()
 
 
-    def __post_init__(self):
-        """Validate task configuration."""
+    def _validate(self) -> None:
+        """Validate task configuration against dataset schema."""
+        zarr_keys = set(self.dataset_schema.get_required_zarr_keys())
+        for key in self.action_space.get_required_zarr_keys():
+            action_meta = self.action_space.actions_metadata[key]
+            if isinstance(action_meta, OnTheFlyActionMetadata):
+                if key not in zarr_keys:
+                    raise ValueError(f"On-the-fly action '{key}' references observation that doesn't exist in dataset schema.")
+                schema_obs = self.dataset_schema.metadata.get_observation(key)
+                if schema_obs is None:
+                    raise ValueError( f"On-the-fly action '{key}' references observation not found in schema.")
+                if action_meta.source_metadata != schema_obs:
+                    raise ValueError(f"On-the-fly action '{key}' metadata mismatch with schema")
+            else:
+                if key not in zarr_keys:
+                    raise ValueError(f"Precomputed action '{key}' not found in dataset schema.")
+        for key, task_obs in self.observation_space.observations_metadata.items():
+            if key not in zarr_keys:
+                raise ValueError(f"Observation '{key}' not found in dataset schema.")
+            schema_obs = self.dataset_schema.metadata.observations.get(key)
+            if schema_obs is not None and task_obs != schema_obs:
+                raise ValueError(f"Observation '{key}' metadata mismatch with schema")
+        for cam_key in self.observation_space.cameras.keys():
+            if cam_key not in VALID_CAMERAS:
+                raise ValueError(f"Invalid camera key '{cam_key}', must be one of {VALID_CAMERAS}. "
+                    f"To add custom camera keys, add them to constants.data.Cameras enum.")
         if self.observation_horizon < 1:
             raise ValueError(f"observation_horizon must be >= 1, got {self.observation_horizon}")
         if self.prediction_horizon < 1:
             raise ValueError(f"prediction_horizon must be >= 1, got {self.prediction_horizon}")
-        if self.action_space.has_orientation:
-            valid_ori_dims = {1, 3, 4}
-            if self.action_space.orientation_dim not in valid_ori_dims:
-                raise ValueError(
-                    f"orientation_dim must be one of {valid_ori_dims}:"
-                    f"1 for roll of RCM-constrained EE, 3 for euler, 4 for quaternion,"
-                    f"got {self.action_space.orientation_dim}"
-                )
-        if self.observation_space.use_proprioceptive_data and not (self.observation_space.use_proprio_base_frame or self.observation_space.use_proprio_camera_frame):
-            raise ValueError(
-                "If use_proprioceptive_data is True, then one of"
-                "use_proprio_base_frame or use_proprio_camera_frame must be True"
-                )
-        if self.observation_space.camera_keys:
-            for cam in self.observation_space.camera_keys:
-                if cam not in VALID_CAMERAS:
-                    raise ValueError(f"Invalid camera key '{cam}', must be one of {VALID_CAMERAS}."
-                                     f"To add custom camera keys, add them to constants.data.Cameras enum.")
+

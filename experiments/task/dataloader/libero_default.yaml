@@ -22,11 +22,9 @@ kinematics_winsorize_quantiles: [0.01, 0.99]
 
 rotation_augmentation: null
 
-sampling_mode: overlapping
-
 skip_initial_episode_steps: 0
 downsample_factor: 1
-center_episode_start: false
+
 
 action_backward_shift: 0
 

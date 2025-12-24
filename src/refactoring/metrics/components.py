@@ -5,10 +5,9 @@ import torch
 import torch.nn.functional as F
 
 from refactoring.data.constants import (
-    GRIPPER_ACTION_KEY,
-    PHASE_LABEL_KEY,
-    POSITION_ACTION_KEY,
-    GripperType, TOKENIZED_ACTIONS_KEY,
+    BinaryGripperRange,
+    GripperType,
+    TOKENIZED_ACTIONS_KEY,
 )
 from refactoring.metrics.base import BaseLoss, LossOutput, reduce_loss_with_padding
 from refactoring.metrics.constants import (
@@ -124,7 +123,9 @@ class GripperLoss(BaseLoss):
 
     def __init__(
         self,
+        key: str,
         gripper_type: str = GripperType.BINARY.value,
+        binary_gripper_range: str = BinaryGripperRange.ZERO_ONE.value,
         bce_weight: float = 0.005,
         mse_weight: float = 0.0,
         pos_weight: torch.Tensor | None = None,
@@ -132,13 +133,17 @@ class GripperLoss(BaseLoss):
         """Initialize gripper loss.
 
         Args:
+            key: Action key for gripper
             gripper_type: Type of gripper ('binary' or 'continuous')
+            binary_gripper_range: Value range for binary gripper ('zero_one' or 'minus_one_one')
             bce_weight: Weight for binary cross entropy (binary gripper)
             mse_weight: Weight for MSE loss (continuous gripper)
             pos_weight: Optional positive class weight for BCE
         """
         super().__init__()
+        self.key = key
         self.gripper_type = gripper_type
+        self.binary_gripper_range = binary_gripper_range
         self.bce_weight = bce_weight
         self.mse_weight = mse_weight
         self.register_buffer("pos_weight", pos_weight)
@@ -149,7 +154,7 @@ class GripperLoss(BaseLoss):
         Returns:
             Set containing the gripper action key
         """
-        return {GRIPPER_ACTION_KEY}
+        return {self.key}
 
     def forward(
         self,
@@ -167,12 +172,14 @@ class GripperLoss(BaseLoss):
         Returns:
             LossOutput with gripper loss
         """
-        if GRIPPER_ACTION_KEY not in predictions or GRIPPER_ACTION_KEY not in targets:
-            raise ValueError(f"Predictions and targets must contain key '{GRIPPER_ACTION_KEY}' for GripperLoss.")
-        pred_gripper = predictions[GRIPPER_ACTION_KEY]
-        target_gripper = targets[GRIPPER_ACTION_KEY]
+        if self.key not in predictions or self.key not in targets:
+            raise ValueError(f"Predictions and targets must contain key '{self.key}' for GripperLoss.")
+        pred_gripper = predictions[self.key]
+        target_gripper = targets[self.key]
 
         if self.gripper_type == GripperType.BINARY.value:
+            if self.binary_gripper_range == BinaryGripperRange.MINUS_ONE_ONE.value:
+                target_gripper = (target_gripper.float() + 1.0) / 2.0
             bce = F.binary_cross_entropy_with_logits(
                 pred_gripper,
                 target_gripper.float(),
@@ -549,7 +556,7 @@ class TrajectoryLengthLoss(BaseLoss):
     Penalizes differences between predicted and ground truth trajectory lengths.
     """
 
-    def __init__(self, weight: float = 0.001, action_key: str = POSITION_ACTION_KEY):
+    def __init__(self, action_key: str, weight: float = 0.001):
         """Initialize trajectory length loss.
 
         Args:
@@ -615,7 +622,7 @@ class TrajectoryLengthLoss(BaseLoss):
 class TrajectorySmoothness(BaseLoss):
     """Loss for trajectory smoothness (acceleration regularization)."""
 
-    def __init__(self, weight: float = 0.001, action_key: str = POSITION_ACTION_KEY):
+    def __init__(self, action_key: str, weight: float = 0.001):
         """Initialize smoothness loss.
 
         Args:
@@ -686,6 +693,7 @@ class PhaseClassificationLoss(BaseLoss):
 
     def __init__(
         self,
+        key: str,
         cross_entropy_weight: float = 0.1,
         entropy_weight: float = 0.01,
         label_smoothing: float = 0.2,
@@ -693,11 +701,13 @@ class PhaseClassificationLoss(BaseLoss):
         """Initialize phase classification loss.
 
         Args:
+            key: Key for phase labels
             cross_entropy_weight: Weight for cross-entropy loss
             entropy_weight: Weight for entropy regularization (Entropy maximization avoids experts collapse)
             label_smoothing: Label smoothing factor for cross-entropy
         """
         super().__init__()
+        self.key = key
         self.cross_entropy_weight = cross_entropy_weight
         self.entropy_weight = entropy_weight
         self.label_smoothing = label_smoothing
@@ -708,7 +718,7 @@ class PhaseClassificationLoss(BaseLoss):
         Returns:
             Set containing the phase label key
         """
-        return {PHASE_LABEL_KEY}
+        return {self.key}
 
     def forward(
         self,
@@ -726,11 +736,11 @@ class PhaseClassificationLoss(BaseLoss):
         Returns:
             LossOutput with cross-entropy and optional entropy loss
         """
-        if PHASE_LABEL_KEY not in predictions or PHASE_LABEL_KEY not in targets:
-            raise ValueError(f"Predictions and targets must contain key '{PHASE_LABEL_KEY}' for PhaseClassificationLoss.")
+        if self.key not in predictions or self.key not in targets:
+            raise ValueError(f"Predictions and targets must contain key '{self.key}' for PhaseClassificationLoss.")
 
-        pred_logits = predictions[PHASE_LABEL_KEY]
-        target_labels = targets[PHASE_LABEL_KEY]
+        pred_logits = predictions[self.key]
+        target_labels = targets[self.key]
 
         if target_labels.dim() == 3 and target_labels.shape[-1] == 1:
             target_labels = target_labels.squeeze(-1)
@@ -1053,6 +1063,7 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
 
     def __init__(
             self,
+            key: str,
             gripper_type: str = GripperType.BINARY.value,
             weight: float = 1.0,
             sigma: float = 0.5,
@@ -1060,18 +1071,20 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
         """Initialize gripper mixture NLL loss.
 
         Args:
+            key: Key for gripper actions
             gripper_type: Type of gripper ('binary' or 'continuous')
             weight: Loss weight
             sigma: Fixed std for continuous gripper (ignored for binary)
         """
         super().__init__()
+        self.key = key
         self.gripper_type = gripper_type
         self.weight = weight
         self.sigma = sigma
 
 
     def get_required_keys(self) -> set[str]:
-        return {GRIPPER_ACTION_KEY}
+        return {self.key}
 
 
     def forward(
@@ -1096,16 +1109,16 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
         Returns:
             LossOutput with gripper NLL
         """
-        routing_key = f'{GRIPPER_ACTION_KEY}_{ROUTING_WEIGHT}'
-        expert_key = f'{GRIPPER_ACTION_KEY}_{EXPERT_OUTPUTS}'
+        routing_key = f'{self.key}_{ROUTING_WEIGHT}'
+        expert_key = f'{self.key}_{EXPERT_OUTPUTS}'
         if routing_key not in predictions or expert_key not in predictions:
             raise ValueError(
                 f"Predictions must contain '{routing_key}' and '{expert_key}' for GripperMixtureNLLoss."
             )
-        if GRIPPER_ACTION_KEY not in targets:
-            raise ValueError(f"Targets must contain '{GRIPPER_ACTION_KEY}' for GripperMixtureNLLoss.")
+        if self.key not in targets:
+            raise ValueError(f"Targets must contain '{self.key}' for GripperMixtureNLLoss.")
 
-        target = targets[GRIPPER_ACTION_KEY]
+        target = targets[self.key]
         mixing_probs = predictions[routing_key]  # (B, T, K)
         expert_outs = predictions[expert_key]
         log_pi = torch.log(mixing_probs + 1e-8)  # (B, T, K)

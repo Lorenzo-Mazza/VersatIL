@@ -28,6 +28,15 @@ policy:
   observation_horizon: ${task.observation_horizon}
   device: ${experiment.device}
   validate_loss_keys: true
+  loss:
+    loss_modules:
+      regression_loss:
+        action_keys:
+          - ${proprio_key:EE_POS_ACTION}
+          - ${proprio_key:EE_ORI_ACTION}
+          - ${proprio_key:GRIPPER_STATE_ACTION}
+      trajectory_length:
+        action_key: ${proprio_key:EE_POS_ACTION}
   encoding_pipeline:
     encoders:
         left:
@@ -38,10 +47,36 @@ policy:
               - ${cameras:EYE_IN_HAND}
   decoder:
     action_heads:
-      orientation_action:
+      ee_pos_action:
         _target_: refactoring.models.decoding.action_heads.ActionHead
         input_dim: ${policy.decoder.embedding_dimension}
-        output_dim: ${task.action_space.orientation_dim}
+        output_dim: 3
+        blocks:
+          - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
+            input_dim: ${policy.decoder.embedding_dimension}
+            hidden_dims:
+              - 256
+              - 128
+            output_dim: null
+            activation: ${activation_function:SILU}
+            dropout: ${policy.decoder.dropout_rate}
+      ee_ori_action:
+        _target_: refactoring.models.decoding.action_heads.ActionHead
+        input_dim: ${policy.decoder.embedding_dimension}
+        output_dim: 3
+        blocks:
+          - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
+            input_dim: ${policy.decoder.embedding_dimension}
+            hidden_dims:
+              - 256
+              - 128
+            output_dim: null
+            activation: ${activation_function:SILU}
+            dropout: ${policy.decoder.dropout_rate}
+      gripper_state_action:
+        _target_: refactoring.models.decoding.action_heads.ActionHead
+        input_dim: ${policy.decoder.embedding_dimension}
+        output_dim: 1
         blocks:
           - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
             input_dim: ${policy.decoder.embedding_dimension}

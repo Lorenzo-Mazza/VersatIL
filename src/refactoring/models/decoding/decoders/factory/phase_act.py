@@ -8,7 +8,7 @@ position and gripper predictions through phase-specific expert networks.
 
 import torch
 
-from refactoring.data.constants import ACTION_KEY, PHASE_LABEL_KEY
+from refactoring.data.constants import ACTION_KEY, ObsKey
 from refactoring.models.decoding.action_heads.moe import MoEHead
 from refactoring.models.decoding.constants import EXPERT_OUTPUTS, ROUTING_WEIGHT
 from refactoring.models.decoding.decoders.factory.act import ACT
@@ -27,7 +27,7 @@ class PhaseACT(ACT):
         3. Each expert specializes in one surgical phase
     """
 
-    def __init__(self, *args, phase_routing_key: str = PHASE_LABEL_KEY, **kwargs):
+    def __init__(self, *args, phase_routing_key: str = ObsKey.PHASE_LABEL.value, **kwargs):
         """Initialize PhaseACT decoder.
 
         Args:

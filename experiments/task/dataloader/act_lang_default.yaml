@@ -19,12 +19,9 @@ depth_winsorize_quantiles: [0.01, 0.99]
 winsorize_kinematics: true
 kinematics_winsorize_quantiles: [0.01, 0.99]
 
-# Sampling strategy, random chunk samples one random chunk per episode, overlapping uses sliding window over the whole dataset.
-sampling_mode: overlapping
-
 skip_initial_episode_steps: 0
 downsample_factor: 1
-center_episode_start: false
+
 
 # Action shifting (ACT latency compensation)
 action_backward_shift: 0

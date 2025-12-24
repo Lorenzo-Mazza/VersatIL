@@ -59,7 +59,6 @@ class Workspace:
         """
         self.config: MainConfig = config
         self.original_yaml_config = original_yaml_config
-        self._ensure_configs_are_dataclasses()
         hydra_cfg = HydraConfig.get()
         main_config_name = hydra_cfg.job.config_name if hydra_cfg.job.config_name else "experiment"
         additional_exp_name = config.experiment.name
@@ -82,25 +81,6 @@ class Workspace:
         logging.info(f"Output directory: {self.output_dir}")
         self.save_config()
 
-    def _ensure_configs_are_dataclasses(self):
-        """Convert OmegaConf DictConfigs to dataclass instances where needed.
-
-        This ensures that configs with methods are actual dataclass instances, not OmegaConf DictConfigs, so their
-        methods can be called.
-
-        This is necessary because:
-        - ActionSpace has get_total_action_dim() and get_required_zarr_keys() methods
-        - ObservationSpace has get_required_zarr_keys() method
-        """
-        if OmegaConf.is_config(self.config.task):
-            config_dict = OmegaConf.to_container(self.config.task, resolve=True)
-            self.config.task = TaskSpaceConfig(**config_dict)
-        if OmegaConf.is_config(self.config.task.action_space):
-            config_dict = OmegaConf.to_container(self.config.task.action_space, resolve=True)
-            self.config.task.action_space = ActionSpace(**config_dict)
-        if OmegaConf.is_config(self.config.task.observation_space):
-            config_dict = OmegaConf.to_container(self.config.task.observation_space, resolve=True)
-            self.config.task.observation_space = ObservationSpace(**config_dict)
 
     def save_config(self):
         """Save configuration to YAML file in output directory.
@@ -125,8 +105,6 @@ class Workspace:
         self.lightning_policy._train_dataloader = self.train_loader
         self.lightning_policy._val_dataloader = self.val_loader
         self._setup_trainer()
-
-        # Run hyperparameter tuning if requested
         self._tune_hyperparameters()
 
         logging.info("Starting training...")
@@ -153,7 +131,6 @@ class Workspace:
             gripper_class_weights,
         ) = get_dataloaders(self.config)
 
-        # Store gripper class weights if needed
         if gripper_class_weights is not None:
             self.gripper_class_weights = torch.tensor(
                 [gripper_class_weights],
@@ -172,7 +149,7 @@ class Workspace:
         logging.info(f"Train dataset size: {len(self.train_loader.dataset)} samples")
         logging.info(f"Val dataset size: {len(self.val_loader.dataset)} samples")
         action_processor = self.train_loader.dataset.action_processor
-        fig = action_processor.plot_action_delta_distribution()
+        fig = action_processor.plot_action_magnitude_distribution()
         if fig is not None:
             plot_path = self.output_dir / "action_deltas_distribution.png"
             fig.savefig(plot_path, dpi=150, bbox_inches="tight", facecolor="white")
@@ -180,8 +157,7 @@ class Workspace:
             if self.logger is not None:
                 self.logger.experiment.log({"action_delta_distribution": wandb.Image(fig)})
             plt.close(fig)
-        self.position_delta_threshold = action_processor.action_denoising_threshold
-        self.orientation_delta_threshold = action_processor.orientation_denoising_threshold
+        self.denoising_thresholds = action_processor.denoising_thresholds
 
 
     def _setup_policy(self):
@@ -190,7 +166,7 @@ class Workspace:
         self.policy: Policy = self.config.policy
         self.policy.set_normalizer(self.normalizer)
         self.policy.set_tokenizer(self.tokenizer)
-        self.policy.set_delta_thresholds(self.position_delta_threshold, self.orientation_delta_threshold)
+        self.policy.set_denoising_thresholds(self.denoising_thresholds)
         # Calculate total training steps for LR scheduling
         # Steps per epoch = len(train_loader) // gradient_accumulate_every
         # Total steps = steps_per_epoch * num_epochs
@@ -486,7 +462,6 @@ class Workspace:
             raise RuntimeError("Policy not initialized. Call run() first.")
         assert self.policy is not None, "Policy must be initialized"
         policy = self.policy
-        # Use EMA model if available
         if self.config.training.use_ema and self.trainer is not None and hasattr(self.trainer, "callbacks"):
             for callback in self.trainer.callbacks:
                 if isinstance(callback, EMACallback) and callback.ema_model is not None:

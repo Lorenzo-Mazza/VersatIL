@@ -4,7 +4,7 @@
 import torch
 from torchcfm.conditional_flow_matching import ConditionalFlowMatcher
 
-from refactoring.data.constants import POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY, GRIPPER_ACTION_KEY, IS_PAD_ACTION_KEY
+from refactoring.data.constants import IS_PAD_ACTION_KEY
 from refactoring.models.decoding.algorithm.base import DecodingAlgorithm
 from refactoring.models.decoding.constants import ODESolver, TARGET_VELOCITY_KEY, TIMESTEP_KEY, NOISE_KEY
 from refactoring.models.decoding.decoders.base import ActionDecoder
@@ -41,8 +41,6 @@ class FlowMatching(DecodingAlgorithm):
         self.flow_matcher = ConditionalFlowMatcher(sigma=sigma)
         self.num_inference_steps = num_inference_steps
         self.ode_solver = ode_solver
-
-        # Validate ODE solver
         valid_solvers = [e.value for e in ODESolver]
         if self.ode_solver not in valid_solvers:
             raise ValueError(
@@ -132,39 +130,20 @@ class FlowMatching(DecodingAlgorithm):
         batch_size = first_feature.shape[0]
         device = first_feature.device
         dtype = first_feature.dtype
-
-        prediction_horizon = network.prediction_horizon
-
+        # Initialize trajectory with random noise
         trajectory = {}
-
-        # Initialize each action component with noise
-        if network.use_position_actions:
-            trajectory[POSITION_ACTION_KEY] = torch.randn(
-                batch_size, prediction_horizon, network.position_dim,  # type: ignore[arg-type]
+        for key, meta in network.action_space.actions_metadata.items():
+            trajectory[key] = torch.randn(
+                batch_size, network.prediction_horizon, meta.prediction_dimension,  # type: ignore[arg-type]
                 device=device, dtype=dtype
             )
-        if network.use_orientation_actions:
-            trajectory[ORIENTATION_ACTION_KEY] = torch.randn(
-                batch_size, prediction_horizon, network.orientation_dim,  # type: ignore[arg-type]
-                device=device, dtype=dtype
-            )
-        if network.use_gripper_actions:
-            trajectory[GRIPPER_ACTION_KEY] = torch.randn(
-                batch_size, prediction_horizon, network.gripper_dim,  # type: ignore[arg-type]
-                device=device, dtype=dtype
-            )
-
         # Integration step size
         dt = 1.0 / self.num_inference_steps
-
         # Integrate from t=0 to t=1
         for step in range(self.num_inference_steps):
             t = step / self.num_inference_steps
             t_tensor = torch.full((batch_size,), t, device=device, dtype=dtype)
-
-            # Add time to features for conditioning
             features_with_time = {**features, TIMESTEP_KEY: t_tensor}
-
             # Compute velocity at current state
             if self.ode_solver == ODESolver.EULER.value:
                 # Simple Euler integration: x_{t+dt} = x_t + dt * v_t

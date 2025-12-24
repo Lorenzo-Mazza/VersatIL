@@ -6,10 +6,12 @@ from pathlib import Path
 
 import hydra
 from omegaconf import OmegaConf, DictConfig
-
+import refactoring.configs
 from refactoring.configs import MainConfig
 from refactoring.configs.validator import validate_config
 from refactoring.workspace import Workspace
+print(OmegaConf.has_resolver("cameras"))  # Should be True
+print(OmegaConf.has_resolver("obs_key"))  # Should be True
 
 logging.basicConfig(
     level=logging.INFO,

@@ -2,14 +2,12 @@ import logging
 import shutil
 from pathlib import Path
 
-import numpy as np
 import torch
 import torch.utils.data as data
 from omegaconf import DictConfig
 
 from refactoring.configs.data.dataloader import DataLoaderConfig
 from refactoring.configs.data.tokenizer import TokenizationConfig
-from refactoring.data.constants import PHASE_LABEL_KEY
 from refactoring.data.episodic_dataset import EpisodicDataset
 from refactoring.data.normalization.normalizer import LinearNormalizer
 from refactoring.data.preprocessing.create_zarr_from_csv import create_replay_buffer
@@ -17,8 +15,8 @@ from refactoring.data.preprocessing.create_zarr_from_hdf5 import (
     create_replay_buffer_from_hdf5,
 )
 from refactoring.data.preprocessing.replay_buffer import ReplayBuffer
-from refactoring.data.schemas.base import DatasetSchema
-from refactoring.data.schemas.hdf5 import Hdf5DatasetSchema
+from refactoring.data.raw.schemas.base import DatasetSchema
+from refactoring.data.raw.schemas.hdf5 import Hdf5DatasetSchema
 from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.tokenization.tokenizer import Tokenizer, validate_tokenizer_config
 
@@ -46,7 +44,7 @@ def get_dataloaders(
     validate_dataloader_config(dataloader_config)
     validate_tokenizer_config(tokenization_config)
 
-    #schema.zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/dataset.zarr"
+    schema.zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/libero.zarr"
 
     logging.info(f"Using dataset schema: {schema.__class__.__name__}")
     _ensure_zarr_exists(schema=schema)
@@ -118,11 +116,8 @@ def get_dataloaders(
     )
 
     gripper_positive_class_weights = None
-    if config.task.action_space.has_gripper and config.task.action_space.use_gripper_class_weights:
+    if config.task.action_space.has_gripper_actions and config.task.action_space.use_gripper_class_weights:
         gripper_positive_class_weights = train_dataset.get_gripper_positive_class_imbalance_weight()
-
-    if config.task.action_space.task_has_phases:
-        _log_phase_distributions(train_dataset, val_dataset)
 
     return train_loader, val_loader, normalizer, tokenizer, gripper_positive_class_weights
 
@@ -164,7 +159,7 @@ def _collect_dataset_paths(dataset_folders: list[str], episode_filename: str) ->
             d for d in root_path.iterdir() if d.is_dir() and (d / episode_filename).exists()
         ]
         datasets_paths.extend([str(d / episode_filename) for d in episode_dirs])
-    #datasets_paths = datasets_paths[:4]
+    datasets_paths = datasets_paths[:4]
     return datasets_paths
 
 
@@ -176,7 +171,7 @@ def _ensure_zarr_exists(schema: DatasetSchema) -> None:
     - CsvDatasetSchema: Collects episode CSV paths from dataset_folders
     """
     zarr_path = schema.zarr_path
-    #zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/dataset.zarr"
+    zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/libero.zarr"
     need_create = True
     required_keys = schema.get_required_zarr_keys()
 
@@ -204,14 +199,19 @@ def _log_phase_distributions(
     train_dataset: EpisodicDataset, val_dataset: EpisodicDataset
 ) -> None:
     """Log phase label distributions for train and val."""
-    selected_eps = np.where(train_dataset.sampler.episode_mask)[0]
+    #TODO: Move to TSO Sensorium, this is a dataset specific, data analysis function!
+    logging.warning("Logging phase distributions is dataset-specific and should be moved to TSO Sensorium.")
+    return
+
+    """selected_eps = np.where(train_dataset.sampler.episode_mask)[0]
+    phase_labels = []
     if len(selected_eps) > 0:
-        phase_labels = np.concatenate(
-            [
-                train_dataset.replay_buffer.get_episode(i)[PHASE_LABEL_KEY].flatten()
-                for i in selected_eps
-            ]
-        )
+        for i in selected_eps:
+            ep = train_dataset.replay_buffer.get_episode(i)
+            if PHASE_LABEL_KEY not in ep:
+                return
+            phase_labels.append(ep[PHASE_LABEL_KEY].flatten())
+        phase_labels = np.concatenate(phase_labels)
         phase_counts = np.bincount(phase_labels, minlength=5)
         logging.info(f"Train phase distribution: {dict(enumerate(phase_counts.tolist()))}")  # type: ignore[arg-type]
 
@@ -224,6 +224,6 @@ def _log_phase_distributions(
             ]
         )
         phase_counts_val = np.bincount(phase_labels_val, minlength=5)
-        logging.info(f"Val phase distribution: {dict(enumerate(phase_counts_val.tolist()))}")  # type: ignore[arg-type]
+        logging.info(f"Val phase distribution: {dict(enumerate(phase_counts_val.tolist()))}")  # type: ignore[arg-type]"""
 
 

@@ -1,21 +1,44 @@
 defaults:
   - base
 
-_target_: "refactoring.data.task.ActionSpace"
-
-has_position: true
-position_dim: 3
-has_orientation: false
-has_gripper: true
-gripper_type: ${gripper:BINARY}
-gripper_dim: 1
+_target_: refactoring.data.task.ActionSpace
 use_gripper_class_weights: false
-predict_in_camera_frame: true
-
-# Use deltas (incremental movements) instead of absolute positions
-deltas_as_actions: true
 denoise_actions: true
 denoising_percentile: 50
 
-task_has_phases: true
-number_of_phases: 5
+actions_metadata:
+  ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}:
+    _target_: refactoring.data.metadata.OnTheFlyActionMetadata
+    source_metadata:
+      _target_: refactoring.data.metadata.PositionObservationMetadata
+      raw_data_column_keys: [camera_frame_tip_position_x, camera_frame_tip_position_y, camera_frame_tip_position_z]
+      dtype: float32
+      dimension: 3
+      needs_normalization: true
+      frame: ${coordinate_system:CAMERA}
+    computation_method: delta
+    prediction_dimension: 3
+    needs_normalization: true
+
+  ${obs_key:GRIPPER_STATE}:
+    _target_: refactoring.data.metadata.OnTheFlyActionMetadata
+    source_metadata:
+      _target_: refactoring.data.metadata.GripperObservationMetadata
+      raw_data_column_keys: [open]
+      dtype: int8
+      dimension: 1
+      needs_normalization: false
+      gripper_type: ${gripper:BINARY}
+      binary_gripper_range: ${gripper_range:ZERO_ONE}
+    computation_method: next_timestep
+    prediction_dimension: 1
+    needs_normalization: false
+
+  ${obs_key:PHASE_LABEL}:
+    _target_: refactoring.data.metadata.PrecomputedActionMetadata
+    raw_data_column_keys: [task_phase]
+    dtype: uint8
+    storage_dimension: 1
+    prediction_dimension: 5
+    is_numerical: false
+    needs_normalization: false

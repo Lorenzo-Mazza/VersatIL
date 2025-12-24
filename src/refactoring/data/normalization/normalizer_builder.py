@@ -3,19 +3,13 @@ import logging
 import numpy as np
 import torch
 
+from refactoring.common.tensor_ops import tensor_to_str
 from refactoring.configs.data.tokenizer import TokenizationConfig
+from refactoring.data.metadata import PositionObservationMetadata, ActionMetadata
 from refactoring.data.task import ObservationSpace
 from refactoring.data.action_processor import ActionProcessor
 from refactoring.data.constants import (
-    GRIPPER_ACTION_KEY,
-    GRIPPER_STATE_OBS_KEY,
-    ORIENTATION_ACTION_KEY,
-    POSITION_ACTION_KEY,
-    PRECOMPUTED_ACTIONS_KEY,
-    PROPRIO_OBS_CAMERA_FRAME_KEY,
-    PROPRIO_OBS_ROBOT_FRAME_KEY,
     Cameras,
-    GripperType, LANGUAGE_KEY,
 )
 from refactoring.data.normalization.image_normalizer import (
     get_depth_image_normalizer,
@@ -28,8 +22,8 @@ from refactoring.data.tokenization.observation_tokenizer import ObservationToken
 from refactoring.data.tokenization.action_tokenizer import ActionTokenizer
 
 
-class NormalizerBuilder:
-    """Builder for creating and configuring normalizers."""
+class PreprocessorBuilder:
+    """Preprocessor for creating and configuring normalizers and tokenizers."""
 
     def __init__(
         self,
@@ -48,7 +42,7 @@ class NormalizerBuilder:
         min_kinematics_std: float = 2e-2,
         min_kinematics_range: float = 4e-2,
     ):
-        """Initialize normalizer builder.
+        """Initialize preprocessor builder.
 
         Args:
             replay_buffer: Data source
@@ -82,8 +76,59 @@ class NormalizerBuilder:
         self.min_kinematics_range = min_kinematics_range
 
 
-    def create_normalizer(
+    def create_normalizer_and_tokenizer(
         self,
+        device: torch.device | None = None,
+        **kwargs
+    ) -> tuple[LinearNormalizer, Tokenizer | None]:
+        """Create and fit normalizer and optionally tokenizer to data.
+        Pipeline: Raw data → Winsorize → Normalize → Tokenize
+
+        Args:
+            device: Target device for tensors
+            **kwargs: Additional arguments for normalizer fitting
+
+        Returns:
+            Tuple of (normalizer, tokenizer) where tokenizer is None if not configured
+        """
+        self.compute_proprioceptive_denoising_thresholds()
+        all_data = self.replay_buffer.get_steps_slice(0, self.replay_buffer.n_steps)
+        action_data, action_meta = self.action_processor.compute_sample_actions(
+            padded_data=all_data, action_slice_start=0, action_slice_end=-1)
+        cross_indices = self.episode_ends[:-1] - 1
+        valid_mask = np.ones(len(next(iter(action_data.values()))), dtype=bool)
+        valid_mask[cross_indices] = False
+        valid_action_data = {key: data[valid_mask] for key, data in action_data.items()}
+
+        normalizer = self._create_normalizer(action_data=valid_action_data, action_meta=action_meta,
+                                             device=device, **kwargs)
+        tokenizer = None
+        if self.tokenization_config and (
+            self.tokenization_config.tokenize_observations or self.tokenization_config.tokenize_actions
+        ):
+            tokenizer = self._create_tokenizer(normalizer=normalizer, action_data=valid_action_data,
+                                               action_meta=action_meta, device=device)
+        return normalizer, tokenizer
+
+
+    def compute_proprioceptive_denoising_thresholds(
+        self,
+    ) -> None:
+        """Compute denoising thresholds for proprioceptive observations.
+        """
+        for key, meta in self.observation_space.observations_metadata.items():
+            if isinstance(meta, PositionObservationMetadata):
+                obs_data = self.replay_buffer[key][:]
+                self.action_processor.compute_denoising_threshold(
+                    obs_data=obs_data, key=key, meta=meta, episode_ends=self.episode_ends
+                )
+        self.action_processor.log_movement_distribution()
+
+
+    def _create_normalizer(
+        self,
+        action_data: dict[str, np.ndarray],
+        action_meta: dict[str, ActionMetadata],
         device: torch.device | None = None,
         winsorize_depth: bool = True,
         **kwargs
@@ -91,22 +136,35 @@ class NormalizerBuilder:
         """Create and fit normalizer for this dataset.
 
         Args:
+            action_data: Action data for fitting
+            action_meta: Action metadata for fitting
             device: Target device for tensors
             winsorize_depth: Apply winsorization to depth values
             **kwargs: Additional arguments for normalizer fitting
 
         Returns:
             Fitted LinearNormalizer instance
+
+        Note: additionally computes denoising thresholds for action processor
         """
         normalizer = LinearNormalizer()
-        proprio_data = self._read_proprio_data_from_buffer(winsorize=True)
-        if self.action_processor.action_space.gripper_type == GripperType.BINARY.value:
-            if GRIPPER_ACTION_KEY in proprio_data:
-                proprio_data.pop(GRIPPER_ACTION_KEY)
-            if GRIPPER_STATE_OBS_KEY in proprio_data:
-                proprio_data.pop(GRIPPER_STATE_OBS_KEY)
+        data_to_normalize = {}
+        for key, meta in self.observation_space.observations_metadata.items():
+            if meta.needs_normalization:
+                if not meta.is_numerical:
+                    raise ValueError(f"Cannot normalize non-numerical observation key: {key}")
+                data_to_normalize[key] = self.replay_buffer[key][:]
+
+        for key, meta in action_meta.items():
+            if meta.needs_normalization:
+                data_to_normalize[key] = action_data[key]
+        if self.kinematics_winsorize_quantiles:
+            data_to_normalize = self._apply_winsorization(
+                data_to_normalize,
+                self.kinematics_winsorize_quantiles
+            )
         normalizer.fit(
-            data=proprio_data,
+            data=data_to_normalize,
             last_n_dims=1,
             mode=self.kinematics_norm_type,
             device=device,
@@ -117,108 +175,8 @@ class NormalizerBuilder:
             **kwargs
         )
         self._setup_image_normalizers(normalizer, device, winsorize_depth)
-        self._log_normalizer_stats(normalizer, proprio_data)
-
+        self._log_normalized_proprio_stats(normalizer, data_to_normalize)
         return normalizer
-
-    def _read_proprio_data_from_buffer(self, winsorize: bool = False) -> dict[str, np.ndarray]:
-        """Read proprioceptive data from the replay buffer and optionally winsorize.
-
-        Args:
-            winsorize: If True, apply winsorization to clip outliers
-
-        Returns:
-            Dictionary of (winsorized) proprioceptive data
-        """
-        action_space = self.action_processor.action_space
-        if action_space.use_precomputed_actions:
-            proprio_data = self._read_precomputed_actions()
-            precomputed = self.replay_buffer[PRECOMPUTED_ACTIONS_KEY][:]
-            self.action_processor.compute_delta_statistics_from_precomputed(precomputed)
-        else:
-            proprio_data = self._compute_actions_from_buffer()
-
-        if self.observation_space.use_gripper_state:
-            gripper_obs = self.replay_buffer[GRIPPER_STATE_OBS_KEY][:]
-            proprio_data[GRIPPER_STATE_OBS_KEY] = gripper_obs
-
-        if self.observation_space.use_proprio_base_frame or self.observation_space.use_proprio_camera_frame:
-            if self.observation_space.use_proprio_base_frame:
-                proprio_data[PROPRIO_OBS_ROBOT_FRAME_KEY] = self.replay_buffer[PROPRIO_OBS_ROBOT_FRAME_KEY][:]
-            if self.observation_space.use_proprio_camera_frame:
-                proprio_data[PROPRIO_OBS_CAMERA_FRAME_KEY] = self.replay_buffer[PROPRIO_OBS_CAMERA_FRAME_KEY][:]
-
-        for key in self.observation_space.custom_obs_keys:
-            proprio_data[key] = self.replay_buffer[key][:]
-
-        if winsorize and self.kinematics_winsorize_quantiles:
-            proprio_data = self._apply_winsorization(
-                proprio_data,
-                self.kinematics_winsorize_quantiles
-            )
-
-        return proprio_data
-
-
-    def _read_precomputed_actions(self) -> dict[str, np.ndarray]:
-        """Read precomputed actions from buffer and split into components.
-
-        Returns:
-            Dictionary with action arrays split by modality
-        """
-        precomputed = self.replay_buffer[PRECOMPUTED_ACTIONS_KEY][:]
-        action_space = self.action_processor.action_space
-        action_dict = {}
-        idx = 0
-        if action_space.has_position:
-            pos_end = idx + action_space.position_dim
-            action_dict[POSITION_ACTION_KEY] = precomputed[:, idx:pos_end]
-            idx = pos_end
-        if action_space.has_orientation:
-            ori_end = idx + action_space.orientation_dim
-            action_dict[ORIENTATION_ACTION_KEY] = precomputed[:, idx:ori_end]
-            idx = ori_end
-        if action_space.has_gripper:
-            gripper_end = idx + action_space.gripper_dim
-            action_dict[GRIPPER_ACTION_KEY] = precomputed[:, idx:gripper_end]
-        return action_dict
-
-    def _compute_actions_from_buffer(self) -> dict[str, np.ndarray]:
-        """Compute actions from observations in replay buffer.
-
-        Returns:
-            Dictionary with computed action arrays
-        """
-        action_key = PROPRIO_OBS_CAMERA_FRAME_KEY if self.action_processor.predict_in_camera_frame else PROPRIO_OBS_ROBOT_FRAME_KEY
-        obs_for_actions = self.replay_buffer[action_key][:]
-        if len(obs_for_actions) == 0:
-            raise ValueError("Replay buffer is empty. Cannot compute normalization statistics.")
-
-        cross_indices = self.episode_ends[:-1] - 1
-        valid_mask = np.ones(len(obs_for_actions) - 1, dtype=bool)
-        valid_mask[cross_indices] = False
-        next_obs = obs_for_actions[1:][valid_mask]
-        curr_obs = obs_for_actions[:-1][valid_mask]
-        self.action_processor.compute_delta_statistics(curr_obs, next_obs)
-        action_dict = self.action_processor.compute_actions_from_observations(curr_obs, next_obs)
-
-        proprio_data = {}
-        if self.action_processor.has_position and POSITION_ACTION_KEY in action_dict:
-            proprio_data[POSITION_ACTION_KEY] = action_dict[POSITION_ACTION_KEY]
-        if self.action_processor.has_orientation and ORIENTATION_ACTION_KEY in action_dict:
-            proprio_data[ORIENTATION_ACTION_KEY] = action_dict[ORIENTATION_ACTION_KEY]
-
-        if self.action_processor.has_gripper:
-            gripper_states = self.replay_buffer[GRIPPER_STATE_OBS_KEY][:]
-            if len(gripper_states) > 1:
-                gripper_curr = gripper_states[:-1][valid_mask]
-                gripper_next = gripper_states[1:][valid_mask]
-                gripper_actions = self.action_processor.compute_gripper_actions(
-                    gripper_curr, gripper_next
-                )
-                proprio_data[GRIPPER_ACTION_KEY] = gripper_actions
-
-        return proprio_data
 
 
     def _setup_image_normalizers(
@@ -234,15 +192,16 @@ class NormalizerBuilder:
             device: Target device
             winsorize_depth: Apply winsorization to depth
         """
-        for cam in self.observation_space.camera_keys:
-            cam_array = self.replay_buffer[cam][:]
-            self._log_camera_stats(cam, cam_array)
-            if cam == Cameras.DEPTH.value:
+        for camera_key, camera_meta in self.observation_space.cameras.items():
+            cam_array = self.replay_buffer[camera_key][:]
+            if camera_key == Cameras.DEPTH.value:
                 self._setup_depth_normalizer(
-                    normalizer, cam, cam_array, device, winsorize_depth
+                    normalizer, camera_key, cam_array, device, winsorize_depth
                 )
             else:
-                self._setup_rgb_normalizer(normalizer, cam, device)
+                self._setup_rgb_normalizer(normalizer, camera_key, device)
+            self._log_normalized_camera_stats(camera_key=camera_key, cam_array=cam_array, normalizer=normalizer)
+
 
 
     def _setup_depth_normalizer(
@@ -266,24 +225,20 @@ class NormalizerBuilder:
         depth_max = depth_arr.max()
         depth_mean = depth_arr.mean()
         depth_std = depth_arr.std()
-
         if winsorize and self.depth_winsorize_quantiles:
             lower_q, upper_q = self.depth_winsorize_quantiles
             p_lower = np.quantile(depth_arr, lower_q)
             p_upper = np.quantile(depth_arr, upper_q)
             depth_arr_clipped = np.clip(depth_arr, p_lower, p_upper)
-
             depth_min = depth_arr_clipped.min()
             depth_max = depth_arr_clipped.max()
             depth_mean = depth_arr_clipped.mean()
             depth_std = depth_arr_clipped.std()
-
             logging.info(
                 f"Depth after winsorization [{lower_q}, {upper_q}] - "
                 f"min: {depth_min:.4f}, max: {depth_max:.4f}, "
                 f"mean: {depth_mean:.4f}, std: {depth_std:.4f}"
             )
-
         normalizer[cam] = get_depth_image_normalizer(
             input_min=depth_min,
             input_max=depth_max,
@@ -292,6 +247,7 @@ class NormalizerBuilder:
             norm_type=self.depth_norm_type,
             device=device,
         )
+
 
     def _setup_rgb_normalizer(
         self,
@@ -312,79 +268,12 @@ class NormalizerBuilder:
         )
 
 
-    def _log_camera_stats(self, cam: str, cam_array: np.ndarray) -> None:
-        """Log camera array statistics.
-
-        Args:
-            cam: Camera name
-            cam_array: Camera data array
-        """
-        logging.info(
-            f"Raw {cam} camera stats - "
-            f"min: {cam_array.min()}, max: {cam_array.max()}, "
-            f"mean: {cam_array.mean()}, std: {cam_array.std()}"
-        )
-
-    def _log_normalizer_stats(self, normalizer: LinearNormalizer, proprio_data: dict[str, np.ndarray]) -> None:
-        """Log normalizer statistics.
-
-        Args:
-            normalizer: Configured normalizer
-            proprio_data: Proprioceptive data used for fitting
-        """
-
-
-        def tensor_to_str(t: torch.Tensor) -> str:
-            """Convert tensor to clean string without metadata."""
-            return '[' + ', '.join(f'{x:.4f}' for x in t.detach().cpu().numpy()) + ']'
-
-        if POSITION_ACTION_KEY in normalizer.params_dict:
-            stats = normalizer[POSITION_ACTION_KEY].get_input_stats()
-            logging.info(
-                f"Position action stats before normalization - "
-                f"min: {tensor_to_str(stats['min'])}, max: {tensor_to_str(stats['max'])}, "
-                f"mean: {tensor_to_str(stats['mean'])}, std: {tensor_to_str(stats['std'])}"
-            )
-            logging.info(
-                f"Normalized position action stats after normalization - "
-                f"mean: {normalizer[POSITION_ACTION_KEY].normalize(proprio_data[POSITION_ACTION_KEY]).mean()}, "
-                f"std: {normalizer[POSITION_ACTION_KEY].normalize(proprio_data[POSITION_ACTION_KEY]).std()},"
-                f"min:  {normalizer[POSITION_ACTION_KEY].normalize(proprio_data[POSITION_ACTION_KEY]).min()}, "
-                f"max:  {normalizer[POSITION_ACTION_KEY].normalize(proprio_data[POSITION_ACTION_KEY]).max()}"
-            )
-        for cam in self.observation_space.camera_keys:
-            output_stats = normalizer[cam].get_output_stats()
-            logging.info(f"Normalized {cam} image stats: {output_stats}")
-
-    def create_normalizer_and_tokenizer(
-        self,
-        device: torch.device | None = None,
-        **kwargs
-    ) -> tuple[LinearNormalizer, Tokenizer | None]:
-        """Create and fit normalizer and optionally tokenizer to data.
-        Pipeline: Raw data → Winsorize → Normalize → Tokenize
-
-        Args:
-            device: Target device for tensors
-            **kwargs: Additional arguments for normalizer fitting
-
-        Returns:
-            Tuple of (normalizer, tokenizer) where tokenizer is None if not configured
-        """
-        normalizer = self.create_normalizer(device=device, **kwargs)
-
-        tokenizer = None
-        if self.tokenization_config and (
-            self.tokenization_config.tokenize_observations or self.tokenization_config.tokenize_actions
-        ):
-            tokenizer = self._create_tokenizer(normalizer, device)
-
-        return normalizer, tokenizer
-
     def _create_tokenizer(
         self,
         normalizer: LinearNormalizer,
-        device: torch.device | None
+        action_data: dict[str, np.ndarray],
+        action_meta: dict[str, ActionMetadata],
+        device: torch.device | None = None,
     ) -> Tokenizer:
         """Create tokenizer fitted on normalized (and winsorized) data.
 
@@ -412,20 +301,22 @@ class NormalizerBuilder:
                 device=device,
             )
             if obs_config.bin_continuous_data:
-                raw_proprio_data = self._read_proprio_data_from_buffer(winsorize=True)
-                # Filter to only floating values
-                proprio_keys_to_bin = [k for k in obs_config.observation_keys if k != LANGUAGE_KEY]
-                raw_proprio = {k: v for k, v in raw_proprio_data.items() if k in proprio_keys_to_bin}
-                if raw_proprio:
-                    normalized_proprio = normalizer.normalize(raw_proprio)
-                    normalized_proprio_np = {
-                        k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v
-                        for k, v in normalized_proprio.items()
-                    }
-                    observation_tokenizer.fit(normalized_proprio_np)
-                else:
-                    observation_tokenizer.fit({}) # Pass-through
-            else:
+                data_to_bin = {}
+                for key, meta in self.observation_space.observations_metadata.items():
+                    if not meta.is_numerical:
+                        continue
+                    obs_data = self.replay_buffer[key][:]
+                    if meta.needs_normalization:
+                        obs_data = normalizer[key].normalize(obs_data)
+                        obs_data = obs_data.detach().cpu().numpy() if isinstance(obs_data, torch.Tensor) else obs_data
+                    data_to_bin[key] = obs_data
+
+                if len(data_to_bin.values()) > 0:
+                    observation_tokenizer.fit(data_to_bin)
+
+            if not observation_tokenizer._is_fitted:
+                logging.warning("No observation data was used for observation binning tokenizer."
+                                " Observation binning tokenizer will be a pass-through.")
                 observation_tokenizer.fit({}) # Pass-through
 
         if self.tokenization_config.tokenize_actions:
@@ -440,48 +331,34 @@ class NormalizerBuilder:
                 max_token_len=action_config.max_token_len,
                 device=device,
             )
-
             if not action_config.use_pretrained_fast:
-                raw_action_data = self._read_proprio_data_from_buffer(winsorize=True)
-                action_keys = [POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY]
-                if self.action_processor.has_gripper and GRIPPER_ACTION_KEY in raw_action_data:
-                    if self.action_processor.action_space.gripper_type == GripperType.BINARY.value:
-                        # Remap binary {0,1} to continuous {-1,1} for tokenization
-                        raw_action_data[GRIPPER_ACTION_KEY] = 2.0 * raw_action_data[GRIPPER_ACTION_KEY] - 1.0
+                actions_to_tokenize = {}
+                for key, meta in action_meta.items():
+                    if not meta.is_numerical:
+                        continue
+                    if meta.needs_normalization:
+                        action = normalizer[key].normalize(action_data[key])
+                        actions_to_tokenize[key] = action.detach().cpu().numpy() if isinstance(action, torch.Tensor) else action
                     else:
-                        action_keys.append(GRIPPER_ACTION_KEY)
-
-                raw_actions = {k: v for k, v in raw_action_data.items() if k in action_keys}
-                normalized_actions = normalizer.normalize(raw_actions)
-                normalized_actions_np = {
-                    k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v
-                    for k, v in normalized_actions.items()
-                }
-                if self.action_processor.has_gripper and self.action_processor.action_space.gripper_type == GripperType.BINARY.value:
-                    normalized_actions_np[GRIPPER_ACTION_KEY] = raw_action_data[GRIPPER_ACTION_KEY]
-
+                        actions_to_tokenize[key] = action_data[key]
                 action_chunks = self._create_action_chunks_for_tokenizer(
-                    normalized_actions_np,
-                    self.prediction_horizon
+                    action_dict=actions_to_tokenize,
                 )
                 action_tokenizer.fit(action_chunks)
-
         return Tokenizer(observation_tokenizer=observation_tokenizer, action_tokenizer=action_tokenizer)
+
 
     def _create_action_chunks_for_tokenizer(
         self,
         action_dict: dict[str, np.ndarray],
-        prediction_horizon: int
     ) -> np.ndarray:
         """Create action chunks respecting episode boundaries.
 
         Note: We need to create chunks here for fitting the tokenizer, since the tokenizer needs to see the full action
-          dataset. However, in the dataset `_get_item()`, we will compute action chunks on-the-fly per-batch, so we don't
-            store pre-chunked actions in memory.
+          chunks dataset, but we don't store pre-chunked actions in memory.
 
         Args:
-            action_dict: Dictionary of action arrays, each (N, D_i)
-            prediction_horizon: Length of action chunks
+            action_dict: Dictionary of action arrays (already filtered, no cross-episode entries)
 
         Returns:
             Action chunks of shape (N_chunks, prediction_horizon, total_D)
@@ -490,43 +367,27 @@ class NormalizerBuilder:
         for key in sorted(action_dict.keys()):
             action_components.append(action_dict[key])
         all_actions = np.concatenate(action_components, axis=-1)
-
-        # Compute adjusted episode ends for the action array
-        # For computed actions: N obs -> N-1 actions (loses 1 per episode)
-        # For precomputed actions: N obs -> N actions (no adjustment)
-        use_precomputed = self.action_processor.action_space.use_precomputed_actions
-        adjusted_episode_ends = []
-        cumulative = 0
+        # Compute episode lengths (each episode loses 1 action for on-the-fly computation)
+        episode_lengths = []
         for i in range(len(self.episode_ends)):
             if i == 0:
-                episode_length = self.episode_ends[i] if use_precomputed else self.episode_ends[i] - 1
+                episode_lengths.append(self.episode_ends[i] - 1)
             else:
-                raw_length = self.episode_ends[i] - self.episode_ends[i-1]
-                episode_length = raw_length if use_precomputed else raw_length - 1
-            cumulative += episode_length
-            adjusted_episode_ends.append(cumulative)
-
+                episode_lengths.append(self.episode_ends[i] - self.episode_ends[i - 1] - 1)
         chunks = []
         episode_start = 0
-        for episode_end in adjusted_episode_ends:
-            episode_actions = all_actions[episode_start:episode_end]
-            episode_length = episode_end - episode_start
-            if episode_length >= prediction_horizon:
-                for i in range(episode_length - prediction_horizon + 1):
-                    chunk = episode_actions[i:i+prediction_horizon]
-                    chunks.append(chunk)
-            episode_start = episode_end
+        for length in episode_lengths:
+            episode_actions = all_actions[episode_start:episode_start + length]
+            if length >= self.prediction_horizon:
+                for i in range(length - self.prediction_horizon + 1):
+                    chunks.append(episode_actions[i:i + self.prediction_horizon])
+            episode_start += length
 
-        if len(chunks) == 0:
-            raise ValueError(
-                f"No episodes long enough for prediction_horizon={prediction_horizon}. "
-                f"Longest episode has {max([adjusted_episode_ends[i] - (adjusted_episode_ends[i-1] if i > 0 else 0) for i in range(len(adjusted_episode_ends))])} steps."
-            )
         return np.stack(chunks, axis=0)
 
 
+    @staticmethod
     def _apply_winsorization(
-        self,
         data_dict: dict[str, np.ndarray],
         quantiles: tuple[float, float],
     ) -> dict[str, np.ndarray]:
@@ -541,14 +402,11 @@ class NormalizerBuilder:
         """
         winsorized = {}
         lower_q, upper_q = quantiles
-
         for key, data in data_dict.items():
             lower_bound = np.quantile(data, lower_q, axis=0)
             upper_bound = np.quantile(data, upper_q, axis=0)
-
             winsorized_data = np.clip(data, lower_bound, upper_bound)
             winsorized[key] = winsorized_data
-
             n_clipped = np.sum(data != winsorized_data)
             if n_clipped > 0:
                 logging.info(
@@ -556,5 +414,60 @@ class NormalizerBuilder:
                     f"clipped {n_clipped}/{data.size} values "
                     f"({100*n_clipped/data.size:.2f}%)"
                 )
-
         return winsorized
+
+
+    @staticmethod
+    def _log_normalized_camera_stats(camera_key: str, cam_array: np.ndarray, normalizer: LinearNormalizer) -> None:
+        """Log camera array statistics.
+
+        Args:
+            camera_key: Camera name
+            cam_array: Camera data array
+            normalizer: Configured normalizer
+        """
+        logging.info(
+            f"Camera {camera_key} stats before normalization - "
+            f"min: {cam_array.min()}, max: {cam_array.max()}, "
+            f"mean: {cam_array.mean()}, std: {cam_array.std()}"
+        )
+        after_norm = normalizer[camera_key].normalize(cam_array)
+        logging.info(
+            f"Camera {camera_key} stats after normalization - "
+            f"mean: {tensor_to_str(after_norm.mean())}, "
+            f"std: {tensor_to_str(after_norm.std())},"
+            f"min:  {tensor_to_str(after_norm.min())}, "
+            f"max:  {tensor_to_str(after_norm.max())}"
+        )
+
+
+    def _log_normalized_proprio_stats(self, normalizer: LinearNormalizer, proprio_data: dict[str, np.ndarray]) -> None:
+        """Log proprioceptive statistics before and after normalization.
+
+        Args:
+            normalizer: Configured normalizer
+            proprio_data: Proprioceptive data used for fitting
+        """
+        camera_keys = list(self.observation_space.cameras.keys())
+        for key in normalizer.params_dict.keys():
+            if key in camera_keys:
+                continue
+            pre_norm = normalizer[key].get_input_stats()
+            logging.info(
+                f"{key} stats before normalization - "
+                f"min: {tensor_to_str(pre_norm['min'])}, max: {tensor_to_str(pre_norm['max'])}, "
+                f"mean: {tensor_to_str(pre_norm['mean'])}, std: {tensor_to_str(pre_norm['std'])}"
+            )
+            after_norm = normalizer[key].normalize(proprio_data[key])
+            logging.info(
+                f"{key} stats after normalization - "
+                f"mean: {tensor_to_str(after_norm.mean())}, "
+                f"std: {tensor_to_str(after_norm.std())},"
+                f"min:  {tensor_to_str(after_norm.min())}, "
+                f"max:  {tensor_to_str(after_norm.max())}"
+            )
+        '''for cam_meta in self.observation_space.cameras:
+            cam = cam_meta.camera_key
+            output_stats = normalizer[cam].get_output_stats()
+            logging.info(f"Normalized {cam} image stats: {output_stats}")'''
+

@@ -1,16 +1,42 @@
-# LIBERO action space with precomputed actions
-# Actions are 7D: position delta (3) + orientation delta (3) + gripper (1)
-has_position: true
-position_dim: 3
-has_orientation: true
-orientation_dim: 3
-orientation_repr: ${orientation:EULER}
-has_gripper: true
-gripper_type: ${gripper:CONTINUOUS}
-gripper_dim: 1
+defaults:
+  - base
+
+_target_: refactoring.data.task.ActionSpace
 use_gripper_class_weights: false
-predict_in_camera_frame: false  # LIBERO uses robot frame
-deltas_as_actions: true
 denoise_actions: false
-task_has_phases: false
-use_precomputed_actions: true
+
+actions_metadata:
+  ${proprio_key:EE_POS_ACTION}:
+    _target_: refactoring.data.metadata.PositionActionMetadata
+    frame: ${coordinate_system:ROBOT_BASE}
+    raw_data_column_keys: [actions]
+    dtype: float32
+    storage_dimension: 7
+    prediction_dimension: 3
+    needs_normalization: true
+    slice_start: 0
+    slice_end: 3
+
+  ${proprio_key:EE_ORI_ACTION}:
+    _target_: refactoring.data.metadata.OrientationActionMetadata
+    frame: ${coordinate_system:ROBOT_BASE}
+    orientation_representation: ${orientation:EULER}
+    raw_data_column_keys: [actions]
+    dtype: float32
+    storage_dimension: 7
+    prediction_dimension: 3
+    needs_normalization: true
+    slice_start: 3
+    slice_end: 6
+
+  ${proprio_key:GRIPPER_STATE_ACTION}:
+    _target_: refactoring.data.metadata.GripperActionMetadata
+    gripper_type: ${gripper:BINARY}
+    binary_gripper_range: ${gripper_range:MINUS_ONE_ONE}
+    raw_data_column_keys: [actions]
+    dtype: int8
+    storage_dimension: 7
+    prediction_dimension: 1
+    needs_normalization: false
+    slice_start: 6
+    slice_end: 7

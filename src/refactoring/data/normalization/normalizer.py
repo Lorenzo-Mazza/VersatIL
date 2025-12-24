@@ -249,6 +249,8 @@ class SingleFieldLinearNormalizer(DictOfTensorMixin):
             'input_stats': nn.ParameterDict(
                 dict_apply(input_stats_dict, to_tensor))  # type: ignore[arg-type]
         })
+        for p in params_dict.parameters():
+            p.requires_grad_(False)
         return cls(params_dict)
 
 
@@ -413,6 +415,7 @@ def _fit(data: torch.Tensor | np.ndarray,
     return this_params
 
 
+@torch.no_grad()
 def _normalize(x, params, forward = True):
     assert 'scale' in params
     if isinstance(x, np.ndarray):

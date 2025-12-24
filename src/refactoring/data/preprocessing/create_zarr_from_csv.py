@@ -10,7 +10,7 @@ import zarr.storage
 from threadpoolctl import threadpool_limits
 from zarr.codecs import BloscCodec, BloscShuffle
 
-from refactoring.data.schemas.csv import CsvDatasetSchema
+from refactoring.data.raw.schemas import CsvDatasetSchema
 
 
 def create_replay_buffer(
@@ -35,15 +35,15 @@ def create_replay_buffer(
     cumulative_len = 0
     compressor = BloscCodec(cname='lz4', clevel=5, shuffle=BloscShuffle.noshuffle)
 
-    if schema.raw_observations.image_width is None or schema.raw_observations.image_height is None:
+    if schema.metadata.image_width is None or schema.metadata.image_height is None:
         # Don't resize , use albumentations no-op
         resizer = A.NoOp()
         depth_resizer = A.NoOp()
     else:
-        resizer = A.Resize(height=schema.raw_observations.image_height, width=schema.raw_observations.image_width)
+        resizer = A.Resize(height=schema.metadata.image_height, width=schema.metadata.image_width)
         depth_resizer = A.Resize(
-            height=schema.raw_observations.image_height,
-            width=schema.raw_observations.image_width,
+            height=schema.metadata.image_height,
+            width=schema.metadata.image_width,
             interpolation=cv2.INTER_NEAREST
         )
 

@@ -6,7 +6,6 @@ from typing import Any
 from omegaconf import MISSING
 
 from refactoring.data.constants import (
-    POSITION_ACTION_KEY,
     GripperType,
 )
 
@@ -23,7 +22,7 @@ class RegressionLossConfig(BaseLossConfig):
     """Configuration for regression loss (position, orientation)."""
 
     _target_: str = "refactoring.metrics.RegressionLoss"
-    action_keys: list[str] = field(default_factory=lambda: [POSITION_ACTION_KEY])
+    action_keys: list[str] = MISSING
     mse_weight: float = 1.0
     l1_weight: float = 0.0
     huber_weight: float = 0.0
@@ -36,7 +35,8 @@ class GripperLossConfig(BaseLossConfig):
     """Configuration for gripper loss."""
 
     _target_: str = "refactoring.metrics.GripperLoss"
-    gripper_type: str = GripperType.BINARY.value
+    gripper_type: str = "${task.action_space.gripper_type}"
+    binary_gripper_range: str = "${task.action_space.binary_gripper_range}"
     bce_weight: float = 1.0
     mse_weight: float = 1.0
     pos_weight: float | None = None
@@ -80,7 +80,7 @@ class TrajectoryLengthLossConfig(BaseLossConfig):
 
     _target_: str = "refactoring.metrics.TrajectoryLengthLoss"
     weight: float = 0.1
-    action_key: str = POSITION_ACTION_KEY
+    action_key: str = MISSING
 
 
 @dataclass
@@ -89,7 +89,7 @@ class TrajectorySmoothnessConfig(BaseLossConfig):
 
     _target_: str = "refactoring.metrics.TrajectorySmoothness"
     weight: float = 0.01
-    action_key: str = POSITION_ACTION_KEY
+    action_key: str = MISSING
 
 
 @dataclass

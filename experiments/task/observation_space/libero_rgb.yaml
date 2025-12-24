@@ -1,9 +1,29 @@
-# LIBERO observation space with two RGB cameras
-use_proprio_base_frame: true
-use_proprio_camera_frame: false
-use_gripper_state: true
-gripper_type: ${gripper:CONTINUOUS}
-camera_keys:
-  - ${cameras:AGENTVIEW}
-  - ${cameras:EYE_IN_HAND}
-use_language: true
+defaults:
+  - base
+
+_target_: refactoring.data.task.ObservationSpace
+
+observations_metadata:
+  ${cameras:AGENTVIEW}:
+    _target_: refactoring.data.metadata.CameraMetadata
+    camera_key: ${cameras:AGENTVIEW}
+    dtype: uint8
+    channels: 3
+    image_width: 128
+    image_height: 128
+
+  ${cameras:EYE_IN_HAND}:
+    _target_: refactoring.data.metadata.CameraMetadata
+    camera_key: ${cameras:EYE_IN_HAND}
+    dtype: uint8
+    channels: 3
+    image_width: 128
+    image_height: 128
+
+  ${obs_key:LANGUAGE}:
+    _target_: refactoring.data.metadata.ObservationMetadata
+    raw_data_column_keys: [language]
+    dtype: str
+    dimension: 1
+    is_numerical: false
+    needs_normalization: false

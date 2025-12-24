@@ -1,0 +1,72 @@
+defaults:
+  - base
+
+_target_: refactoring.data.raw.zarr_meta.DatasetMetadata
+
+observations:
+  ${proprio_key:ROBOT_FRAME_CARTESIAN_TIP_POS}:
+    _target_: refactoring.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [relative_tip_position_x, relative_tip_position_y, relative_tip_position_z]
+    dtype: float32
+    dimension: 3
+    needs_normalization: true
+    frame: ${coordinate_system:ROBOT_BASE}
+
+  ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}:
+    _target_: refactoring.data.metadata.PositionObservationMetadata
+    raw_data_column_keys: [camera_frame_tip_position_x, camera_frame_tip_position_y, camera_frame_tip_position_z]
+    dtype: float32
+    dimension: 3
+    needs_normalization: true
+    frame: ${coordinate_system:CAMERA}
+
+  ${obs_key:GRIPPER_STATE}:
+    _target_: refactoring.data.metadata.GripperObservationMetadata
+    raw_data_column_keys: [open]
+    dtype: int8
+    dimension: 1
+    needs_normalization: false
+    gripper_type: ${gripper:BINARY}
+    binary_gripper_range: ${gripper_range:ZERO_ONE}
+
+  ${cameras:LEFT}:
+    _target_: refactoring.data.metadata.CameraMetadata
+    camera_key: ${cameras:LEFT}
+    dtype: uint8
+    channels: 3
+    image_width: 480
+    image_height: 270
+
+  ${cameras:RIGHT}:
+    _target_: refactoring.data.metadata.CameraMetadata
+    camera_key: ${cameras:RIGHT}
+    dtype: uint8
+    channels: 3
+    image_width: 480
+    image_height: 270
+
+  ${cameras:DEPTH}:
+    _target_: refactoring.data.metadata.CameraMetadata
+    camera_key: ${cameras:DEPTH}
+    dtype: float32
+    channels: 1
+    image_width: 480
+    image_height: 270
+
+  ${obs_key:LANGUAGE}:
+    _target_: refactoring.data.metadata.ObservationMetadata
+    raw_data_column_keys: [language]
+    dtype: str
+    dimension: 1
+    is_numerical: false
+    needs_normalization: false
+
+precomputed_actions:
+  ${obs_key:PHASE_LABEL}:
+    _target_: refactoring.data.metadata.PrecomputedActionMetadata
+    raw_data_column_keys: [task_phase]
+    dtype: uint8
+    storage_dimension: 1
+    prediction_dimension: 5
+    is_numerical: false
+    needs_normalization: false

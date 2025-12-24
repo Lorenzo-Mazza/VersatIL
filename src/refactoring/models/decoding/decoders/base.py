@@ -5,14 +5,7 @@ from dataclasses import dataclass, field
 import torch
 import torch.nn as nn
 
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.data.constants import (
-    GRIPPER_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    PHASE_LABEL_KEY,
-    POSITION_ACTION_KEY,
-    GripperType,
-)
+from refactoring.data.task import ObservationSpace, ActionSpace
 from refactoring.data.tokenization import Tokenizer, ActionTokenizer
 from refactoring.models.decoding.constants import FeatureType
 
@@ -155,10 +148,6 @@ class ActionDecoder(nn.Module, ABC):
         """Whether the architecture processes temporal sequences."""
         return self.observation_horizon > 1
 
-    @property
-    def use_proprioceptive_observations(self) -> bool:
-        """Whether the architecture uses proprioceptive observations."""
-        return self.observation_space.use_proprioceptive_data
 
     @property
     def action_dim(self) -> int:
@@ -168,7 +157,7 @@ class ActionDecoder(nn.Module, ABC):
     @property
     def use_gripper_actions(self) -> bool:
         """Whether the architecture uses gripper actions."""
-        return self.action_space.has_gripper
+        return self.action_space.has_gripper_actions
 
     @property
     def gripper_dim(self) -> int | None:
@@ -176,24 +165,14 @@ class ActionDecoder(nn.Module, ABC):
         return self.action_space.gripper_dim if self.use_gripper_actions else None
 
     @property
-    def continuous_gripper(self) -> bool:
-        """Whether the gripper actions are continuous."""
-        return self.action_space.gripper_type == GripperType.CONTINUOUS.value if self.use_gripper_actions else False
-
-    @property
     def use_orientation_actions(self) -> bool:
         """Whether the architecture uses orientation actions."""
-        return self.action_space.has_orientation
+        return self.action_space.has_orientation_actions
 
     @property
     def orientation_dim(self) -> int | None:
         """Get the orientation dimension if used."""
         return self.action_space.orientation_dim if self.use_orientation_actions else None
-
-    @property
-    def use_position_actions(self) -> bool:
-        """Whether the architecture uses position actions."""
-        return self.action_space.has_position
 
     @property
     def position_dim(self) -> int | None:
@@ -216,21 +195,9 @@ class ActionDecoder(nn.Module, ABC):
             return
 
         configured_heads = set(self.action_heads.keys())
-
-        # Build required heads based on action space
         required_heads = {}
-        if self.use_position_actions:
-            required_heads[POSITION_ACTION_KEY] = self.position_dim
-        if self.use_orientation_actions:
-            required_heads[ORIENTATION_ACTION_KEY] = self.orientation_dim
-        if self.use_gripper_actions:
-            required_heads[GRIPPER_ACTION_KEY] = self.gripper_dim
-        if self.action_space.task_has_phases:
-            required_heads[PHASE_LABEL_KEY] = self.action_space.number_of_phases
-
-        if self.action_space.custom_action_dims:
-            for key, dim in self.action_space.custom_action_dims.items():
-                required_heads[key] = dim
+        for key, meta in self.action_space.actions_metadata.items():
+            required_heads[key] = meta.prediction_dimension
 
         required_keys = set(required_heads.keys())
         missing_heads = required_keys - configured_heads

@@ -468,7 +468,7 @@ class DatasetSchema(abc.ABC):
         self,
         dataset_folders: list[str],        # Where raw data lives
         zarr_path: str,                    # Where to save Zarr
-        raw_observations: RawObservationsConfig,  # CSV column mappings
+        raw_observations: DatasetMetadataConfig,  # CSV column mappings
         image_path_config: ImagePathConfig,       # Image path patterns
         has_phase_labels: bool = False
     ):
@@ -498,7 +498,7 @@ class BowelRetractionSchema(DatasetSchema):
     """
 
     def __init__(self, dataset_folders, zarr_path, ...):
-        raw_obs_config = RawObservationsConfig(
+        raw_obs_config = DatasetMetadataConfig(
             robot_frame_proprio_keys=["relative_tip_position_x", "relative_tip_position_y", "relative_tip_position_z"],
             camera_frame_proprio_keys=["camera_frame_tip_position_x", "camera_frame_tip_position_y", "camera_frame_tip_position_z"],
             gripper_state_keys=["open"],
@@ -628,7 +628,7 @@ MY_DATASET_LANGUAGE_KEY = "instruction"
 ```python
 class MyDatasetSchema(DatasetSchema):
     def __init__(self, dataset_folders, zarr_path, ...):
-        raw_obs_config = RawObservationsConfig(
+        raw_obs_config = DatasetMetadataConfig(
             robot_frame_proprio_keys=MY_DATASET_ROBOT_FRAME_COLS,
             camera_frame_proprio_keys=None,  # This dataset has no camera frame
             gripper_state_keys=[MY_DATASET_GRIPPER_COL],

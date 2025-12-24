@@ -6,35 +6,6 @@ import torch
 import torch.nn as nn
 
 
-@dataclass
-class Metadata:
-    features: list[str]  # list of feature names as `EncoderOutputKeys.value`.
-    dimensions: dict[str, int | tuple]  # feature_name -> dimension
-
-@dataclass
-class SingleOutput:
-    output_name: str
-    output_dim: int | tuple[int, ...]
-    tensor: torch.Tensor
-    @property
-    def is_spatial(self) -> bool:
-        """Check if output has spatial dimensions."""
-        return isinstance(self.output_dim, tuple) and len(self.output_dim) == 3
-
-    @property
-    def is_flat(self) -> bool:
-        """Check if output is flat (no spatial or sequence dimensions)."""
-        if isinstance(self.output_dim, int):
-            return True
-        return len(self.output_dim) == 1
-
-@dataclass
-class StructuredOutput:
-    outputs: list[SingleOutput]
-    @property
-    def is_multi_output(self) -> bool:
-        return len(self.outputs) > 1
-
 
 @dataclass
 class EncoderOutput:

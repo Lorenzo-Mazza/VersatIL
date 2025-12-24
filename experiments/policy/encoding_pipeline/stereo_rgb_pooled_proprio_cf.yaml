@@ -25,6 +25,6 @@ encoders:
   camera_frame: # Output features will be accessible via "camera_frame_proprio"
     _target_: refactoring.models.encoding.encoders.proprioceptive.base.ProprioceptiveEncoder
     input_keys:
-      - ${obs_key:PROPRIO_CAMERA_FRAME}
+      - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
     output_dim: 32
 

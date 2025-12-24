@@ -9,7 +9,7 @@ import zarr.storage
 from threadpoolctl import threadpool_limits
 from zarr.codecs import BloscCodec, BloscShuffle
 
-from refactoring.data.schemas.hdf5 import Hdf5DatasetSchema
+from refactoring.data.raw.schemas import Hdf5DatasetSchema
 
 
 def create_replay_buffer_from_hdf5(schema: Hdf5DatasetSchema) -> None:
@@ -30,17 +30,20 @@ def create_replay_buffer_from_hdf5(schema: Hdf5DatasetSchema) -> None:
     cumulative_len = 0
     compressor = BloscCodec(cname='lz4', clevel=5, shuffle=BloscShuffle.noshuffle)
 
-    obs = schema.raw_observations
-    if obs.image_width is None or obs.image_height is None:
-        resizer = A.NoOp()
-        depth_resizer = A.NoOp()
-    else:
-        resizer = A.Resize(height=obs.image_height, width=obs.image_width)
+    cameras = schema.metadata.cameras
+    if cameras:
+        first_cam = next(iter(cameras.values()))
+        image_width = first_cam.image_width
+        image_height = first_cam.image_height
+        resizer = A.Resize(height=image_height, width=image_width)
         depth_resizer = A.Resize(
-            height=obs.image_height,
-            width=obs.image_width,
+            height=image_height,
+            width=image_width,
             interpolation=cv2.INTER_NEAREST
         )
+    else:
+        resizer = A.NoOp()
+        depth_resizer = A.NoOp()
 
     _create_zarr_arrays(data_group=data_group, schema=schema, compressor=compressor)
 
@@ -61,6 +64,8 @@ def create_replay_buffer_from_hdf5(schema: Hdf5DatasetSchema) -> None:
 
                     cumulative_len += len(next(iter(episode_data.values())))
                     episode_ends.append(cumulative_len)
+                    break
+            break
 
     meta_group.create_array(
         'episode_ends',
