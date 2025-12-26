@@ -8,7 +8,7 @@ from refactoring.models.encoding.encoders.base import EncoderInput, EncoderOutpu
 from refactoring.models.encoding.encoders.constants import (
     EncoderOutputKeys,
     PoolingMethod,
-    RGBBackboneType,
+    RGBBackboneType, BatchNormHandling,
 )
 from refactoring.models.encoding.encoders.unconditional import Encoder
 from refactoring.models.layers.convert_layers import replace_batchnorm_with_groupnorm
@@ -22,13 +22,13 @@ class DepthCNNEncoder(Encoder):
             input_keys: str | list[str],
             backbone: str = RGBBackboneType.RESNET18.value,
             pooling_method: str = PoolingMethod.AVERAGE.value,
-            use_group_norm: bool = True,
+            batch_norm_handling: str = BatchNormHandling.FROZEN.value,
             pretrained: bool = False,
             frozen: bool = False,
     ):
         specification = EncoderInput(keys=input_keys,required=[Cameras.DEPTH.value])
         super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
-        self.use_group_norm = use_group_norm
+        self.batch_norm_handling = batch_norm_handling
         self.pooling_method = pooling_method
         self.backbone_name = backbone
         self._build_backbone()
@@ -42,8 +42,15 @@ class DepthCNNEncoder(Encoder):
         """Build backbone using TIMM library."""
         backbone_config = TimmBackboneConfig(self.backbone_name, use_pretrained_backbone=self.pretrained, features_only=True, num_channels=1)
         self.backbone = TimmBackbone(config=backbone_config)
-        if self.use_group_norm:
-            self.backbone = replace_batchnorm_with_groupnorm(self.backbone)  # type: ignore[assignment]
+        match self.batch_norm_handling:
+            case BatchNormHandling.FROZEN.value:
+                self.backbone.apply(freeze_batch_norm_2d)  # type: ignore[arg-type]
+            case BatchNormHandling.CONVERT_TO_GROUPNORM.value:
+                self.backbone = replace_batchnorm_with_groupnorm(self.backbone)
+            case BatchNormHandling.DEFAULT.value:
+                pass  # keep as-is
+            case _:
+                raise ValueError(f"Unknown batch norm handling: {self.batch_norm_handling}")
 
 
     def _setup_pooling(self):

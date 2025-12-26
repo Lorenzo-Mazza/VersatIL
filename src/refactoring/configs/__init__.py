@@ -52,7 +52,7 @@ from refactoring.data.constants import (
     PROPRIO_OBS_ROBOT_FRAME_KEY, TOKENIZED_OBSERVATIONS_KEY, GRIPPER_STATE_OBS_KEY, TokenizerType, KinematicsNormalizationType, ImageNormalizationType,
 )
 from refactoring.models.decoding.constants import ACTION_LOGITS_KEY, LATENT_KEY, MoERoutingType
-from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod, LanguageEncoderType
+from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod, LanguageEncoderType, BatchNormHandling
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
 from refactoring.models.layers.normalization.constants import NormalizationType
@@ -87,6 +87,8 @@ def register_resolvers():
         OmegaConf.register_new_resolver("orientation", lambda name: OrientationRepresentation[name].value)
     if not OmegaConf.has_resolver("rgb_backbone"):
         OmegaConf.register_new_resolver("rgb_backbone", lambda name: RGBBackboneType[name].value)
+    if not OmegaConf.has_resolver("batch_norm_handling"):
+        OmegaConf.register_new_resolver("batch_norm_handling", lambda name: BatchNormHandling[name].value)
     if not OmegaConf.has_resolver("precision"):
         OmegaConf.register_new_resolver("precision", lambda name: PrecisionType[name].value)
     if not OmegaConf.has_resolver("float32_matmul"):
