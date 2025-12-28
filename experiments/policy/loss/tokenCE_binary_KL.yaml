@@ -6,16 +6,13 @@ defaults:
 _target_: refactoring.metrics.CompositeLoss
 loss_modules:
     token_loss:
-      _target_: refactoring.metrics.components.ActionTokenLoss
       label_smoothing: 0.1
 
     binary_kl:
-      _target_: refactoring.metrics.BinaryKLDivergenceLoss
       free_bits: 1.3  # 2 * math.log(2) ≈1.386 nats
       latent_bits: ${policy.decoder.latent_bits}
       entropy_weight: 0.0001
 
-# Weights for each loss module (multiplied by module's internal weight)
 weights:
   token_loss: 1.0
   binary_kl: 5.0

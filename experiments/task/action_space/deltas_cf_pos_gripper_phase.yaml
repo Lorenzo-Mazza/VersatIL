@@ -17,10 +17,8 @@ actions_metadata:
       needs_normalization: true
       frame: ${coordinate_system:CAMERA}
     computation_method: delta
-    prediction_dimension: 3
-    needs_normalization: true
 
-  ${obs_key:GRIPPER_STATE}:
+  ${proprio_key:GRIPPER_STATE}:
     _target_: refactoring.data.metadata.OnTheFlyActionMetadata
     source_metadata:
       _target_: refactoring.data.metadata.GripperObservationMetadata
@@ -31,8 +29,6 @@ actions_metadata:
       gripper_type: ${gripper:BINARY}
       binary_gripper_range: ${gripper_range:ZERO_ONE}
     computation_method: next_timestep
-    prediction_dimension: 1
-    needs_normalization: false
 
   ${obs_key:PHASE_LABEL}:
     _target_: refactoring.data.metadata.PrecomputedActionMetadata

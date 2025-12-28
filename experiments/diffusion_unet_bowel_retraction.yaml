@@ -12,7 +12,7 @@ defaults:
   - policy/encoding_pipeline: stereo_rgb_pooled_proprio_cf
   - policy/decoder: conditional_unet
   - policy/algorithm: diffusion
-  - policy/loss: mse
+  - policy/loss: regressionMSE_gripper
   - inference: diffusion_default
   - _self_
 

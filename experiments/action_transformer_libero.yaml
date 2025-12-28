@@ -9,11 +9,12 @@ defaults:
   - task/action_space: libero_precomputed
   - task/observation_space: libero_rgb
   - training: act_default
-  - policy/encoding_pipeline: stereo_rgb_token_embedder
-  - policy/decoder: action_transformer_lang
+  - policy/encoding_pipeline: stereo_rgb
+  - policy/decoder: action_transformer
   - policy/algorithm: bc_with_learned_prior
-  - policy/loss: mmd_l1_pos_ori_gripper
+  - policy/loss: regression_gripper_MMD
   - inference: act_default
+  - override policy/decoder/heads@policy.decoder.action_heads: libero
   - _self_
 
 task:
@@ -34,6 +35,8 @@ policy:
         action_keys:
           - ${proprio_key:EE_POS_ACTION}
           - ${proprio_key:EE_ORI_ACTION}
+      gripper_loss:
+        action_keys:
           - ${proprio_key:GRIPPER_STATE_ACTION}
       trajectory_length:
         action_key: ${proprio_key:EE_POS_ACTION}
@@ -45,47 +48,6 @@ policy:
         right:
             input_keys:
               - ${cameras:EYE_IN_HAND}
-  decoder:
-    action_heads:
-      ee_pos_action:
-        _target_: refactoring.models.decoding.action_heads.ActionHead
-        input_dim: ${policy.decoder.embedding_dimension}
-        output_dim: 3
-        blocks:
-          - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
-            input_dim: ${policy.decoder.embedding_dimension}
-            hidden_dims:
-              - 256
-              - 128
-            output_dim: null
-            activation: ${activation_function:SILU}
-            dropout: ${policy.decoder.dropout_rate}
-      ee_ori_action:
-        _target_: refactoring.models.decoding.action_heads.ActionHead
-        input_dim: ${policy.decoder.embedding_dimension}
-        output_dim: 3
-        blocks:
-          - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
-            input_dim: ${policy.decoder.embedding_dimension}
-            hidden_dims:
-              - 256
-              - 128
-            output_dim: null
-            activation: ${activation_function:SILU}
-            dropout: ${policy.decoder.dropout_rate}
-      gripper_state_action:
-        _target_: refactoring.models.decoding.action_heads.ActionHead
-        input_dim: ${policy.decoder.embedding_dimension}
-        output_dim: 1
-        blocks:
-          - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
-            input_dim: ${policy.decoder.embedding_dimension}
-            hidden_dims:
-              - 256  # embedding_dimension // 2
-              - 128  # embedding_dimension // 4
-            output_dim: null
-            activation: ${activation_function:SILU}
-            dropout: ${policy.decoder.dropout_rate}
 
 # Override specific parameters from defaults/command line if needed
 # For example, to use different batch size:

@@ -19,22 +19,20 @@ from refactoring.models.layers.activation import ActivationFunction
 class MoEHead(BaseMixtureOfExperts):
     """Mixture of Experts head for action prediction.
 
-    Supports two modes:
+    Supports three initialization modes:
     1. Explicit expert list: Pass pre-instantiated experts
-    2. Base expert cloning: Pass base_expert instance and num_experts (recommended)
+    2. Base expert cloning: Pass base_expert + num_experts (creates experts immediately)
+    3. Lazy initialization: Pass only base_expert (num_experts set later via set_num_experts)
 
-    Example:
-        moe = MoEHead(
-            base_expert=ActionHead(input_dim=256, output_dim=3, blocks=None),
-            num_experts=5,
-            output_dim=3,
-            gating_input_dim=256
-        )
+    The lazy mode is useful when num_experts needs to be inferred from metadata at runtime,
+    such as when PhaseACT infers the number of phases from action_space.
+
+    Note:
+        output_dim is set by the decoder through set_output_dim(), based on the action key.
     """
 
     def __init__(
         self,
-        output_dim: int,
         device: str = "cpu",
         experts: list[ActionHead] | None = None,
         base_expert: ActionHead | None = None,
@@ -53,11 +51,10 @@ class MoEHead(BaseMixtureOfExperts):
         """Initialize Mixture of Experts action head.
 
         Args:
-            output_dim: Output action dimension (must match all experts)
             device: Device to place the module on
             experts: Optional pre-instantiated expert action heads
-            base_expert: Single expert instance to clone num_experts times (Hydra-friendly)
-            num_experts: Number of experts to create from base_expert
+            base_expert: Single expert instance to clone num_experts times 
+            num_experts: Number of experts to create from base_expert (optional for lazy init)
             gating_input_dim: Input dimension for gating network (None for external routing)
             gating_activation: Activation function for gating network
             gating_hidden_dims: Hidden layer dimensions for gating network
@@ -70,34 +67,141 @@ class MoEHead(BaseMixtureOfExperts):
             gating_feature_key: Optional feature key for gating network input
         """
         if experts is not None and len(experts) > 0:
-            expert_list = experts
-            num_experts = len(experts)
+            super().__init__(
+                num_experts=len(experts),
+                device=device,
+                gating_input_dim=gating_input_dim,
+                gating_activation_function=gating_activation,
+                gating_hidden_dims=gating_hidden_dims,
+                routing_type=routing_type,
+                top_k=top_k,
+                temperature=temperature,
+                learnable_temperature=learnable_temperature,
+                gating_dropout=gating_dropout,
+                gating_normalization=gating_normalization,
+            )
+            self.experts = nn.ModuleList(experts)
+            self._is_initialized = True
+            self._base_expert_template = None
+            self._lazy_init_params = None
         elif base_expert is not None and num_experts is not None:
+            super().__init__(
+                num_experts=num_experts,
+                device=device,
+                gating_input_dim=gating_input_dim,
+                gating_activation_function=gating_activation,
+                gating_hidden_dims=gating_hidden_dims,
+                routing_type=routing_type,
+                top_k=top_k,
+                temperature=temperature,
+                learnable_temperature=learnable_temperature,
+                gating_dropout=gating_dropout,
+                gating_normalization=gating_normalization,
+            )
             expert_list = self._create_experts_from_instance(base_expert, num_experts)
-            expert_list = [expert.to(device) for expert in expert_list]
+            self.experts = nn.ModuleList([e.to(device) for e in expert_list])
+            self._is_initialized = True
+            self._base_expert_template = None
+            self._lazy_init_params = None
+        elif base_expert is not None:
+            nn.Module.__init__(self)  # nn.Module init, defer parent init until set_num_experts()
+            self._base_expert_template = base_expert
+            self._lazy_init_params = {
+                "device": device,
+                "gating_input_dim": gating_input_dim,
+                "gating_activation_function": gating_activation,
+                "gating_hidden_dims": gating_hidden_dims,
+                "routing_type": routing_type,
+                "top_k": top_k,
+                "temperature": temperature,
+                "learnable_temperature": learnable_temperature,
+                "gating_dropout": gating_dropout,
+                "gating_normalization": gating_normalization,
+            }
+            self.experts = None
+            self._is_initialized = False
         else:
-            raise ValueError("Must provide either 'experts' or 'base_expert' with 'num_experts'")
+            raise ValueError("Must provide 'experts' or 'base_expert'")
 
-        super().__init__(
-            num_experts=num_experts,
-            device=device,
-            gating_input_dim=gating_input_dim,
-            gating_activation_function=gating_activation,
-            gating_hidden_dims=gating_hidden_dims,
-            routing_type=routing_type,
-            top_k=top_k,
-            temperature=temperature,
-            learnable_temperature=learnable_temperature,
-            gating_dropout=gating_dropout,
-            gating_normalization=gating_normalization,
-        )
-
-        self.output_dim = output_dim
+        self._output_dim: int | None = None
+        self._device = device
         self.gating_feature_key = gating_feature_key
-        for i, expert in enumerate(expert_list):
-            if expert.output_dim != output_dim:
-                raise ValueError(f"Expert {i} output_dim={expert.output_dim} does not match expected {output_dim}")
-        self.experts = nn.ModuleList(expert_list)
+
+
+    @property
+    def is_initialized(self) -> bool:
+        """Check if experts have been created."""
+        return self._is_initialized
+
+
+    def set_num_experts(self, num_experts: int) -> None:
+        """Create experts after inferring num_experts from metadata.
+
+        Called by decoders (e.g., PhaseACT) that infer the number of experts
+        from action_space metadata at runtime.
+
+        Args:
+            num_experts: Number of experts to create
+
+        Raises:
+            RuntimeError: If already initialized or no base_expert template stored
+        """
+        if self._is_initialized:
+            raise RuntimeError("MoEHead already initialized. Cannot call set_num_experts twice.")
+        if self._base_expert_template is None:
+            raise RuntimeError("No base_expert template stored. Cannot create experts.")
+        if self._lazy_init_params is None:
+            raise RuntimeError("No lazy init params stored.")
+        base_expert = self._base_expert_template
+        lazy_params = self._lazy_init_params
+        output_dim = self._output_dim
+        device = self._device
+        BaseMixtureOfExperts.__init__(
+            self,
+            num_experts=num_experts,
+            **lazy_params,
+        )
+        expert_list = self._create_experts_from_instance(base_expert, num_experts)
+        self.experts = nn.ModuleList([e.to(device) for e in expert_list])
+        if output_dim is None:
+            raise ValueError("Output dimension is not set for MoE Head. Call set_output_dim() first.")
+        for expert in self.experts:
+            expert.set_output_dim(output_dim)
+        self._is_initialized = True
+        self._output_dim = output_dim
+        self._device = device
+        self._base_expert_template = None
+        self._lazy_init_params = None
+
+
+    @property
+    def output_dim(self) -> int:
+        """Get output dimension. Raises if not set."""
+        if self._output_dim is None:
+            raise RuntimeError("output_dim not set. Call set_output_dim() first.")
+        return self._output_dim
+
+
+    @output_dim.setter
+    def output_dim(self, value: int) -> None:
+        self._output_dim = value
+
+
+    def set_output_dim(self, dim: int) -> None:
+        """Set output dimension on this head and all expert heads.
+
+        Called by the decoder based on the action metadata prediction_dimension.
+        If in lazy mode (experts not yet created), stores the dim for later use
+        when set_num_experts() is called.
+
+        Args:
+            dim: Output action dimension
+        """
+        self._output_dim = dim
+        if self._is_initialized and self.experts is not None:
+            for expert in self.experts:
+                expert.set_output_dim(dim)
+
 
     @staticmethod
     def _create_experts_from_instance(
@@ -148,7 +252,12 @@ class MoEHead(BaseMixtureOfExperts):
                 - action: Combined action predictions from experts
                 - routing_weights: Computed routing weights
                 - expert_outputs: Individual expert predictions (stacked)
+
+        Raises:
+            RuntimeError: If MoEHead is not initialized (lazy mode without set_num_experts)
         """
+        if not self._is_initialized:
+            raise RuntimeError("MoEHead not initialized. Call set_num_experts() first.")
         weights = self.compute_routing_weights(gating_feature) # (B, num_experts)
         expert_outputs = [expert(features) for expert in self.experts]
         expert_outputs_stacked = torch.stack(expert_outputs, dim=-2)

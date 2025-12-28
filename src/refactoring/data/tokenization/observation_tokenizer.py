@@ -163,6 +163,7 @@ class ObservationTokenizer:
             parts = []
             for key in self.observation_keys:
                 if key not in observations:
+                    logging.warning(f"Key '{key}' not found in observation data, skipping prompt")
                     continue
 
                 data = observations[key]

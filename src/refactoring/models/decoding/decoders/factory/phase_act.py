@@ -8,6 +8,7 @@ position and gripper predictions through phase-specific expert networks.
 
 import torch
 
+from refactoring.common.omegaconf_ops import resolve_dict_keys
 from refactoring.data.constants import ACTION_KEY, ObsKey
 from refactoring.models.decoding.action_heads.moe import MoEHead
 from refactoring.models.decoding.constants import EXPERT_OUTPUTS, ROUTING_WEIGHT
@@ -41,8 +42,21 @@ class PhaseACT(ACT):
                 f"PhaseACT requires '{self.phase_routing_key}' head for routing, "
                 f"but only found: {list(self.action_heads.keys())}"
             )
-        if any(isinstance(self.action_heads[key], MoEHead) for key in self.action_heads if key != self.phase_routing_key) is False:
+        if not any(isinstance(self.action_heads[key], MoEHead) for key in self.action_heads if key != self.phase_routing_key):
             raise ValueError("PhaseACT requires at least one MoE action head for phase-based routing.")
+
+        self._initialize_moe_experts()
+
+
+    def _initialize_moe_experts(self) -> None:
+        """Set num_experts on lazy MoE heads from phase metadata."""
+        resolved_metadata = resolve_dict_keys(dict(self.action_space.actions_metadata))
+        phase_metadata = resolved_metadata[self.phase_routing_key]
+        num_phases = phase_metadata.prediction_dimension
+        for key, head in self.action_heads.items():
+            if isinstance(head, MoEHead) and not head.is_initialized:
+                head.set_num_experts(num_phases)
+
 
     def _apply_action_heads(self, action_embeddings: torch.Tensor) -> dict[str, torch.Tensor]:
         """Apply action heads with phase-based routing.

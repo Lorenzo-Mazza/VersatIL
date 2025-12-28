@@ -1,6 +1,6 @@
 defaults:
   - moe_free_transformer
-
+  - heads@action_heads: tokenized_moe
 
 # Input features from encoding pipeline
 input_keys:
@@ -26,26 +26,6 @@ positional_encoding_type: ${pos_encoding:ROPE}
 temperature: 10.0
 learnable_temperature: true
 deterministic: true
-action_heads:
-  action_logits:
-    _target_: refactoring.models.decoding.action_heads.MoEHead
-    output_dim: 1 # Will be overriden at runtime based on vocabulary size
-    num_experts: 16
-    gating_input_dim: ${policy.decoder.embedding_dimension}
-    learnable_temperature: true
-    base_expert:
-      _target_: refactoring.models.decoding.action_heads.ActionHead
-      input_dim: ${policy.decoder.embedding_dimension}
-      output_dim: 1 # Will be overriden at runtime based on vocabulary size
-      blocks:
-        - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
-          input_dim: ${policy.decoder.embedding_dimension}
-          hidden_dims:
-            - 256
-            - 128
-            - 64
-          activation: ${activation_function:SWIGLU}
-
 
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}

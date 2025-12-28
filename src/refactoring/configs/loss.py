@@ -35,8 +35,8 @@ class GripperLossConfig(BaseLossConfig):
     """Configuration for gripper loss."""
 
     _target_: str = "refactoring.metrics.GripperLoss"
-    gripper_type: str = "${task.action_space.gripper_type}"
-    binary_gripper_range: str = "${task.action_space.binary_gripper_range}"
+    key: str = MISSING
+    actions_metadata: Any = "${task.action_space.actions_metadata}"
     bce_weight: float = 1.0
     mse_weight: float = 1.0
     pos_weight: float | None = None
@@ -97,9 +97,11 @@ class PhaseClassificationLossConfig(BaseLossConfig):
     """Configuration for phase classification loss."""
 
     _target_: str = "refactoring.metrics.PhaseClassificationLoss"
+    key: str = MISSING
     cross_entropy_weight: float = 1.0
     entropy_weight: float = 0.0
     label_smoothing: float = 0.0
+
 
 @dataclass
 class ActionTokenLossConfig(BaseLossConfig):
@@ -153,11 +155,12 @@ class FixedVarianceGaussianNLLossConfig(BaseLossConfig):
     weight: float = 1.0
 
 @dataclass
-class FixedVarianceGripperMixtureNLLoss(BaseLossConfig):
+class FixedVarianceGripperMixtureNLLossConfig(BaseLossConfig):
     """Configuration for gripper Mixture Negative Log-Likelihood loss."""
     _target_: str = "refactoring.metrics.FixedVarianceGripperMixtureNLLoss"
-    gripper_type: str = GripperType.BINARY.value
-    sigma : float = 0.5
+    key: str = MISSING
+    actions_metadata: Any = "${task.action_space.actions_metadata}"
+    sigma: float = 0.5
     weight: float = 1.0
 
 @dataclass

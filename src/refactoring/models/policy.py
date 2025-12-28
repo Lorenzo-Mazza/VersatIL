@@ -18,6 +18,7 @@ from refactoring.models.decoding.action_heads import MoEHead
 from refactoring.models.decoding.constants import (BINARY_LOGITS_KEY, LATENT_KEY, LOGVAR_KEY, MU_KEY,
                                                    PRIOR_LATENT_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY, ROUTING_WEIGHT)
 
+from refactoring.common.dict_of_tensor_mixin import DictOfTensorMixin
 from refactoring.data.normalization.normalizer import LinearNormalizer
 from refactoring.metrics.base import BaseLoss, LossOutput
 from refactoring.models.decoding.algorithm.base import DecodingAlgorithm
@@ -70,7 +71,7 @@ class Policy(nn.Module):
         self.device = torch.device(device)
         self.normalizer: LinearNormalizer = LinearNormalizer()
         self.tokenizer = None  # Set later via set_tokenizer()
-        self.denoising_thresholds = nn.ParameterDict() # Set later via set_denoising_thresholds()
+        self.denoising_thresholds = DictOfTensorMixin()  # Set later via set_denoising_thresholds()
         self.validate_decoder()
         if validate_loss_keys:
             self.validate_loss_keys()
@@ -178,10 +179,10 @@ class Policy(nn.Module):
 
         Note:
             These thresholds are computed from the dataset's action processor and stored
-            in a ParameterDict to persist through checkpointing.
+            via DictOfTensorMixin to persist through checkpointing.
         """
         for key, value in thresholds.items():
-            self.denoising_thresholds[key] = nn.Parameter(torch.tensor(value), requires_grad=False)
+            self.denoising_thresholds.params_dict[key] = nn.Parameter(torch.tensor(value), requires_grad=False)
 
 
     def forward(self, batch: dict[str, dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:

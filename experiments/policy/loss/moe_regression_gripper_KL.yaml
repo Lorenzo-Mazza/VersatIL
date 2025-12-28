@@ -1,10 +1,9 @@
 # The syntax to validate against structured configs is always: `config_name in the configs.init.py`@`field path in the yaml file to validate`
 defaults:
-  - fv_gaussian_nll@loss_modules.moe_loss.base_loss.loss_modules.action_nll
-  - fv_bernoulli_nll@loss_modules.moe_loss.base_loss.loss_modules.gripper_nll
+  - regression@loss_modules.moe_loss.base_loss.loss_modules.regression_loss
+  - gripper@loss_modules.moe_loss.base_loss.loss_modules.gripper_loss
   - traj_len@loss_modules.moe_loss.base_loss.loss_modules.trajectory_length
-  - phase_classification@loss_modules.moe_loss.base_loss.loss_modules.phase_classification_loss
-  - kl@loss_modules.moe_loss.base_loss.loss_modules.kl_divergence
+  - kl@loss_modules.kl_divergence
   - _self_
 
 _target_: refactoring.metrics.CompositeLoss
@@ -14,14 +13,19 @@ loss_modules:
     base_loss:
       _target_: refactoring.metrics.CompositeLoss
       loss_modules:
-        action_nll:
+        regression_loss:
+          _target_: refactoring.metrics.RegressionLoss
           action_keys:
-            - ${action_key:POSITION}
-          weight: 1.0
+            - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
+          mse_weight: 0.0
+          l1_weight: 1.0
+          huber_weight: 0.0
 
-        gripper_nll:
-          gripper_type: ${task.action_space.gripper_type}
-          weight: 0.05
+        gripper_loss:
+          _target_: refactoring.metrics.GripperLoss
+          key: ${proprio_key:GRIPPER_STATE}
+          actions_metadata: ${task.action_space.actions_metadata}
+          bce_weight: 0.05
 
         kl_divergence:
             _target_: refactoring.metrics.KLDivergenceLoss
@@ -30,12 +34,4 @@ loss_modules:
         trajectory_length:
             _target_: refactoring.metrics.TrajectoryLengthLoss
             weight: 0.0
-            action_key: ${action_key:POSITION}
-
-        phase_classification_loss:
-          cross_entropy_weight: 0.1
-          entropy_weight: 0.01
-          label_smoothing: 0.0
-
-
-
+            action_key: ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}

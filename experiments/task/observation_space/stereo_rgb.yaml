@@ -2,7 +2,6 @@ defaults:
   - base
 
 _target_: refactoring.data.task.ObservationSpace
-observation_horizon: 1
 
 observations_metadata:
   ${cameras:LEFT}:

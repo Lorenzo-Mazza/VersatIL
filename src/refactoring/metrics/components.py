@@ -4,10 +4,17 @@ import math
 import torch
 import torch.nn.functional as F
 
+from refactoring.common.omegaconf_ops import resolve_dict_keys
 from refactoring.data.constants import (
     BinaryGripperRange,
     GripperType,
     TOKENIZED_ACTIONS_KEY,
+)
+from refactoring.data.metadata import (
+    ActionMetadata,
+    GripperActionMetadata,
+    GripperObservationMetadata,
+    OnTheFlyActionMetadata,
 )
 from refactoring.metrics.base import BaseLoss, LossOutput, reduce_loss_with_padding
 from refactoring.metrics.constants import (
@@ -124,8 +131,7 @@ class GripperLoss(BaseLoss):
     def __init__(
         self,
         key: str,
-        gripper_type: str = GripperType.BINARY.value,
-        binary_gripper_range: str = BinaryGripperRange.ZERO_ONE.value,
+        actions_metadata: dict[str, ActionMetadata],
         bce_weight: float = 0.005,
         mse_weight: float = 0.0,
         pos_weight: torch.Tensor | None = None,
@@ -134,19 +140,37 @@ class GripperLoss(BaseLoss):
 
         Args:
             key: Action key for gripper
-            gripper_type: Type of gripper ('binary' or 'continuous')
-            binary_gripper_range: Value range for binary gripper ('zero_one' or 'minus_one_one')
+            actions_metadata: Dict of metadata of the action space
             bce_weight: Weight for binary cross entropy (binary gripper)
             mse_weight: Weight for MSE loss (continuous gripper)
             pos_weight: Optional positive class weight for BCE
         """
         super().__init__()
         self.key = key
-        self.gripper_type = gripper_type
-        self.binary_gripper_range = binary_gripper_range
         self.bce_weight = bce_weight
         self.mse_weight = mse_weight
         self.register_buffer("pos_weight", pos_weight)
+        resolved_metadata = resolve_dict_keys(dict(actions_metadata))
+        if key not in resolved_metadata.keys():
+            raise ValueError(f"{key} is not available to the action space. Can't compute gripper loss. "
+                             f"Available keys: {list(resolved_metadata.keys())}")
+        meta = resolved_metadata[key]
+        if isinstance(meta, GripperActionMetadata):
+            self.gripper_type = meta.gripper_type
+            self.binary_gripper_range = meta.binary_gripper_range
+        elif isinstance(meta, OnTheFlyActionMetadata):
+            source = meta.source_metadata
+            if isinstance(source, GripperObservationMetadata):
+                self.gripper_type = source.gripper_type
+                self.binary_gripper_range = source.binary_gripper_range
+            else:
+                raise ValueError(
+                    f"Expected GripperObservationMetadata for key '{key}', got {type(source).__name__}"
+                )
+        else:
+            raise ValueError(
+                f"Expected gripper metadata for key '{key}', got {type(meta).__name__}"
+            )
 
     def get_required_keys(self) -> set[str]:
         """Get required target keys for gripper loss.
@@ -919,7 +943,7 @@ class PriorDenoisingLoss(BaseLoss):
 
 
 class FixedVarianceGaussianNLLoss(BaseLoss):
-    """Negative log-likelihood loss for Gaussian Mixture Model with fixed variance.
+    """Negative Log-Likelihood loss for Gaussian Mixture Model with fixed variance.
 
     This loss assumes the action distribution is a mixture of Gaussians:
         p(a | z) = Σ_k π_k(z) · N(a | μ_k(z), σ²I)
@@ -1051,7 +1075,7 @@ class FixedVarianceGaussianNLLoss(BaseLoss):
 
 
 class FixedVarianceGripperMixtureNLLoss(BaseLoss):
-    """NLL loss for gripper with mixture distribution and shared expert routing.
+    """Negative Log-Likelihood loss for gripper with mixture distribution and shared expert routing.
 
     Binary gripper: p(a|z) = Σ_k π_k(z) · Bernoulli(a | p_k(z))
     Continuous gripper: p(a|z) = Σ_k π_k(z) · N(a | μ_k(z), σ²I) with fixed variance
@@ -1064,7 +1088,7 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
     def __init__(
             self,
             key: str,
-            gripper_type: str = GripperType.BINARY.value,
+            actions_metadata: dict[str, ActionMetadata],
             weight: float = 1.0,
             sigma: float = 0.5,
     ):
@@ -1072,15 +1096,35 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
 
         Args:
             key: Key for gripper actions
-            gripper_type: Type of gripper ('binary' or 'continuous')
+            actions_metadata: Dict of metadata of the action space
             weight: Loss weight
             sigma: Fixed std for continuous gripper (ignored for binary)
         """
         super().__init__()
         self.key = key
-        self.gripper_type = gripper_type
         self.weight = weight
         self.sigma = sigma
+        resolved_metadata = resolve_dict_keys(dict(actions_metadata))
+        if key not in resolved_metadata.keys():
+            raise ValueError(f"{key} is not available to the action space. Can't compute gripper NLL loss. "
+                             f"Available keys: {list(resolved_metadata.keys())}")
+        meta = resolved_metadata[key]
+        if isinstance(meta, GripperActionMetadata):
+            self.gripper_type = meta.gripper_type
+            self.binary_gripper_range = meta.binary_gripper_range
+        elif isinstance(meta, OnTheFlyActionMetadata):
+            source = meta.source_metadata
+            if isinstance(source, GripperObservationMetadata):
+                self.gripper_type = source.gripper_type
+                self.binary_gripper_range = source.binary_gripper_range
+            else:
+                raise ValueError(
+                    f"Expected GripperObservationMetadata for key '{key}', got {type(source).__name__}"
+                )
+        else:
+            raise ValueError(
+                f"Expected gripper metadata for key '{key}', got {type(meta).__name__}"
+            )
 
 
     def get_required_keys(self) -> set[str]:
@@ -1129,6 +1173,8 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
                 target = target.squeeze(-1)
             if expert_outs.dim() == 4:
                 expert_outs = expert_outs.squeeze(-1)
+            if self.binary_gripper_range == BinaryGripperRange.MINUS_ONE_ONE.value:
+                target = (target.float() + 1.0) / 2.0
 
             expert_probs = torch.sigmoid(expert_outs).clamp(1e-8, 1 - 1e-8)
             target_expanded = target.unsqueeze(-1)  # (B, T, 1)

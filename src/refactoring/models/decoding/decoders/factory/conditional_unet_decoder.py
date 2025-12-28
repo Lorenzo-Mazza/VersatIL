@@ -38,9 +38,9 @@ class ConditionalUNetDecoder(ActionDecoder):
     def __init__(
         self,
         input_keys: list[str],
-        action_space: ActionSpace2,
+        action_space: ActionSpace,
         action_heads: dict[str, ActionHead],
-        observation_space: ObservationSpace2,
+        observation_space: ObservationSpace,
         observation_horizon: int,
         prediction_horizon: int,
         device: str,

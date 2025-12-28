@@ -5,7 +5,7 @@ import torch
 
 from refactoring.common.tensor_ops import tensor_to_str
 from refactoring.configs.data.tokenizer import TokenizationConfig
-from refactoring.data.metadata import PositionObservationMetadata, ActionMetadata
+from refactoring.data.metadata import PositionObservationMetadata, ActionMetadata, OnTheFlyActionMetadata
 from refactoring.data.task import ObservationSpace
 from refactoring.data.action_processor import ActionProcessor
 from refactoring.data.constants import (
@@ -94,7 +94,7 @@ class PreprocessorBuilder:
         self.compute_proprioceptive_denoising_thresholds()
         all_data = self.replay_buffer.get_steps_slice(0, self.replay_buffer.n_steps)
         action_data, action_meta = self.action_processor.compute_sample_actions(
-            padded_data=all_data, action_slice_start=0, action_slice_end=-1)
+            padded_data=all_data, action_slice_start=0, action_slice_end=self.replay_buffer.n_steps-1)
         cross_indices = self.episode_ends[:-1] - 1
         valid_mask = np.ones(len(next(iter(action_data.values()))), dtype=bool)
         valid_mask[cross_indices] = False
@@ -116,12 +116,14 @@ class PreprocessorBuilder:
     ) -> None:
         """Compute denoising thresholds for proprioceptive observations.
         """
-        for key, meta in self.observation_space.observations_metadata.items():
-            if isinstance(meta, PositionObservationMetadata):
-                obs_data = self.replay_buffer[key][:]
-                self.action_processor.compute_denoising_threshold(
-                    obs_data=obs_data, key=key, meta=meta, episode_ends=self.episode_ends
-                )
+        for key, meta in self.action_processor.action_space.actions_metadata.items():
+            if isinstance(meta, OnTheFlyActionMetadata):
+                source_meta = meta.source_metadata
+                if isinstance(source_meta, PositionObservationMetadata):
+                    obs_data = self.replay_buffer[key][:]
+                    self.action_processor.compute_denoising_threshold(
+                        obs_data=obs_data, key=key, meta=source_meta, episode_ends=self.episode_ends
+                    )
         self.action_processor.log_movement_distribution()
 
 

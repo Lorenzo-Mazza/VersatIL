@@ -164,12 +164,12 @@ class FASTDETRDecoder(ActionDecoder):
                 token_input_embedding,
                 token_projection
             ).to(device)
-            nn.init.normal_(token_input_embedding.weight, mean=0.0, std=self.action_decoder.initializer_range)
-            nn.init.normal_(token_projection.weight, mean=0.0, std=self.action_decoder.initializer_range)
+            nn.init.xavier_uniform_(token_input_embedding.weight)
+            nn.init.xavier_uniform_(token_projection.weight)
         else:
             token_input_embedding = nn.Embedding(self.vocab_size, self.embedding_dimension).to(device)
             self.token_embedding = token_input_embedding
-            nn.init.normal_(token_input_embedding.weight, mean=0.0, std=self.action_decoder.initializer_range)
+            nn.init.xavier_uniform_(token_input_embedding.weight)
 
         lm_head = nn.Linear(output_block_in_features, self.vocab_size, bias=False, device=device)
         lm_head.weight = token_input_embedding.weight  # tie output weights to input embedding weights, like in GPT-2

@@ -1,6 +1,6 @@
 """Configuration classes for modular action heads."""
 from dataclasses import dataclass
-from typing import TypeAlias, Union, Any
+from typing import Any
 
 from omegaconf import MISSING
 
@@ -44,10 +44,13 @@ class ResidualBlockConfig(ActionHeadBlockConfig):
 
 @dataclass
 class ActionHeadConfig:
-    """Configuration for a single action head."""
+    """Configuration for a single action head.
+
+    Note:
+        output dimension is set by the decoder based on the action key.
+    """
     _target_: str = "refactoring.models.decoding.action_heads.ActionHead"
     input_dim: int = MISSING  # Set from decoder embedding_dimension
-    output_dim: int = MISSING  # Set from action_space
     blocks: list[Any] | None = None
 
 
@@ -60,27 +63,18 @@ class MixtureOfExpertsHeadConfig:
     1. Explicit experts: Pass list of ActionHeadConfig
     2. Base expert cloning: Pass base_expert and num_experts (recommended)
 
-    Example:
-        moe_config = MixtureOfExpertsHeadConfig(
-            base_expert=ActionHeadConfig(input_dim=256, output_dim=3, blocks=None),
-            num_experts=5,
-            output_dim=3,
-            gating_input_dim=256,
-            device="cuda"
-        )
-
     Note:
         base_expert is instantiated by Hydra, then cloned num_experts times
         by MoEHead to create separate expert networks with independent weights.
+        output_dim is set by the decoder based on the action key.
     """
     _target_: str = "refactoring.models.decoding.action_heads.MoEHead"
-    output_dim: int = MISSING
     device: str = "${policy.device}"
-    experts: list[ActionHeadConfig]  | None  = None
-    base_expert: ActionHeadConfig | None  = None
+    experts: list[ActionHeadConfig] | None = None
+    base_expert: ActionHeadConfig | None = None
     num_experts: int = MISSING
-    gating_input_dim: int  = MISSING
-    gating_hidden_dims: list[int] | None  = None
+    gating_input_dim: int | None = None  # None for external routing
+    gating_hidden_dims: list[int] | None = None
     routing_type: str = MoERoutingType.SOFT.value
     top_k: int = 2  # For top-k routing
     temperature: float = 1.0

@@ -1,5 +1,6 @@
 defaults:
   - simple_action_transformer
+  - heads@action_heads: bowel_retraction
 
 input_keys:
   - left_rgb
@@ -18,8 +19,6 @@ dropout_rate: 0.1
 attention_dropout: 0.05
 positional_encoding_type: ${pos_encoding:ROPE}
 
-# Action heads must be defined in main config (computed properties can't be resolved in config)
-action_heads: {}
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}
 action_space: ${task.action_space}

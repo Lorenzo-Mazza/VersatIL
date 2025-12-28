@@ -28,7 +28,9 @@ ALLOWED_CAMERAS = {Cameras.LEFT.value, Cameras.RIGHT.value, Cameras.DEPTH.value}
 ALLOWED_POS_OBS_KEYS = {ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value, ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value}
 ALLOWED_ORI_OBS_KEYS = set()
 ALLOWED_FRAMES = {CoordinateSystem.ROBOT_BASE.value, CoordinateSystem.CAMERA.value}
-BOWEL_RETRACTION_GRIPPER_KEY = "open"
+BOWEL_RETRACTION_GRIPPER_COL = "open"
+BOWEL_RETRACTION_PHASE_COL = "task_phase"
+BOWEL_RETRACTION_LANGUAGE_COL = "language"
 
 
 class BowelRetractionSchema(CsvDatasetSchema):
@@ -126,18 +128,32 @@ class BowelRetractionSchema(CsvDatasetSchema):
                     f"BowelRetraction requires binary gripper, got: "
                     f"{gripper_observation.gripper_type}"
                 )
-            if key != BOWEL_RETRACTION_GRIPPER_KEY:
+            if gripper_observation.raw_data_column_keys != [BOWEL_RETRACTION_GRIPPER_COL]:
                 errors.append(
-                    f"BowelRetraction requires gripper key to be {BOWEL_RETRACTION_GRIPPER_KEY}, got: "
+                    f"BowelRetraction requires gripper source column to be {BOWEL_RETRACTION_GRIPPER_COL}, got: "
                     f"{key}"
                 )
         if metadata.custom_observations:
             if ObsKey.LANGUAGE.value not in metadata.custom_observations:
                 logging.warning(f"Language observation key '{ObsKey.LANGUAGE.value}' not found. Language won't be used.")
+            else:
+                lang_obs = metadata.custom_observations[ObsKey.LANGUAGE.value]
+                if lang_obs.raw_data_column_keys != [BOWEL_RETRACTION_LANGUAGE_COL]:
+                    errors.append(
+                        f"BowelRetraction requires language source column to be {BOWEL_RETRACTION_LANGUAGE_COL}, got: "
+                        f"{lang_obs.raw_data_column_keys}"
+                    )
+
         if metadata.custom_actions:
             if ObsKey.PHASE_LABEL.value not in metadata.custom_actions:
                 logging.warning(f"Phase action key '{ObsKey.PHASE_LABEL.value}' not found. Phase label won't be used.")
-
+            else:
+                phase_action = metadata.custom_actions[ObsKey.PHASE_LABEL.value]
+                if phase_action.raw_data_column_keys != [BOWEL_RETRACTION_PHASE_COL]:
+                    errors.append(
+                        f"BowelRetraction requires phase label source column to be {BOWEL_RETRACTION_PHASE_COL}, got: "
+                        f"{phase_action.raw_data_column_keys}"
+                    )
         if errors:
             raise ValueError(
                 f"BowelRetraction schema validation failed:\n" +
@@ -166,10 +182,7 @@ class BowelRetractionSchema(CsvDatasetSchema):
             if isinstance(obs, CameraMetadata):
                 continue
             elif isinstance(obs, ObservationMetadata):
-                if obs.dtype == "str":
-                    data[zarr_key] = episode[obs.raw_data_column_keys[0]].astype(str).values
-                else:
-                    data[zarr_key] = episode[obs.raw_data_column_keys].values.astype(obs.dtype)
+                data[zarr_key] = episode[obs.raw_data_column_keys].values.astype(obs.dtype)
 
         for zarr_key, action in self.metadata.precomputed_actions.items():
             data[zarr_key] = episode[action.raw_data_column_keys].values.astype(action.dtype)
@@ -179,7 +192,7 @@ class BowelRetractionSchema(CsvDatasetSchema):
             if cam == Cameras.DEPTH.value:
                 left_col = self._get_rgb_column(Cameras.LEFT.value)
                 paths = [self._compute_depth_path(p) for p in episode[left_col]]
-                images = [depth_resizer(image=np.load(p))['image'] for p in paths]
+                images = [depth_resizer(image=np.load(p))['image'][..., np.newaxis] for p in paths] # (H, W, 1)
             else:
                 col = self._get_rgb_column(cam)
                 images = [

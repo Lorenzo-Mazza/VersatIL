@@ -61,6 +61,7 @@ class ActionProcessor:
     ) -> None:
         """Compute denoising thresholds from observation deltas of proprioceptive positions."""
         if not isinstance(meta, PositionObservationMetadata):
+            logging.warning("Denoising threshold computation only supported for position observations.")
             return
         # Mask out cross-episode transitions
         cross_indices = episode_ends[:-1] - 1

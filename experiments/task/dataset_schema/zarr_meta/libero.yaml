@@ -21,7 +21,7 @@ observations:
     frame: ${coordinate_system:ROBOT_BASE}
     orientation_representation: ${orientation:EULER}
 
-  ${obs_key:GRIPPER_STATE}:
+  ${proprio_key:GRIPPER_STATE}:
     _target_: refactoring.data.metadata.GripperObservationMetadata
     raw_data_column_keys: [gripper_states]
     dtype: float32

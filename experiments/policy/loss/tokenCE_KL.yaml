@@ -1,0 +1,16 @@
+defaults:
+  - token_loss@loss_modules.token_loss
+  - kl@loss_modules.kl_divergence
+  - _self_
+
+_target_: refactoring.metrics.CompositeLoss
+
+loss_modules:
+  token_loss:
+    label_smoothing: 0.0
+  kl_divergence:
+    weight: 10.0
+
+weights:
+  token_loss: 1.0
+  kl_divergence: 1.0

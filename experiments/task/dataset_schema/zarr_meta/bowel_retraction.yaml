@@ -20,7 +20,7 @@ observations:
     needs_normalization: true
     frame: ${coordinate_system:CAMERA}
 
-  ${obs_key:GRIPPER_STATE}:
+  ${proprio_key:GRIPPER_STATE}:
     _target_: refactoring.data.metadata.GripperObservationMetadata
     raw_data_column_keys: [open]
     dtype: int8

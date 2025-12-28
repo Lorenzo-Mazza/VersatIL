@@ -46,7 +46,7 @@ from refactoring.configs.inference import InferenceConfig
 from refactoring.configs.loss import CompositeLossConfig, PhaseActionLossConfig, ActionReconstructionLossConfig, RegressionLossConfig, BaseLossConfig, \
     GripperLossConfig, KLDivergenceLossConfig, BinaryKLDivergenceLossConfig, TrajectoryLengthLossConfig, TrajectorySmoothnessConfig, \
     PhaseClassificationLossConfig, ActionTokenLossConfig, MoELossConfig, MaximumMeanDiscrepancyLossConfig, BinaryMaximumMeanDiscrepancyLossConfig, \
-    FixedVarianceGaussianNLLossConfig, FixedVarianceGripperMixtureNLLoss
+    FixedVarianceGaussianNLLossConfig, FixedVarianceGripperMixtureNLLossConfig
 from refactoring.configs.main import MainConfig
 from refactoring.configs.policy import PolicyConfig
 from refactoring.configs.data.task import TaskSpaceConfig, ActionSpaceConfig, ObservationSpaceConfig
@@ -214,7 +214,7 @@ def register_configs():
     cs.store(group="policy/loss", name="token_loss", node=ActionTokenLossConfig)
     cs.store(group="policy/loss", name="moe_loss", node=MoELossConfig)
     cs.store(group="policy/loss", name="fv_gaussian_nll", node=FixedVarianceGaussianNLLossConfig)
-    cs.store(group="policy/loss", name="fv_bernoulli_nll", node=FixedVarianceGripperMixtureNLLoss)
+    cs.store(group="policy/loss", name="fv_bernoulli_nll", node=FixedVarianceGripperMixtureNLLossConfig)
 
 
     cs.store(group="policy/encoding_pipeline", name="base", node=ImageEncoderConfig)

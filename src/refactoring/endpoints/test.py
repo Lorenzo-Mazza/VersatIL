@@ -7,7 +7,7 @@ import argparse
 
 import torch
 
-from refactoring.inference.client import InferenceClient
+from refactoring.inference.client import TSOPolicyClient
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,7 +71,7 @@ def main():
             "Consider using a GPU for better performance."
         )
 
-    client = InferenceClient(
+    client = TSOPolicyClient(
         model_server_address=args.model_server_address,
         model_server_port=args.model_server_port,
         checkpoint_path=args.checkpoint_path,

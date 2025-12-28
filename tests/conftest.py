@@ -29,7 +29,7 @@ from omegaconf import OmegaConf
 from refactoring.data.constants import (
     Cameras,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
-    GRIPPER_STATE_OBS_KEY,
+    ProprioKey,
 )
 from refactoring.configs.main import MainConfig
 from refactoring.configs.experiment import ExperimentConfig

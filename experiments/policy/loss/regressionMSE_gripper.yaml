@@ -9,16 +9,18 @@ loss_modules:
     regression_loss:
       _target_: refactoring.metrics.RegressionLoss
       action_keys:
-        - ${action_key:POSITION}
+        - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
       mse_weight: 1.0
       l1_weight: 0.0
       huber_weight: 0.0
 
     gripper_loss:
       _target_: refactoring.metrics.GripperLoss
-      gripper_type: ${gripper:BINARY}
+      key: ${proprio_key:GRIPPER_STATE}
+      actions_metadata: ${task.action_space.actions_metadata}
       bce_weight: 0.05
 
     trajectory_length:
         _target_: refactoring.metrics.TrajectoryLengthLoss
         weight: 0.001
+        action_key: ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}

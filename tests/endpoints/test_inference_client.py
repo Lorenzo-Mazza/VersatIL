@@ -15,7 +15,7 @@ from refactoring.configs.training import TrainingConfig
 from refactoring.configs.policy import PolicyConfig
 from refactoring.configs.inference import InferenceConfig
 from refactoring.workspace import Workspace
-from refactoring.inference.client import InferenceClient
+from refactoring.inference.client import TSOPolicyClient
 from refactoring.data.constants import Cameras, OrientationRepresentation, GripperType
 
 
@@ -33,7 +33,7 @@ class TestInferenceClientConfigLoading:
         with patch("refactoring.inference.client.AbstractModelClient.__init__"):
             # Should raise FileNotFoundError
             with pytest.raises(FileNotFoundError, match="Config file not found"):
-                InferenceClient(
+                TSOPolicyClient(
                     device=torch.device("cpu"),
                     checkpoint_path=str(checkpoint_dir),
                 )
@@ -96,7 +96,7 @@ class TestInferenceClientConfigLoading:
                 mock_load.return_value = mock_model
 
                 # Create inference client - should not raise
-                client = InferenceClient(
+                client = TSOPolicyClient(
                     device=torch.device("cpu"),
                     checkpoint_path=str(workspace.output_dir),
                 )
@@ -190,7 +190,7 @@ class TestInferenceClientConfigLoading:
                 mock_model.eval = Mock()
                 mock_load.return_value = mock_model
 
-                client = InferenceClient(
+                client = TSOPolicyClient(
                     device=torch.device("cpu"),
                     checkpoint_path=str(workspace.output_dir),
                 )
@@ -259,7 +259,7 @@ class TestInferenceClientConfigLoading:
                 mock_model.eval = Mock()
                 mock_load.return_value = mock_model
 
-                client = InferenceClient(
+                client = TSOPolicyClient(
                     device=torch.device("cpu"),
                     checkpoint_path=str(workspace.output_dir),
                 )
@@ -341,7 +341,7 @@ class TestInferenceClientIntegrationWithWorkspace:
                 mock_model.eval = Mock()
                 mock_load.return_value = mock_model
 
-                client = InferenceClient(
+                client = TSOPolicyClient(
                     device=torch.device("cpu"),
                     checkpoint_path=str(workspace.output_dir),
                 )
@@ -407,7 +407,7 @@ class TestInferenceClientIntegrationWithWorkspace:
 
             # Should raise FileNotFoundError for missing checkpoint
             with pytest.raises(FileNotFoundError, match="No checkpoint found"):
-                InferenceClient(
+                TSOPolicyClient(
                     device=torch.device("cpu"),
                     checkpoint_path=str(workspace.output_dir),
                 )

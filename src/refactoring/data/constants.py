@@ -24,7 +24,7 @@ class CoordinateSystem(str, enum.Enum):
 
 class ProprioKey(str, enum.Enum):
     """Enum for proprioceptive observation keys."""
-    # TSO bowel retraction proprioceptive keys
+    # TSO datasets proprioceptive keys
     ROBOT_FRAME_CARTESIAN_TIP_POS = "proprio_robot_frame"
     ROBOT_FRAME_CARTESIAN_TIP_ORI= "tip_ori_robot_frame"
     CAMERA_FRAME_CARTESIAN_TIP_POS = "proprio_camera_frame"
@@ -36,13 +36,13 @@ class ProprioKey(str, enum.Enum):
     JOINT_STATES = "joint_states"
     EE_POS_ACTION = "ee_pos_action"
     EE_ORI_ACTION = "ee_ori_action"
+
+    GRIPPER_STATE = "gripper_state_obs"
     GRIPPER_STATE_ACTION = "gripper_state_action"
-    ACTION_7D = "action_7d"  # position delta (3) + orientation delta (3) + gripper (1)
 
 
 class ObsKey(str, enum.Enum):
     """Enum for non-proprioceptive observation keys."""
-    GRIPPER_STATE = "gripper_state_obs"
     LANGUAGE = "language_instruction"
     PHASE_LABEL = "phase_label"
 
@@ -62,7 +62,7 @@ class KinematicsNormalizationType(str, enum.Enum):
 
 
 class OrientationRepresentation(str, enum.Enum):
-    """Enum for orientation representation types."""
+    """Enum for orientation representation types used in on-the-fly action computations."""
     ROLL = 'roll'  # roll of the end-effector around the tool axis for a robot controlled with a Remote Center of Motion constraint
     EULER = 'euler' # (roll, pitch, yaw)
     QUATERNION = 'quaternion' # (w, x, y, z)

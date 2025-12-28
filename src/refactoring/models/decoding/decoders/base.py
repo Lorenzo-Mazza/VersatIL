@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import torch
 import torch.nn as nn
 
+from refactoring.common.omegaconf_ops import resolve_dict_keys
 from refactoring.data.task import ObservationSpace, ActionSpace
 from refactoring.data.tokenization import Tokenizer, ActionTokenizer
 from refactoring.models.decoding.constants import FeatureType
@@ -109,14 +110,42 @@ class ActionDecoder(nn.Module, ABC):
     ):
         super().__init__()
         self.decoder_input = decoder_input
-        self.action_heads = nn.ModuleDict(action_heads)
+        resolved_heads = resolve_dict_keys(action_heads)
+        self.action_heads = nn.ModuleDict(resolved_heads)
         self.observation_space = observation_space
         self.action_space = action_space
         self.observation_horizon = observation_horizon
         self.prediction_horizon = prediction_horizon
         self.device = torch.device(device)
+        self._set_action_head_dimensions()
         self.validate_action_heads()
         self.tokenizer: ActionTokenizer | None = None
+
+
+    def _set_action_head_dimensions(self) -> None:
+        """Set output dimensions on action heads from action_space.
+
+        Each action head's output_dim is set based on the corresponding
+        action_space.actions_metadata[key].prediction_dimension.
+
+        Raises:
+            ValueError: If an action head key is not found in action_space.actions_metadata
+                (only for non-tokenized decoders)
+        """
+        if self.supports_tokenized_actions:
+            # Use placeholder dimension - set_tokenizer() will set real dimension
+            for head in self.action_heads.values():
+                head.set_output_dim(1)
+            return
+        for key, head in self.action_heads.items():
+            if key not in self.action_space.actions_metadata:
+                raise ValueError(
+                    f"Action head '{key}' not found in action_space.actions_metadata. "
+                    f"Available keys: {list(self.action_space.actions_metadata.keys())}"
+                )
+            dim = self.action_space.actions_metadata[key].prediction_dimension
+            head.set_output_dim(dim)
+
 
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
         """Set tokenizer for discrete action tokenization.
@@ -134,6 +163,7 @@ class ActionDecoder(nn.Module, ABC):
         if tokenizer is None:
             raise ValueError("Tokenizer must be provided for tokenized action decoders.")
         self.tokenizer = tokenizer.action_tokenizer
+
 
     @abstractmethod
     def forward(self,

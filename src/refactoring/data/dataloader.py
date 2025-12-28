@@ -44,7 +44,7 @@ def get_dataloaders(
     validate_dataloader_config(dataloader_config)
     validate_tokenizer_config(tokenization_config)
 
-    schema.zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/libero.zarr"
+    #schema.zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/bowelretraction.zarr"
 
     logging.info(f"Using dataset schema: {schema.__class__.__name__}")
     _ensure_zarr_exists(schema=schema)
@@ -89,11 +89,8 @@ def get_dataloaders(
     val_dataset.set_tokenizer(tokenizer)
 
     if action_space.denoise_actions:
-        val_dataset.action_processor.action_denoising_threshold = (
-            train_dataset.action_processor.action_denoising_threshold
-        )
-        val_dataset.action_processor.orientation_denoising_threshold = (
-            train_dataset.action_processor.orientation_denoising_threshold
+        val_dataset.action_processor.denoising_thresholds = (
+            train_dataset.action_processor.denoising_thresholds.copy()
         )
         val_dataset.action_processor._denoising_thresholds_computed = True
 
@@ -159,7 +156,7 @@ def _collect_dataset_paths(dataset_folders: list[str], episode_filename: str) ->
             d for d in root_path.iterdir() if d.is_dir() and (d / episode_filename).exists()
         ]
         datasets_paths.extend([str(d / episode_filename) for d in episode_dirs])
-    datasets_paths = datasets_paths[:4]
+    #datasets_paths = datasets_paths[:4]
     return datasets_paths
 
 
@@ -171,7 +168,7 @@ def _ensure_zarr_exists(schema: DatasetSchema) -> None:
     - CsvDatasetSchema: Collects episode CSV paths from dataset_folders
     """
     zarr_path = schema.zarr_path
-    zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/libero.zarr"
+    #zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/bowelretraction.zarr"
     need_create = True
     required_keys = schema.get_required_zarr_keys()
 

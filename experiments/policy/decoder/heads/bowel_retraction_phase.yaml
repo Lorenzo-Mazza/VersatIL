@@ -1,0 +1,47 @@
+${obs_key:PHASE_LABEL}:
+  _target_: refactoring.models.decoding.action_heads.ActionHead
+  input_dim: ${policy.decoder.embedding_dimension}
+  blocks:
+    - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
+      input_dim: ${policy.decoder.embedding_dimension}
+      hidden_dims:
+        - 256
+      output_dim: null
+      dropout: ${policy.decoder.dropout_rate}
+      activation: ${activation_function:SILU}
+
+${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}:
+  _target_: refactoring.models.decoding.action_heads.MoEHead
+  device: ${experiment.device}
+  base_expert:
+    _target_: refactoring.models.decoding.action_heads.ActionHead
+    input_dim: ${policy.decoder.embedding_dimension}
+    blocks:
+      - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
+        input_dim: ${policy.decoder.embedding_dimension}
+        hidden_dims:
+          - 256
+        output_dim: null
+        dropout: ${policy.decoder.dropout_rate}
+        activation: ${activation_function:SILU}
+  temperature: 10.0
+  learnable_temperature: true
+  routing_type: soft
+
+${proprio_key:GRIPPER_STATE}:
+  _target_: refactoring.models.decoding.action_heads.MoEHead
+  device: ${experiment.device}
+  base_expert:
+    _target_: refactoring.models.decoding.action_heads.ActionHead
+    input_dim: ${policy.decoder.embedding_dimension}
+    blocks:
+      - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
+        input_dim: ${policy.decoder.embedding_dimension}
+        hidden_dims:
+          - 128
+        output_dim: null
+        dropout: ${policy.decoder.dropout_rate}
+        activation: ${activation_function:SILU}
+  temperature: 10.0
+  learnable_temperature: true
+  routing_type: soft

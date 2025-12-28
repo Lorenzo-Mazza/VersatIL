@@ -1,5 +1,6 @@
 defaults:
   - regression@loss_modules.regression_loss
+  - gripper@loss_modules.gripper_loss
   - mmd@loss_modules.maximum_mean_discrepancy
   - _self_
 
@@ -8,12 +9,16 @@ loss_modules:
     regression_loss:
       _target_: refactoring.metrics.RegressionLoss
       action_keys:
-        - ${action_key:POSITION}
-        - ${action_key:ORIENTATION}
-        - ${action_key:GRIPPER}
+        - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
       mse_weight: 0.0
       l1_weight: 1.0
       huber_weight: 0.0
+
+    gripper_loss:
+      _target_: refactoring.metrics.GripperLoss
+      key: ${proprio_key:GRIPPER_STATE}
+      actions_metadata: ${task.action_space.actions_metadata}
+      bce_weight: 0.05
 
     maximum_mean_discrepancy:
             weight: 50.0
@@ -21,4 +26,4 @@ loss_modules:
     trajectory_length:
         _target_: refactoring.metrics.TrajectoryLengthLoss
         weight: 0.0
-        action_key: ${proprio_key:EE_POS_ACTION}
+        action_key: ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}

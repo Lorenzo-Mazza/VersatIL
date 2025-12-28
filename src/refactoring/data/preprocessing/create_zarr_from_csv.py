@@ -35,17 +35,25 @@ def create_replay_buffer(
     cumulative_len = 0
     compressor = BloscCodec(cname='lz4', clevel=5, shuffle=BloscShuffle.noshuffle)
 
-    if schema.metadata.image_width is None or schema.metadata.image_height is None:
-        # Don't resize , use albumentations no-op
+    cameras = schema.metadata.cameras
+    #TODO: this assumes all cameras have the same resolution, which may not be true
+    if cameras:
+        first_cam = next(iter(cameras.values()))
+        image_width = first_cam.image_width
+        image_height = first_cam.image_height
+        if image_width is None or image_height is None:
+            resizer = A.NoOp()
+            depth_resizer = A.NoOp()
+        else:
+            resizer = A.Resize(height=image_height, width=image_width)
+            depth_resizer = A.Resize(
+                height=image_height,
+                width=image_width,
+                interpolation=cv2.INTER_NEAREST
+            )
+    else:
         resizer = A.NoOp()
         depth_resizer = A.NoOp()
-    else:
-        resizer = A.Resize(height=schema.metadata.image_height, width=schema.metadata.image_width)
-        depth_resizer = A.Resize(
-            height=schema.metadata.image_height,
-            width=schema.metadata.image_width,
-            interpolation=cv2.INTER_NEAREST
-        )
 
     # Create empty zarr arrays based on schema
     _create_zarr_arrays(data_group=data_group, schema=schema, compressor=compressor)

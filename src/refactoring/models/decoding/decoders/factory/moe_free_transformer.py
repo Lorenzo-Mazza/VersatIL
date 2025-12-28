@@ -97,13 +97,11 @@ class MoEFreeTransformer(FreeTransformerDecoder):
             is_inference=False,
             return_latent_embeddings=True,
         )
-        latent_action_embeddings = latent_embeddings[:, prefix_len:, :]  # (B, action_len, emb_dim)
         action_outputs = decoder_output[:, prefix_len:, :]  # (B, action_len, emb_dim)
-        latent_weights = self.expert_gating_projection(latent_action_embeddings) # (B, action_len, num_experts)
-        routing_weights = torch.softmax(latent_weights, dim=-1) # (B, action_len, num_experts)
+        gating_logits = self.expert_gating_projection(latent_embeddings)  # Global latent (B, 1, num_experts)
         logits_dict = self.moe_action_head(
             features=action_outputs,
-            routing_weights=routing_weights
+            gating_feature=gating_logits 
         )
         logits = logits_dict[ACTION_KEY]
         expert_usage = logits_dict[ROUTING_WEIGHT]
@@ -111,7 +109,7 @@ class MoEFreeTransformer(FreeTransformerDecoder):
             ACTION_LOGITS_KEY: logits,
             BINARY_LOGITS_KEY: bit_logits,
             LATENT_CODES: latent_codes,
-            f"{ACTION_LOGITS_KEY}_{ROUTING_WEIGHT}": expert_usage,
+            ROUTING_WEIGHT: expert_usage,
         }
 
 
@@ -147,12 +145,10 @@ class MoEFreeTransformer(FreeTransformerDecoder):
                     is_inference=True
                 )
             last_output = decoder_output[:, -1:, :]  # (B, 1, embedding_dimension)
-            latent_action_embeddings = latent_embeddings[:, -1:, :]  # (B, 1, emb_dim)
-            latent_weights = self.expert_gating_projection(latent_action_embeddings)  # (B, 1, num_experts)
-            routing_weights = torch.softmax(latent_weights, dim=-1) # (B, 1, num_experts)
+            gating_logits = self.expert_gating_projection(latent_embeddings)  # (B, 1, num_experts)
             logits_dict = self.moe_action_head(
                 features=last_output,
-                gating_feature=routing_weights
+                gating_feature=gating_logits  
             )
             logits = logits_dict[ACTION_KEY] #(B, 1, vocab_size)
             logits_scaled = logits / self.temperature.clamp(min=0.01)

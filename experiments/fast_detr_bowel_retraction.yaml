@@ -1,19 +1,17 @@
-_target_: refactoring.configs.main.MainConfig
 
 defaults:
-  - task: base
-  - policy: base
-  - experiment: bowel_retraction_fast_decoder
+  - experiment: bowel_retraction_act
   - task/dataset_schema: bowel_retraction_v2
   - task/dataloader: fast_tokenized
   - task/action_space: deltas_cf_pos_gripper
-  - task/observation_space: stereo_rgb_proprio
+  - task/observation_space: stereo_rgb
   - training: gpt_decoder_default
   - policy/encoding_pipeline: stereo_rgb
-  - policy/decoder: fast_gpt_decoder_default
+  - policy/decoder: fast_detr_decoder_default
   - policy/algorithm: behavioral_cloning
-  - policy/loss: fast_decoder_default
+  - policy/loss: tokenCE
   - inference: act_default
+  - override task/dataloader/tokenization: action_fast
   - _self_
 
 task:
@@ -27,8 +25,4 @@ policy:
   prediction_horizon: ${task.prediction_horizon}
   observation_horizon: ${task.observation_horizon}
   device: ${experiment.device}
-  validate_loss_keys: false
-
-# Override specific parameters from defaults/command line if needed
-# For example, to use different batch size:
-# task.dataloader.batch_size: 64
+  validate_loss_keys: true

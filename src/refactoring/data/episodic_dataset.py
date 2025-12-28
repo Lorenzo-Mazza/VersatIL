@@ -10,7 +10,7 @@ from refactoring.data.task import ObservationSpace, ActionSpace
 from refactoring.data.action_processor import ActionProcessor
 from refactoring.data.augmentation.augmentation_pipeline import AugmentationPipeline
 from refactoring.data.constants import (
-    GripperType, ObsKey,
+    GripperType, ProprioKey,
 )
 from refactoring.configs.data.tokenizer import TokenizationConfig
 from refactoring.data.normalization.normalizer import LinearNormalizer
@@ -316,7 +316,7 @@ class EpisodicDataset(data.Dataset):
                 f"got gripper_type={self.action_space.gripper_type}"
             )
 
-        gripper_actions = self.replay_buffer[ObsKey.GRIPPER_STATE.value][:]
+        gripper_actions = self.replay_buffer[ProprioKey.GRIPPER_STATE.value][:]
         gripper_actions = gripper_actions.reshape(-1)
         number_of_positive_actions = gripper_actions.sum()
         number_of_negative_actions = len(gripper_actions) - number_of_positive_actions

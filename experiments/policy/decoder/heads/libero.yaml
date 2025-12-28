@@ -1,0 +1,36 @@
+${proprio_key:EE_POS_ACTION}:
+  _target_: refactoring.models.decoding.action_heads.ActionHead
+  input_dim: ${policy.decoder.embedding_dimension}
+  blocks:
+    - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
+      input_dim: ${policy.decoder.embedding_dimension}
+      hidden_dims:
+        - 256
+        - 128
+      output_dim: null
+      activation: ${activation_function:SILU}
+      dropout: ${policy.decoder.dropout_rate}
+${proprio_key:EE_ORI_ACTION}:
+  _target_: refactoring.models.decoding.action_heads.ActionHead
+  input_dim: ${policy.decoder.embedding_dimension}
+  blocks:
+    - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
+      input_dim: ${policy.decoder.embedding_dimension}
+      hidden_dims:
+        - 256
+        - 128
+      output_dim: null
+      activation: ${activation_function:SILU}
+      dropout: ${policy.decoder.dropout_rate}
+${proprio_key:GRIPPER_STATE_ACTION}:
+  _target_: refactoring.models.decoding.action_heads.ActionHead
+  input_dim: ${policy.decoder.embedding_dimension}
+  blocks:
+    - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
+      input_dim: ${policy.decoder.embedding_dimension}
+      hidden_dims:
+        - 256
+        - 128
+      output_dim: null
+      activation: ${activation_function:SILU}
+      dropout: ${policy.decoder.dropout_rate}

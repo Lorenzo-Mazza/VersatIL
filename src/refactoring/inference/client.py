@@ -1,11 +1,10 @@
-# mypy: ignore-errors
-"""Inference client for real-time model deployment.
+"""Inference client for real-time model deployment on the TSO robot testbed.
 
-This module provides the InferenceClient class that interfaces with the
+This module provides the TSOPolicyClient class that interfaces with the
 imitation_learning_toolkit's AbstractModelClient for real-time robot control.
 
 Note:
-    The Inference Client uses as convention delta actions for position and orientation.
+    The TSO Policy Server uses as convention delta actions for position and orientation.
     This means that regardless of how the policy was trained (predicting absolute or delta actions),
     the client will convert absolute predictions to deltas before sending commands to the Policy Server.
 """
@@ -27,24 +26,23 @@ from imitation_learning_toolkit.sockets.model_client import AbstractModelClient,
 from omegaconf import OmegaConf
 
 from refactoring.configs import MainConfig
-from refactoring.data.action_processor import ActionProcessor
 from refactoring.data.constants import (
+    ActionComputationMethod,
     BinaryGripperRange,
-    Cameras, GripperType,
+    Cameras,
+    CoordinateSystem,
+    GripperType,
+    ObsKey,
+    ProprioKey,
 )
+from refactoring.data.metadata import OnTheFlyActionMetadata
+from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.tokenization.tokenizer import Tokenizer
 from refactoring.training.lightning_policy import LightningPolicy
 
-PROPRIO_OBS_ROBOT_FRAME_KEY = "proprio_robot_frame"
-PROPRIO_OBS_CAMERA_FRAME_KEY = "proprio_camera_frame"
-LANGUAGE_KEY = "language_instruction"
-POSITION_ACTION_KEY = "position_action"
-ORIENTATION_ACTION_KEY = "orientation_action"
-GRIPPER_ACTION_KEY = "gripper_action"
 
-
-class InferenceClient(AbstractModelClient):
-    """Client for real-time inference with trained policies."""
+class TSOPolicyClient(AbstractModelClient):
+    """Client for real-time inference with trained policies on the TSO robot testbed."""
 
     def __init__(
         self,
@@ -59,7 +57,6 @@ class InferenceClient(AbstractModelClient):
         update_rate_hz: float | None = None,
         timing_log: bool = False,
         precision: str = PrecisionType.BF16_MIXED.value,
-        **kwargs,
     ):
         """Initialize inference client.
 
@@ -75,7 +72,6 @@ class InferenceClient(AbstractModelClient):
             update_rate_hz: Update frequency in Hz (overrides checkpoint config)
             timing_log: Whether to log timing information
             precision: Precision type for model inference
-            **kwargs: Additional arguments passed to AbstractModelClient
         """
         self.checkpoint_path = checkpoint_path
         self.checkpoint_name = checkpoint_name
@@ -93,37 +89,36 @@ class InferenceClient(AbstractModelClient):
         self.prediction_horizon = self.policy.prediction_horizon
         self.image_height = self.config.task.dataloader.image_height
         self.image_width = self.config.task.dataloader.image_width
-        self.action_dim = self.policy.action_space.get_total_action_dim()
-        self.use_depth = Cameras.DEPTH.value in self.policy.observation_space.camera_keys
-
-        obs_space = self.policy.observation_space
-        action_space = self.policy.action_space
+        obs_space: ObservationSpace = self.policy.observation_space
+        action_space: ActionSpace = self.policy.action_space
+        self.action_dim = action_space.get_total_action_dim()
+        self._setup_position_action(action_space)
+        self._setup_orientation_action(action_space)
+        self._setup_gripper_action(action_space)
+        self._setup_observations(obs_space)
+        self._setup_denoising_thresholds()
         if update_rate_hz is None:
             update_rate_hz = 10.0
-        
+
         super().__init__(
             model_server_address=model_server_address,
             model_server_port=model_server_port,
             observation_buffer_size=self.observation_horizon,
             request_depth=self.use_depth,
             request_rectified_images=True,
-            request_gripper_state=action_space.has_gripper,
-            request_language_instruction=obs_space.use_language,
-            predicts_in_camera_frame=action_space.predict_in_camera_frame,
-            predicts_delta=action_space.deltas_as_actions,
-            obs_robot_frame=obs_space.use_proprio_base_frame,
-            obs_camera_frame=obs_space.use_proprio_camera_frame,
+            request_gripper_state=self.has_gripper,
+            request_language_instruction=self.use_language,
+            predicts_in_camera_frame=(self.position_frame == CoordinateSystem.CAMERA.value),
+            predicts_delta=self.predicts_delta,
+            obs_robot_frame=self.use_proprio_robot_frame,
+            obs_camera_frame=self.use_proprio_camera_frame,
             device=str(device),
             update_rate_hz=update_rate_hz,
             enable_logging=False,
         )
-
-        # TODO: integrate the use of action processor to compute orientation actions, currently unused
-        self.action_processor = ActionProcessor(self.policy.action_space)
         additional_targets = {"right_image": "image"}
         if self.use_depth:
             additional_targets["depth"] = "mask"
-
         self.image_transform = A.Compose(
             [
                 A.Resize(height=self.image_height, width=self.image_width),
@@ -132,21 +127,11 @@ class InferenceClient(AbstractModelClient):
             additional_targets=additional_targets,
         )
         self.max_timesteps = 10000
-        self.has_position = action_space.has_position
-        self.has_orientation = action_space.has_orientation
-        self.has_gripper = action_space.has_gripper
-        self.position_dim = action_space.position_dim if self.has_position else 0
-        self.orientation_dim = action_space.orientation_dim if self.has_orientation else 0
-        self.gripper_type = action_space.gripper_type if action_space.has_gripper else None
-        self.binary_gripper_range = action_space.binary_gripper_range if action_space.has_gripper else None
-        if self.gripper_type is not None and self.gripper_type==GripperType.BINARY.value and self.binary_gripper_range is None:
-            logging.warning("Gripper binary range is not set. Assuming {0,1}.")
-            self.binary_gripper_range = BinaryGripperRange.ZERO_ONE.value
 
-        self.gripper_dim = action_space.gripper_dim if action_space.has_gripper else 0
-        if not self.has_position:
-            raise ValueError("InferenceClient currently requires position actions.")
-
+        if self.has_orientation and self.orientation_dim != 1:
+            raise NotImplementedError(
+                "Only 1D orientation (roll) is currently supported for TSO InferenceClient"
+            )
         self.all_time_position_actions = torch.zeros(
             [self.max_timesteps, self.max_timesteps + self.prediction_horizon, self.position_dim]
         ).to(self.device)
@@ -155,16 +140,11 @@ class InferenceClient(AbstractModelClient):
         ).to(self.device)
 
         if self.has_orientation:
-            # TODO: Extend to other orientation representations in the future.
-            if self.orientation_dim != 1 or not self.has_position:
-                raise NotImplementedError(
-                    "Currently only 1D orientation (roll) with position is supported for the inference policy client."
-                )
-
             self.all_time_orientations = torch.zeros(
                 [self.max_timesteps, self.max_timesteps + self.prediction_horizon, self.orientation_dim]
             ).to(self.device)
-        if self.policy.action_space.has_gripper:
+
+        if self.has_gripper:
             self.all_time_grippers = torch.zeros(
                 [self.max_timesteps, self.max_timesteps + self.prediction_horizon, self.gripper_dim]
             ).to(self.device)
@@ -173,6 +153,93 @@ class InferenceClient(AbstractModelClient):
         self.current_all_position_actions = None
         self.current_all_orientations = None
         self.current_all_grippers = None
+
+
+    def _setup_position_action(self, action_space: ActionSpace) -> None:
+        """Setup position action key and metadata from ActionSpace."""
+        position_camera_key = ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value
+        position_robot_key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
+        if position_camera_key in action_space.actions_metadata:
+            self.position_key = position_camera_key
+        elif position_robot_key in action_space.actions_metadata:
+            self.position_key = position_robot_key
+        else:
+            raise ValueError(
+                "TSO InferenceClient requires position actions. "
+                f"Expected key '{ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value}' or "
+                f"'{ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value}' in action_space.actions_metadata."
+                f" Got keys: {list(action_space.actions_metadata.keys())}"
+            )
+        self.has_position = True
+        pos_meta = action_space.actions_metadata[self.position_key]
+        if isinstance(pos_meta, OnTheFlyActionMetadata):
+            self.predicts_delta = pos_meta.computation_method == ActionComputationMethod.DELTA.value
+            self.position_frame = pos_meta.source_metadata.frame
+            self.position_dim = pos_meta.prediction_dimension
+        else:
+            raise ValueError("TSO InferenceClient only supports OnTheFlyActionMetadata for position actions.")
+
+
+    def _setup_orientation_action(self, action_space: ActionSpace) -> None:
+        """Setup orientation action key and metadata from ActionSpace."""
+        orientation_camera_key = ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_ORI.value
+        orientation_robot_key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_ORI.value
+        if orientation_camera_key in action_space.actions_metadata:
+            self.orientation_key = orientation_camera_key
+            self.has_orientation = True
+        elif orientation_robot_key in action_space.actions_metadata:
+            self.orientation_key = orientation_robot_key
+            self.has_orientation = True
+        else:
+            self.orientation_key = None
+            self.has_orientation = False
+            self.orientation_dim = 0
+            self.orientation_frame = None
+            self.orientation_representation = None
+            return
+        ori_meta = action_space.actions_metadata[self.orientation_key]
+        if isinstance(ori_meta, OnTheFlyActionMetadata):
+            self.orientation_representation = ori_meta.source_metadata.orientation_representation
+            self.orientation_frame = ori_meta.source_metadata.frame
+        else:
+            self.orientation_representation = ori_meta.orientation_representation
+            self.orientation_frame = ori_meta.frame
+        self.orientation_dim = ori_meta.prediction_dimension
+
+
+    def _setup_gripper_action(self, action_space: ActionSpace) -> None:
+        """Setup gripper action key and metadata from ActionSpace."""
+        gripper_key = ProprioKey.GRIPPER_STATE.value
+        if gripper_key in action_space.actions_metadata:
+            self.gripper_key = gripper_key
+            self.has_gripper = True
+            gripper_meta = action_space.actions_metadata[gripper_key]
+            if isinstance(gripper_meta, OnTheFlyActionMetadata):
+                self.gripper_type = gripper_meta.source_metadata.gripper_type
+                self.binary_gripper_range = gripper_meta.source_metadata.binary_gripper_range
+            else:
+                self.gripper_type = gripper_meta.gripper_type
+                self.binary_gripper_range = gripper_meta.binary_gripper_range
+            self.gripper_dim = gripper_meta.prediction_dimension
+        else:
+            self.gripper_key = None
+            self.has_gripper = False
+            self.gripper_type = None
+            self.binary_gripper_range = None
+            self.gripper_dim = 0
+        if self.gripper_type == GripperType.BINARY.value and self.binary_gripper_range is None:
+            logging.warning("Gripper binary range is not set. Assuming {0,1}.")
+            self.binary_gripper_range = BinaryGripperRange.ZERO_ONE.value
+
+
+    def _setup_observations(self, obs_space: ObservationSpace) -> None:
+        """Setup observation keys from ObservationSpace metadata."""
+        position_camera_key = ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value
+        position_robot_key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
+        self.use_depth = Cameras.DEPTH.value in obs_space.cameras
+        self.use_language = ObsKey.LANGUAGE.value in obs_space.observations_metadata
+        self.use_proprio_camera_frame = position_camera_key in obs_space.observations_metadata
+        self.use_proprio_robot_frame = position_robot_key in obs_space.observations_metadata
 
 
     def _load_model(self) -> None:
@@ -211,7 +278,7 @@ class InferenceClient(AbstractModelClient):
         lightning_module = LightningPolicy(policy=self.policy, training_config=self.config.training)
         lightning_module.load_state_dict(checkpoint['state_dict'], strict=False)
 
-        if Cameras.DEPTH.value in self.policy.observation_space.camera_keys:
+        if Cameras.DEPTH.value in self.policy.observation_space.cameras:
             depth_stats = self.policy.normalizer[Cameras.DEPTH.value].params_dict['input_stats']
             self.depth_min = float(depth_stats['min'].item())
             self.depth_max = float(depth_stats['max'].item())
@@ -219,29 +286,27 @@ class InferenceClient(AbstractModelClient):
         else:
             self.depth_min = None
             self.depth_max = None
+        logging.info("Model and config successfully loaded.")
 
-        action_space = self.policy.action_space
-        if action_space.has_position:
-            if hasattr(self.policy, 'position_delta_threshold'):
-                self.position_delta_threshold = float(self.policy.position_delta_threshold.item())
-                logging.info(f"Position delta denoising threshold: {self.position_delta_threshold:.6f}")
-            else:
-                self.position_delta_threshold = 0.0
-                logging.warning("Policy missing position_delta_threshold, denoising disabled for position")
+
+    def _setup_denoising_thresholds(self) -> None:
+        """Setup denoising thresholds from policy.denoising_thresholds (DictOfTensorMixin)."""
+        denoising_thresholds = self.policy.denoising_thresholds.params_dict
+        if self.position_key in denoising_thresholds:
+            self.position_delta_threshold = float(denoising_thresholds[self.position_key].item())
+            logging.info(f"Position delta denoising threshold [{self.position_key}]: {self.position_delta_threshold:.6f}")
         else:
             self.position_delta_threshold = 0.0
+            logging.info("No position denoising threshold found, denoising disabled for position")
 
-        if action_space.has_orientation:
-            if hasattr(self.policy, 'orientation_delta_threshold'):
-                self.orientation_delta_threshold = float(self.policy.orientation_delta_threshold.item())
-                logging.info(f"Orientation delta denoising threshold: {self.orientation_delta_threshold:.6f}")
-            else:
-                self.orientation_delta_threshold = 0.0
-                logging.warning("Policy missing orientation_delta_threshold, denoising disabled for orientation")
+        if self.orientation_key and self.orientation_key in denoising_thresholds:
+            self.orientation_delta_threshold = float(denoising_thresholds[self.orientation_key].item())
+            logging.info(f"Orientation delta denoising threshold [{self.orientation_key}]: {self.orientation_delta_threshold:.6f}")
         else:
             self.orientation_delta_threshold = 0.0
+            if self.has_orientation:
+                logging.info("No orientation denoising threshold found, denoising disabled for orientation")
 
-        logging.info("Model and config successfully loaded.")
 
     def get_actions_from_model(self) -> list[Action]:
         """Compute next actions using the trained policy model.
@@ -316,20 +381,22 @@ class InferenceClient(AbstractModelClient):
         }
 
         if state_dim > 0:
+            position_robot_key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
+            position_camera_key = ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value
             if self.obs_robot_frame and self.obs_camera_frame:
-                obs_dict[PROPRIO_OBS_ROBOT_FRAME_KEY] = qpos_tensor[:, :, :3]
-                obs_dict[PROPRIO_OBS_CAMERA_FRAME_KEY] = qpos_tensor[:, :, 3:]
+                obs_dict[position_robot_key] = qpos_tensor[:, :, :3]
+                obs_dict[position_camera_key] = qpos_tensor[:, :, 3:]
             elif self.obs_robot_frame:
-                obs_dict[PROPRIO_OBS_ROBOT_FRAME_KEY] = qpos_tensor
+                obs_dict[position_robot_key] = qpos_tensor
             elif self.obs_camera_frame:
-                obs_dict[PROPRIO_OBS_CAMERA_FRAME_KEY] = qpos_tensor
+                obs_dict[position_camera_key] = qpos_tensor
 
         if self.request_depth:
             obs_dict[Cameras.DEPTH.value] = depth_imgs
 
         if self.request_language_instruction:
             language_instruction = self.language_instruction_buffer[-self.observation_buffer_size :]
-            obs_dict[LANGUAGE_KEY] = language_instruction
+            obs_dict[ObsKey.LANGUAGE.value] = language_instruction
 
 
         if self.timing_log:
@@ -356,15 +423,15 @@ class InferenceClient(AbstractModelClient):
                 action_dict = self.policy.predict_action(obs_dict=obs_dict)
 
         if self.has_position:
-            self.current_all_position_actions = action_dict[POSITION_ACTION_KEY]
+            self.current_all_position_actions = action_dict[self.position_key]
         else:
             self.current_all_position_actions = None
         if self.has_orientation:
-            self.current_all_orientations = action_dict[ORIENTATION_ACTION_KEY]
+            self.current_all_orientations = action_dict[self.orientation_key]
         else:
             self.current_all_orientations = None
-        if self.policy.action_space.has_gripper:
-            self.current_all_grippers = action_dict[GRIPPER_ACTION_KEY]
+        if self.has_gripper:
+            self.current_all_grippers = action_dict[self.gripper_key]
         else:
             self.current_all_grippers = None
 
@@ -379,9 +446,9 @@ class InferenceClient(AbstractModelClient):
 
         if self.temporal_agg:
             averaged_actions = self.get_exponential_averaged_actions()
-            raw_position = averaged_actions[POSITION_ACTION_KEY]
-            raw_orientation = averaged_actions.get(ORIENTATION_ACTION_KEY, None)
-            raw_gripper = averaged_actions.get(GRIPPER_ACTION_KEY, None)
+            raw_position = averaged_actions[self.position_key]
+            raw_orientation = averaged_actions.get(self.orientation_key, None) if self.has_orientation else None
+            raw_gripper = averaged_actions.get(self.gripper_key, None) if self.has_gripper else None
             robot_action, gripper_action = self._postprocess_action_tensors(
                 raw_position_tensor=raw_position, raw_orientation_tensor=raw_orientation, raw_gripper_tensor=raw_gripper,
                 current_robot_position=current_robot_position, current_roll=current_roll
@@ -447,7 +514,7 @@ class InferenceClient(AbstractModelClient):
         exp_weights = exp_weights / exp_weights.sum()
         exp_weights_t = torch.from_numpy(exp_weights).to(self.device).float().unsqueeze(dim=1)
         averaged_pos = (actions_for_curr_step_pos * exp_weights_t).sum(dim=0)
-        averaged[POSITION_ACTION_KEY] = averaged_pos
+        averaged[self.position_key] = averaged_pos
 
         if self.has_orientation:
             self.all_time_orientations[[self.timestep], self.timestep: self.timestep + self.prediction_horizon
@@ -460,9 +527,9 @@ class InferenceClient(AbstractModelClient):
             exp_weights = exp_weights / exp_weights.sum()
             exp_weights_t = torch.from_numpy(exp_weights).to(self.device).float().unsqueeze(dim=1)
             averaged_ori = (actions_for_curr_step_ori * exp_weights_t).sum(dim=0)
-            averaged[ORIENTATION_ACTION_KEY] = averaged_ori
+            averaged[self.orientation_key] = averaged_ori
 
-        if self.policy.action_space.has_gripper:
+        if self.has_gripper:
             self.all_time_grippers[
             [self.timestep], self.timestep: self.timestep + self.prediction_horizon
             ] = self.current_all_grippers.float()
@@ -474,7 +541,7 @@ class InferenceClient(AbstractModelClient):
             exp_weights = exp_weights / exp_weights.sum()
             exp_weights_t = torch.from_numpy(exp_weights).to(self.device).float().unsqueeze(dim=1)
             averaged_grip = (actions_for_curr_step_grip * exp_weights_t).sum(dim=0)
-            averaged[GRIPPER_ACTION_KEY] = averaged_grip
+            averaged[self.gripper_key] = averaged_grip
 
         return averaged
 
@@ -516,7 +583,6 @@ class InferenceClient(AbstractModelClient):
         if self.has_orientation:
             assert raw_orientation_tensor is not None
             orientation_action = raw_orientation_tensor.cpu().detach().float().numpy()
-            # TODO: Here we only handle 3D position + roll (1D orientation). Extend for other representations in the future.
             assert self.orientation_dim == 1
             assert self.has_position
             if not self.predicts_delta:

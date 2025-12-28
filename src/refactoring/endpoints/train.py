@@ -6,12 +6,8 @@ from pathlib import Path
 
 import hydra
 from omegaconf import OmegaConf, DictConfig
-import refactoring.configs
-from refactoring.configs import MainConfig
 from refactoring.configs.validator import validate_config
 from refactoring.workspace import Workspace
-print(OmegaConf.has_resolver("cameras"))  # Should be True
-print(OmegaConf.has_resolver("obs_key"))  # Should be True
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,14 +30,11 @@ def main(config: DictConfig) -> None:
             "No configuration specified! You must provide --config-name.\n"
             "\nExample: python -m src.refactoring.endpoints.train --config-name act_bowel_retraction"
         )
-
     logger.info("=" * 80)
     logger.info("Training Configuration")
     logger.info("=" * 80)
     logger.info(OmegaConf.to_yaml(config))
     logger.info("=" * 80)
-
-
     # Handle distributed training environment variables
     # These are set by SLURM or other job schedulers
     if "WORLD_SIZE" in os.environ:
@@ -58,9 +51,7 @@ def main(config: DictConfig) -> None:
             workspace.load_checkpoint(str(checkpoint_path))
         else:
             logger.warning(f"Checkpoint not found: {checkpoint_path}. Starting from scratch.")
-
     workspace.run()
-
     logger.info("Training completed successfully!")
 
 

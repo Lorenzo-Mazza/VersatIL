@@ -5,13 +5,13 @@ Builds the final training/validation samples by:
 - Adding proprioceptive data
 - Adding actions
 - Computing padding masks
-- Tokenizing observations and actions (if configured)
+- Normalizing (and optionally tokenizing) observations and actions
 """
 
 import numpy as np
 import torch
 
-from refactoring.data.metadata import ObservationMetadata, ActionMetadata, CameraMetadata
+from refactoring.data.metadata import ObservationMetadata, ActionMetadata
 from refactoring.data.task import ObservationSpace, ActionSpace
 from refactoring.data.action_processor import ActionProcessor
 from refactoring.data.augmentation.augmentation_pipeline import AugmentationPipeline
