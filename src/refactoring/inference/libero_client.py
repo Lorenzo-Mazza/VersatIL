@@ -413,9 +413,9 @@ class LiberoClient(SocketClient):
         self.current_all_grippers = action_dict[self.gripper_key]
 
         if self.enable_logging:
-            logging.info(f"Model output - pos: {self.current_all_position_actions[0, 0].cpu().numpy()}, "
-                        f"ori: {self.current_all_orientations[0, 0].cpu().numpy()}, "
-                        f"grip: {self.current_all_grippers[0, 0].cpu().numpy()}")
+            logging.info(f"Model output - pos: {self.current_all_position_actions[0, 0].float().cpu().numpy()}, "
+                        f"ori: {self.current_all_orientations[0, 0].float().cpu().numpy()}, "
+                        f"grip: {self.current_all_grippers[0, 0].float().cpu().numpy()}")
 
         if self.temporal_agg:
             averaged_actions = self._get_exponential_averaged_actions()
