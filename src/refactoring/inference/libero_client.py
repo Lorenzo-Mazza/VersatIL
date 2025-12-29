@@ -489,23 +489,22 @@ class LiberoClient(SocketClient):
         gripper: torch.Tensor,
     ) -> tuple[np.ndarray, bool]:
         """Construct LIBERO 7D action from tensors."""
-        pos_action = position.cpu().detach().float().numpy().flatten()[:3]
-        ori_action = orientation.cpu().detach().float().numpy().flatten()[:3]
-        grip_value = gripper.cpu().detach().float().numpy().flatten()[0]
+        position_action = position.cpu().detach().float().numpy().flatten()[:3]
+        orientation_action = orientation.cpu().detach().float().numpy().flatten()[:3]
+        gripper_raw_output = gripper.cpu().detach().float().numpy().flatten()[0]
 
         if self.gripper_type == GripperType.BINARY.value:
-            if self.binary_gripper_range == BinaryGripperRange.ZERO_ONE.value:
-                grip_libero = 2.0 * grip_value - 1.0
-                gripper_bool = grip_value > 0.5
-            else:
-                grip_libero = grip_value
-                gripper_bool = grip_value > 0.0
+            # Apply sigmoid to convert logits to probability in range [0, 1]
+            gripper_probability = 1.0 / (1.0 + np.exp(-gripper_raw_output))
+            gripper_is_closed = gripper_probability > 0.5
+            # Convert probability [0, 1] to LIBERO range [-1, 1] where -1 = open, +1 = closed
+            gripper_action_for_libero = 2.0 * gripper_probability - 1.0
         else:
-            grip_libero = grip_value
-            gripper_bool = grip_value > 0.0
+            gripper_action_for_libero = gripper_raw_output
+            gripper_is_closed = gripper_raw_output > 0.0
 
-        robot_action = np.concatenate([pos_action, ori_action, [grip_libero]])
-        return robot_action, gripper_bool
+        robot_action = np.concatenate([position_action, orientation_action, [gripper_action_for_libero]])
+        return robot_action, gripper_is_closed
 
 
     def update_loop(self) -> None:
