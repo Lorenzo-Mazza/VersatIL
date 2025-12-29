@@ -64,8 +64,8 @@ def create_replay_buffer_from_hdf5(schema: Hdf5DatasetSchema) -> None:
 
                     cumulative_len += len(next(iter(episode_data.values())))
                     episode_ends.append(cumulative_len)
-                    break
-            break
+                    #break
+            #break
 
     meta_group.create_array(
         'episode_ends',
