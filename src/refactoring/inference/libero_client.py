@@ -306,7 +306,6 @@ class LiberoClient(SocketClient):
         Returns:
             Tuple of (observation, done, success)
         """
-        print("sending request")
         response = self.send_request(route_name=LiberoRoutes.GET_OBSERVATION.value, dict_data={
             LiberoRequestKeys.REQUEST_AGENTVIEW.value: self.use_agentview,
             LiberoRequestKeys.REQUEST_EYE_IN_HAND.value: self.use_eye_in_hand,
@@ -317,7 +316,8 @@ class LiberoClient(SocketClient):
             LiberoRequestKeys.COMPRESSION_TYPE.value: self.compression_type,
         })
         if self.enable_logging:
-            logging.info(f"Server response: {response}")
+            # Log useful info only, not base64 images
+            logging.info(f"Obs received - ee_pos: {response.get('ee_pos')}, ee_ori: {response.get('ee_ori')}, gripper: {response.get('gripper_states')}")
         if LiberoResponseKeys.STATUS.value not in response:
             raise RuntimeError("Server response missing 'status' key")
         if response[LiberoResponseKeys.STATUS.value] != LiberoStatus.FINISHED.value:
@@ -326,9 +326,13 @@ class LiberoClient(SocketClient):
         agentview_rgb = None
         if LiberoResponseKeys.AGENTVIEW_RGB.value in response:
             agentview_rgb = decompress_array(response[LiberoResponseKeys.AGENTVIEW_RGB.value], self.compression_type)
+            if self.enable_logging:
+                logging.info(f"Agentview shape: {agentview_rgb.shape}, dtype: {agentview_rgb.dtype}, range: [{agentview_rgb.min()}, {agentview_rgb.max()}]")
         eye_in_hand_rgb = None
         if LiberoResponseKeys.EYE_IN_HAND_RGB.value in response:
             eye_in_hand_rgb = decompress_array(response[LiberoResponseKeys.EYE_IN_HAND_RGB.value], self.compression_type)
+            if self.enable_logging:
+                logging.info(f"Eye-in-hand shape: {eye_in_hand_rgb.shape}, dtype: {eye_in_hand_rgb.dtype}, range: [{eye_in_hand_rgb.min()}, {eye_in_hand_rgb.max()}]")
         ee_pos = None
         if LiberoResponseKeys.EE_POS.value in response:
             ee_pos = np.array(response[LiberoResponseKeys.EE_POS.value], dtype=np.float32)
@@ -370,6 +374,13 @@ class LiberoClient(SocketClient):
         """Compute next actions using the trained policy model."""
         agentview_list = self.agentview_buffer[-self.observation_buffer_size:]
         eye_in_hand_list = self.eye_in_hand_buffer[-self.observation_buffer_size:]
+
+        if self.enable_logging and len(agentview_list) > 0:
+            import cv2
+            cv2.imwrite("/mnt/cluster/workspaces/mazzalore/debug_agentview.png", cv2.cvtColor(agentview_list[-1], cv2.COLOR_RGB2BGR))
+            if len(eye_in_hand_list) > 0 and eye_in_hand_list[-1] is not None:
+                cv2.imwrite("/mnt/cluster/workspaces/mazzalore/debug_eye_in_hand.png", cv2.cvtColor(eye_in_hand_list[-1], cv2.COLOR_RGB2BGR))
+
         agentview_tensors = []
         eye_in_hand_tensors = []
         for agentview, eye_in_hand in zip(agentview_list, eye_in_hand_list):
@@ -400,6 +411,11 @@ class LiberoClient(SocketClient):
         self.current_all_position_actions = action_dict[self.position_key]
         self.current_all_orientations = action_dict[self.orientation_key]
         self.current_all_grippers = action_dict[self.gripper_key]
+
+        if self.enable_logging:
+            logging.info(f"Model output - pos: {self.current_all_position_actions[0, 0].cpu().numpy()}, "
+                        f"ori: {self.current_all_orientations[0, 0].cpu().numpy()}, "
+                        f"grip: {self.current_all_grippers[0, 0].cpu().numpy()}")
 
         if self.temporal_agg:
             averaged_actions = self._get_exponential_averaged_actions()
