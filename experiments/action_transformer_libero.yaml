@@ -36,8 +36,7 @@ policy:
           - ${proprio_key:EE_POS_ACTION}
           - ${proprio_key:EE_ORI_ACTION}
       gripper_loss:
-        action_keys:
-          - ${proprio_key:GRIPPER_STATE_ACTION}
+        key: ${proprio_key:GRIPPER_STATE_ACTION}
       trajectory_length:
         action_key: ${proprio_key:EE_POS_ACTION}
   encoding_pipeline:
