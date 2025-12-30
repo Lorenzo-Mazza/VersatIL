@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from unittest.mock import MagicMock, patch
 
-from refactoring.data.normalization.normalizer_builder import PreprocessorBuilder
+from refactoring.data.preprocessor_builder import PreprocessorBuilder
 from refactoring.data.normalization.normalizer import LinearNormalizer
 from refactoring.data.tokenization.tokenizer import Tokenizer
 from refactoring.configs.data.tokenizer import ObservationTokenizationConfig, ActionTokenizationConfig, TokenizationConfig

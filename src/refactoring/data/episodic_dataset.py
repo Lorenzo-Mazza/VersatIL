@@ -14,7 +14,7 @@ from refactoring.data.constants import (
 )
 from refactoring.configs.data.tokenizer import TokenizationConfig
 from refactoring.data.normalization.normalizer import LinearNormalizer
-from refactoring.data.normalization.normalizer_builder import PreprocessorBuilder
+from refactoring.data.preprocessor_builder import PreprocessorBuilder
 from refactoring.data.preprocessing.replay_buffer import ReplayBuffer
 from refactoring.data.preprocessing.sampler import (
     SequenceSampler,
