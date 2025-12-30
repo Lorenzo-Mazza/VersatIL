@@ -328,7 +328,7 @@ class LiberoClient(SocketClient):
         })
         if self.enable_logging:
             # Log useful info only, not base64 images
-            logging.info(f"Obs received - ee_pos: {response.get('ee_pos')}, ee_ori: {response.get('ee_ori')}, gripper: {response.get('gripper_states')}")
+            logging.info(f"Obs received - ee_pos: {response.get('ee_pos')}, ee_ori: {response.get('ee_ori')}, gripper: {response.get('gripper_states')}, language: {response.get('language_instruction')}")
         if LiberoResponseKeys.STATUS.value not in response:
             raise RuntimeError("Server response missing 'status' key")
         if response[LiberoResponseKeys.STATUS.value] != LiberoStatus.FINISHED.value:
