@@ -414,7 +414,8 @@ class LiberoClient(SocketClient):
         if self.use_eye_in_hand:
             obs_dict[Cameras.EYE_IN_HAND.value] = torch.stack(eye_in_hand_tensors).unsqueeze(0)
         if self.use_language:
-            obs_dict[ObsKey.LANGUAGE.value] = self.language_instruction_buffer[-self.observation_buffer_size:]
+            lang_list = self.language_instruction_buffer[-self.observation_buffer_size:]
+            obs_dict[ObsKey.LANGUAGE.value] = [[s] for s in lang_list]
 
         if self.enable_logging and self.timestep == 0:
             # Debug: Check image tensor stats before normalization
