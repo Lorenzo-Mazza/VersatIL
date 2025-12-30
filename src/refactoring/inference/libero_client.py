@@ -415,6 +415,13 @@ class LiberoClient(SocketClient):
             obs_dict[Cameras.EYE_IN_HAND.value] = torch.stack(eye_in_hand_tensors).unsqueeze(0)
         if self.use_language:
             obs_dict[ObsKey.LANGUAGE.value] = self.language_instruction_buffer[-self.observation_buffer_size:]
+
+        if self.enable_logging and self.timestep == 0:
+            # Debug: Check image tensor stats before normalization
+            if self.use_agentview:
+                img = obs_dict[Cameras.AGENTVIEW.value]
+                logging.info(f"[DEBUG] agentview BEFORE norm: shape={img.shape}, range=[{img.min():.3f}, {img.max():.3f}]")
+
         with torch.autocast(device_type=str(self.device), dtype=MAP_PRECISION_TO_DTYPE[self.precision]):
             with torch.no_grad():
                 action_dict = self.policy.predict_action(obs_dict=obs_dict)
