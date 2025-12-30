@@ -239,6 +239,17 @@ class LiberoClient(SocketClient):
         self.policy.to(self.device).eval()
         checkpoint = torch.load(checkpoint_file, map_location=self.device, weights_only=False)
         lightning_module = LightningPolicy(policy=self.policy, training_config=self.config.training)
+
+        # Debug: Check for key mismatches during loading
+        model_keys = set(lightning_module.state_dict().keys())
+        checkpoint_keys = set(checkpoint['state_dict'].keys())
+        missing_keys = model_keys - checkpoint_keys
+        unexpected_keys = checkpoint_keys - model_keys
+        if missing_keys:
+            logging.warning(f"Missing keys in checkpoint: {list(missing_keys)[:10]}... (total: {len(missing_keys)})")
+        if unexpected_keys:
+            logging.warning(f"Unexpected keys in checkpoint: {list(unexpected_keys)[:10]}... (total: {len(unexpected_keys)})")
+
         lightning_module.load_state_dict(checkpoint['state_dict'], strict=False)
         logging.info("Model and config successfully loaded.")
         return self.policy
@@ -413,9 +424,18 @@ class LiberoClient(SocketClient):
         self.current_all_grippers = action_dict[self.gripper_key]
 
         if self.enable_logging:
-            logging.info(f"Model output - pos: {self.current_all_position_actions[0, 0].float().cpu().numpy()}, "
-                        f"ori: {self.current_all_orientations[0, 0].float().cpu().numpy()}, "
-                        f"grip: {self.current_all_grippers[0, 0].float().cpu().numpy()}")
+            pos_val = self.current_all_position_actions[0, 0].float().cpu().numpy()
+            ori_val = self.current_all_orientations[0, 0].float().cpu().numpy()
+            grip_val = self.current_all_grippers[0, 0].float().cpu().numpy()
+            logging.info(f"[UNNORMALIZED] pos: {pos_val}, ori: {ori_val}, grip: {grip_val}")
+            # Log normalizer stats for debugging
+            if self.timestep == 0:
+                pos_norm = self.policy.normalizer[self.position_key]
+                ori_norm = self.policy.normalizer[self.orientation_key]
+                logging.info(f"[NORMALIZER] pos scale: {pos_norm.params_dict['scale'].cpu().numpy()}, "
+                            f"offset: {pos_norm.params_dict['offset'].cpu().numpy()}")
+                logging.info(f"[NORMALIZER] ori scale: {ori_norm.params_dict['scale'].cpu().numpy()}, "
+                            f"offset: {ori_norm.params_dict['offset'].cpu().numpy()}")
 
         if self.temporal_agg:
             averaged_actions = self._get_exponential_averaged_actions()
