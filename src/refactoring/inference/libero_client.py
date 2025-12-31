@@ -508,10 +508,10 @@ class LiberoClient(SocketClient):
             if self.timestep == 0:
                 pos_norm = self.policy.normalizer[self.position_key]
                 ori_norm = self.policy.normalizer[self.orientation_key]
-                logging.info(f"[NORMALIZER] pos scale: {pos_norm.params_dict['scale'].cpu().numpy()}, "
-                            f"offset: {pos_norm.params_dict['offset'].cpu().numpy()}")
-                logging.info(f"[NORMALIZER] ori scale: {ori_norm.params_dict['scale'].cpu().numpy()}, "
-                            f"offset: {ori_norm.params_dict['offset'].cpu().numpy()}")
+                logging.info(f"[NORMALIZER] pos scale: {pos_norm.params_dict['scale'].float().cpu().numpy()}, "
+                            f"offset: {pos_norm.params_dict['offset'].float().cpu().numpy()}")
+                logging.info(f"[NORMALIZER] ori scale: {ori_norm.params_dict['scale'].float().cpu().numpy()}, "
+                            f"offset: {ori_norm.params_dict['offset'].float().cpu().numpy()}")
 
         if self.temporal_agg:
             averaged_actions = self._get_exponential_averaged_actions()
