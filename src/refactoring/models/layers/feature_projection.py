@@ -18,6 +18,10 @@ class FeatureProjection(nn.Module):
     It supports both flat features (B, C), sequential features (B, T, C), and spatial features
      (B, Optional[T], C, H, W).
 
+    This module uses lazy initialization - projection layers are created on first forward pass.
+    To support loading checkpoints, it overrides _load_from_state_dict to create layers
+    dynamically from the state dict.
+
     Example:
         >>> feature_projection = FeatureProjection(embedding_dim=256)
         >>> flat_features = {
@@ -50,6 +54,60 @@ class FeatureProjection(nn.Module):
         # Dummy buffer to track the module's device without relying on parameters (which may not exist yet in lazy init).
         # This ensures lazy-created layers are initialized on the correct device, preventing mismatches in multi-GPU or distributed setups.
         self.register_buffer('_device_tracker', torch.zeros(1))
+
+
+    def _load_from_state_dict(
+        self,
+        state_dict: dict,
+        prefix: str,
+        local_metadata: dict,
+        strict: bool,
+        missing_keys: list,
+        unexpected_keys: list,
+        error_msgs: list,
+    ) -> None:
+        """Load state dict with dynamic layer creation for lazy-initialized projections.
+
+        This method creates projection layers on-the-fly from checkpoint weights,
+        enabling proper loading even when layers don't exist yet due to lazy initialization.
+        """
+        linear_prefix = prefix + "linear_projections."
+        spatial_prefix = prefix + "spatial_projections."
+        linear_features: dict[str, dict[str, torch.Tensor]] = {}
+        spatial_features: dict[str, dict[str, torch.Tensor]] = {}
+        for key, value in state_dict.items():
+            if key.startswith(linear_prefix):
+                suffix = key[len(linear_prefix):]
+                parts = suffix.split(".")
+                if len(parts) == 2:
+                    feature_name, param_name = parts
+                    if feature_name not in linear_features:
+                        linear_features[feature_name] = {}
+                    linear_features[feature_name][param_name] = value
+            elif key.startswith(spatial_prefix):
+                suffix = key[len(spatial_prefix):]
+                parts = suffix.split(".")
+                if len(parts) == 2:
+                    feature_name, param_name = parts
+                    if feature_name not in spatial_features:
+                        spatial_features[feature_name] = {}
+                    spatial_features[feature_name][param_name] = value
+        for feature_name, params in linear_features.items():
+            if feature_name not in self.linear_projections and "weight" in params:
+                weight = params["weight"]
+                out_features, in_features = weight.shape
+                self.linear_projections[feature_name] = nn.Linear(in_features, out_features)
+
+        for feature_name, params in spatial_features.items():
+            if feature_name not in self.spatial_projections and "weight" in params:
+                weight = params["weight"]
+                out_channels, in_channels, _, _ = weight.shape
+                self.spatial_projections[feature_name] = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+
+        # Now parent can load weights into the newly created layers
+        super()._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+        )
 
 
     def _create_projection_layer(

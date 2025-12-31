@@ -239,8 +239,6 @@ class LiberoClient(SocketClient):
         self.policy.to(self.device).eval()
         checkpoint = torch.load(checkpoint_file, map_location=self.device, weights_only=False)
         lightning_module = LightningPolicy(policy=self.policy, training_config=self.config.training)
-
-        # Debug: Check for key mismatches during loading
         model_keys = set(lightning_module.state_dict().keys())
         checkpoint_keys = set(checkpoint['state_dict'].keys())
         missing_keys = model_keys - checkpoint_keys
@@ -251,20 +249,84 @@ class LiberoClient(SocketClient):
             logging.warning(f"Unexpected keys in checkpoint: {list(unexpected_keys)[:10]}... (total: {len(unexpected_keys)})")
 
         lightning_module.load_state_dict(checkpoint['state_dict'], strict=False)
+        self._validate_checkpoint_loading(checkpoint['state_dict'], lightning_module)
         logging.info("Model and config successfully loaded.")
-
-        # DEBUG: Verify normalizer loaded correctly
-        normalizer = self.policy.normalizer
-        logging.info(f"DEBUG: Normalizer params_dict keys after loading: {list(normalizer.params_dict.keys())}")
-        if len(normalizer.params_dict) > 0:
-            first_key = list(normalizer.params_dict.keys())[0]
-            params = normalizer.params_dict[first_key]
-            logging.info(f"DEBUG: Normalizer['{first_key}'] scale: {params['scale']}")
-            logging.info(f"DEBUG: Normalizer['{first_key}'] offset: {params['offset']}")
-        else:
-            logging.error("DEBUG: Normalizer params_dict is EMPTY after loading!")
-
         return self.policy
+
+
+    def _validate_checkpoint_loading(
+        self,
+        checkpoint_state_dict: dict[str, torch.Tensor],
+        lightning_module: LightningPolicy,
+    ) -> None:
+        """Validate that critical checkpoint components were properly loaded.
+
+        This catches issues with lazy-initialized modules where checkpoint weights
+        might be silently ignored if `strict=False` and the module's internal
+        dictionaries are empty at load time.
+
+        Raises:
+            RuntimeError: If critical components failed to load from checkpoint.
+        """
+        model_state = lightning_module.state_dict()
+        checkpoint_keys = set(checkpoint_state_dict.keys())
+        model_keys = set(model_state.keys())
+        critical_prefixes = [
+            'policy.decoder.',
+            'policy.encoding_pipeline.',
+            'policy.normalizer.',
+        ]
+        errors = []
+        warnings = []
+        for prefix in critical_prefixes:
+            ckpt_count = len([k for k in checkpoint_keys if k.startswith(prefix)])
+            model_count = len([k for k in model_keys if k.startswith(prefix)])
+            if ckpt_count > 0 and model_count == 0:
+                errors.append(
+                    f"CRITICAL: Checkpoint has {ckpt_count} keys for '{prefix}' but model has NONE! "
+                    f"This indicates lazy-initialized layers failed to load."
+                )
+            elif ckpt_count > 0 and model_count < ckpt_count:
+                matched = len([k for k in checkpoint_keys if k.startswith(prefix) and k in model_keys])
+                if matched < ckpt_count:
+                    warnings.append(
+                        f"WARNING: Checkpoint has {ckpt_count} keys for '{prefix}' but model only has {model_count}. "
+                        f"Matched: {matched}/{ckpt_count}"
+                    )
+        lazy_module_prefixes = [
+            ('policy.decoder.architecture.feature_projection.linear_projections.', 'FeatureProjection linear'),
+            ('policy.decoder.architecture.feature_projection.spatial_projections.', 'FeatureProjection spatial'),
+            ('policy.decoder.architecture.camera_embeddings.embeddings.', 'DynamicFeatureEmbedding'),
+        ]
+        for ckpt_prefix, module_name in lazy_module_prefixes:
+            ckpt_keys_for_module = [k for k in checkpoint_keys if k.startswith(ckpt_prefix)]
+            model_keys_for_module = [k for k in model_keys if k.startswith(ckpt_prefix)]
+
+            if len(ckpt_keys_for_module) > 0 and len(model_keys_for_module) == 0:
+                errors.append(
+                    f"CRITICAL: {module_name} failed to load! "
+                    f"Checkpoint has {len(ckpt_keys_for_module)} keys but model has NONE. "
+                    f"Example keys: {ckpt_keys_for_module[:3]}"
+                )
+        sample_keys = [k for k in checkpoint_keys if k in model_keys][:5]
+        for key in sample_keys:
+            ckpt_val = checkpoint_state_dict[key]
+            model_val = model_state[key]
+            if not torch.allclose(ckpt_val.to(model_val.device), model_val, atol=1e-6):
+                errors.append(
+                    f"CRITICAL: Weight mismatch for '{key}'! "
+                    f"Checkpoint and model values differ after load_state_dict."
+                )
+        for warning in warnings:
+            logging.warning(warning)
+        if errors:
+            for error in errors:
+                logging.error(error)
+            raise RuntimeError(
+                f"Checkpoint loading validation failed with {len(errors)} critical error(s). "
+                f"The model will NOT produce correct outputs. "
+                f"First error: {errors[0]}"
+            )
 
 
     def _setup_position_action(self, action_space: ActionSpace) -> None:
