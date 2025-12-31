@@ -252,6 +252,18 @@ class LiberoClient(SocketClient):
 
         lightning_module.load_state_dict(checkpoint['state_dict'], strict=False)
         logging.info("Model and config successfully loaded.")
+
+        # DEBUG: Verify normalizer loaded correctly
+        normalizer = self.policy.normalizer
+        logging.info(f"DEBUG: Normalizer params_dict keys after loading: {list(normalizer.params_dict.keys())}")
+        if len(normalizer.params_dict) > 0:
+            first_key = list(normalizer.params_dict.keys())[0]
+            params = normalizer.params_dict[first_key]
+            logging.info(f"DEBUG: Normalizer['{first_key}'] scale: {params['scale']}")
+            logging.info(f"DEBUG: Normalizer['{first_key}'] offset: {params['offset']}")
+        else:
+            logging.error("DEBUG: Normalizer params_dict is EMPTY after loading!")
+
         return self.policy
 
 
