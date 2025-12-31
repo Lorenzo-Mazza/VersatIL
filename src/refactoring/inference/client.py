@@ -278,6 +278,9 @@ class TSOPolicyClient(AbstractModelClient):
         lightning_module = LightningPolicy(policy=self.policy, training_config=self.config.training)
         lightning_module.load_state_dict(checkpoint['state_dict'], strict=False)
         self._validate_checkpoint_loading(checkpoint['state_dict'], lightning_module)
+        precision_type = PrecisionType(self.precision)
+        if precision_type.should_convert_model():
+            self.policy = self.policy.to(precision_type.get_model_dtype())
 
         if Cameras.DEPTH.value in self.policy.observation_space.cameras:
             depth_stats = self.policy.normalizer[Cameras.DEPTH.value].params_dict['input_stats']

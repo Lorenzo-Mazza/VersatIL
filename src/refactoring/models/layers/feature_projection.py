@@ -92,17 +92,18 @@ class FeatureProjection(nn.Module):
                     if feature_name not in spatial_features:
                         spatial_features[feature_name] = {}
                     spatial_features[feature_name][param_name] = value
+        device = self._device_tracker.device
         for feature_name, params in linear_features.items():
             if feature_name not in self.linear_projections and "weight" in params:
                 weight = params["weight"]
                 out_features, in_features = weight.shape
-                self.linear_projections[feature_name] = nn.Linear(in_features, out_features)
+                self.linear_projections[feature_name] = nn.Linear(in_features, out_features, device=device)
 
         for feature_name, params in spatial_features.items():
             if feature_name not in self.spatial_projections and "weight" in params:
                 weight = params["weight"]
                 out_channels, in_channels, _, _ = weight.shape
-                self.spatial_projections[feature_name] = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+                self.spatial_projections[feature_name] = nn.Conv2d(in_channels, out_channels, kernel_size=1, device=device)
 
         # Now parent can load weights into the newly created layers
         super()._load_from_state_dict(
