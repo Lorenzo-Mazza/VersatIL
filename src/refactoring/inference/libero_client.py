@@ -244,9 +244,9 @@ class LiberoClient(SocketClient):
         missing_keys = model_keys - checkpoint_keys
         unexpected_keys = checkpoint_keys - model_keys
         if missing_keys:
-            logging.warning(f"Missing keys in checkpoint: {list(missing_keys)[:10]}... (total: {len(missing_keys)})")
+            logging.warning(f"Missing keys in checkpoint: {list(missing_keys)[:]}... (total: {len(missing_keys)})")
         if unexpected_keys:
-            logging.warning(f"Unexpected keys in checkpoint: {list(unexpected_keys)[:10]}... (total: {len(unexpected_keys)})")
+            logging.warning(f"Unexpected keys in checkpoint: {list(unexpected_keys)[:]}... (total: {len(unexpected_keys)})")
 
         lightning_module.load_state_dict(checkpoint['state_dict'], strict=False)
         self._validate_checkpoint_loading(checkpoint['state_dict'], lightning_module)
