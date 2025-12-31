@@ -239,17 +239,11 @@ class LiberoClient(SocketClient):
         self.policy.to(self.device).eval()
         checkpoint = torch.load(checkpoint_file, map_location=self.device, weights_only=False)
         lightning_module = LightningPolicy(policy=self.policy, training_config=self.config.training)
-        model_keys = set(lightning_module.state_dict().keys())
-        checkpoint_keys = set(checkpoint['state_dict'].keys())
-        missing_keys = model_keys - checkpoint_keys
-        unexpected_keys = checkpoint_keys - model_keys
-        if missing_keys:
-            logging.warning(f"Missing keys in checkpoint: {list(missing_keys)[:]}... (total: {len(missing_keys)})")
-        if unexpected_keys:
-            logging.warning(f"Unexpected keys in checkpoint: {list(unexpected_keys)[:]}... (total: {len(unexpected_keys)})")
-
         lightning_module.load_state_dict(checkpoint['state_dict'], strict=False)
         self._validate_checkpoint_loading(checkpoint['state_dict'], lightning_module)
+        precision_type = PrecisionType(self.precision)
+        if precision_type.should_convert_model():
+            self.policy = self.policy.to(precision_type.get_model_dtype())
         logging.info("Model and config successfully loaded.")
         return self.policy
 
