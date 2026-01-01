@@ -18,11 +18,14 @@ import zarr
 from omegaconf import OmegaConf
 
 from refactoring.configs import MainConfig
-from refactoring.data.constants import Cameras, ProprioKey
+from refactoring.data.constants import Cameras, ObsKey, ProprioKey
+from refactoring.data.tokenization.tokenizer import Tokenizer
 from refactoring.models.policy import Policy
 from refactoring.training.lightning_policy import LightningPolicy
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+
 
 
 def load_model_from_checkpoint(checkpoint_path: str, checkpoint_name: str, device: torch.device) -> tuple[Policy, MainConfig]:
@@ -73,6 +76,16 @@ def load_model_from_checkpoint(checkpoint_path: str, checkpoint_name: str, devic
         logging.error(f"CRITICAL: Weight '{sample_key}' unchanged after loading checkpoint!")
     else:
         logging.info(f"Checkpoint loaded - weights changed for '{sample_key}'")
+
+    # Load tokenizer if exists
+    tokenizer_path = os.path.join(checkpoint_path, "tokenizer")
+    if os.path.exists(tokenizer_path):
+        tokenizer = Tokenizer.from_pretrained(tokenizer_path, device=device)
+        tokenizer.to(device)
+        policy.set_tokenizer(tokenizer)
+        logging.info(f"Tokenizer loaded from {tokenizer_path}")
+    else:
+        logging.warning(f"No tokenizer found at {tokenizer_path}")
 
     return policy, config
 
@@ -153,6 +166,11 @@ def build_observation(episode: dict, timestep: int, obs_horizon: int, target_siz
     # Stack to (obs_horizon, C, H, W) then add batch dim -> (1, obs_horizon, C, H, W)
     obs[Cameras.AGENTVIEW.value] = torch.stack(agentview_list).unsqueeze(0).to(device)
     obs[Cameras.EYE_IN_HAND.value] = torch.stack(eye_in_hand_list).unsqueeze(0).to(device)
+
+    # Add language instruction (will be tokenized by policy.predict_action)
+    # Format: [[str]] for each timestep, matches LiberoClient format
+    if 'language_instruction' in episode:
+        obs[ObsKey.LANGUAGE.value] = [[episode['language_instruction']] for _ in range(obs_horizon)]
 
     return obs
 
