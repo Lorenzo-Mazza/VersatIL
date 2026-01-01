@@ -323,13 +323,13 @@ def run_episode_test(policy: Policy, episode: dict, config: MainConfig, device: 
     with torch.no_grad():
         # Build observations for batch
         obs_for_latent = {
-            Cameras.AGENTVIEW.value: batch['observations'][Cameras.AGENTVIEW.value],
-            Cameras.EYE_IN_HAND.value: batch['observations'][Cameras.EYE_IN_HAND.value],
+            Cameras.AGENTVIEW.value: batch['observation'][Cameras.AGENTVIEW.value],
+            Cameras.EYE_IN_HAND.value: batch['observation'][Cameras.EYE_IN_HAND.value],
         }
         features = policy.encoding_pipeline(obs_for_latent)
 
         # Get actions
-        actions = batch['actions']
+        actions = batch['action']
 
         # Call _variational_step to get both posterior and prior
         posterior_output, prior_output = variational_algo._variational_step(features, actions)
