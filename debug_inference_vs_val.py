@@ -133,7 +133,7 @@ def build_observation(episode: dict, timestep: int, obs_horizon: int, target_siz
 def run_episode_test(policy: Policy, episode: dict, config: MainConfig, device: torch.device) -> None:
     """Run through episode and compare predictions to GT."""
     obs_horizon = config.task.observation_horizon
-    target_size = config.task.dataloader.target_resolution
+    target_size = 128  # LIBERO images are 128x128
 
     episode_length = len(episode['ee_pos_action'])
 
