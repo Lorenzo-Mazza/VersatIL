@@ -54,9 +54,13 @@ def load_model_from_checkpoint(checkpoint_path: str, checkpoint_name: str, devic
     unexpected = ckpt_keys - model_keys
 
     if missing:
-        logging.warning(f"Missing keys in checkpoint ({len(missing)}): {list(missing)[:5]}...")
+        logging.warning(f"Missing keys in checkpoint ({len(missing)}):")
+        for k in sorted(missing):
+            logging.warning(f"  MISSING: {k}")
     if unexpected:
-        logging.warning(f"Unexpected keys in checkpoint ({len(unexpected)}): {list(unexpected)[:5]}...")
+        logging.warning(f"Unexpected keys in checkpoint ({len(unexpected)}):")
+        for k in sorted(unexpected):
+            logging.warning(f"  UNEXPECTED: {k}")
 
     # Load and check if weights actually changed
     sample_key = list(model_keys)[0]
