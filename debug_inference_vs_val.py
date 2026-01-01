@@ -523,8 +523,8 @@ def analyze_normalizer(policy: Policy) -> None:
 
 def main():
     # Parse args
-    checkpoint_path = sys.argv[1] if len(sys.argv) > 1 else "/mnt/cluster/workspaces/mazzalore/bowel_retraction/action_transformer_libero/20251229_010655"
-    checkpoint_name = sys.argv[2] if len(sys.argv) > 2 else "best-90-0.1118.ckpt"
+    checkpoint_path = sys.argv[1] if len(sys.argv) > 1 else "/mnt/cluster/workspaces/mazzalore/bowel_retraction/act_libero/20251230_221343"
+    checkpoint_name = sys.argv[2] if len(sys.argv) > 2 else "best-76-0.0981.ckpt"
     episode_idx = int(sys.argv[3]) if len(sys.argv) > 3 else 450
     zarr_path = "/mnt/cluster/workspaces/mazzalore/libero_10.zarr"
 
