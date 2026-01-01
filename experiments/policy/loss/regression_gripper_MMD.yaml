@@ -21,7 +21,7 @@ loss_modules:
       bce_weight: 0.05
 
     maximum_mean_discrepancy:
-            weight: 50.0
+            weight: 5.0
 
     trajectory_length:
         _target_: refactoring.metrics.TrajectoryLengthLoss
