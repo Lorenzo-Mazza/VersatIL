@@ -65,6 +65,32 @@ class Embedder(Encoder):
             std=self.initializer_range,
         )
 
+    def _load_from_state_dict(
+        self,
+        state_dict: dict,
+        prefix: str,
+        local_metadata: dict,
+        strict: bool,
+        missing_keys: list,
+        unexpected_keys: list,
+        error_msgs: list,
+    ) -> None:
+        """Load state dict with dynamic embedding resize for lazy-initialized vocab size."""
+        embedding_key = prefix + "embedding.weight"
+        if embedding_key in state_dict:
+            weight = state_dict[embedding_key]
+            vocab_size, emb_dim = weight.shape
+            if self.embedding.weight.shape[0] != vocab_size:
+                self.vocab_size = vocab_size
+                self.embedding = nn.Embedding(
+                    num_embeddings=vocab_size,
+                    embedding_dim=emb_dim,
+                    device=weight.device,
+                )
+        super()._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+        )
+
 
     def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Embed tokenized input.
