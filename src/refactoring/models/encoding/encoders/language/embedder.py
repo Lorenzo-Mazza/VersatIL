@@ -82,22 +82,17 @@ class Embedder(Encoder):
         if embedding_key in state_dict:
             weight = state_dict[embedding_key]
             vocab_size, emb_dim = weight.shape
-            device = self._device_tracker.device
-            print(f"[Embedder._load_from_state_dict] device_tracker device: {device}")
-            print(f"[Embedder._load_from_state_dict] current embedding device: {self.embedding.weight.device}")
-            print(f"[Embedder._load_from_state_dict] state dict weight device: {weight.device}")
             if self.embedding.weight.shape[0] != vocab_size:
                 self.vocab_size = vocab_size
+                device = self._device_tracker.device
                 self.embedding = nn.Embedding(
                     num_embeddings=vocab_size,
                     embedding_dim=emb_dim,
                     device=device,
                 )
-                print(f"[Embedder._load_from_state_dict] new embedding device: {self.embedding.weight.device}")
         super()._load_from_state_dict(
             state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
         )
-        print(f"[Embedder._load_from_state_dict] FINAL embedding device: {self.embedding.weight.device}")
 
 
     def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
