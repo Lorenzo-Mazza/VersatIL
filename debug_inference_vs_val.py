@@ -45,7 +45,30 @@ def load_model_from_checkpoint(checkpoint_path: str, checkpoint_name: str, devic
 
     checkpoint = torch.load(checkpoint_file, map_location=device, weights_only=False)
     lightning_module = LightningPolicy(policy=policy, training_config=config.training)
+
+    # Check what keys are in checkpoint vs model
+    ckpt_keys = set(checkpoint['state_dict'].keys())
+    model_keys = set(lightning_module.state_dict().keys())
+
+    missing = model_keys - ckpt_keys
+    unexpected = ckpt_keys - model_keys
+
+    if missing:
+        logging.warning(f"Missing keys in checkpoint ({len(missing)}): {list(missing)[:5]}...")
+    if unexpected:
+        logging.warning(f"Unexpected keys in checkpoint ({len(unexpected)}): {list(unexpected)[:5]}...")
+
+    # Load and check if weights actually changed
+    sample_key = list(model_keys)[0]
+    before = lightning_module.state_dict()[sample_key].clone()
+
     lightning_module.load_state_dict(checkpoint['state_dict'], strict=False)
+
+    after = lightning_module.state_dict()[sample_key]
+    if torch.allclose(before, after):
+        logging.error(f"CRITICAL: Weight '{sample_key}' unchanged after loading checkpoint!")
+    else:
+        logging.info(f"Checkpoint loaded - weights changed for '{sample_key}'")
 
     return policy, config
 
@@ -190,7 +213,7 @@ def run_episode_test(policy: Policy, episode: dict, config: MainConfig, device: 
     logging.info(f"Timesteps tested: {len(pos_errors)}")
     logging.info(f"Position MAE: mean={np.mean(pos_errors):.4f}, std={np.std(pos_errors):.4f}")
     logging.info(f"Orientation MAE: mean={np.mean(ori_errors):.4f}, std={np.std(ori_errors):.4f}")
-    logging.info(f"Gripper match: {sum(grip_matches)}/{len(grip_matches)} ({100*sum(grip_matches)/len(grip_matches):.1f}%)")
+    logging.info(f"Gripper match: {sum(grip_matches)}/{len(grip_matches)}")
 
     # Check if predictions are constant
     all_pred_pos = np.array(all_pred_pos)
