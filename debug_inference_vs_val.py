@@ -304,13 +304,123 @@ def run_episode_test(policy: Policy, episode: dict, config: MainConfig, device: 
     logging.info(f"  predict_action pos MAE vs GT: {predict_action_mae:.4f}")
 
     if forward_unnorm_mae < 0.1 and predict_action_mae > 0.2:
-        logging.error("DIAGNOSIS: forward() works but predict_action() fails → ERROR IS IN PREDICT BRANCH (normalization)")
+        logging.error("DIAGNOSIS: forward() works but predict_action() fails → ERROR IS IN PREDICT BRANCH (prior vs posterior)")
     elif forward_unnorm_mae > 0.2 and predict_action_mae > 0.2:
         logging.error("DIAGNOSIS: Both forward() and predict_action() fail → ERROR IS IN MODEL LOADING")
     elif forward_unnorm_mae < 0.1 and predict_action_mae < 0.1:
         logging.info("DIAGNOSIS: Both forward() and predict_action() work correctly!")
     else:
         logging.warning(f"DIAGNOSIS: Unclear - forward MAE={forward_unnorm_mae:.4f}, predict MAE={predict_action_mae:.4f}")
+
+    # ========== TEST 5: Compare POSTERIOR vs PRIOR latent distributions ==========
+    logging.info("\n--- TEST 5: Compare POSTERIOR vs PRIOR latent distributions ---")
+    from refactoring.models.decoding.constants import LATENT_KEY, PRIOR_LATENT_KEY, MU_KEY, LOGVAR_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY
+
+    # Get variational algorithm
+    variational_algo = policy.algorithm
+
+    # Get features from encoding pipeline (on normalized observations)
+    with torch.no_grad():
+        # Build observations for batch
+        obs_for_latent = {
+            Cameras.AGENTVIEW.value: batch['observations'][Cameras.AGENTVIEW.value],
+            Cameras.EYE_IN_HAND.value: batch['observations'][Cameras.EYE_IN_HAND.value],
+        }
+        features = policy.encoding_pipeline(obs_for_latent)
+
+        # Get actions
+        actions = batch['actions']
+
+        # Call _variational_step to get both posterior and prior
+        posterior_output, prior_output = variational_algo._variational_step(features, actions)
+
+    z_posterior = posterior_output[LATENT_KEY]
+    z_prior = prior_output[PRIOR_LATENT_KEY]
+    mu_posterior = posterior_output[MU_KEY]
+    mu_prior = prior_output[PRIOR_MU_KEY]
+    logvar_posterior = posterior_output[LOGVAR_KEY]
+    logvar_prior = prior_output[PRIOR_LOGVAR_KEY]
+
+    logging.info(f"  Posterior z: mean={z_posterior.mean().item():.4f}, std={z_posterior.std().item():.4f}")
+    logging.info(f"  Prior z:     mean={z_prior.mean().item():.4f}, std={z_prior.std().item():.4f}")
+    logging.info(f"  Posterior mu: mean={mu_posterior.mean().item():.4f}, std={mu_posterior.std().item():.4f}")
+    logging.info(f"  Prior mu:     mean={mu_prior.mean().item():.4f}, std={mu_prior.std().item():.4f}")
+    logging.info(f"  Posterior logvar: mean={logvar_posterior.mean().item():.4f}, std={logvar_posterior.std().item():.4f}")
+    logging.info(f"  Prior logvar:     mean={logvar_prior.mean().item():.4f}, std={logvar_prior.std().item():.4f}")
+
+    # Compute metrics
+    z_mae = (z_posterior - z_prior).abs().mean().item()
+    mu_mae = (mu_posterior - mu_prior).abs().mean().item()
+    logvar_mae = (logvar_posterior - logvar_prior).abs().mean().item()
+    z_cosine_sim = torch.nn.functional.cosine_similarity(z_posterior, z_prior, dim=-1).mean().item()
+
+    logging.info(f"  Z MAE (posterior vs prior): {z_mae:.4f}")
+    logging.info(f"  Mu MAE (posterior vs prior): {mu_mae:.4f}")
+    logging.info(f"  Logvar MAE (posterior vs prior): {logvar_mae:.4f}")
+    logging.info(f"  Z cosine similarity: {z_cosine_sim:.4f}")
+
+    # Compute MMD between posterior and prior
+    def compute_mmd(x, y):
+        dim = x.size(1)
+        x = x.unsqueeze(1)  # (N, 1, D)
+        y = y.unsqueeze(0)  # (1, M, D)
+        mean_sq_diff_xx = (x - x.transpose(0, 1)).pow(2).mean(dim=2)
+        mean_sq_diff_yy = (y - y.transpose(0, 1)).pow(2).mean(dim=2)
+        mean_sq_diff_xy = (x - y).pow(2).mean(dim=2)
+        k_xx = torch.exp(-mean_sq_diff_xx / dim).mean()
+        k_yy = torch.exp(-mean_sq_diff_yy / dim).mean()
+        k_xy = torch.exp(-mean_sq_diff_xy / dim).mean()
+        return (k_xx + k_yy - 2 * k_xy).item()
+
+    mmd = compute_mmd(z_posterior, z_prior)
+    logging.info(f"  MMD(posterior, prior): {mmd:.6f}")
+
+    if z_cosine_sim < 0.5:
+        logging.error("  DIAGNOSIS: Prior and posterior are NOT aligned (cosine_sim < 0.5)")
+        logging.error("  → This is the ROOT CAUSE: prior doesn't match posterior distribution")
+        logging.error("  → Solutions: Increase MMD weight, train longer, use stronger prior architecture")
+    elif z_mae > 1.0:
+        logging.warning("  DIAGNOSIS: Prior and posterior have high MAE - partial alignment")
+    else:
+        logging.info("  DIAGNOSIS: Prior and posterior appear reasonably aligned")
+
+    # ========== TEST 5b: Decode with POSTERIOR z vs PRIOR z ==========
+    logging.info("\n--- TEST 5b: Decode with POSTERIOR z vs PRIOR z ---")
+    with torch.no_grad():
+        # Decode with posterior latent (training path)
+        features_with_posterior = {**features, LATENT_KEY: z_posterior}
+        pred_with_posterior = variational_algo.base_algorithm.forward(
+            network=policy.decoder,
+            features=features_with_posterior,
+            actions=None,
+        )
+
+        # Decode with prior latent (inference path)
+        features_with_prior = {**features, LATENT_KEY: z_prior}
+        pred_with_prior = variational_algo.base_algorithm.forward(
+            network=policy.decoder,
+            features=features_with_prior,
+            actions=None,
+        )
+
+    pos_key = ProprioKey.EE_POS_ACTION.value
+    posterior_pred_pos = pred_with_posterior[pos_key][0, 0].cpu().numpy()
+    prior_pred_pos = pred_with_prior[pos_key][0, 0].cpu().numpy()
+
+    logging.info(f"  Pred pos (with POSTERIOR z): {posterior_pred_pos}")
+    logging.info(f"  Pred pos (with PRIOR z):     {prior_pred_pos}")
+    logging.info(f"  GT pos (normalized):         {gt_pos_norm}")
+
+    posterior_mae = np.abs(posterior_pred_pos - gt_pos_norm).mean()
+    prior_mae = np.abs(prior_pred_pos - gt_pos_norm).mean()
+
+    logging.info(f"  MAE with POSTERIOR z: {posterior_mae:.4f}")
+    logging.info(f"  MAE with PRIOR z:     {prior_mae:.4f}")
+
+    if posterior_mae < 0.1 and prior_mae > 0.2:
+        logging.error("  CONFIRMED: Posterior z works, Prior z fails")
+        logging.error("  → Prior is not learning to match posterior distribution")
+        logging.error("  → This is a TRAINING issue, not a loading/inference issue")
 
     logging.info("\n--- TEST 4: Loop through timesteps ---")
 
