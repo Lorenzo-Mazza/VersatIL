@@ -19,7 +19,7 @@ from refactoring.models.decoding.algorithm.base import DecodingAlgorithm
 from refactoring.models.decoding.constants import (
     LATENT_KEY,
     LOGVAR_KEY,
-    MU_KEY,
+    MU_KEY, PRIOR_LATENT_KEY,
 )
 from refactoring.models.decoding.decoders.base import ActionDecoder
 from refactoring.models.decoding.latent import PosteriorLatentEncoder
@@ -58,6 +58,7 @@ class VariationalAlgorithm(DecodingAlgorithm):
         super().__init__()
         self.base_algorithm = base_algorithm
         self.posterior_encoder = posterior_encoder
+        self.p_prior = 0.1  # Probability of sampling from prior during training
         if prior is None:
             device = str(posterior_encoder.device)
             self.prior = GaussianPrior(
@@ -153,7 +154,12 @@ class VariationalAlgorithm(DecodingAlgorithm):
             features=features,
             actions=actions,
         )
-        features_with_latent = {**features, LATENT_KEY: posterior_output[LATENT_KEY]} # (B, latent_dimension)
+        use_prior = torch.rand(1).item() < self.p_prior
+        if use_prior:
+            latent = prior_output[PRIOR_LATENT_KEY]
+        else:
+            latent = posterior_output[LATENT_KEY]
+        features_with_latent = {**features, LATENT_KEY: latent} # (B, latent_dimension)
         predictions = self.base_algorithm.forward(
             network=network,
             features=features_with_latent,

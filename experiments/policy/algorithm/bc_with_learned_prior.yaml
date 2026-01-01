@@ -16,7 +16,7 @@ posterior_encoder:
   observation_horizon: ${policy.observation_horizon}
   number_of_heads: 8
   feedforward_dimension: 1024
-  number_of_encoder_layers: 4
+  number_of_encoder_layers: 2
   dropout_rate: 0.1
   device: ${policy.device}
 
@@ -26,7 +26,7 @@ prior:
   prediction_horizon: ${policy.prediction_horizon}
   observation_horizon: ${policy.observation_horizon}
   number_of_heads: 8
-  feedforward_dimension: 1024
+  feedforward_dimension: 3200
   number_of_encoder_layers: 4
   dropout_rate: 0.1
   device: ${policy.device}
