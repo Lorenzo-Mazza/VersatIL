@@ -225,7 +225,6 @@ def run_episode_test(policy: Policy, episode: dict, config: MainConfig, device: 
     logging.info(f"  GT ori:   {gt_ori}")
     logging.info(f"  Position MAE: {np.abs(pred_pos - gt_pos).mean():.4f}")
     logging.info(f"  Orientation MAE: {np.abs(pred_ori - gt_ori).mean():.4f}")
-
     # ========== TEST 2b: Simulate predict_action step by step ==========
     logging.info("\n--- TEST 2b: Simulating predict_action step-by-step ---")
     from refactoring.data.transform import normalize_observation
@@ -277,6 +276,41 @@ def run_episode_test(policy: Policy, episode: dict, config: MainConfig, device: 
     logging.info(f"  Forward ori (norm): {fwd_ori}")
     logging.info(f"  GT ori (norm):      {gt_ori_norm}")
     logging.info(f"  Position MAE (norm): {np.abs(fwd_pos - gt_pos_norm).mean():.4f}")
+
+    # ========== TEST 3b: MANUALLY UNNORMALIZE forward() output and compare with predict_action ==========
+    logging.info("\n--- TEST 3b: MANUALLY UNNORMALIZE forward() output vs predict_action ---")
+    # Unnormalize forward output by hand
+    fwd_pos_tensor = forward_output[ProprioKey.EE_POS_ACTION.value]
+    fwd_ori_tensor = forward_output[ProprioKey.EE_ORI_ACTION.value]
+    fwd_grip_tensor = forward_output[ProprioKey.GRIPPER_STATE_ACTION.value]
+
+    fwd_pos_unnorm = policy.normalizer[ProprioKey.EE_POS_ACTION.value].unnormalize(fwd_pos_tensor)
+    fwd_ori_unnorm = policy.normalizer[ProprioKey.EE_ORI_ACTION.value].unnormalize(fwd_ori_tensor)
+
+    fwd_pos_unnorm_np = fwd_pos_unnorm[0, 0].cpu().numpy()
+    fwd_ori_unnorm_np = fwd_ori_unnorm[0, 0].cpu().numpy()
+
+    logging.info(f"  Forward pos (UNNORM by hand): {fwd_pos_unnorm_np}")
+    logging.info(f"  predict_action pos:           {pred_pos}")
+    logging.info(f"  GT pos (raw):                 {gt_pos}")
+    logging.info(f"  Forward ori (UNNORM by hand): {fwd_ori_unnorm_np}")
+    logging.info(f"  predict_action ori:           {pred_ori}")
+    logging.info(f"  GT ori (raw):                 {gt_ori}")
+
+    forward_unnorm_mae = np.abs(fwd_pos_unnorm_np - gt_pos).mean()
+    predict_action_mae = np.abs(pred_pos - gt_pos).mean()
+
+    logging.info(f"  Forward UNNORM pos MAE vs GT: {forward_unnorm_mae:.4f}")
+    logging.info(f"  predict_action pos MAE vs GT: {predict_action_mae:.4f}")
+
+    if forward_unnorm_mae < 0.1 and predict_action_mae > 0.2:
+        logging.error("DIAGNOSIS: forward() works but predict_action() fails → ERROR IS IN PREDICT BRANCH (normalization)")
+    elif forward_unnorm_mae > 0.2 and predict_action_mae > 0.2:
+        logging.error("DIAGNOSIS: Both forward() and predict_action() fail → ERROR IS IN MODEL LOADING")
+    elif forward_unnorm_mae < 0.1 and predict_action_mae < 0.1:
+        logging.info("DIAGNOSIS: Both forward() and predict_action() work correctly!")
+    else:
+        logging.warning(f"DIAGNOSIS: Unclear - forward MAE={forward_unnorm_mae:.4f}, predict MAE={predict_action_mae:.4f}")
 
     logging.info("\n--- TEST 4: Loop through timesteps ---")
 
