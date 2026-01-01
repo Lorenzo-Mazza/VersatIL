@@ -156,14 +156,89 @@ def build_observation(episode: dict, timestep: int, obs_horizon: int, target_siz
 def run_episode_test(policy: Policy, episode: dict, config: MainConfig, device: torch.device) -> None:
     """Run through episode and compare predictions to GT."""
     obs_horizon = config.task.observation_horizon
+    pred_horizon = config.task.prediction_horizon
     target_size = 128  # LIBERO images are 128x128
 
     episode_length = len(episode['ee_pos_action'])
 
     logging.info(f"\n{'='*60}")
     logging.info(f"Running inference on episode with {episode_length} timesteps")
-    logging.info(f"obs_horizon={obs_horizon}, target_size={target_size}")
+    logging.info(f"obs_horizon={obs_horizon}, pred_horizon={pred_horizon}, target_size={target_size}")
     logging.info(f"{'='*60}")
+
+    # ========== TEST 1: compute_loss ==========
+    logging.info("\n--- TEST 1: compute_loss ---")
+    # Build a batch with observations and GT actions
+    t = 10  # Pick a timestep with enough history and future
+    obs = build_observation(episode, t, obs_horizon, target_size, device)
+
+    # Build action chunk (pred_horizon actions starting from t)
+    action_chunk_pos = torch.tensor(episode['ee_pos_action'][t:t+pred_horizon]).float().unsqueeze(0).to(device)
+    action_chunk_ori = torch.tensor(episode['ee_ori_action'][t:t+pred_horizon]).float().unsqueeze(0).to(device)
+    action_chunk_grip = torch.tensor(episode['gripper_state_action'][t:t+pred_horizon]).float().unsqueeze(0).to(device)
+
+    # Normalize actions like the dataset does
+    action_chunk_pos_norm = policy.normalizer[ProprioKey.EE_POS_ACTION.value].normalize(action_chunk_pos)
+    action_chunk_ori_norm = policy.normalizer[ProprioKey.EE_ORI_ACTION.value].normalize(action_chunk_ori)
+
+    # Normalize observations like the dataset does
+    obs_norm = {}
+    for k, v in obs.items():
+        if k in policy.normalizer.params_dict:
+            obs_norm[k] = policy.normalizer[k].normalize(v)
+        else:
+            obs_norm[k] = v
+
+    batch = {
+        'observation': obs_norm,
+        'action': {
+            ProprioKey.EE_POS_ACTION.value: action_chunk_pos_norm,
+            ProprioKey.EE_ORI_ACTION.value: action_chunk_ori_norm,
+            ProprioKey.GRIPPER_STATE_ACTION.value: action_chunk_grip,
+        }
+    }
+
+    with torch.no_grad():
+        loss_output = policy.compute_loss(batch)
+
+    logging.info(f"compute_loss result: {loss_output.total_loss.item():.4f}")
+    for k, v in loss_output.component_losses.items():
+        logging.info(f"  {k}: {v:.4f}")
+
+    # ========== TEST 2: predict_action ==========
+    logging.info("\n--- TEST 2: predict_action on same observation ---")
+    with torch.no_grad():
+        predicted_actions = policy.predict_action(obs)
+
+    pred_pos = predicted_actions[ProprioKey.EE_POS_ACTION.value][0, 0].cpu().numpy()
+    pred_ori = predicted_actions[ProprioKey.EE_ORI_ACTION.value][0, 0].cpu().numpy()
+    gt_pos = episode['ee_pos_action'][t].flatten()
+    gt_ori = episode['ee_ori_action'][t].flatten()
+
+    logging.info(f"  Pred pos: {pred_pos}")
+    logging.info(f"  GT pos:   {gt_pos}")
+    logging.info(f"  Pred ori: {pred_ori}")
+    logging.info(f"  GT ori:   {gt_ori}")
+    logging.info(f"  Position MAE: {np.abs(pred_pos - gt_pos).mean():.4f}")
+    logging.info(f"  Orientation MAE: {np.abs(pred_ori - gt_ori).mean():.4f}")
+
+    # ========== TEST 3: forward pass directly ==========
+    logging.info("\n--- TEST 3: forward() on normalized batch ---")
+    with torch.no_grad():
+        forward_output = policy.forward(batch)
+
+    fwd_pos = forward_output[ProprioKey.EE_POS_ACTION.value][0, 0].cpu().numpy()
+    fwd_ori = forward_output[ProprioKey.EE_ORI_ACTION.value][0, 0].cpu().numpy()
+    gt_pos_norm = action_chunk_pos_norm[0, 0].cpu().numpy()
+    gt_ori_norm = action_chunk_ori_norm[0, 0].cpu().numpy()
+
+    logging.info(f"  Forward pos (norm): {fwd_pos}")
+    logging.info(f"  GT pos (norm):      {gt_pos_norm}")
+    logging.info(f"  Forward ori (norm): {fwd_ori}")
+    logging.info(f"  GT ori (norm):      {gt_ori_norm}")
+    logging.info(f"  Position MAE (norm): {np.abs(fwd_pos - gt_pos_norm).mean():.4f}")
+
+    logging.info("\n--- TEST 4: Loop through timesteps ---")
 
     pos_errors = []
     ori_errors = []
