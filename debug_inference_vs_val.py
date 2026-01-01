@@ -226,6 +226,42 @@ def run_episode_test(policy: Policy, episode: dict, config: MainConfig, device: 
     logging.info(f"  Position MAE: {np.abs(pred_pos - gt_pos).mean():.4f}")
     logging.info(f"  Orientation MAE: {np.abs(pred_ori - gt_ori).mean():.4f}")
 
+    # ========== TEST 2b: Simulate predict_action step by step ==========
+    logging.info("\n--- TEST 2b: Simulating predict_action step-by-step ---")
+    from refactoring.data.transform import normalize_observation
+    from refactoring.common.tensor_ops import to_device
+
+    obs_2b = to_device(obs, policy.device)
+    logging.info(f"  Input obs keys: {list(obs_2b.keys())}")
+    logging.info(f"  observation_space.observations_metadata keys: {list(policy.observation_space.observations_metadata.keys())}")
+    logging.info(f"  normalizer.params_dict keys: {list(policy.normalizer.params_dict.keys())}")
+
+    # This is what normalize_observation does
+    normalized_obs_2b = normalize_observation(
+        observation=obs_2b,
+        normalizer=policy.normalizer,
+        observation_space=policy.observation_space
+    )
+    logging.info(f"  Normalized obs keys: {list(normalized_obs_2b.keys())}")
+
+    # Check if images were normalized
+    for k in obs_2b.keys():
+        if k in normalized_obs_2b:
+            orig_val = obs_2b[k][0, 0, 0, 0, 0].item()
+            norm_val = normalized_obs_2b[k][0, 0, 0, 0, 0].item()
+            logging.info(f"  Key '{k}': orig[0,0,0,0,0]={orig_val:.4f}, normalized[0,0,0,0,0]={norm_val:.4f}")
+            if abs(orig_val - norm_val) < 0.001:
+                logging.warning(f"    WARNING: Key '{k}' was NOT normalized (values unchanged)!")
+
+    # Now encode and predict
+    with torch.no_grad():
+        features_2b = policy.encoding_pipeline(normalized_obs_2b)
+        predictions_2b = policy.algorithm.predict(features=features_2b, network=policy.decoder)
+
+    pred_pos_2b_norm = predictions_2b[ProprioKey.EE_POS_ACTION.value][0, 0].cpu().numpy()
+    logging.info(f"  Predicted pos (normalized): {pred_pos_2b_norm}")
+    logging.info(f"  GT pos (normalized): {action_chunk_pos_norm[0, 0].cpu().numpy()}")
+
     # ========== TEST 3: forward pass directly ==========
     logging.info("\n--- TEST 3: forward() on normalized batch ---")
     with torch.no_grad():
@@ -315,6 +351,16 @@ def analyze_normalizer(policy: Policy) -> None:
 
     logging.info(f"Normalizer type: {type(normalizer)}")
     logging.info(f"Number of keys: {len(normalizer.params_dict)}")
+
+    # Check observation_space keys
+    logging.info(f"\n--- observation_space.observations_metadata keys ---")
+    for key in policy.observation_space.observations_metadata.keys():
+        logging.info(f"  {key}")
+
+    # Check normalizer keys
+    logging.info(f"\n--- normalizer.params_dict keys ---")
+    for key in normalizer.params_dict.keys():
+        logging.info(f"  {key}")
 
     if len(normalizer.params_dict) == 0:
         logging.error("CRITICAL: Normalizer is EMPTY! Model will not work correctly.")
