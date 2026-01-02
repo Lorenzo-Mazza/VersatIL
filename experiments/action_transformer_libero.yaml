@@ -17,6 +17,9 @@ defaults:
   - override policy/decoder/heads@policy.decoder.action_heads: libero
   - _self_
 
+experiment:
+  checkpoint_folder: /mnt/cluster/workspaces/mazzalore/libero_exp/
+
 task:
   observation_horizon: 1
   prediction_horizon: 10

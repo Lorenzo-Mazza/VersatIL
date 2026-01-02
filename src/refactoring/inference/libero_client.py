@@ -24,7 +24,6 @@ from omegaconf import OmegaConf
 
 from refactoring.configs import MainConfig
 from refactoring.data.constants import (
-    BinaryGripperRange,
     Cameras,
     GripperType,
     ObsKey,
@@ -453,13 +452,6 @@ class LiberoClient(SocketClient):
         """Compute next actions using the trained policy model."""
         agentview_list = self.agentview_buffer[-self.observation_buffer_size:]
         eye_in_hand_list = self.eye_in_hand_buffer[-self.observation_buffer_size:]
-
-        if self.enable_logging and len(agentview_list) > 0:
-            import cv2
-            cv2.imwrite("/mnt/cluster/workspaces/mazzalore/debug_agentview.png", cv2.cvtColor(agentview_list[-1], cv2.COLOR_RGB2BGR))
-            if len(eye_in_hand_list) > 0 and eye_in_hand_list[-1] is not None:
-                cv2.imwrite("/mnt/cluster/workspaces/mazzalore/debug_eye_in_hand.png", cv2.cvtColor(eye_in_hand_list[-1], cv2.COLOR_RGB2BGR))
-
         agentview_tensors = []
         eye_in_hand_tensors = []
         for agentview, eye_in_hand in zip(agentview_list, eye_in_hand_list):
@@ -485,12 +477,6 @@ class LiberoClient(SocketClient):
             lang_list = self.language_instruction_buffer[-self.observation_buffer_size:]
             obs_dict[ObsKey.LANGUAGE.value] = [[s] for s in lang_list]
 
-        if self.enable_logging and self.timestep == 0:
-            # Debug: Check image tensor stats before normalization
-            if self.use_agentview:
-                img = obs_dict[Cameras.AGENTVIEW.value]
-                logging.info(f"[DEBUG] agentview BEFORE norm: shape={img.shape}, range=[{img.min():.3f}, {img.max():.3f}]")
-
         with torch.autocast(device_type=str(self.device), dtype=MAP_PRECISION_TO_DTYPE[self.precision]):
             with torch.no_grad():
                 action_dict = self.policy.predict_action(obs_dict=obs_dict)
@@ -498,20 +484,6 @@ class LiberoClient(SocketClient):
         self.current_all_position_actions = action_dict[self.position_key]
         self.current_all_orientations = action_dict[self.orientation_key]
         self.current_all_grippers = action_dict[self.gripper_key]
-
-        if self.enable_logging:
-            pos_val = self.current_all_position_actions[0, 0].float().cpu().numpy()
-            ori_val = self.current_all_orientations[0, 0].float().cpu().numpy()
-            grip_val = self.current_all_grippers[0, 0].float().cpu().numpy()
-            logging.info(f"[UNNORMALIZED] pos: {pos_val}, ori: {ori_val}, grip: {grip_val}")
-            # Log normalizer stats for debugging
-            if self.timestep == 0:
-                pos_norm = self.policy.normalizer[self.position_key]
-                ori_norm = self.policy.normalizer[self.orientation_key]
-                logging.info(f"[NORMALIZER] pos scale: {pos_norm.params_dict['scale'].float().cpu().numpy()}, "
-                            f"offset: {pos_norm.params_dict['offset'].float().cpu().numpy()}")
-                logging.info(f"[NORMALIZER] ori scale: {ori_norm.params_dict['scale'].float().cpu().numpy()}, "
-                            f"offset: {ori_norm.params_dict['offset'].float().cpu().numpy()}")
 
         if self.temporal_agg:
             averaged_actions = self._get_exponential_averaged_actions()

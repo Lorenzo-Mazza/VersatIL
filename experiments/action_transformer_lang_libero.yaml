@@ -23,6 +23,7 @@ task:
 
 experiment:
   precision: ${precision:FP32}
+  checkpoint_folder: /mnt/cluster/workspaces/mazzalore/libero_exp/
 
 training:
   num_epochs: 200

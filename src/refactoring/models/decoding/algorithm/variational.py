@@ -58,7 +58,7 @@ class VariationalAlgorithm(DecodingAlgorithm):
         super().__init__()
         self.base_algorithm = base_algorithm
         self.posterior_encoder = posterior_encoder
-        self.p_prior = 0.1  # Probability of sampling from prior during training
+        self.p_prior = 0.2  # Probability of sampling from prior during training
         if prior is None:
             device = str(posterior_encoder.device)
             self.prior = GaussianPrior(
