@@ -4,12 +4,13 @@ from torch import nn
 
 class RotaryPositionalEncoding(nn.Module):
     """Base class for rotary positional encoding, from https://arxiv.org/pdf/2104.09864."""
+
     def __init__(
-            self,
-            embedding_dimension: int,
-            num_heads: int,
-            base_frequency: float = 10000.0,
-            learnable_frequencies: bool = False
+        self,
+        embedding_dimension: int,
+        num_heads: int,
+        base_frequency: float = 10000.0,
+        learnable_frequencies: bool = False,
     ):
         super().__init__()
         self.embedding_dimension = embedding_dimension
@@ -20,12 +21,11 @@ class RotaryPositionalEncoding(nn.Module):
             raise ValueError("head_dimension must be even for rotary encoding")
 
         frequencies = self._compute_frequencies(
-            dimension=self.head_dimension,
-            base_frequency=base_frequency
+            dimension=self.head_dimension, base_frequency=base_frequency
         )
         self.register_parameter(
             "frequencies",
-            nn.Parameter(frequencies, requires_grad=learnable_frequencies)
+            nn.Parameter(frequencies, requires_grad=learnable_frequencies),
         )
 
     @staticmethod
@@ -48,9 +48,7 @@ class RotaryPositionalEncoding(nn.Module):
 
     @staticmethod
     def apply_rotation(
-            tensor: torch.Tensor,
-            sine: torch.Tensor,
-            cosine: torch.Tensor
+        tensor: torch.Tensor, sine: torch.Tensor, cosine: torch.Tensor
     ) -> torch.Tensor:
         """Applies rotary transformation to input tensor.
 
@@ -74,8 +72,7 @@ class RotaryPositionalEncoding1D(RotaryPositionalEncoding):
     """Rotary positional encoding for 1D sequences."""
 
     def compute_rotation_components(
-            self,
-            seq_len: int
+        self, seq_len: int
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Computes sine and cosine components for 1D sequence positions.
 
@@ -97,28 +94,28 @@ class RotaryPositionalEncoding2D(RotaryPositionalEncoding):
     """Rotary positional encoding for 2D spatial grids."""
 
     def __init__(
-            self,
-            embedding_dimension: int,
-            num_heads: int,
-            base_frequency: float = 10000.0,
-            learnable_frequencies: bool = False
+        self,
+        embedding_dimension: int,
+        num_heads: int,
+        base_frequency: float = 10000.0,
+        learnable_frequencies: bool = False,
     ):
         super().__init__(
             embedding_dimension=embedding_dimension,
             num_heads=num_heads,
             base_frequency=base_frequency,
-            learnable_frequencies=learnable_frequencies
+            learnable_frequencies=learnable_frequencies,
         )
         self.half_head_dim = self.head_dimension // 2
         if self.half_head_dim % 2 != 0:
             raise ValueError("half_head_dimension must be even for 2D rotary encoding")
-        freq_set = self._compute_frequencies(self.half_head_dim, base_frequency=base_frequency)
+        freq_set = self._compute_frequencies(
+            self.half_head_dim, base_frequency=base_frequency
+        )
         self.frequencies.data = torch.cat([freq_set, freq_set])
 
     def compute_rotation_components(
-            self,
-            height: int,
-            width: int
+        self, height: int, width: int
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Computes sine and cosine components for 2D grid positions.
 
@@ -135,8 +132,8 @@ class RotaryPositionalEncoding2D(RotaryPositionalEncoding):
         y_pos = torch.arange(height, device=device)[:, None].repeat(1, width)
         x_pos = torch.arange(width, device=device)[None, :].repeat(height, 1)
         # Split frequencies: first half for y, second for x
-        freq_y = self.frequencies[:self.half_head_dim]
-        freq_x = self.frequencies[self.half_head_dim:]
+        freq_y = self.frequencies[: self.half_head_dim]
+        freq_x = self.frequencies[self.half_head_dim :]
         angles_y = y_pos[..., None] * freq_y[None, None, :]
         angles_x = x_pos[..., None] * freq_x[None, None, :]
         angles = torch.cat([angles_y, angles_x], dim=-1)

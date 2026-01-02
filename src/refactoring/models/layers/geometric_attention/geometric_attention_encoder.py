@@ -95,7 +95,9 @@ class GeometricAttentionEncoderBlock(nn.Module):
                 requires_grad=True,
             )
 
-    def forward(self, rgb_tensor: torch.Tensor, depth_map: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, rgb_tensor: torch.Tensor, depth_map: torch.Tensor
+    ) -> torch.Tensor:
         """Applies the geometric attention encoder block.
 
         Args:

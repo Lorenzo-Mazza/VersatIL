@@ -3,6 +3,7 @@ import enum
 
 class LatentKey(str, enum.Enum):
     """Enum for latent-related feature keys used in variational models."""
+
     POSTERIOR_LATENT = "latent"
     POSTERIOR_MU = "mu"
     POSTERIOR_LOGVAR = "logvar"
@@ -15,12 +16,14 @@ class LatentKey(str, enum.Enum):
 
 class MoERoutingType(str, enum.Enum):
     """Enum for different Mixture of Experts (MoE) routing strategies."""
-    TOP_K = 'top_k'  # Select the top-k experts based on gating scores
-    SOFT = 'soft'  # Weighted combination of all experts based on gating scores
+
+    TOP_K = "top_k"  # Select the top-k experts based on gating scores
+    SOFT = "soft"  # Weighted combination of all experts based on gating scores
 
 
 class FeatureType(str, enum.Enum):
     """Feature types that the decoder can optionally require."""
+
     SPATIAL = "spatial"  # Features with (C, H, W) dimensions (besides batch/time)
     SEQUENTIAL = "sequential"  # Features with (T, D) dimensions
     FLAT = "flat"  # Flat features with single dimension
@@ -28,6 +31,7 @@ class FeatureType(str, enum.Enum):
 
 class PredictionType(str, enum.Enum):
     """What the diffusion model predicts."""
+
     EPSILON = "epsilon"  # Predict noise
     SAMPLE = "sample"  # Predict clean sample (x0)
     VELOCITY = "velocity"  # Predict velocity
@@ -35,6 +39,7 @@ class PredictionType(str, enum.Enum):
 
 class BetaSchedule(str, enum.Enum):
     """Beta schedule for diffusion models."""
+
     LINEAR = "linear"
     SCALED_LINEAR = "scaled_linear"
     SQUAREDCOS_CAP_V2 = "squaredcos_cap_v2"
@@ -42,6 +47,7 @@ class BetaSchedule(str, enum.Enum):
 
 class VarianceType(str, enum.Enum):
     """Variance type for DDPM scheduler."""
+
     FIXED_SMALL = "fixed_small"
     FIXED_LARGE = "fixed_large"
     LEARNED = "learned"
@@ -50,6 +56,7 @@ class VarianceType(str, enum.Enum):
 
 class ODESolver(str, enum.Enum):
     """ODE solver types for flow matching."""
+
     EULER = "euler"  # First-order Euler method
     HEUN = "heun"  # Second-order Heun's method
     RK4 = "rk4"  # Fourth-order Runge-Kutta
@@ -57,7 +64,9 @@ class ODESolver(str, enum.Enum):
 
 
 # Feature keys for time/timestep conditioning
-TIMESTEP_KEY = "timestep"  # For diffusion or flow processes (discrete or continuous timestep)
+TIMESTEP_KEY = (
+    "timestep"  # For diffusion or flow processes (discrete or continuous timestep)
+)
 TARGET_DIFFUSION_KEY = "target_diffusion"  # Target sample (noisy action) for diffusion
 NOISE_KEY = "noise"
 TARGET_VELOCITY_KEY = "target_velocity"  # Target velocity for flow matching

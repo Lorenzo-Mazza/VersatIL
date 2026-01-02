@@ -7,12 +7,13 @@ from refactoring.models.encoding.encoders.base import EncoderInput, EncodingMixi
 
 class Encoder(EncodingMixin):
     """Base class for all unconditional encoders."""
+
     def __init__(
-            self,
-            input_specification: EncoderInput,
-            pretrained: bool = False,
-            frozen: bool = False,
-            device: str | None = "cuda" if torch.cuda.is_available() else "cpu",
+        self,
+        input_specification: EncoderInput,
+        pretrained: bool = False,
+        frozen: bool = False,
+        device: str | None = "cuda" if torch.cuda.is_available() else "cpu",
     ):
         """Initialize base encoder.
 
@@ -22,8 +23,12 @@ class Encoder(EncodingMixin):
             frozen: Whether to freeze encoder weights
             device: Device to place the encoder on
         """
-        super().__init__(input_specification=input_specification, pretrained=pretrained, frozen=frozen, device=device)
-
+        super().__init__(
+            input_specification=input_specification,
+            pretrained=pretrained,
+            frozen=frozen,
+            device=device,
+        )
 
     @abstractmethod
     def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:

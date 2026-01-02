@@ -15,19 +15,19 @@ def generate_causal_mask(sequence_length: int, device: torch.device) -> torch.Te
     # Create triangular matrix mask with True for future positions
     mask = torch.triu(
         torch.ones(sequence_length, sequence_length, device=device, dtype=torch.bool),
-        diagonal=1  # `True`s start above the main diagonal
+        diagonal=1,  # `True`s start above the main diagonal
     )
     return mask.unsqueeze(0).unsqueeze(0)  # (1, 1, seq_len, seq_len)
 
 
 def create_full_padding_mask(
-        key_padding_mask: torch.Tensor | None,
-        cached_key_padding_mask: torch.Tensor | None,
-        self_attention_mask: torch.Tensor | None,
-        batch_size: int,
-        query_length: int,
-        cache_length: int,
-        device: torch.device,
+    key_padding_mask: torch.Tensor | None,
+    cached_key_padding_mask: torch.Tensor | None,
+    self_attention_mask: torch.Tensor | None,
+    batch_size: int,
+    query_length: int,
+    cache_length: int,
+    device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor | None]:
     """Create full causal self attention mask and full key padding mask by combining cached and current masks.
 
@@ -54,31 +54,49 @@ def create_full_padding_mask(
         if cached_key_padding_mask is None:
             full_key_padding_mask = key_padding_mask  # (B, seq_len + 0 = key_length)
         else:
-            full_key_padding_mask = torch.cat((cached_key_padding_mask, key_padding_mask), dim=1)  # (B, total_len)
+            full_key_padding_mask = torch.cat(
+                (cached_key_padding_mask, key_padding_mask), dim=1
+            )  # (B, total_len)
     else:
         # full_key_padding_mask is None
         if cached_key_padding_mask is not None:
             full_key_padding_mask = torch.cat(
-                (cached_key_padding_mask, torch.zeros(batch_size, query_length, device=device, dtype=torch.bool)), dim=1
+                (
+                    cached_key_padding_mask,
+                    torch.zeros(
+                        batch_size, query_length, device=device, dtype=torch.bool
+                    ),
+                ),
+                dim=1,
             )  # (B, total_len)
 
     if self_attention_mask is None:
-        causal_mask = generate_causal_mask(key_length, device)  # (1, 1, key_length, key_length)
-        total_mask = causal_mask[:, :, -query_length:, :]  # (1,1,query_length,key_length)
+        causal_mask = generate_causal_mask(
+            key_length, device
+        )  # (1, 1, key_length, key_length)
+        total_mask = causal_mask[
+            :, :, -query_length:, :
+        ]  # (1,1,query_length,key_length)
         if full_key_padding_mask is not None:
-            padding_mask = full_key_padding_mask.unsqueeze(1).unsqueeze(1)  # (B,1,1,key_length)
+            padding_mask = full_key_padding_mask.unsqueeze(1).unsqueeze(
+                1
+            )  # (B,1,1,key_length)
             # Broadcasting to (B,1,query_length,key_length)
             total_mask = total_mask | padding_mask
     else:
         # self_attention_mask (B, 1, query_length, query_length)
         # total_mask (B, 1, query_length, key_length)
-        total_mask = torch.zeros(batch_size, 1, query_length, key_length, dtype=torch.bool, device=device)
+        total_mask = torch.zeros(
+            batch_size, 1, query_length, key_length, dtype=torch.bool, device=device
+        )
         if full_key_padding_mask is not None:
-            padding_mask = full_key_padding_mask.unsqueeze(1).unsqueeze(1)  # (B, 1, 1, key_length)
+            padding_mask = full_key_padding_mask.unsqueeze(1).unsqueeze(
+                1
+            )  # (B, 1, 1, key_length)
             # Broadcasting to (B,1, query_length, key_length)
             total_mask |= padding_mask
         # Slicing the query_length elements in total mask
         # total_mask[:, :, :, cache_length:] has shape (B,1, query_length, query_length)
         total_mask[:, :, :, cache_length:] |= self_attention_mask
 
-    return  total_mask, full_key_padding_mask
+    return total_mask, full_key_padding_mask

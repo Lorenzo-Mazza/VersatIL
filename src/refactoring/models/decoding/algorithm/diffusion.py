@@ -25,13 +25,16 @@ from refactoring.models.layers.diffusion_process import (
     add_noise_to_tensor,
     create_noise_scheduler,
     sample_random_timesteps,
-    setup_inference_timesteps, SchedulerType,
+    setup_inference_timesteps,
+    SchedulerType,
 )
 from refactoring.models.decoding.constants import (
     TIMESTEP_KEY,
     BetaSchedule,
     PredictionType,
-    VarianceType, NOISE_KEY, TARGET_DIFFUSION_KEY,
+    VarianceType,
+    NOISE_KEY,
+    TARGET_DIFFUSION_KEY,
 )
 from refactoring.models.decoding.decoders.base import ActionDecoder
 
@@ -199,8 +202,11 @@ class Diffusion(DecodingAlgorithm):
         noisy_actions = {}
         for key, meta in network.action_space.actions_metadata.items():
             noisy_actions[key] = torch.randn(
-                batch_size, network.prediction_horizon, meta.prediction_dimension,  # type: ignore[arg-type]
-                device=device, dtype=dtype
+                batch_size,
+                network.prediction_horizon,
+                meta.prediction_dimension,  # type: ignore[arg-type]
+                device=device,
+                dtype=dtype,
             )
         setup_inference_timesteps(self.noise_scheduler, self.num_inference_steps)
 

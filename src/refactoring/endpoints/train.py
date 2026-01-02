@@ -10,13 +10,13 @@ from refactoring.configs.validator import validate_config
 from refactoring.workspace import Workspace
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 EXPERIMENTS_DIR = PROJECT_ROOT / "experiments"
+
 
 @hydra.main(version_base=None, config_path=str(EXPERIMENTS_DIR), config_name="main")
 def main(config: DictConfig) -> None:
@@ -39,7 +39,9 @@ def main(config: DictConfig) -> None:
     # These are set by SLURM or other job schedulers
     if "WORLD_SIZE" in os.environ:
         config.experiment.distributed = True
-        logger.info(f"Distributed training detected (WORLD_SIZE={os.environ['WORLD_SIZE']})")
+        logger.info(
+            f"Distributed training detected (WORLD_SIZE={os.environ['WORLD_SIZE']})"
+        )
 
     instantiated_config = hydra.utils.instantiate(config)
     validate_config(instantiated_config)
@@ -50,7 +52,9 @@ def main(config: DictConfig) -> None:
             logger.info(f"Resuming from checkpoint: {checkpoint_path}")
             workspace.load_checkpoint(str(checkpoint_path))
         else:
-            logger.warning(f"Checkpoint not found: {checkpoint_path}. Starting from scratch.")
+            logger.warning(
+                f"Checkpoint not found: {checkpoint_path}. Starting from scratch."
+            )
     workspace.run()
     logger.info("Training completed successfully!")
 

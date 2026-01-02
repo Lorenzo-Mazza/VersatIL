@@ -153,7 +153,7 @@ class MetricsAccumulator:
 
         Note: this function supports multiple expert usage keys in metadata, but in practice we always only have one.
         """
-        #TODO: drop support for multiple expert usage keys, it's unnecessary complexity
+        # TODO: drop support for multiple expert usage keys, it's unnecessary complexity
         expert_usages = {}
         for key in self.metadata.keys():
             if key == MetadataKey.EXPERT_USAGE.value:
@@ -202,11 +202,12 @@ class MetricsAccumulator:
             all_prior_z = torch.cat(self.metadata[MetadataKey.PRIOR_Z.value], dim=0)
             # Handle 3D latents (B, T, H) from Free Transformer by flattening
             if all_prior_z.ndim == 3:
-                all_prior_z = all_prior_z.view(all_prior_z.shape[0], -1)  # (N, T, H) -> (N, T*H)
+                all_prior_z = all_prior_z.view(
+                    all_prior_z.shape[0], -1
+                )  # (N, T, H) -> (N, T*H)
             z_prior = all_prior_z.float().numpy()
 
         return z, z_prior, phase_per_sample
-
 
     def to_dict(self) -> dict[str, float]:
         """Convert to dictionary of averaged metrics.

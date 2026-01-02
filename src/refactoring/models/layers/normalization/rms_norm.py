@@ -40,7 +40,7 @@ class RMSNorm(nn.Module):
         if self.elementwise_affine:
             self.weight = nn.Parameter(torch.ones(normalized_shape))
         else:
-            self.register_parameter('weight', None)
+            self.register_parameter("weight", None)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply RMS normalization.

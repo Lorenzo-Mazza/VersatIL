@@ -9,6 +9,7 @@ from refactoring.models.layers.activation import ActivationFunction
 @dataclass
 class PosteriorLatentEncoderConfig:
     """Base posterior encoder configuration."""
+
     _target_: str = MISSING
     latent_dimension: int = MISSING
     device: str = "${policy.device}"
@@ -17,6 +18,7 @@ class PosteriorLatentEncoderConfig:
 @dataclass
 class PriorLatentEncoderConfig:
     """Base latent prior configuration."""
+
     _target_: str = MISSING
     latent_dimension: int = MISSING
     device: str = "${policy.device}"
@@ -29,6 +31,7 @@ class VAETransformerEncoderConfig(PosteriorLatentEncoderConfig):
     This encoder uses a transformer architecture to encode action sequences into
     a latent space via variational inference.
     """
+
     _target_: str = "refactoring.models.decoding.latent.posterior.transformer_encoder.VAETransformerEncoder"
     latent_dimension: int = MISSING
     embedding_dimension: int = MISSING
@@ -41,7 +44,7 @@ class VAETransformerEncoderConfig(PosteriorLatentEncoderConfig):
     activation: str = ActivationFunction.SWIGLU.value
     dropout_rate: float = 0.1
     normalize_before: bool = False
-    exclude_keys : list[str] | None = None
+    exclude_keys: list[str] | None = None
 
 
 @dataclass
@@ -55,7 +58,10 @@ class GaussianPriorConfig(PriorLatentEncoderConfig):
         latent_dim: Dimension of latent variable z
         device: Device to place prior on
     """
-    _target_: str = "refactoring.models.decoding.latent.prior.gaussian_prior.GaussianPrior"
+
+    _target_: str = (
+        "refactoring.models.decoding.latent.prior.gaussian_prior.GaussianPrior"
+    )
     latent_dimension: int = 32
 
 
@@ -73,8 +79,7 @@ class PriorTransformerEncoderConfig(PriorLatentEncoderConfig):
     activation: str = ActivationFunction.SWIGLU.value
     dropout_rate: float = 0.1
     normalize_before: bool = False
-    exclude_keys : list[str] | None = None
-
+    exclude_keys: list[str] | None = None
 
 
 @dataclass
@@ -97,10 +102,15 @@ class DiffusionPriorConfig(PriorLatentEncoderConfig):
         dropout: Dropout rate
         device: Device to place prior on
     """
-    _target_: str = "refactoring.models.decoding.latent.prior.diffusion_mlp.DiffusionPrior"
+
+    _target_: str = (
+        "refactoring.models.decoding.latent.prior.diffusion_mlp.DiffusionPrior"
+    )
 
     latent_dimension: int = 32
-    conditioning_dim: int = 128  # Should match the sum of the dimension of the flat state features
+    conditioning_dim: int = (
+        128  # Should match the sum of the dimension of the flat state features
+    )
 
     # Denoising network architecture
     hidden_dims: list[int] | None = None  # Defaults to [latent_dim*2, latent_dim*2]
@@ -115,5 +125,3 @@ class DiffusionPriorConfig(PriorLatentEncoderConfig):
     # Network parameters
     activation: str = ActivationFunction.RELU.value
     dropout: float = 0.1
-
-

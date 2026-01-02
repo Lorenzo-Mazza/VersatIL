@@ -8,15 +8,14 @@ class EMAModel:
     Exponential Moving Average of models weights
     """
 
-
     def __init__(
-            self,
-            model,
-            update_after_step = 0,
-            inv_gamma = 1.0,
-            power = 2 / 3,
-            min_value = 0.0,
-            max_value = 0.9999
+        self,
+        model,
+        update_after_step=0,
+        inv_gamma=1.0,
+        power=2 / 3,
+        min_value=0.0,
+        max_value=0.9999,
     ):
         """
         @crowsonkb's notes on EMA Warmup:
@@ -43,7 +42,6 @@ class EMAModel:
         self.decay = 0.0
         self.optimization_step = 0
 
-
     def get_decay(self, optimization_step):
         """
         Compute the decay factor for the exponential moving average.
@@ -56,7 +54,6 @@ class EMAModel:
 
         return max(self.min_value, min(value, self.max_value))
 
-
     @torch.no_grad()
     def step(self, new_model):
         self.decay = self.get_decay(self.optimization_step)
@@ -68,11 +65,15 @@ class EMAModel:
         #         old_all_dataptrs.add(data_ptr)
 
         all_dataptrs = set()
-        for module, ema_module in zip(new_model.modules(), self.averaged_model.modules()):
-            for param, ema_param in zip(module.parameters(recurse=False), ema_module.parameters(recurse=False)):
+        for module, ema_module in zip(
+            new_model.modules(), self.averaged_model.modules()
+        ):
+            for param, ema_param in zip(
+                module.parameters(recurse=False), ema_module.parameters(recurse=False)
+            ):
                 # iterative over immediate parameters only.
                 if isinstance(param, dict):
-                    raise RuntimeError('Dict parameter not supported')
+                    raise RuntimeError("Dict parameter not supported")
 
                 # data_ptr = param.data_ptr()
                 # if data_ptr != 0:
@@ -85,7 +86,9 @@ class EMAModel:
                     ema_param.copy_(param.to(dtype=ema_param.dtype).data)
                 else:
                     ema_param.mul_(self.decay)
-                    ema_param.add_(param.data.to(dtype=ema_param.dtype), alpha=1 - self.decay)
+                    ema_param.add_(
+                        param.data.to(dtype=ema_param.dtype), alpha=1 - self.decay
+                    )
 
         # verify that iterating over module and then parameters is identical to parameters recursively.
         # assert old_all_dataptrs == all_dataptrs

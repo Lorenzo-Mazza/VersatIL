@@ -19,7 +19,8 @@ from refactoring.models.decoding.algorithm.base import DecodingAlgorithm
 from refactoring.models.decoding.constants import (
     LATENT_KEY,
     LOGVAR_KEY,
-    MU_KEY, PRIOR_LATENT_KEY,
+    MU_KEY,
+    PRIOR_LATENT_KEY,
 )
 from refactoring.models.decoding.decoders.base import ActionDecoder
 from refactoring.models.decoding.latent import PosteriorLatentEncoder
@@ -77,7 +78,6 @@ class VariationalAlgorithm(DecodingAlgorithm):
                 f"!= posterior_encoder.latent_dim={self.posterior_encoder.latent_dimension}"
             )
 
-
     def _variational_step(
         self,
         features: dict[str, torch.Tensor],
@@ -93,14 +93,15 @@ class VariationalAlgorithm(DecodingAlgorithm):
             Tuple of (posterior_output, prior_output)
             where each contain sampled z, mu and logvar from the prior and posterior networks.
         """
-        posterior_output = self.posterior_encoder.encode(actions=actions, observations=features)
-        z = posterior_output[LATENT_KEY] # (B, posterior.latent_dim)
+        posterior_output = self.posterior_encoder.encode(
+            actions=actions, observations=features
+        )
+        z = posterior_output[LATENT_KEY]  # (B, posterior.latent_dim)
         prior_output = self.prior.forward(
-            target_latents=z.detach(), # Detach z to prevent gradients flowing to posterior encoder
+            target_latents=z.detach(),  # Detach z to prevent gradients flowing to posterior encoder
             observations=features,
         )
         return posterior_output, prior_output
-
 
     def _sample_prior(
         self,
@@ -121,7 +122,6 @@ class VariationalAlgorithm(DecodingAlgorithm):
             observations=features,
         )
         return latent_embedding
-
 
     def forward(
         self,
@@ -149,7 +149,9 @@ class VariationalAlgorithm(DecodingAlgorithm):
                 - Prior outputs (prior_prediction, prior_target) if learned prior
         """
         if actions is None:
-            raise ValueError("Actions must be provided during training for variational algorithm.")
+            raise ValueError(
+                "Actions must be provided during training for variational algorithm."
+            )
         posterior_output, prior_output = self._variational_step(
             features=features,
             actions=actions,
@@ -159,7 +161,7 @@ class VariationalAlgorithm(DecodingAlgorithm):
             latent = prior_output[PRIOR_LATENT_KEY]
         else:
             latent = posterior_output[LATENT_KEY]
-        features_with_latent = {**features, LATENT_KEY: latent} # (B, latent_dimension)
+        features_with_latent = {**features, LATENT_KEY: latent}  # (B, latent_dimension)
         predictions = self.base_algorithm.forward(
             network=network,
             features=features_with_latent,
@@ -168,7 +170,6 @@ class VariationalAlgorithm(DecodingAlgorithm):
         predictions.update(posterior_output)
         predictions.update(prior_output)
         return predictions
-
 
     def predict(
         self,
@@ -186,7 +187,10 @@ class VariationalAlgorithm(DecodingAlgorithm):
         """
         batch_size = next(iter(features.values())).shape[0]
         latent_embedding = self._sample_prior(features=features, batch_size=batch_size)
-        features_with_latent = {**features, LATENT_KEY: latent_embedding} # (B, latent_dimension)
+        features_with_latent = {
+            **features,
+            LATENT_KEY: latent_embedding,
+        }  # (B, latent_dimension)
         return self.base_algorithm.forward(
             network=network,
             features=features_with_latent,

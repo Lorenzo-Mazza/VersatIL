@@ -19,12 +19,12 @@ from refactoring.models.encoding.encoders.base import EncodingMixin
 
 class ConfigValidationError(Exception):
     """Raised when configuration validation fails."""
+
     pass
 
 
 class ConfigValidator:
     """Validates consistency across configuration components."""
-
 
     def __init__(self, cfg: DictConfig):
         """Initialize validator.
@@ -35,7 +35,6 @@ class ConfigValidator:
         self.cfg = cfg
         self.errors: list[str] = []
         self.warnings: list[str] = []
-
 
     def validate_all(self) -> None:
         """Run all validation checks and raise if any fail.
@@ -52,11 +51,14 @@ class ConfigValidator:
 
         if self.errors:
             error_msg = "\n".join([f"  - {err}" for err in self.errors])
-            raise ConfigValidationError(f"Configuration validation failed with {len(self.errors)} error(s):\n{error_msg}")
+            raise ConfigValidationError(
+                f"Configuration validation failed with {len(self.errors)} error(s):\n{error_msg}"
+            )
         if self.warnings:
             warning_msg = "\n".join([f"  - {warn}" for warn in self.warnings])
-            logging.warning(msg=f"Configuration warnings ({len(self.warnings)}):\n{warning_msg}")
-
+            logging.warning(
+                msg=f"Configuration warnings ({len(self.warnings)}):\n{warning_msg}"
+            )
 
     def validate_encoder_task_consistency(self) -> None:
         """Validate that encoders match task requirements."""
@@ -77,7 +79,9 @@ class ConfigValidator:
         available_keys = set()
 
         if is_obs_tokenized and task.dataloader.tokenization.observation_tokenizer:
-            token_obs_keys = set(task.dataloader.tokenization.observation_tokenizer.observation_keys)
+            token_obs_keys = set(
+                task.dataloader.tokenization.observation_tokenizer.observation_keys
+            )
             tokenized_any = False
 
             for obs_key, obs_meta in obs_space.observations_metadata.items():
@@ -107,8 +111,14 @@ class ConfigValidator:
         configured_encoder_inputs = set()
         for encoder_name, encoder in pipeline.encoders.items():
             encoder: EncodingMixin
-            if hasattr(encoder, 'backbone_name') and 'dinov3' in encoder.backbone_name.lower():
-                if task.dataloader.image_norm_type != ImageNormalizationType.IMAGENET.value:
+            if (
+                hasattr(encoder, "backbone_name")
+                and "dinov3" in encoder.backbone_name.lower()
+            ):
+                if (
+                    task.dataloader.image_norm_type
+                    != ImageNormalizationType.IMAGENET.value
+                ):
                     self.errors.append(
                         f"Encoder '{encoder_name}' uses DINOv3 backbone which requires "
                         f"ImageNet normalization, but dataloader.image_norm_type is set to "

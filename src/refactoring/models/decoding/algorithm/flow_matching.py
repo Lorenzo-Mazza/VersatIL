@@ -6,7 +6,12 @@ from torchcfm.conditional_flow_matching import ConditionalFlowMatcher
 
 from refactoring.data.constants import IS_PAD_ACTION_KEY
 from refactoring.models.decoding.algorithm.base import DecodingAlgorithm
-from refactoring.models.decoding.constants import ODESolver, TARGET_VELOCITY_KEY, TIMESTEP_KEY, NOISE_KEY
+from refactoring.models.decoding.constants import (
+    ODESolver,
+    TARGET_VELOCITY_KEY,
+    TIMESTEP_KEY,
+    NOISE_KEY,
+)
 from refactoring.models.decoding.decoders.base import ActionDecoder
 
 
@@ -134,8 +139,11 @@ class FlowMatching(DecodingAlgorithm):
         trajectory = {}
         for key, meta in network.action_space.actions_metadata.items():
             trajectory[key] = torch.randn(
-                batch_size, network.prediction_horizon, meta.prediction_dimension,  # type: ignore[arg-type]
-                device=device, dtype=dtype
+                batch_size,
+                network.prediction_horizon,
+                meta.prediction_dimension,  # type: ignore[arg-type]
+                device=device,
+                dtype=dtype,
             )
         # Integration step size
         dt = 1.0 / self.num_inference_steps
@@ -167,14 +175,18 @@ class FlowMatching(DecodingAlgorithm):
 
                 # Compute v_{t+dt}
                 t_next = (step + 1) / self.num_inference_steps
-                t_next_tensor = torch.full((batch_size,), t_next, device=device, dtype=dtype)
+                t_next_tensor = torch.full(
+                    (batch_size,), t_next, device=device, dtype=dtype
+                )
                 features_with_time_next = {**features, TIMESTEP_KEY: t_next_tensor}
                 v_t_next = network(features_with_time_next, trajectory_tentative)
 
                 # Update using average of velocities
                 for key in trajectory:
                     if key in v_t and key in v_t_next:
-                        trajectory[key] = trajectory[key] + dt * (v_t[key] + v_t_next[key]) / 2
+                        trajectory[key] = (
+                            trajectory[key] + dt * (v_t[key] + v_t_next[key]) / 2
+                        )
 
             elif self.ode_solver == ODESolver.RK4.value:
                 # 4th order Runge-Kutta
@@ -190,7 +202,9 @@ class FlowMatching(DecodingAlgorithm):
                         trajectory_k2[key] = trajectory[key]
 
                 t_mid = t + dt / 2
-                t_mid_tensor = torch.full((batch_size,), t_mid, device=device, dtype=dtype)
+                t_mid_tensor = torch.full(
+                    (batch_size,), t_mid, device=device, dtype=dtype
+                )
                 features_with_time_mid = {**features, TIMESTEP_KEY: t_mid_tensor}
                 k2 = network(features_with_time_mid, trajectory_k2)
 
@@ -212,7 +226,9 @@ class FlowMatching(DecodingAlgorithm):
                         trajectory_k4[key] = trajectory[key]
 
                 t_next = t + dt
-                t_next_tensor = torch.full((batch_size,), t_next, device=device, dtype=dtype)
+                t_next_tensor = torch.full(
+                    (batch_size,), t_next, device=device, dtype=dtype
+                )
                 features_with_time_next = {**features, TIMESTEP_KEY: t_next_tensor}
                 k4 = network(features_with_time_next, trajectory_k4)
 

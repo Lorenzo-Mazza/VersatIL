@@ -6,6 +6,7 @@ class FrozenBatchNorm2d(torch.nn.Module):
     """
     BatchNorm2d where the batch statistics and the affine parameters are fixed.
     """
+
     def __init__(self, dimension: int):
         """Initialize with dimension equal to the channel dimension."""
         super().__init__()
@@ -14,15 +15,29 @@ class FrozenBatchNorm2d(torch.nn.Module):
         self.register_buffer("running_mean", torch.zeros(dimension))
         self.register_buffer("running_var", torch.ones(dimension))
 
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
-                              missing_keys, unexpected_keys, error_msgs):
-        num_batches_tracked_key = prefix + 'num_batches_tracked'
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ):
+        num_batches_tracked_key = prefix + "num_batches_tracked"
         if num_batches_tracked_key in state_dict:
             del state_dict[num_batches_tracked_key]
 
         super()._load_from_state_dict(
-            state_dict, prefix, local_metadata, strict,
-            missing_keys, unexpected_keys, error_msgs)
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
 
     def forward(self, x: torch.Tensor):
         """Forward pass for input tensor with shape (B, C, H, W)."""

@@ -94,8 +94,13 @@ class EMACallback(Callback):
 
         # Update EMA model parameters (no_grad to avoid in-place operation errors)
         with torch.no_grad():
-            for module, ema_module in zip(pl_module.policy.modules(), self.ema_model.modules()):
-                for param, ema_param in zip(module.parameters(recurse=False), ema_module.parameters(recurse=False)):
+            for module, ema_module in zip(
+                pl_module.policy.modules(), self.ema_model.modules()
+            ):
+                for param, ema_param in zip(
+                    module.parameters(recurse=False),
+                    ema_module.parameters(recurse=False),
+                ):
                     if isinstance(param, dict):
                         raise RuntimeError("Dict parameter not supported")
 
@@ -108,7 +113,9 @@ class EMACallback(Callback):
                     else:
                         # EMA update: ema = decay * ema + (1 - decay) * param
                         ema_param.mul_(self.decay)
-                        ema_param.add_(param.data.to(dtype=ema_param.dtype), alpha=1 - self.decay)
+                        ema_param.add_(
+                            param.data.to(dtype=ema_param.dtype), alpha=1 - self.decay
+                        )
 
         self.optimization_step += 1
 
@@ -133,7 +140,9 @@ class EMACallback(Callback):
 
         return max(self.min_value, min(value, self.max_value))  # type: ignore[no-any-return]
 
-    def on_validation_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+    def on_validation_start(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
         """Temporarily replace policy with EMA model for validation.
 
         Args:
@@ -146,7 +155,9 @@ class EMACallback(Callback):
             # Use EMA model for validation
             pl_module.policy = self.ema_model
 
-    def on_validation_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+    def on_validation_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
         """Restore original policy after validation.
 
         Args:
@@ -157,6 +168,7 @@ class EMACallback(Callback):
             # Restore original policy
             pl_module.policy = self._original_policy
             delattr(self, "_original_policy")
+
 
 class ExpertUsageCallback(Callback):
     """Callback to log expert usage statistics for mixture-of-experts models.
@@ -173,7 +185,9 @@ class ExpertUsageCallback(Callback):
         super().__init__()
         self.log_every_n_epochs = log_every_n_epochs
 
-    def on_train_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+    def on_train_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
         """Log training expert usage at end of epoch.
 
         Args:
@@ -195,8 +209,9 @@ class ExpertUsageCallback(Callback):
                     )
                 plt.close(fig)
 
-
-    def on_validation_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+    def on_validation_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
         """Log validation expert usage picture at end of epoch.
 
         Args:
@@ -217,7 +232,9 @@ class ExpertUsageCallback(Callback):
                     )
                 plt.close(fig)
 
-    def _create_expert_usage_figure(self, expert_usage: np.ndarray, title: str) -> plt.Figure:
+    def _create_expert_usage_figure(
+        self, expert_usage: np.ndarray, title: str
+    ) -> plt.Figure:
         """Create a bar plot figure for expert usage.
 
         Args:
@@ -252,7 +269,9 @@ class ConfusionMatrixCallback(Callback):
         super().__init__()
         self.log_every_n_epochs = log_every_n_epochs
 
-    def on_train_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+    def on_train_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
         """Log training confusion matrix at end of epoch.
 
         Args:
@@ -265,7 +284,9 @@ class ConfusionMatrixCallback(Callback):
         # Get confusion matrix from train metrics accumulator
         cm = pl_module.train_metrics.compute_confusion_matrix()
         if cm is not None:
-            fig = self._create_confusion_matrix_figure(cm, "Train Phase Confusion Matrix")
+            fig = self._create_confusion_matrix_figure(
+                cm, "Train Phase Confusion Matrix"
+            )
             if trainer.logger is not None:
                 wandb_image = _figure_to_wandb_image(fig)
                 trainer.logger.log_metrics(
@@ -274,7 +295,9 @@ class ConfusionMatrixCallback(Callback):
                 )
             plt.close(fig)
 
-    def on_validation_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+    def on_validation_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
         """Log validation confusion matrix at end of epoch.
 
         Args:
@@ -294,7 +317,6 @@ class ConfusionMatrixCallback(Callback):
                     step=trainer.global_step,
                 )
             plt.close(fig)
-
 
     def _create_confusion_matrix_figure(self, cm: np.ndarray, title: str) -> plt.Figure:
         """Create a seaborn heatmap figure for the confusion matrix.
@@ -379,7 +401,9 @@ class GradientNormCallback(Callback):
         # Log per-parameter group if using parameter groups
         if hasattr(optimizer, "param_groups") and len(optimizer.param_groups) > 1:
             for idx, param_group in enumerate(optimizer.param_groups):
-                group_grad_norm = self._compute_grad_norm_for_params(param_group["params"])
+                group_grad_norm = self._compute_grad_norm_for_params(
+                    param_group["params"]
+                )
                 pl_module.log(
                     f"grad_norm_group_{idx}",
                     group_grad_norm,
@@ -403,7 +427,7 @@ class GradientNormCallback(Callback):
             if param.grad is not None:
                 param_norm = param.grad.data.norm(2)
                 total_norm += param_norm.item() ** 2
-        total_norm = total_norm**0.5
+        total_norm = total_norm ** 0.5
         return total_norm
 
     def _compute_grad_norm_for_params(self, params) -> float:
@@ -420,7 +444,7 @@ class GradientNormCallback(Callback):
             if param.grad is not None:
                 param_norm = param.grad.data.norm(2)
                 total_norm += param_norm.item() ** 2
-        total_norm = total_norm**0.5
+        total_norm = total_norm ** 0.5
         return total_norm
 
 
@@ -496,7 +520,9 @@ class ReduceLROnPlateauCallback(Callback):
             eps=self.eps,
         )
 
-    def on_validation_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+    def on_validation_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
         """Update scheduler with validation metric at end of epoch.
 
         Args:
@@ -562,21 +588,25 @@ class LatentVisualizationCallback(Callback):
             return
 
         z, z_prior, phase_per_sample = latent_data
-        posterior_fig = self._create_latent_figure(z, phase_per_sample, title="Posterior latent space")
-        prior_fig = self._create_latent_figure(z_prior, phase_per_sample, title="Prior latent space")
+        posterior_fig = self._create_latent_figure(
+            z, phase_per_sample, title="Posterior latent space"
+        )
+        prior_fig = self._create_latent_figure(
+            z_prior, phase_per_sample, title="Prior latent space"
+        )
 
         if trainer.logger is not None:
             wandb_posterior_image = _figure_to_wandb_image(posterior_fig)
             wandb_prior_image = _figure_to_wandb_image(prior_fig)
             trainer.logger.log_metrics(
-                {"posterior_latent_space_analysis": wandb_posterior_image,
-                    "prior_latent_space_analysis": wandb_prior_image
-                 },
+                {
+                    "posterior_latent_space_analysis": wandb_posterior_image,
+                    "prior_latent_space_analysis": wandb_prior_image,
+                },
                 step=trainer.global_step,
             )
         plt.close(posterior_fig)
         plt.close(prior_fig)
-
 
     def _create_latent_figure(
         self, z: np.ndarray, phases: np.ndarray | None, title: str = ""
@@ -626,7 +656,6 @@ class LatentVisualizationCallback(Callback):
         ax.set_ylabel("t-SNE Dimension 2")
         plt.tight_layout()
         return fig
-
 
 
 def _figure_to_wandb_image(fig: plt.Figure) -> wandb.Image:

@@ -15,7 +15,7 @@ from refactoring.configs.training import TrainingConfig
 from refactoring.configs.policy import PolicyConfig
 from refactoring.configs.inference import InferenceConfig
 from refactoring.workspace import Workspace
-from refactoring.inference.client import TSOPolicyClient
+from refactoring.inference.tso_client import TSOPolicyClient
 from refactoring.data.constants import Cameras, OrientationRepresentation, GripperType
 
 

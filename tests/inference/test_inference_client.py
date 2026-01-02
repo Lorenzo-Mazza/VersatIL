@@ -25,7 +25,7 @@ from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.policy import Policy
 from refactoring.training.lightning_policy import LightningPolicy
 from refactoring.metrics.composite import ActionReconstructionLoss
-from refactoring.inference.client import TSOPolicyClient
+from refactoring.inference.tso_client import TSOPolicyClient
 from tests.conftest import DummyNormalizer
 from refactoring.models.decoding.decoders.base import ActionDecoder
 

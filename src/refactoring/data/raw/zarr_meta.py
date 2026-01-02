@@ -35,9 +35,13 @@ class DatasetMetadata:
         precomputed_actions: Dict of precomputed action metadata, indexed by zarr store key.
             Values are PrecomputedActionMetadata.
     """
-    observations: dict[str, ObservationMetadata | CameraMetadata] = field(default_factory=dict)
-    precomputed_actions: dict[str, PrecomputedActionMetadata] = field(default_factory=dict)
 
+    observations: dict[str, ObservationMetadata | CameraMetadata] = field(
+        default_factory=dict
+    )
+    precomputed_actions: dict[str, PrecomputedActionMetadata] = field(
+        default_factory=dict
+    )
 
     def __post_init__(self):
         """Validate metadata consistency and resolve OmegaConf interpolation keys."""
@@ -49,115 +53,158 @@ class DatasetMetadata:
         if overlap:
             raise ValueError(f"Keys cannot be both observations and actions: {overlap}")
 
-        camera_keys = [k for k, v in self.observations.items() if isinstance(v, CameraMetadata)]
+        camera_keys = [
+            k for k, v in self.observations.items() if isinstance(v, CameraMetadata)
+        ]
         if len(camera_keys) != len(set(camera_keys)):
             raise ValueError(f"Duplicate camera keys found: {camera_keys}")
-
 
     @property
     def cameras(self) -> dict[str, CameraMetadata]:
         """Get all camera observations."""
-        return {k: v for k, v in self.observations.items() if isinstance(v, CameraMetadata)}
-
+        return {
+            k: v for k, v in self.observations.items() if isinstance(v, CameraMetadata)
+        }
 
     @property
     def position_observations(self) -> dict[str, PositionObservationMetadata]:
         """Get all position observations."""
-        return {k: v for k, v in self.observations.items() if isinstance(v, PositionObservationMetadata)}
-
+        return {
+            k: v
+            for k, v in self.observations.items()
+            if isinstance(v, PositionObservationMetadata)
+        }
 
     @property
     def orientation_observations(self) -> dict[str, OrientationObservationMetadata]:
         """Get all orientation observations."""
-        return {k: v for k, v in self.observations.items() if isinstance(v, OrientationObservationMetadata)}
-
+        return {
+            k: v
+            for k, v in self.observations.items()
+            if isinstance(v, OrientationObservationMetadata)
+        }
 
     @property
     def gripper_observations(self) -> dict[str, GripperObservationMetadata]:
         """Get all gripper state observations."""
-        return {k: v for k, v in self.observations.items() if isinstance(v, GripperObservationMetadata)}
-
-
-    @property
-    def proprioceptive_observations(self) -> dict[str, PositionObservationMetadata | OrientationObservationMetadata | GripperObservationMetadata]:
-        """Get all proprioceptive observations (position, orientation, gripper)."""
         return {
-            k: v for k, v in self.observations.items()
-            if isinstance(v, (PositionObservationMetadata, OrientationObservationMetadata, GripperObservationMetadata))
+            k: v
+            for k, v in self.observations.items()
+            if isinstance(v, GripperObservationMetadata)
         }
 
+    @property
+    def proprioceptive_observations(
+        self,
+    ) -> dict[
+        str,
+        PositionObservationMetadata
+        | OrientationObservationMetadata
+        | GripperObservationMetadata,
+    ]:
+        """Get all proprioceptive observations (position, orientation, gripper)."""
+        return {
+            k: v
+            for k, v in self.observations.items()
+            if isinstance(
+                v,
+                (
+                    PositionObservationMetadata,
+                    OrientationObservationMetadata,
+                    GripperObservationMetadata,
+                ),
+            )
+        }
 
     @property
     def custom_observations(self) -> dict[str, ObservationMetadata]:
         """Get custom observations (not position, orientation, gripper, or camera)."""
         return {
-            k: v for k, v in self.observations.items()
+            k: v
+            for k, v in self.observations.items()
             if isinstance(v, ObservationMetadata)
-            and not isinstance(v, (PositionObservationMetadata, OrientationObservationMetadata, GripperObservationMetadata))
+            and not isinstance(
+                v,
+                (
+                    PositionObservationMetadata,
+                    OrientationObservationMetadata,
+                    GripperObservationMetadata,
+                ),
+            )
         }
-
 
     @property
     def position_actions(self) -> dict[str, PositionActionMetadata]:
         """Get all precomputed position actions."""
-        return {k: v for k, v in self.precomputed_actions.items() if isinstance(v, PositionActionMetadata)}
-
+        return {
+            k: v
+            for k, v in self.precomputed_actions.items()
+            if isinstance(v, PositionActionMetadata)
+        }
 
     @property
     def orientation_actions(self) -> dict[str, OrientationActionMetadata]:
         """Get all precomputed orientation actions."""
-        return {k: v for k, v in self.precomputed_actions.items() if isinstance(v, OrientationActionMetadata)}
-
+        return {
+            k: v
+            for k, v in self.precomputed_actions.items()
+            if isinstance(v, OrientationActionMetadata)
+        }
 
     @property
     def gripper_actions(self) -> dict[str, GripperActionMetadata]:
         """Get all precomputed gripper actions."""
-        return {k: v for k, v in self.precomputed_actions.items() if isinstance(v, GripperActionMetadata)}
-
+        return {
+            k: v
+            for k, v in self.precomputed_actions.items()
+            if isinstance(v, GripperActionMetadata)
+        }
 
     @property
     def custom_actions(self) -> dict[str, PrecomputedActionMetadata]:
         """Get custom precomputed actions (not position, orientation, or gripper)."""
         return {
-            k: v for k, v in self.precomputed_actions.items()
-            if not isinstance(v, (PositionActionMetadata, OrientationActionMetadata, GripperActionMetadata))
+            k: v
+            for k, v in self.precomputed_actions.items()
+            if not isinstance(
+                v,
+                (
+                    PositionActionMetadata,
+                    OrientationActionMetadata,
+                    GripperActionMetadata,
+                ),
+            )
         }
-
 
     def get_all_keys(self) -> list[str]:
         """Get all zarr keys (observations + actions)."""
         return list(self.observations.keys()) + list(self.precomputed_actions.keys())
 
-
     def get_camera_keys(self) -> list[str]:
         """Get list of all camera keys."""
         return list(self.cameras.keys())
-
 
     def get_proprio_dimension(self) -> int:
         """Get total proprioceptive observation dimension."""
         return sum(obs.dimension for obs in self.proprioceptive_observations.values())
 
-
     def get_gripper_dimension(self) -> int:
         """Get gripper state dimension."""
         return sum(obs.dimension for obs in self.gripper_observations.values())
-
 
     def has_precomputed_actions(self) -> bool:
         """Check if dataset has any precomputed actions."""
         return len(self.precomputed_actions) > 0
 
-
     def get_precomputed_action(self, key: str) -> Optional[PrecomputedActionMetadata]:
         """Get a specific precomputed action by key."""
         return self.precomputed_actions.get(key)
 
-
-    def get_observation(self, key: str) -> Optional[ObservationMetadata | CameraMetadata]:
+    def get_observation(
+        self, key: str
+    ) -> Optional[ObservationMetadata | CameraMetadata]:
         """Get a specific observation by key."""
         return self.observations.get(key)
-
 
     def has_observation(self, key: str) -> bool:
         """Check if an observation exists."""

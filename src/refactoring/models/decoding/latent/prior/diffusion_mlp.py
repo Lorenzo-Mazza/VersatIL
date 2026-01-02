@@ -14,7 +14,8 @@ from refactoring.models.layers.diffusion_process import (
     add_noise_to_tensor,
     create_noise_scheduler,
     sample_random_timesteps,
-    setup_inference_timesteps, SchedulerType,
+    setup_inference_timesteps,
+    SchedulerType,
 )
 from refactoring.models.decoding.constants import PRIOR_PREDICTION_KEY, PRIOR_TARGET_KEY
 from refactoring.models.decoding.latent import PriorLatentEncoder
@@ -85,7 +86,8 @@ class DiffusionPrior(PriorLatentEncoder):
         self.timestep_embed_dim = latent_dimension
         if activation == ActivationFunction.SWIGLU.value:
             activation_fn = ActivationFunction(activation).to_torch_activation()(
-                input_dim=self.timestep_embed_dim, hidden_dim=self.timestep_embed_dim)
+                input_dim=self.timestep_embed_dim, hidden_dim=self.timestep_embed_dim
+            )
         else:
             activation_fn = ActivationFunction(activation).to_torch_activation()()
         self.timestep_mlp = nn.Sequential(
@@ -103,7 +105,9 @@ class DiffusionPrior(PriorLatentEncoder):
         )
         self.to(torch.device(device))
 
-    def sample_prior(self, batch_size: int, observations: torch.Tensor | None = None) -> torch.Tensor:
+    def sample_prior(
+        self, batch_size: int, observations: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Sample latent variable from learned prior p(z|s) via reverse diffusion.
 
         Args:
@@ -123,7 +127,12 @@ class DiffusionPrior(PriorLatentEncoder):
 
         # Reverse diffusion process
         for t in self.noise_scheduler.timesteps:
-            timestep = torch.tensor([t], device=device).float().view(1, 1).expand(batch_size, 1)
+            timestep = (
+                torch.tensor([t], device=device)
+                .float()
+                .view(1, 1)
+                .expand(batch_size, 1)
+            )
             timestep_embed = self.timestep_mlp(timestep / self.num_train_timesteps)
             model_input = torch.cat([z_t, observations, timestep_embed], dim=-1)
             predicted_noise = self.denoising_network(model_input)

@@ -108,7 +108,9 @@ class TSOPolicyClient(AbstractModelClient):
             request_rectified_images=True,
             request_gripper_state=self.has_gripper,
             request_language_instruction=self.use_language,
-            predicts_in_camera_frame=(self.position_frame == CoordinateSystem.CAMERA.value),
+            predicts_in_camera_frame=(
+                self.position_frame == CoordinateSystem.CAMERA.value
+            ),
             predicts_delta=self.predicts_delta,
             obs_robot_frame=self.use_proprio_robot_frame,
             obs_camera_frame=self.use_proprio_camera_frame,
@@ -133,27 +135,39 @@ class TSOPolicyClient(AbstractModelClient):
                 "Only 1D orientation (roll) is currently supported for TSO InferenceClient"
             )
         self.all_time_position_actions = torch.zeros(
-            [self.max_timesteps, self.max_timesteps + self.prediction_horizon, self.position_dim]
+            [
+                self.max_timesteps,
+                self.max_timesteps + self.prediction_horizon,
+                self.position_dim,
+            ]
         ).to(self.device)
         self.all_time_populated_mask = torch.zeros(
-            [self.max_timesteps, self.max_timesteps + self.prediction_horizon], dtype=torch.bool
+            [self.max_timesteps, self.max_timesteps + self.prediction_horizon],
+            dtype=torch.bool,
         ).to(self.device)
 
         if self.has_orientation:
             self.all_time_orientations = torch.zeros(
-                [self.max_timesteps, self.max_timesteps + self.prediction_horizon, self.orientation_dim]
+                [
+                    self.max_timesteps,
+                    self.max_timesteps + self.prediction_horizon,
+                    self.orientation_dim,
+                ]
             ).to(self.device)
 
         if self.has_gripper:
             self.all_time_grippers = torch.zeros(
-                [self.max_timesteps, self.max_timesteps + self.prediction_horizon, self.gripper_dim]
+                [
+                    self.max_timesteps,
+                    self.max_timesteps + self.prediction_horizon,
+                    self.gripper_dim,
+                ]
             ).to(self.device)
 
         self.timestep = 0
         self.current_all_position_actions = None
         self.current_all_orientations = None
         self.current_all_grippers = None
-
 
     def _setup_position_action(self, action_space: ActionSpace) -> None:
         """Setup position action key and metadata from ActionSpace."""
@@ -173,12 +187,15 @@ class TSOPolicyClient(AbstractModelClient):
         self.has_position = True
         pos_meta = action_space.actions_metadata[self.position_key]
         if isinstance(pos_meta, OnTheFlyActionMetadata):
-            self.predicts_delta = pos_meta.computation_method == ActionComputationMethod.DELTA.value
+            self.predicts_delta = (
+                pos_meta.computation_method == ActionComputationMethod.DELTA.value
+            )
             self.position_frame = pos_meta.source_metadata.frame
             self.position_dim = pos_meta.prediction_dimension
         else:
-            raise ValueError("TSO InferenceClient only supports OnTheFlyActionMetadata for position actions.")
-
+            raise ValueError(
+                "TSO InferenceClient only supports OnTheFlyActionMetadata for position actions."
+            )
 
     def _setup_orientation_action(self, action_space: ActionSpace) -> None:
         """Setup orientation action key and metadata from ActionSpace."""
@@ -199,13 +216,14 @@ class TSOPolicyClient(AbstractModelClient):
             return
         ori_meta = action_space.actions_metadata[self.orientation_key]
         if isinstance(ori_meta, OnTheFlyActionMetadata):
-            self.orientation_representation = ori_meta.source_metadata.orientation_representation
+            self.orientation_representation = (
+                ori_meta.source_metadata.orientation_representation
+            )
             self.orientation_frame = ori_meta.source_metadata.frame
         else:
             self.orientation_representation = ori_meta.orientation_representation
             self.orientation_frame = ori_meta.frame
         self.orientation_dim = ori_meta.prediction_dimension
-
 
     def _setup_gripper_action(self, action_space: ActionSpace) -> None:
         """Setup gripper action key and metadata from ActionSpace."""
@@ -216,7 +234,9 @@ class TSOPolicyClient(AbstractModelClient):
             gripper_meta = action_space.actions_metadata[gripper_key]
             if isinstance(gripper_meta, OnTheFlyActionMetadata):
                 self.gripper_type = gripper_meta.source_metadata.gripper_type
-                self.binary_gripper_range = gripper_meta.source_metadata.binary_gripper_range
+                self.binary_gripper_range = (
+                    gripper_meta.source_metadata.binary_gripper_range
+                )
             else:
                 self.gripper_type = gripper_meta.gripper_type
                 self.binary_gripper_range = gripper_meta.binary_gripper_range
@@ -227,10 +247,12 @@ class TSOPolicyClient(AbstractModelClient):
             self.gripper_type = None
             self.binary_gripper_range = None
             self.gripper_dim = 0
-        if self.gripper_type == GripperType.BINARY.value and self.binary_gripper_range is None:
+        if (
+            self.gripper_type == GripperType.BINARY.value
+            and self.binary_gripper_range is None
+        ):
             logging.warning("Gripper binary range is not set. Assuming {0,1}.")
             self.binary_gripper_range = BinaryGripperRange.ZERO_ONE.value
-
 
     def _setup_observations(self, obs_space: ObservationSpace) -> None:
         """Setup observation keys from ObservationSpace metadata."""
@@ -238,9 +260,12 @@ class TSOPolicyClient(AbstractModelClient):
         position_robot_key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
         self.use_depth = Cameras.DEPTH.value in obs_space.cameras
         self.use_language = ObsKey.LANGUAGE.value in obs_space.observations_metadata
-        self.use_proprio_camera_frame = position_camera_key in obs_space.observations_metadata
-        self.use_proprio_robot_frame = position_robot_key in obs_space.observations_metadata
-
+        self.use_proprio_camera_frame = (
+            position_camera_key in obs_space.observations_metadata
+        )
+        self.use_proprio_robot_frame = (
+            position_robot_key in obs_space.observations_metadata
+        )
 
     def _load_model(self) -> None:
         """Load config and policy from checkpoint."""
@@ -262,7 +287,9 @@ class TSOPolicyClient(AbstractModelClient):
         logging.info(f"Loading model and tokenizer from {checkpoint_file}")
         tokenizer_path = os.path.join(self.checkpoint_path, "tokenizer")
         if os.path.exists(tokenizer_path):
-            self.tokenizer = Tokenizer.from_pretrained(tokenizer_path, device=self.device)
+            self.tokenizer = Tokenizer.from_pretrained(
+                tokenizer_path, device=self.device
+            )
             logging.info(f"Tokenizer loaded from {tokenizer_path}")
         else:
             self.tokenizer = None
@@ -274,24 +301,31 @@ class TSOPolicyClient(AbstractModelClient):
             logging.info("Resized policy layers via set_tokenizer (obs/action vocab)")
 
         self.policy.to(self.device).eval()
-        checkpoint = torch.load(checkpoint_file, map_location=self.device, weights_only=False)
-        lightning_module = LightningPolicy(policy=self.policy, training_config=self.config.training)
-        lightning_module.load_state_dict(checkpoint['state_dict'], strict=False)
-        self._validate_checkpoint_loading(checkpoint['state_dict'], lightning_module)
+        checkpoint = torch.load(
+            checkpoint_file, map_location=self.device, weights_only=False
+        )
+        lightning_module = LightningPolicy(
+            policy=self.policy, training_config=self.config.training
+        )
+        lightning_module.load_state_dict(checkpoint["state_dict"], strict=False)
+        self._validate_checkpoint_loading(checkpoint["state_dict"], lightning_module)
         precision_type = PrecisionType(self.precision)
         if precision_type.should_convert_model():
             self.policy = self.policy.to(precision_type.get_model_dtype())
 
         if Cameras.DEPTH.value in self.policy.observation_space.cameras:
-            depth_stats = self.policy.normalizer[Cameras.DEPTH.value].params_dict['input_stats']
-            self.depth_min = float(depth_stats['min'].item())
-            self.depth_max = float(depth_stats['max'].item())
-            logging.info(f"Depth clipping range from normalizer: [{self.depth_min:.4f}, {self.depth_max:.4f}]")
+            depth_stats = self.policy.normalizer[Cameras.DEPTH.value].params_dict[
+                "input_stats"
+            ]
+            self.depth_min = float(depth_stats["min"].item())
+            self.depth_max = float(depth_stats["max"].item())
+            logging.info(
+                f"Depth clipping range from normalizer: [{self.depth_min:.4f}, {self.depth_max:.4f}]"
+            )
         else:
             self.depth_min = None
             self.depth_max = None
         logging.info("Model and config successfully loaded.")
-
 
     def _validate_checkpoint_loading(
         self,
@@ -311,9 +345,9 @@ class TSOPolicyClient(AbstractModelClient):
         checkpoint_keys = set(checkpoint_state_dict.keys())
         model_keys = set(model_state.keys())
         critical_prefixes = [
-            'policy.decoder.',
-            'policy.encoding_pipeline.',
-            'policy.normalizer.',
+            "policy.decoder.",
+            "policy.encoding_pipeline.",
+            "policy.normalizer.",
         ]
         errors = []
         warnings = []
@@ -326,19 +360,36 @@ class TSOPolicyClient(AbstractModelClient):
                     f"This indicates lazy-initialized layers failed to load."
                 )
             elif ckpt_count > 0 and model_count < ckpt_count:
-                matched = len([k for k in checkpoint_keys if k.startswith(prefix) and k in model_keys])
+                matched = len(
+                    [
+                        k
+                        for k in checkpoint_keys
+                        if k.startswith(prefix) and k in model_keys
+                    ]
+                )
                 if matched < ckpt_count:
                     warnings.append(
                         f"WARNING: Checkpoint has {ckpt_count} keys for '{prefix}' but model only has {model_count}. "
                         f"Matched: {matched}/{ckpt_count}"
                     )
         lazy_module_prefixes = [
-            ('policy.decoder.architecture.feature_projection.linear_projections.', 'FeatureProjection linear'),
-            ('policy.decoder.architecture.feature_projection.spatial_projections.', 'FeatureProjection spatial'),
-            ('policy.decoder.architecture.camera_embeddings.embeddings.', 'DynamicFeatureEmbedding'),
+            (
+                "policy.decoder.architecture.feature_projection.linear_projections.",
+                "FeatureProjection linear",
+            ),
+            (
+                "policy.decoder.architecture.feature_projection.spatial_projections.",
+                "FeatureProjection spatial",
+            ),
+            (
+                "policy.decoder.architecture.camera_embeddings.embeddings.",
+                "DynamicFeatureEmbedding",
+            ),
         ]
         for ckpt_prefix, module_name in lazy_module_prefixes:
-            ckpt_keys_for_module = [k for k in checkpoint_keys if k.startswith(ckpt_prefix)]
+            ckpt_keys_for_module = [
+                k for k in checkpoint_keys if k.startswith(ckpt_prefix)
+            ]
             model_keys_for_module = [k for k in model_keys if k.startswith(ckpt_prefix)]
 
             if len(ckpt_keys_for_module) > 0 and len(model_keys_for_module) == 0:
@@ -367,25 +418,35 @@ class TSOPolicyClient(AbstractModelClient):
                 f"First error: {errors[0]}"
             )
 
-
     def _setup_denoising_thresholds(self) -> None:
         """Setup denoising thresholds from policy.denoising_thresholds (DictOfTensorMixin)."""
         denoising_thresholds = self.policy.denoising_thresholds.params_dict
         if self.position_key in denoising_thresholds:
-            self.position_delta_threshold = float(denoising_thresholds[self.position_key].item())
-            logging.info(f"Position delta denoising threshold [{self.position_key}]: {self.position_delta_threshold:.6f}")
+            self.position_delta_threshold = float(
+                denoising_thresholds[self.position_key].item()
+            )
+            logging.info(
+                f"Position delta denoising threshold [{self.position_key}]: {self.position_delta_threshold:.6f}"
+            )
         else:
             self.position_delta_threshold = 0.0
-            logging.info("No position denoising threshold found, denoising disabled for position")
+            logging.info(
+                "No position denoising threshold found, denoising disabled for position"
+            )
 
         if self.orientation_key and self.orientation_key in denoising_thresholds:
-            self.orientation_delta_threshold = float(denoising_thresholds[self.orientation_key].item())
-            logging.info(f"Orientation delta denoising threshold [{self.orientation_key}]: {self.orientation_delta_threshold:.6f}")
+            self.orientation_delta_threshold = float(
+                denoising_thresholds[self.orientation_key].item()
+            )
+            logging.info(
+                f"Orientation delta denoising threshold [{self.orientation_key}]: {self.orientation_delta_threshold:.6f}"
+            )
         else:
             self.orientation_delta_threshold = 0.0
             if self.has_orientation:
-                logging.info("No orientation denoising threshold found, denoising disabled for orientation")
-
+                logging.info(
+                    "No orientation denoising threshold found, denoising disabled for orientation"
+                )
 
     def get_actions_from_model(self) -> list[Action]:
         """Compute next actions using the trained policy model.
@@ -396,15 +457,23 @@ class TSOPolicyClient(AbstractModelClient):
         total_start_time, total_end_time = None, None
         preprocessing_start_time, preprocessing_end_time = None, None
         inference_start_time, inference_end_time = None, None
-        postprocessing_start_time, postprocessing_end_time, preprocessing_duration = None, None, None
+        postprocessing_start_time, postprocessing_end_time, preprocessing_duration = (
+            None,
+            None,
+            None,
+        )
         depth_processing_start, rgb_processing_start = None, None
         inference_duration, postprocessing_duration = None, None
 
         if self.timing_log:
             total_start_time = time.time()
-            logging.info(f"\n=== TIMESTEP {self.timestep} - Starting get_actions_from_model ===")
+            logging.info(
+                f"\n=== TIMESTEP {self.timestep} - Starting get_actions_from_model ==="
+            )
             preprocessing_start_time = time.time()
-            logging.info(f"[TIMING] Input preprocessing started at: {preprocessing_start_time:.6f}")
+            logging.info(
+                f"[TIMING] Input preprocessing started at: {preprocessing_start_time:.6f}"
+            )
 
         if self.obs_camera_frame and self.obs_robot_frame:
             state_dim = 6
@@ -429,13 +498,19 @@ class TSOPolicyClient(AbstractModelClient):
         if self.request_depth:
             depth_img_list = self.depth_buffer[-self.observation_buffer_size :]
             transformed = [
-                self.image_transform(image=left_np, right_image=right_np, depth=depth_np)
-                for left_np, right_np, depth_np in zip(left_img_list, right_img_list, depth_img_list)
+                self.image_transform(
+                    image=left_np, right_image=right_np, depth=depth_np
+                )
+                for left_np, right_np, depth_np in zip(
+                    left_img_list, right_img_list, depth_img_list
+                )
             ]
             depth_tensors = [t["depth"] for t in transformed]
             depth_imgs = torch.stack(depth_tensors).unsqueeze(0).unsqueeze(-3)
             if self.depth_min is not None and self.depth_max is not None:
-                depth_imgs = torch.clamp(depth_imgs, min=self.depth_min, max=self.depth_max)
+                depth_imgs = torch.clamp(
+                    depth_imgs, min=self.depth_min, max=self.depth_max
+                )
         else:
             transformed = [
                 self.image_transform(image=left_np, right_image=right_np)
@@ -443,7 +518,9 @@ class TSOPolicyClient(AbstractModelClient):
             ]
 
         if self.timing_log:
-            logging.info(f"[TIMING] Depth plus RGB transform took: {time.time() - depth_processing_start:.6f} seconds")
+            logging.info(
+                f"[TIMING] Depth plus RGB transform took: {time.time() - depth_processing_start:.6f} seconds"
+            )
             rgb_processing_start = time.time()
 
         left_tensors = [t["image"] / 255.0 for t in transformed]
@@ -452,7 +529,9 @@ class TSOPolicyClient(AbstractModelClient):
         right_imgs = torch.stack(right_tensors).unsqueeze(0)
 
         if self.timing_log:
-            logging.info(f"[TIMING] RGB processing took: {time.time() - rgb_processing_start:.6f} seconds")
+            logging.info(
+                f"[TIMING] RGB processing took: {time.time() - rgb_processing_start:.6f} seconds"
+            )
 
         obs_dict = {
             Cameras.LEFT.value: left_imgs,
@@ -474,30 +553,51 @@ class TSOPolicyClient(AbstractModelClient):
             obs_dict[Cameras.DEPTH.value] = depth_imgs
 
         if self.request_language_instruction:
-            language_instruction = self.language_instruction_buffer[-self.observation_buffer_size :]
+            language_instruction = self.language_instruction_buffer[
+                -self.observation_buffer_size :
+            ]
             obs_dict[ObsKey.LANGUAGE.value] = language_instruction
-
 
         if self.timing_log:
             preprocessing_end_time = time.time()
             preprocessing_duration = preprocessing_end_time - preprocessing_start_time
-            logging.info(f"[TIMING] Input preprocessing completed in: {preprocessing_duration:.6f} seconds")
+            logging.info(
+                f"[TIMING] Input preprocessing completed in: {preprocessing_duration:.6f} seconds"
+            )
 
         current_roll = 0.0
-        if self.predicts_in_camera_frame and self.obs_camera_frame and self.obs_robot_frame:
-            current_robot_position = self.robot_state_buffer[-1][3:6] # Camera frame is the 3:6 dims if both frames are used
+        if (
+            self.predicts_in_camera_frame
+            and self.obs_camera_frame
+            and self.obs_robot_frame
+        ):
+            current_robot_position = self.robot_state_buffer[-1][
+                3:6
+            ]  # Camera frame is the 3:6 dims if both frames are used
             if self.has_orientation:
-                current_roll = self.robot_state_buffer[-1][6] if len(self.robot_state_buffer[-1]) > 6 else 0.0
+                current_roll = (
+                    self.robot_state_buffer[-1][6]
+                    if len(self.robot_state_buffer[-1]) > 6
+                    else 0.0
+                )
         else:
             current_robot_position = self.robot_state_buffer[-1][:3]
             if self.has_orientation:
-                current_roll = self.robot_state_buffer[-1][4] if len(self.robot_state_buffer[-1]) > 4 else 0.0
+                current_roll = (
+                    self.robot_state_buffer[-1][4]
+                    if len(self.robot_state_buffer[-1]) > 4
+                    else 0.0
+                )
 
         if self.timing_log:
             inference_start_time = time.time()
-            logging.info(f"[TIMING] Model inference started at: {inference_start_time:.6f}")
+            logging.info(
+                f"[TIMING] Model inference started at: {inference_start_time:.6f}"
+            )
 
-        with torch.autocast(device_type=str(self.device), dtype=MAP_PRECISION_TO_DTYPE[self.precision]):
+        with torch.autocast(
+            device_type=str(self.device), dtype=MAP_PRECISION_TO_DTYPE[self.precision]
+        ):
             with torch.no_grad():
                 action_dict = self.policy.predict_action(obs_dict=obs_dict)
 
@@ -517,38 +617,67 @@ class TSOPolicyClient(AbstractModelClient):
         if self.timing_log:
             inference_end_time = time.time()
             inference_duration = inference_end_time - inference_start_time
-            logging.info(f"[TIMING] Model inference completed in: {inference_duration:.6f} seconds")
+            logging.info(
+                f"[TIMING] Model inference completed in: {inference_duration:.6f} seconds"
+            )
 
             postprocessing_start_time = time.time()
-            logging.info(f"[TIMING] Post-processing started at: {postprocessing_start_time:.6f}")
-
+            logging.info(
+                f"[TIMING] Post-processing started at: {postprocessing_start_time:.6f}"
+            )
 
         if self.temporal_agg:
             averaged_actions = self.get_exponential_averaged_actions()
             raw_position = averaged_actions[self.position_key]
-            raw_orientation = averaged_actions.get(self.orientation_key, None) if self.has_orientation else None
-            raw_gripper = averaged_actions.get(self.gripper_key, None) if self.has_gripper else None
+            raw_orientation = (
+                averaged_actions.get(self.orientation_key, None)
+                if self.has_orientation
+                else None
+            )
+            raw_gripper = (
+                averaged_actions.get(self.gripper_key, None)
+                if self.has_gripper
+                else None
+            )
             robot_action, gripper_action = self._postprocess_action_tensors(
-                raw_position_tensor=raw_position, raw_orientation_tensor=raw_orientation, raw_gripper_tensor=raw_gripper,
-                current_robot_position=current_robot_position, current_roll=current_roll
+                raw_position_tensor=raw_position,
+                raw_orientation_tensor=raw_orientation,
+                raw_gripper_tensor=raw_gripper,
+                current_robot_position=current_robot_position,
+                current_roll=current_roll,
             )
             actions = [Action(robot_action=robot_action, gripper_action=gripper_action)]
         else:
             actions = []
             for i in range(self.prediction_horizon):
                 raw_position = self.current_all_position_actions[0, i]
-                raw_orientation = self.current_all_orientations[0, i] if self.has_orientation else None
-                raw_gripper = self.current_all_grippers[0, i] if self.has_gripper else None
-                robot_action, gripper_action = self._postprocess_action_tensors(
-                    raw_position_tensor=raw_position, raw_orientation_tensor=raw_orientation, raw_gripper_tensor=raw_gripper,
-                    current_robot_position=current_robot_position, current_roll=current_roll
+                raw_orientation = (
+                    self.current_all_orientations[0, i]
+                    if self.has_orientation
+                    else None
                 )
-                actions.append(Action(robot_action=robot_action, gripper_action=gripper_action))
+                raw_gripper = (
+                    self.current_all_grippers[0, i] if self.has_gripper else None
+                )
+                robot_action, gripper_action = self._postprocess_action_tensors(
+                    raw_position_tensor=raw_position,
+                    raw_orientation_tensor=raw_orientation,
+                    raw_gripper_tensor=raw_gripper,
+                    current_robot_position=current_robot_position,
+                    current_roll=current_roll,
+                )
+                actions.append(
+                    Action(robot_action=robot_action, gripper_action=gripper_action)
+                )
 
         if self.timing_log:
             postprocessing_end_time = time.time()
-            postprocessing_duration = postprocessing_end_time - postprocessing_start_time
-            logging.info(f"[TIMING] Post-processing completed in: {postprocessing_duration:.6f} seconds")
+            postprocessing_duration = (
+                postprocessing_end_time - postprocessing_start_time
+            )
+            logging.info(
+                f"[TIMING] Post-processing completed in: {postprocessing_duration:.6f} seconds"
+            )
 
         self.timestep += 1
 
@@ -557,9 +686,15 @@ class TSOPolicyClient(AbstractModelClient):
             total_duration = total_end_time - total_start_time
 
             logging.info(f"\n[TIMING SUMMARY] Timestep {self.timestep - 1}:")
-            logging.info(f"  - Preprocessing: {preprocessing_duration:.6f}s ({preprocessing_duration/total_duration*100:.1f}%)")
-            logging.info(f"  - Model inference: {inference_duration:.6f}s ({inference_duration/total_duration*100:.1f}%)")
-            logging.info(f"  - Post-processing: {postprocessing_duration:.6f}s ({postprocessing_duration/total_duration*100:.1f}%)")
+            logging.info(
+                f"  - Preprocessing: {preprocessing_duration:.6f}s ({preprocessing_duration/total_duration*100:.1f}%)"
+            )
+            logging.info(
+                f"  - Model inference: {inference_duration:.6f}s ({inference_duration/total_duration*100:.1f}%)"
+            )
+            logging.info(
+                f"  - Post-processing: {postprocessing_duration:.6f}s ({postprocessing_duration/total_duration*100:.1f}%)"
+            )
             logging.info(f"  - TOTAL: {total_duration:.6f}s")
             logging.info(f"  - Effective FPS: {1.0/total_duration:.2f}")
             logging.info(f"=== TIMESTEP {self.timestep - 1} COMPLETE ===\n")
@@ -568,7 +703,6 @@ class TSOPolicyClient(AbstractModelClient):
             logging.log(level=logging.INFO, msg=f"{actions=}")
         print(actions)
         return actions
-
 
     def get_exponential_averaged_actions(self) -> dict[str, torch.Tensor]:
         """Average exponentially the actions predicted for the current timestep.
@@ -585,53 +719,65 @@ class TSOPolicyClient(AbstractModelClient):
         ] = True
         # Use mask to filter populated timesteps
         actions_populated = self.all_time_populated_mask[:, self.timestep]
-        actions_for_curr_step_pos = self.all_time_position_actions[:, self.timestep][actions_populated]
+        actions_for_curr_step_pos = self.all_time_position_actions[:, self.timestep][
+            actions_populated
+        ]
         indices = np.arange(len(actions_for_curr_step_pos))
         if self.favor_more_recent:
             indices = indices[::-1]  # Newest first
         exp_weights = np.exp(-self.exponential_decay * indices)
         exp_weights = exp_weights / exp_weights.sum()
-        exp_weights_t = torch.from_numpy(exp_weights).to(self.device).float().unsqueeze(dim=1)
+        exp_weights_t = (
+            torch.from_numpy(exp_weights).to(self.device).float().unsqueeze(dim=1)
+        )
         averaged_pos = (actions_for_curr_step_pos * exp_weights_t).sum(dim=0)
         averaged[self.position_key] = averaged_pos
 
         if self.has_orientation:
-            self.all_time_orientations[[self.timestep], self.timestep: self.timestep + self.prediction_horizon
+            self.all_time_orientations[
+                [self.timestep], self.timestep : self.timestep + self.prediction_horizon
             ] = self.current_all_orientations.float()
-            actions_for_curr_step_ori = self.all_time_orientations[:, self.timestep][actions_populated]
+            actions_for_curr_step_ori = self.all_time_orientations[:, self.timestep][
+                actions_populated
+            ]
             indices = np.arange(len(actions_for_curr_step_ori))
             if self.favor_more_recent:
                 indices = indices[::-1]
             exp_weights = np.exp(-self.exponential_decay * indices)
             exp_weights = exp_weights / exp_weights.sum()
-            exp_weights_t = torch.from_numpy(exp_weights).to(self.device).float().unsqueeze(dim=1)
+            exp_weights_t = (
+                torch.from_numpy(exp_weights).to(self.device).float().unsqueeze(dim=1)
+            )
             averaged_ori = (actions_for_curr_step_ori * exp_weights_t).sum(dim=0)
             averaged[self.orientation_key] = averaged_ori
 
         if self.has_gripper:
             self.all_time_grippers[
-            [self.timestep], self.timestep: self.timestep + self.prediction_horizon
+                [self.timestep], self.timestep : self.timestep + self.prediction_horizon
             ] = self.current_all_grippers.float()
-            actions_for_curr_step_grip = self.all_time_grippers[:, self.timestep][actions_populated]
+            actions_for_curr_step_grip = self.all_time_grippers[:, self.timestep][
+                actions_populated
+            ]
             indices = np.arange(len(actions_for_curr_step_grip))
             if self.favor_more_recent:
                 indices = indices[::-1]
             exp_weights = np.exp(-self.exponential_decay * indices)
             exp_weights = exp_weights / exp_weights.sum()
-            exp_weights_t = torch.from_numpy(exp_weights).to(self.device).float().unsqueeze(dim=1)
+            exp_weights_t = (
+                torch.from_numpy(exp_weights).to(self.device).float().unsqueeze(dim=1)
+            )
             averaged_grip = (actions_for_curr_step_grip * exp_weights_t).sum(dim=0)
             averaged[self.gripper_key] = averaged_grip
 
         return averaged
 
-
     def _postprocess_action_tensors(
-            self,
-            raw_position_tensor: torch.Tensor,
-            raw_orientation_tensor: torch.Tensor | None,
-            raw_gripper_tensor: torch.Tensor | None,
-            current_robot_position: np.ndarray,
-            current_roll: float,
+        self,
+        raw_position_tensor: torch.Tensor,
+        raw_orientation_tensor: torch.Tensor | None,
+        raw_gripper_tensor: torch.Tensor | None,
+        current_robot_position: np.ndarray,
+        current_roll: float,
     ) -> tuple[np.ndarray, np.ndarray | None | bool]:
         """Post-process raw action tensors for one step.
 
@@ -652,7 +798,7 @@ class TSOPolicyClient(AbstractModelClient):
             if self.gripper_type == GripperType.BINARY.value:
                 if self.binary_gripper_range == BinaryGripperRange.ZERO_ONE.value:
                     gripper_action = raw_gripper_action > 0.5  # Model outputs [0, 1]
-                else: 
+                else:
                     gripper_action = raw_gripper_action > 0.0  # Model outputs [-1, 1]
             else:
                 gripper_action = raw_gripper_action
@@ -672,9 +818,19 @@ class TSOPolicyClient(AbstractModelClient):
                 if orientation_magnitude < self.orientation_delta_threshold:
                     orientation_action = 0.0
 
-            robot_action = np.concatenate((position_action, [orientation_action[0] if isinstance(orientation_action, np.ndarray) else orientation_action]))
+            robot_action = np.concatenate(
+                (
+                    position_action,
+                    [
+                        orientation_action[0]
+                        if isinstance(orientation_action, np.ndarray)
+                        else orientation_action
+                    ],
+                )
+            )
         else:
-            robot_action = np.concatenate((position_action, [0.0]))  # Roll = 0.0 if no orientation predicted
+            robot_action = np.concatenate(
+                (position_action, [0.0])
+            )  # Roll = 0.0 if no orientation predicted
 
         return robot_action, gripper_action
-

@@ -33,7 +33,9 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
         gating_dropout: float = 0.1,
         gating_normalization: bool = True,
     ):
-        expert_list = self._create_experts_from_config(base_expert=base_expert, num_experts=num_experts)
+        expert_list = self._create_experts_from_config(
+            base_expert=base_expert, num_experts=num_experts
+        )
         ActionDecoder.__init__(
             self,
             decoder_input=base_expert.decoder_input,
@@ -63,10 +65,13 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
         self.base_expert = base_expert
         self.num_experts = num_experts
         self.gating_feature_key = gating_feature_key
-        self.inference_gating_key = inference_gating_key if inference_gating_key is not None else gating_feature_key
+        self.inference_gating_key = (
+            inference_gating_key
+            if inference_gating_key is not None
+            else gating_feature_key
+        )
         self.action_keys = list(base_expert.action_heads.keys())
         self.action_heads = base_expert.action_heads
-
 
     @staticmethod
     def _create_experts_from_config(
@@ -87,18 +92,17 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
             # Deep copy creates a completely independent module with separate weights
             expert = copy.deepcopy(base_expert)
             for module in expert.modules():
-                if hasattr(module, 'reset_parameters'):
+                if hasattr(module, "reset_parameters"):
                     module.reset_parameters()
-            if hasattr(expert, '_init_weights'):
+            if hasattr(expert, "_init_weights"):
                 expert.apply(expert._init_weights)
             experts.append(expert)
         return experts
 
-
     def forward(  # type: ignore[override]
         self,
-            features: dict[str, torch.Tensor],
-            actions: dict[str, torch.Tensor] | None = None
+        features: dict[str, torch.Tensor],
+        actions: dict[str, torch.Tensor] | None = None,
     ) -> dict[str, torch.Tensor | list[dict[str, torch.Tensor]]]:
         """Forward pass through mixture of expert decoders.
 
@@ -116,8 +120,10 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
             gating_key = self.inference_gating_key
         else:
             gating_key = self.gating_feature_key
-        gating_feature = features[gating_key] # (B, embedding dimension)
-        mixing_probabilities = self.compute_routing_weights(gating_feature) # (B, num_experts)
+        gating_feature = features[gating_key]  # (B, embedding dimension)
+        mixing_probabilities = self.compute_routing_weights(
+            gating_feature
+        )  # (B, num_experts)
         features.pop(gating_key)
         streams = [torch.cuda.Stream() for _ in self.expert_decoders]
         expert_outputs = [None] * len(self.expert_decoders)
@@ -125,11 +131,12 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
             with torch.cuda.stream(stream):
                 expert_outputs[i] = expert(features, actions)
         torch.cuda.synchronize()
-        combined_outputs = self._combine_expert_outputs(expert_outputs, mixing_probabilities)
+        combined_outputs = self._combine_expert_outputs(
+            expert_outputs, mixing_probabilities
+        )
         combined_outputs[ROUTING_WEIGHT] = mixing_probabilities
         combined_outputs[EXPERT_OUTPUTS] = expert_outputs
         return combined_outputs
-
 
     def _combine_expert_outputs(
         self, expert_outputs: list[dict[str, torch.Tensor]], weights: torch.Tensor

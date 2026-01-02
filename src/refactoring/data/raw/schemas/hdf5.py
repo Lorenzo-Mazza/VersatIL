@@ -36,7 +36,6 @@ class Hdf5DatasetSchema(DatasetSchema):
         )
         self.hdf5_paths = hdf5_paths
 
-
     @abc.abstractmethod
     def get_demo_names(self, hdf5_path: str) -> list[str]:
         """Get list of demonstration/episode names in the specified HDF5 file.
@@ -48,7 +47,6 @@ class Hdf5DatasetSchema(DatasetSchema):
             List of demo identifiers as strings.
         """
         raise NotImplementedError("Subclasses must implement get_demo_names")
-
 
     @abc.abstractmethod
     def extract_episode(

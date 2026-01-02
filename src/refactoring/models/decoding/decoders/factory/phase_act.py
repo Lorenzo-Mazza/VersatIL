@@ -28,7 +28,9 @@ class PhaseACT(ACT):
         3. Each expert specializes in one surgical phase
     """
 
-    def __init__(self, *args, phase_routing_key: str = ObsKey.PHASE_LABEL.value, **kwargs):
+    def __init__(
+        self, *args, phase_routing_key: str = ObsKey.PHASE_LABEL.value, **kwargs
+    ):
         """Initialize PhaseACT decoder.
 
         Args:
@@ -42,11 +44,16 @@ class PhaseACT(ACT):
                 f"PhaseACT requires '{self.phase_routing_key}' head for routing, "
                 f"but only found: {list(self.action_heads.keys())}"
             )
-        if not any(isinstance(self.action_heads[key], MoEHead) for key in self.action_heads if key != self.phase_routing_key):
-            raise ValueError("PhaseACT requires at least one MoE action head for phase-based routing.")
+        if not any(
+            isinstance(self.action_heads[key], MoEHead)
+            for key in self.action_heads
+            if key != self.phase_routing_key
+        ):
+            raise ValueError(
+                "PhaseACT requires at least one MoE action head for phase-based routing."
+            )
 
         self._initialize_moe_experts()
-
 
     def _initialize_moe_experts(self) -> None:
         """Set num_experts on lazy MoE heads from phase metadata."""
@@ -57,8 +64,9 @@ class PhaseACT(ACT):
             if isinstance(head, MoEHead) and not head.is_initialized:
                 head.set_num_experts(num_phases)
 
-
-    def _apply_action_heads(self, action_embeddings: torch.Tensor) -> dict[str, torch.Tensor]:
+    def _apply_action_heads(
+        self, action_embeddings: torch.Tensor
+    ) -> dict[str, torch.Tensor]:
         """Apply action heads with phase-based routing.
 
         Flow:
@@ -81,7 +89,9 @@ class PhaseACT(ACT):
 
         # Get phase predictions (these become routing weights)
         phase_head = self.action_heads[self.phase_routing_key]
-        phase_logits = phase_head(action_embeddings)  # (B, prediction horizon, num_phases)
+        phase_logits = phase_head(
+            action_embeddings
+        )  # (B, prediction horizon, num_phases)
         predictions[self.phase_routing_key] = phase_logits
         for action_key, head in self.action_heads.items():
             if action_key == self.phase_routing_key:
@@ -90,11 +100,13 @@ class PhaseACT(ACT):
             if isinstance(head, MoEHead):
                 output = head(
                     action_embeddings,
-                    gating_feature=phase_logits  # Phase-based routing
+                    gating_feature=phase_logits,  # Phase-based routing
                 )
                 predictions[action_key] = output[ACTION_KEY]
-                predictions[ROUTING_WEIGHT] = output[ROUTING_WEIGHT] # This will be overwritten but is the same for all MoE heads
-                predictions[f'{action_key}_{EXPERT_OUTPUTS}'] = output[EXPERT_OUTPUTS]
+                predictions[ROUTING_WEIGHT] = output[
+                    ROUTING_WEIGHT
+                ]  # This will be overwritten but is the same for all MoE heads
+                predictions[f"{action_key}_{EXPERT_OUTPUTS}"] = output[EXPERT_OUTPUTS]
             else:
                 predictions[action_key] = head(action_embeddings)
         return predictions

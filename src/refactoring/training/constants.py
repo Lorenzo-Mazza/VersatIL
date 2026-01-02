@@ -9,6 +9,7 @@ class PrecisionType(str, Enum):
 
     See: https://lightning.ai/docs/pytorch/stable/common/trainer.html#precision
     """
+
     INT8 = "8"  # 8-bit precision (only for quantized inference)
     FP32 = "32"  # Full 32-bit floating point
     FP16_MIXED = "16-mixed"  # Mixed precision with float16
@@ -16,7 +17,6 @@ class PrecisionType(str, Enum):
     FP16_TRUE = "16-true"  # Pure float16 (not recommended)
     BF16_TRUE = "bf16-true"  # Pure bfloat16 (not recommended)
     FP64 = "64"  # Double precision (rarely needed)
-
 
     def get_model_dtype(self) -> torch.dtype:
         """Get the dtype to convert model parameters to for this precision type.
@@ -45,7 +45,6 @@ class PrecisionType(str, Enum):
         }
         return dtype_map[self]
 
-
     def should_convert_model(self) -> bool:
         """Check if model should be converted to a specific dtype for this precision.
 
@@ -69,6 +68,7 @@ MAP_PRECISION_TO_DTYPE = {
     PrecisionType.BF16_TRUE: torch.bfloat16,
     PrecisionType.FP64: torch.float64,
 }
+
 
 class Float32MatmulPrecision(str, Enum):
     """Float32 matrix multiplication precision for Tensor Cores.

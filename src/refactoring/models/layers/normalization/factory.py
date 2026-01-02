@@ -27,7 +27,10 @@ def create_normalization_layer(
     Raises:
         ValueError: If normalization_type is not supported
     """
-    if normalization_type in (NormalizationType.ADALN.value, NormalizationType.ADARMS.value):
+    if normalization_type in (
+        NormalizationType.ADALN.value,
+        NormalizationType.ADARMS.value,
+    ):
         if condition_dim is None:
             raise ValueError("condition_dim is required for ada_ln / ada_rms")
         if normalization_type == NormalizationType.ADALN.value:

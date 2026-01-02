@@ -2,13 +2,26 @@
 import torch
 from torch import nn
 
-from refactoring.models.decoding.constants import CLASS_TOKEN_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY, PRIOR_LATENT_KEY
+from refactoring.models.decoding.constants import (
+    CLASS_TOKEN_KEY,
+    PRIOR_MU_KEY,
+    PRIOR_LOGVAR_KEY,
+    PRIOR_LATENT_KEY,
+)
 from refactoring.models.decoding.latent import PriorLatentEncoder
 from refactoring.models.decoding.latent.reparametrize import reparametrize
 from refactoring.models.layers.activation import ActivationFunction
-from refactoring.models.layers.detr_transformer import TransformerEncoder, TransformerEncoderLayer
-from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
-from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D, SinusoidalPositionalEncoding2D
+from refactoring.models.layers.detr_transformer import (
+    TransformerEncoder,
+    TransformerEncoderLayer,
+)
+from refactoring.models.layers.positional_encoding.learned import (
+    LearnedPositionalEncoding1D,
+)
+from refactoring.models.layers.positional_encoding.sinusoidal import (
+    SinusoidalPositionalEncoding1D,
+    SinusoidalPositionalEncoding2D,
+)
 from refactoring.models.layers.transformer_input_builder import TransformerInputBuilder
 
 
@@ -17,6 +30,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
 
     Handles input projection, transformer encoding with CLS token, and latent sampling and reparametrization.
     """
+
     def __init__(
         self,
         embedding_dimension: int,
@@ -33,7 +47,10 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         use_proprioceptive: bool = False,
         exclude_keys: list[str] = None,
     ):
-        super().__init__(latent_dimension=latent_dimension, device=device, )
+        super().__init__(
+            latent_dimension=latent_dimension,
+            device=device,
+        )
         self.exclude_keys = exclude_keys if exclude_keys is not None else []
         self.embedding_dimension = embedding_dimension
         self.use_proprioceptive = use_proprioceptive
@@ -61,16 +78,19 @@ class PriorTransformerEncoder(PriorLatentEncoder):
                 normalize_before=self.normalize_before,
             ),
             number_of_layers=self.number_of_encoder_layers,
-            normalization=nn.LayerNorm(self.embedding_dimension) if self.normalize_before else None
+            normalization=nn.LayerNorm(self.embedding_dimension)
+            if self.normalize_before
+            else None,
         )
 
         image_positional_encoding = SinusoidalPositionalEncoding2D(
-            embedding_dimension=self.embedding_dimension,
-            normalize=True
+            embedding_dimension=self.embedding_dimension, normalize=True
         )
         temporal_positional_encoding = None
         if self.observation_horizon > 1:
-            temporal_positional_encoding = LearnedPositionalEncoding1D(embedding_dimension=self.embedding_dimension)
+            temporal_positional_encoding = LearnedPositionalEncoding1D(
+                embedding_dimension=self.embedding_dimension
+            )
         self.input_sequence_builder = TransformerInputBuilder(
             embedding_dim=self.embedding_dimension,
             has_time_dim=self.observation_horizon > 1,
@@ -81,13 +101,13 @@ class PriorTransformerEncoder(PriorLatentEncoder):
                 maximum_length=1000,
             ),
         )
-        self.cls_token = nn.Embedding(1, self.embedding_dimension) # CLS input token
+        self.cls_token = nn.Embedding(1, self.embedding_dimension)  # CLS input token
         self.latent_stats_projection = nn.Linear(
             self.embedding_dimension,
-            self.latent_dimension * 2  # Latent gaussian distribution parameters: mu and logvar
+            self.latent_dimension
+            * 2,  # Latent gaussian distribution parameters: mu and logvar
         )
         self.to(device)
-
 
     def forward(
         self,
@@ -104,28 +124,37 @@ class PriorTransformerEncoder(PriorLatentEncoder):
             Dictionary of tensors (z, mu, logvar) with shape (B, latent_dim) for each.
         """
         input_observations = {
-            k: v for k, v in observations.items()
-            if not (k in self.exclude_keys)}
+            k: v for k, v in observations.items() if not (k in self.exclude_keys)
+        }
 
         batch_size = list(input_observations.values())[0].size(0)
-        cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(batch_size, 1, 1) # (B, 1, emb_dim)
+        cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(
+            batch_size, 1, 1
+        )  # (B, 1, emb_dim)
         input_observations[CLASS_TOKEN_KEY] = cls_embedding
-        input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(input_observations) # (B, seq_len, embedding_dimension)
+        input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(
+            input_observations
+        )  # (B, seq_len, embedding_dimension)
         # input_tokens contains the CLS token at the end of the sequence
         encoder_output = self.encoder(
             input_tokens,
             positional_encoding=pos_encodings,
-            source_key_padding_mask=padding_mask
-        )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dim)
-        latent_stats = self.latent_stats_projection(encoder_output) # (B, latent_dim * 2)
-        mu, logvar = latent_stats.chunk(2, dim=1) # Each (B, latent_dim)
-        z = reparametrize(mu, logvar) # Sample using reparametrization trick (B, latent_dim)
+            source_key_padding_mask=padding_mask,
+        )[
+            :, -1, :
+        ]  # (B, CLS_TOKEN only, embedding_dim)
+        latent_stats = self.latent_stats_projection(
+            encoder_output
+        )  # (B, latent_dim * 2)
+        mu, logvar = latent_stats.chunk(2, dim=1)  # Each (B, latent_dim)
+        z = reparametrize(
+            mu, logvar
+        )  # Sample using reparametrization trick (B, latent_dim)
         return {
             PRIOR_MU_KEY: mu,
             PRIOR_LOGVAR_KEY: logvar,
             PRIOR_LATENT_KEY: z,
         }
-
 
     def sample_prior(
         self,
@@ -133,7 +162,6 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         observations: dict[str, torch.Tensor] | None = None,
     ) -> torch.Tensor:
         """Sample latent variable from learned prior p(z|s)."""
-        return self.forward(
-            target_latents=None,
-            observations=observations,
-        )[PRIOR_LATENT_KEY]  # Return only z
+        return self.forward(target_latents=None, observations=observations,)[
+            PRIOR_LATENT_KEY
+        ]  # Return only z

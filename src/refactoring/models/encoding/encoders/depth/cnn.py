@@ -1,4 +1,3 @@
-
 import torch
 from transformers import TimmBackbone, TimmBackboneConfig
 from transformers.modeling_outputs import BackboneOutput
@@ -17,17 +16,20 @@ from refactoring.models.layers.pooling.pooling_head import create_pooling_head
 
 class DepthCNNEncoder(Encoder):
     """Convolutional Neural Network encoder supporting multiple backbones via TIMM for depth images."""
+
     def __init__(
-            self,
-            input_keys: str | list[str],
-            backbone: str = RGBBackboneType.RESNET18.value,
-            pooling_method: str = PoolingMethod.AVERAGE.value,
-            use_group_norm: bool = True,
-            pretrained: bool = False,
-            frozen: bool = False,
+        self,
+        input_keys: str | list[str],
+        backbone: str = RGBBackboneType.RESNET18.value,
+        pooling_method: str = PoolingMethod.AVERAGE.value,
+        use_group_norm: bool = True,
+        pretrained: bool = False,
+        frozen: bool = False,
     ):
-        specification = EncoderInput(keys=input_keys,required=[Cameras.DEPTH.value])
-        super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
+        specification = EncoderInput(keys=input_keys, required=[Cameras.DEPTH.value])
+        super().__init__(
+            input_specification=specification, pretrained=pretrained, frozen=frozen
+        )
         self.use_group_norm = use_group_norm
         self.pooling_method = pooling_method
         self.backbone_name = backbone
@@ -37,14 +39,17 @@ class DepthCNNEncoder(Encoder):
         if frozen:
             super()._freeze_weights()
 
-
     def _build_backbone(self):
         """Build backbone using TIMM library."""
-        backbone_config = TimmBackboneConfig(self.backbone_name, use_pretrained_backbone=self.pretrained, features_only=True, num_channels=1)
+        backbone_config = TimmBackboneConfig(
+            self.backbone_name,
+            use_pretrained_backbone=self.pretrained,
+            features_only=True,
+            num_channels=1,
+        )
         self.backbone = TimmBackbone(config=backbone_config)
         if self.use_group_norm:
             self.backbone = replace_batchnorm_with_groupnorm(self.backbone)  # type: ignore[assignment]
-
 
     def _setup_pooling(self):
         """Setup mock pooling head. The actual pooling head will be created in forward()."""
@@ -59,9 +64,10 @@ class DepthCNNEncoder(Encoder):
             spatial_height=h,
             spatial_width=w,
         )
-        self.pooling_head = None # Will be created in forward() with correct patch dimensions
+        self.pooling_head = (
+            None  # Will be created in forward() with correct patch dimensions
+        )
         self.output_dim = mock_pooling_head.get_output_dim(self.feature_dim)
-
 
     def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Forward pass to extract features from images.
@@ -99,9 +105,10 @@ class DepthCNNEncoder(Encoder):
 
         pooled_features = self.pooling_head(features)
         if has_time:
-            pooled_features = pooled_features.reshape(B, T, *pooled_features.shape[1:])  # Batch, Time, Features
+            pooled_features = pooled_features.reshape(
+                B, T, *pooled_features.shape[1:]
+            )  # Batch, Time, Features
         return {EncoderOutputKeys.DEPTH.value: pooled_features}
-
 
     def get_output_specification(self) -> EncoderOutput:
         return EncoderOutput(

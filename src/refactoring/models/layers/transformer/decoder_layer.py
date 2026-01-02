@@ -9,7 +9,9 @@ from refactoring.models.layers.normalization.constants import NormalizationType
 from refactoring.models.layers.transformer.attention import CachedAttention
 from refactoring.models.layers.transformer.kv_cache import LayerKVCache
 from refactoring.models.layers.normalization.factory import create_normalization_layer
-from refactoring.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
+from refactoring.models.layers.positional_encoding.rotary import (
+    RotaryPositionalEncoding,
+)
 from refactoring.models.layers.swiglu import SwiGLU
 
 
@@ -98,7 +100,11 @@ class TransformerDecoderLayer(nn.Module):
 
         if activation == ActivationFunction.SWIGLU.value:
             self.feedforward_network = nn.Sequential(
-                SwiGLU(input_dim=embedding_dimension, hidden_dim=feedforward_dimension, bias=bias),
+                SwiGLU(
+                    input_dim=embedding_dimension,
+                    hidden_dim=feedforward_dimension,
+                    bias=bias,
+                ),
                 nn.Dropout(dropout),
                 nn.Linear(feedforward_dimension, embedding_dimension, bias=bias),
             )
@@ -115,7 +121,9 @@ class TransformerDecoderLayer(nn.Module):
             dimension=embedding_dimension,
             epsilon=normalization_epsilon,
         )
-        self.feedforward_network[-1].SQUARE_ROOT_WEIGHT = True # Flag for initialization (GPT2 style)
+        self.feedforward_network[
+            -1
+        ].SQUARE_ROOT_WEIGHT = True  # Flag for initialization (GPT2 style)
         self.dropout = nn.Dropout(dropout)
 
     def forward(
@@ -149,7 +157,9 @@ class TransformerDecoderLayer(nn.Module):
             ValueError: If use_self_attention_cache=True for non-autoregressive model
         """
         if use_cache and not self.autoregressive:
-            raise ValueError("use_self_attention_cache=True only valid for autoregressive models")
+            raise ValueError(
+                "use_self_attention_cache=True only valid for autoregressive models"
+            )
         residual = hidden_states
         hidden_states = self.self_attention_normalization(hidden_states)
         self_attention_output, new_cache = self.self_attention(
@@ -165,11 +175,17 @@ class TransformerDecoderLayer(nn.Module):
         hidden_states = residual + self.dropout(self_attention_output)
 
         if self.use_cross_attention:
-            if encoded_features is None and (layer_cache is None or layer_cache.cross_attention_keys is None):
-                raise ValueError("encoded_features required when use_cross_attention=True and no cached cross KV")
+            if encoded_features is None and (
+                layer_cache is None or layer_cache.cross_attention_keys is None
+            ):
+                raise ValueError(
+                    "encoded_features required when use_cross_attention=True and no cached cross KV"
+                )
             residual = hidden_states
             hidden_states = self.cross_attention_normalization(hidden_states)
-            use_cross_cache = layer_cache is not None and layer_cache.cross_attention_keys is not None
+            use_cross_cache = (
+                layer_cache is not None and layer_cache.cross_attention_keys is not None
+            )
             cross_attention_output, _ = self.cross_attention(
                 query_input=hidden_states,
                 key_input=encoded_features if not use_cross_cache else None,

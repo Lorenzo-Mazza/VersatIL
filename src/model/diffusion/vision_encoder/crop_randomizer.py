@@ -9,14 +9,13 @@ class CropRandomizer(nn.Module):
     Randomly sample crops at input, and then average across crop features at output.
     """
 
-
     def __init__(
-            self,
-            input_shape,
-            crop_height,
-            crop_width,
-            num_crops = 1,
-            pos_enc = False,
+        self,
+        input_shape,
+        crop_height,
+        crop_width,
+        num_crops=1,
+        pos_enc=False,
     ):
         """
         Args:
@@ -39,8 +38,7 @@ class CropRandomizer(nn.Module):
         self.num_crops = num_crops
         self.pos_enc = pos_enc
 
-
-    def output_shape_in(self, input_shape = None):
+    def output_shape_in(self, input_shape=None):
         """
         Function to compute output shape from inputs to this module. Corresponds to
         the @forward_in operation, where raw inputs (usually observation modalities)
@@ -61,8 +59,7 @@ class CropRandomizer(nn.Module):
         out_c = self.input_shape[0] + 2 if self.pos_enc else self.input_shape[0]
         return [out_c, self.crop_height, self.crop_width]
 
-
-    def output_shape_out(self, input_shape = None):
+    def output_shape_out(self, input_shape=None):
         """
         Function to compute output shape from inputs to this module. Corresponds to
         the @forward_out operation, where processed inputs (usually encoded observation
@@ -81,7 +78,6 @@ class CropRandomizer(nn.Module):
         # and then pools to result in [B, ...], only the batch dimension changes,
         # and so the other dimensions retain their shape.
         return list(input_shape)
-
 
     def forward_in(self, inputs):
         """
@@ -102,14 +98,18 @@ class CropRandomizer(nn.Module):
             return tu.join_dimensions(out, 0, 1)
         else:
             # take center crop during eval
-            out = ttf.center_crop(img=inputs, output_size=(
-                self.crop_height, self.crop_width))
+            out = ttf.center_crop(
+                img=inputs, output_size=(self.crop_height, self.crop_width)
+            )
             if self.num_crops > 1:
                 B, C, H, W = out.shape
-                out = out.unsqueeze(1).expand(B, self.num_crops, C, H, W).reshape(-1, C, H, W)
+                out = (
+                    out.unsqueeze(1)
+                    .expand(B, self.num_crops, C, H, W)
+                    .reshape(-1, C, H, W)
+                )
                 # [B * N, ...]
             return out
-
 
     def forward_out(self, inputs):
         """
@@ -120,21 +120,24 @@ class CropRandomizer(nn.Module):
         if self.num_crops <= 1:
             return inputs
         else:
-            batch_size = (inputs.shape[0] // self.num_crops)
-            out = tu.reshape_dimensions(inputs, begin_axis=0, end_axis=0,
-                                        target_dims=(batch_size, self.num_crops))
+            batch_size = inputs.shape[0] // self.num_crops
+            out = tu.reshape_dimensions(
+                inputs,
+                begin_axis=0,
+                end_axis=0,
+                target_dims=(batch_size, self.num_crops),
+            )
             return out.mean(dim=1)
-
 
     def forward(self, inputs):
         return self.forward_in(inputs)
 
-
     def __repr__(self):
         """Pretty print network."""
-        header = '{}'.format(str(self.__class__.__name__))
+        header = "{}".format(str(self.__class__.__name__))
         msg = header + "(input_shape={}, crop_size=[{}, {}], num_crops={})".format(
-            self.input_shape, self.crop_height, self.crop_width, self.num_crops)
+            self.input_shape, self.crop_height, self.crop_width, self.num_crops
+        )
         return msg
 
 
@@ -168,7 +171,9 @@ def crop_image_from_indices(images, crop_indices, crop_height, crop_width):
     assert crop_indices.shape[-1] == 2
     ndim_im_shape = len(images.shape)
     ndim_indices_shape = len(crop_indices.shape)
-    assert (ndim_im_shape == ndim_indices_shape + 1) or (ndim_im_shape == ndim_indices_shape + 2)
+    assert (ndim_im_shape == ndim_indices_shape + 1) or (
+        ndim_im_shape == ndim_indices_shape + 2
+    )
 
     # maybe pad so that @crop_indices is shape [..., N, 2]
     is_padded = False
@@ -198,20 +203,30 @@ def crop_image_from_indices(images, crop_indices, crop_height, crop_width):
     crop_ind_grid_w = torch.arange(crop_width).to(device)
     crop_ind_grid_w = tu.unsqueeze_expand_at(crop_ind_grid_w, size=crop_height, dim=0)
     # combine into shape [CH, CW, 2]
-    crop_in_grid = torch.cat((crop_ind_grid_h.unsqueeze(-1), crop_ind_grid_w.unsqueeze(-1)), dim=-1)
+    crop_in_grid = torch.cat(
+        (crop_ind_grid_h.unsqueeze(-1), crop_ind_grid_w.unsqueeze(-1)), dim=-1
+    )
 
     # Add above grid with the offset index of each sampled crop to get 2d indices for each crop.
     # After broadcasting, this will be shape [..., N, CH, CW, 2] and each crop has a [CH, CW, 2]
     # shape array that tells us which pixels from the corresponding source image to grab.
     grid_reshape = [1] * len(crop_indices.shape[:-1]) + [crop_height, crop_width, 2]
-    all_crop_inds = crop_indices.unsqueeze(-2).unsqueeze(-2) + crop_in_grid.reshape(grid_reshape)
+    all_crop_inds = crop_indices.unsqueeze(-2).unsqueeze(-2) + crop_in_grid.reshape(
+        grid_reshape
+    )
 
     # For using @torch.gather, convert to flat indices from 2D indices, and also
     # repeat across the channel dimension. To get flat index of each pixel to grab for
     # each sampled crop, we just use the mapping: ind = h_ind * @image_w + w_ind
-    all_crop_inds = all_crop_inds[..., 0] * image_w + all_crop_inds[..., 1]  # shape [..., N, CH, CW]
-    all_crop_inds = tu.unsqueeze_expand_at(all_crop_inds, size=image_c, dim=-3)  # shape [..., N, C, CH, CW]
-    all_crop_inds = tu.flatten(all_crop_inds, begin_axis=-2)  # shape [..., N, C, CH * CW]
+    all_crop_inds = (
+        all_crop_inds[..., 0] * image_w + all_crop_inds[..., 1]
+    )  # shape [..., N, CH, CW]
+    all_crop_inds = tu.unsqueeze_expand_at(
+        all_crop_inds, size=image_c, dim=-3
+    )  # shape [..., N, C, CH, CW]
+    all_crop_inds = tu.flatten(
+        all_crop_inds, begin_axis=-2
+    )  # shape [..., N, C, CH * CW]
 
     # Repeat and flatten the source images -> [..., N, C, H * W] and then use gather to index with crop pixel inds
     images_to_crop = tu.unsqueeze_expand_at(images, size=num_crops, dim=-4)
@@ -219,8 +234,12 @@ def crop_image_from_indices(images, crop_indices, crop_height, crop_width):
     crops = torch.gather(images_to_crop, dim=-1, index=all_crop_inds)
     # [..., N, C, CH * CW] -> [..., N, C, CH, CW]
     reshape_axis = len(crops.shape) - 1
-    crops = tu.reshape_dimensions(crops, begin_axis=reshape_axis, end_axis=reshape_axis,
-                                  target_dims=(crop_height, crop_width))
+    crops = tu.reshape_dimensions(
+        crops,
+        begin_axis=reshape_axis,
+        end_axis=reshape_axis,
+        target_dims=(crop_height, crop_width),
+    )
 
     if is_padded:
         # undo padding -> [..., C, CH, CW]
@@ -228,7 +247,9 @@ def crop_image_from_indices(images, crop_indices, crop_height, crop_width):
     return crops
 
 
-def sample_random_image_crops(images, crop_height, crop_width, num_crops, pos_enc = False):
+def sample_random_image_crops(
+    images, crop_height, crop_width, num_crops, pos_enc=False
+):
     """
     For each image, randomly sample @num_crops crops of size (@crop_height, @crop_width), from
     @images.
@@ -284,9 +305,15 @@ def sample_random_image_crops(images, crop_height, crop_width, num_crops, pos_en
     # or possibly no leading dimension.
     #
     # Trick: sample in [0, 1) with rand, then re-scale to [0, M) and convert to long to get sampled ints
-    crop_inds_h = (max_sample_h * torch.rand(*source_im.shape[:-3], num_crops).to(device)).long()
-    crop_inds_w = (max_sample_w * torch.rand(*source_im.shape[:-3], num_crops).to(device)).long()
-    crop_inds = torch.cat((crop_inds_h.unsqueeze(-1), crop_inds_w.unsqueeze(-1)), dim=-1)  # shape [..., N, 2]
+    crop_inds_h = (
+        max_sample_h * torch.rand(*source_im.shape[:-3], num_crops).to(device)
+    ).long()
+    crop_inds_w = (
+        max_sample_w * torch.rand(*source_im.shape[:-3], num_crops).to(device)
+    ).long()
+    crop_inds = torch.cat(
+        (crop_inds_h.unsqueeze(-1), crop_inds_w.unsqueeze(-1)), dim=-1
+    )  # shape [..., N, 2]
 
     crops = crop_image_from_indices(
         images=source_im,

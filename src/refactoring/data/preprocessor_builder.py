@@ -5,7 +5,11 @@ import torch
 
 from refactoring.common.tensor_ops import tensor_to_str
 from refactoring.configs.data.tokenizer import TokenizationConfig
-from refactoring.data.metadata import PositionObservationMetadata, ActionMetadata, OnTheFlyActionMetadata
+from refactoring.data.metadata import (
+    PositionObservationMetadata,
+    ActionMetadata,
+    OnTheFlyActionMetadata,
+)
 from refactoring.data.task import ObservationSpace
 from refactoring.data.action_processor import ActionProcessor
 from refactoring.data.constants import (
@@ -75,11 +79,8 @@ class PreprocessorBuilder:
         self.min_kinematics_std = min_kinematics_std
         self.min_kinematics_range = min_kinematics_range
 
-
     def create_normalizer_and_tokenizer(
-        self,
-        device: torch.device | None = None,
-        **kwargs
+        self, device: torch.device | None = None, **kwargs
     ) -> tuple[LinearNormalizer, Tokenizer | None]:
         """Create and fit normalizer and optionally tokenizer to data.
         Pipeline: Raw data → Winsorize → Normalize → Tokenize
@@ -94,38 +95,50 @@ class PreprocessorBuilder:
         self.compute_proprioceptive_denoising_thresholds()
         all_data = self.replay_buffer.get_steps_slice(0, self.replay_buffer.n_steps)
         action_data, action_meta = self.action_processor.compute_sample_actions(
-            padded_data=all_data, action_slice_start=0, action_slice_end=self.replay_buffer.n_steps-1)
+            padded_data=all_data,
+            action_slice_start=0,
+            action_slice_end=self.replay_buffer.n_steps - 1,
+        )
         cross_indices = self.episode_ends[:-1] - 1
         valid_mask = np.ones(len(next(iter(action_data.values()))), dtype=bool)
         valid_mask[cross_indices] = False
         valid_action_data = {key: data[valid_mask] for key, data in action_data.items()}
 
-        normalizer = self._create_normalizer(action_data=valid_action_data, action_meta=action_meta,
-                                             device=device, **kwargs)
+        normalizer = self._create_normalizer(
+            action_data=valid_action_data,
+            action_meta=action_meta,
+            device=device,
+            **kwargs,
+        )
         tokenizer = None
         if self.tokenization_config and (
-            self.tokenization_config.tokenize_observations or self.tokenization_config.tokenize_actions
+            self.tokenization_config.tokenize_observations
+            or self.tokenization_config.tokenize_actions
         ):
-            tokenizer = self._create_tokenizer(normalizer=normalizer, action_data=valid_action_data,
-                                               action_meta=action_meta, device=device)
+            tokenizer = self._create_tokenizer(
+                normalizer=normalizer,
+                action_data=valid_action_data,
+                action_meta=action_meta,
+                device=device,
+            )
         return normalizer, tokenizer
-
 
     def compute_proprioceptive_denoising_thresholds(
         self,
     ) -> None:
-        """Compute denoising thresholds for proprioceptive observations.
-        """
+        """Compute denoising thresholds for proprioceptive observations."""
         for key, meta in self.action_processor.action_space.actions_metadata.items():
             if isinstance(meta, OnTheFlyActionMetadata):
                 source_meta = meta.source_metadata
                 if isinstance(source_meta, PositionObservationMetadata):
                     obs_data = self.replay_buffer[key][:]
                     self.action_processor.compute_denoising_threshold(
-                        obs_data=obs_data, key=key, meta=source_meta, episode_ends=self.episode_ends
+                        obs_data=obs_data,
+                        key=key,
+                        meta=source_meta,
+                        episode_ends=self.episode_ends,
                     )
         self.action_processor.log_movement_distribution()
-
 
     def _create_normalizer(
         self,
@@ -133,7 +146,7 @@ class PreprocessorBuilder:
         action_meta: dict[str, ActionMetadata],
         device: torch.device | None = None,
         winsorize_depth: bool = True,
-        **kwargs
+        **kwargs,
     ) -> LinearNormalizer:
         """Create and fit normalizer for this dataset.
 
@@ -154,7 +167,9 @@ class PreprocessorBuilder:
         for key, meta in self.observation_space.observations_metadata.items():
             if meta.needs_normalization:
                 if not meta.is_numerical:
-                    raise ValueError(f"Cannot normalize non-numerical observation key: {key}")
+                    raise ValueError(
+                        f"Cannot normalize non-numerical observation key: {key}"
+                    )
                 data_to_normalize[key] = self.replay_buffer[key][:]
 
         for key, meta in action_meta.items():
@@ -162,8 +177,7 @@ class PreprocessorBuilder:
                 data_to_normalize[key] = action_data[key]
         if self.kinematics_winsorize_quantiles:
             data_to_normalize = self._apply_winsorization(
-                data_to_normalize,
-                self.kinematics_winsorize_quantiles
+                data_to_normalize, self.kinematics_winsorize_quantiles
             )
         normalizer.fit(
             data=data_to_normalize,
@@ -174,12 +188,11 @@ class PreprocessorBuilder:
             clamp_range=self.clamp_kinematics_range,
             min_std=self.min_kinematics_std,
             min_range=self.min_kinematics_range,
-            **kwargs
+            **kwargs,
         )
         self._setup_image_normalizers(normalizer, device, winsorize_depth)
         self._log_normalized_proprio_stats(normalizer, data_to_normalize)
         return normalizer
-
 
     def _setup_image_normalizers(
         self,
@@ -202,9 +215,9 @@ class PreprocessorBuilder:
                 )
             else:
                 self._setup_rgb_normalizer(normalizer, camera_key, device)
-            self._log_normalized_camera_stats(camera_key=camera_key, cam_array=cam_array, normalizer=normalizer)
-
-
+            self._log_normalized_camera_stats(
+                camera_key=camera_key, cam_array=cam_array, normalizer=normalizer
+            )
 
     def _setup_depth_normalizer(
         self,
@@ -250,12 +263,8 @@ class PreprocessorBuilder:
             device=device,
         )
 
-
     def _setup_rgb_normalizer(
-        self,
-        normalizer: LinearNormalizer,
-        cam: str,
-        device: torch.device | None
+        self, normalizer: LinearNormalizer, cam: str, device: torch.device | None
     ) -> None:
         """Setup RGB image normalizer.
 
@@ -265,10 +274,8 @@ class PreprocessorBuilder:
             device: Target device
         """
         normalizer[cam] = get_rgb_image_normalizer(
-            norm_type=self.image_norm_type,
-            device=device
+            norm_type=self.image_norm_type, device=device
         )
-
 
     def _create_tokenizer(
         self,
@@ -292,7 +299,9 @@ class PreprocessorBuilder:
         if self.tokenization_config.tokenize_observations:
             obs_config = self.tokenization_config.observation_tokenizer
             if obs_config is None:
-                raise ValueError("observation_tokenizer config must be provided when tokenize_observations=True")
+                raise ValueError(
+                    "observation_tokenizer config must be provided when tokenize_observations=True"
+                )
 
             observation_tokenizer = ObservationTokenizer(
                 tokenizer_model=obs_config.tokenizer_model,
@@ -310,21 +319,29 @@ class PreprocessorBuilder:
                     obs_data = self.replay_buffer[key][:]
                     if meta.needs_normalization:
                         obs_data = normalizer[key].normalize(obs_data)
-                        obs_data = obs_data.detach().cpu().numpy() if isinstance(obs_data, torch.Tensor) else obs_data
+                        obs_data = (
+                            obs_data.detach().cpu().numpy()
+                            if isinstance(obs_data, torch.Tensor)
+                            else obs_data
+                        )
                     data_to_bin[key] = obs_data
 
                 if len(data_to_bin.values()) > 0:
                     observation_tokenizer.fit(data_to_bin)
 
             if not observation_tokenizer._is_fitted:
-                logging.warning("No observation data was used for observation binning tokenizer."
-                                " Observation binning tokenizer will be a pass-through.")
-                observation_tokenizer.fit({}) # Pass-through
+                logging.warning(
+                    "No observation data was used for observation binning tokenizer."
+                    " Observation binning tokenizer will be a pass-through."
+                )
+                observation_tokenizer.fit({})  # Pass-through
 
         if self.tokenization_config.tokenize_actions:
             action_config = self.tokenization_config.action_tokenizer
             if action_config is None:
-                raise ValueError("action_tokenizer config must be provided when tokenize_actions=True")
+                raise ValueError(
+                    "action_tokenizer config must be provided when tokenize_actions=True"
+                )
 
             action_tokenizer = ActionTokenizer(
                 tokenizer_chain=action_config.tokenizer_chain,
@@ -340,15 +357,21 @@ class PreprocessorBuilder:
                         continue
                     if meta.needs_normalization:
                         action = normalizer[key].normalize(action_data[key])
-                        actions_to_tokenize[key] = action.detach().cpu().numpy() if isinstance(action, torch.Tensor) else action
+                        actions_to_tokenize[key] = (
+                            action.detach().cpu().numpy()
+                            if isinstance(action, torch.Tensor)
+                            else action
+                        )
                     else:
                         actions_to_tokenize[key] = action_data[key]
                 action_chunks = self._create_action_chunks_for_tokenizer(
                     action_dict=actions_to_tokenize,
                 )
                 action_tokenizer.fit(action_chunks)
-        return Tokenizer(observation_tokenizer=observation_tokenizer, action_tokenizer=action_tokenizer)
-
+        return Tokenizer(
+            observation_tokenizer=observation_tokenizer,
+            action_tokenizer=action_tokenizer,
+        )
 
     def _create_action_chunks_for_tokenizer(
         self,
@@ -375,18 +398,19 @@ class PreprocessorBuilder:
             if i == 0:
                 episode_lengths.append(self.episode_ends[i] - 1)
             else:
-                episode_lengths.append(self.episode_ends[i] - self.episode_ends[i - 1] - 1)
+                episode_lengths.append(
+                    self.episode_ends[i] - self.episode_ends[i - 1] - 1
+                )
         chunks = []
         episode_start = 0
         for length in episode_lengths:
-            episode_actions = all_actions[episode_start:episode_start + length]
+            episode_actions = all_actions[episode_start : episode_start + length]
             if length >= self.prediction_horizon:
                 for i in range(length - self.prediction_horizon + 1):
-                    chunks.append(episode_actions[i:i + self.prediction_horizon])
+                    chunks.append(episode_actions[i : i + self.prediction_horizon])
             episode_start += length
 
         return np.stack(chunks, axis=0)
-
 
     @staticmethod
     def _apply_winsorization(
@@ -418,9 +442,10 @@ class PreprocessorBuilder:
                 )
         return winsorized
 
-
     @staticmethod
-    def _log_normalized_camera_stats(camera_key: str, cam_array: np.ndarray, normalizer: LinearNormalizer) -> None:
+    def _log_normalized_camera_stats(
+        camera_key: str, cam_array: np.ndarray, normalizer: LinearNormalizer
+    ) -> None:
         """Log camera array statistics.
 
         Args:
@@ -442,8 +467,9 @@ class PreprocessorBuilder:
             f"max:  {tensor_to_str(after_norm.max())}"
         )
 
-
-    def _log_normalized_proprio_stats(self, normalizer: LinearNormalizer, proprio_data: dict[str, np.ndarray]) -> None:
+    def _log_normalized_proprio_stats(
+        self, normalizer: LinearNormalizer, proprio_data: dict[str, np.ndarray]
+    ) -> None:
         """Log proprioceptive statistics before and after normalization.
 
         Args:
@@ -468,8 +494,7 @@ class PreprocessorBuilder:
                 f"min:  {tensor_to_str(after_norm.min())}, "
                 f"max:  {tensor_to_str(after_norm.max())}"
             )
-        '''for cam_meta in self.observation_space.cameras:
+        """for cam_meta in self.observation_space.cameras:
             cam = cam_meta.camera_key
             output_stats = normalizer[cam].get_output_stats()
-            logging.info(f"Normalized {cam} image stats: {output_stats}")'''
-
+            logging.info(f"Normalized {cam} image stats: {output_stats}")"""

@@ -154,4 +154,3 @@ def reduce_loss_with_padding(
         return masked_loss.sum()
     else:
         return masked_loss
-

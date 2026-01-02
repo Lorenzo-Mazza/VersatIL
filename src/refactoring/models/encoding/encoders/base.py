@@ -6,12 +6,14 @@ import torch
 import torch.nn as nn
 
 
-
 @dataclass
 class EncoderOutput:
     """Structured encoder output specification."""
+
     features: list[str]  # list of feature names as `EncoderOutputKeys.value`.
-    dimensions: dict[str, int | tuple]  # feature_name -> dimension (skips batch and time dimension)
+    dimensions: dict[
+        str, int | tuple
+    ]  # feature_name -> dimension (skips batch and time dimension)
 
     @property
     def is_multi_output(self) -> bool:
@@ -21,6 +23,7 @@ class EncoderOutput:
 @dataclass
 class EncoderInput:
     """Structured input specification for encoders."""
+
     keys: str | list[str]
     #: The encoder needs these input observation keys
     required: list[str] = field(default_factory=list)
@@ -56,21 +59,26 @@ class EncoderInput:
             conditioning_set = {self.conditioning_key}
             missing_conditioning = set(self.conditioning_required) - conditioning_set
             if missing_conditioning:
-                raise ValueError(f"Missing required conditioning: {missing_conditioning}")
+                raise ValueError(
+                    f"Missing required conditioning: {missing_conditioning}"
+                )
             for group in self.conditioning_one_of_groups:
                 matches = conditioning_set.intersection(group)
                 if len(matches) != 1:
-                    raise ValueError(f"Exactly one from {group} required for conditioning")
+                    raise ValueError(
+                        f"Exactly one from {group} required for conditioning"
+                    )
 
 
 class EncodingMixin(nn.Module, abc.ABC):
     """Base interface for all encoders, conditional and non-conditional."""
+
     def __init__(
-            self,
-            input_specification: EncoderInput,
-            pretrained: bool = False,
-            frozen: bool = False,
-            device: str | None = None,
+        self,
+        input_specification: EncoderInput,
+        pretrained: bool = False,
+        frozen: bool = False,
+        device: str | None = None,
     ):
         """Initialize base encoder.
 
@@ -90,12 +98,10 @@ class EncodingMixin(nn.Module, abc.ABC):
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)
 
-
     def _freeze_weights(self):
         """Freeze model weights."""
         for param in self.parameters():
             param.requires_grad = False
-
 
     @abstractmethod
     def get_output_specification(self) -> EncoderOutput:
@@ -105,4 +111,3 @@ class EncodingMixin(nn.Module, abc.ABC):
     def get_vocab_size(self) -> int | None:
         """Get vocabulary size if applicable, else None."""
         return None
-

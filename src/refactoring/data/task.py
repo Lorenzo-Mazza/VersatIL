@@ -53,15 +53,25 @@ class ActionSpace:
     @property
     def on_the_fly_actions(self) -> dict[str, OnTheFlyActionMetadata]:
         """Get actions computed on-the-fly from observations."""
-        return {k: v for k, v in self.actions_metadata.items() if isinstance(v, OnTheFlyActionMetadata)}
+        return {
+            k: v
+            for k, v in self.actions_metadata.items()
+            if isinstance(v, OnTheFlyActionMetadata)
+        }
 
     @property
     def precomputed_actions(self) -> dict[str, PrecomputedActionMetadata]:
         """Get precomputed actions loaded directly from zarr."""
-        return {k: v for k, v in self.actions_metadata.items() if isinstance(v, PrecomputedActionMetadata)}
+        return {
+            k: v
+            for k, v in self.actions_metadata.items()
+            if isinstance(v, PrecomputedActionMetadata)
+        }
 
     @property
-    def position_actions(self) -> dict[str, PositionActionMetadata | OnTheFlyActionMetadata]:
+    def position_actions(
+        self,
+    ) -> dict[str, PositionActionMetadata | OnTheFlyActionMetadata]:
         """Get all position actions (precomputed or on-the-fly)."""
         result = {}
         for k, v in self.actions_metadata.items():
@@ -73,7 +83,9 @@ class ActionSpace:
         return result
 
     @property
-    def orientation_actions(self) -> dict[str, OrientationActionMetadata | OnTheFlyActionMetadata]:
+    def orientation_actions(
+        self,
+    ) -> dict[str, OrientationActionMetadata | OnTheFlyActionMetadata]:
         """Get all orientation actions (precomputed or on-the-fly)."""
         result = {}
         for k, v in self.actions_metadata.items():
@@ -85,7 +97,9 @@ class ActionSpace:
         return result
 
     @property
-    def gripper_actions(self) -> dict[str, GripperActionMetadata | OnTheFlyActionMetadata]:
+    def gripper_actions(
+        self,
+    ) -> dict[str, GripperActionMetadata | OnTheFlyActionMetadata]:
         """Get all gripper actions (precomputed or on-the-fly)."""
         result = {}
         for k, v in self.actions_metadata.items():
@@ -95,7 +109,6 @@ class ActionSpace:
                 if isinstance(v.source_metadata, GripperObservationMetadata):
                     result[k] = v
         return result
-
 
     def get_total_action_dim(self) -> int:
         """Calculate total action dimension."""
@@ -175,7 +188,6 @@ class ActionSpace:
         """Check if the task has phase labels."""
         return ObsKey.PHASE_LABEL.value in self.actions_metadata
 
-
     def get_required_zarr_keys(self) -> list[str]:
         """Get zarr keys needed for this action space.
 
@@ -200,44 +212,81 @@ class ObservationSpace:
     ):
         self.observations_metadata = resolve_dict_keys(observations_metadata)
 
-
     @property
     def cameras(self) -> dict[str, CameraMetadata]:
         """Get all camera observations."""
-        return {k: v for k, v in self.observations_metadata.items() if isinstance(v, CameraMetadata)}
+        return {
+            k: v
+            for k, v in self.observations_metadata.items()
+            if isinstance(v, CameraMetadata)
+        }
 
     @property
     def position_observations(self) -> dict[str, PositionObservationMetadata]:
         """Get all position observations."""
-        return {k: v for k, v in self.observations_metadata.items() if isinstance(v, PositionObservationMetadata)}
+        return {
+            k: v
+            for k, v in self.observations_metadata.items()
+            if isinstance(v, PositionObservationMetadata)
+        }
 
     @property
     def orientation_observations(self) -> dict[str, OrientationObservationMetadata]:
         """Get all orientation observations."""
-        return {k: v for k, v in self.observations_metadata.items() if isinstance(v, OrientationObservationMetadata)}
+        return {
+            k: v
+            for k, v in self.observations_metadata.items()
+            if isinstance(v, OrientationObservationMetadata)
+        }
 
     @property
     def gripper_observations(self) -> dict[str, GripperObservationMetadata]:
         """Get all gripper state observations."""
-        return {k: v for k, v in self.observations_metadata.items() if isinstance(v, GripperObservationMetadata)}
+        return {
+            k: v
+            for k, v in self.observations_metadata.items()
+            if isinstance(v, GripperObservationMetadata)
+        }
 
     @property
-    def proprioceptive_observations(self) -> dict[str, PositionObservationMetadata | OrientationObservationMetadata | GripperObservationMetadata]:
+    def proprioceptive_observations(
+        self,
+    ) -> dict[
+        str,
+        PositionObservationMetadata
+        | OrientationObservationMetadata
+        | GripperObservationMetadata,
+    ]:
         """Get all proprioceptive observations (position, orientation, gripper)."""
         return {
-            k: v for k, v in self.observations_metadata.items()
-            if isinstance(v, (PositionObservationMetadata, OrientationObservationMetadata, GripperObservationMetadata))
+            k: v
+            for k, v in self.observations_metadata.items()
+            if isinstance(
+                v,
+                (
+                    PositionObservationMetadata,
+                    OrientationObservationMetadata,
+                    GripperObservationMetadata,
+                ),
+            )
         }
 
     @property
     def custom_observations(self) -> dict[str, ObservationMetadata]:
         """Get custom observations (not position, orientation, gripper, or camera)."""
         return {
-            k: v for k, v in self.observations_metadata.items()
+            k: v
+            for k, v in self.observations_metadata.items()
             if isinstance(v, ObservationMetadata)
-            and not isinstance(v, (PositionObservationMetadata, OrientationObservationMetadata, GripperObservationMetadata))
+            and not isinstance(
+                v,
+                (
+                    PositionObservationMetadata,
+                    OrientationObservationMetadata,
+                    GripperObservationMetadata,
+                ),
+            )
         }
-
 
     @property
     def has_cameras(self) -> bool:
@@ -259,12 +308,10 @@ class ObservationSpace:
         """Check if any position observations are included."""
         return len(self.position_observations) > 0
 
-
     @property
     def has_proprioceptive_orientation(self) -> bool:
         """Check if any orientation observations are included."""
         return len(self.orientation_observations) > 0
-
 
     def get_required_zarr_keys(self) -> list[str]:
         """Get all zarr keys needed for this observation space.
@@ -281,6 +328,7 @@ class TaskSpace:
     The task space validates that requested keys exist in the dataset schema
     and that metadata is consistent between the schema and task requirements.
     """
+
     def __init__(
         self,
         dataset_schema: DatasetSchema,
@@ -308,7 +356,6 @@ class TaskSpace:
         self.observation_horizon = observation_horizon
         self._validate()
 
-
     def _validate(self) -> None:
         """Validate task configuration against dataset schema."""
         zarr_keys = set(self.dataset_schema.get_required_zarr_keys())
@@ -316,15 +363,23 @@ class TaskSpace:
             action_meta = self.action_space.actions_metadata[key]
             if isinstance(action_meta, OnTheFlyActionMetadata):
                 if key not in zarr_keys:
-                    raise ValueError(f"On-the-fly action '{key}' references observation that doesn't exist in dataset schema.")
+                    raise ValueError(
+                        f"On-the-fly action '{key}' references observation that doesn't exist in dataset schema."
+                    )
                 schema_obs = self.dataset_schema.metadata.get_observation(key)
                 if schema_obs is None:
-                    raise ValueError( f"On-the-fly action '{key}' references observation not found in schema.")
+                    raise ValueError(
+                        f"On-the-fly action '{key}' references observation not found in schema."
+                    )
                 if action_meta.source_metadata != schema_obs:
-                    raise ValueError(f"On-the-fly action '{key}' metadata mismatch with schema")
+                    raise ValueError(
+                        f"On-the-fly action '{key}' metadata mismatch with schema"
+                    )
             else:
                 if key not in zarr_keys:
-                    raise ValueError(f"Precomputed action '{key}' not found in dataset schema.")
+                    raise ValueError(
+                        f"Precomputed action '{key}' not found in dataset schema."
+                    )
         for key, task_obs in self.observation_space.observations_metadata.items():
             if key not in zarr_keys:
                 raise ValueError(f"Observation '{key}' not found in dataset schema.")
@@ -333,10 +388,15 @@ class TaskSpace:
                 raise ValueError(f"Observation '{key}' metadata mismatch with schema")
         for cam_key in self.observation_space.cameras.keys():
             if cam_key not in VALID_CAMERAS:
-                raise ValueError(f"Invalid camera key '{cam_key}', must be one of {VALID_CAMERAS}. "
-                    f"To add custom camera keys, add them to constants.data.Cameras enum.")
+                raise ValueError(
+                    f"Invalid camera key '{cam_key}', must be one of {VALID_CAMERAS}. "
+                    f"To add custom camera keys, add them to constants.data.Cameras enum."
+                )
         if self.observation_horizon < 1:
-            raise ValueError(f"observation_horizon must be >= 1, got {self.observation_horizon}")
+            raise ValueError(
+                f"observation_horizon must be >= 1, got {self.observation_horizon}"
+            )
         if self.prediction_horizon < 1:
-            raise ValueError(f"prediction_horizon must be >= 1, got {self.prediction_horizon}")
-
+            raise ValueError(
+                f"prediction_horizon must be >= 1, got {self.prediction_horizon}"
+            )

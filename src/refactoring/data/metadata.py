@@ -5,8 +5,15 @@
 
 from typing import Optional
 
-from refactoring.data.constants import CoordinateSystem, ProprioceptiveType, OrientationRepresentation, GripperType, BinaryGripperRange, VALID_CAMERAS, \
-    ActionComputationMethod
+from refactoring.data.constants import (
+    CoordinateSystem,
+    ProprioceptiveType,
+    OrientationRepresentation,
+    GripperType,
+    BinaryGripperRange,
+    VALID_CAMERAS,
+    ActionComputationMethod,
+)
 
 
 class BaseMetadata:
@@ -19,21 +26,24 @@ class BaseMetadata:
     """
 
     def __init__(
-            self,
-            dtype: str,
-            is_numerical: bool,
-            needs_normalization: bool,
+        self,
+        dtype: str,
+        is_numerical: bool,
+        needs_normalization: bool,
     ):
         if not is_numerical:
             if needs_normalization:
-                raise ValueError("Non-numerical observations should not need normalization.")
+                raise ValueError(
+                    "Non-numerical observations should not need normalization."
+                )
         else:
-            if 'float' not in dtype and 'int' not in dtype:
-                raise ValueError(f"dtype for numerical observations must be float or int type, got {dtype}")
+            if "float" not in dtype and "int" not in dtype:
+                raise ValueError(
+                    f"dtype for numerical observations must be float or int type, got {dtype}"
+                )
         self.dtype = dtype
         self.is_numerical = is_numerical
         self.needs_normalization = needs_normalization
-
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
@@ -53,13 +63,14 @@ class ObservationMetadata(BaseMetadata):
         raw_data_column_keys: List of keys in the raw dataset corresponding to the observation.
         dimension: Dimension that will be used to store the observation in the zarr store.
     """
+
     def __init__(
-            self,
-            raw_data_column_keys: list[str],
-            dimension: int,
-            dtype: str,
-            is_numerical: bool,
-            needs_normalization: bool,
+        self,
+        raw_data_column_keys: list[str],
+        dimension: int,
+        dtype: str,
+        is_numerical: bool,
+        needs_normalization: bool,
     ):
         super().__init__(dtype, is_numerical, needs_normalization)
         if not raw_data_column_keys:
@@ -68,7 +79,6 @@ class ObservationMetadata(BaseMetadata):
             raise ValueError(f"dimension must be positive, got {dimension}")
         self.raw_data_column_keys = raw_data_column_keys
         self.dimension = dimension
-
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
@@ -87,15 +97,16 @@ class PositionObservationMetadata(ObservationMetadata):
     Attributes:
         frame: Coordinate frame of the position observation.
     """
+
     def __init__(
-            self,
-            raw_data_column_keys: list[str],
-            dimension: int,
-            dtype: str,
-            needs_normalization: bool,
-            frame: str = CoordinateSystem.ROBOT_BASE.value,
+        self,
+        raw_data_column_keys: list[str],
+        dimension: int,
+        dtype: str,
+        needs_normalization: bool,
+        frame: str = CoordinateSystem.ROBOT_BASE.value,
     ):
-        if 'float' not in dtype:
+        if "float" not in dtype:
             raise ValueError("Position observations dtype must be a float type.")
         super().__init__(
             raw_data_column_keys=raw_data_column_keys,
@@ -106,12 +117,9 @@ class PositionObservationMetadata(ObservationMetadata):
         )
         valid_frames = [e.value for e in CoordinateSystem]
         if frame not in valid_frames:
-            raise ValueError(
-                f"frame must be one of {valid_frames}, got '{frame}'"
-            )
+            raise ValueError(f"frame must be one of {valid_frames}, got '{frame}'")
         self.frame: str = frame
         self.proprioception_type: str = ProprioceptiveType.POSITION.value
-
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
@@ -127,16 +135,17 @@ class OrientationObservationMetadata(ObservationMetadata):
         frame: Coordinate frame of the orientation observation.
         orientation_representation: Representation of the orientation.
     """
+
     def __init__(
-            self,
-            raw_data_column_keys: list[str],
-            dimension: int,
-            dtype: str,
-            needs_normalization: bool,
-            frame: str = CoordinateSystem.ROBOT_BASE.value,
-            orientation_representation: str = OrientationRepresentation.ROLL.value,
+        self,
+        raw_data_column_keys: list[str],
+        dimension: int,
+        dtype: str,
+        needs_normalization: bool,
+        frame: str = CoordinateSystem.ROBOT_BASE.value,
+        orientation_representation: str = OrientationRepresentation.ROLL.value,
     ):
-        if 'float' not in dtype:
+        if "float" not in dtype:
             raise ValueError("Orientation observations dtype must be a float type.")
         super().__init__(
             raw_data_column_keys=raw_data_column_keys,
@@ -147,9 +156,7 @@ class OrientationObservationMetadata(ObservationMetadata):
         )
         valid_frames = [e.value for e in CoordinateSystem]
         if frame not in valid_frames:
-            raise ValueError(
-                f"frame must be one of {valid_frames}, got '{frame}'"
-            )
+            raise ValueError(f"frame must be one of {valid_frames}, got '{frame}'")
         valid_methods = [e.value for e in OrientationRepresentation]
         if orientation_representation not in valid_methods:
             raise ValueError(
@@ -158,7 +165,6 @@ class OrientationObservationMetadata(ObservationMetadata):
         self.frame = frame
         self.orientation_representation = orientation_representation
         self.proprioception_type: str = ProprioceptiveType.ORIENTATION.value
-
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
@@ -178,14 +184,15 @@ class GripperObservationMetadata(ObservationMetadata):
         gripper_type: Type of gripper ('binary' or 'continuous').
         binary_gripper_range: Range for binary gripper ('zero_one' or 'minus_one_one').
     """
+
     def __init__(
-            self,
-            raw_data_column_keys: list[str],
-            dimension: int,
-            dtype: str,
-            needs_normalization: bool,
-            gripper_type: str = GripperType.BINARY.value,
-            binary_gripper_range: str = BinaryGripperRange.ZERO_ONE.value,
+        self,
+        raw_data_column_keys: list[str],
+        dimension: int,
+        dtype: str,
+        needs_normalization: bool,
+        gripper_type: str = GripperType.BINARY.value,
+        binary_gripper_range: str = BinaryGripperRange.ZERO_ONE.value,
     ):
         super().__init__(
             raw_data_column_keys=raw_data_column_keys,
@@ -210,15 +217,16 @@ class GripperObservationMetadata(ObservationMetadata):
             if needs_normalization:
                 raise ValueError("Binary gripper state should not need normalization.")
             if dtype != "bool" and "int" not in dtype:
-                raise ValueError("Binary gripper state dtype must be 'bool' or an integer type.")
+                raise ValueError(
+                    "Binary gripper state dtype must be 'bool' or an integer type."
+                )
         else:
-            if 'float' not in dtype or not self.is_numerical:
+            if "float" not in dtype or not self.is_numerical:
                 raise ValueError("Continuous gripper state dtype must be a float type.")
 
         self.gripper_type: str = gripper_type
         self.binary_gripper_range: str = binary_gripper_range
         self.proprioception_type: str = ProprioceptiveType.GRIPPER.value
-
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
@@ -231,7 +239,11 @@ class GripperObservationMetadata(ObservationMetadata):
         )
 
 
-ProprioceptiveObservationMetadata = PositionObservationMetadata | OrientationObservationMetadata | GripperObservationMetadata
+ProprioceptiveObservationMetadata = (
+    PositionObservationMetadata
+    | OrientationObservationMetadata
+    | GripperObservationMetadata
+)
 
 
 class CameraMetadata(BaseMetadata):
@@ -244,22 +256,24 @@ class CameraMetadata(BaseMetadata):
         image_width: Optional target image width for resizing when storing images.
         image_height: Optional target image height for resizing when storing images.
     """
+
     def __init__(
-            self,
-            camera_key: str,
-            dtype: str,
-            channels: int,
-            image_width: Optional[int] = None,
-            image_height: Optional[int] = None,
+        self,
+        camera_key: str,
+        dtype: str,
+        channels: int,
+        image_width: Optional[int] = None,
+        image_height: Optional[int] = None,
     ):
         super().__init__(dtype, is_numerical=True, needs_normalization=True)
         if camera_key not in VALID_CAMERAS:
-            raise ValueError(f"camera_key has to be included in {VALID_CAMERAS}. Got {camera_key}")
+            raise ValueError(
+                f"camera_key has to be included in {VALID_CAMERAS}. Got {camera_key}"
+            )
         self.camera_key = camera_key
         self.channels = channels
         self.image_width = image_width
         self.image_height = image_height
-
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
@@ -281,21 +295,27 @@ class ActionMetadata(BaseMetadata):
         prediction_dimension: Dimension for model prediction. May differ from storage,
             e.g., class labels stored as 1 column but predicted as n_classes logits.
     """
+
     def __init__(
-            self,
-            prediction_dimension: int,
-            is_numerical: bool ,
-            needs_normalization: bool,
-            dtype: str,
-            is_precomputed: bool,
+        self,
+        prediction_dimension: int,
+        is_numerical: bool,
+        needs_normalization: bool,
+        dtype: str,
+        is_precomputed: bool,
     ):
-        super().__init__(dtype=dtype, is_numerical=is_numerical, needs_normalization=needs_normalization)
+        super().__init__(
+            dtype=dtype,
+            is_numerical=is_numerical,
+            needs_normalization=needs_normalization,
+        )
         if prediction_dimension <= 0:
-            raise ValueError(f"prediction_dimension must be positive, got {prediction_dimension}")
+            raise ValueError(
+                f"prediction_dimension must be positive, got {prediction_dimension}"
+            )
         self.prediction_dimension = prediction_dimension
         self.is_precomputed = is_precomputed
         self.action_type = ProprioceptiveType.CUSTOM.value
-
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
@@ -320,10 +340,11 @@ class OnTheFlyActionMetadata(ActionMetadata):
             consecutive observations.
 
     """
+
     def __init__(
-            self,
-            source_metadata: ProprioceptiveObservationMetadata,
-            computation_method: str = ActionComputationMethod.DELTA.value,
+        self,
+        source_metadata: ProprioceptiveObservationMetadata,
+        computation_method: str = ActionComputationMethod.DELTA.value,
     ):
         if not source_metadata.is_numerical:
             raise ValueError("Source metadata for on-the-fly action must be numerical.")
@@ -342,7 +363,6 @@ class OnTheFlyActionMetadata(ActionMetadata):
         self.source_metadata: ProprioceptiveObservationMetadata = source_metadata
         self.computation_method: str = computation_method
         self.action_type: str = source_metadata.proprioception_type
-
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
@@ -366,16 +386,17 @@ class PrecomputedActionMetadata(ActionMetadata):
         slice_start: Optional starting index for slicing a larger stored action vector.
         slice_end: Optional ending index (exclusive) for slicing a larger stored action vector.
     """
+
     def __init__(
-            self,
-            raw_data_column_keys: list[str],
-            storage_dimension: int,
-            prediction_dimension: int,
-            is_numerical: bool ,
-            needs_normalization: bool,
-            dtype: str,
-            slice_start: Optional[int] = None,
-            slice_end: Optional[int] = None,
+        self,
+        raw_data_column_keys: list[str],
+        storage_dimension: int,
+        prediction_dimension: int,
+        is_numerical: bool,
+        needs_normalization: bool,
+        dtype: str,
+        slice_start: Optional[int] = None,
+        slice_end: Optional[int] = None,
     ):
         super().__init__(
             prediction_dimension=prediction_dimension,
@@ -387,12 +408,16 @@ class PrecomputedActionMetadata(ActionMetadata):
         if not raw_data_column_keys:
             raise ValueError("raw_data_column_keys cannot be empty")
         if storage_dimension <= 0:
-            raise ValueError(f"storage_dimension must be positive, got {storage_dimension}")
+            raise ValueError(
+                f"storage_dimension must be positive, got {storage_dimension}"
+            )
         if slice_start is not None and slice_end is not None:
             if slice_start < 0 or slice_end < 0:
                 raise ValueError("slice_start and slice_end must be non-negative")
             if slice_start >= slice_end:
-                raise ValueError(f"slice_start ({slice_start}) must be less than slice_end ({slice_end})")
+                raise ValueError(
+                    f"slice_start ({slice_start}) must be less than slice_end ({slice_end})"
+                )
             if slice_end - slice_start != prediction_dimension:
                 raise ValueError(
                     f"Slice range ({slice_end - slice_start}) must equal prediction_dimension ({prediction_dimension})"
@@ -402,7 +427,6 @@ class PrecomputedActionMetadata(ActionMetadata):
         self.slice_start = slice_start
         self.slice_end = slice_end
         self.action_type = ProprioceptiveType.CUSTOM.value
-
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
@@ -418,18 +442,18 @@ class PrecomputedActionMetadata(ActionMetadata):
 
 
 class PositionActionMetadata(PrecomputedActionMetadata):
-    """Precomputed position action metadata.
-    """
+    """Precomputed position action metadata."""
+
     def __init__(
-            self,
-            frame: str,
-            raw_data_column_keys: list[str],
-            storage_dimension: int,
-            prediction_dimension: int,
-            needs_normalization: bool,
-            dtype: str,
-            slice_start: Optional[int] = None,
-            slice_end: Optional[int] = None,
+        self,
+        frame: str,
+        raw_data_column_keys: list[str],
+        storage_dimension: int,
+        prediction_dimension: int,
+        needs_normalization: bool,
+        dtype: str,
+        slice_start: Optional[int] = None,
+        slice_end: Optional[int] = None,
     ):
         super().__init__(
             raw_data_column_keys=raw_data_column_keys,
@@ -443,11 +467,9 @@ class PositionActionMetadata(PrecomputedActionMetadata):
         )
         valid_frames = [e.value for e in CoordinateSystem]
         if frame not in valid_frames:
-            raise ValueError(
-                f"frame must be one of {valid_frames}, got '{frame}'")
+            raise ValueError(f"frame must be one of {valid_frames}, got '{frame}'")
         self.frame = frame
         self.action_type = ProprioceptiveType.POSITION.value
-
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
@@ -462,17 +484,18 @@ class OrientationActionMetadata(PrecomputedActionMetadata):
     Attributes:
         orientation_representation: Representation of the orientation.
     """
+
     def __init__(
-            self,
-            frame: str,
-            orientation_representation: str,
-            raw_data_column_keys: list[str],
-            storage_dimension: int,
-            prediction_dimension: int,
-            needs_normalization: bool,
-            dtype: str,
-            slice_start: Optional[int] = None,
-            slice_end: Optional[int] = None,
+        self,
+        frame: str,
+        orientation_representation: str,
+        raw_data_column_keys: list[str],
+        storage_dimension: int,
+        prediction_dimension: int,
+        needs_normalization: bool,
+        dtype: str,
+        slice_start: Optional[int] = None,
+        slice_end: Optional[int] = None,
     ):
         super().__init__(
             raw_data_column_keys=raw_data_column_keys,
@@ -486,9 +509,7 @@ class OrientationActionMetadata(PrecomputedActionMetadata):
         )
         valid_frames = [e.value for e in CoordinateSystem]
         if frame not in valid_frames:
-            raise ValueError(
-                f"frame must be one of {valid_frames}, got '{frame}'"
-            )
+            raise ValueError(f"frame must be one of {valid_frames}, got '{frame}'")
         valid_methods = [e.value for e in OrientationRepresentation]
         if orientation_representation not in valid_methods:
             raise ValueError(
@@ -499,7 +520,6 @@ class OrientationActionMetadata(PrecomputedActionMetadata):
         self.frame = frame
         self.orientation_representation = orientation_representation
         self.action_type = ProprioceptiveType.ORIENTATION.value
-
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
@@ -521,17 +541,18 @@ class GripperActionMetadata(PrecomputedActionMetadata):
         gripper_type: Type of gripper action ('binary' or 'continuous').
         binary_gripper_range: Range for binary gripper action ('zero_one' or 'minus_one_one').
     """
+
     def __init__(
-            self,
-            gripper_type: str,
-            binary_gripper_range: str,
-            raw_data_column_keys: list[str],
-            storage_dimension: int,
-            prediction_dimension: int,
-            needs_normalization: bool,
-            dtype: str,
-            slice_start: Optional[int] = None,
-            slice_end: Optional[int] = None,
+        self,
+        gripper_type: str,
+        binary_gripper_range: str,
+        raw_data_column_keys: list[str],
+        storage_dimension: int,
+        prediction_dimension: int,
+        needs_normalization: bool,
+        dtype: str,
+        slice_start: Optional[int] = None,
+        slice_end: Optional[int] = None,
     ):
         super().__init__(
             prediction_dimension=prediction_dimension,
@@ -557,17 +578,20 @@ class GripperActionMetadata(PrecomputedActionMetadata):
             if needs_normalization:
                 raise ValueError("Binary gripper action should not need normalization.")
             if dtype != "bool" and "int" not in dtype:
-                raise ValueError("Binary gripper action dtype must be 'bool' or an integer type.")
+                raise ValueError(
+                    "Binary gripper action dtype must be 'bool' or an integer type."
+                )
         else:
-            if 'float' not in dtype or not self.is_numerical:
-                raise ValueError("Continuous gripper action dtype must be a float type.")
+            if "float" not in dtype or not self.is_numerical:
+                raise ValueError(
+                    "Continuous gripper action dtype must be a float type."
+                )
 
         self.gripper_type: str = gripper_type
         self.binary_gripper_range: str = binary_gripper_range
         self.raw_data_column_keys = raw_data_column_keys
         self.storage_dimension = storage_dimension
         self.action_type = ProprioceptiveType.GRIPPER.value
-
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
@@ -580,4 +604,6 @@ class GripperActionMetadata(PrecomputedActionMetadata):
         )
 
 
-ProprioceptiveActionMetadata = PositionActionMetadata | OrientationActionMetadata | GripperActionMetadata
+ProprioceptiveActionMetadata = (
+    PositionActionMetadata | OrientationActionMetadata | GripperActionMetadata
+)

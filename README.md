@@ -10,12 +10,13 @@ Surg-IL provides a flexible architecture where policies are composed from modula
 Policy = Encoding Pipeline + Algorithm + Decoder + Loss
 ```
 
+- **DatasetSchema**: Flexible schema system supporting multiple data formats (CSV, HDF5) and dataset structures. Easily extend to new datasets without modifying core code.
 - **EncodingPipeline**: Multi-modal observation encoding (RGB, depth, proprioception, language) with hierarchical fusion that turns raw data into features.
 - **Algorithm**: Learning paradigm (Behavioral Cloning, Diffusion, Flow Matching, Variational) that specifies how to train a policy.
 - **Decoder**: Neural architecture (Diffusion Transformer, DETR, GPT, UNet) that is used to decode features into robot actions.
 - **Loss**: Composable loss modules (MSE, Cross-Entropy, KL, etc.).
 
-The Surg-IL library enables rapid experimentation with different combinations of components without code duplication.
+The Surg-IL library enables rapid experimentation with different combinations of components across diverse datasets without code duplication.
 
 ---
 
@@ -312,10 +313,13 @@ src/refactoring/
 │   ├── experiment.py       # Experiment tracking, WandB, checkpointing
 │   ├── training.py         # Optimizer, LR schedule, EMA, gradient clipping
 │   ├── policy.py           # Policy composition config
-│   ├── task/               # Task definitions
+│   ├── data/               # Data-related configs
 │   │   ├── task.py         # ActionSpace, ObservationSpace, TaskConfig
 │   │   ├── dataloader.py   # DataLoader settings
-│   │   └── dataset/        # Dataset schema definitions
+│   │   ├── metadata.py     # Metadata config dataclasses
+│   │   └── raw/            # Raw data schema configs
+│   │       ├── schema.py   # Schema config base classes
+│   │       └── zarr_meta.py # Zarr metadata configs
 │   ├── encoding/           # Encoder and fusion configs
 │   ├── decoding/           # Decoder and algorithm configs
 │   └── loss.py             # Loss module configs
@@ -337,9 +341,24 @@ src/refactoring/
 │   ├── dataloader.py       # DataLoader factory
 │   ├── sample_builder.py   # Constructs training samples
 │   ├── action_processor.py # Computes actions from proprioceptive data
-│   ├── normalize/          # Data normalization
-│   ├── tokenize/           # Action tokenization (FAST)
-│   └── preprocessing/      # Zarr dataset creation
+│   ├── metadata.py         # Typed metadata classes for observations/actions
+│   ├── task.py             # ActionSpace, ObservationSpace definitions
+│   ├── preprocessor_builder.py  # Normalizer/tokenizer builder from Zarr
+│   ├── normalization/      # Data normalization
+│   ├── tokenization/       # Action/observation tokenization
+│   ├── preprocessing/      # Zarr dataset creation
+│   │   ├── create_zarr_from_csv.py   # CSV → Zarr conversion
+│   │   ├── create_zarr_from_hdf5.py  # HDF5 → Zarr conversion (LIBERO)
+│   │   └── replay_buffer.py          # Episode replay buffer
+│   └── raw/                 # Raw data schema definitions
+│       ├── schemas/         # Format-specific base schemas
+│       │   ├── base.py      # Abstract base schema
+│       │   ├── csv.py       # CSV dataset base class
+│       │   ├── hdf5.py      # HDF5 dataset base class
+│       │   └── custom/      # Dataset-specific implementations
+│       │       ├── bowel_retraction.py
+│       │       └── libero.py
+│       └── zarr_meta.py     # Zarr metadata definitions
 │
 ├── training/                # Training infrastructure
 │   ├── lightning_policy.py # PyTorch Lightning wrapper
@@ -350,6 +369,10 @@ src/refactoring/
 │   ├── base.py             # BaseLoss interface
 │   ├── composite.py        # Composite loss (multiple losses)
 │   └── accumulators.py     # Metric accumulation across batches
+│
+├── inference/               # Inference clients
+│   ├── tso_client.py           # TSO inference client
+│   └── libero_client.py    # LIBERO simulation client (ZMQ-based)
 │
 └── endpoints/               # Training/inference entry points
     ├── train.py            # Main training script (Hydra-based)
@@ -433,11 +456,13 @@ policy:
 ### Data Flow
 
 ```
-Raw Episodes (CSV + images)
+Raw Episode Dataset
   ↓
-[DatasetSchema] ← Defines how to read kinematics textual data, locate images/depth maps
+[DatasetSchema] ← Defines how to read raw data (CSV or HDF5), locate images/depth maps
+  ↓                 - CSVDatasetSchema: for CSV + image files (e.g., Bowel Retraction)
+                    - HDF5DatasetSchema: for HDF5 files (e.g., LIBERO benchmark)
   ↓
-Zarr Dataset (.zarr file) ← Compressed, chunked storage. This is supposed to be created only ONCE and contain all relevant keys
+Zarr Dataset (.zarr file) ← Compressed, chunked storage. Created ONCE with all relevant keys
   ↓
 [TaskConfig] ← Defines what observations/actions to use
   ↓
@@ -452,118 +477,121 @@ Policy ← Training
 
 ### Dataset Schema
 
-**Location**: `src/refactoring/data/schemas/`
+**Location**: `src/refactoring/data/raw/schemas/`
 
-**Purpose**: Defines the structure of **raw data** for a specific dataset.
+**Purpose**: Defines how to extract data from raw sources and create Zarr arrays.
 
 ```python
+# Base class: src/refactoring/data/raw/schemas/base.py
 class DatasetSchema(abc.ABC):
-    """Defines how to:
-    1. Extract observations from CSV (position, gripper, phases)
-    2. Locate image/depth files
-    3. Create Zarr arrays with correct shapes/dtypes
+    """Abstract base class for dataset schemas.
+
+    Defines:
+    - What observations are available (via DatasetMetadata)
+    - What precomputed actions exist (via DatasetMetadata)
+    - How to extract episode data (via extract_episode)
     """
 
-    def __init__(
-        self,
-        dataset_folders: list[str],        # Where raw data lives
-        zarr_path: str,                    # Where to save Zarr
-        raw_observations: DatasetMetadataConfig,  # CSV column mappings
-        image_path_config: ImagePathConfig,       # Image path patterns
-        has_phase_labels: bool = False
-    ):
+    def __init__(self, zarr_path: str, metadata: DatasetMetadata):
+        self.zarr_path = zarr_path
+        self.metadata = metadata
+
+    @abc.abstractmethod
+    def extract_episode(self, episode_source, resizer, depth_resizer) -> dict[str, np.ndarray]:
+        """Extract all data from an episode source into zarr-ready arrays."""
         ...
 ```
 
-**Example**: Bowel Retraction Schema (`src/refactoring/data/schemas/bowel_retraction.py`):
+**DatasetMetadata** (`src/refactoring/data/raw/zarr_meta.py`) aggregates all observation and action metadata:
 
 ```python
-class BowelRetractionSchema(DatasetSchema):
-    """Schema for bowel retraction dataset.
-
-    CSV Structure:
-    - Columns: frameLeftPath, frameRightPath,
-               relative_tip_position_x/y/z,
-               camera_frame_tip_position_x/y/z,
-               open (gripper), task_phase
-
-    File Structure:
-    - episodes/
-      ├── episode_001/
-      │   ├── framesLeft/      # RGB images
-      │   ├── framesRight/
-      │   ├── depth/           # Depth maps (.npy)
-      │   └── data.csv         # Timestamped observations
-      └── episode_002/...
-    """
-
-    def __init__(self, dataset_folders, zarr_path, ...):
-        raw_obs_config = DatasetMetadataConfig(
-            robot_frame_proprio_keys=["relative_tip_position_x", "relative_tip_position_y", "relative_tip_position_z"],
-            camera_frame_proprio_keys=["camera_frame_tip_position_x", "camera_frame_tip_position_y", "camera_frame_tip_position_z"],
-            gripper_state_keys=["open"],
-            camera_keys=["left", "right", "depth"],
-            use_rectified_images=True,
-            image_width=480,
-            image_height=270
-        )
-        super().__init__(dataset_folders, zarr_path, raw_obs_config, ...)
-
-    def get_image_path_column(self, camera: str) -> str:
-        """Map camera name to CSV column."""
-        return {
-            "left": "frameLeftRectifiedPath",
-            "right": "frameRightRectifiedPath"
-        }[camera]
-
-    def compute_depth_path(self, base_image_path: str) -> str:
-        """Convert image path to depth path."""
-        # framesLeftRectified/frame_0001.png → depth/depth_0001.npy
-        return re.sub(r'framesLeftRectified/frame_(\d+).png',
-                      r'depth/depth_\1.npy', base_image_path)
+@dataclass
+class DatasetMetadata:
+    observations: dict[str, ObservationMetadata | CameraMetadata]  # By zarr key
+    precomputed_actions: dict[str, PrecomputedActionMetadata]       # By zarr key
 ```
+
+### Precomputed vs On-The-Fly Actions
+
+The framework supports two action computation strategies:
+
+| Type | Storage | Computation | Use Case |
+|------|---------|-------------|----------|
+| **Precomputed** | Stored in Zarr | Extracted directly at runtime | Actions already in dataset (e.g., LIBERO delta actions) |
+| **On-The-Fly** | Not stored | Computed from observations at runtime | Actions derived from consecutive states (e.g., position deltas) |
+
+**Precomputed Actions** (`PrecomputedActionMetadata`):
+- Actions stored directly in the Zarr dataset during preprocessing
+- Example: LIBERO stores 7D delta actions (pos_delta + ori_delta + gripper)
+- Extracted directly from Zarr during training
+
+**On-The-Fly Actions** (`OnTheFlyActionMetadata`):
+- Actions computed at runtime from stored observations
+- Example: Position deltas computed as `pos[t+1] - pos[t]`
+- Supports denoising based on dataset statistics
+
+```python
+# ActionSpace (src/refactoring/data/task.py) defines what actions to use at runtime
+class ActionSpace:
+    actions_metadata: dict[str, ActionMetadata]  # Both precomputed and on-the-fly
+
+    @property
+    def precomputed_actions(self) -> dict[str, PrecomputedActionMetadata]: ...
+
+    @property
+    def on_the_fly_actions(self) -> dict[str, OnTheFlyActionMetadata]: ...
+```
+
+**Existing schema implementations** in `src/refactoring/data/raw/schemas/custom/`:
+- `BowelRetractionSchema` (CSV): Stores observations, computes actions on-the-fly
+- `LiberoSchema` (HDF5): Stores both observations and precomputed actions
 
 ### Creating a Zarr Dataset
 
-**Step 1**: Define your schema (or use existing):
-```bash
-# experiments/task/dataset/my_dataset.yaml
-_target_: refactoring.data.schemas.my_dataset.MyDatasetSchema
-dataset_folders:
-  - /data/my_dataset/train
-  - /data/my_dataset/val
-zarr_path: /data/my_dataset/dataset.zarr
-has_phase_labels: false
-```
+Use the preprocessing functions based on your data format:
 
-**Step 2**: Create Zarr from raw CSV+images:
+**For CSV-based datasets:**
 ```python
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
-from refactoring.data.preprocessing.replay_buffer import ReplayBuffer
+from refactoring.data.preprocessing.create_zarr_from_csv import create_replay_buffer
 
 # Load schema config
-cfg = OmegaConf.load("experiments/task/dataset/my_dataset.yaml")
+cfg = OmegaConf.load("experiments/task/dataset_schema/bowel_retraction_v4.yaml")
+schema = instantiate(cfg)
+
+# Get list of episode CSV paths
+episode_paths = ["/data/episode_001/data.csv", "/data/episode_002/data.csv", ...]
+
+# Create Zarr dataset
+create_replay_buffer(schema, episode_paths)
+```
+
+**For HDF5-based datasets:**
+```python
+from hydra.utils import instantiate
+from omegaconf import OmegaConf
+from refactoring.data.preprocessing.create_zarr_from_hdf5 import create_replay_buffer_from_hdf5
+
+# Load schema config (hdf5_paths are defined in the YAML)
+cfg = OmegaConf.load("experiments/task/dataset_schema/libero_10.yaml")
 schema = instantiate(cfg)
 
 # Create Zarr dataset
-replay_buffer = ReplayBuffer(schema)
-replay_buffer.create_zarr()  # Processes all episodes → .zarr file
+create_replay_buffer_from_hdf5(schema)
 ```
 
 **Output Zarr structure**:
 ```
 dataset.zarr/
-├── left/                    # RGB images (T, H, W, 3) uint8
-├── right/
-├── depth/                   # Depth maps (T, H, W) float32
-├── proprio_robot_frame/     # (T, 3) float32
-├── proprio_camera_frame/    # (T, 3) float32
-├── gripper_state/           # (T, 1) float32
-├── episode_ends/            # (num_episodes,) - cumulative timestep counts
-├── language/                # (T,) str - per-timestep instructions
-└── [additional keys/           # (T, ?) float32]
-
+├── data/
+│   ├── <camera_key>/            # RGB images (T, H, W, 3) uint8
+│   ├── <proprio_key>/           # (T, dim) float32
+│   ├── <gripper_key>/           # (T, 1) float32
+│   ├── <precomputed_action>/    # (T, dim) float32 (if applicable)
+│   └── ...
+└── meta/
+    └── episode_ends/            # (num_episodes,) cumulative timestep counts
 ```
 
 ### Task Configuration
@@ -669,14 +697,14 @@ zarr_path: /data/my_dataset/train.zarr
 has_phase_labels: false
 ```
 
-**Step 4**: Use in task config
+**Step 4**: Use in experiment config:
 ```yaml
-# experiments/my_task.yaml
 defaults:
-  - task/dataset_schema: my_dataset  # ← References my_dataset.yaml
-  - task/action_space: position_orientation_gripper_rf  # Robot frame
-  - task/observation_space: rgb_depth_proprio_rf
-  # ...
+  - task/dataset_schema: my_dataset
+  - task/action_space: my_action_space
+  - task/observation_space: my_obs_space
+```
+
 ---
 
 ## 🎓 Common Patterns

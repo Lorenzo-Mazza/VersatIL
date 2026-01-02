@@ -15,20 +15,33 @@ from refactoring.data.constants import TOKENIZED_ACTIONS_KEY
 from refactoring.data.tokenization import Tokenizer
 from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.decoding.action_masking import make_attention_mask
-from refactoring.models.decoding.constants import BINARY_LOGITS_KEY, ACTION_LOGITS_KEY, PREDICTED_ACTION_TOKENS_KEY, LATENT_CODES, LATENT_KEY
+from refactoring.models.decoding.constants import (
+    BINARY_LOGITS_KEY,
+    ACTION_LOGITS_KEY,
+    PREDICTED_ACTION_TOKENS_KEY,
+    LATENT_CODES,
+    LATENT_KEY,
+)
 from refactoring.models.decoding.decoders import ActionDecoder, DecoderInput
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import PositionalEncodingType, AttentionType
 from refactoring.models.layers.free_transformer.free_transformer import FreeTransformer
 from refactoring.models.layers.normalization.constants import NormalizationType
-from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
-from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding2D, SinusoidalPositionalEncoding1D
+from refactoring.models.layers.positional_encoding.learned import (
+    LearnedPositionalEncoding1D,
+)
+from refactoring.models.layers.positional_encoding.sinusoidal import (
+    SinusoidalPositionalEncoding2D,
+    SinusoidalPositionalEncoding1D,
+)
 from refactoring.models.layers.transformer_input_builder import TransformerInputBuilder
 
 
 class FreeTransformerDecoder(ActionDecoder):
-    """Free Transformer for action decoding with discrete latent codes. """
+    """Free Transformer for action decoding with discrete latent codes."""
+
     supports_tokenized_actions: bool = True
+
     def __init__(
         self,
         action_heads: dict[str, ActionHead],
@@ -104,9 +117,11 @@ class FreeTransformerDecoder(ActionDecoder):
         self.learnable_temperature = learnable_temperature
         self.deterministic = deterministic
         self.use_global_latent = use_global_latent
-        if action_heads.keys() !={ACTION_LOGITS_KEY}:
-            raise ValueError(f"FreeTransformerDecoder only supports ACTION_LOGITS_KEY in action_heads. Make sure to use key {ACTION_LOGITS_KEY}"
-                             " in your hydra config.")
+        if action_heads.keys() != {ACTION_LOGITS_KEY}:
+            raise ValueError(
+                f"FreeTransformerDecoder only supports ACTION_LOGITS_KEY in action_heads. Make sure to use key {ACTION_LOGITS_KEY}"
+                " in your hydra config."
+            )
         self.action_heads = action_heads
         decoder_input = DecoderInput(
             keys=input_keys,
@@ -125,7 +140,7 @@ class FreeTransformerDecoder(ActionDecoder):
             torch.tensor(temperature, dtype=torch.float32),
             requires_grad=learnable_temperature,
         )
-        self.token_embedding = None # Will be set in set_tokenizer
+        self.token_embedding = None  # Will be set in set_tokenizer
         self.vocab_size = None
         self._build_transformer_components()
         self.to(self.device)
@@ -133,12 +148,13 @@ class FreeTransformerDecoder(ActionDecoder):
     def _build_transformer_components(self):
         """Build core free transformer, input token sequence builder and positional encodings."""
         image_positional_encoding = SinusoidalPositionalEncoding2D(
-            embedding_dimension=self.embedding_dimension,
-            normalize=True
+            embedding_dimension=self.embedding_dimension, normalize=True
         )
         temporal_positional_encoding = None
         if self.observation_horizon > 1:
-            temporal_positional_encoding = LearnedPositionalEncoding1D(embedding_dimension=self.embedding_dimension)
+            temporal_positional_encoding = LearnedPositionalEncoding1D(
+                embedding_dimension=self.embedding_dimension
+            )
 
         # This layer transforms input features into a sequence of token embeddings + positional encodings
         self.input_sequence_builder = TransformerInputBuilder(
@@ -146,7 +162,8 @@ class FreeTransformerDecoder(ActionDecoder):
             has_time_dim=self.observation_horizon > 1,
             spatial_positional_encoding_layer=image_positional_encoding,
             flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
-                embedding_dimension=self.embedding_dimension),
+                embedding_dimension=self.embedding_dimension
+            ),
             temporal_positional_encoding_layer=temporal_positional_encoding,
         )
         self.free_transformer = FreeTransformer(
@@ -164,36 +181,62 @@ class FreeTransformerDecoder(ActionDecoder):
             attention_dropout=self.attention_dropout,
             positional_encoding_type=self.positional_encoding_type,
             maximum_sequence_length=self.max_seq_len,
-            use_global_latent=self.use_global_latent
+            use_global_latent=self.use_global_latent,
         )
 
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
         """Set tokenizer and adjust vocabulary size accordingly."""
         if tokenizer is None or tokenizer.action_tokenizer is None:
-            raise ValueError("FreeTransformerDecoder requires a tokenizer for tokenized action prediction.")
+            raise ValueError(
+                "FreeTransformerDecoder requires a tokenizer for tokenized action prediction."
+            )
         device = self.temperature.device
         self.vocab_size = tokenizer.action_tokenizer.vocab_size
-        output_block_in_features = self.action_heads[ACTION_LOGITS_KEY].output_proj.in_features
+        output_block_in_features = self.action_heads[
+            ACTION_LOGITS_KEY
+        ].output_proj.in_features
         if output_block_in_features != self.embedding_dimension:
-            token_input_embedding = nn.Embedding(self.vocab_size, output_block_in_features).to(device)
-            token_projection = nn.Linear(output_block_in_features, self.embedding_dimension).to(device)
-            self.token_embedding = nn.Sequential(
-                token_input_embedding,
-                token_projection
+            token_input_embedding = nn.Embedding(
+                self.vocab_size, output_block_in_features
             ).to(device)
-            nn.init.normal_(token_input_embedding.weight, mean=0.0, std=self.free_transformer.initializer_range)
-            nn.init.normal_(token_projection.weight, mean=0.0, std=self.free_transformer.initializer_range)
+            token_projection = nn.Linear(
+                output_block_in_features, self.embedding_dimension
+            ).to(device)
+            self.token_embedding = nn.Sequential(
+                token_input_embedding, token_projection
+            ).to(device)
+            nn.init.normal_(
+                token_input_embedding.weight,
+                mean=0.0,
+                std=self.free_transformer.initializer_range,
+            )
+            nn.init.normal_(
+                token_projection.weight,
+                mean=0.0,
+                std=self.free_transformer.initializer_range,
+            )
         else:
-            token_input_embedding = nn.Embedding(self.vocab_size, self.embedding_dimension).to(device)
+            token_input_embedding = nn.Embedding(
+                self.vocab_size, self.embedding_dimension
+            ).to(device)
             self.token_embedding = token_input_embedding
-            nn.init.normal_(token_input_embedding.weight, mean=0.0, std=self.free_transformer.initializer_range)
+            nn.init.normal_(
+                token_input_embedding.weight,
+                mean=0.0,
+                std=self.free_transformer.initializer_range,
+            )
 
-        lm_head = nn.Linear(output_block_in_features, self.vocab_size, bias=False, device=device)
-        lm_head.weight = token_input_embedding.weight  # tie output weights to input embedding weights, like in GPT-2
+        lm_head = nn.Linear(
+            output_block_in_features, self.vocab_size, bias=False, device=device
+        )
+        lm_head.weight = (
+            token_input_embedding.weight
+        )  # tie output weights to input embedding weights, like in GPT-2
         self.action_heads[ACTION_LOGITS_KEY].output_dim = self.vocab_size
-        self.action_heads[ACTION_LOGITS_KEY].output_proj = lm_head  # Replace final projection with tied head
+        self.action_heads[
+            ACTION_LOGITS_KEY
+        ].output_proj = lm_head  # Replace final projection with tied head
         super().set_tokenizer(tokenizer)
-
 
     def _forward_training(
         self,
@@ -213,7 +256,9 @@ class FreeTransformerDecoder(ActionDecoder):
         """
         prefix_len = feature_tokens.shape[1]
         target_token_ids = actions[TOKENIZED_ACTIONS_KEY]  # (B, action_token_len)
-        action_token_embeddings = self.token_embedding(target_token_ids)  # (B, action_token_len, emb_dim)
+        action_token_embeddings = self.token_embedding(
+            target_token_ids
+        )  # (B, action_token_len, emb_dim)
         # query_len = prefix_len + action_token_len
 
         full_attention_mask, full_key_padding_mask = make_attention_mask(
@@ -221,23 +266,29 @@ class FreeTransformerDecoder(ActionDecoder):
             action_tokens=action_token_embeddings,
             feature_token_mask=feature_token_mask,
         )  # (B, query_len, query_len)
-        full_token_sequence = torch.cat([feature_tokens, action_token_embeddings], dim=1) # (B, query_len, emb_dim)
-        if full_token_sequence.shape[1]>self.max_seq_len:
-            raise ValueError(f"Input token length {full_token_sequence.shape[1]} >= max_seq_len {self.max_seq_len}. "
+        full_token_sequence = torch.cat(
+            [feature_tokens, action_token_embeddings], dim=1
+        )  # (B, query_len, emb_dim)
+        if full_token_sequence.shape[1] > self.max_seq_len:
+            raise ValueError(
+                f"Input token length {full_token_sequence.shape[1]} >= max_seq_len {self.max_seq_len}. "
                 "No room for any action tokens. "
-                "Consider increasing max_seq_len or reducing feature token count.")
+                "Consider increasing max_seq_len or reducing feature token count."
+            )
 
-        decoder_output, bit_logits, latent_codes, z,  _ = self.free_transformer(
+        decoder_output, bit_logits, latent_codes, z, _ = self.free_transformer(
             hidden_states=full_token_sequence,
             key_padding_mask=full_key_padding_mask,
             decoder_cache=None,
             use_cache=False,
             self_attention_mask=full_attention_mask,
             is_inference=False,
-            return_latent_embeddings=True
+            return_latent_embeddings=True,
         )  # (B, query_len, D), (B, query_len, 2**latent_dim), None
         action_outputs = decoder_output[:, prefix_len:, :]  # (B, action_token_len, D)
-        logits = self.action_heads[ACTION_LOGITS_KEY](action_outputs)  # (B, action_token_len, vocab_size)
+        logits = self.action_heads[ACTION_LOGITS_KEY](
+            action_outputs
+        )  # (B, action_token_len, vocab_size)
         return {
             ACTION_LOGITS_KEY: logits,
             BINARY_LOGITS_KEY: bit_logits,
@@ -248,7 +299,7 @@ class FreeTransformerDecoder(ActionDecoder):
     def _forward_inference(
         self,
         feature_tokens: torch.Tensor,
-        feature_token_mask: torch.Tensor | None = None
+        feature_token_mask: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         """Inference with autoregressive generation and KV caching.
 
@@ -262,7 +313,9 @@ class FreeTransformerDecoder(ActionDecoder):
         batch_size = feature_tokens.shape[0]
         prefix_len = feature_tokens.shape[1]
         current_sequence = feature_tokens
-        prefix_self_mask = torch.zeros(batch_size, 1, prefix_len, prefix_len, dtype=torch.bool, device=self.device)
+        prefix_self_mask = torch.zeros(
+            batch_size, 1, prefix_len, prefix_len, dtype=torch.bool, device=self.device
+        )
         decoder_output, _, latent_codes, z, decoder_cache = self.free_transformer(
             hidden_states=current_sequence,
             key_padding_mask=feature_token_mask,
@@ -270,20 +323,26 @@ class FreeTransformerDecoder(ActionDecoder):
             decoder_cache=None,
             use_cache=True,
             is_inference=True,
-            return_latent_embeddings=True
+            return_latent_embeddings=True,
         )  # (B, query_len, D), None, cache_dict
         generated_tokens = []
         next_token_embedding = None
         for step in range(self.max_seq_len - prefix_len):
             if step > 0:
-                decoder_output, _, latent_codes, z, decoder_cache = self.free_transformer(
+                (
+                    decoder_output,
+                    _,
+                    latent_codes,
+                    z,
+                    decoder_cache,
+                ) = self.free_transformer(
                     hidden_states=next_token_embedding,
                     key_padding_mask=feature_token_mask,
-                    self_attention_mask=None, # Causal mask handled internally
+                    self_attention_mask=None,  # Causal mask handled internally
                     decoder_cache=decoder_cache,
                     use_cache=True,
                     is_inference=True,
-                    return_latent_embeddings=True
+                    return_latent_embeddings=True,
                 )
             last_output = decoder_output[:, -1:, :]  # (B, 1, embedding_dimension)
             head = self.action_heads[ACTION_LOGITS_KEY]
@@ -293,22 +352,26 @@ class FreeTransformerDecoder(ActionDecoder):
                 next_token = torch.argmax(logits, dim=-1)  # (B, 1)
             else:
                 probs = torch.softmax(logits_scaled, dim=-1)
-                next_token = torch.multinomial(probs.squeeze(-1), num_samples=1)  # (B, 1)
-            next_token_embedding = self.token_embedding(next_token)  # (B, 1, embedding_dimension)
+                next_token = torch.multinomial(
+                    probs.squeeze(-1), num_samples=1
+                )  # (B, 1)
+            next_token_embedding = self.token_embedding(
+                next_token
+            )  # (B, 1, embedding_dimension)
             generated_tokens.append(next_token)
 
         return {
-            PREDICTED_ACTION_TOKENS_KEY: torch.cat(generated_tokens, dim=1),  # (B, max_seq_len)
+            PREDICTED_ACTION_TOKENS_KEY: torch.cat(
+                generated_tokens, dim=1
+            ),  # (B, max_seq_len)
             LATENT_CODES: latent_codes,
             LATENT_KEY: z,
         }
 
-
-
     def forward(
         self,
         features: dict[str, torch.Tensor],
-        actions: dict[str, torch.Tensor] | None = None
+        actions: dict[str, torch.Tensor] | None = None,
     ) -> dict[str, torch.Tensor]:
         """Forward pass of Free Transformer.
 
@@ -319,12 +382,23 @@ class FreeTransformerDecoder(ActionDecoder):
         Returns:
             Dict with ACTION_LOGITS_KEY and BINARY_LOGITS_KEY (training) or PREDICTED_ACTION_TOKENS_KEY (inference).
         """
-        feature_tokens, pos_encodings, feature_token_mask = self.input_sequence_builder(features) # (B, token_len, embedding_dimension)
-        feature_tokens = feature_tokens + pos_encodings if pos_encodings is not None else feature_tokens
+        feature_tokens, pos_encodings, feature_token_mask = self.input_sequence_builder(
+            features
+        )  # (B, token_len, embedding_dimension)
+        feature_tokens = (
+            feature_tokens + pos_encodings
+            if pos_encodings is not None
+            else feature_tokens
+        )
         if actions is not None:
-            predictions = self._forward_training(feature_tokens=feature_tokens, feature_token_mask=feature_token_mask,
-                                                 actions=actions)
+            predictions = self._forward_training(
+                feature_tokens=feature_tokens,
+                feature_token_mask=feature_token_mask,
+                actions=actions,
+            )
         else:
-            predictions = self._forward_inference(feature_tokens=feature_tokens, feature_token_mask=feature_token_mask)
+            predictions = self._forward_inference(
+                feature_tokens=feature_tokens, feature_token_mask=feature_token_mask
+            )
 
         return predictions

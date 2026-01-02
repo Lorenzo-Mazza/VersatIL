@@ -77,11 +77,15 @@ class ConditionalUNetDecoder(ActionDecoder):
             requires_actions=True,
         )
         for k, head in action_heads.items():
-            if len(head.blocks)>0:
+            if len(head.blocks) > 0:
                 logging.warning(
                     f"Action heads are ignored by ConditionalUNetDecoder, but one was provided for action '{k}'. Skipping."
                 )
-                action_heads[k].blocks = nn.ModuleList()  # Replace with identity; U-Net handles all processing
+                action_heads[
+                    k
+                ].blocks = (
+                    nn.ModuleList()
+                )  # Replace with identity; U-Net handles all processing
 
         super().__init__(
             decoder_input=decoder_input,
@@ -111,14 +115,15 @@ class ConditionalUNetDecoder(ActionDecoder):
 
         self._global_conditioning_dimension: Optional[int] = None
         self._feature_projections: Optional[nn.ModuleDict] = None
-        self.unet_conditioning_builder = UNetInputBuilder(embedding_dim=embedding_dimension, has_time_dim=self.observation_horizon>1)
+        self.unet_conditioning_builder = UNetInputBuilder(
+            embedding_dim=embedding_dimension, has_time_dim=self.observation_horizon > 1
+        )
 
         # U-Net will be lazily initialized on first forward pass
         # (once we know the global conditioning dimension)
         self._unet: ConditionalUnet1D | None = None
 
-
-    def _initialize_unet(self, global_conditioning_dimension: int | None=None):
+    def _initialize_unet(self, global_conditioning_dimension: int | None = None):
         """Lazily initialize the U-Net once we know the global conditioning dimension.
 
         Args:
@@ -149,7 +154,7 @@ class ConditionalUNetDecoder(ActionDecoder):
 
         Returns:
             Global conditioning tensor of shape (batch_size, global_conditioning_dimension) or None if no features.
-        
+
         Note:
             This method creates the U-Net lazily when firstly called.
 
@@ -159,7 +164,11 @@ class ConditionalUNetDecoder(ActionDecoder):
         global_conditioning = self.unet_conditioning_builder(features)
         # Lazy initialization of U-Net on first forward pass
         if self._unet is None:
-            conditioning_dim = global_conditioning.shape[-1] if global_conditioning is not None else None
+            conditioning_dim = (
+                global_conditioning.shape[-1]
+                if global_conditioning is not None
+                else None
+            )
             self._initialize_unet(conditioning_dim)
 
         return global_conditioning
@@ -207,10 +216,14 @@ class ConditionalUNetDecoder(ActionDecoder):
         action_tensors = []
         for action_key in sorted(actions.keys()):
             action_tensors.append(actions[action_key])
-        noisy_actions = torch.cat(action_tensors, dim=-1)  # (B, T, total_action_dimension)
+        noisy_actions = torch.cat(
+            action_tensors, dim=-1
+        )  # (B, T, total_action_dimension)
 
         # Prepare global conditioning
-        global_conditioning = self._prepare_global_conditioning(features)  # (B, global_conditioning_dimension)
+        global_conditioning = self._prepare_global_conditioning(
+            features
+        )  # (B, global_conditioning_dimension)
 
         # Run U-Net denoising
         assert self._unet is not None, "U-Net should be initialized by now."
@@ -227,7 +240,9 @@ class ConditionalUNetDecoder(ActionDecoder):
         for action_key in sorted(actions.keys()):
             head = self.action_heads[action_key]
             end_index = start_index + head.output_dim
-            action_slice = denoised[..., start_index:end_index]  # (B, T, action_dimension_i)
+            action_slice = denoised[
+                ..., start_index:end_index
+            ]  # (B, T, action_dimension_i)
             outputs[action_key] = action_slice
             start_index = end_index
 

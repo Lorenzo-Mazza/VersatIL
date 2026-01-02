@@ -9,6 +9,7 @@ class Downsample1d(nn.Module):
     def forward(self, x):
         return self.conv(x)
 
+
 class Upsample1d(nn.Module):
     def __init__(self, dim):
         super().__init__()
@@ -17,12 +18,15 @@ class Upsample1d(nn.Module):
     def forward(self, x):
         return self.conv(x)
 
+
 class Conv1dBlock(nn.Module):
     def __init__(self, inp_channels, out_channels, kernel_size, n_groups=8):
         super().__init__()
 
         self.block = nn.Sequential(
-            nn.Conv1d(inp_channels, out_channels, kernel_size, padding=kernel_size // 2),
+            nn.Conv1d(
+                inp_channels, out_channels, kernel_size, padding=kernel_size // 2
+            ),
             nn.GroupNorm(n_groups, out_channels),
             nn.Mish(),
         )

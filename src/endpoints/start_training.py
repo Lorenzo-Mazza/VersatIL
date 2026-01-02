@@ -7,6 +7,7 @@ from phase_act_endpoint import main as phase_act_main
 from legacy_config import DiffusionConfig, FlowMatchingConfig, ACTConfig, PhaseACTConfig
 from legacy_constants import PolicyType
 
+
 def override_default_config(config: DiffusionConfig, params_to_override: dict):
 
     for key, value in params_to_override.items():
@@ -18,8 +19,9 @@ def override_default_config(config: DiffusionConfig, params_to_override: dict):
 
     return config
 
+
 def main():
-    parser = argparse.ArgumentParser()    
+    parser = argparse.ArgumentParser()
     parser.add_argument("--custom_config_path", type=str, required=True)
     args = parser.parse_args()
     params = json.load(open(args.custom_config_path))
@@ -43,6 +45,7 @@ def main():
         phase_act_main(config)
     else:
         raise ValueError(f"Policy name {policy_name} not found")
+
 
 if __name__ == "__main__":
     main()

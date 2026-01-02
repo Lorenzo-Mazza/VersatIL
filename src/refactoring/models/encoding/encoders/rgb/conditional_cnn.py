@@ -1,4 +1,3 @@
-
 # mypy: ignore-errors
 import timm
 import torch
@@ -19,6 +18,7 @@ from refactoring.models.layers.pooling.pooling_head import create_pooling_head
 
 class ConditionalCNNEncoder(ConditionalEncoder):
     """CNN encoder with FiLM conditioning for conditioned vision, e.g. from language features."""
+
     BACKBONE_CONFIGS = {
         RGBBackboneType.RESNET18.value: {
             "layers": [2, 2, 2, 2],
@@ -29,20 +29,24 @@ class ConditionalCNNEncoder(ConditionalEncoder):
             "feature_dim": 512,
         },
     }
+
     def __init__(
-            self,
-            input_keys: str | list[str],
-            condition_key: str,
-            condition_dim: int,
-            backbone: str = RGBBackboneType.RESNET18.value,
-            pooling_method: str = PoolingMethod.SPATIAL_SOFTMAX.value,
-            use_group_norm: bool = True,
-            pretrained: bool = False,
-            frozen: bool = False,
+        self,
+        input_keys: str | list[str],
+        condition_key: str,
+        condition_dim: int,
+        backbone: str = RGBBackboneType.RESNET18.value,
+        pooling_method: str = PoolingMethod.SPATIAL_SOFTMAX.value,
+        use_group_norm: bool = True,
+        pretrained: bool = False,
+        frozen: bool = False,
     ):
-        specification = EncoderInput(keys=input_keys,one_of_groups=[RGB_CAMERAS],
-                                     conditioning_key=condition_key)
-        super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
+        specification = EncoderInput(
+            keys=input_keys, one_of_groups=[RGB_CAMERAS], conditioning_key=condition_key
+        )
+        super().__init__(
+            input_specification=specification, pretrained=pretrained, frozen=frozen
+        )
         self.condition_key = condition_key
         self.condition_dim = condition_dim
         self.use_group_norm = use_group_norm
@@ -64,7 +68,9 @@ class ConditionalCNNEncoder(ConditionalEncoder):
     def _build_filmed_backbone(self):
         """Build FiLMed ResNet backbone."""
         config = self.BACKBONE_CONFIGS[self.backbone_name]
-        base_model = timm.create_model(self.backbone_name, pretrained=self.pretrained, num_classes=0)
+        base_model = timm.create_model(
+            self.backbone_name, pretrained=self.pretrained, num_classes=0
+        )
 
         self.conv1 = base_model.conv1
         self.bn1 = base_model.bn1
@@ -92,36 +98,48 @@ class ConditionalCNNEncoder(ConditionalEncoder):
             self._copy_pretrained_weights(base_model)
 
     def _make_filmed_layer(
-            self,
-            out_channels: int,
-            num_blocks: int,
-            stride: int
+        self, out_channels: int, num_blocks: int, stride: int
     ) -> nn.ModuleList:
         """Create a layer with FiLMedResBlocks, for FiLM conditioning."""
         downsample = None
         if stride != 1 or self.in_channels != out_channels:
             down_layers = [
-                nn.Conv2d(self.in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+                nn.Conv2d(
+                    self.in_channels,
+                    out_channels,
+                    kernel_size=1,
+                    stride=stride,
+                    bias=False,
+                ),
                 nn.BatchNorm2d(out_channels),
             ]
             downsample = nn.Sequential(*down_layers)
 
         blocks = nn.ModuleList()
         blocks.append(
-            FiLMedResBlock(self.in_channels, out_channels, self.condition_dim, stride, downsample)
+            FiLMedResBlock(
+                self.in_channels, out_channels, self.condition_dim, stride, downsample
+            )
         )
         self.in_channels = out_channels
 
         for _ in range(1, num_blocks):
             blocks.append(
-                FiLMedResBlock(self.in_channels, out_channels, self.condition_dim, stride=1)
+                FiLMedResBlock(
+                    self.in_channels, out_channels, self.condition_dim, stride=1
+                )
             )
 
         return blocks
 
     def _copy_pretrained_weights(self, base_model):
         """Copy weights from pretrained ResNet to FiLMedResBlocks where applicable."""
-        base_layers = [base_model.layer1, base_model.layer2, base_model.layer3, base_model.layer4]
+        base_layers = [
+            base_model.layer1,
+            base_model.layer2,
+            base_model.layer3,
+            base_model.layer4,
+        ]
         self_layers = [self.layer1, self.layer2, self.layer3, self.layer4]
 
         for base_layer, self_layer in zip(base_layers, self_layers):
@@ -138,11 +156,17 @@ class ConditionalCNNEncoder(ConditionalEncoder):
                 if isinstance(self_block.bn2, nn.BatchNorm2d):
                     self_block.bn2.load_state_dict(base_block.bn2.state_dict())
 
-                if base_block.downsample is not None and self_block.downsample is not None:
-                    self_block.downsample[0].load_state_dict(base_block.downsample[0].state_dict())
+                if (
+                    base_block.downsample is not None
+                    and self_block.downsample is not None
+                ):
+                    self_block.downsample[0].load_state_dict(
+                        base_block.downsample[0].state_dict()
+                    )
                     if isinstance(self_block.downsample[1], nn.BatchNorm2d):
-                        self_block.downsample[1].load_state_dict(base_block.downsample[1].state_dict())
-
+                        self_block.downsample[1].load_state_dict(
+                            base_block.downsample[1].state_dict()
+                        )
 
     def _setup_pooling(self):
         """Setup pooling layer."""
@@ -170,14 +194,15 @@ class ConditionalCNNEncoder(ConditionalEncoder):
             spatial_height=h,
             spatial_width=w,
         )
-        self.pooling_head = None # Will be created in forward() with correct patch dimensions
+        self.pooling_head = (
+            None  # Will be created in forward() with correct patch dimensions
+        )
         self.output_dim = mock_pooling_head.get_output_dim(self.feature_dim)
 
-
     def forward(
-            self,
-            inputs: dict[str, torch.Tensor],
-            conditioning: torch.Tensor,
+        self,
+        inputs: dict[str, torch.Tensor],
+        conditioning: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
         """Forward pass to extract features from images.
 
@@ -190,12 +215,18 @@ class ConditionalCNNEncoder(ConditionalEncoder):
         if img.dim() == 5:
             B, T, C, H, W = img.shape  # Batch, Time, Channels, Height, Width
             img = img.reshape(B * T, C, H, W)
-            if conditioning.dim() == 3 and conditioning.shape[1] == T:  # Already (B, T, D)
+            if (
+                conditioning.dim() == 3 and conditioning.shape[1] == T
+            ):  # Already (B, T, D)
                 conditioning = conditioning.reshape(B * T, -1)
             elif conditioning.dim() == 2:  # (B, D), replicate over T
-                conditioning = conditioning.unsqueeze(1).repeat(1, T, 1).reshape(B * T, -1)
+                conditioning = (
+                    conditioning.unsqueeze(1).repeat(1, T, 1).reshape(B * T, -1)
+                )
             else:
-                raise ValueError(f"Unexpected conditioning shape: {conditioning.shape}. Conditioning must be (B, D) or (B, T, D).")
+                raise ValueError(
+                    f"Unexpected conditioning shape: {conditioning.shape}. Conditioning must be (B, D) or (B, T, D)."
+                )
             has_time = True
         else:
             B = img.shape[0]
@@ -227,7 +258,6 @@ class ConditionalCNNEncoder(ConditionalEncoder):
             # Reshape back to (B, T, C) or (B, T, C, H, W)
             pooled_features = pooled_features.reshape(B, T, *pooled_features.shape[1:])
         return {EncoderOutputKeys.RGB.value: pooled_features}
-
 
     def get_output_specification(self) -> EncoderOutput:
         return EncoderOutput(

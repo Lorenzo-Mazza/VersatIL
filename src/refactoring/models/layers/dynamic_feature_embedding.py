@@ -9,12 +9,12 @@ class DynamicFeatureEmbedding(nn.Module):
     To support loading checkpoints, it overrides _load_from_state_dict to create
     embeddings dynamically from the state dict.
     """
+
     def __init__(self, embedding_dim: int):
         super().__init__()
         self.embedding_dim = embedding_dim
         self.embeddings = nn.ParameterDict()
-        self.register_buffer('_device_tracker', torch.zeros(1))
-
+        self.register_buffer("_device_tracker", torch.zeros(1))
 
     def _load_from_state_dict(
         self,
@@ -35,7 +35,7 @@ class DynamicFeatureEmbedding(nn.Module):
         device = self._device_tracker.device
         for key, value in state_dict.items():
             if key.startswith(embeddings_prefix):
-                feature_name = key[len(embeddings_prefix):]
+                feature_name = key[len(embeddings_prefix) :]
                 if feature_name not in self.embeddings:
                     # Create parameter with correct shape on the correct device
                     self.embeddings[feature_name] = nn.Parameter(
@@ -43,9 +43,14 @@ class DynamicFeatureEmbedding(nn.Module):
                     )
         # Now parent can load weights into the newly created embeddings
         super()._load_from_state_dict(
-            state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
         )
-
 
     def forward(self, name: str, device: torch.device) -> torch.Tensor:
         """Get or create a learned embedding for the given feature name."""

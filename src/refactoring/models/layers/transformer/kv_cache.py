@@ -17,6 +17,7 @@ class LayerKVCache:
         cross_attention_keys: Precomputed K from encoded features (B, kv_heads, S, head_dim)
         cross_attention_values: Precomputed V from encoded features (B, kv_heads, S, head_dim)
     """
+
     self_attention_keys: torch.Tensor
     self_attention_values: torch.Tensor
     cross_attention_keys: torch.Tensor | None = None
@@ -41,8 +42,11 @@ class DecoderKVCache:
     Attributes:
         layers: List of LayerKVCache, one per decoder layer
     """
+
     layers: list[LayerKVCache]
-    key_padding_mask: torch.Tensor | None = None # (B, cache_len) bool, True = masked (do not attend)
+    key_padding_mask: torch.Tensor | None = (
+        None  # (B, cache_len) bool, True = masked (do not attend)
+    )
 
     def get_length(self) -> int:
         """Get current sequence length (from first layer).
@@ -82,12 +86,10 @@ def initialize_decoder_cache(
     for _ in range(num_layers):
         cache = LayerKVCache(
             self_attention_keys=torch.empty(
-                batch_size, num_heads, 0, head_dimension,
-                device=device, dtype=dtype
+                batch_size, num_heads, 0, head_dimension, device=device, dtype=dtype
             ),
             self_attention_values=torch.empty(
-                batch_size, num_heads, 0, head_dimension,
-                device=device, dtype=dtype
+                batch_size, num_heads, 0, head_dimension, device=device, dtype=dtype
             ),
         )
         caches.append(cache)
@@ -113,5 +115,7 @@ def update_layer_cache(
     """
     return LayerKVCache(
         self_attention_keys=torch.cat([cache.self_attention_keys, new_keys], dim=2),
-        self_attention_values=torch.cat([cache.self_attention_values, new_values], dim=2),
+        self_attention_values=torch.cat(
+            [cache.self_attention_values, new_values], dim=2
+        ),
     )

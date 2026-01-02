@@ -12,14 +12,17 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-import enum 
+import enum
 import albumentations as A
 import hydra
 import numpy as np
 import torch
 from albumentations.pytorch import ToTensorV2
 from imitation_learning_toolkit.sockets.client import SocketClient
-from imitation_learning_toolkit.sockets.compression import CompressionType, decompress_array
+from imitation_learning_toolkit.sockets.compression import (
+    CompressionType,
+    decompress_array,
+)
 from omegaconf import OmegaConf
 
 from refactoring.configs import MainConfig
@@ -45,6 +48,7 @@ logging.basicConfig(level=logging.INFO)
 
 class LiberoRequestKeys(str, enum.Enum):
     """JSON keys for client requests to LIBERO server."""
+
     ROUTE_NAME = "route_name"
     ROBOT_ACTION = "robot_action"
     REQUEST_AGENTVIEW = "request_agentview_rgb"
@@ -58,6 +62,7 @@ class LiberoRequestKeys(str, enum.Enum):
 
 class LiberoResponseKeys(str, enum.Enum):
     """JSON keys for server responses from LIBERO server."""
+
     STATUS = "status"
     AGENTVIEW_RGB = "agentview_rgb"
     EYE_IN_HAND_RGB = "eye_in_hand_rgb"
@@ -71,12 +76,14 @@ class LiberoResponseKeys(str, enum.Enum):
 
 class LiberoRoutes(str, enum.Enum):
     """Route names for LIBERO server."""
+
     GET_OBSERVATION = "get_observation"
     SEND_ACTION = "send_action"
 
 
 class LiberoStatus(str, enum.Enum):
     """Status values from LIBERO server."""
+
     FINISHED = "FINISHED"
     ERROR = "ERROR"
 
@@ -84,6 +91,7 @@ class LiberoStatus(str, enum.Enum):
 @dataclass
 class LiberoObservation:
     """Data class for LIBERO observation data from the server."""
+
     agentview_rgb: np.ndarray
     eye_in_hand_rgb: np.ndarray
     ee_pos: np.ndarray | None
@@ -100,6 +108,7 @@ class LiberoAction:
         robot_action: 7D action array [pos_delta(3), ori_delta(3), gripper(1)]
         gripper_action: Gripper action as boolean for open/close
     """
+
     robot_action: np.ndarray
     gripper_action: bool | None
 
@@ -142,7 +151,9 @@ class LiberoClient(SocketClient):
             compression_type: Compression type for image data
             precision: Precision type for model inference
         """
-        super().__init__(server_address=model_server_address, server_port=model_server_port)
+        super().__init__(
+            server_address=model_server_address, server_port=model_server_port
+        )
 
         self.checkpoint_path = checkpoint_path
         self.checkpoint_name = checkpoint_name
@@ -157,7 +168,9 @@ class LiberoClient(SocketClient):
         self.precision = precision
 
         if self.enable_logging:
-            logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+            logging.basicConfig(
+                level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+            )
 
         logging.info("Loading policy and config...")
         self._load_model()
@@ -194,22 +207,34 @@ class LiberoClient(SocketClient):
         )
         self.max_timesteps = 10000
         self.all_time_position_actions = torch.zeros(
-            [self.max_timesteps, self.max_timesteps + self.prediction_horizon, self.position_dim]
+            [
+                self.max_timesteps,
+                self.max_timesteps + self.prediction_horizon,
+                self.position_dim,
+            ]
         ).to(self.device)
         self.all_time_populated_mask = torch.zeros(
-            [self.max_timesteps, self.max_timesteps + self.prediction_horizon], dtype=torch.bool
+            [self.max_timesteps, self.max_timesteps + self.prediction_horizon],
+            dtype=torch.bool,
         ).to(self.device)
         self.all_time_orientations = torch.zeros(
-            [self.max_timesteps, self.max_timesteps + self.prediction_horizon, self.orientation_dim]
+            [
+                self.max_timesteps,
+                self.max_timesteps + self.prediction_horizon,
+                self.orientation_dim,
+            ]
         ).to(self.device)
         self.all_time_grippers = torch.zeros(
-            [self.max_timesteps, self.max_timesteps + self.prediction_horizon, self.gripper_dim]
+            [
+                self.max_timesteps,
+                self.max_timesteps + self.prediction_horizon,
+                self.gripper_dim,
+            ]
         ).to(self.device)
         self.timestep = 0
         self.current_all_position_actions = None
         self.current_all_orientations = None
         self.current_all_grippers = None
-
 
     def _load_model(self) -> Policy:
         """Load config and policy from checkpoint."""
@@ -225,7 +250,9 @@ class LiberoClient(SocketClient):
         logging.info(f"Loading model and tokenizer from {checkpoint_file}")
         tokenizer_path = os.path.join(self.checkpoint_path, "tokenizer")
         if os.path.exists(tokenizer_path):
-            self.tokenizer = Tokenizer.from_pretrained(tokenizer_path, device=self.device)
+            self.tokenizer = Tokenizer.from_pretrained(
+                tokenizer_path, device=self.device
+            )
             logging.info(f"Tokenizer loaded from {tokenizer_path}")
         else:
             self.tokenizer = None
@@ -236,16 +263,19 @@ class LiberoClient(SocketClient):
             self.policy.set_tokenizer(self.tokenizer)
 
         self.policy.to(self.device).eval()
-        checkpoint = torch.load(checkpoint_file, map_location=self.device, weights_only=False)
-        lightning_module = LightningPolicy(policy=self.policy, training_config=self.config.training)
-        lightning_module.load_state_dict(checkpoint['state_dict'], strict=False)
-        self._validate_checkpoint_loading(checkpoint['state_dict'], lightning_module)
+        checkpoint = torch.load(
+            checkpoint_file, map_location=self.device, weights_only=False
+        )
+        lightning_module = LightningPolicy(
+            policy=self.policy, training_config=self.config.training
+        )
+        lightning_module.load_state_dict(checkpoint["state_dict"], strict=False)
+        self._validate_checkpoint_loading(checkpoint["state_dict"], lightning_module)
         precision_type = PrecisionType(self.precision)
         if precision_type.should_convert_model():
             self.policy = self.policy.to(precision_type.get_model_dtype())
         logging.info("Model and config successfully loaded.")
         return self.policy
-
 
     def _validate_checkpoint_loading(
         self,
@@ -265,9 +295,9 @@ class LiberoClient(SocketClient):
         checkpoint_keys = set(checkpoint_state_dict.keys())
         model_keys = set(model_state.keys())
         critical_prefixes = [
-            'policy.decoder.',
-            'policy.encoding_pipeline.',
-            'policy.normalizer.',
+            "policy.decoder.",
+            "policy.encoding_pipeline.",
+            "policy.normalizer.",
         ]
         errors = []
         warnings = []
@@ -280,19 +310,36 @@ class LiberoClient(SocketClient):
                     f"This indicates lazy-initialized layers failed to load."
                 )
             elif ckpt_count > 0 and model_count < ckpt_count:
-                matched = len([k for k in checkpoint_keys if k.startswith(prefix) and k in model_keys])
+                matched = len(
+                    [
+                        k
+                        for k in checkpoint_keys
+                        if k.startswith(prefix) and k in model_keys
+                    ]
+                )
                 if matched < ckpt_count:
                     warnings.append(
                         f"WARNING: Checkpoint has {ckpt_count} keys for '{prefix}' but model only has {model_count}. "
                         f"Matched: {matched}/{ckpt_count}"
                     )
         lazy_module_prefixes = [
-            ('policy.decoder.architecture.feature_projection.linear_projections.', 'FeatureProjection linear'),
-            ('policy.decoder.architecture.feature_projection.spatial_projections.', 'FeatureProjection spatial'),
-            ('policy.decoder.architecture.camera_embeddings.embeddings.', 'DynamicFeatureEmbedding'),
+            (
+                "policy.decoder.architecture.feature_projection.linear_projections.",
+                "FeatureProjection linear",
+            ),
+            (
+                "policy.decoder.architecture.feature_projection.spatial_projections.",
+                "FeatureProjection spatial",
+            ),
+            (
+                "policy.decoder.architecture.camera_embeddings.embeddings.",
+                "DynamicFeatureEmbedding",
+            ),
         ]
         for ckpt_prefix, module_name in lazy_module_prefixes:
-            ckpt_keys_for_module = [k for k in checkpoint_keys if k.startswith(ckpt_prefix)]
+            ckpt_keys_for_module = [
+                k for k in checkpoint_keys if k.startswith(ckpt_prefix)
+            ]
             model_keys_for_module = [k for k in model_keys if k.startswith(ckpt_prefix)]
 
             if len(ckpt_keys_for_module) > 0 and len(model_keys_for_module) == 0:
@@ -321,12 +368,13 @@ class LiberoClient(SocketClient):
                 f"First error: {errors[0]}"
             )
 
-
     def _setup_position_action(self, action_space: ActionSpace) -> None:
         """Setup position action - LIBERO requires 3D position."""
         position_key = ProprioKey.EE_POS_ACTION.value
         if position_key not in action_space.actions_metadata:
-            raise ValueError(f"LiberoClient requires position actions with key '{position_key}'.")
+            raise ValueError(
+                f"LiberoClient requires position actions with key '{position_key}'."
+            )
         self.position_key = position_key
         pos_meta = action_space.actions_metadata[position_key]
         if not isinstance(pos_meta, PositionActionMetadata):
@@ -334,30 +382,38 @@ class LiberoClient(SocketClient):
         self.position_dim = pos_meta.prediction_dimension
         self.position_frame = pos_meta.frame
         if self.position_dim != 3:
-            raise ValueError(f"LIBERO requires 3D position actions, got {self.position_dim}D")
-
+            raise ValueError(
+                f"LIBERO requires 3D position actions, got {self.position_dim}D"
+            )
 
     def _setup_orientation_action(self, action_space: ActionSpace) -> None:
         """Setup orientation action - LIBERO requires 3D euler orientation."""
         orientation_key = ProprioKey.EE_ORI_ACTION.value
         if orientation_key not in action_space.actions_metadata:
-            raise ValueError(f"LiberoClient requires orientation actions with key '{orientation_key}'.")
+            raise ValueError(
+                f"LiberoClient requires orientation actions with key '{orientation_key}'."
+            )
         self.orientation_key = orientation_key
         ori_meta = action_space.actions_metadata[orientation_key]
         if not isinstance(ori_meta, OrientationActionMetadata):
-            raise ValueError(f"Expected OrientationActionMetadata for {orientation_key}")
+            raise ValueError(
+                f"Expected OrientationActionMetadata for {orientation_key}"
+            )
         self.orientation_dim = ori_meta.prediction_dimension
         self.orientation_frame = ori_meta.frame
         self.orientation_representation = ori_meta.orientation_representation
         if self.orientation_dim != 3:
-            raise ValueError(f"LIBERO requires 3D orientation actions (euler), got {self.orientation_dim}D")
-
+            raise ValueError(
+                f"LIBERO requires 3D orientation actions (euler), got {self.orientation_dim}D"
+            )
 
     def _setup_gripper_action(self, action_space: ActionSpace) -> None:
         """Setup gripper action - LIBERO requires 1D gripper."""
         gripper_key = ProprioKey.GRIPPER_STATE_ACTION.value
         if gripper_key not in action_space.actions_metadata:
-            raise ValueError(f"LiberoClient requires gripper actions with key '{gripper_key}'.")
+            raise ValueError(
+                f"LiberoClient requires gripper actions with key '{gripper_key}'."
+            )
         self.gripper_key = gripper_key
         gripper_meta = action_space.actions_metadata[gripper_key]
         if not isinstance(gripper_meta, GripperActionMetadata):
@@ -366,8 +422,9 @@ class LiberoClient(SocketClient):
         self.gripper_type = gripper_meta.gripper_type
         self.binary_gripper_range = gripper_meta.binary_gripper_range
         if self.gripper_dim != 1:
-            raise ValueError(f"LIBERO requires 1D gripper actions, got {self.gripper_dim}D")
-
+            raise ValueError(
+                f"LIBERO requires 1D gripper actions, got {self.gripper_dim}D"
+            )
 
     def _setup_observations(self, obs_space: ObservationSpace) -> None:
         """Setup observation keys from ObservationSpace metadata."""
@@ -375,8 +432,9 @@ class LiberoClient(SocketClient):
         self.use_eye_in_hand = Cameras.EYE_IN_HAND.value in obs_space.cameras
         self.use_language = ObsKey.LANGUAGE.value in obs_space.observations_metadata
         if not self.use_agentview and not self.use_eye_in_hand:
-            raise ValueError("LiberoClient requires at least one camera (agentview_rgb or eye_in_hand_rgb).")
-
+            raise ValueError(
+                "LiberoClient requires at least one camera (agentview_rgb or eye_in_hand_rgb)."
+            )
 
     def get_observation(self) -> tuple[LiberoObservation, bool, bool]:
         """Request and process an observation from the LIBERO server.
@@ -384,43 +442,69 @@ class LiberoClient(SocketClient):
         Returns:
             Tuple of (observation, done, success)
         """
-        response = self.send_request(route_name=LiberoRoutes.GET_OBSERVATION.value, dict_data={
-            LiberoRequestKeys.REQUEST_AGENTVIEW.value: self.use_agentview,
-            LiberoRequestKeys.REQUEST_EYE_IN_HAND.value: self.use_eye_in_hand,
-            LiberoRequestKeys.REQUEST_EE_POS.value: True,
-            LiberoRequestKeys.REQUEST_EE_ORI.value: True,
-            LiberoRequestKeys.REQUEST_GRIPPER_STATES.value: True,
-            LiberoRequestKeys.REQUEST_LANGUAGE_INSTRUCTION.value: self.use_language,
-            LiberoRequestKeys.COMPRESSION_TYPE.value: self.compression_type,
-        })
+        response = self.send_request(
+            route_name=LiberoRoutes.GET_OBSERVATION.value,
+            dict_data={
+                LiberoRequestKeys.REQUEST_AGENTVIEW.value: self.use_agentview,
+                LiberoRequestKeys.REQUEST_EYE_IN_HAND.value: self.use_eye_in_hand,
+                LiberoRequestKeys.REQUEST_EE_POS.value: True,
+                LiberoRequestKeys.REQUEST_EE_ORI.value: True,
+                LiberoRequestKeys.REQUEST_GRIPPER_STATES.value: True,
+                LiberoRequestKeys.REQUEST_LANGUAGE_INSTRUCTION.value: self.use_language,
+                LiberoRequestKeys.COMPRESSION_TYPE.value: self.compression_type,
+            },
+        )
         if self.enable_logging:
             # Log useful info only, not base64 images
-            logging.info(f"Obs received - ee_pos: {response.get('ee_pos')}, ee_ori: {response.get('ee_ori')}, gripper: {response.get('gripper_states')}, language: {response.get('language_instruction')}")
+            logging.info(
+                f"Obs received - ee_pos: {response.get('ee_pos')}, ee_ori: {response.get('ee_ori')}, gripper: {response.get('gripper_states')}, language: {response.get('language_instruction')}"
+            )
         if LiberoResponseKeys.STATUS.value not in response:
             raise RuntimeError("Server response missing 'status' key")
         if response[LiberoResponseKeys.STATUS.value] != LiberoStatus.FINISHED.value:
-            raise RuntimeError(f"Unexpected server status: {response[LiberoResponseKeys.STATUS.value]}")
+            raise RuntimeError(
+                f"Unexpected server status: {response[LiberoResponseKeys.STATUS.value]}"
+            )
 
         agentview_rgb = None
         if LiberoResponseKeys.AGENTVIEW_RGB.value in response:
-            agentview_rgb = decompress_array(response[LiberoResponseKeys.AGENTVIEW_RGB.value], self.compression_type)
+            agentview_rgb = decompress_array(
+                response[LiberoResponseKeys.AGENTVIEW_RGB.value], self.compression_type
+            )
             if self.enable_logging:
-                logging.info(f"Agentview shape: {agentview_rgb.shape}, dtype: {agentview_rgb.dtype}, range: [{agentview_rgb.min()}, {agentview_rgb.max()}]")
+                logging.info(
+                    f"Agentview shape: {agentview_rgb.shape}, dtype: {agentview_rgb.dtype}, range: [{agentview_rgb.min()}, {agentview_rgb.max()}]"
+                )
         eye_in_hand_rgb = None
         if LiberoResponseKeys.EYE_IN_HAND_RGB.value in response:
-            eye_in_hand_rgb = decompress_array(response[LiberoResponseKeys.EYE_IN_HAND_RGB.value], self.compression_type)
+            eye_in_hand_rgb = decompress_array(
+                response[LiberoResponseKeys.EYE_IN_HAND_RGB.value],
+                self.compression_type,
+            )
             if self.enable_logging:
-                logging.info(f"Eye-in-hand shape: {eye_in_hand_rgb.shape}, dtype: {eye_in_hand_rgb.dtype}, range: [{eye_in_hand_rgb.min()}, {eye_in_hand_rgb.max()}]")
+                logging.info(
+                    f"Eye-in-hand shape: {eye_in_hand_rgb.shape}, dtype: {eye_in_hand_rgb.dtype}, range: [{eye_in_hand_rgb.min()}, {eye_in_hand_rgb.max()}]"
+                )
         ee_pos = None
         if LiberoResponseKeys.EE_POS.value in response:
-            ee_pos = np.array(response[LiberoResponseKeys.EE_POS.value], dtype=np.float32)
+            ee_pos = np.array(
+                response[LiberoResponseKeys.EE_POS.value], dtype=np.float32
+            )
         ee_ori = None
         if LiberoResponseKeys.EE_ORI.value in response:
-            ee_ori = np.array(response[LiberoResponseKeys.EE_ORI.value], dtype=np.float32)
+            ee_ori = np.array(
+                response[LiberoResponseKeys.EE_ORI.value], dtype=np.float32
+            )
         gripper_states = None
         if LiberoResponseKeys.GRIPPER_STATES.value in response:
-            gripper_states = np.array(response[LiberoResponseKeys.GRIPPER_STATES.value], dtype=np.float32)
-        language_instruction = response.get(LiberoResponseKeys.LANGUAGE_INSTRUCTION.value, None) if self.use_language else None
+            gripper_states = np.array(
+                response[LiberoResponseKeys.GRIPPER_STATES.value], dtype=np.float32
+            )
+        language_instruction = (
+            response.get(LiberoResponseKeys.LANGUAGE_INSTRUCTION.value, None)
+            if self.use_language
+            else None
+        )
         done = response.get(LiberoResponseKeys.DONE.value, False)
         success = response.get(LiberoResponseKeys.SUCCESS.value, False)
         obs = LiberoObservation(
@@ -433,51 +517,61 @@ class LiberoClient(SocketClient):
         )
         return obs, done, success
 
-
     def send_action(self, robot_action: np.ndarray) -> tuple[bool, bool]:
         """Send an action to the LIBERO server.
 
         Returns:
             Tuple of (done, success)
         """
-        response = self.send_request(route_name=LiberoRoutes.SEND_ACTION.value, dict_data={
-            LiberoRequestKeys.ROBOT_ACTION.value: robot_action.tolist(),
-        })
+        response = self.send_request(
+            route_name=LiberoRoutes.SEND_ACTION.value,
+            dict_data={
+                LiberoRequestKeys.ROBOT_ACTION.value: robot_action.tolist(),
+            },
+        )
         done = response.get(LiberoResponseKeys.DONE.value, False)
         success = response.get(LiberoResponseKeys.SUCCESS.value, False)
         return done, success
 
-
     def get_actions_from_model(self) -> list[LiberoAction]:
         """Compute next actions using the trained policy model."""
-        agentview_list = self.agentview_buffer[-self.observation_buffer_size:]
-        eye_in_hand_list = self.eye_in_hand_buffer[-self.observation_buffer_size:]
+        agentview_list = self.agentview_buffer[-self.observation_buffer_size :]
+        eye_in_hand_list = self.eye_in_hand_buffer[-self.observation_buffer_size :]
         agentview_tensors = []
         eye_in_hand_tensors = []
         for agentview, eye_in_hand in zip(agentview_list, eye_in_hand_list):
             if self.use_agentview and self.use_eye_in_hand:
                 transformed = self.image_transform(
-                    image=agentview,
-                    **{Cameras.EYE_IN_HAND.value: eye_in_hand}
+                    image=agentview, **{Cameras.EYE_IN_HAND.value: eye_in_hand}
                 )
-                agentview_tensors.append(transformed['image'] / 255.0)
-                eye_in_hand_tensors.append(transformed[Cameras.EYE_IN_HAND.value] / 255.0)
+                agentview_tensors.append(transformed["image"] / 255.0)
+                eye_in_hand_tensors.append(
+                    transformed[Cameras.EYE_IN_HAND.value] / 255.0
+                )
             elif self.use_agentview:
                 transformed = self.image_transform(image=agentview)
-                agentview_tensors.append(transformed['image'] / 255.0)
+                agentview_tensors.append(transformed["image"] / 255.0)
             elif self.use_eye_in_hand:
                 transformed = self.image_transform(image=eye_in_hand)
-                eye_in_hand_tensors.append(transformed['image'] / 255.0)
+                eye_in_hand_tensors.append(transformed["image"] / 255.0)
         obs_dict = {}
         if self.use_agentview:
-            obs_dict[Cameras.AGENTVIEW.value] = torch.stack(agentview_tensors).unsqueeze(0)
+            obs_dict[Cameras.AGENTVIEW.value] = torch.stack(
+                agentview_tensors
+            ).unsqueeze(0)
         if self.use_eye_in_hand:
-            obs_dict[Cameras.EYE_IN_HAND.value] = torch.stack(eye_in_hand_tensors).unsqueeze(0)
+            obs_dict[Cameras.EYE_IN_HAND.value] = torch.stack(
+                eye_in_hand_tensors
+            ).unsqueeze(0)
         if self.use_language:
-            lang_list = self.language_instruction_buffer[-self.observation_buffer_size:]
+            lang_list = self.language_instruction_buffer[
+                -self.observation_buffer_size :
+            ]
             obs_dict[ObsKey.LANGUAGE.value] = [[s] for s in lang_list]
 
-        with torch.autocast(device_type=str(self.device), dtype=MAP_PRECISION_TO_DTYPE[self.precision]):
+        with torch.autocast(
+            device_type=str(self.device), dtype=MAP_PRECISION_TO_DTYPE[self.precision]
+        ):
             with torch.no_grad():
                 action_dict = self.policy.predict_action(obs_dict=obs_dict)
 
@@ -487,49 +581,70 @@ class LiberoClient(SocketClient):
 
         if self.temporal_agg:
             averaged_actions = self._get_exponential_averaged_actions()
-            robot_action, gripper_action = self._construct_libero_action(averaged_actions)
-            actions = [LiberoAction(robot_action=robot_action, gripper_action=gripper_action)]
+            robot_action, gripper_action = self._construct_libero_action(
+                averaged_actions
+            )
+            actions = [
+                LiberoAction(robot_action=robot_action, gripper_action=gripper_action)
+            ]
         else:
             actions = []
             for i in range(self.prediction_horizon):
-                robot_action, gripper_action = self._construct_libero_action_from_tensors(
+                (
+                    robot_action,
+                    gripper_action,
+                ) = self._construct_libero_action_from_tensors(
                     self.current_all_position_actions[0, i],
                     self.current_all_orientations[0, i],
                     self.current_all_grippers[0, i],
                 )
-                actions.append(LiberoAction(robot_action=robot_action, gripper_action=gripper_action))
+                actions.append(
+                    LiberoAction(
+                        robot_action=robot_action, gripper_action=gripper_action
+                    )
+                )
 
         self.timestep += 1
         return actions
-
 
     def _get_exponential_averaged_actions(self) -> dict[str, torch.Tensor]:
         """Average actions exponentially for temporal aggregation."""
         averaged = {}
         self.all_time_position_actions[
-            [self.timestep], self.timestep: self.timestep + self.prediction_horizon
+            [self.timestep], self.timestep : self.timestep + self.prediction_horizon
         ] = self.current_all_position_actions.float()
         self.all_time_populated_mask[
-            [self.timestep], self.timestep: self.timestep + self.prediction_horizon
+            [self.timestep], self.timestep : self.timestep + self.prediction_horizon
         ] = True
         actions_populated = self.all_time_populated_mask[:, self.timestep]
-        actions_for_curr_step_pos = self.all_time_position_actions[:, self.timestep][actions_populated]
+        actions_for_curr_step_pos = self.all_time_position_actions[:, self.timestep][
+            actions_populated
+        ]
         exp_weights = self._compute_exp_weights(len(actions_for_curr_step_pos))
-        averaged[self.position_key] = (actions_for_curr_step_pos * exp_weights).sum(dim=0)
+        averaged[self.position_key] = (actions_for_curr_step_pos * exp_weights).sum(
+            dim=0
+        )
         self.all_time_orientations[
-            [self.timestep], self.timestep: self.timestep + self.prediction_horizon
+            [self.timestep], self.timestep : self.timestep + self.prediction_horizon
         ] = self.current_all_orientations.float()
-        actions_for_curr_step_ori = self.all_time_orientations[:, self.timestep][actions_populated]
+        actions_for_curr_step_ori = self.all_time_orientations[:, self.timestep][
+            actions_populated
+        ]
         exp_weights = self._compute_exp_weights(len(actions_for_curr_step_ori))
-        averaged[self.orientation_key] = (actions_for_curr_step_ori * exp_weights).sum(dim=0)
+        averaged[self.orientation_key] = (actions_for_curr_step_ori * exp_weights).sum(
+            dim=0
+        )
         self.all_time_grippers[
-            [self.timestep], self.timestep: self.timestep + self.prediction_horizon
+            [self.timestep], self.timestep : self.timestep + self.prediction_horizon
         ] = self.current_all_grippers.float()
-        actions_for_curr_step_grip = self.all_time_grippers[:, self.timestep][actions_populated]
+        actions_for_curr_step_grip = self.all_time_grippers[:, self.timestep][
+            actions_populated
+        ]
         exp_weights = self._compute_exp_weights(len(actions_for_curr_step_grip))
-        averaged[self.gripper_key] = (actions_for_curr_step_grip * exp_weights).sum(dim=0)
+        averaged[self.gripper_key] = (actions_for_curr_step_grip * exp_weights).sum(
+            dim=0
+        )
         return averaged
-
 
     def _compute_exp_weights(self, n: int) -> torch.Tensor:
         """Compute exponential weights for temporal aggregation."""
@@ -540,15 +655,15 @@ class LiberoClient(SocketClient):
         exp_weights = exp_weights / exp_weights.sum()
         return torch.from_numpy(exp_weights).to(self.device).float().unsqueeze(dim=1)
 
-
-    def _construct_libero_action(self, averaged_actions: dict[str, torch.Tensor]) -> tuple[np.ndarray, bool]:
+    def _construct_libero_action(
+        self, averaged_actions: dict[str, torch.Tensor]
+    ) -> tuple[np.ndarray, bool]:
         """Construct LIBERO action from averaged action tensors."""
         return self._construct_libero_action_from_tensors(
             averaged_actions[self.position_key],
             averaged_actions[self.orientation_key],
             averaged_actions[self.gripper_key],
         )
-
 
     def _construct_libero_action_from_tensors(
         self,
@@ -571,9 +686,10 @@ class LiberoClient(SocketClient):
             gripper_action_for_libero = gripper_raw_output
             gripper_is_closed = gripper_raw_output > 0.0
 
-        robot_action = np.concatenate([position_action, orientation_action, [gripper_action_for_libero]])
+        robot_action = np.concatenate(
+            [position_action, orientation_action, [gripper_action_for_libero]]
+        )
         return robot_action, gripper_is_closed
-
 
     def update_loop(self) -> None:
         """Main loop to collect observations, manage buffers, and send actions."""
@@ -624,7 +740,6 @@ class LiberoClient(SocketClient):
                         break
                     time.sleep(1 / self.update_rate_hz)
 
-
     def reset(self) -> None:
         """Reset the client state for a new episode."""
         self.timestep = 0
@@ -642,7 +757,6 @@ class LiberoClient(SocketClient):
         self.gripper_states_buffer.clear()
         self.language_instruction_buffer.clear()
         self.buffer_data_counter = 0
-
 
     def shutdown(self) -> None:
         """Shut down the client and close the ZMQ socket."""

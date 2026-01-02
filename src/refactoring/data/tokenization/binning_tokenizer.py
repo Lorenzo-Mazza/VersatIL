@@ -54,7 +54,9 @@ class BinningTokenizer:
         for dim in range(n_dims):
             bin_edges[dim] = np.quantile(normalized_data[:, dim], quantiles)
 
-        self.bin_edges = torch.tensor(bin_edges, dtype=torch.float32, device=self.device)
+        self.bin_edges = torch.tensor(
+            bin_edges, dtype=torch.float32, device=self.device
+        )
         self._is_fitted = True
 
         logging.info(

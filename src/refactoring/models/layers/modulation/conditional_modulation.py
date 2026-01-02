@@ -13,14 +13,13 @@ class ConditionalModulation(nn.Module):
     Supports FiLM (for CNNs), adaLN (for transformers), and variants.
     """
 
-
     def __init__(
-            self,
-            condition_dim: int,
-            feature_dim: int,
-            use_shift: bool = True,
-            activation: str = ActivationFunction.SILU.value,
-            init_strategy: Literal["identity", "xavier", "zero"] = "identity",
+        self,
+        condition_dim: int,
+        feature_dim: int,
+        use_shift: bool = True,
+        activation: str = ActivationFunction.SILU.value,
+        init_strategy: Literal["identity", "xavier", "zero"] = "identity",
     ):
         """
         Args:
@@ -36,7 +35,8 @@ class ConditionalModulation(nn.Module):
         self.init_strategy = init_strategy
         if activation == ActivationFunction.SWIGLU.value:
             self.scale_linear = ActivationFunction(activation).to_torch_activation()(
-                input_dim=condition_dim, hidden_dim=feature_dim)
+                input_dim=condition_dim, hidden_dim=feature_dim
+            )
         else:
             self.scale_linear = nn.Sequential(
                 ActivationFunction(activation).to_torch_activation()(),
@@ -46,10 +46,11 @@ class ConditionalModulation(nn.Module):
             self.shift_linear = nn.Linear(condition_dim, feature_dim)
         self.init_parameters()
 
-
     def init_parameters(self):
         """Initialize weights based on strategy."""
-        scale_linears = [m for m in self.scale_linear.modules() if isinstance(m, nn.Linear)]
+        scale_linears = [
+            m for m in self.scale_linear.modules() if isinstance(m, nn.Linear)
+        ]
         if self.init_strategy == "identity":
             for layer in scale_linears:
                 nn.init.constant_(layer.weight, 0)
@@ -78,12 +79,7 @@ class ConditionalModulation(nn.Module):
         else:
             raise ValueError(f"Unknown init_strategy: {self.init_strategy}")
 
-
-    def forward(
-            self,
-            x: torch.Tensor,
-            condition: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
         """
         Args:
             x: Features to modulate
@@ -131,5 +127,3 @@ class ConditionalModulation(nn.Module):
         else:
             result_no_shift: torch.Tensor = gamma * x
             return result_no_shift
-
-

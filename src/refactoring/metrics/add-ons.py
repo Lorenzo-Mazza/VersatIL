@@ -64,7 +64,9 @@ class OptimalTransportLoss(BaseLoss):
                 "Install with: pip install geomloss pykeops"
             ) from e
 
-        self.ot = SamplesLoss(loss="sinkhorn", p=2, blur=epsilon**0.5)  # Sinkhorn with p=2 (Euclid)
+        self.ot = SamplesLoss(
+            loss="sinkhorn", p=2, blur=epsilon ** 0.5
+        )  # Sinkhorn with p=2 (Euclid)
 
     def get_required_keys(self) -> set[str]:
         """Gets the required keys for predictions and targets.
@@ -97,7 +99,9 @@ class OptimalTransportLoss(BaseLoss):
         """
         for action_key in self.action_keys:
             if action_key not in predictions or action_key not in targets:
-                raise ValueError(f"Predictions and targets must contain key '{action_key}' for Optimal Transport Loss.")
+                raise ValueError(
+                    f"Predictions and targets must contain key '{action_key}' for Optimal Transport Loss."
+                )
 
         # Flat actions (B*horizon, sum_dims)
         pred_a = torch.cat([predictions[k] for k in self.action_keys], dim=-1)
@@ -109,7 +113,6 @@ class OptimalTransportLoss(BaseLoss):
             flat_mask = ~is_pad.view(-1)
             pred_a = pred_a[flat_mask]
             target_a = target_a[flat_mask]
-
 
         # Geomloss Sinkhorn (i.e. Optimal Transport cost in Euclidean space).
         ot_loss = self.ot(pred_a, target_a)

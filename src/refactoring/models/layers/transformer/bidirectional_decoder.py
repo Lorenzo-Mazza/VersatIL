@@ -11,10 +11,18 @@ from refactoring.models.layers.normalization.ada_norm import AdaNorm
 from refactoring.models.layers.normalization.constants import NormalizationType
 from refactoring.models.layers.transformer.decoder_layer import TransformerDecoderLayer
 from refactoring.models.layers.normalization.factory import create_normalization_layer
-from refactoring.models.layers.transformer.positional_encoding import create_positional_encoding
-from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
-from refactoring.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
-from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
+from refactoring.models.layers.transformer.positional_encoding import (
+    create_positional_encoding,
+)
+from refactoring.models.layers.positional_encoding.learned import (
+    LearnedPositionalEncoding1D,
+)
+from refactoring.models.layers.positional_encoding.rotary import (
+    RotaryPositionalEncoding,
+)
+from refactoring.models.layers.positional_encoding.sinusoidal import (
+    SinusoidalPositionalEncoding1D,
+)
 from refactoring.models.layers.normalization.rms_norm import RMSNorm
 
 
@@ -88,24 +96,26 @@ class BidirectionalDecoder(nn.Module):
                 num_heads=number_of_heads,
             )
 
-        self.layers = nn.ModuleList([
-            TransformerDecoderLayer(
-                embedding_dimension=embedding_dimension,
-                number_of_heads=number_of_heads,
-                number_of_key_value_heads=number_of_key_value_heads,
-                feedforward_dimension=feedforward_dimension,
-                dropout=dropout,
-                attention_dropout=attention_dropout,
-                activation=activation,
-                normalization_type=normalization_type,
-                attention_type=attention_type,
-                use_cross_attention=True,
-                bias=bias,
-                normalization_epsilon=normalization_epsilon,
-                autoregressive=False,
-            )
-            for _ in range(number_of_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [
+                TransformerDecoderLayer(
+                    embedding_dimension=embedding_dimension,
+                    number_of_heads=number_of_heads,
+                    number_of_key_value_heads=number_of_key_value_heads,
+                    feedforward_dimension=feedforward_dimension,
+                    dropout=dropout,
+                    attention_dropout=attention_dropout,
+                    activation=activation,
+                    normalization_type=normalization_type,
+                    attention_type=attention_type,
+                    use_cross_attention=True,
+                    bias=bias,
+                    normalization_epsilon=normalization_epsilon,
+                    autoregressive=False,
+                )
+                for _ in range(number_of_layers)
+            ]
+        )
 
         self.final_normalization = create_normalization_layer(
             normalization_type=normalization_type,
@@ -176,14 +186,25 @@ class BidirectionalDecoder(nn.Module):
 
         self_attention_mask = None
         if query_padding_mask is not None:
-            self_attention_mask = self._expand_padding_mask(query_padding_mask, query_length)
+            self_attention_mask = self._expand_padding_mask(
+                query_padding_mask, query_length
+            )
         cross_attention_mask = None
         if memory_padding_mask is not None:
-            cross_attention_mask = self._expand_padding_mask(memory_padding_mask, query_length)
+            cross_attention_mask = self._expand_padding_mask(
+                memory_padding_mask, query_length
+            )
 
-        if isinstance(self.positional_encoding, (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D)):
+        if isinstance(
+            self.positional_encoding,
+            (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D),
+        ):
             hidden_states = hidden_states + self.positional_encoding(hidden_states)
-        rope_pe = self.positional_encoding if isinstance(self.positional_encoding, RotaryPositionalEncoding) else None
+        rope_pe = (
+            self.positional_encoding
+            if isinstance(self.positional_encoding, RotaryPositionalEncoding)
+            else None
+        )
 
         for layer in self.layers:
             hidden_states, _ = layer(
