@@ -12,7 +12,7 @@ defaults:
   - policy/encoding_pipeline: stereo_rgb
   - policy/decoder: act_default
   - policy/algorithm: bc_with_vae_gaussian
-  - policy/loss: regression_gripper_kl
+  - policy/loss: regression_gripper_KL
   - inference: act_default
   - _self_
 
