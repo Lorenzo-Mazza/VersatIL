@@ -6,6 +6,7 @@ import torch.utils.data as data
 from threadpoolctl import threadpool_limits
 
 from refactoring.configs.data.dataloader import DataLoaderConfig
+from refactoring.data.metadata import GripperActionMetadata, OnTheFlyActionMetadata, GripperObservationMetadata
 from refactoring.data.task import ObservationSpace, ActionSpace
 from refactoring.data.action_processor import ActionProcessor
 from refactoring.data.augmentation.augmentation_pipeline import AugmentationPipeline
@@ -325,18 +326,29 @@ class EpisodicDataset(data.Dataset):
         Raises:
             ValueError: If gripper is not configured or is not binary type
         """
-        # TODO: This needs to be fixed
-        if not self.action_space.has_gripper:
+        if not self.action_space.has_gripper_actions:
             raise ValueError("Gripper actions are not being predicted")
-        if self.action_space.gripper_type != GripperType.BINARY.value:
+        if len(self.action_space.gripper_actions) != 1:
+            raise ValueError(
+                "Class imbalance weights only supported for single gripper action"
+            )
+        key, meta = next(iter(self.action_space.gripper_actions.items()))
+        if isinstance(meta, GripperActionMetadata):
+            gripper_type = meta.gripper_type
+        elif isinstance(meta, OnTheFlyActionMetadata):
+            assert isinstance(meta.source_metadata, GripperObservationMetadata)
+            gripper_type = meta.source_metadata.gripper_type
+        else:
+            raise ValueError(
+                f"Unsupported gripper action metadata type: {type(meta)}"
+            )
+        if gripper_type != GripperType.BINARY.value:
             raise ValueError(
                 f"Class imbalance weights only supported for binary grippers, "
-                f"got gripper_type={self.action_space.gripper_type}"
+                f"got gripper_type={gripper_type} for key={key}"
             )
-
-        gripper_actions = self.replay_buffer[ProprioKey.GRIPPER_STATE.value][:]
+        gripper_actions = self.replay_buffer[key][:]
         gripper_actions = gripper_actions.reshape(-1)
-        number_of_positive_actions = gripper_actions.sum()
+        number_of_positive_actions = (gripper_actions == 1).sum()
         number_of_negative_actions = len(gripper_actions) - number_of_positive_actions
-        result: float = number_of_negative_actions / number_of_positive_actions
-        return result
+        return number_of_negative_actions / number_of_positive_actions

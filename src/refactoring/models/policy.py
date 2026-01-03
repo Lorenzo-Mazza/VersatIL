@@ -34,6 +34,7 @@ from refactoring.models.decoding.constants import (
 from refactoring.common.dict_of_tensor_mixin import DictOfTensorMixin
 from refactoring.data.normalization.normalizer import LinearNormalizer
 from refactoring.metrics.base import BaseLoss, LossOutput
+from refactoring.metrics.components import GripperLoss
 from refactoring.models.decoding.algorithm.base import DecodingAlgorithm
 from refactoring.models.decoding.algorithm.variational import VariationalAlgorithm
 from refactoring.models.decoding.decoders import MoEDecoder
@@ -213,6 +214,16 @@ class Policy(nn.Module):
             self.denoising_thresholds.params_dict[key] = nn.Parameter(
                 torch.tensor(value), requires_grad=False
             )
+
+    def set_gripper_class_weights(self, pos_weight: torch.Tensor | None) -> None:
+        """Set positive class weight for GripperLoss components in the loss module.
+
+        Args:
+            pos_weight: Tensor with positive class weight for BCE loss, or None to disable.
+        """
+        for module in self.loss_module.modules():
+            if isinstance(module, GripperLoss):
+                module.pos_weight = pos_weight
 
     def forward(
         self, batch: dict[str, dict[str, torch.Tensor]]
