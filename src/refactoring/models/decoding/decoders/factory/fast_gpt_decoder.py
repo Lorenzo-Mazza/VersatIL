@@ -9,7 +9,7 @@ import torch.nn as nn
 
 from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.constants import (
- TOKENIZED_ACTIONS_KEY,
+    TOKENIZED_ACTIONS_KEY,
 )
 from refactoring.data.tokenization import Tokenizer
 from refactoring.models.decoding.action_heads import ActionHead
@@ -25,8 +25,13 @@ from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
 from refactoring.models.layers.normalization.constants import NormalizationType
 from refactoring.models.layers.transformer.autoregressive_decoder import GPTDecoder
-from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
-from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding2D, SinusoidalPositionalEncoding1D
+from refactoring.models.layers.positional_encoding.learned import (
+    LearnedPositionalEncoding1D,
+)
+from refactoring.models.layers.positional_encoding.sinusoidal import (
+    SinusoidalPositionalEncoding2D,
+    SinusoidalPositionalEncoding1D,
+)
 from refactoring.models.layers.transformer_input_builder import TransformerInputBuilder
 
 
@@ -112,9 +117,11 @@ class FASTGPTDecoder(ActionDecoder):
         self.temperature = temperature
         self.learnable_temperature = learnable_temperature
         self.deterministic = deterministic
-        if action_heads.keys() !={ACTION_LOGITS_KEY}:
-            raise ValueError(f"FASTGPTDecoder only supports ACTION_LOGITS_KEY in action_heads. Make sure to use key {ACTION_LOGITS_KEY}"
-                             " in your hydra config.")
+        if action_heads.keys() != {ACTION_LOGITS_KEY}:
+            raise ValueError(
+                f"FASTGPTDecoder only supports ACTION_LOGITS_KEY in action_heads. Make sure to use key {ACTION_LOGITS_KEY}"
+                " in your hydra config."
+            )
         self.action_heads = action_heads
         decoder_input = DecoderInput(
             keys=input_keys,
@@ -133,21 +140,21 @@ class FASTGPTDecoder(ActionDecoder):
             torch.tensor(temperature, dtype=torch.float32),
             requires_grad=learnable_temperature,
         )
-        self.token_embedding = None # Will be set in set_tokenizer
+        self.token_embedding = None  # Will be set in set_tokenizer
         self.vocab_size = None
         self._build_transformer_components()
         self.to(self.device)
 
-
     def _build_transformer_components(self):
         """Build core transformer encoder-decoder and positional encodings."""
         image_positional_encoding = SinusoidalPositionalEncoding2D(
-            embedding_dimension=self.embedding_dimension,
-            normalize=True
+            embedding_dimension=self.embedding_dimension, normalize=True
         )
         temporal_positional_encoding = None
         if self.observation_horizon > 1:
-            temporal_positional_encoding = LearnedPositionalEncoding1D(embedding_dimension=self.embedding_dimension)
+            temporal_positional_encoding = LearnedPositionalEncoding1D(
+                embedding_dimension=self.embedding_dimension
+            )
 
         # This layer transforms input features into a sequence of token embeddings + positional encodings
         self.input_sequence_builder = TransformerInputBuilder(
@@ -155,7 +162,8 @@ class FASTGPTDecoder(ActionDecoder):
             has_time_dim=self.observation_horizon > 1,
             spatial_positional_encoding_layer=image_positional_encoding,
             flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
-                embedding_dimension=self.embedding_dimension),
+                embedding_dimension=self.embedding_dimension
+            ),
             temporal_positional_encoding_layer=temporal_positional_encoding,
         )
         self.gpt_decoder = GPTDecoder(
@@ -174,33 +182,58 @@ class FASTGPTDecoder(ActionDecoder):
             maximum_sequence_length=self.max_seq_len,
         )
 
-
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
         """Set tokenizer and adjust vocabulary size accordingly."""
         if tokenizer is None or tokenizer.action_tokenizer is None:
-            raise ValueError("FASTGPTDecoder requires a tokenizer for tokenized action prediction.")
+            raise ValueError(
+                "FASTGPTDecoder requires a tokenizer for tokenized action prediction."
+            )
         device = self.temperature.device
         self.vocab_size = tokenizer.action_tokenizer.vocab_size
-        output_block_in_features = self.action_heads[ACTION_LOGITS_KEY].output_proj.in_features
+        output_block_in_features = self.action_heads[
+            ACTION_LOGITS_KEY
+        ].output_proj.in_features
         if output_block_in_features != self.embedding_dimension:
-            token_input_embedding = nn.Embedding(self.vocab_size, output_block_in_features).to(device)
-            token_projection = nn.Linear(output_block_in_features, self.embedding_dimension).to(device)
-            self.token_embedding = nn.Sequential(
-                token_input_embedding,
-                token_projection
+            token_input_embedding = nn.Embedding(
+                self.vocab_size, output_block_in_features
             ).to(device)
-            nn.init.normal_(token_input_embedding.weight, mean=0.0, std=self.gpt_decoder.initializer_range)
-            nn.init.normal_(token_projection.weight, mean=0.0, std=self.gpt_decoder.initializer_range)
+            token_projection = nn.Linear(
+                output_block_in_features, self.embedding_dimension
+            ).to(device)
+            self.token_embedding = nn.Sequential(
+                token_input_embedding, token_projection
+            ).to(device)
+            nn.init.normal_(
+                token_input_embedding.weight,
+                mean=0.0,
+                std=self.gpt_decoder.initializer_range,
+            )
+            nn.init.normal_(
+                token_projection.weight,
+                mean=0.0,
+                std=self.gpt_decoder.initializer_range,
+            )
         else:
-            token_input_embedding = nn.Embedding(self.vocab_size, self.embedding_dimension).to(device)
+            token_input_embedding = nn.Embedding(
+                self.vocab_size, self.embedding_dimension
+            ).to(device)
             self.token_embedding = token_input_embedding
-            nn.init.normal_(token_input_embedding.weight, mean=0.0, std=self.gpt_decoder.initializer_range)
-        lm_head = nn.Linear(output_block_in_features, self.vocab_size, bias=False, device=device)
-        lm_head.weight = token_input_embedding.weight  # tie output weights to input embedding weights, like in GPT-2
+            nn.init.normal_(
+                token_input_embedding.weight,
+                mean=0.0,
+                std=self.gpt_decoder.initializer_range,
+            )
+        lm_head = nn.Linear(
+            output_block_in_features, self.vocab_size, bias=False, device=device
+        )
+        lm_head.weight = (
+            token_input_embedding.weight
+        )  # tie output weights to input embedding weights, like in GPT-2
         self.action_heads[ACTION_LOGITS_KEY].output_dim = self.vocab_size
-        self.action_heads[ACTION_LOGITS_KEY].output_proj = lm_head  # Replace final projection with tied head
+        self.action_heads[
+            ACTION_LOGITS_KEY
+        ].output_proj = lm_head  # Replace final projection with tied head
         super().set_tokenizer(tokenizer)
-
 
     def forward(
         self,
@@ -219,20 +252,30 @@ class FASTGPTDecoder(ActionDecoder):
         Returns:
             Dict with ACTION_LOGITS_KEY (training) or PREDICTED_ACTION_TOKENS_KEY (inference)
         """
-        feature_tokens, pos_encodings, feature_token_mask = self.input_sequence_builder(features) # (B, token_len, embedding_dimension)
-        feature_tokens = feature_tokens + pos_encodings if pos_encodings is not None else feature_tokens
+        feature_tokens, pos_encodings, feature_token_mask = self.input_sequence_builder(
+            features
+        )  # (B, token_len, embedding_dimension)
+        feature_tokens = (
+            feature_tokens + pos_encodings
+            if pos_encodings is not None
+            else feature_tokens
+        )
         if actions is not None:
-            predictions = self._forward_training(feature_tokens=feature_tokens, feature_token_mask=feature_token_mask,
-                                                 actions=actions)
+            predictions = self._forward_training(
+                feature_tokens=feature_tokens,
+                feature_token_mask=feature_token_mask,
+                actions=actions,
+            )
         else:
-            predictions = self._forward_inference(feature_tokens=feature_tokens, feature_token_mask=feature_token_mask)
+            predictions = self._forward_inference(
+                feature_tokens=feature_tokens, feature_token_mask=feature_token_mask
+            )
 
         for key in [MU_KEY, LOGVAR_KEY]:
             if key in features:
                 predictions[key] = features[key]
 
         return predictions
-
 
     def _forward_training(
         self,
@@ -252,18 +295,24 @@ class FASTGPTDecoder(ActionDecoder):
         """
         prefix_len = feature_tokens.shape[1]
         target_token_ids = actions[TOKENIZED_ACTIONS_KEY]  # (B, action_token_len)
-        action_token_embeddings = self.token_embedding(target_token_ids)  # (B, action_token_len, emb_dim)
+        action_token_embeddings = self.token_embedding(
+            target_token_ids
+        )  # (B, action_token_len, emb_dim)
         # query_len = prefix_len + action_token_len
         full_attention_mask, _ = make_attention_mask(
             feature_tokens=feature_tokens,
             action_tokens=action_token_embeddings,
             feature_token_mask=feature_token_mask,
         )  # (B, query_len, query_len)
-        full_token_sequence = torch.cat([feature_tokens, action_token_embeddings], dim=1) # (B, query_len, emb_dim)
-        if full_token_sequence.shape[1]>self.max_seq_len:
-            raise ValueError(f"Input token length {full_token_sequence.shape[1]} >= max_seq_len {self.max_seq_len}. "
+        full_token_sequence = torch.cat(
+            [feature_tokens, action_token_embeddings], dim=1
+        )  # (B, query_len, emb_dim)
+        if full_token_sequence.shape[1] > self.max_seq_len:
+            raise ValueError(
+                f"Input token length {full_token_sequence.shape[1]} >= max_seq_len {self.max_seq_len}. "
                 "No room for any action tokens. "
-                "Consider increasing max_seq_len or reducing feature token count.")
+                "Consider increasing max_seq_len or reducing feature token count."
+            )
 
         decoder_output, _ = self.gpt_decoder(
             hidden_states=full_token_sequence,
@@ -274,7 +323,9 @@ class FASTGPTDecoder(ActionDecoder):
             self_attention_mask=full_attention_mask,
         )  # (B, query_len, D)
         action_outputs = decoder_output[:, prefix_len:, :]  # (B, action_token_len, D)
-        logits = self.action_heads[ACTION_LOGITS_KEY](action_outputs)  # (B, action_token_len, vocab_size)
+        logits = self.action_heads[ACTION_LOGITS_KEY](
+            action_outputs
+        )  # (B, action_token_len, vocab_size)
         return {
             ACTION_LOGITS_KEY: logits,
         }
@@ -282,7 +333,7 @@ class FASTGPTDecoder(ActionDecoder):
     def _forward_inference(
         self,
         feature_tokens: torch.Tensor,
-        feature_token_mask: torch.Tensor | None = None
+        feature_token_mask: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         """Inference with autoregressive generation and KV caching.
 
@@ -296,12 +347,14 @@ class FASTGPTDecoder(ActionDecoder):
         batch_size = feature_tokens.shape[0]
         prefix_len = feature_tokens.shape[1]
         current_sequence = feature_tokens
-        prefix_self_mask = torch.zeros(batch_size, 1, prefix_len, prefix_len, dtype=torch.bool, device=self.device)
+        prefix_self_mask = torch.zeros(
+            batch_size, 1, prefix_len, prefix_len, dtype=torch.bool, device=self.device
+        )
         decoder_output, decoder_cache = self.gpt_decoder(
             hidden_states=current_sequence,
             encoded_features=None,
-            self_attention_mask=prefix_self_mask, # First mask only to avoid a causal effect within prefix
-            key_padding_mask=feature_token_mask, # (B, prefix_len) or None
+            self_attention_mask=prefix_self_mask,  # First mask only to avoid a causal effect within prefix
+            key_padding_mask=feature_token_mask,  # (B, prefix_len) or None
             cross_attention_mask=None,
             decoder_cache=None,
             use_cache=True,
@@ -312,7 +365,7 @@ class FASTGPTDecoder(ActionDecoder):
             if step > 0:
                 decoder_output, decoder_cache = self.gpt_decoder(
                     hidden_states=next_token_embedding,
-                    self_attention_mask=None, # Causal mask handled internally
+                    self_attention_mask=None,  # Causal mask handled internally
                     decoder_cache=decoder_cache,
                     use_cache=True,
                 )
@@ -324,11 +377,16 @@ class FASTGPTDecoder(ActionDecoder):
                 next_token = torch.argmax(logits, dim=-1)  # (B, 1)
             else:
                 probs = torch.softmax(logits_scaled, dim=-1)
-                next_token = torch.multinomial(probs.squeeze(-1), num_samples=1)  # (B, 1)
-            next_token_embedding = self.token_embedding(next_token)  # (B, 1, embedding_dimension)
+                next_token = torch.multinomial(
+                    probs.squeeze(-1), num_samples=1
+                )  # (B, 1)
+            next_token_embedding = self.token_embedding(
+                next_token
+            )  # (B, 1, embedding_dimension)
             generated_tokens.append(next_token)
 
         return {
-            PREDICTED_ACTION_TOKENS_KEY: torch.cat(generated_tokens, dim=1)  # (B, max_seq_len)
+            PREDICTED_ACTION_TOKENS_KEY: torch.cat(
+                generated_tokens, dim=1
+            )  # (B, max_seq_len)
         }
-

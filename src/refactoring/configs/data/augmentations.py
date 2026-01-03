@@ -12,11 +12,13 @@ from omegaconf import MISSING
 @dataclass
 class AugmentationConfig:
     """Base configuration for augmentation transforms."""
+
     _target_: str = MISSING
     p: float = 1.0
 
 
 # Color augmentations
+
 
 @dataclass
 class ColorJitterConfig(AugmentationConfig):
@@ -75,6 +77,7 @@ class ImageCompressionConfig(AugmentationConfig):
 
 # Spatial augmentations (compatible with depth images)
 
+
 @dataclass
 class GaussianBlurConfig(AugmentationConfig):
     _target_: str = "albumentations.GaussianBlur"
@@ -94,7 +97,10 @@ class CoarseDropoutConfig(AugmentationConfig):
 @dataclass
 class ShiftScaleRotateConfig(AugmentationConfig):
     _target_: str = "albumentations.ShiftScaleRotate"
-    rotate_limit: tuple[float, float] = (0, 0)  # No rotation here; handled separately because it requires to be consistent with robot kinematics.
+    rotate_limit: tuple[float, float] = (
+        0,
+        0,
+    )  # No rotation here; handled separately because it requires to be consistent with robot kinematics.
     scale_limit: tuple[float, float] = (-0.5, 0.6)
     shift_limit: tuple[float, float] = (-0.0625, 0.0625)
     p: float = 0.5
@@ -103,26 +109,26 @@ class ShiftScaleRotateConfig(AugmentationConfig):
 @dataclass
 class CenterCropConfig(AugmentationConfig):
     """Center crop augmentation that preserves aspect ratio."""
+
     _target_: str = "albumentations.CenterCrop"
     height: int = MISSING  # Will be set from DataConfig
-    width: int = MISSING   # Will be set from DataConfig
+    width: int = MISSING  # Will be set from DataConfig
     p: float = 1.0  # Always apply if enabled
 
 
 @dataclass
 class RotateConfig(AugmentationConfig):
     """Rotation augmentation that requires special handling due to paired rotation of robot actions."""
+
     _target_: str = "albumentations.Rotate"
     limit: tuple[float, float] = (-5, 5)
     interpolation: int = 1  # cv2.INTER_LINEAR
     p: float = 0.5
 
 
-
 @dataclass
 class AugmentationPipelineConfig:
     """Configuration for augmentation pipeline."""
+
     _target_: str = "albumentations.Compose"
     transforms: list[Any] = field(default_factory=list)
-
-

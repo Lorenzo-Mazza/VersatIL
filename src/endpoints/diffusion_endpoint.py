@@ -15,12 +15,14 @@ def main(config=None):
         # Create default config
         config = DiffusionConfig()
 
-    config.distributed_training = os.getenv("CONFIG_DISTRIBUTED_TRAINING", "false").lower() == "true"
+    config.distributed_training = (
+        os.getenv("CONFIG_DISTRIBUTED_TRAINING", "false").lower() == "true"
+    )
 
     # Print configuration
     print("\nConfiguration:")
     for key, value in vars(config).items():
-        if not key.startswith('_'):  # Skip internal attributes
+        if not key.startswith("_"):  # Skip internal attributes
             print(f"{key}: {value}")
 
     # Create workspace and run

@@ -10,12 +10,14 @@ from refactoring.models.decoding.constants import MoERoutingType
 @dataclass
 class ActionHeadBlockConfig:
     """Base configuration for action head blocks."""
+
     _target_: str = MISSING
 
 
 @dataclass
 class MLPBlockConfig(ActionHeadBlockConfig):
     """Configuration for MLP block in action head."""
+
     _target_: str = "refactoring.models.decoding.action_heads.MLPBlock"
     input_dim: int = MISSING  # Set by parent head
     hidden_dims: list[int] | None = None
@@ -28,6 +30,7 @@ class MLPBlockConfig(ActionHeadBlockConfig):
 @dataclass
 class AttentionBlockConfig(ActionHeadBlockConfig):
     """Configuration for attention block in action head."""
+
     _target_: str = "refactoring.models.decoding.action_heads.AttentionBlock"
     embedding_dimension: int = MISSING
     num_heads: int = 8
@@ -38,9 +41,11 @@ class AttentionBlockConfig(ActionHeadBlockConfig):
 @dataclass
 class ResidualBlockConfig(ActionHeadBlockConfig):
     """Configuration for residual wrapper block."""
+
     _target_: str = "refactoring.models.decoding.action_heads.ResidualBlock"
     block: ActionHeadBlockConfig = MISSING
     dropout: float = 0.1
+
 
 @dataclass
 class ActionHeadConfig:
@@ -49,10 +54,10 @@ class ActionHeadConfig:
     Note:
         output dimension is set by the decoder based on the action key.
     """
+
     _target_: str = "refactoring.models.decoding.action_heads.ActionHead"
     input_dim: int = MISSING  # Set from decoder embedding_dimension
     blocks: list[Any] | None = None
-
 
 
 @dataclass
@@ -68,6 +73,7 @@ class MixtureOfExpertsHeadConfig:
         by MoEHead to create separate expert networks with independent weights.
         output_dim is set by the decoder based on the action key.
     """
+
     _target_: str = "refactoring.models.decoding.action_heads.MoEHead"
     device: str = "${policy.device}"
     experts: list[ActionHeadConfig] | None = None

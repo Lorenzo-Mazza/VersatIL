@@ -7,6 +7,7 @@ from refactoring.models.layers.swiglu import SwiGLU
 
 class ActivationFunction(str, enum.Enum):
     """Available activation functions."""
+
     RELU = "relu"
     GELU = "gelu"
     SILU = "silu"
@@ -40,4 +41,3 @@ class ActivationFunction(str, enum.Enum):
                 f"Choose from {[e.value for e in ActivationFunction]}"
             )
         return ACTIVATION_MAPPING[self.value]
-

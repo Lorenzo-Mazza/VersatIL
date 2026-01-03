@@ -19,6 +19,10 @@ posterior_encoder:
   number_of_encoder_layers: 2
   dropout_rate: 0.1
   device: ${policy.device}
+  exclude_keys:
+    - left_rgb
+    - right_rgb
+
 
 prior:
   latent_dimension: 128

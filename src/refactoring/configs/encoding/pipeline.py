@@ -8,6 +8,7 @@ from omegaconf import MISSING
 @dataclass
 class EncodingPipelineConfig:
     """Pipeline that encodes inputs and fuses them hierarchically."""
+
     _target_: str = "refactoring.models.encoding.pipeline.EncodingPipeline"
     encoders: dict[str, Any] = MISSING
     fusion_stages: list[Any] | None = None

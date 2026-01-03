@@ -4,8 +4,9 @@ from torch import nn
 
 class DropPath(nn.Module):
     """Stochastic depth as in timm's DropPath, dropping entire samples from the batch.
-        Taken from https://arxiv.org/pdf/1603.09382.
+    Taken from https://arxiv.org/pdf/1603.09382.
     """
+
     def __init__(self, drop_prob: float = 0.0, scale_by_keep: bool = True):
         super().__init__()
         self.drop_prob = float(drop_prob)

@@ -1,4 +1,3 @@
-
 import torch
 from torch import nn
 
@@ -12,12 +11,8 @@ class SpatialDecayMask(nn.Module):
     with per-head decay rates allowing different receptive fields.
     """
 
-
     def __init__(
-            self,
-            num_heads: int,
-            initial_decay: float = 5.0,
-            decay_range: float = 3.0
+        self, num_heads: int, initial_decay: float = 5.0, decay_range: float = 3.0
     ):
         """Initializes spatial decay mask generator.
 
@@ -30,18 +25,13 @@ class SpatialDecayMask(nn.Module):
         self.num_heads = num_heads
 
         decay_rates = self._compute_per_head_decay(
-            num_heads=num_heads,
-            initial_decay=initial_decay,
-            decay_range=decay_range
+            num_heads=num_heads, initial_decay=initial_decay, decay_range=decay_range
         )
         self.register_buffer("decay_rates", decay_rates)
 
-
     @staticmethod
     def _compute_per_head_decay(
-            num_heads: int,
-            initial_decay: float,
-            decay_range: float
+        num_heads: int, initial_decay: float, decay_range: float
     ) -> torch.Tensor:
         """Computes per-head decay rates.
 
@@ -62,12 +52,7 @@ class SpatialDecayMask(nn.Module):
         decay_rates = torch.log(1 - 2 ** (-initial_decay - decay_offsets))
         return decay_rates
 
-
-    def compute_2d_distance_matrix(
-            self,
-            height: int,
-            width: int
-    ) -> torch.Tensor:
+    def compute_2d_distance_matrix(self, height: int, width: int) -> torch.Tensor:
         """Computes pairwise Manhattan distances for 2D grid.
 
         Args:
@@ -80,14 +65,15 @@ class SpatialDecayMask(nn.Module):
         height_indices = torch.arange(height, device=self.decay_rates.device)
         width_indices = torch.arange(width, device=self.decay_rates.device)
 
-        grid = torch.stack(torch.meshgrid(height_indices, width_indices, indexing='ij'), dim=-1)
+        grid = torch.stack(
+            torch.meshgrid(height_indices, width_indices, indexing="ij"), dim=-1
+        )
         grid_flat = grid.reshape(height * width, 2)
 
         distance_matrix = grid_flat[:, None, :] - grid_flat[None, :, :]
         distance_matrix = distance_matrix.abs().sum(dim=-1)
 
         return distance_matrix
-
 
     def compute_1d_distance_matrix(self, length: int) -> torch.Tensor:
         """Computes pairwise distances for 1D sequence.
@@ -102,12 +88,11 @@ class SpatialDecayMask(nn.Module):
         distance_matrix = (indices[:, None] - indices[None, :]).abs()
         return distance_matrix
 
-
     def forward(
-            self,
-            height: int,
-            width: int,
-            decomposition_mode: str = AttentionDecompositionMode.FULL.value
+        self,
+        height: int,
+        width: int,
+        decomposition_mode: str = AttentionDecompositionMode.FULL.value,
     ) -> tuple[torch.Tensor, ...]:
         """Generates spatial decay mask(s).
 

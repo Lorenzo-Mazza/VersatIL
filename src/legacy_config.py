@@ -25,22 +25,30 @@ from legacy_constants import (
 @dataclass
 class TaskBaseConfig(abc.ABC):
     # Experiment parameters
-    exp_name: str = 'needle_driving_v5_100_fixed_angle'  # Policy name and timestamp of the experiment will be prepended to this name.
-    checkpoint_folder: str = '/mnt/cluster/workspaces/mazzalore/iros'  # Policy name and time of the experiment will be appended to this path.
-    resume_from_checkpoint: str | None = None  # Path of the checkpoint to resume from, if any
+    exp_name: str = "needle_driving_v5_100_fixed_angle"  # Policy name and timestamp of the experiment will be prepended to this name.
+    checkpoint_folder: str = "/mnt/cluster/workspaces/mazzalore/iros"  # Policy name and time of the experiment will be appended to this path.
+    resume_from_checkpoint: str | None = (
+        None  # Path of the checkpoint to resume from, if any
+    )
     use_wandb: bool = True
-    total_ratio_of_episodes: float = 1.0  # Ratio of episodes to use for training, validation and testing
+    total_ratio_of_episodes: float = (
+        1.0  # Ratio of episodes to use for training, validation and testing
+    )
     val_every: int = 1
     checkpoint_every: int = 100
     plot_every: int = 200
-    device: str = 'cuda'
+    device: str = "cuda"
     distributed_training: bool = False
 
     # Data parameters
-    dataset_folders: list[str] = field(default_factory=lambda: ["/mnt/cluster/datasets/threading_il/v7",
-                                  "/mnt/cluster/datasets/threading_il/v8",
-                                  "/mnt/cluster/datasets/threading_il/v8_recovery"])
-    zarr_path: str = '/mnt/cluster/datasets/threading_il/v9/dataset.zarr'  # Path to the Zarr archive to create or load
+    dataset_folders: list[str] = field(
+        default_factory=lambda: [
+            "/mnt/cluster/datasets/threading_il/v7",
+            "/mnt/cluster/datasets/threading_il/v8",
+            "/mnt/cluster/datasets/threading_il/v8_recovery",
+        ]
+    )
+    zarr_path: str = "/mnt/cluster/datasets/threading_il/v9/dataset.zarr"  # Path to the Zarr archive to create or load
     batch_size: int = 64
     shuffle: bool = True
     num_workers: int = 16
@@ -57,17 +65,21 @@ class TaskBaseConfig(abc.ABC):
     skip_initial_steps: int = 5
     image_norm_type: str = ImageNormalizationType.MINUS_ONE_TO_ONE.value
     depth_norm_type: str = DepthNormalizationType.MINUS_ONE_TO_ONE.value
-    kinematics_norm_type: str | None = KinematicsNormalizationType.MIN_MAX  # 'min_max' or '0_1'
+    kinematics_norm_type: str | None = (
+        KinematicsNormalizationType.MIN_MAX
+    )  # 'min_max' or '0_1'
     use_color_augmentations: bool = True
     use_rotation_augmentations: bool = False
     sampling_mode: str = SamplingMode.OVERLAPPING.value
-    action_backward_shift: int = 1 # Number of steps to shift actions backward in the sequence ( it's a "hack" of the original ACT code to compensate for latency)
+    action_backward_shift: int = 1  # Number of steps to shift actions backward in the sequence ( it's a "hack" of the original ACT code to compensate for latency)
     recompute_depth_stats: bool = True
     downsample_step: int = 1  # Number of steps to downsample the dataset to
     promote_sparsity: bool = True  # Whether to promote sparsity in the dataset by thresholding small movements to zero
 
     predict_gripper_action: bool = False
-    calculate_gripper_positive_class_weights: bool = True # Used only when predict_gripper_action is set to True
+    calculate_gripper_positive_class_weights: bool = (
+        True  # Used only when predict_gripper_action is set to True
+    )
     #: Whether to use depth images
     use_depth: bool = False
     #: Whether to use rectified images
@@ -91,29 +103,38 @@ class TaskBaseConfig(abc.ABC):
     use_ema: bool = True  # Whether to use Exponential Moving Average for model weights
     ema_power: float = 0.75
     backbone: str = "resnet18"
-    depth_fusion: str = DepthFusionStrategy.LEFT_CHANNEL_WISE.value  # Strategy for depth fusion, if applicable
+    depth_fusion: str = (
+        DepthFusionStrategy.LEFT_CHANNEL_WISE.value
+    )  # Strategy for depth fusion, if applicable
     # Model weights parameter for the DFormer model, used only if Depth Fusion Strategy is Geometric Attention.
     dformer_checkpoint_path: str = "/mnt/cluster/workspaces/mazzalore/iros/pretrained_dformer/DFormerv2_Small_NYU.pth"
-    freeze_dformer: bool = True # Whether to freeze the whole DFormer model or fine-tune the last layer.
+    freeze_dformer: bool = (
+        True  # Whether to freeze the whole DFormer model or fine-tune the last layer.
+    )
     # Optimizer parameters
     learning_rate: float = 1.0e-6
     weight_decay: float = 1.0e-6
     clip_gradient_norm: bool = False
     betas: tuple[float, float] = (0.9, 0.999)
     eps: float = 1.0e-8
-    backbone_has_separate_lr: bool = False  # Whether to use a separate learning rate for the backbone
+    backbone_has_separate_lr: bool = (
+        False  # Whether to use a separate learning rate for the backbone
+    )
     # Learning rate scheduler parameters
     lr_schedule: str | None = None
     lr_warmup_steps: int = 5000
 
     # Inference parameters
     temporal_agg: bool = True
-    update_rate_hz: float = 3.0  # Frequency at which to update the policy during inference
+    update_rate_hz: float = (
+        3.0  # Frequency at which to update the policy during inference
+    )
 
     task_has_phases: bool = False
 
-    _overrides: dict[str, Any] = field(default_factory=dict)  # Not used; overrides are class vars in subclasses
-
+    _overrides: dict[str, Any] = field(
+        default_factory=dict
+    )  # Not used; overrides are class vars in subclasses
 
     @property
     def state_dim(self) -> int:
@@ -123,7 +144,9 @@ class TaskBaseConfig(abc.ABC):
     @property
     def camera_names(self) -> list[str]:
         """List of camera names used in the dataset."""
-        return [Cameras.LEFT.value, Cameras.RIGHT.value] + ([Cameras.DEPTH.value] if self.use_depth else [])
+        return [Cameras.LEFT.value, Cameras.RIGHT.value] + (
+            [Cameras.DEPTH.value] if self.use_depth else []
+        )
 
     @property
     def checkpoint_dir(self) -> str:
@@ -132,8 +155,6 @@ class TaskBaseConfig(abc.ABC):
         The directory tree is constructed using the checkpoint_folder, policy_name, and current experiment name.
         """
         return f"{self.checkpoint_folder}/{self.policy_name}_checkpoints"
-
-
 
     @property
     def shape_meta(self):
@@ -147,16 +168,14 @@ class TaskBaseConfig(abc.ABC):
             shapes[OBSERVATION_KEY][ROBOT_STATE_KEY] = {SHAPE_KEY: (self.state_dim,)}
         return shapes
 
-
     @property
     @abstractmethod
     def policy_name(self) -> str:
         """Name of the policy."""
         raise NotImplementedError("Subclasses must implement the policy_name property.")
 
-
     def __post_init__(self):
-        if self.distributed_training and self.device != 'cuda':
+        if self.distributed_training and self.device != "cuda":
             raise ValueError("Distributed training is only supported in GPU.")
         for key, value in type(self)._overrides.items():
             setattr(self, key, value)
@@ -186,7 +205,9 @@ class DiffusionConfig(TaskBaseConfig):
     # Diffusion parameters
     random_crop: bool = False  # We handle random cropping inside the vision encoder
     pretrained_backbone: bool = False  # End-to-end training from scratch
-    action_model_architecture: str = DiffusionArchitecture.UNET.value # Like Surgical Robot Transformer paper
+    action_model_architecture: str = (
+        DiffusionArchitecture.UNET.value
+    )  # Like Surgical Robot Transformer paper
     diffusion_scheduler: DiffusionScheduler = DiffusionScheduler.DDIM.value
     num_train_timesteps: int = 100
     num_inference_steps: int = 10  # Fast inference
@@ -199,7 +220,6 @@ class DiffusionConfig(TaskBaseConfig):
     steps_offset: int = 0
     prediction_type: str = "epsilon"
     down_dims: tuple[int, int, int] = (256, 512, 1024)
-
 
     @property
     def policy_name(self) -> str:
@@ -243,6 +263,7 @@ class FlowMatchingConfig(TaskBaseConfig):
 @dataclass
 class ACTConfig(TaskBaseConfig):
     """Configuration for the ACT policy."""
+
     _overrides = {
         "obs_horizon": 1,
         "action_horizon": 30,
@@ -264,12 +285,11 @@ class ACTConfig(TaskBaseConfig):
         "betas": (0.9, 0.999),
         "eps": 1.0e-8,
         "backbone_has_separate_lr": True,
-
     }
     use_fake_proprio: bool = False
     # * Backbone
     dilation: bool = False
-    position_embedding: str = 'sine'
+    position_embedding: str = "sine"
     # * Transformer
     enc_layers: int = 4
     dec_layers: int = 7
@@ -290,38 +310,43 @@ class ACTConfig(TaskBaseConfig):
     length_weight: float = 0.001
     bce_weight: float = 0.05
     l1_weight: float = 0.0
-    kl_weight: float = 0.0 # default in ACT paper is 100
+    kl_weight: float = 0.0  # default in ACT paper is 100
 
     @property
     def policy_name(self) -> str:
         """Name of the policy."""
         return PolicyType.ACT.value
 
+
 @dataclass
 class PhaseACTConfig(ACTConfig):
-    n_phases: int = 5 # Number of phases to divide the action sequence into
-    phase_ce_weight: float = 0.1 # Weight for the phase classification loss
-    entropy_weight: float = 0.005 # Weight for the entropy (regularization term) of the predicted phase probabilities
-    phase_learnable_temperature: float = 100.0 # Learnable parameter for the logits temperature (confidence regularizer)
+    n_phases: int = 5  # Number of phases to divide the action sequence into
+    phase_ce_weight: float = 0.1  # Weight for the phase classification loss
+    entropy_weight: float = 0.005  # Weight for the entropy (regularization term) of the predicted phase probabilities
+    phase_learnable_temperature: float = (
+        100.0  # Learnable parameter for the logits temperature (confidence regularizer)
+    )
 
     @property
     def policy_name(self) -> str:
         """Name of the policy."""
         return PolicyType.PHASE_ACT.value
 
+
 @dataclass
 class MoEConfig(TaskBaseConfig):
-    n_experts: int = 5 # Number of experts in the Mixture of Experts model
-    routing_method: str = 'soft' # Routing method: 'top_k' or 'soft'
-    top_k: int = 2 # Number of top experts to use for each input
-    encoder: str = 'cvae'
-    decoder: str = 'transformer'
-    expert_network = 'mlp'
+    n_experts: int = 5  # Number of experts in the Mixture of Experts model
+    routing_method: str = "soft"  # Routing method: 'top_k' or 'soft'
+    top_k: int = 2  # Number of top experts to use for each input
+    encoder: str = "cvae"
+    decoder: str = "transformer"
+    expert_network = "mlp"
 
     @property
     def policy_name(self) -> str:
         """Name of the policy."""
         return PolicyType.MOE.value
+
 
 PolicyConfig = DiffusionConfig | FlowMatchingConfig | ACTConfig | PhaseACTConfig
 
@@ -336,11 +361,11 @@ def save_config(config: PolicyConfig, output_dir: Path | str):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     config_dict = vars(config)
-    config_dict['policy_name'] = config.policy_name  # Explicitly add the properties
-    config_dict['state_dim'] = config.state_dim
-    config_dict['camera_names'] = config.camera_names
-    config_dict['shape_meta'] = config.shape_meta
-    config_dict['checkpoint_dir'] = config.checkpoint_dir
+    config_dict["policy_name"] = config.policy_name  # Explicitly add the properties
+    config_dict["state_dim"] = config.state_dim
+    config_dict["camera_names"] = config.camera_names
+    config_dict["shape_meta"] = config.shape_meta
+    config_dict["checkpoint_dir"] = config.checkpoint_dir
     with open(output_dir / "config.json", "w") as f:
         # convert non-serializable objects to string
         json.dump(config_dict, f, indent=2, default=str)
@@ -363,7 +388,7 @@ def load_config(config_dir: Path | str) -> PolicyConfig:
         PolicyType.ACT.value: ACTConfig,
         PolicyType.DIFFUSION_POLICY.value: DiffusionConfig,
         PolicyType.FLOW_MATCHING.value: FlowMatchingConfig,
-        PolicyType.PHASE_ACT.value : PhaseACTConfig,
+        PolicyType.PHASE_ACT.value: PhaseACTConfig,
     }
     policy = data.get("policy_name")
     if not policy:
@@ -373,7 +398,13 @@ def load_config(config_dir: Path | str) -> PolicyConfig:
         raise ValueError(f"Unknown policy config for policy_name {policy}")
     cfg = config_class()
     for key, value in data.items():
-        if key in ["policy_name","state_dim", "camera_names", "shape_meta", "checkpoint_dir"]:
+        if key in [
+            "policy_name",
+            "state_dim",
+            "camera_names",
+            "shape_meta",
+            "checkpoint_dir",
+        ]:
             continue
         setattr(cfg, key, value)
     return cfg

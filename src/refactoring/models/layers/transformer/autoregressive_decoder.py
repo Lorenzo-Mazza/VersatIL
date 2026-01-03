@@ -10,16 +10,29 @@ from refactoring.models.layers.transformer.masking import create_full_padding_ma
 from refactoring.models.layers.normalization.ada_norm import AdaNorm
 from refactoring.models.layers.normalization.constants import NormalizationType
 from refactoring.models.layers.transformer.decoder_layer import TransformerDecoderLayer
-from refactoring.models.layers.transformer.kv_cache import DecoderKVCache, LayerKVCache, initialize_decoder_cache
+from refactoring.models.layers.transformer.kv_cache import (
+    DecoderKVCache,
+    LayerKVCache,
+    initialize_decoder_cache,
+)
 from refactoring.models.layers.normalization.factory import create_normalization_layer
-from refactoring.models.layers.transformer.positional_encoding import create_positional_encoding
-from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
-from refactoring.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
-from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
+from refactoring.models.layers.transformer.positional_encoding import (
+    create_positional_encoding,
+)
+from refactoring.models.layers.positional_encoding.learned import (
+    LearnedPositionalEncoding1D,
+)
+from refactoring.models.layers.positional_encoding.rotary import (
+    RotaryPositionalEncoding,
+)
+from refactoring.models.layers.positional_encoding.sinusoidal import (
+    SinusoidalPositionalEncoding1D,
+)
 from refactoring.models.layers.normalization.rms_norm import RMSNorm
 
 
-RESIDUAL_STREAM_FLAG = "SQUARE_ROOT_WEIGHT" # Used for initialization flag
+RESIDUAL_STREAM_FLAG = "SQUARE_ROOT_WEIGHT"  # Used for initialization flag
+
 
 class GPTDecoder(nn.Module):
     """GPT-style autoregressive decoder, with KV caching, extended to support cross-attention.
@@ -93,24 +106,26 @@ class GPTDecoder(nn.Module):
                 num_heads=number_of_heads,
             )
 
-        self.layers = nn.ModuleList([
-            TransformerDecoderLayer(
-                embedding_dimension=embedding_dimension,
-                number_of_heads=number_of_heads,
-                number_of_key_value_heads=number_of_key_value_heads,
-                feedforward_dimension=feedforward_dimension,
-                dropout=dropout,
-                attention_dropout=attention_dropout,
-                activation=activation,
-                normalization_type=normalization_type,
-                attention_type=attention_type,
-                use_cross_attention=use_cross_attention,
-                bias=bias,
-                normalization_epsilon=normalization_epsilon,
-                autoregressive=True,
-            )
-            for _ in range(number_of_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [
+                TransformerDecoderLayer(
+                    embedding_dimension=embedding_dimension,
+                    number_of_heads=number_of_heads,
+                    number_of_key_value_heads=number_of_key_value_heads,
+                    feedforward_dimension=feedforward_dimension,
+                    dropout=dropout,
+                    attention_dropout=attention_dropout,
+                    activation=activation,
+                    normalization_type=normalization_type,
+                    attention_type=attention_type,
+                    use_cross_attention=use_cross_attention,
+                    bias=bias,
+                    normalization_epsilon=normalization_epsilon,
+                    autoregressive=True,
+                )
+                for _ in range(number_of_layers)
+            ]
+        )
 
         self.final_normalization = create_normalization_layer(
             normalization_type=normalization_type,
@@ -118,7 +133,6 @@ class GPTDecoder(nn.Module):
             epsilon=normalization_epsilon,
         )
         self.apply(self._init_weights)
-
 
     def _init_weights(self, module):
         """Initialize the weights."""
@@ -128,7 +142,9 @@ class GPTDecoder(nn.Module):
         # > -- GPT-2 :: https://openai.com/blog/better-language-models/
         if hasattr(module, RESIDUAL_STREAM_FLAG):  # Residual stream correction
             num_norm_layers = 3 if self.use_cross_attention else 2
-            std = self.initializer_range / math.sqrt(num_norm_layers * self.number_of_layers)
+            std = self.initializer_range / math.sqrt(
+                num_norm_layers * self.number_of_layers
+            )
         else:
             std = self.initializer_range
         if isinstance(module, nn.Linear):
@@ -140,11 +156,10 @@ class GPTDecoder(nn.Module):
             if module.padding_idx is not None:
                 module.weight.data[module.padding_idx].zero_()
         elif isinstance(module, (nn.LayerNorm, RMSNorm, AdaNorm)):
-            if hasattr(module, 'bias') and module.bias is not None:
+            if hasattr(module, "bias") and module.bias is not None:
                 module.bias.data.zero_()
-            if hasattr(module, 'weight') and module.weight is not None:
+            if hasattr(module, "weight") and module.weight is not None:
                 module.weight.data.fill_(1.0)
-
 
     def precompute_cross_attention_kv(
         self,
@@ -166,14 +181,24 @@ class GPTDecoder(nn.Module):
         num_features = encoded_features.shape[1]
 
         for layer in self.layers:
-            projected_key = layer.cross_attention.key_projection(encoded_features) # (B, len, embed_dim)
-            projected_value = layer.cross_attention.value_projection(encoded_features) # (B, len, embed_dim)
+            projected_key = layer.cross_attention.key_projection(
+                encoded_features
+            )  # (B, len, embed_dim)
+            projected_value = layer.cross_attention.value_projection(
+                encoded_features
+            )  # (B, len, embed_dim)
             # Reshape to (B, len, kv_heads, head_dim)
             projected_key = projected_key.view(
-                batch_size, num_features, self.number_of_key_value_heads, self.head_dimension
+                batch_size,
+                num_features,
+                self.number_of_key_value_heads,
+                self.head_dimension,
             )
             projected_value = projected_value.view(
-                batch_size, num_features, self.number_of_key_value_heads, self.head_dimension
+                batch_size,
+                num_features,
+                self.number_of_key_value_heads,
+                self.head_dimension,
             )
             # Transpose to (B, kv_heads, len, head_dim)
             projected_key = projected_key.transpose(1, 2)
@@ -211,7 +236,9 @@ class GPTDecoder(nn.Module):
         device = hidden_states.device
         query_length = hidden_states.shape[1]
         cache_length = decoder_cache.get_length() if decoder_cache else 0
-        cached_key_padding_mask = decoder_cache.key_padding_mask if decoder_cache else None
+        cached_key_padding_mask = (
+            decoder_cache.key_padding_mask if decoder_cache else None
+        )
         total_mask, full_key_padding_mask = create_full_padding_mask(
             key_padding_mask=key_padding_mask,
             cached_key_padding_mask=cached_key_padding_mask,
@@ -220,22 +247,32 @@ class GPTDecoder(nn.Module):
             query_length=query_length,
             cache_length=cache_length,
             device=device,
-        ) # (B, 1, query_length, key_length), (B, key_length), where key_length = cache_length + query_length
+        )  # (B, 1, query_length, key_length), (B, key_length), where key_length = cache_length + query_length
 
-        if isinstance(self.positional_encoding, (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D)):
+        if isinstance(
+            self.positional_encoding,
+            (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D),
+        ):
             hidden_states += self.positional_encoding(hidden_states)
 
         cross_kv_per_layer = None
         if self.use_cross_attention:
-            if decoder_cache is not None and decoder_cache.layers[0].cross_attention_keys is not None:
+            if (
+                decoder_cache is not None
+                and decoder_cache.layers[0].cross_attention_keys is not None
+            ):
                 cross_kv_per_layer = [
                     (cache.cross_attention_keys, cache.cross_attention_values)
                     for cache in decoder_cache.layers
                 ]
             else:
                 if encoded_features is None:
-                    raise ValueError("encoded_features required when use_cross_attention=True and no cached cross KV")
-                cross_kv_per_layer = self.precompute_cross_attention_kv(encoded_features)
+                    raise ValueError(
+                        "encoded_features required when use_cross_attention=True and no cached cross KV"
+                    )
+                cross_kv_per_layer = self.precompute_cross_attention_kv(
+                    encoded_features
+                )
 
         layer_caches = None
         if decoder_cache is not None:
@@ -254,12 +291,23 @@ class GPTDecoder(nn.Module):
 
         # Compute decoder layers forward pass
         for layer_index, layer in enumerate(self.layers):
-            original_layer_cache = layer_caches[layer_index] if layer_caches is not None else None
+            original_layer_cache = (
+                layer_caches[layer_index] if layer_caches is not None else None
+            )
             # Build layer cache with self KV and optional cross KV
             if original_layer_cache is None:
-                empty_shape = (batch_size, self.number_of_key_value_heads, 0, self.head_dimension)
-                self_keys = torch.empty(empty_shape, device=device, dtype=hidden_states.dtype)
-                self_values = torch.empty(empty_shape, device=device, dtype=hidden_states.dtype)
+                empty_shape = (
+                    batch_size,
+                    self.number_of_key_value_heads,
+                    0,
+                    self.head_dimension,
+                )
+                self_keys = torch.empty(
+                    empty_shape, device=device, dtype=hidden_states.dtype
+                )
+                self_values = torch.empty(
+                    empty_shape, device=device, dtype=hidden_states.dtype
+                )
             else:
                 self_keys = original_layer_cache.self_attention_keys
                 self_values = original_layer_cache.self_attention_values
@@ -275,7 +323,11 @@ class GPTDecoder(nn.Module):
                 cross_attention_keys=cross_keys,
                 cross_attention_values=cross_values,
             )
-            rope_pe = self.positional_encoding if isinstance(self.positional_encoding, RotaryPositionalEncoding) else None
+            rope_pe = (
+                self.positional_encoding
+                if isinstance(self.positional_encoding, RotaryPositionalEncoding)
+                else None
+            )
             hidden_states, new_layer_cache = layer(
                 hidden_states=hidden_states,
                 encoded_features=encoded_features,
@@ -283,7 +335,7 @@ class GPTDecoder(nn.Module):
                 cross_attention_mask=cross_attention_mask,
                 layer_cache=layer_cache,
                 use_cache=use_cache,
-                positional_encoding=rope_pe ,
+                positional_encoding=rope_pe,
             )
 
             if use_cache:

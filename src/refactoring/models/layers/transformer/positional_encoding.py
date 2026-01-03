@@ -6,9 +6,15 @@ import torch.nn as nn
 
 from refactoring.models.layers.constants import PositionalEncodingType
 from refactoring.models.layers.positional_encoding.base import PositionalEncoding1D
-from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
-from refactoring.models.layers.positional_encoding.rotary import RotaryPositionalEncoding1D
-from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
+from refactoring.models.layers.positional_encoding.learned import (
+    LearnedPositionalEncoding1D,
+)
+from refactoring.models.layers.positional_encoding.rotary import (
+    RotaryPositionalEncoding1D,
+)
+from refactoring.models.layers.positional_encoding.sinusoidal import (
+    SinusoidalPositionalEncoding1D,
+)
 
 
 def create_positional_encoding(
@@ -86,9 +92,11 @@ def apply_rope_positional_encoding(
         sequence_length = queries.shape[2]
 
         # Compute rotation components for positions [cache_position, ..., cache_position + seq_len - 1]
-        sine, cosine = positional_encoding.compute_rotation_components(cache_position + sequence_length)
-        sine = sine[cache_position:cache_position + sequence_length]
-        cosine = cosine[cache_position:cache_position + sequence_length]
+        sine, cosine = positional_encoding.compute_rotation_components(
+            cache_position + sequence_length
+        )
+        sine = sine[cache_position : cache_position + sequence_length]
+        cosine = cosine[cache_position : cache_position + sequence_length]
 
         # Expand for batch and heads: (seq_len, head_dim) -> (1, 1, seq_len, head_dim)
         sine = sine.unsqueeze(0).unsqueeze(0)
@@ -102,5 +110,7 @@ def apply_rope_positional_encoding(
 
     else:
         # Unknown type - return unchanged
-        logging.warning("Positional encoding module is not an instance of RotaryPositionalEncoding. Skipping.")
+        logging.warning(
+            "Positional encoding module is not an instance of RotaryPositionalEncoding. Skipping."
+        )
         return queries, keys

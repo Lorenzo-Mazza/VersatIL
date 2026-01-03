@@ -5,6 +5,7 @@ from enum import Enum
 
 class MetricKey(str, Enum):
     """Keys for metric tracking."""
+
     TOTAL_LOSS = "loss"
     MSE_LOSS = "mse_loss"
     L1_LOSS = "l1_loss"
@@ -42,6 +43,7 @@ class MetricKey(str, Enum):
 
 class LossModuleName(str, Enum):
     """Names for loss modules in composite losses."""
+
     REGRESSION = "regression"
     GRIPPER = "gripper"
     KL = "kl"
@@ -61,12 +63,14 @@ class PredictionKey(str, Enum):
 
 class TargetKey(str, Enum):
     """Keys for target values."""
+
     NOISE = "noise"
     NOISY_SAMPLE = "noisy_sample"
 
 
 class MetadataKey(str, Enum):
     """Keys for metadata stored in LossOutput."""
+
     PHASE_LOGITS = "phase_logits"
     PHASE_LABELS = "phase_labels"
     EXPERT_USAGE = "expert_usage"

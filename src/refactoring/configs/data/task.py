@@ -23,6 +23,7 @@ class ActionSpaceConfig:
         denoise_actions: Whether to apply denoising to actions.
         denoising_percentile: Percentile for denoising threshold.
     """
+
     _target_: str = "refactoring.data.task.ActionSpace"
     actions_metadata: dict[str, Any] = field(default_factory=dict)
     use_gripper_class_weights: bool = False
@@ -38,6 +39,7 @@ class ObservationSpaceConfig:
         observations_metadata: Dict of all observation metadata, indexed by zarr store key.
             Values are ObservationMetadataConfig subclasses or CameraMetadataConfig.
     """
+
     _target_: str = "refactoring.data.task.ObservationSpace"
     observations_metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -54,6 +56,7 @@ class TaskSpaceConfig:
         observation_horizon: Number of history timesteps to include.
         prediction_horizon: Number of timesteps to predict (action chunk size).
     """
+
     _target_: str = "refactoring.data.task.TaskSpace"
     dataset_schema: Any = MISSING
     dataloader: DataLoaderConfig = MISSING

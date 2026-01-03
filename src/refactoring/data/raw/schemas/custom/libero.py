@@ -52,7 +52,6 @@ class LiberoSchema(Hdf5DatasetSchema):
             metadata=metadata,
         )
 
-
     def get_demo_names(self, hdf5_path: str) -> list[str]:
         """Get list of demo names in the specified HDF5 file.
 
@@ -61,7 +60,6 @@ class LiberoSchema(Hdf5DatasetSchema):
         """
         with h5py.File(hdf5_path, "r") as f:
             return list(f["data"].keys())
-
 
     def extract_episode(
         self,
@@ -84,24 +82,27 @@ class LiberoSchema(Hdf5DatasetSchema):
         for zarr_key, obs in self.metadata.observations.items():
             if isinstance(obs, CameraMetadata):
                 continue
-            if zarr_key == ObsKey.LANGUAGE.value and self.extract_language_from_filename:
+            if (
+                zarr_key == ObsKey.LANGUAGE.value
+                and self.extract_language_from_filename
+            ):
                 continue
             elif isinstance(obs, ObservationMetadata):
                 if obs.dtype == "str":
-                    data[zarr_key] = obs_group[obs.raw_data_column_keys[0]].astype(str)[:]
+                    data[zarr_key] = obs_group[obs.raw_data_column_keys[0]].astype(str)[
+                        :
+                    ]
                 else:
                     values = np.concatenate(
-                        [obs_group[key][:] for key in obs.raw_data_column_keys],
-                        axis=-1
+                        [obs_group[key][:] for key in obs.raw_data_column_keys], axis=-1
                     ).astype(obs.dtype)
                     data[zarr_key] = values
 
         for zarr_key, action in self.metadata.precomputed_actions.items():
             values = np.concatenate(
-                [demo_group[key][:] for key in action.raw_data_column_keys],
-                axis=-1
+                [demo_group[key][:] for key in action.raw_data_column_keys], axis=-1
             ).astype(action.dtype)
-            values = values[..., action.slice_start:action.slice_end]
+            values = values[..., action.slice_start : action.slice_end]
             data[zarr_key] = values
 
         for zarr_key, cam_metadata in self.metadata.cameras.items():
@@ -110,19 +111,20 @@ class LiberoSchema(Hdf5DatasetSchema):
                 raise ValueError(f"Camera key '{cam}' not found in HDF5 obs group")
             raw_images = obs_group[cam][:]
             if cam == Cameras.DEPTH.value:
-                images = [depth_resizer(image=img)['image'] for img in raw_images]
+                images = [depth_resizer(image=img)["image"] for img in raw_images]
                 data[zarr_key] = np.stack(images).astype(cam_metadata.dtype)
             else:
-                images = [resizer(image=img)['image'] for img in raw_images]
+                images = [resizer(image=img)["image"] for img in raw_images]
                 data[zarr_key] = np.stack(images).astype(cam_metadata.dtype)
 
         if self.extract_language_from_filename:
             episode_len = self._get_episode_length(demo_group)
             hdf5_path = demo_group.file.filename
             task_language = self.get_language_from_filename(hdf5_path)
-            data[ObsKey.LANGUAGE.value] = np.array([[task_language]] * episode_len) # Shape (T, 1) 
+            data[ObsKey.LANGUAGE.value] = np.array(
+                [[task_language]] * episode_len
+            )  # Shape (T, 1)
         return data
-
 
     def _get_episode_length(self, demo_group: h5py.Group) -> int:
         """Get episode length from demo group."""
@@ -131,7 +133,6 @@ class LiberoSchema(Hdf5DatasetSchema):
         obs_group = demo_group[self.obs_group_path]
         first_key = next(iter(obs_group.keys()))
         return obs_group[first_key].shape[0]
-
 
     @staticmethod
     def get_language_from_filename(hdf5_path: str) -> str:
@@ -143,10 +144,9 @@ class LiberoSchema(Hdf5DatasetSchema):
         Args:
             hdf5_path: Path to the HDF5 file.
         """
-        filename = hdf5_path.rsplit('/', 1)[-1]
-        task_name = filename.removesuffix('_demo.hdf5').replace('_', ' ')
+        filename = hdf5_path.rsplit("/", 1)[-1]
+        task_name = filename.removesuffix("_demo.hdf5").replace("_", " ")
         return task_name
-
 
     def get_required_zarr_keys(self) -> list[str]:
         """Get all required zarr keys based on schema configuration.
@@ -159,7 +159,6 @@ class LiberoSchema(Hdf5DatasetSchema):
             keys.append(ObsKey.LANGUAGE.value)
         return keys
 
-
     def get_zarr_array_specs(self) -> dict:
         """Get specifications for all zarr arrays to create.
 
@@ -169,9 +168,9 @@ class LiberoSchema(Hdf5DatasetSchema):
         specs = super().get_zarr_array_specs()
         if self.extract_language_from_filename and ObsKey.LANGUAGE.value not in specs:
             specs[ObsKey.LANGUAGE.value] = {
-                'shape': (0, 1),
-                'chunks': (100, 1),
-                'dtype': 'str',
-                'needs_compressor': False
+                "shape": (0, 1),
+                "chunks": (100, 1),
+                "dtype": "str",
+                "needs_compressor": False,
             }
         return specs

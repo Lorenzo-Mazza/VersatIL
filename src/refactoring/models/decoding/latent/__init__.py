@@ -14,11 +14,16 @@ This package provides two types of latent modules:
    - DiffusionPrior: Learned diffusion-based prior that matches posterior distribution
 """
 
-from refactoring.models.decoding.latent.posterior.base_posterior import PosteriorLatentEncoder
+from refactoring.models.decoding.latent.posterior.base_posterior import (
+    PosteriorLatentEncoder,
+)
 from refactoring.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from refactoring.models.decoding.latent.prior.diffusion_mlp import DiffusionPrior
 from refactoring.models.decoding.latent.prior.gaussian_prior import GaussianPrior
-from refactoring.models.decoding.latent.posterior.transformer_encoder import VAETransformerEncoder
+from refactoring.models.decoding.latent.posterior.transformer_encoder import (
+    VAETransformerEncoder,
+)
+
 __all__ = [
     "PosteriorLatentEncoder",
     "VAETransformerEncoder",

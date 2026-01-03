@@ -10,7 +10,8 @@ from refactoring.data.task import ObservationSpace, ActionSpace
 from refactoring.data.action_processor import ActionProcessor
 from refactoring.data.augmentation.augmentation_pipeline import AugmentationPipeline
 from refactoring.data.constants import (
-    GripperType, ProprioKey,
+    GripperType,
+    ProprioKey,
 )
 from refactoring.configs.data.tokenizer import TokenizationConfig
 from refactoring.data.normalization.normalizer import LinearNormalizer
@@ -37,17 +38,16 @@ class EpisodicDataset(data.Dataset):
     - Episode splitting and management
     """
 
-
     def __init__(
-            self,
-            zarr_path: str,
-            action_space: ActionSpace,
-            observation_space: ObservationSpace,
-            dataloader_config: DataLoaderConfig,
-            pred_horizon: int,
-            obs_horizon: int,
-            train: bool = True,
-            seed: int = 42,
+        self,
+        zarr_path: str,
+        action_space: ActionSpace,
+        observation_space: ObservationSpace,
+        dataloader_config: DataLoaderConfig,
+        pred_horizon: int,
+        obs_horizon: int,
+        train: bool = True,
+        seed: int = 42,
     ):
         """Initialize episodic dataset.
 
@@ -81,8 +81,15 @@ class EpisodicDataset(data.Dataset):
         )
         self.train = train
         self.seed = seed
-        all_keys = list(set(observation_space.get_required_zarr_keys() + action_space.get_required_zarr_keys()))  # Remove duplicates
-        self.replay_buffer = ReplayBuffer.copy_from_path(zarr_path=zarr_path, keys=all_keys)
+        all_keys = list(
+            set(
+                observation_space.get_required_zarr_keys()
+                + action_space.get_required_zarr_keys()
+            )
+        )  # Remove duplicates
+        self.replay_buffer = ReplayBuffer.copy_from_path(
+            zarr_path=zarr_path, keys=all_keys
+        )
         logging.info(f"Total episodes in buffer: {self.replay_buffer.n_episodes}")
         # Create episode mask (train/val split)
         episode_mask = self._create_episode_mask(
@@ -95,14 +102,19 @@ class EpisodicDataset(data.Dataset):
             self._apply_downsampling(episode_mask, dataloader_config.downsample_factor)
             episode_mask = np.ones(self.replay_buffer.n_episodes, dtype=bool)
         self.episode_ends = self.replay_buffer.episode_ends[:]
-        #TODO: double check that in sampler we are actually sampling from t until t+k+1
+        # TODO: double check that in sampler we are actually sampling from t until t+k+1
         self.sampler = SequenceSampler(
             replay_buffer=self.replay_buffer,
-            sequence_length=self.obs_horizon + self.pred_horizon + self.action_backward_shift,
+            sequence_length=self.obs_horizon
+            + self.pred_horizon
+            + self.action_backward_shift,
             pad_before=0,
             pad_after=self.pred_horizon - 1,
             episode_mask=episode_mask,
-            key_first_k=dict.fromkeys(observation_space.cameras.keys(), self.obs_horizon + self.action_backward_shift),
+            key_first_k=dict.fromkeys(
+                observation_space.cameras.keys(),
+                self.obs_horizon + self.action_backward_shift,
+            ),
             skip_initial=dataloader_config.skip_initial_episode_steps,
             pad_with_zeros=False,
         )
@@ -118,14 +130,13 @@ class EpisodicDataset(data.Dataset):
         )
         self.normalizer: LinearNormalizer | None = None
 
-
     def _create_episode_mask(
-            self,
-            val_ratio: float,
-            total_ratio: float,
-            train: bool,
-            seed: int,
-            max_train_episodes: int | None = None,
+        self,
+        val_ratio: float,
+        total_ratio: float,
+        train: bool,
+        seed: int,
+        max_train_episodes: int | None = None,
     ) -> np.ndarray:
         """Create boolean mask for episode selection (train/val split)."""
         n_episodes = self.replay_buffer.n_episodes
@@ -160,8 +171,9 @@ class EpisodicDataset(data.Dataset):
 
         return episode_mask
 
-
-    def _apply_downsampling(self, episode_mask: np.ndarray, downsample_step: int) -> None:
+    def _apply_downsampling(
+        self, episode_mask: np.ndarray, downsample_step: int
+    ) -> None:
         """Downsample episodes by taking every n-th step."""
         subsampled_buffer = ReplayBuffer.create_empty_numpy()
         selected_episodes = np.nonzero(episode_mask)[0]
@@ -186,14 +198,17 @@ class EpisodicDataset(data.Dataset):
             f"steps: {self.replay_buffer.n_steps}"
         )
 
-
     def _setup_episode_indices(self) -> None:
         """Setup episode-to-sample index mapping."""
         self.episode_indices = []
         current_start = 0
         for end in self.episode_ends:
             # Find sampler indices that belong to this episode
-            ep_indices = [i for i, row in enumerate(self.sampler.indices) if current_start <= row[0] < end]
+            ep_indices = [
+                i
+                for i, row in enumerate(self.sampler.indices)
+                if current_start <= row[0] < end
+            ]
             self.episode_indices.append(ep_indices)
             current_start = end
         # Track which episodes have valid samples
@@ -201,20 +216,23 @@ class EpisodicDataset(data.Dataset):
             i for i, indices in enumerate(self.episode_indices) if indices
         ]
 
-
     def __len__(self) -> int:
         """Dataset length depends on sampling mode."""
         return len(self.sampler)
 
-
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor] | dict[str, dict[str, torch.Tensor]]:
+    def __getitem__(
+        self, idx: int
+    ) -> dict[str, torch.Tensor] | dict[str, dict[str, torch.Tensor]]:
         """Get a training sample."""
         threadpool_limits(1)
         padded_data = self.sampler.sample_sequence(idx)
         action_slice_start = self.obs_horizon - 1
         action_slice_end = action_slice_start + self.pred_horizon
         action_data, action_meta = self.action_processor.compute_sample_actions(
-            padded_data=padded_data, action_slice_start=action_slice_start, action_slice_end=action_slice_end)
+            padded_data=padded_data,
+            action_slice_start=action_slice_start,
+            action_slice_end=action_slice_end,
+        )
         sample = self.sample_builder.build_sample(
             padded_data=padded_data,
             action_data=action_data,
@@ -223,7 +241,6 @@ class EpisodicDataset(data.Dataset):
             sampler_indices=self.sampler.indices,
         )
         return sample
-
 
     def get_normalizer_and_tokenizer(
         self,
@@ -236,7 +253,7 @@ class EpisodicDataset(data.Dataset):
         clamp_kinematics_range: bool = True,
         min_kinematics_std: float = 2e-2,
         min_kinematics_range: float = 4e-2,
-        **kwargs
+        **kwargs,
     ) -> tuple[LinearNormalizer, Tokenizer | None]:
         """Get normalizer and optionally tokenizer for this dataset.
 
@@ -263,8 +280,12 @@ class EpisodicDataset(data.Dataset):
             kinematics_norm_type=self.kinematics_norm_type,
             image_norm_type=self.image_norm_type,
             depth_norm_type=self.depth_norm_type,
-            depth_winsorize_quantiles=depth_winsorize_quantiles if winsorize_depth else None,
-            kinematics_winsorize_quantiles=kinematics_winsorize_quantiles if winsorize_kinematics else None,
+            depth_winsorize_quantiles=depth_winsorize_quantiles
+            if winsorize_depth
+            else None,
+            kinematics_winsorize_quantiles=kinematics_winsorize_quantiles
+            if winsorize_kinematics
+            else None,
             tokenization_config=tokenization_config,
             prediction_horizon=self.pred_horizon,
             clamp_kinematics_range=clamp_kinematics_range,
@@ -276,7 +297,6 @@ class EpisodicDataset(data.Dataset):
             device=device, **kwargs
         )
 
-
     def set_tokenizer(self, tokenizer: Tokenizer | None) -> None:
         """Set tokenizer for the sample builder.
 
@@ -285,7 +305,6 @@ class EpisodicDataset(data.Dataset):
         """
         self.sample_builder.tokenizer = tokenizer
 
-
     def set_normalizer(self, normalizer: LinearNormalizer) -> None:
         """Set normalizer for the dataset.
 
@@ -293,7 +312,6 @@ class EpisodicDataset(data.Dataset):
             normalizer: Normalizer for observations and actions
         """
         self.sample_builder.normalizer = normalizer
-
 
     def get_gripper_positive_class_imbalance_weight(self) -> float:
         """Get class imbalance weight for binary gripper actions.
@@ -307,7 +325,7 @@ class EpisodicDataset(data.Dataset):
         Raises:
             ValueError: If gripper is not configured or is not binary type
         """
-        #TODO: This needs to be fixed
+        # TODO: This needs to be fixed
         if not self.action_space.has_gripper:
             raise ValueError("Gripper actions are not being predicted")
         if self.action_space.gripper_type != GripperType.BINARY.value:

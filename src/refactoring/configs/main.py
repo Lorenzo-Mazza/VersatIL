@@ -12,12 +12,15 @@ from refactoring.configs.training import TrainingConfig
 
 @dataclass
 class MainConfig:
-    defaults: list[Any] = field(default_factory=lambda: [
-        {"experiment": ExperimentConfig},
-        {"task": "base"},
-        {"training": "base"},
-        {"policy": "base"},
-        {"inference": "base"},    ])
+    defaults: list[Any] = field(
+        default_factory=lambda: [
+            {"experiment": ExperimentConfig},
+            {"task": "base"},
+            {"training": "base"},
+            {"policy": "base"},
+            {"inference": "base"},
+        ]
+    )
 
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
     task: TaskSpaceConfig = field(default_factory=TaskSpaceConfig)

@@ -60,18 +60,21 @@ class BinaryKLDivergenceLossConfig(BaseLossConfig):
     latent_bits: int = MISSING
     entropy_weight: float = 0.005
 
+
 @dataclass
 class MaximumMeanDiscrepancyLossConfig(BaseLossConfig):
     """Configuration for Maximum Mean Discrepancy (MMD) loss."""
+
     _target_: str = "refactoring.metrics.MaximumMeanDiscrepancyLoss"
     weight: float = 1.0
+
 
 @dataclass
 class BinaryMaximumMeanDiscrepancyLossConfig(BaseLossConfig):
     """Configuration for Binary Maximum Mean Discrepancy (MMD) loss."""
+
     _target_: str = "refactoring.metrics.BinaryMaximumMeanDiscrepancyLoss"
     weight: float = 1.0
-
 
 
 @dataclass
@@ -106,6 +109,7 @@ class PhaseClassificationLossConfig(BaseLossConfig):
 @dataclass
 class ActionTokenLossConfig(BaseLossConfig):
     """Configuration for action to token loss (TokenACT-style models)."""
+
     _target_: str = "refactoring.metrics.ActionTokenLoss"
     label_smoothing: float = 0.0
 
@@ -148,20 +152,24 @@ class PhaseActionLossConfig(BaseLossConfig):
 @dataclass
 class FixedVarianceGaussianNLLossConfig(BaseLossConfig):
     """Configuration for fixed variance Gaussian Negative Log-Likelihood loss."""
+
     _target_: str = "refactoring.metrics.FixedVarianceGaussianNLLoss"
     action_keys: list[str] = MISSING
     sigmas: dict[str, float] | None = None
     per_key_weights: dict[str, float] | None = None
     weight: float = 1.0
 
+
 @dataclass
 class FixedVarianceGripperMixtureNLLossConfig(BaseLossConfig):
     """Configuration for gripper Mixture Negative Log-Likelihood loss."""
+
     _target_: str = "refactoring.metrics.FixedVarianceGripperMixtureNLLoss"
     key: str = MISSING
     actions_metadata: Any = "${task.action_space.actions_metadata}"
     sigma: float = 0.5
     weight: float = 1.0
+
 
 @dataclass
 class CompositeLossConfig(BaseLossConfig):
@@ -175,5 +183,6 @@ class CompositeLossConfig(BaseLossConfig):
 @dataclass
 class MoELossConfig:
     """Configuration for Mixture of Experts (MoE) loss."""
+
     _target_: str = "refactoring.metrics.MoELoss"
     base_loss: BaseLossConfig = MISSING

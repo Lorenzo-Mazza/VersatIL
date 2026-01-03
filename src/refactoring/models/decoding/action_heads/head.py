@@ -5,6 +5,7 @@ import torch.nn as nn
 
 from refactoring.models.decoding.action_heads import ActionHeadBlock
 
+
 class ActionHead(nn.Module):
     """Composable action head from sequence of blocks.
 
@@ -16,6 +17,7 @@ class ActionHead(nn.Module):
         output_dim is not set at initialization. The decoder must call set_output_dim()
         to set the output dimension based on action_space.actions_metadata[key].prediction_dimension.
     """
+
     def __init__(
         self,
         input_dim: int,
@@ -35,7 +37,6 @@ class ActionHead(nn.Module):
         self.blocks = nn.ModuleList(blocks)
         self.output_proj: nn.Linear | None = None  # Created by set_output_dim
 
-
     @property
     def output_dim(self) -> int:
         """Get output dimension. Raises if not set."""
@@ -43,11 +44,9 @@ class ActionHead(nn.Module):
             raise RuntimeError("output_dim not set. Call set_output_dim() first.")
         return self._output_dim
 
-
     @output_dim.setter
     def output_dim(self, value: int) -> None:
         self._output_dim = value
-
 
     def set_output_dim(self, dim: int) -> None:
         """Set output dimension and create output projection layer.
@@ -58,9 +57,10 @@ class ActionHead(nn.Module):
             dim: Output action dimension
         """
         self._output_dim = dim
-        hidden_dim = self.input_dim if len(self.blocks) == 0 else self.blocks[-1].output_dim
+        hidden_dim = (
+            self.input_dim if len(self.blocks) == 0 else self.blocks[-1].output_dim
+        )
         self.output_proj = nn.Linear(hidden_dim, dim)
-
 
     def forward(self, action_embedding: torch.Tensor) -> torch.Tensor:
         """Convert embeddings to actions.
@@ -80,5 +80,3 @@ class ActionHead(nn.Module):
             action_embedding = block(action_embedding)
         result: torch.Tensor = self.output_proj(action_embedding)
         return result
-
-

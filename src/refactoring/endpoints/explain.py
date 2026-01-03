@@ -17,9 +17,7 @@ from albumentations.pytorch import ToTensorV2
 from omegaconf import OmegaConf
 
 from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.data.constants import (
-    Cameras
-)
+from refactoring.data.constants import Cameras
 from refactoring.explain.constants import ExplanationType
 from refactoring.explain.explainer import show_cam_on_image
 from refactoring.training.lightning_policy import LightningPolicy
@@ -96,10 +94,14 @@ class ModelExplainer:
     def _ensure_configs_are_dataclasses(self):
         """Convert OmegaConf DictConfigs to dataclass instances where needed."""
         if OmegaConf.is_config(self.config.task.action_space):
-            config_dict = OmegaConf.to_container(self.config.task.action_space, resolve=True)
+            config_dict = OmegaConf.to_container(
+                self.config.task.action_space, resolve=True
+            )
             self.config.task.action_space = ActionSpace(**config_dict)
         if OmegaConf.is_config(self.config.task.observation_space):
-            config_dict = OmegaConf.to_container(self.config.task.observation_space, resolve=True)
+            config_dict = OmegaConf.to_container(
+                self.config.task.observation_space, resolve=True
+            )
             self.config.task.observation_space = ObservationSpace(**config_dict)
 
     def _setup_paths(self):
@@ -139,7 +141,9 @@ class ModelExplainer:
         Returns:
             Dictionary of observation tensors
         """
-        assert self.dataset is not None, "Dataset must be loaded before getting observations"
+        assert (
+            self.dataset is not None
+        ), "Dataset must be loaded before getting observations"
         df = self.dataset.iloc[self.timestep : self.timestep + self.observation_horizon]
         obs = {}
 
@@ -150,9 +154,14 @@ class ModelExplainer:
                 if left_col not in df.columns:
                     continue
                 left_paths = df[left_col].tolist()
-                depth_paths = [self.dataset_schema.compute_depth_path(path) for path in left_paths]
+                depth_paths = [
+                    self.dataset_schema.compute_depth_path(path) for path in left_paths
+                ]
 
-                disp = [cv2.imread(path, cv2.IMREAD_UNCHANGED).astype(np.float32) for path in depth_paths]
+                disp = [
+                    cv2.imread(path, cv2.IMREAD_UNCHANGED).astype(np.float32)
+                    for path in depth_paths
+                ]
                 depth = [np.where(img > 0, 1.0 / img, 0.0) for img in disp]
                 resized = [self.transform(image=img)["depth"] for img in depth]
             else:
@@ -171,7 +180,9 @@ class ModelExplainer:
 
         return obs
 
-    def explain_prediction(self) -> tuple[dict[str, dict[str, torch.Tensor]], dict[str, torch.Tensor]]:
+    def explain_prediction(
+        self,
+    ) -> tuple[dict[str, dict[str, torch.Tensor]], dict[str, torch.Tensor]]:
         """Generate explanations for current observation.
 
         Returns:

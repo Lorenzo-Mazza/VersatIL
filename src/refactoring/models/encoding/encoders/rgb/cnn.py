@@ -1,4 +1,3 @@
-
 import torch
 from transformers import TimmBackbone, TimmBackboneConfig
 from transformers.modeling_outputs import BackboneOutput
@@ -17,17 +16,20 @@ from refactoring.models.layers.pooling.pooling_head import create_pooling_head
 
 class CNNEncoder(Encoder):
     """Convolutional Neural Network encoder supporting multiple backbones via TIMM."""
+
     def __init__(
-            self,
-            input_keys: str | list[str],
-            backbone: str = RGBBackboneType.RESNET18.value,
-            pooling_method: str = PoolingMethod.AVERAGE.value,
-            use_group_norm: bool = True,
-            pretrained: bool = False,
-            frozen: bool = False,
+        self,
+        input_keys: str | list[str],
+        backbone: str = RGBBackboneType.RESNET18.value,
+        pooling_method: str = PoolingMethod.AVERAGE.value,
+        use_group_norm: bool = True,
+        pretrained: bool = False,
+        frozen: bool = False,
     ):
-        specification = EncoderInput(keys=input_keys,one_of_groups=[RGB_CAMERAS])
-        super().__init__(input_specification=specification, pretrained=pretrained, frozen=frozen)
+        specification = EncoderInput(keys=input_keys, one_of_groups=[RGB_CAMERAS])
+        super().__init__(
+            input_specification=specification, pretrained=pretrained, frozen=frozen
+        )
         # Validate backbone type at instantiation
         if backbone not in [e.value for e in RGBBackboneType]:
             valid_backbones = [e.value for e in RGBBackboneType if "vit" not in e.value]
@@ -45,11 +47,14 @@ class CNNEncoder(Encoder):
 
     def _build_backbone(self):
         """Build backbone using TIMM library."""
-        backbone_config = TimmBackboneConfig(self.backbone_name, use_pretrained_backbone=self.pretrained, features_only=True)
+        backbone_config = TimmBackboneConfig(
+            self.backbone_name,
+            use_pretrained_backbone=self.pretrained,
+            features_only=True,
+        )
         self.backbone = TimmBackbone(config=backbone_config)
         if self.use_group_norm:
             self.backbone = replace_batchnorm_with_groupnorm(self.backbone)  # type: ignore[assignment]
-
 
     def _setup_pooling(self):
         """Setup mock pooling head. The actual pooling head will be created in forward()."""
@@ -64,9 +69,10 @@ class CNNEncoder(Encoder):
             spatial_height=h,
             spatial_width=w,
         )
-        self.pooling_head = None # Will be created in forward() with correct patch dimensions
+        self.pooling_head = (
+            None  # Will be created in forward() with correct patch dimensions
+        )
         self.output_dim = mock_pooling_head.get_output_dim(self.feature_dim)
-
 
     def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Forward pass to extract features from images.
@@ -107,7 +113,6 @@ class CNNEncoder(Encoder):
             # Reshape back to (B, T, C) or (B, T, C, H, W)
             pooled_features = pooled_features.reshape(B, T, *pooled_features.shape[1:])
         return {EncoderOutputKeys.RGB.value: pooled_features}
-
 
     def get_output_specification(self) -> EncoderOutput:
         return EncoderOutput(

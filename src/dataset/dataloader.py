@@ -153,10 +153,16 @@ class EpisodicDataset(data.Dataset):
         self.episode_indices = []
         current_start = 0
         for end in self.episode_ends:
-            ep_indices = [i for i, row in enumerate(self.sampler.indices) if current_start <= row[0] < end]
+            ep_indices = [
+                i
+                for i, row in enumerate(self.sampler.indices)
+                if current_start <= row[0] < end
+            ]
             self.episode_indices.append(ep_indices)
             current_start = end
-        self.selected_episode_indices = [i for i, indices in enumerate(self.episode_indices) if indices]
+        self.selected_episode_indices = [
+            i for i, indices in enumerate(self.episode_indices) if indices
+        ]
         self.pred_horizon = pred_horizon
         self.obs_horizon = obs_horizon
         self.seed = seed
@@ -168,33 +174,47 @@ class EpisodicDataset(data.Dataset):
             return len(self.selected_episode_indices)
         else:
             raise ValueError(f"Unknown sampling_mode: {self.sampling_mode}")
-    
+
     def get_gripper_positive_class_imbalance_weight(self):
         if self.predict_gripper_action:
             gripper_actions = self.replay_buffer[GRIPPER_STATE_OBS_KEY][:]
             gripper_actions = gripper_actions.squeeze(-1)
             number_of_positive_actions = gripper_actions.sum()
-            number_of_negative_actions = len(gripper_actions) - number_of_positive_actions
+            number_of_negative_actions = (
+                len(gripper_actions) - number_of_positive_actions
+            )
             return number_of_negative_actions / number_of_positive_actions
         else:
-            raise ValueError(f"Gripper actions are not being predicted, so class weights cannot be computed")
+            raise ValueError(
+                f"Gripper actions are not being predicted, so class weights cannot be computed"
+            )
 
-    def get_normalizer(self, mode='limits', device=None, recompute_depth_stats: bool = False, **kwargs):
+    def get_normalizer(
+        self, mode="limits", device=None, recompute_depth_stats: bool = False, **kwargs
+    ):
         normalizer = LinearNormalizer()
         if self.kinematics_norm_type == KinematicsNormalizationType.MIN_MAX.value:
-            mode="limits"
+            mode = "limits"
         elif self.kinematics_norm_type == KinematicsNormalizationType.GAUSSIAN.value:
-            mode="gaussian"
+            mode = "gaussian"
         else:
-            raise ValueError(f"Unknown kinematics_norm_type: {self.kinematics_norm_type}")
+            raise ValueError(
+                f"Unknown kinematics_norm_type: {self.kinematics_norm_type}"
+            )
         # Select position key for actions
-        action_pos_key = CAMERA_FRAME_OBS_KEY if self.predict_in_camera_frame else ROBOT_FRAME_OBS_KEY
+        action_pos_key = (
+            CAMERA_FRAME_OBS_KEY
+            if self.predict_in_camera_frame
+            else ROBOT_FRAME_OBS_KEY
+        )
 
         all_pos = self.replay_buffer[action_pos_key][:]
         next_pos, curr_pos = None, None
         # Compute action data based on config using vectorized operations
         if len(all_pos) == 0:
-            action_data = np.zeros((0, all_pos.shape[1] if len(all_pos.shape) > 1 else 3), dtype=np.float32)
+            action_data = np.zeros(
+                (0, all_pos.shape[1] if len(all_pos.shape) > 1 else 3), dtype=np.float32
+            )
         else:
             cross_indices = self.episode_ends[:-1] - 1
             valid_mask = np.ones(len(all_pos) - 1, dtype=bool)
@@ -212,7 +232,10 @@ class EpisodicDataset(data.Dataset):
             non_zero_norms = norms[norms > 0]
             if len(non_zero_norms) > 0:
                 self.sparsity_threshold = np.percentile(non_zero_norms, 5)
-                logging.log(level=logging.INFO, msg=f"Computed sparsity threshold (5th percentile): {self.sparsity_threshold}")
+                logging.log(
+                    level=logging.INFO,
+                    msg=f"Computed sparsity threshold (5th percentile): {self.sparsity_threshold}",
+                )
 
                 mask = norms < self.sparsity_threshold
                 next_pos[mask] = curr_pos[mask]
@@ -233,13 +256,23 @@ class EpisodicDataset(data.Dataset):
             robot_state_data = np.concatenate(obs_parts, axis=1)
             kinematics_data[ROBOT_STATE_KEY] = robot_state_data
 
-        normalizer.fit(data=kinematics_data, last_n_dims=1, mode=mode, device=device, range_eps=1e-10, **kwargs)
+        normalizer.fit(
+            data=kinematics_data,
+            last_n_dims=1,
+            mode=mode,
+            device=device,
+            range_eps=1e-10,
+            **kwargs,
+        )
         for cam in self.camera_names:
             if cam == Cameras.DEPTH.value:
                 depth_arr = self.replay_buffer[cam][:]
                 depth_min, depth_max = depth_arr.min(), depth_arr.max()
                 depth_mean, depth_std = depth_arr.mean(), depth_arr.std()
-                logging.log(level=logging.INFO, msg=f"Computed depth stats from data - min: {depth_min}, max: {depth_max}, mean: {depth_mean}, std: {depth_std}")
+                logging.log(
+                    level=logging.INFO,
+                    msg=f"Computed depth stats from data - min: {depth_min}, max: {depth_max}, mean: {depth_mean}, std: {depth_std}",
+                )
                 p1 = np.quantile(depth_arr, 0.01)
                 p99 = np.quantile(depth_arr, 0.99)
                 depth_arr_clipped = np.clip(depth_arr, p1, p99)
@@ -247,28 +280,45 @@ class EpisodicDataset(data.Dataset):
                 depth_max = depth_arr_clipped.max()
                 depth_mean = depth_arr_clipped.mean()
                 depth_std = depth_arr_clipped.std()
-                logging.log(level=logging.INFO, msg=f"After winsorization - min: {depth_min}, max: {depth_max}, mean: {depth_mean}, std: {depth_std}")
+                logging.log(
+                    level=logging.INFO,
+                    msg=f"After winsorization - min: {depth_min}, max: {depth_max}, mean: {depth_mean}, std: {depth_std}",
+                )
                 normalizer[cam] = get_depth_image_normalizer(
-                    input_min=depth_min, input_max=depth_max, input_mean=depth_mean, input_std=depth_std,
-                    device=device, norm_type=self.depth_norm_type
+                    input_min=depth_min,
+                    input_max=depth_max,
+                    input_mean=depth_mean,
+                    input_std=depth_std,
+                    device=device,
+                    norm_type=self.depth_norm_type,
                 )
                 logging.info(
-                        f"Normalized depth stats (min/max/mean/std): {normalizer[Cameras.DEPTH.value].get_output_stats()['min']},"
-                        f" {normalizer[Cameras.DEPTH.value].get_output_stats()['max']}," f" {normalizer[Cameras.DEPTH.value].get_output_stats()['mean']}, "
-                        f"{normalizer[Cameras.DEPTH.value].get_output_stats()['std']}")
+                    f"Normalized depth stats (min/max/mean/std): {normalizer[Cameras.DEPTH.value].get_output_stats()['min']},"
+                    f" {normalizer[Cameras.DEPTH.value].get_output_stats()['max']},"
+                    f" {normalizer[Cameras.DEPTH.value].get_output_stats()['mean']}, "
+                    f"{normalizer[Cameras.DEPTH.value].get_output_stats()['std']}"
+                )
             else:
-                if self.image_norm_type == ImageNormalizationType.MINUS_ONE_TO_ONE.value:
+                if (
+                    self.image_norm_type
+                    == ImageNormalizationType.MINUS_ONE_TO_ONE.value
+                ):
                     normalizer[cam] = get_image_range_normalizer(device=device)
                 else:
                     normalizer[cam] = get_zero_to_one_normalizer(device=device)
-                logging.info(f"Normalized image stats (min/max/mean/std): {normalizer[cam].get_output_stats()['min']},"
-                             f" {normalizer[cam].get_output_stats()['max']}, {normalizer[cam].get_output_stats()['mean']},"
-                             f" {normalizer[cam].get_output_stats()['std']}")
-                             
-        logging.info(f"Action stats (min/max/mean/std): {normalizer[POSITION_ACTION_KEY].get_input_stats()['min']}, {normalizer[POSITION_ACTION_KEY].get_input_stats()['max']}, {normalizer[POSITION_ACTION_KEY].get_input_stats()['mean']}, {normalizer[POSITION_ACTION_KEY].get_input_stats()['std']}")
-        logging.info(f"Normalized action stats (min/max/mean/std): {normalizer[POSITION_ACTION_KEY].get_output_stats()['min']}, {normalizer[POSITION_ACTION_KEY].get_output_stats()['max']}, {normalizer[POSITION_ACTION_KEY].get_output_stats()['mean']}, {normalizer[POSITION_ACTION_KEY].get_output_stats()['std']}")
-        return normalizer
+                logging.info(
+                    f"Normalized image stats (min/max/mean/std): {normalizer[cam].get_output_stats()['min']},"
+                    f" {normalizer[cam].get_output_stats()['max']}, {normalizer[cam].get_output_stats()['mean']},"
+                    f" {normalizer[cam].get_output_stats()['std']}"
+                )
 
+        logging.info(
+            f"Action stats (min/max/mean/std): {normalizer[POSITION_ACTION_KEY].get_input_stats()['min']}, {normalizer[POSITION_ACTION_KEY].get_input_stats()['max']}, {normalizer[POSITION_ACTION_KEY].get_input_stats()['mean']}, {normalizer[POSITION_ACTION_KEY].get_input_stats()['std']}"
+        )
+        logging.info(
+            f"Normalized action stats (min/max/mean/std): {normalizer[POSITION_ACTION_KEY].get_output_stats()['min']}, {normalizer[POSITION_ACTION_KEY].get_output_stats()['max']}, {normalizer[POSITION_ACTION_KEY].get_output_stats()['mean']}, {normalizer[POSITION_ACTION_KEY].get_output_stats()['std']}"
+        )
+        return normalizer
 
     def __getitem__(self, idx):
         threadpool_limits(1)
@@ -279,15 +329,30 @@ class EpisodicDataset(data.Dataset):
             ep_indices = self.episode_indices[ep_idx]
             if not ep_indices:
                 raise ValueError(f"Episode {idx} has no valid indices")
-            #random.seed(self.seed)  # commented out for now, to increase variablity in data
-            start_idx = random.choice(ep_indices)  # Randomly select an index from episode's valid starts
+            # random.seed(self.seed)  # commented out for now, to increase variablity in data
+            start_idx = random.choice(
+                ep_indices
+            )  # Randomly select an index from episode's valid starts
         else:
             raise ValueError(f"Unknown sampling_mode: {self.sampling_mode}")
 
-        buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx = self.sampler.indices[start_idx]  # Retrieve precomputed indices for this sample
-        padded_data = self.sampler.sample_sequence(start_idx)  # Sample the full sequence including pads
+        (
+            buffer_start_idx,
+            buffer_end_idx,
+            sample_start_idx,
+            sample_end_idx,
+        ) = self.sampler.indices[
+            start_idx
+        ]  # Retrieve precomputed indices for this sample
+        padded_data = self.sampler.sample_sequence(
+            start_idx
+        )  # Sample the full sequence including pads
         # Compute actions on-the-fly
-        pos_key = CAMERA_FRAME_OBS_KEY if self.predict_in_camera_frame else ROBOT_FRAME_OBS_KEY
+        pos_key = (
+            CAMERA_FRAME_OBS_KEY
+            if self.predict_in_camera_frame
+            else ROBOT_FRAME_OBS_KEY
+        )
         padded_pos = padded_data[pos_key]
 
         action_slice_start = self.obs_horizon - 1 - self.action_backward_shift
@@ -305,7 +370,9 @@ class EpisodicDataset(data.Dataset):
         next_source_end = min(next_slice_end, pos_len)
         next_pos = np.empty((self.pred_horizon,) + pos_shape, dtype=pos_dtype)
         if next_source_end > next_source_start:
-            next_pos[next_pre_pad: next_pre_pad + (next_source_end - next_source_start)] = padded_pos[next_source_start:next_source_end]
+            next_pos[
+                next_pre_pad : next_pre_pad + (next_source_end - next_source_start)
+            ] = padded_pos[next_source_start:next_source_end]
         if next_pre_pad > 0:
             next_pos[:next_pre_pad] = padded_pos[0]
         if next_post_pad > 0:
@@ -320,7 +387,9 @@ class EpisodicDataset(data.Dataset):
         curr_source_end = min(curr_slice_end, pos_len)
         curr_pos = np.empty((self.pred_horizon,) + pos_shape, dtype=pos_dtype)
         if curr_source_end > curr_source_start:
-            curr_pos[curr_pre_pad: curr_pre_pad + (curr_source_end - curr_source_start)] = padded_pos[curr_source_start:curr_source_end]
+            curr_pos[
+                curr_pre_pad : curr_pre_pad + (curr_source_end - curr_source_start)
+            ] = padded_pos[curr_source_start:curr_source_end]
         if curr_pre_pad > 0:
             curr_pos[:curr_pre_pad] = padded_pos[0]
         if curr_post_pad > 0:
@@ -338,7 +407,7 @@ class EpisodicDataset(data.Dataset):
 
         sample = {OBSERVATION_KEY: {}}
         if self.use_rotation_augmentations:
-            angle = random.uniform(-5., 5.) if random.random() < 0.5 else 0.
+            angle = random.uniform(-5.0, 5.0) if random.random() < 0.5 else 0.0
             if angle != 0:
                 theta_rad = np.deg2rad(angle)
                 cos_t, sin_t = np.cos(theta_rad), np.sin(theta_rad)
@@ -347,15 +416,24 @@ class EpisodicDataset(data.Dataset):
             angle = 0
         # Add this:
         for cam in self.camera_names:
-            img = padded_data[cam][:self.obs_horizon]
+            img = padded_data[cam][: self.obs_horizon]
             if self.train:
                 if self.use_rotation_augmentations:
-                    rotate_transform = A.Rotate(limit=(angle, angle), p=1.0, interpolation=cv2.INTER_LINEAR)
-                    img = np.stack([rotate_transform(image=frame)['image'] for frame in img])
+                    rotate_transform = A.Rotate(
+                        limit=(angle, angle), p=1.0, interpolation=cv2.INTER_LINEAR
+                    )
+                    img = np.stack(
+                        [rotate_transform(image=frame)["image"] for frame in img]
+                    )
             if cam != Cameras.DEPTH.value:
                 img = img.astype(np.float32) / 255.0
                 if self.photometric_transform and self.train:
-                    img = np.stack([self.photometric_transform(image=frame)['image'] for frame in img])
+                    img = np.stack(
+                        [
+                            self.photometric_transform(image=frame)["image"]
+                            for frame in img
+                        ]
+                    )
                 if self.image_norm_type == ImageNormalizationType.IMAGENET.value:
                     mean = np.array(IMAGENET_RGB_MEAN)
                     std = np.array(IMAGENET_RGB_STD)
@@ -369,43 +447,65 @@ class EpisodicDataset(data.Dataset):
         if self.use_kinematics:
             obs_pos_parts = []
             if self.obs_robot_frame:
-                obs_pos_parts.append(padded_data[ROBOT_FRAME_OBS_KEY][:self.obs_horizon])
+                obs_pos_parts.append(
+                    padded_data[ROBOT_FRAME_OBS_KEY][: self.obs_horizon]
+                )
             if self.obs_camera_frame:
-                obs_pos_parts.append(padded_data[CAMERA_FRAME_OBS_KEY][:self.obs_horizon])
-            robot_state = np.concatenate(obs_pos_parts, axis=-1) if obs_pos_parts else np.empty((self.obs_horizon, 0), dtype=np.float32)
+                obs_pos_parts.append(
+                    padded_data[CAMERA_FRAME_OBS_KEY][: self.obs_horizon]
+                )
+            robot_state = (
+                np.concatenate(obs_pos_parts, axis=-1)
+                if obs_pos_parts
+                else np.empty((self.obs_horizon, 0), dtype=np.float32)
+            )
 
             if angle != 0:  # Rotate kinematics data accordingly, if images were rotated
                 if self.obs_camera_frame:
                     if self.obs_robot_frame:
-                        robot_state[..., 3:6] = (R @ robot_state[..., 3:6].T).T  # Rotate the camera frame position only
+                        robot_state[..., 3:6] = (
+                            R @ robot_state[..., 3:6].T
+                        ).T  # Rotate the camera frame position only
                     else:
-                        robot_state[..., :3] = (R @ robot_state[..., :3].T).T  # Rotate the camera frame position
-            sample[OBSERVATION_KEY][ROBOT_STATE_KEY] = torch.from_numpy(robot_state).float()
+                        robot_state[..., :3] = (
+                            R @ robot_state[..., :3].T
+                        ).T  # Rotate the camera frame position
+            sample[OBSERVATION_KEY][ROBOT_STATE_KEY] = torch.from_numpy(
+                robot_state
+            ).float()
 
-        if angle != 0 and self.predict_in_camera_frame:  # Rotate actions if in camera frame
+        if (
+            angle != 0 and self.predict_in_camera_frame
+        ):  # Rotate actions if in camera frame
             action_data = (R @ action_data.T).T
 
         if self.predict_gripper_action:
             padded_gripper = padded_data[GRIPPER_STATE_OBS_KEY]
             gripper_shape = padded_gripper.shape[1:]
             gripper_dtype = padded_gripper.dtype
-            next_gripper = np.empty((self.pred_horizon,) + gripper_shape, dtype=gripper_dtype)
+            next_gripper = np.empty(
+                (self.pred_horizon,) + gripper_shape, dtype=gripper_dtype
+            )
             if next_source_end > next_source_start:
-                next_gripper[next_pre_pad: next_pre_pad + (next_source_end - next_source_start)] = padded_gripper[next_source_start:next_source_end]
+                next_gripper[
+                    next_pre_pad : next_pre_pad + (next_source_end - next_source_start)
+                ] = padded_gripper[next_source_start:next_source_end]
             if next_pre_pad > 0:
                 next_gripper[:next_pre_pad] = padded_gripper[0]
             if next_post_pad > 0:
                 next_gripper[-next_post_pad:] = padded_gripper[-1]
             gripper_action_data = next_gripper
             sample[GRIPPER_ACTION_KEY] = torch.from_numpy(gripper_action_data).float()
-        
+
         if self.task_has_phases:
             padded_phases = padded_data[PHASE_LABEL_KEY]
             phase_shape = padded_phases.shape[1:]
             phase_dtype = padded_phases.dtype
             next_phase = np.empty((self.pred_horizon,) + phase_shape, dtype=phase_dtype)
             if next_source_end > next_source_start:
-                next_phase[next_pre_pad: next_pre_pad + (next_source_end - next_source_start)] = padded_phases[next_source_start:next_source_end]
+                next_phase[
+                    next_pre_pad : next_pre_pad + (next_source_end - next_source_start)
+                ] = padded_phases[next_source_start:next_source_end]
             if next_pre_pad > 0:
                 next_phase[:next_pre_pad] = padded_phases[0]
             if next_post_pad > 0:
@@ -419,22 +519,38 @@ class EpisodicDataset(data.Dataset):
         action_positions = np.arange(self.pred_horizon) + action_slice_start
         if self.deltas_as_actions:
             is_pad = np.logical_or(
-                np.logical_or(action_positions < sample_start_idx, action_positions >= sample_end_idx),
-                np.logical_or(action_positions + 1 < sample_start_idx, action_positions + 1 >= sample_end_idx)
+                np.logical_or(
+                    action_positions < sample_start_idx,
+                    action_positions >= sample_end_idx,
+                ),
+                np.logical_or(
+                    action_positions + 1 < sample_start_idx,
+                    action_positions + 1 >= sample_end_idx,
+                ),
             )
         else:
-            is_pad = np.logical_or(action_positions + 1 < sample_start_idx, action_positions + 1 >= sample_end_idx)
+            is_pad = np.logical_or(
+                action_positions + 1 < sample_start_idx,
+                action_positions + 1 >= sample_end_idx,
+            )
         sample[IS_PAD_KEY] = torch.from_numpy(is_pad).bool()
 
         return sample
+
 
 def get_dataloaders(config: PolicyConfig):
     datasets_paths = []
     for folder in config.dataset_folders:
         root_path = Path(folder)
-        episode_dirs = [d for d in root_path.iterdir() if d.is_dir() and (d / EPISODE_FILENAME).exists()]
+        episode_dirs = [
+            d
+            for d in root_path.iterdir()
+            if d.is_dir() and (d / EPISODE_FILENAME).exists()
+        ]
         datasets_paths.extend([str(d / EPISODE_FILENAME) for d in episode_dirs])
-    print(f"Found {len(datasets_paths)} episodes across {len(config.dataset_folders)} folders")
+    print(
+        f"Found {len(datasets_paths)} episodes across {len(config.dataset_folders)} folders"
+    )
 
     zarr_path = config.zarr_path
     # Preprocess if Zarr not exists or corrupted
@@ -442,31 +558,42 @@ def get_dataloaders(config: PolicyConfig):
     required_keys = config.camera_names + [ROBOT_FRAME_OBS_KEY, CAMERA_FRAME_OBS_KEY]
     if config.predict_gripper_action:
         required_keys += [GRIPPER_STATE_OBS_KEY]
-    
+
     if config.task_has_phases:
         required_keys += [PHASE_LABEL_KEY]
 
     if Path(zarr_path).exists():
         try:
-            logging.log(level=logging.INFO, msg=f"Loading existing replay buffer from {zarr_path}")
+            logging.log(
+                level=logging.INFO,
+                msg=f"Loading existing replay buffer from {zarr_path}",
+            )
             ReplayBuffer.copy_from_path(zarr_path, keys=required_keys)
             need_create = False
         except Exception as e:  # Catch any exception during loading
-            logging.log(level=logging.INFO, msg=f"Error loading {zarr_path}: {e}. Recreating...")
+            logging.log(
+                level=logging.INFO, msg=f"Error loading {zarr_path}: {e}. Recreating..."
+            )
             shutil.rmtree(zarr_path, ignore_errors=True)
 
     if need_create:
-        logging.log(level=logging.INFO, msg=f"Creating zarr replay buffer inside path: {zarr_path}")
+        logging.log(
+            level=logging.INFO,
+            msg=f"Creating zarr replay buffer inside path: {zarr_path}",
+        )
         create_replay_buffer(
             dataset_paths=datasets_paths,
-            image_height=config.image_height, image_width=config.image_width,
-            center_crop=config.center_crop, center_crop_size=config.center_crop_size,
+            image_height=config.image_height,
+            image_width=config.image_width,
+            center_crop=config.center_crop,
+            center_crop_size=config.center_crop_size,
             camera_names=config.camera_names,
             center_initial_position=config.center_initial_position,
-            use_rectified_images=config.use_rectified, downsample_factor=config.downsample_factor,
+            use_rectified_images=config.use_rectified,
+            downsample_factor=config.downsample_factor,
             zarr_path=zarr_path,
             predict_gripper_action=config.predict_gripper_action,
-            task_has_phases=config.task_has_phases
+            task_has_phases=config.task_has_phases,
         )
 
     train_dataset = EpisodicDataset(
@@ -496,7 +623,7 @@ def get_dataloaders(config: PolicyConfig):
         downsample_step=config.downsample_step,
         promote_sparsity=config.promote_sparsity,
         predict_gripper_action=config.predict_gripper_action,
-        task_has_phases=config.task_has_phases
+        task_has_phases=config.task_has_phases,
     )
     val_dataset = EpisodicDataset(
         zarr_path=zarr_path,
@@ -524,45 +651,77 @@ def get_dataloaders(config: PolicyConfig):
         downsample_step=config.downsample_step,
         promote_sparsity=config.promote_sparsity,
         predict_gripper_action=config.predict_gripper_action,
-        task_has_phases=config.task_has_phases
+        task_has_phases=config.task_has_phases,
     )
-    normalizer = train_dataset.get_normalizer(recompute_depth_stats=config.recompute_depth_stats, device=torch.device(config.device))
+    normalizer = train_dataset.get_normalizer(
+        recompute_depth_stats=config.recompute_depth_stats,
+        device=torch.device(config.device),
+    )
     if config.promote_sparsity:
         val_dataset.sparsity_threshold = train_dataset.sparsity_threshold
 
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=config.batch_size, shuffle=config.shuffle,
-        num_workers=config.num_workers, pin_memory=True, persistent_workers=True
+        train_dataset,
+        batch_size=config.batch_size,
+        shuffle=config.shuffle,
+        num_workers=config.num_workers,
+        pin_memory=True,
+        persistent_workers=True,
     )
 
     val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=config.batch_size, shuffle=False,
-        num_workers=4, pin_memory=True, persistent_workers=True
+        val_dataset,
+        batch_size=config.batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True,
+        persistent_workers=True,
     )
 
     gripper_positive_class_weights = None
-    if config.predict_gripper_action and config.calculate_gripper_positive_class_weights:
+    if (
+        config.predict_gripper_action
+        and config.calculate_gripper_positive_class_weights
+    ):
         # if the positive class weights are not calculated, set to 1 because that is the "balance" case
-        gripper_positive_class_weights = train_dataset.get_gripper_positive_class_imbalance_weight()
-    
+        gripper_positive_class_weights = (
+            train_dataset.get_gripper_positive_class_imbalance_weight()
+        )
+
     if config.task_has_phases:
         selected_eps = np.where(train_dataset.sampler.episode_mask)[0]
-        phase_labels = np.concatenate([train_dataset.replay_buffer.get_episode(i)[PHASE_LABEL_KEY].flatten() for i in selected_eps] if len(selected_eps) > 0 else [np.array([])])
+        phase_labels = np.concatenate(
+            [
+                train_dataset.replay_buffer.get_episode(i)[PHASE_LABEL_KEY].flatten()
+                for i in selected_eps
+            ]
+            if len(selected_eps) > 0
+            else [np.array([])]
+        )
         phase_counts = np.bincount(phase_labels, minlength=5)
-        logging.info(f"Train phase distribution: {dict(enumerate(phase_counts.tolist()))}")
+        logging.info(
+            f"Train phase distribution: {dict(enumerate(phase_counts.tolist()))}"
+        )
 
         selected_eps_val = np.where(val_dataset.sampler.episode_mask)[0]
-        phase_labels_val = np.concatenate([val_dataset.replay_buffer.get_episode(i)[PHASE_LABEL_KEY].flatten() for i in selected_eps_val] if len(selected_eps_val) > 0 else [np.array([])])
+        phase_labels_val = np.concatenate(
+            [
+                val_dataset.replay_buffer.get_episode(i)[PHASE_LABEL_KEY].flatten()
+                for i in selected_eps_val
+            ]
+            if len(selected_eps_val) > 0
+            else [np.array([])]
+        )
         phase_counts_val = np.bincount(phase_labels_val, minlength=5)
-        logging.info(f"Validation phase distribution: {dict(enumerate(phase_counts_val.tolist()))}")    
+        logging.info(
+            f"Validation phase distribution: {dict(enumerate(phase_counts_val.tolist()))}"
+        )
 
     return train_loader, val_loader, normalizer, gripper_positive_class_weights
 
 
 def split_episodes(
-        datasets_paths: List[str],
-        num_val_episodes: int,
-        seed: int
+    datasets_paths: List[str], num_val_episodes: int, seed: int
 ) -> Tuple[List[str], List[str]]:
     random.seed(seed)
 

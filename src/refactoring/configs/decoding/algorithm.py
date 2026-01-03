@@ -23,6 +23,7 @@ class DecodingAlgorithmConfig:
     Note: For variational algorithms, use VariationalAlgorithmConfig instead
     of setting latent_encoder on individual algorithms.
     """
+
     _target_: str = MISSING
 
 
@@ -33,12 +34,16 @@ class BehavioralCloningConfig(DecodingAlgorithmConfig):
     This is a pure, deterministic algorithm. For multi-modal action prediction,
     use VariationalAlgorithmConfig with BehavioralCloningConfig as the base_algorithm.
     """
-    _target_: str = "refactoring.models.decoding.algorithm.behavior_cloning.BehavioralCloning"
+
+    _target_: str = (
+        "refactoring.models.decoding.algorithm.behavior_cloning.BehavioralCloning"
+    )
 
 
 @dataclass
 class DiffusionConfig(DecodingAlgorithmConfig):
     """Diffusion algorithm configuration."""
+
     _target_: str = "refactoring.models.decoding.algorithm.diffusion.Diffusion"
 
     scheduler_type: str = SchedulerType.DDIM.value
@@ -58,6 +63,7 @@ class DiffusionConfig(DecodingAlgorithmConfig):
 @dataclass
 class FlowMatchingConfig(DecodingAlgorithmConfig):
     """Flow Matching algorithm configuration."""
+
     _target_: str = "refactoring.models.decoding.algorithm.flow_matching.FlowMatching"
     sigma: float = 0.0
     ode_solver: str = ODESolver.EULER.value
@@ -98,7 +104,10 @@ class VariationalAlgorithmConfig(DecodingAlgorithmConfig):
         posterior_encoder: Latent encoder for posterior q(z|a,s) (typically VAE)
         prior: Latent prior for p(z|s). If None, auto-creates GaussianPrior.
     """
-    _target_: str = "refactoring.models.decoding.algorithm.variational.VariationalAlgorithm"
+
+    _target_: str = (
+        "refactoring.models.decoding.algorithm.variational.VariationalAlgorithm"
+    )
     base_algorithm: DecodingAlgorithmConfig = MISSING  # type: ignore[assignment]
     posterior_encoder: PosteriorLatentEncoderConfig = MISSING  # type: ignore[assignment]
     prior: PriorLatentEncoderConfig  = MISSING

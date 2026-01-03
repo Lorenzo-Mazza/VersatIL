@@ -6,7 +6,9 @@ import torch.nn.functional as F
 
 from refactoring.models.layers.constants import AttentionType
 from refactoring.models.layers.transformer.kv_cache import LayerKVCache
-from refactoring.models.layers.transformer.positional_encoding import apply_rope_positional_encoding
+from refactoring.models.layers.transformer.positional_encoding import (
+    apply_rope_positional_encoding,
+)
 
 
 class CachedAttention(nn.Module):
@@ -87,7 +89,9 @@ class CachedAttention(nn.Module):
             embedding_dimension,
             bias=bias,
         )
-        self.output_projection.SQUARE_ROOT_WEIGHT = True # Flag for initialization (GPT2 style)
+        self.output_projection.SQUARE_ROOT_WEIGHT = (
+            True  # Flag for initialization (GPT2 style)
+        )
 
     def compute_query_key_value(
         self,
@@ -128,13 +132,12 @@ class CachedAttention(nn.Module):
         projected_value = projected_value.transpose(1, 2)
         return projected_query, projected_key, projected_value
 
-
     def compute_attention(
-            self,
-            queries: torch.Tensor,
-            keys: torch.Tensor,
-            values: torch.Tensor,
-            attention_mask: torch.Tensor | None = None,
+        self,
+        queries: torch.Tensor,
+        keys: torch.Tensor,
+        values: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute scaled dot-product attention.
 
@@ -149,13 +152,19 @@ class CachedAttention(nn.Module):
         """
         batch_size = queries.shape[0]
         query_length = queries.shape[2]
-        if self.group_size > 1: # For GQ attention
-            keys = torch.repeat_interleave(keys, self.group_size, dim=1) # (B, num_heads, kv_length, head_dim)
-            values = torch.repeat_interleave(values, self.group_size, dim=1) # (B, num_heads, kv_length, head_dim)
+        if self.group_size > 1:  # For GQ attention
+            keys = torch.repeat_interleave(
+                keys, self.group_size, dim=1
+            )  # (B, num_heads, kv_length, head_dim)
+            values = torch.repeat_interleave(
+                values, self.group_size, dim=1
+            )  # (B, num_heads, kv_length, head_dim)
 
         sdpa_mask = None
         if attention_mask is not None:
-            sdpa_mask = ~attention_mask if attention_mask is not None else None  # False means don't attend/padded
+            sdpa_mask = (
+                ~attention_mask if attention_mask is not None else None
+            )  # False means don't attend/padded
             # cf. https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html
 
         attended_values = F.scaled_dot_product_attention(
@@ -166,9 +175,13 @@ class CachedAttention(nn.Module):
             dropout_p=self.dropout if self.training else 0.0,
             scale=self.head_dimension ** -0.5,
         )
-        attended_values = attended_values.transpose(1, 2).contiguous()  # (B, query_len, num_heads, head_dim)
+        attended_values = attended_values.transpose(
+            1, 2
+        ).contiguous()  # (B, query_len, num_heads, head_dim)
         attended_values = attended_values.view(
-            batch_size, query_length, self.number_of_heads * self.head_dimension  # (B, query_len, embedding_dim)
+            batch_size,
+            query_length,
+            self.number_of_heads * self.head_dimension,  # (B, query_len, embedding_dim)
         )
         output = self.output_projection(attended_values)
         return output
@@ -204,19 +217,28 @@ class CachedAttention(nn.Module):
             updated_cache is a LayerKVCache or None.
         """
         if use_cross_attention_cache and layer_cache is not None:
-            if layer_cache.cross_attention_keys is None or layer_cache.cross_attention_values is None:
-                raise ValueError("layer_cache must contain precomputed cross_attention K/V when use_cross_attention_cache=True")
+            if (
+                layer_cache.cross_attention_keys is None
+                or layer_cache.cross_attention_values is None
+            ):
+                raise ValueError(
+                    "layer_cache must contain precomputed cross_attention K/V when use_cross_attention_cache=True"
+                )
             # Use precomputed cross K/V, only project queries
             queries = self.query_projection(query_input)
             batch_size = query_input.shape[0]
             query_length = query_input.shape[1]
-            queries = queries.view(batch_size, query_length, self.number_of_heads, self.head_dimension)
+            queries = queries.view(
+                batch_size, query_length, self.number_of_heads, self.head_dimension
+            )
             queries = queries.transpose(1, 2)
             keys = layer_cache.cross_attention_keys
             values = layer_cache.cross_attention_values
         else:
             if key_input is None or value_input is None:
-                raise ValueError("key_input and value_input required when not using cross_attention_cache")
+                raise ValueError(
+                    "key_input and value_input required when not using cross_attention_cache"
+                )
 
             queries, keys, values = self.compute_query_key_value(
                 query_input, key_input, value_input
@@ -244,10 +266,12 @@ class CachedAttention(nn.Module):
             new_cache = LayerKVCache(
                 self_attention_keys=keys,
                 self_attention_values=values,
-                cross_attention_keys=layer_cache.cross_attention_keys if layer_cache is not None else None,
-                cross_attention_values=layer_cache.cross_attention_values if layer_cache is not None else None,
+                cross_attention_keys=layer_cache.cross_attention_keys
+                if layer_cache is not None
+                else None,
+                cross_attention_values=layer_cache.cross_attention_values
+                if layer_cache is not None
+                else None,
             )
 
         return output, new_cache
-
-

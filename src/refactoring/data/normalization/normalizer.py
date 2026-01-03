@@ -12,77 +12,82 @@ from refactoring.data.constants import KinematicsNormalizationType
 
 
 class LinearNormalizer(DictOfTensorMixin):
-    avaliable_modes = [KinematicsNormalizationType.MIN_MAX.value, KinematicsNormalizationType.GAUSSIAN.value, KinematicsNormalizationType.DEMEAN.value]
-
+    avaliable_modes = [
+        KinematicsNormalizationType.MIN_MAX.value,
+        KinematicsNormalizationType.GAUSSIAN.value,
+        KinematicsNormalizationType.DEMEAN.value,
+    ]
 
     @torch.no_grad()
-    def fit(self,
-            data: dict | torch.Tensor | np.ndarray,
-            last_n_dims: int = 1,
-            dtype: torch.dtype = torch.float32,
-            mode: str = KinematicsNormalizationType.MIN_MAX.value,
-            output_max: float = 1.,
-            output_min: float = -1.,
-            range_eps: float = 1e-4,
-            fit_offset: bool = True,
-            device: torch.device | str | None = None,
-            clamp_range: bool = True,
-            min_std: float = 2e-2,
-            min_range: float = 4e-2):
+    def fit(
+        self,
+        data: dict | torch.Tensor | np.ndarray,
+        last_n_dims: int = 1,
+        dtype: torch.dtype = torch.float32,
+        mode: str = KinematicsNormalizationType.MIN_MAX.value,
+        output_max: float = 1.0,
+        output_min: float = -1.0,
+        range_eps: float = 1e-4,
+        fit_offset: bool = True,
+        device: torch.device | str | None = None,
+        clamp_range: bool = True,
+        min_std: float = 2e-2,
+        min_range: float = 4e-2,
+    ):
         if isinstance(data, dict):
             for key, value in data.items():
-                self.params_dict[key] = _fit(value,
-                                             last_n_dims=last_n_dims,
-                                             dtype=dtype,
-                                             mode=mode,
-                                             output_max=output_max,
-                                             output_min=output_min,
-                                             range_eps=range_eps,
-                                             fit_offset=fit_offset,
-                                             device=device,
-                                             clamp_range=clamp_range,
-                                             min_std=min_std,
-                                             min_range=min_range)
+                self.params_dict[key] = _fit(
+                    value,
+                    last_n_dims=last_n_dims,
+                    dtype=dtype,
+                    mode=mode,
+                    output_max=output_max,
+                    output_min=output_min,
+                    range_eps=range_eps,
+                    fit_offset=fit_offset,
+                    device=device,
+                    clamp_range=clamp_range,
+                    min_std=min_std,
+                    min_range=min_range,
+                )
         else:
-            self.params_dict['_default'] = _fit(data,
-                                                last_n_dims=last_n_dims,
-                                                dtype=dtype,
-                                                mode=mode,
-                                                output_max=output_max,
-                                                output_min=output_min,
-                                                range_eps=range_eps,
-                                                fit_offset=fit_offset,
-                                                device=device,
-                                                clamp_range=clamp_range,
-                                                min_std=min_std,
-                                                min_range=min_range)
-
+            self.params_dict["_default"] = _fit(
+                data,
+                last_n_dims=last_n_dims,
+                dtype=dtype,
+                mode=mode,
+                output_max=output_max,
+                output_min=output_min,
+                range_eps=range_eps,
+                fit_offset=fit_offset,
+                device=device,
+                clamp_range=clamp_range,
+                min_std=min_std,
+                min_range=min_range,
+            )
 
     def __call__(self, x: dict | torch.Tensor | np.ndarray) -> dict | torch.Tensor:
         return self.normalize(x)
 
-
     def __getitem__(self, key: str):
         params = self.params_dict[key]
         # Check if this is a sequential normalizer by looking for the metadata
-        if '_is_sequential' in params and params['_is_sequential'].item() == 1.0:
+        if "_is_sequential" in params and params["_is_sequential"].item() == 1.0:
             # Reconstruct SequentialNormalizer from stored params
-            num_normalizers = int(params['_num_normalizers'].item())
+            num_normalizers = int(params["_num_normalizers"].item())
             normalizers = []
 
             for i in range(num_normalizers):
                 # Reconstruct each normalizer's params
-                scale = params[f'_norm_{i}_scale']
-                offset = params[f'_norm_{i}_offset']
+                scale = params[f"_norm_{i}_scale"]
+                offset = params[f"_norm_{i}_offset"]
                 stats = {}
-                for k in ['min', 'max', 'mean', 'std']:
-                    if f'_norm_{i}_stat_{k}' in params:
-                        stats[k] = params[f'_norm_{i}_stat_{k}']
+                for k in ["min", "max", "mean", "std"]:
+                    if f"_norm_{i}_stat_{k}" in params:
+                        stats[k] = params[f"_norm_{i}_stat_{k}"]
 
                 norm = SingleFieldLinearNormalizer.create_manual(
-                    scale=scale,
-                    offset=offset,
-                    input_stats_dict=stats
+                    scale=scale, offset=offset, input_stats_dict=stats
                 )
                 normalizers.append(norm)
 
@@ -90,35 +95,46 @@ class LinearNormalizer(DictOfTensorMixin):
         else:
             return SingleFieldLinearNormalizer(params)
 
-
     def __setitem__(self, key: str, value):
         if isinstance(value, SequentialNormalizer):
             # Extract normalizers list
-            normalizer_list = list(value.normalizers) if hasattr(value.normalizers, '__iter__') else []
+            normalizer_list = (
+                list(value.normalizers)
+                if hasattr(value.normalizers, "__iter__")
+                else []
+            )
 
             # Create enhanced params_dict with metadata for reconstruction
             params_dict = nn.ParameterDict()
 
             # Store the effective scale/offset from SequentialNormalizer
-            params_dict['scale'] = value.params_dict['scale'].clone().detach()
-            params_dict['offset'] = value.params_dict['offset'].clone().detach()
+            params_dict["scale"] = value.params_dict["scale"].clone().detach()
+            params_dict["offset"] = value.params_dict["offset"].clone().detach()
 
             # Store input stats from first normalizer
-            input_stats = normalizer_list[0].params_dict['input_stats']
-            params_dict['input_stats'] = nn.ParameterDict({
-                k: v.clone().detach() for k, v in input_stats.items()
-            })
+            input_stats = normalizer_list[0].params_dict["input_stats"]
+            params_dict["input_stats"] = nn.ParameterDict(
+                {k: v.clone().detach() for k, v in input_stats.items()}
+            )
 
             # Store metadata
-            params_dict['_is_sequential'] = nn.Parameter(torch.tensor([1.0]), requires_grad=False)
-            params_dict['_num_normalizers'] = nn.Parameter(torch.tensor([float(len(normalizer_list))]), requires_grad=False)
+            params_dict["_is_sequential"] = nn.Parameter(
+                torch.tensor([1.0]), requires_grad=False
+            )
+            params_dict["_num_normalizers"] = nn.Parameter(
+                torch.tensor([float(len(normalizer_list))]), requires_grad=False
+            )
 
             # Store individual normalizer params for reconstruction
             for i, n in enumerate(normalizer_list):
-                params_dict[f'_norm_{i}_scale'] = n.params_dict['scale'].clone().detach()
-                params_dict[f'_norm_{i}_offset'] = n.params_dict['offset'].clone().detach()
-                for k, v in n.params_dict['input_stats'].items():
-                    params_dict[f'_norm_{i}_stat_{k}'] = v.clone().detach()
+                params_dict[f"_norm_{i}_scale"] = (
+                    n.params_dict["scale"].clone().detach()
+                )
+                params_dict[f"_norm_{i}_offset"] = (
+                    n.params_dict["offset"].clone().detach()
+                )
+                for k, v in n.params_dict["input_stats"].items():
+                    params_dict[f"_norm_{i}_stat_{k}"] = v.clone().detach()
 
             # Ensure no gradients
             for p in params_dict.parameters():
@@ -129,7 +145,7 @@ class LinearNormalizer(DictOfTensorMixin):
             # Regular SingleFieldLinearNormalizer
             self.params_dict[key] = value.params_dict
 
-    def _normalize_impl(self, x, forward = True):
+    def _normalize_impl(self, x, forward=True):
         with torch.no_grad():
             if isinstance(x, dict):
                 result = {}
@@ -142,81 +158,81 @@ class LinearNormalizer(DictOfTensorMixin):
                     result[key] = _normalize(value, params, forward=forward)
                 return result
             else:
-                if '_default' not in self.params_dict:
+                if "_default" not in self.params_dict:
                     raise RuntimeError("Not initialized")
-                params = self.params_dict['_default']
+                params = self.params_dict["_default"]
                 return _normalize(x, params, forward=forward)
-
 
     def normalize(self, x: dict | torch.Tensor | np.ndarray) -> dict | torch.Tensor:
         return self._normalize_impl(x, forward=True)  # type: ignore[no-any-return]
 
-
     def unnormalize(self, x: dict | torch.Tensor | np.ndarray) -> dict | torch.Tensor:
         return self._normalize_impl(x, forward=False)  # type: ignore[no-any-return]
-
 
     def get_input_stats(self) -> dict:
         if len(self.params_dict) == 0:
             raise RuntimeError("Not initialized")
-        if len(self.params_dict) == 1 and '_default' in self.params_dict:
-            return self.params_dict['_default']['input_stats']  # type: ignore[no-any-return]
+        if len(self.params_dict) == 1 and "_default" in self.params_dict:
+            return self.params_dict["_default"]["input_stats"]  # type: ignore[no-any-return]
 
         result = {}
         for key, value in self.params_dict.items():
-            if key != '_default':
-                result[key] = value['input_stats']
+            if key != "_default":
+                result[key] = value["input_stats"]
         return result
 
-
-    def get_output_stats(self, key = '_default'):
-        input_stats = self.params_dict['input_stats']
-        scale = self.params_dict['scale']
+    def get_output_stats(self, key="_default"):
+        input_stats = self.params_dict["input_stats"]
+        scale = self.params_dict["scale"]
         dict_to_return = {}
-        if 'min' in input_stats:
-            dict_to_return['min'] = self.normalize(input_stats['min'])
-        if 'max' in input_stats:
-            dict_to_return['max'] = self.normalize(input_stats['max'])
-        if 'mean' in input_stats:
-            dict_to_return['mean'] = self.normalize(input_stats['mean'])
-        if 'std' in input_stats:
-            dict_to_return['std'] = torch.abs(scale) * input_stats['std']
+        if "min" in input_stats:
+            dict_to_return["min"] = self.normalize(input_stats["min"])
+        if "max" in input_stats:
+            dict_to_return["max"] = self.normalize(input_stats["max"])
+        if "mean" in input_stats:
+            dict_to_return["mean"] = self.normalize(input_stats["mean"])
+        if "std" in input_stats:
+            dict_to_return["std"] = torch.abs(scale) * input_stats["std"]
         return dict_to_return
 
 
-
 class SingleFieldLinearNormalizer(DictOfTensorMixin):
-    avaliable_modes = [KinematicsNormalizationType.MIN_MAX.value, KinematicsNormalizationType.GAUSSIAN.value, KinematicsNormalizationType.DEMEAN.value]
-
+    avaliable_modes = [
+        KinematicsNormalizationType.MIN_MAX.value,
+        KinematicsNormalizationType.GAUSSIAN.value,
+        KinematicsNormalizationType.DEMEAN.value,
+    ]
 
     @torch.no_grad()
-    def fit(self,
-            data: torch.Tensor | np.ndarray,
-            last_n_dims: int = 1,
-            dtype: torch.dtype = torch.float32,
-            mode: str = KinematicsNormalizationType.MIN_MAX.value,
-            output_max: float = 1.,
-            output_min: float = -1.,
-            range_eps: float = 1e-10,
-            fit_offset: bool = True,
-            device: torch.device | str | None = 'cpu',
-            clamp_range: bool = True,
-            min_std: float = 2e-2,
-            min_range: float = 4e-2):
-        self.params_dict = _fit(data,
-                                last_n_dims=last_n_dims,
-                                dtype=dtype,
-                                mode=mode,
-                                output_max=output_max,
-                                output_min=output_min,
-                                range_eps=range_eps,
-                                fit_offset=fit_offset,
-                                device=device,
-                                clamp_range=clamp_range,
-                                min_std=min_std,
-                                min_range=min_range)
-
-
+    def fit(
+        self,
+        data: torch.Tensor | np.ndarray,
+        last_n_dims: int = 1,
+        dtype: torch.dtype = torch.float32,
+        mode: str = KinematicsNormalizationType.MIN_MAX.value,
+        output_max: float = 1.0,
+        output_min: float = -1.0,
+        range_eps: float = 1e-10,
+        fit_offset: bool = True,
+        device: torch.device | str | None = "cpu",
+        clamp_range: bool = True,
+        min_std: float = 2e-2,
+        min_range: float = 4e-2,
+    ):
+        self.params_dict = _fit(
+            data,
+            last_n_dims=last_n_dims,
+            dtype=dtype,
+            mode=mode,
+            output_max=output_max,
+            output_min=output_min,
+            range_eps=range_eps,
+            fit_offset=fit_offset,
+            device=device,
+            clamp_range=clamp_range,
+            min_std=min_std,
+            min_range=min_range,
+        )
 
     @classmethod
     def create_fit(cls, data: torch.Tensor | np.ndarray, **kwargs):
@@ -224,91 +240,90 @@ class SingleFieldLinearNormalizer(DictOfTensorMixin):
         obj.fit(data, **kwargs)
         return obj
 
-
     @classmethod
-    def create_manual(cls,
-                      scale: torch.Tensor | np.ndarray,
-                      offset: torch.Tensor | np.ndarray,
-                      input_stats_dict: dict[str, torch.Tensor | np.ndarray],
-                      ):
+    def create_manual(
+        cls,
+        scale: torch.Tensor | np.ndarray,
+        offset: torch.Tensor | np.ndarray,
+        input_stats_dict: dict[str, torch.Tensor | np.ndarray],
+    ):
         def to_tensor(x):
             if not isinstance(x, torch.Tensor):
                 x = torch.from_numpy(x)
             x = x.flatten()
             return x
 
-
         # check
         for x in [offset] + list(input_stats_dict.values()):
             assert x.shape == scale.shape
             assert x.dtype == scale.dtype
 
-        params_dict = nn.ParameterDict({
-            'scale': to_tensor(scale),
-            'offset': to_tensor(offset),
-            'input_stats': nn.ParameterDict(
-                dict_apply(input_stats_dict, to_tensor))  # type: ignore[arg-type]
-        })
+        params_dict = nn.ParameterDict(
+            {
+                "scale": to_tensor(scale),
+                "offset": to_tensor(offset),
+                "input_stats": nn.ParameterDict(
+                    dict_apply(input_stats_dict, to_tensor)
+                ),  # type: ignore[arg-type]
+            }
+        )
         for p in params_dict.parameters():
             p.requires_grad_(False)
         return cls(params_dict)
 
-
     @classmethod
-    def create_identity(cls, dtype = torch.float32):
+    def create_identity(cls, dtype=torch.float32):
         scale = torch.tensor([1], dtype=dtype)
         offset = torch.tensor([0], dtype=dtype)
         input_stats_dict = {
-            'min': torch.tensor([-1], dtype=dtype),
-            'max': torch.tensor([1], dtype=dtype),
-            'mean': torch.tensor([0], dtype=dtype),
-            'std': torch.tensor([1], dtype=dtype)
+            "min": torch.tensor([-1], dtype=dtype),
+            "max": torch.tensor([1], dtype=dtype),
+            "mean": torch.tensor([0], dtype=dtype),
+            "std": torch.tensor([1], dtype=dtype),
         }
         return cls.create_manual(scale, offset, input_stats_dict)  # type: ignore[arg-type]
-
 
     def normalize(self, x: torch.Tensor | np.ndarray) -> torch.Tensor:
         return _normalize(x, self.params_dict, forward=True)  # type: ignore[no-any-return]
 
-
     def unnormalize(self, x: torch.Tensor | np.ndarray) -> torch.Tensor:
         return _normalize(x, self.params_dict, forward=False)  # type: ignore[no-any-return]
 
-
     def get_input_stats(self):
-        return self.params_dict['input_stats']
-
+        return self.params_dict["input_stats"]
 
     def get_output_stats(self):
-        input_stats = self.params_dict['input_stats']
-        scale = self.params_dict['scale']
+        input_stats = self.params_dict["input_stats"]
+        scale = self.params_dict["scale"]
         dict_to_return = {}
-        if 'min' in input_stats:
-            dict_to_return['min'] = self.normalize(input_stats['min'])
-        if 'max' in input_stats:
-            dict_to_return['max'] = self.normalize(input_stats['max'])
-        if 'mean' in input_stats:
-            dict_to_return['mean'] = self.normalize(input_stats['mean'])
-        if 'std' in input_stats:
-            dict_to_return['std'] = torch.abs(scale) * input_stats['std']
+        if "min" in input_stats:
+            dict_to_return["min"] = self.normalize(input_stats["min"])
+        if "max" in input_stats:
+            dict_to_return["max"] = self.normalize(input_stats["max"])
+        if "mean" in input_stats:
+            dict_to_return["mean"] = self.normalize(input_stats["mean"])
+        if "std" in input_stats:
+            dict_to_return["std"] = torch.abs(scale) * input_stats["std"]
         return dict_to_return
 
     def __call__(self, x: torch.Tensor | np.ndarray) -> torch.Tensor:
         return self.normalize(x)
 
 
-def _fit(data: torch.Tensor | np.ndarray,
-         last_n_dims: int = 1,
-         dtype: torch.dtype = torch.float32,
-         mode: str = KinematicsNormalizationType.MIN_MAX.value,
-         output_max: float = 1.,
-         output_min: float = -1.,
-         range_eps: float = 1e-10,
-         fit_offset: bool = True,
-         device: torch.device | str | None = None,
-         clamp_range: bool = True,
-         min_std: float = 2e-2,
-         min_range: float = 4e-2):
+def _fit(
+    data: torch.Tensor | np.ndarray,
+    last_n_dims: int = 1,
+    dtype: torch.dtype = torch.float32,
+    mode: str = KinematicsNormalizationType.MIN_MAX.value,
+    output_max: float = 1.0,
+    output_min: float = -1.0,
+    range_eps: float = 1e-10,
+    fit_offset: bool = True,
+    device: torch.device | str | None = None,
+    clamp_range: bool = True,
+    min_std: float = 2e-2,
+    min_range: float = 4e-2,
+):
     """Fit normalization parameters to data.
 
     Args:
@@ -329,7 +344,11 @@ def _fit(data: torch.Tensor | np.ndarray,
     Returns:
         ParameterDict with scale, offset, and input_stats.
     """
-    assert mode in [KinematicsNormalizationType.MIN_MAX.value, KinematicsNormalizationType.GAUSSIAN.value, KinematicsNormalizationType.DEMEAN.value]
+    assert mode in [
+        KinematicsNormalizationType.MIN_MAX.value,
+        KinematicsNormalizationType.GAUSSIAN.value,
+        KinematicsNormalizationType.DEMEAN.value,
+    ]
 
     assert last_n_dims >= 0
     assert output_max > output_min
@@ -341,7 +360,9 @@ def _fit(data: torch.Tensor | np.ndarray,
     if dtype is not None:
         tensor_data = tensor_data.type(dtype)
     if device is not None:
-        tensor_data = tensor_data.to(device)  # Move data to device before computing stats
+        tensor_data = tensor_data.to(
+            device
+        )  # Move data to device before computing stats
 
     # convert shape
     dim = 1
@@ -400,28 +421,32 @@ def _fit(data: torch.Tensor | np.ndarray,
         raise ValueError(f"Unknown mode: {mode}")
 
     # save
-    this_params = nn.ParameterDict({
-        'scale': scale,
-        'offset': offset,
-        'input_stats': nn.ParameterDict({
-            'min': input_min,
-            'max': input_max,
-            'mean': input_mean,
-            'std': input_std
-        })
-    })
+    this_params = nn.ParameterDict(
+        {
+            "scale": scale,
+            "offset": offset,
+            "input_stats": nn.ParameterDict(
+                {
+                    "min": input_min,
+                    "max": input_max,
+                    "mean": input_mean,
+                    "std": input_std,
+                }
+            ),
+        }
+    )
     for p in this_params.parameters():
         p.requires_grad_(False)
     return this_params
 
 
 @torch.no_grad()
-def _normalize(x, params, forward = True):
-    assert 'scale' in params
+def _normalize(x, params, forward=True):
+    assert "scale" in params
     if isinstance(x, np.ndarray):
         x = torch.from_numpy(x)
-    scale = params['scale']
-    offset = params['offset']
+    scale = params["scale"]
+    offset = params["offset"]
     x = x.to(device=scale.device, dtype=scale.dtype)
     src_shape = x.shape
     x = x.reshape(-1, scale.shape[0])
@@ -430,64 +455,69 @@ def _normalize(x, params, forward = True):
     return x
 
 
-
 class SequentialNormalizer(SingleFieldLinearNormalizer):
     """
     A normalizer that applies a sequence of normalizers. The normalizers must be instances of SingleFieldLinearNormalizer
      and be already fitted.
     """
+
     def __init__(self, normalizers):
         super().__init__()
         self.normalizers = nn.ModuleList(normalizers)
         if len(self.normalizers) == 0:
             raise ValueError("At least one normalizer required")
         # Compute effective scale and offset
-        eff_scale = self.normalizers[0].params_dict['scale'].clone().detach()
-        eff_offset = self.normalizers[0].params_dict['offset'].clone().detach()
+        eff_scale = self.normalizers[0].params_dict["scale"].clone().detach()
+        eff_offset = self.normalizers[0].params_dict["offset"].clone().detach()
         for n in self.normalizers[1:]:
-            s = n.params_dict['scale'].clone().detach()
-            o = n.params_dict['offset'].clone().detach()
+            s = n.params_dict["scale"].clone().detach()
+            o = n.params_dict["offset"].clone().detach()
             eff_offset = o + s * eff_offset
             eff_scale = s * eff_scale
 
-        input_stats = self.normalizers[0].params_dict['input_stats']
-        self.params_dict = nn.ParameterDict({
-            'scale': nn.Parameter(eff_scale, requires_grad=False),
-            'offset': nn.Parameter(eff_offset, requires_grad=False),
-            'input_stats': nn.ParameterDict({k: nn.Parameter(v.clone().detach(), requires_grad=False) for k, v in input_stats.items()})
-        })
-
+        input_stats = self.normalizers[0].params_dict["input_stats"]
+        self.params_dict = nn.ParameterDict(
+            {
+                "scale": nn.Parameter(eff_scale, requires_grad=False),
+                "offset": nn.Parameter(eff_offset, requires_grad=False),
+                "input_stats": nn.ParameterDict(
+                    {
+                        k: nn.Parameter(v.clone().detach(), requires_grad=False)
+                        for k, v in input_stats.items()
+                    }
+                ),
+            }
+        )
 
     def fit(self, *args, **kwargs):
         raise NotImplementedError("SequentialNormalizer does not support fitting")
 
     def normalize(self, x):
-        """ Apply all normalizers in sequence."""
+        """Apply all normalizers in sequence."""
         for n in self.normalizers:
             x = n.normalize(x)
         return x
 
     def unnormalize(self, x):
-        """ Apply all normalizers in reverse sequence."""
+        """Apply all normalizers in reverse sequence."""
         for n in reversed(self.normalizers):
             x = n.unnormalize(x)
         return x
 
     def get_input_stats(self):
-        """ Get input stats of the first normalizer."""
+        """Get input stats of the first normalizer."""
         return self.normalizers[0].get_input_stats()
 
     def get_output_stats(self):
-        """ Get output stats of the last normalizer."""
+        """Get output stats of the last normalizer."""
         stats = self.get_input_stats()
         for n in self.normalizers:
-            scale = n.params_dict['scale']
-            offset = n.params_dict['offset']
+            scale = n.params_dict["scale"]
+            offset = n.params_dict["offset"]
             stats = {
-                'min': scale * stats['min'] + offset,
-                'max': scale * stats['max'] + offset,
-                'mean': scale * stats['mean'] + offset,
-                'std': torch.abs(scale) * stats['std']
+                "min": scale * stats["min"] + offset,
+                "max": scale * stats["max"] + offset,
+                "mean": scale * stats["mean"] + offset,
+                "std": torch.abs(scale) * stats["std"],
             }
         return stats
-

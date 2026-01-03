@@ -31,8 +31,12 @@ class DataLoaderConfig:
     min_kinematics_range: float = 1e-2
     # Tokenization
     tokenization: TokenizationConfig = field(default_factory=TokenizationConfig)
-    color_augmentation: AugmentationPipelineConfig  = field(default_factory=AugmentationPipelineConfig)
-    spatial_augmentation: AugmentationPipelineConfig | None = field(default_factory=AugmentationPipelineConfig)
+    color_augmentation: AugmentationPipelineConfig = field(
+        default_factory=AugmentationPipelineConfig
+    )
+    spatial_augmentation: AugmentationPipelineConfig | None = field(
+        default_factory=AugmentationPipelineConfig
+    )
     rotation_augmentation: AugmentationPipelineConfig | None = None
     #: Whether to skip the initial n steps of each episode due to recording artifacts.
     skip_initial_episode_steps: int = 0
@@ -44,5 +48,3 @@ class DataLoaderConfig:
     val_ratio: float = 0.1
     #: Ratio of total dataset episodes to use (for ablation studies on varying dataset sizes).
     total_ratio: float = 1.0
-
-

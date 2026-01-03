@@ -8,10 +8,17 @@ import numpy as np
 import os
 import argparse
 from tqdm import tqdm
-from dataset.preprocess import CAMERA_FRAME_KINEMATICS_COLS, GRIPPER_STATE_COL, PHASE_LABEL_COL
+from dataset.preprocess import (
+    CAMERA_FRAME_KINEMATICS_COLS,
+    GRIPPER_STATE_COL,
+    PHASE_LABEL_COL,
+)
 from dataset.dataloader import EPISODE_FILENAME
 
-def detect_first_desired_gripper_state(gripper_state_col, phases, delay_seconds=1, hz=4, phase_number=0, opened=True):
+
+def detect_first_desired_gripper_state(
+    gripper_state_col, phases, delay_seconds=1, hz=4, phase_number=0, opened=True
+):
     """
     Detects the first occurrence of a desired gripper state (opened or closed) and extends the phase list.
 
@@ -32,11 +39,24 @@ def detect_first_desired_gripper_state(gripper_state_col, phases, delay_seconds=
         # Invert gripper state to detect closed state (assuming True = opened)
         gripper_state_col[start_idx:] = ~gripper_state_col[start_idx:]
     # Find first occurrence of desired state, or use end of data if none found
-    first_desired_gripper_state_idx = np.argmax(gripper_state_col[start_idx:]) if np.any(gripper_state_col[start_idx:]) else len(gripper_state_col[start_idx:])
+    first_desired_gripper_state_idx = (
+        np.argmax(gripper_state_col[start_idx:])
+        if np.any(gripper_state_col[start_idx:])
+        else len(gripper_state_col[start_idx:])
+    )
     # Extend phases with delay
-    return phases + [phase_number] * (first_desired_gripper_state_idx + delay_seconds*hz)
+    return phases + [phase_number] * (
+        first_desired_gripper_state_idx + delay_seconds * hz
+    )
 
-def detect_movement_greater_or_smaller_than(camera_frame_kinematics_cols, phases, epsilon=1e-4, phase_number=None, greater_than=True):
+
+def detect_movement_greater_or_smaller_than(
+    camera_frame_kinematics_cols,
+    phases,
+    epsilon=1e-4,
+    phase_number=None,
+    greater_than=True,
+):
     """
     Detects the first occurrence where movement magnitude is greater than or less than a threshold.
 
@@ -54,38 +74,62 @@ def detect_movement_greater_or_smaller_than(camera_frame_kinematics_cols, phases
     start_idx = len(phases)
     camera_frame_kinematics_cols = camera_frame_kinematics_cols[start_idx:]
     # Calculate movement magnitude between consecutive frames
-    movement_norm = np.linalg.norm(camera_frame_kinematics_cols[1:, :] - camera_frame_kinematics_cols[:-1, :], axis=1)
+    movement_norm = np.linalg.norm(
+        camera_frame_kinematics_cols[1:, :] - camera_frame_kinematics_cols[:-1, :],
+        axis=1,
+    )
     # Create mask based on threshold condition
     mask = movement_norm >= epsilon if greater_than else movement_norm <= epsilon
     # Find first frame meeting the condition, or use end of data if none found
     first_positive_idx = np.argmax(mask) if np.any(mask) else len(movement_norm)
     return phases + [phase_number] * first_positive_idx
 
+
 def detect_phase_0(gripper_state_col, phases):
     """
     Phase 0: Initial phase - detects first gripper opening.
     This represents the beginning of the procedure when the robot waits for the robot to point/lift where the grasp is wanted.
     """
-    return detect_first_desired_gripper_state(gripper_state_col, phases, phase_number=0, opened=True)
+    return detect_first_desired_gripper_state(
+        gripper_state_col, phases, phase_number=0, opened=True
+    )
+
 
 def detect_phase_1(gripper_state_col, phases):
     """
     Phase 1: Tool preparation - The robot goes to the grasp position and closes the gripper.
     This represents the phase where the gripper is closed to grasp the tool.
     """
-    return detect_first_desired_gripper_state(gripper_state_col, phases, phase_number=1, opened=False)
+    return detect_first_desired_gripper_state(
+        gripper_state_col, phases, phase_number=1, opened=False
+    )
+
 
 def detect_phase_2(camera_frame_kinematics_cols, phases, epsilon=1e-4):
     """
     Phase 2: Wait for retraction trigger - The robot holds until the surgeon grasp another end of the bowel.
     """
-    return detect_movement_greater_or_smaller_than(camera_frame_kinematics_cols, phases, phase_number=2, greater_than=True, epsilon=epsilon)
+    return detect_movement_greater_or_smaller_than(
+        camera_frame_kinematics_cols,
+        phases,
+        phase_number=2,
+        greater_than=True,
+        epsilon=epsilon,
+    )
+
 
 def detect_phase_3(camera_frame_kinematics_cols, phases, epsilon=1e-4):
     """
     Phase 3: Retraction phase - Once the surgeon has grasped the other end of the bowel, the robot retracts the bowel.
     """
-    return detect_movement_greater_or_smaller_than(camera_frame_kinematics_cols, phases, phase_number=3, greater_than=False, epsilon=epsilon)
+    return detect_movement_greater_or_smaller_than(
+        camera_frame_kinematics_cols,
+        phases,
+        phase_number=3,
+        greater_than=False,
+        epsilon=epsilon,
+    )
+
 
 def detect_phase_4(episode_length, phases):
     """
@@ -93,7 +137,8 @@ def detect_phase_4(episode_length, phases):
     """
     phases = phases[:]
     start_idx = len(phases)
-    return phases + [4]*(episode_length - start_idx)
+    return phases + [4] * (episode_length - start_idx)
+
 
 def add_phases_to_episode_csv(episode_path, col_name=None):
     """
@@ -119,7 +164,9 @@ def add_phases_to_episode_csv(episode_path, col_name=None):
     phases = []
     phases = detect_phase_0(gripper_state_col, phases)
     phases = detect_phase_1(gripper_state_col, phases)
-    phases = detect_phase_2(camera_frame_kinematics_cols, phases, epsilon=1e-3)  # Higher threshold for phase 2
+    phases = detect_phase_2(
+        camera_frame_kinematics_cols, phases, epsilon=1e-3
+    )  # Higher threshold for phase 2
     phases = detect_phase_3(camera_frame_kinematics_cols, phases)
     phases = detect_phase_4(len(episode), phases)
 
@@ -127,18 +174,30 @@ def add_phases_to_episode_csv(episode_path, col_name=None):
     episode[col_name] = phases
     episode.to_csv(episode_path, index=False)
 
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Add phase labels to bowel retraction episodes")
-    parser.add_argument("--dataset-path", type=str, required=True, help="Path to the dataset directory containing episode folders")
+    parser = argparse.ArgumentParser(
+        description="Add phase labels to bowel retraction episodes"
+    )
+    parser.add_argument(
+        "--dataset-path",
+        type=str,
+        required=True,
+        help="Path to the dataset directory containing episode folders",
+    )
     args = parser.parse_args()
 
     dataset_path = args.dataset_path
     # Find all episode directories (excluding metadata files)
-    episodes_paths = [os.path.join(dataset_path, i, EPISODE_FILENAME) for i in os.listdir(dataset_path) if i not in ['dataset.zarr', 'EADME.md']]
+    episodes_paths = [
+        os.path.join(dataset_path, i, EPISODE_FILENAME)
+        for i in os.listdir(dataset_path)
+        if i not in ["dataset.zarr", "EADME.md"]
+    ]
 
     # Process each episode with progress bar
     for episode_path in tqdm(episodes_paths, desc="Processing episodes"):
         try:
             add_phases_to_episode_csv(episode_path)
         except Exception as e:
-            print(f'Error processing: {episode_path}.\n{e}')
+            print(f"Error processing: {episode_path}.\n{e}")

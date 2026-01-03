@@ -48,7 +48,6 @@ class PosteriorLatentEncoder(nn.Module, abc.ABC):
         """
         raise NotImplementedError("encode() must be implemented by subclasses.")
 
-
     def forward(
         self,
         actions: dict[str, torch.Tensor],
@@ -56,5 +55,3 @@ class PosteriorLatentEncoder(nn.Module, abc.ABC):
     ) -> dict[str, torch.Tensor]:
         """Forward pass: encode actions into a latent representation."""
         return self.encode(actions, observations)
-
-

@@ -34,10 +34,10 @@ class DecodingAlgorithm(nn.Module, abc.ABC):
 
     @abstractmethod
     def forward(
-            self,
-            network: ActionDecoder,
-            features: dict[str, torch.Tensor],
-            actions: dict[str, torch.Tensor] | None = None,
+        self,
+        network: ActionDecoder,
+        features: dict[str, torch.Tensor],
+        actions: dict[str, torch.Tensor] | None = None,
     ) -> dict[str, torch.Tensor]:
         """Forward pass during training.
 
@@ -51,12 +51,11 @@ class DecodingAlgorithm(nn.Module, abc.ABC):
         """
         raise NotImplementedError
 
-
     @abstractmethod
     def predict(
-            self,
-            network: ActionDecoder,
-            features: dict[str, torch.Tensor],
+        self,
+        network: ActionDecoder,
+        features: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Inference/prediction pass.
 

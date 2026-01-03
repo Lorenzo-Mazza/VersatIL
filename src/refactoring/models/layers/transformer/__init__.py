@@ -1,7 +1,9 @@
 """GPT-style transformer with KV cache support for autoregressive generation."""
 
 from refactoring.models.layers.transformer.attention import CachedAttention
-from refactoring.models.layers.transformer.bidirectional_decoder import BidirectionalDecoder
+from refactoring.models.layers.transformer.bidirectional_decoder import (
+    BidirectionalDecoder,
+)
 from refactoring.models.layers.transformer.autoregressive_decoder import GPTDecoder
 from refactoring.models.layers.transformer.decoder_layer import TransformerDecoderLayer
 from refactoring.models.layers.transformer.kv_cache import (

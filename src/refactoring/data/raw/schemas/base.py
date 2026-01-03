@@ -12,7 +12,11 @@ import albumentations as A
 import numpy as np
 
 from refactoring.data.raw.zarr_meta import DatasetMetadata
-from refactoring.data.metadata import CameraMetadata, ObservationMetadata, PrecomputedActionMetadata
+from refactoring.data.metadata import (
+    CameraMetadata,
+    ObservationMetadata,
+    PrecomputedActionMetadata,
+)
 
 
 class DatasetSchema(abc.ABC):
@@ -44,7 +48,6 @@ class DatasetSchema(abc.ABC):
         self.zarr_path = zarr_path
         self.metadata = metadata
 
-
     @abc.abstractmethod
     def extract_episode(
         self,
@@ -67,7 +70,6 @@ class DatasetSchema(abc.ABC):
         """
         raise NotImplementedError("Subclasses must implement extract_episode")
 
-
     def get_required_zarr_keys(self) -> list[str]:
         """Get all required zarr keys based on the dataset metadata.
 
@@ -87,18 +89,18 @@ class DatasetSchema(abc.ABC):
         for key, obs in self.metadata.observations.items():
             if isinstance(obs, CameraMetadata):
                 specs[key] = {
-                    'shape': (0, obs.image_height, obs.image_width, obs.channels),
-                    'chunks': (10, obs.image_height, obs.image_width, obs.channels),
-                    'dtype': obs.dtype,
-                    'needs_compressor': True
+                    "shape": (0, obs.image_height, obs.image_width, obs.channels),
+                    "chunks": (10, obs.image_height, obs.image_width, obs.channels),
+                    "dtype": obs.dtype,
+                    "needs_compressor": True,
                 }
             elif isinstance(obs, ObservationMetadata):
-                needs_compression = obs.dtype != 'str'
+                needs_compression = obs.dtype != "str"
                 specs[key] = {
-                    'shape': (0, obs.dimension),
-                    'chunks': (100, obs.dimension),
-                    'dtype': obs.dtype,
-                    'needs_compressor': needs_compression
+                    "shape": (0, obs.dimension),
+                    "chunks": (100, obs.dimension),
+                    "dtype": obs.dtype,
+                    "needs_compressor": needs_compression,
                 }
         for key, action in self.metadata.precomputed_actions.items():
             if action.slice_start is not None and action.slice_end is not None:
@@ -106,10 +108,9 @@ class DatasetSchema(abc.ABC):
             else:
                 dim = action.storage_dimension
             specs[key] = {
-                'shape': (0, dim),
-                'chunks': (100, dim),
-                'dtype': action.dtype,
-                'needs_compressor': True
+                "shape": (0, dim),
+                "chunks": (100, dim),
+                "dtype": action.dtype,
+                "needs_compressor": True,
             }
         return specs
-

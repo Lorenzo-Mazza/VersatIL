@@ -10,12 +10,13 @@ import os
 import torch
 from omegaconf import OmegaConf
 
-from refactoring.inference.client import TSOPolicyClient
+from refactoring.inference.tso_client import TSOPolicyClient
 from refactoring.inference.libero_client import LiberoClient
 
 
 class ClientType(enum.Enum):
     """Enum for policy client types."""
+
     TSO = "tso"
     LIBERO = "libero"
 
@@ -26,7 +27,9 @@ def parse_args() -> argparse.Namespace:
     Returns:
         Parsed arguments
     """
-    parser = argparse.ArgumentParser(description="Run inference client for real-time robot control")
+    parser = argparse.ArgumentParser(
+        description="Run inference client for real-time robot control"
+    )
     parser.add_argument(
         "--model-server-address",
         type=str,
@@ -105,7 +108,9 @@ def detect_client_type(checkpoint_path: str) -> str:
     elif "bowel_retraction" in target.lower():
         return ClientType.TSO.value
     else:
-        raise ValueError(f"Unknown dataset schema: {target}. Cannot determine client type.")
+        raise ValueError(
+            f"Unknown dataset schema: {target}. Cannot determine client type."
+        )
 
 
 def main():

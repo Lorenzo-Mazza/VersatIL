@@ -4,13 +4,15 @@ import torch.nn as nn
 
 class SpatialSoftmax(nn.Module):
     """Spatial softmax layer for extracting keypoints from feature maps, based on https://rll.berkeley.edu/dsae/dsae.pdf"""
-    def __init__(self,
-                 height: int,
-                 width: int,
-                 channel: int,
-                 temperature: float = 1.0,
-                 learnable_temperature: bool = False,
-                 ):
+
+    def __init__(
+        self,
+        height: int,
+        width: int,
+        channel: int,
+        temperature: float = 1.0,
+        learnable_temperature: bool = False,
+    ):
         """Initializes the SpatialSoftmax module.
 
         Args:
@@ -26,17 +28,16 @@ class SpatialSoftmax(nn.Module):
         self.channel = channel
         self.learnable_temperature = learnable_temperature
         if self.learnable_temperature:
-            self.temperature = nn.Parameter(torch.ones(1) * temperature, requires_grad=True)
+            self.temperature = nn.Parameter(
+                torch.ones(1) * temperature, requires_grad=True
+            )
         else:
             self.register_buffer("temperature", torch.ones(1) * temperature)
         pos_x, pos_y = torch.meshgrid(
-            torch.linspace(-1, 1, width),
-            torch.linspace(-1, 1, height),
-            indexing='xy'
+            torch.linspace(-1, 1, width), torch.linspace(-1, 1, height), indexing="xy"
         )
-        self.register_buffer('pos_x', pos_x.reshape(1, height * width))
-        self.register_buffer('pos_y', pos_y.reshape(1, height * width))
-
+        self.register_buffer("pos_x", pos_x.reshape(1, height * width))
+        self.register_buffer("pos_y", pos_y.reshape(1, height * width))
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         """
@@ -51,4 +52,3 @@ class SpatialSoftmax(nn.Module):
         expected_x = torch.sum(self.pos_x * softmax_attn, dim=-1, keepdim=False)
         expected_y = torch.sum(self.pos_y * softmax_attn, dim=-1, keepdim=False)
         return torch.cat([expected_x, expected_y], dim=-1)
-

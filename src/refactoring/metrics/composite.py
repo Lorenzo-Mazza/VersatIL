@@ -77,4 +77,3 @@ class CompositeLoss(BaseLoss):
             component_losses=all_component_losses,
             metadata=all_metadata,
         )
-

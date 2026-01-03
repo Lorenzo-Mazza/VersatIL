@@ -9,6 +9,7 @@ from refactoring.training.constants import Float32MatmulPrecision, PrecisionType
 @dataclass
 class ExperimentConfig:
     """Experiment tracking and setup configuration."""
+
     name: str = MISSING  # Required - will be set per experiment
     seed: int = 42
     #: Folder to save checkpoints and logs

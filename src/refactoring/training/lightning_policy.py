@@ -53,7 +53,9 @@ class LightningPolicy(pl.LightningModule):
         self._val_dataloader = None
         self.lr = None
 
-    def training_step(self, batch: dict[str, dict[str, torch.Tensor]], batch_idx: int) -> torch.Tensor:
+    def training_step(
+        self, batch: dict[str, dict[str, torch.Tensor]], batch_idx: int
+    ) -> torch.Tensor:
         """Training step.
 
         Args:
@@ -66,7 +68,13 @@ class LightningPolicy(pl.LightningModule):
         loss_output: LossOutput = self.policy.compute_loss(batch)
         self.train_metrics.add_loss_output(loss_output)
         # Log only on epoch to avoid batch size dependency in plots
-        self.log("train_loss", loss_output.total_loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log(
+            "train_loss",
+            loss_output.total_loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+        )
         return loss_output.total_loss
 
     def on_train_epoch_end(self) -> None:
@@ -79,7 +87,9 @@ class LightningPolicy(pl.LightningModule):
         )
         self.train_metrics.reset()
 
-    def validation_step(self, batch: dict[str, dict[str, torch.Tensor]], batch_idx: int) -> torch.Tensor:
+    def validation_step(
+        self, batch: dict[str, dict[str, torch.Tensor]], batch_idx: int
+    ) -> torch.Tensor:
         """Validation step.
 
         Args:
@@ -91,7 +101,13 @@ class LightningPolicy(pl.LightningModule):
         """
         loss_output: LossOutput = self.policy.compute_loss(batch)
         self.val_metrics.add_loss_output(loss_output)
-        self.log("val_loss", loss_output.total_loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log(
+            "val_loss",
+            loss_output.total_loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+        )
         return loss_output.total_loss
 
     def on_validation_epoch_end(self) -> None:
@@ -117,7 +133,9 @@ class LightningPolicy(pl.LightningModule):
         param_groups = self._create_parameter_groups(optimizer_config)
 
         optimizer_config_omega = OmegaConf.structured(optimizer_config)
-        optimizer_config_dict = OmegaConf.to_container(optimizer_config_omega, resolve=True)
+        optimizer_config_dict = OmegaConf.to_container(
+            optimizer_config_omega, resolve=True
+        )
         target = optimizer_config_dict.pop("target_class")
         optimizer_cls = get_class(target)
         # Remove custom field that's not passed to torch.optim
@@ -131,7 +149,9 @@ class LightningPolicy(pl.LightningModule):
             "lr_scheduler": scheduler_config,
         }
 
-    def _create_parameter_groups(self, optimizer_config: OptimizerConfig) -> list[dict[str, Any]]:
+    def _create_parameter_groups(
+        self, optimizer_config: OptimizerConfig
+    ) -> list[dict[str, Any]]:
         """Create parameter groups with different learning rates.
 
         Args:
@@ -152,7 +172,9 @@ class LightningPolicy(pl.LightningModule):
 
             assigned = False
             for group_config in optimizer_config.param_groups:
-                if group_config.params_pattern and re.search(group_config.params_pattern, name):
+                if group_config.params_pattern and re.search(
+                    group_config.params_pattern, name
+                ):
                     param_groups_dict[group_config.name].append(param)
                     assigned = True
                     break
@@ -176,7 +198,9 @@ class LightningPolicy(pl.LightningModule):
 
         return param_groups
 
-    def _create_scheduler_config(self, optimizer: torch.optim.Optimizer) -> dict[str, Any]:
+    def _create_scheduler_config(
+        self, optimizer: torch.optim.Optimizer
+    ) -> dict[str, Any]:
         """Create learning rate scheduler configuration.
 
         Args:
@@ -216,8 +240,7 @@ class LightningPolicy(pl.LightningModule):
         """
         super().on_load_checkpoint(checkpoint)
 
-
-    def forward(self, obs_dict: dict[str, torch.Tensor]) -> dict[str,torch.Tensor]:
+    def forward(self, obs_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Forward pass for inference.
 
         Args:

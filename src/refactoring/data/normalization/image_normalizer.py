@@ -17,14 +17,14 @@ from refactoring.data.normalization.normalizer import (
 
 
 def create_image_normalizer(
-        input_min: float | np.ndarray,
-        input_max: float | np.ndarray,
-        input_mean: float | np.ndarray,
-        input_std: float | np.ndarray,
-        norm_type: str,
-        device: torch.device | None = None,
-        standardization_mean: float | np.ndarray | None = None,
-        standardization_std: float | np.ndarray | None = None,
+    input_min: float | np.ndarray,
+    input_max: float | np.ndarray,
+    input_mean: float | np.ndarray,
+    input_std: float | np.ndarray,
+    norm_type: str,
+    device: torch.device | None = None,
+    standardization_mean: float | np.ndarray | None = None,
+    standardization_std: float | np.ndarray | None = None,
 ) -> LinearNormalizer | SequentialNormalizer:
     """Create image normalizer with linear scaling and optional standardization.
 
@@ -55,7 +55,7 @@ def create_image_normalizer(
         input_std=input_std,
         output_min=output_min,
         output_max=output_max,
-        device=device
+        device=device,
     )
 
     if standardization_mean is not None and standardization_std is not None:
@@ -73,7 +73,7 @@ def create_image_normalizer(
             input_std=scaled_std,
             standardization_mean=standardization_mean,
             standardization_std=standardization_std,
-            device=device
+            device=device,
         )
         return SequentialNormalizer(normalizers=[stage1, stage2])
 
@@ -81,8 +81,8 @@ def create_image_normalizer(
 
 
 def get_rgb_image_normalizer(
-        norm_type: str = ImageNormalizationType.ZERO_TO_ONE.value,
-        device: torch.device | None = None
+    norm_type: str = ImageNormalizationType.ZERO_TO_ONE.value,
+    device: torch.device | None = None,
 ) -> SingleFieldLinearNormalizer | SequentialNormalizer:
     """Create normalizer for RGB images in [0, 1] range.
 
@@ -104,7 +104,7 @@ def get_rgb_image_normalizer(
             input_std=np.full(3, np.sqrt(1.0 / 12.0), dtype=np.float32),
             standardization_mean=np.array(IMAGENET_RGB_MEAN, dtype=np.float32),
             standardization_std=np.array(IMAGENET_RGB_STD, dtype=np.float32),
-            device=device
+            device=device,
         )
 
     input_min = 0.0
@@ -118,17 +118,17 @@ def get_rgb_image_normalizer(
         input_mean=input_mean,
         input_std=input_std,
         norm_type=norm_type,
-        device=device
+        device=device,
     )
 
 
 def get_depth_image_normalizer(
-        input_min: float,
-        input_max: float,
-        input_mean: float,
-        input_std: float,
-        norm_type: str = ImageNormalizationType.ZERO_TO_ONE.value,
-        device: torch.device | None = None
+    input_min: float,
+    input_max: float,
+    input_mean: float,
+    input_std: float,
+    norm_type: str = ImageNormalizationType.ZERO_TO_ONE.value,
+    device: torch.device | None = None,
 ) -> SingleFieldLinearNormalizer | SequentialNormalizer:
     """Create normalizer for depth images.
 
@@ -161,15 +161,15 @@ def get_depth_image_normalizer(
         norm_type=norm_type,
         device=device,
         standardization_mean=standardization_mean,
-        standardization_std=standardization_std
+        standardization_std=standardization_std,
     )
 
 
 def get_range_normalizer_from_stat(
-        stat: dict,
-        output_max: float = 1.0,
-        output_min: float = -1.0,
-        range_eps: float = 1e-7
+    stat: dict,
+    output_max: float = 1.0,
+    output_min: float = -1.0,
+    range_eps: float = 1e-7,
 ) -> SingleFieldLinearNormalizer:
     """Create normalizer from pre-computed statistics.
 
@@ -182,8 +182,8 @@ def get_range_normalizer_from_stat(
     Returns:
         Configured normalizer
     """
-    input_max = stat['max']
-    input_min = stat['min']
+    input_max = stat["max"]
+    input_min = stat["min"]
     input_range = input_max - input_min
     ignore_dim = input_range < range_eps
     input_range[ignore_dim] = output_max - output_min
@@ -192,9 +192,7 @@ def get_range_normalizer_from_stat(
     offset[ignore_dim] = (output_max + output_min) / 2 - input_min[ignore_dim]
 
     return SingleFieldLinearNormalizer.create_manual(
-        scale=scale,
-        offset=offset,
-        input_stats_dict=stat
+        scale=scale, offset=offset, input_stats_dict=stat
     )
 
 
@@ -208,10 +206,10 @@ def array_to_stats(arr: np.ndarray) -> dict:
         Dictionary with min, max, mean, std
     """
     stat = {
-        'min': np.min(arr, axis=0),
-        'max': np.max(arr, axis=0),
-        'mean': np.mean(arr, axis=0),
-        'std': np.std(arr, axis=0)
+        "min": np.min(arr, axis=0),
+        "max": np.max(arr, axis=0),
+        "mean": np.mean(arr, axis=0),
+        "std": np.std(arr, axis=0),
     }
     return stat
 
@@ -225,7 +223,10 @@ def _get_output_range(norm_type: str) -> tuple[float, float]:
     Returns:
         Tuple of (output_min, output_max)
     """
-    if norm_type in [ImageNormalizationType.ZERO_TO_ONE.value, ImageNormalizationType.IMAGENET.value]:
+    if norm_type in [
+        ImageNormalizationType.ZERO_TO_ONE.value,
+        ImageNormalizationType.IMAGENET.value,
+    ]:
         return 0.0, 1.0
     elif norm_type == ImageNormalizationType.MINUS_ONE_TO_ONE.value:
         return -1.0, 1.0
@@ -234,9 +235,9 @@ def _get_output_range(norm_type: str) -> tuple[float, float]:
 
 
 def _to_tensor(
-        value: float | np.ndarray,
-        dtype: torch.dtype = torch.float32,
-        device: torch.device | None = None
+    value: float | np.ndarray,
+    dtype: torch.dtype = torch.float32,
+    device: torch.device | None = None,
 ) -> torch.Tensor:
     """Convert scalar or array to tensor.
 
@@ -268,13 +269,13 @@ def _to_tensor(
 
 
 def _create_linear_scaling_normalizer(
-        input_min: float | np.ndarray,
-        input_max: float | np.ndarray,
-        input_mean: float | np.ndarray,
-        input_std: float | np.ndarray,
-        output_min: float,
-        output_max: float,
-        device: torch.device | None = None
+    input_min: float | np.ndarray,
+    input_max: float | np.ndarray,
+    input_mean: float | np.ndarray,
+    input_std: float | np.ndarray,
+    output_min: float,
+    output_max: float,
+    device: torch.device | None = None,
 ) -> SingleFieldLinearNormalizer:
     """Create normalizer for linear scaling.
 
@@ -303,27 +304,25 @@ def _create_linear_scaling_normalizer(
     offset = _to_tensor(offset, device=device)
 
     stat = {
-        'min': _to_tensor(input_min, device=device),
-        'max': _to_tensor(input_max, device=device),
-        'mean': _to_tensor(input_mean, device=device),
-        'std': _to_tensor(input_std, device=device),
+        "min": _to_tensor(input_min, device=device),
+        "max": _to_tensor(input_max, device=device),
+        "mean": _to_tensor(input_mean, device=device),
+        "std": _to_tensor(input_std, device=device),
     }
 
     return SingleFieldLinearNormalizer.create_manual(
-        scale=scale,
-        offset=offset,
-        input_stats_dict=stat
+        scale=scale, offset=offset, input_stats_dict=stat
     )
 
 
 def _create_standardization_normalizer(
-        input_min: float | np.ndarray,
-        input_max: float | np.ndarray,
-        input_mean: float | np.ndarray,
-        input_std: float | np.ndarray,
-        standardization_mean: float | np.ndarray,
-        standardization_std: float | np.ndarray,
-        device: torch.device | None = None
+    input_min: float | np.ndarray,
+    input_max: float | np.ndarray,
+    input_mean: float | np.ndarray,
+    input_std: float | np.ndarray,
+    standardization_mean: float | np.ndarray,
+    standardization_std: float | np.ndarray,
+    device: torch.device | None = None,
 ) -> SingleFieldLinearNormalizer:
     """Create normalizer for standardization (z-score normalization).
 
@@ -353,26 +352,24 @@ def _create_standardization_normalizer(
     offset = _to_tensor(offset, device=device)
 
     stat = {
-        'min': _to_tensor(input_min, device=device),
-        'max': _to_tensor(input_max, device=device),
-        'mean': _to_tensor(input_mean, device=device),
-        'std': _to_tensor(input_std, device=device),
+        "min": _to_tensor(input_min, device=device),
+        "max": _to_tensor(input_max, device=device),
+        "mean": _to_tensor(input_mean, device=device),
+        "std": _to_tensor(input_std, device=device),
     }
 
     return SingleFieldLinearNormalizer.create_manual(
-        scale=scale,
-        offset=offset,
-        input_stats_dict=stat
+        scale=scale, offset=offset, input_stats_dict=stat
     )
 
 
 def _compute_scaled_values(
-        values: float | np.ndarray,
-        input_min: float | np.ndarray,
-        input_max: float | np.ndarray,
-        output_min: float,
-        output_max: float,
-        is_std: bool = False
+    values: float | np.ndarray,
+    input_min: float | np.ndarray,
+    input_max: float | np.ndarray,
+    output_min: float,
+    output_max: float,
+    is_std: bool = False,
 ) -> float | np.ndarray:
     """Compute values after linear scaling.
 

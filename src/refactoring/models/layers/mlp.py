@@ -8,12 +8,12 @@ from refactoring.models.layers.swiglu import SwiGLU
 
 class MLP(nn.Module):
     def __init__(
-            self,
-            input_dim: int,
-            hidden_dims: list[int] | None = None,
-            output_dim: int | None = None,
-            activation_function: Callable = nn.GELU,
-            dropout: float = 0.0,
+        self,
+        input_dim: int,
+        hidden_dims: list[int] | None = None,
+        output_dim: int | None = None,
+        activation_function: Callable = nn.GELU,
+        dropout: float = 0.0,
     ):
         """Multi-layer Perceptron (MLP) module.
 
@@ -30,7 +30,9 @@ class MLP(nn.Module):
         prev_dim = input_dim
         for hidden_dim in hidden_dims:
             if issubclass(activation_function, SwiGLU):
-                layers.append(activation_function(input_dim=prev_dim, hidden_dim=hidden_dim))
+                layers.append(
+                    activation_function(input_dim=prev_dim, hidden_dim=hidden_dim)
+                )
             else:
                 layers.append(nn.Linear(prev_dim, hidden_dim))
                 layers.append(activation_function())

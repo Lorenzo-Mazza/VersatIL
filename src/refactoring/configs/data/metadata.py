@@ -19,6 +19,7 @@ from refactoring.data.constants import (
 @dataclass
 class ObservationMetadataConfig:
     """Config for ObservationMetadata."""
+
     _target_: str = "refactoring.data.metadata.ObservationMetadata"
     raw_data_column_keys: list[str] = MISSING
     dimension: int = MISSING
@@ -30,6 +31,7 @@ class ObservationMetadataConfig:
 @dataclass
 class PositionObservationMetadataConfig(ObservationMetadataConfig):
     """Config for PositionObservationMetadata."""
+
     _target_: str = "refactoring.data.metadata.PositionObservationMetadata"
     frame: str = CoordinateSystem.ROBOT_BASE.value
 
@@ -37,6 +39,7 @@ class PositionObservationMetadataConfig(ObservationMetadataConfig):
 @dataclass
 class OrientationObservationMetadataConfig(ObservationMetadataConfig):
     """Config for OrientationObservationMetadata."""
+
     _target_: str = "refactoring.data.metadata.OrientationObservationMetadata"
     frame: str = CoordinateSystem.ROBOT_BASE.value
     orientation_representation: str = OrientationRepresentation.ROLL.value
@@ -45,6 +48,7 @@ class OrientationObservationMetadataConfig(ObservationMetadataConfig):
 @dataclass
 class GripperObservationMetadataConfig(ObservationMetadataConfig):
     """Config for GripperObservationMetadata."""
+
     _target_: str = "refactoring.data.metadata.GripperObservationMetadata"
     gripper_type: str = GripperType.BINARY.value
     binary_gripper_range: str = BinaryGripperRange.ZERO_ONE.value
@@ -53,6 +57,7 @@ class GripperObservationMetadataConfig(ObservationMetadataConfig):
 @dataclass
 class CameraMetadataConfig:
     """Config for CameraMetadata."""
+
     _target_: str = "refactoring.data.metadata.CameraMetadata"
     camera_key: str = MISSING
     dtype: str = MISSING
@@ -64,6 +69,7 @@ class CameraMetadataConfig:
 @dataclass
 class ActionMetadataConfig:
     """Config for ActionMetadata."""
+
     _target_: str = "refactoring.data.metadata.ActionMetadata"
     prediction_dimension: int = MISSING
     is_numerical: bool = MISSING
@@ -75,6 +81,7 @@ class ActionMetadataConfig:
 @dataclass
 class OnTheFlyActionMetadataConfig:
     """Config for OnTheFlyActionMetadata."""
+
     _target_: str = "refactoring.data.metadata.OnTheFlyActionMetadata"
     source_metadata: Any = MISSING
     computation_method: str = MISSING
@@ -83,6 +90,7 @@ class OnTheFlyActionMetadataConfig:
 @dataclass
 class PrecomputedActionMetadataConfig:
     """Config for PrecomputedActionMetadata."""
+
     _target_: str = "refactoring.data.metadata.PrecomputedActionMetadata"
     raw_data_column_keys: list[str] = MISSING
     storage_dimension: int = MISSING
@@ -95,6 +103,7 @@ class PrecomputedActionMetadataConfig:
 @dataclass
 class PositionActionMetadataConfig(PrecomputedActionMetadataConfig):
     """Config for PositionActionMetadata."""
+
     _target_: str = "refactoring.data.metadata.PositionActionMetadata"
     frame: str = MISSING
 
@@ -102,6 +111,7 @@ class PositionActionMetadataConfig(PrecomputedActionMetadataConfig):
 @dataclass
 class OrientationActionMetadataConfig(PrecomputedActionMetadataConfig):
     """Config for OrientationActionMetadata."""
+
     _target_: str = "refactoring.data.metadata.OrientationActionMetadata"
     frame: str = MISSING
     orientation_representation: str = MISSING
@@ -110,6 +120,7 @@ class OrientationActionMetadataConfig(PrecomputedActionMetadataConfig):
 @dataclass
 class GripperActionMetadataConfig(PrecomputedActionMetadataConfig):
     """Config for GripperActionMetadata."""
+
     _target_: str = "refactoring.data.metadata.GripperActionMetadata"
     gripper_type: str = MISSING
     binary_gripper_range: str = MISSING
