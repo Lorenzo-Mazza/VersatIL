@@ -46,6 +46,7 @@ class VariationalAlgorithm(DecodingAlgorithm):
         base_algorithm: The underlying decoding algorithm (BC, FlowMatching, Diffusion, etc.)
         posterior_encoder: Latent action encoder for posterior q_phi(z|a,s) (e.g., a Transformer Encoder)
         prior: Latent prior for p(z|s). If None, auto-creates GaussianPrior.
+        sampling_from_prior_probability: Probability of sampling from prior during training.
     """
 
     def __init__(
@@ -53,12 +54,13 @@ class VariationalAlgorithm(DecodingAlgorithm):
         base_algorithm: DecodingAlgorithm,
         posterior_encoder: PosteriorLatentEncoder,
         prior: PriorLatentEncoder | None = None,
+        sampling_from_prior_probability: float = 0.25,
     ):
         """Initialize variational algorithm wrapper."""
         super().__init__()
         self.base_algorithm = base_algorithm
         self.posterior_encoder = posterior_encoder
-        self.p_prior = 0.2  # Probability of sampling from prior during training
+        self.p_prior = sampling_from_prior_probability
         if prior is None:
             device = str(posterior_encoder.device)
             self.prior = GaussianPrior(
