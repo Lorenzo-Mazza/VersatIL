@@ -4,11 +4,17 @@ import math
 import torch
 import torch.nn.functional as F
 
+from refactoring.common.omegaconf_ops import resolve_dict_keys
 from refactoring.data.constants import (
-    GRIPPER_ACTION_KEY,
-    PHASE_LABEL_KEY,
-    POSITION_ACTION_KEY,
-    GripperType, TOKENIZED_ACTIONS_KEY,
+    BinaryGripperRange,
+    GripperType,
+    TOKENIZED_ACTIONS_KEY,
+)
+from refactoring.data.metadata import (
+    ActionMetadata,
+    GripperActionMetadata,
+    GripperObservationMetadata,
+    OnTheFlyActionMetadata,
 )
 from refactoring.metrics.base import BaseLoss, LossOutput, reduce_loss_with_padding
 from refactoring.metrics.constants import (
@@ -18,7 +24,16 @@ from refactoring.metrics.constants import (
 from refactoring.models.decoding.constants import (
     PRIOR_PREDICTION_KEY,
     PRIOR_TARGET_KEY,
-    BINARY_LOGITS_KEY, MU_KEY, LOGVAR_KEY, ACTION_LOGITS_KEY, LATENT_CODES, ROUTING_WEIGHT, LATENT_KEY, EXPERT_OUTPUTS, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY,
+    BINARY_LOGITS_KEY,
+    MU_KEY,
+    LOGVAR_KEY,
+    ACTION_LOGITS_KEY,
+    LATENT_CODES,
+    ROUTING_WEIGHT,
+    LATENT_KEY,
+    EXPERT_OUTPUTS,
+    PRIOR_MU_KEY,
+    PRIOR_LOGVAR_KEY,
     PRIOR_LATENT_KEY,
 )
 
@@ -85,7 +100,9 @@ class RegressionLoss(BaseLoss):
 
         for action_key in self.action_keys:
             if action_key not in predictions or action_key not in targets:
-                raise ValueError(f"Predictions and targets must contain key '{action_key}' for RegressionLoss.")
+                raise ValueError(
+                    f"Predictions and targets must contain key '{action_key}' for RegressionLoss."
+                )
 
             pred = predictions[action_key]
             target = targets[action_key]
@@ -124,7 +141,8 @@ class GripperLoss(BaseLoss):
 
     def __init__(
         self,
-        gripper_type: str = GripperType.BINARY.value,
+        key: str,
+        actions_metadata: dict[str, ActionMetadata],
         bce_weight: float = 0.005,
         mse_weight: float = 0.0,
         pos_weight: torch.Tensor | None = None,
@@ -132,16 +150,40 @@ class GripperLoss(BaseLoss):
         """Initialize gripper loss.
 
         Args:
-            gripper_type: Type of gripper ('binary' or 'continuous')
+            key: Action key for gripper
+            actions_metadata: Dict of metadata of the action space
             bce_weight: Weight for binary cross entropy (binary gripper)
             mse_weight: Weight for MSE loss (continuous gripper)
             pos_weight: Optional positive class weight for BCE
         """
         super().__init__()
-        self.gripper_type = gripper_type
+        self.key = key
         self.bce_weight = bce_weight
         self.mse_weight = mse_weight
         self.register_buffer("pos_weight", pos_weight)
+        resolved_metadata = resolve_dict_keys(dict(actions_metadata))
+        if key not in resolved_metadata.keys():
+            raise ValueError(
+                f"{key} is not available to the action space. Can't compute gripper loss. "
+                f"Available keys: {list(resolved_metadata.keys())}"
+            )
+        meta = resolved_metadata[key]
+        if isinstance(meta, GripperActionMetadata):
+            self.gripper_type = meta.gripper_type
+            self.binary_gripper_range = meta.binary_gripper_range
+        elif isinstance(meta, OnTheFlyActionMetadata):
+            source = meta.source_metadata
+            if isinstance(source, GripperObservationMetadata):
+                self.gripper_type = source.gripper_type
+                self.binary_gripper_range = source.binary_gripper_range
+            else:
+                raise ValueError(
+                    f"Expected GripperObservationMetadata for key '{key}', got {type(source).__name__}"
+                )
+        else:
+            raise ValueError(
+                f"Expected gripper metadata for key '{key}', got {type(meta).__name__}"
+            )
 
     def get_required_keys(self) -> set[str]:
         """Get required target keys for gripper loss.
@@ -149,7 +191,7 @@ class GripperLoss(BaseLoss):
         Returns:
             Set containing the gripper action key
         """
-        return {GRIPPER_ACTION_KEY}
+        return {self.key}
 
     def forward(
         self,
@@ -167,12 +209,16 @@ class GripperLoss(BaseLoss):
         Returns:
             LossOutput with gripper loss
         """
-        if GRIPPER_ACTION_KEY not in predictions or GRIPPER_ACTION_KEY not in targets:
-            raise ValueError(f"Predictions and targets must contain key '{GRIPPER_ACTION_KEY}' for GripperLoss.")
-        pred_gripper = predictions[GRIPPER_ACTION_KEY]
-        target_gripper = targets[GRIPPER_ACTION_KEY]
+        if self.key not in predictions or self.key not in targets:
+            raise ValueError(
+                f"Predictions and targets must contain key '{self.key}' for GripperLoss."
+            )
+        pred_gripper = predictions[self.key]
+        target_gripper = targets[self.key]
 
         if self.gripper_type == GripperType.BINARY.value:
+            if self.binary_gripper_range == BinaryGripperRange.MINUS_ONE_ONE.value:
+                target_gripper = (target_gripper.float() + 1.0) / 2.0
             bce = F.binary_cross_entropy_with_logits(
                 pred_gripper,
                 target_gripper.float(),
@@ -211,7 +257,14 @@ class KLDivergenceLoss(BaseLoss):
         Returns:
             Set containing VAE latent distribution keys (mu, logvar)
         """
-        return {LATENT_KEY, PRIOR_LATENT_KEY, MU_KEY, LOGVAR_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY}
+        return {
+            LATENT_KEY,
+            PRIOR_LATENT_KEY,
+            MU_KEY,
+            LOGVAR_KEY,
+            PRIOR_MU_KEY,
+            PRIOR_LOGVAR_KEY,
+        }
 
     def forward(
         self,
@@ -230,8 +283,10 @@ class KLDivergenceLoss(BaseLoss):
             LossOutput with KL divergence loss
         """
         if not all(k in predictions for k in self.get_required_keys()):
-            raise ValueError(f"Predictions must contain all {self.get_required_keys()}' for KLDivergenceLoss.")
-        mu_posterior = predictions[MU_KEY].float() # Using fp32 float for stability
+            raise ValueError(
+                f"Predictions must contain all {self.get_required_keys()}' for KLDivergenceLoss."
+            )
+        mu_posterior = predictions[MU_KEY].float()  # Using fp32 float for stability
         logvar_posterior = predictions[LOGVAR_KEY].float()
         mu_prior = predictions[PRIOR_MU_KEY].float()
         logvar_prior = predictions[PRIOR_LOGVAR_KEY].float()
@@ -241,7 +296,9 @@ class KLDivergenceLoss(BaseLoss):
         prior = torch.distributions.Normal(mu_prior, std_prior)
         kld = torch.distributions.kl_divergence(posterior, prior).sum(dim=-1)
         if kld.min() < 0:
-            print(f"Warning: Negative KL divergence encountered: min={kld.min().item():.4f}")
+            print(
+                f"Warning: Negative KL divergence encountered: min={kld.min().item():.4f}"
+            )
             print(f"per_dim_kl: min={kld.min().item():.4f}, max={kld.max().item():.4f}")
         kld = torch.clamp(kld, min=0.0)
         kld_mean = kld.mean()
@@ -257,7 +314,7 @@ class KLDivergenceLoss(BaseLoss):
         return LossOutput(
             total_loss=self.weight * kld_mean,
             component_losses={MetricKey.KL_DIVERGENCE.value: kld_mean},
-            metadata=metadata
+            metadata=metadata,
         )
 
 
@@ -270,11 +327,13 @@ class BinaryKLDivergenceLoss(BaseLoss):
     Based on "The Free Transformer" (Fleuret, 2025) - arXiv:2510.17558
     """
 
-    def __init__(self,
-                 weight: float = 5.0,
-                 entropy_weight: float = 0.01,
-                 latent_bits: float = 64,
-                 free_bits: float = 2 * math.log(2)):
+    def __init__(
+        self,
+        weight: float = 5.0,
+        entropy_weight: float = 0.01,
+        latent_bits: float = 64,
+        free_bits: float = 2 * math.log(2),
+    ):
         """Initialize binary KL divergence loss.
 
         Args:
@@ -320,21 +379,27 @@ class BinaryKLDivergenceLoss(BaseLoss):
         all_component_losses = {}
         if LATENT_CODES in predictions:
             latent_codes = predictions[LATENT_CODES]  # (B, token_len, 2^H)
-            code_indices = torch.argmax(latent_codes, dim=-1).flatten()  # (B*token_len,)
+            code_indices = torch.argmax(
+                latent_codes, dim=-1
+            ).flatten()  # (B*token_len,)
             unique_codes = torch.unique(code_indices).numel()
             total_codes = 2 ** self.latent_bits
-            usage_pct = (unique_codes / total_codes)
+            usage_pct = unique_codes / total_codes
             all_component_losses[MetricKey.LATENT_CODE_USAGE.value] = usage_pct
 
         logits = predictions[BINARY_LOGITS_KEY]  # (B, T, H) or (B, H)
-        if logits is None: # Inference, zero loss
+        if logits is None:  # Inference, zero loss
             return LossOutput(
-                total_loss=torch.tensor(0.0, device=next(iter(predictions.values())).device),
+                total_loss=torch.tensor(
+                    0.0, device=next(iter(predictions.values())).device
+                ),
                 component_losses=all_component_losses,
             )
 
         # P(B_h=1) = sigmoid(L_h) for each bit
-        probs = torch.sigmoid(logits.float())  # (B, T, H) or (B, H), cast to fp32 for stability
+        probs = torch.sigmoid(
+            logits.float()
+        )  # (B, T, H) or (B, H), cast to fp32 for stability
         # KL divergence for independent Bernoulli vs uniform Bernoulli(0.5)
         # KL(Bernoulli(p) || Bernoulli(0.5)) = p*log(2p) + (1-p)*log(2(1-p))
         eps = 1e-8  # For numerical stability
@@ -348,14 +413,20 @@ class BinaryKLDivergenceLoss(BaseLoss):
 
         # Apply free bits threshold: max(0, KL - κ)
         if self.free_bits > 0:
-            clamped_kl_per_token = torch.clamp(kl_per_token - self.free_bits, min=0.0)  # (B, T)
+            clamped_kl_per_token = torch.clamp(
+                kl_per_token - self.free_bits, min=0.0
+            )  # (B, T)
             clamped_kl_mean = clamped_kl_per_token.mean()  # Scalar
         else:
             clamped_kl_mean = raw_kl_mean
 
         all_component_losses[MetricKey.CLAMPED_KL_DIVERGENCE.value] = clamped_kl_mean
-        entropy = - (probs * torch.log(probs + eps) + (1 - probs) * torch.log(1 - probs + eps))  # (B,token_len,H)
-        regularized_kl = clamped_kl_mean -self.entropy_weight * entropy.mean() # Scalar (avg over B,T,H)
+        entropy = -(
+            probs * torch.log(probs + eps) + (1 - probs) * torch.log(1 - probs + eps)
+        )  # (B,token_len,H)
+        regularized_kl = (
+            clamped_kl_mean - self.entropy_weight * entropy.mean()
+        )  # Scalar (avg over B,T,H)
         all_component_losses[MetricKey.POSTERIOR_ENTROPY.value] = entropy.mean()
         all_component_losses[MetricKey.KL_DIVERGENCE.value] = regularized_kl
         metadata = {
@@ -377,10 +448,9 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
          where p(z) = N(0, I).
     """
 
-
     def __init__(
-            self,
-            weight: float = 1.0,
+        self,
+        weight: float = 1.0,
     ):
         """Initialize MMD loss.
 
@@ -390,11 +460,16 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         super().__init__()
         self.weight = weight
 
-
     def get_required_keys(self) -> set[str]:
         """Returns required prediction keys."""
-        return {LATENT_KEY, PRIOR_LATENT_KEY, MU_KEY, LOGVAR_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY}
-
+        return {
+            LATENT_KEY,
+            PRIOR_LATENT_KEY,
+            MU_KEY,
+            LOGVAR_KEY,
+            PRIOR_MU_KEY,
+            PRIOR_LOGVAR_KEY,
+        }
 
     def _compute_kernel(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Compute RBF kernel with dimension-normalized bandwidth.
@@ -416,12 +491,11 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         mean_sq_diff = (x - y).pow(2).mean(dim=2)  # (N, M)
         return torch.exp(-mean_sq_diff / dim)
 
-
     def forward(
-            self,
-            predictions: dict[str, torch.Tensor],
-            targets: dict[str, torch.Tensor],
-            is_pad: torch.Tensor | None = None,
+        self,
+        predictions: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        is_pad: torch.Tensor | None = None,
     ) -> LossOutput:
         """Compute MMD between latent samples and standard Gaussian prior.
 
@@ -434,7 +508,9 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             LossOutput with MMD loss.
         """
         if not all(k in predictions for k in self.get_required_keys()):
-            raise ValueError(f"Predictions must contain '{self.get_required_keys()}'for MaximumMeanDiscrepancyLoss.")
+            raise ValueError(
+                f"Predictions must contain '{self.get_required_keys()}'for MaximumMeanDiscrepancyLoss."
+            )
 
         z_posterior = predictions[LATENT_KEY]  # (B, latent_dim)
         z_prior = predictions[PRIOR_LATENT_KEY]
@@ -458,6 +534,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             metadata=metadata,
         )
 
+
 class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
     """MMD loss for regularizing binary latent distributions toward a uniform prior.
 
@@ -466,8 +543,8 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
     """
 
     def __init__(
-            self,
-            weight: float = 1.0,
+        self,
+        weight: float = 1.0,
     ):
         """Initialize binary MMD loss.
 
@@ -477,11 +554,9 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
         super().__init__()
         self.weight = weight
 
-
     def get_required_keys(self) -> set[str]:
         """Returns required prediction keys: {BINARY_LOGITS_KEY}."""
         return {BINARY_LOGITS_KEY}
-
 
     def _compute_kernel(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Compute RBF kernel with dimension-normalized bandwidth.
@@ -503,12 +578,11 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
         mean_sq_diff = (x - y).pow(2).mean(dim=2)  # (N, M)
         return torch.exp(-mean_sq_diff / dim)
 
-
     def forward(
-            self,
-            predictions: dict[str, torch.Tensor],
-            targets: dict[str, torch.Tensor],
-            is_pad: torch.Tensor | None = None,
+        self,
+        predictions: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        is_pad: torch.Tensor | None = None,
     ) -> LossOutput:
         """Compute MMD between binary latent samples and uniform Bernoulli prior.
 
@@ -521,13 +595,19 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
             LossOutput with MMD loss.
         """
         if BINARY_LOGITS_KEY not in predictions:
-            raise ValueError(f"Predictions must contain '{BINARY_LOGITS_KEY}'for BinaryMaximumMeanDiscrepancyLoss.")
+            raise ValueError(
+                f"Predictions must contain '{BINARY_LOGITS_KEY}'for BinaryMaximumMeanDiscrepancyLoss."
+            )
 
         logits = predictions[BINARY_LOGITS_KEY]  # (B, T, H)
         probs = torch.sigmoid(logits.float())  # Cast to fp32 for stability
         z_hard = torch.bernoulli(probs)
-        z = z_hard - probs.detach() + probs  # Straight-through: forward=hard, backward=soft
-        z_prior = torch.bernoulli(0.5 * torch.ones_like(z))  # samples from Bernoulli(0.5)
+        z = (
+            z_hard - probs.detach() + probs
+        )  # Straight-through: forward=hard, backward=soft
+        z_prior = torch.bernoulli(
+            0.5 * torch.ones_like(z)
+        )  # samples from Bernoulli(0.5)
         k_zz = self._compute_kernel(z, z)
         k_pp = self._compute_kernel(z_prior, z_prior)
         k_zp = self._compute_kernel(z, z_prior)
@@ -549,7 +629,7 @@ class TrajectoryLengthLoss(BaseLoss):
     Penalizes differences between predicted and ground truth trajectory lengths.
     """
 
-    def __init__(self, weight: float = 0.001, action_key: str = POSITION_ACTION_KEY):
+    def __init__(self, action_key: str, weight: float = 0.001):
         """Initialize trajectory length loss.
 
         Args:
@@ -585,7 +665,9 @@ class TrajectoryLengthLoss(BaseLoss):
             LossOutput with length loss
         """
         if self.action_key not in predictions or self.action_key not in targets:
-            raise ValueError(f"Predictions and targets must contain key '{self.action_key}' for TrajectoryLengthLoss.")
+            raise ValueError(
+                f"Predictions and targets must contain key '{self.action_key}' for TrajectoryLengthLoss."
+            )
         pred = predictions[self.action_key]
         target = targets[self.action_key]
 
@@ -615,7 +697,7 @@ class TrajectoryLengthLoss(BaseLoss):
 class TrajectorySmoothness(BaseLoss):
     """Loss for trajectory smoothness (acceleration regularization)."""
 
-    def __init__(self, weight: float = 0.001, action_key: str = POSITION_ACTION_KEY):
+    def __init__(self, action_key: str, weight: float = 0.001):
         """Initialize smoothness loss.
 
         Args:
@@ -654,9 +736,13 @@ class TrajectorySmoothness(BaseLoss):
             LossOutput with smoothness loss
         """
         if self.action_key not in predictions:
-            raise ValueError(f"Predictions must contain key '{self.action_key}' for TrajectorySmoothness loss.")
+            raise ValueError(
+                f"Predictions must contain key '{self.action_key}' for TrajectorySmoothness loss."
+            )
         pred = predictions[self.action_key]
-        if pred.shape[1] < 3: # If trajectory too short, no acceleration can be computed
+        if (
+            pred.shape[1] < 3
+        ):  # If trajectory too short, no acceleration can be computed
             return LossOutput(
                 total_loss=torch.tensor(0.0, device=pred.device),
                 component_losses={MetricKey.SMOOTHNESS_LOSS.value: torch.tensor(0.0)},
@@ -686,18 +772,21 @@ class PhaseClassificationLoss(BaseLoss):
 
     def __init__(
         self,
+        key: str,
         cross_entropy_weight: float = 0.1,
         entropy_weight: float = 0.01,
-        label_smoothing: float = 0.0,
+        label_smoothing: float = 0.2,
     ):
         """Initialize phase classification loss.
 
         Args:
+            key: Key for phase labels
             cross_entropy_weight: Weight for cross-entropy loss
-            entropy_weight: Weight for entropy regularization (negative encourages sparsity)
+            entropy_weight: Weight for entropy regularization (Entropy maximization avoids experts collapse)
             label_smoothing: Label smoothing factor for cross-entropy
         """
         super().__init__()
+        self.key = key
         self.cross_entropy_weight = cross_entropy_weight
         self.entropy_weight = entropy_weight
         self.label_smoothing = label_smoothing
@@ -708,7 +797,7 @@ class PhaseClassificationLoss(BaseLoss):
         Returns:
             Set containing the phase label key
         """
-        return {PHASE_LABEL_KEY}
+        return {self.key}
 
     def forward(
         self,
@@ -726,11 +815,13 @@ class PhaseClassificationLoss(BaseLoss):
         Returns:
             LossOutput with cross-entropy and optional entropy loss
         """
-        if PHASE_LABEL_KEY not in predictions or PHASE_LABEL_KEY not in targets:
-            raise ValueError(f"Predictions and targets must contain key '{PHASE_LABEL_KEY}' for PhaseClassificationLoss.")
+        if self.key not in predictions or self.key not in targets:
+            raise ValueError(
+                f"Predictions and targets must contain key '{self.key}' for PhaseClassificationLoss."
+            )
 
-        pred_logits = predictions[PHASE_LABEL_KEY]
-        target_labels = targets[PHASE_LABEL_KEY]
+        pred_logits = predictions[self.key]
+        target_labels = targets[self.key]
 
         if target_labels.dim() == 3 and target_labels.shape[-1] == 1:
             target_labels = target_labels.squeeze(-1)
@@ -759,7 +850,9 @@ class PhaseClassificationLoss(BaseLoss):
                 entropy, is_pad, reduction="mean"
             )
             component_losses[MetricKey.PHASE_ENTROPY.value] = entropy_reduced
-            total_loss = total_loss + self.entropy_weight * entropy_reduced
+            # Entropy is always positive
+            # We want to maximize entropy so we need to subtract it from the loss.
+            total_loss = total_loss - self.entropy_weight * entropy_reduced
 
         metadata = {
             MetadataKey.PHASE_LOGITS.value: pred_logits.detach(),
@@ -778,7 +871,7 @@ class ActionTokenLoss(BaseLoss):
 
     def __init__(
         self,
-        label_smoothing: float = 0.0,
+        label_smoothing: float = 0.2,
     ):
         """Initialize action token loss.
 
@@ -819,21 +912,27 @@ class ActionTokenLoss(BaseLoss):
             raise ValueError(
                 f"Predictions must contain keys '{ACTION_LOGITS_KEY}' for ActionTokenLoss."
             )
-        pred_logits = predictions[ACTION_LOGITS_KEY] # (B, num_tokens, vocab_size)
-        target_tokens = targets[TOKENIZED_ACTIONS_KEY] # (B, num_tokens)
+        pred_logits = predictions[ACTION_LOGITS_KEY]  # (B, num_tokens, vocab_size)
+        target_tokens = targets[TOKENIZED_ACTIONS_KEY]  # (B, num_tokens)
         vocab_size = pred_logits.shape[-1]
         num_tokens = pred_logits.shape[1]
-        logits = pred_logits.view(-1, vocab_size, num_tokens)  # (B, vocab_size, num_tokens)
+        logits = pred_logits.view(
+            -1, vocab_size, num_tokens
+        )  # (B, vocab_size, num_tokens)
         ce_loss = F.cross_entropy(
             logits,
             target_tokens,
             label_smoothing=self.label_smoothing,
-            reduction="none"
+            reduction="none",
         )
         ce_loss = reduce_loss_with_padding(ce_loss, is_pad, reduction="mean")
-        predicted_tokens = torch.argmax(pred_logits, dim=-1)  # (B, seq) over C=dim=-1 (no view needed)
+        predicted_tokens = torch.argmax(
+            pred_logits, dim=-1
+        )  # (B, seq) over C=dim=-1 (no view needed)
         correct = (predicted_tokens == target_tokens).float()  # (B, seq)
-        accuracy = reduce_loss_with_padding(correct, is_pad, reduction="mean")  # Scalar %
+        accuracy = reduce_loss_with_padding(
+            correct, is_pad, reduction="mean"
+        )  # Scalar %
         perplexity = torch.exp(ce_loss)  # Scalar
         return LossOutput(
             total_loss=ce_loss,
@@ -907,7 +1006,7 @@ class PriorDenoisingLoss(BaseLoss):
 
 
 class FixedVarianceGaussianNLLoss(BaseLoss):
-    """Negative log-likelihood loss for Gaussian Mixture Model with fixed variance.
+    """Negative Log-Likelihood loss for Gaussian Mixture Model with fixed variance.
 
     This loss assumes the action distribution is a mixture of Gaussians:
         p(a | z) = Σ_k π_k(z) · N(a | μ_k(z), σ²I)
@@ -935,13 +1034,12 @@ class FixedVarianceGaussianNLLoss(BaseLoss):
     it's constant w.r.t. parameters and doesn't affect optimization.
     """
 
-
     def __init__(
-            self,
-            action_keys: list[str],
-            sigmas: dict[str, float] | None = None,
-            weight: float = 1.0,
-            per_key_weights: dict[str, float] | None = None
+        self,
+        action_keys: list[str],
+        sigmas: dict[str, float] | None = None,
+        weight: float = 1.0,
+        per_key_weights: dict[str, float] | None = None,
     ):
         """Initialize NLL loss with fixed variance.
 
@@ -954,13 +1052,16 @@ class FixedVarianceGaussianNLLoss(BaseLoss):
         super().__init__()
         self.action_keys = action_keys
         self.weight = weight
-        self.per_key_weights = per_key_weights if per_key_weights is not None else {key: 1.0 for key in action_keys}
+        self.per_key_weights = (
+            per_key_weights
+            if per_key_weights is not None
+            else {key: 1.0 for key in action_keys}
+        )
         if sigmas is None:
             self.sigmas = {key: 0.5 for key in action_keys}
         else:
             # Fill missing keys with default
             self.sigmas = {key: sigmas.get(key, 0.5) for key in action_keys}
-
 
     def get_required_keys(self) -> set[str]:
         """Get required target keys for FV-NLL.
@@ -1000,8 +1101,8 @@ class FixedVarianceGaussianNLLoss(BaseLoss):
         component_losses = {}
         total_loss = 0.0
         for action_key in self.action_keys:
-            routing_key = f'{action_key}_{ROUTING_WEIGHT}'
-            expert_key = f'{action_key}_{EXPERT_OUTPUTS}'
+            routing_key = f"{action_key}_{ROUTING_WEIGHT}"
+            expert_key = f"{action_key}_{EXPERT_OUTPUTS}"
             if routing_key not in predictions or expert_key not in predictions:
                 raise ValueError(
                     f"Predictions must contain '{routing_key}' and '{expert_key}' "
@@ -1016,15 +1117,23 @@ class FixedVarianceGaussianNLLoss(BaseLoss):
             key_weight = self.per_key_weights.get(action_key, 1.0)
             sigma = self.sigmas[action_key]
 
-            target = targets[action_key].unsqueeze(2)  # (B, T, 1, action_dim) -- broadcasts with (B, T, num_experts, action_dim)
-            mixing_probs = predictions[f'{action_key}_{ROUTING_WEIGHT}'] # (B, T, num_experts)
-            expert_outs = predictions[f'{action_key}_{EXPERT_OUTPUTS}'] # (B, T, num_experts, action_dim)
+            target = targets[action_key].unsqueeze(
+                2
+            )  # (B, T, 1, action_dim) -- broadcasts with (B, T, num_experts, action_dim)
+            mixing_probs = predictions[
+                f"{action_key}_{ROUTING_WEIGHT}"
+            ]  # (B, T, num_experts)
+            expert_outs = predictions[
+                f"{action_key}_{EXPERT_OUTPUTS}"
+            ]  # (B, T, num_experts, action_dim)
 
             log_pi = torch.log(mixing_probs + 1e-8)  # (B, T, num_experts)
 
             # Log Gaussian component (up to constant): log N(a | μ_k, σ²) ∝ -||a - μ_k||² / (2σ²)
             diff = target - expert_outs  # (B, T, 1, D) - (B, T, K, D) = (B, T, K, D)
-            log_component = -0.5 * (diff ** 2).sum(-1) / (sigma ** 2)  # (B, T, num_experts)
+            log_component = (
+                -0.5 * (diff ** 2).sum(-1) / (sigma ** 2)
+            )  # (B, T, num_experts)
             # Log mixture probability via logsumexp: log Σ_k π_k N(a | μ_k)
             log_prob = torch.logsumexp(log_pi + log_component, dim=-1)  # (B, T)
             nll = -log_prob  # (B, T)
@@ -1039,7 +1148,7 @@ class FixedVarianceGaussianNLLoss(BaseLoss):
 
 
 class FixedVarianceGripperMixtureNLLoss(BaseLoss):
-    """NLL loss for gripper with mixture distribution and shared expert routing.
+    """Negative Log-Likelihood loss for gripper with mixture distribution and shared expert routing.
 
     Binary gripper: p(a|z) = Σ_k π_k(z) · Bernoulli(a | p_k(z))
     Continuous gripper: p(a|z) = Σ_k π_k(z) · N(a | μ_k(z), σ²I) with fixed variance
@@ -1048,35 +1157,57 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
     behavior is coupled with the selected manipulation strategy.
     """
 
-
     def __init__(
-            self,
-            gripper_type: str = GripperType.BINARY.value,
-            weight: float = 1.0,
-            sigma: float = 0.5,
+        self,
+        key: str,
+        actions_metadata: dict[str, ActionMetadata],
+        weight: float = 1.0,
+        sigma: float = 0.5,
     ):
         """Initialize gripper mixture NLL loss.
 
         Args:
-            gripper_type: Type of gripper ('binary' or 'continuous')
+            key: Key for gripper actions
+            actions_metadata: Dict of metadata of the action space
             weight: Loss weight
             sigma: Fixed std for continuous gripper (ignored for binary)
         """
         super().__init__()
-        self.gripper_type = gripper_type
+        self.key = key
         self.weight = weight
         self.sigma = sigma
-
+        resolved_metadata = resolve_dict_keys(dict(actions_metadata))
+        if key not in resolved_metadata.keys():
+            raise ValueError(
+                f"{key} is not available to the action space. Can't compute gripper NLL loss. "
+                f"Available keys: {list(resolved_metadata.keys())}"
+            )
+        meta = resolved_metadata[key]
+        if isinstance(meta, GripperActionMetadata):
+            self.gripper_type = meta.gripper_type
+            self.binary_gripper_range = meta.binary_gripper_range
+        elif isinstance(meta, OnTheFlyActionMetadata):
+            source = meta.source_metadata
+            if isinstance(source, GripperObservationMetadata):
+                self.gripper_type = source.gripper_type
+                self.binary_gripper_range = source.binary_gripper_range
+            else:
+                raise ValueError(
+                    f"Expected GripperObservationMetadata for key '{key}', got {type(source).__name__}"
+                )
+        else:
+            raise ValueError(
+                f"Expected gripper metadata for key '{key}', got {type(meta).__name__}"
+            )
 
     def get_required_keys(self) -> set[str]:
-        return {GRIPPER_ACTION_KEY}
-
+        return {self.key}
 
     def forward(
-            self,
-            predictions: dict[str, torch.Tensor],
-            targets: dict[str, torch.Tensor],
-            is_pad: torch.Tensor | None = None,
+        self,
+        predictions: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        is_pad: torch.Tensor | None = None,
     ) -> LossOutput:
         """Compute gripper mixture NLL.
 
@@ -1094,16 +1225,18 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
         Returns:
             LossOutput with gripper NLL
         """
-        routing_key = f'{GRIPPER_ACTION_KEY}_{ROUTING_WEIGHT}'
-        expert_key = f'{GRIPPER_ACTION_KEY}_{EXPERT_OUTPUTS}'
+        routing_key = f"{self.key}_{ROUTING_WEIGHT}"
+        expert_key = f"{self.key}_{EXPERT_OUTPUTS}"
         if routing_key not in predictions or expert_key not in predictions:
             raise ValueError(
                 f"Predictions must contain '{routing_key}' and '{expert_key}' for GripperMixtureNLLoss."
             )
-        if GRIPPER_ACTION_KEY not in targets:
-            raise ValueError(f"Targets must contain '{GRIPPER_ACTION_KEY}' for GripperMixtureNLLoss.")
+        if self.key not in targets:
+            raise ValueError(
+                f"Targets must contain '{self.key}' for GripperMixtureNLLoss."
+            )
 
-        target = targets[GRIPPER_ACTION_KEY]
+        target = targets[self.key]
         mixing_probs = predictions[routing_key]  # (B, T, K)
         expert_outs = predictions[expert_key]
         log_pi = torch.log(mixing_probs + 1e-8)  # (B, T, K)
@@ -1114,19 +1247,24 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
                 target = target.squeeze(-1)
             if expert_outs.dim() == 4:
                 expert_outs = expert_outs.squeeze(-1)
+            if self.binary_gripper_range == BinaryGripperRange.MINUS_ONE_ONE.value:
+                target = (target.float() + 1.0) / 2.0
 
             expert_probs = torch.sigmoid(expert_outs).clamp(1e-8, 1 - 1e-8)
             target_expanded = target.unsqueeze(-1)  # (B, T, 1)
-            log_component = (
-                    target_expanded * torch.log(expert_probs) +
-                    (1 - target_expanded) * torch.log(1 - expert_probs)
+            log_component = target_expanded * torch.log(expert_probs) + (
+                1 - target_expanded
+            ) * torch.log(
+                1 - expert_probs
             )  # (B, T, K)
         else:
             # target: (B, T, D) -> (B, T, 1, D)
             # expert_outs: (B, T, K, D)
             target_expanded = target.unsqueeze(2)  # (B, T, 1, D)
             diff = target_expanded - expert_outs  # (B, T, K, D)
-            log_component = -0.5 * (diff ** 2).sum(dim=-1) / (self.sigma ** 2)  # (B, T, K)
+            log_component = (
+                -0.5 * (diff ** 2).sum(dim=-1) / (self.sigma ** 2)
+            )  # (B, T, K)
 
         log_prob = torch.logsumexp(log_pi + log_component, dim=-1)  # (B, T)
         nll = -log_prob
@@ -1141,7 +1279,11 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
 class MoELoss(BaseLoss):
     """Wrapper for any BaseLoss to add MoE expert usage metric from routing weights."""
 
-    def __init__(self, base_loss: BaseLoss, entropy_weight: float = 0.0,):
+    def __init__(
+        self,
+        base_loss: BaseLoss,
+        entropy_weight: float = 0.0,
+    ):
         """Initialize MoE wrapper.
 
         Args:
@@ -1155,12 +1297,9 @@ class MoELoss(BaseLoss):
         self.base_loss = base_loss
         self.entropy_weight = entropy_weight
 
-
-
     def get_required_keys(self) -> set[str]:
         """Union of base loss keys plus routing weight."""
         return self.base_loss.get_required_keys() | {ROUTING_WEIGHT}
-
 
     def forward(
         self,
@@ -1178,17 +1317,22 @@ class MoELoss(BaseLoss):
             entropy = -(pi * torch.log(pi + 1e-8)).sum(dim=-1)  # (B, T)
             if entropy.dim() == 2:
                 # (B, T) -> reduce with padding
-                entropy_mean = reduce_loss_with_padding(entropy, is_pad, reduction="mean")
+                entropy_mean = reduce_loss_with_padding(
+                    entropy, is_pad, reduction="mean"
+                )
             else:
                 # if we have B only (when the experts are not chunk-dependent)
                 entropy_mean = entropy.mean()
-            component_losses[f'{MetricKey.EXPERTS_ENTROPY.value}'] = entropy_mean
-            entropy_loss = - self.entropy_weight * entropy_mean  # negative to maximize
-        expert_usage = pi.mean(dim=list(range(pi.ndim - 1)))  # Mean over all but last dim, which is num_experts
+            component_losses[f"{MetricKey.EXPERTS_ENTROPY.value}"] = entropy_mean
+            # We want to maximize the entropy of the expert usage distribution
+            # Entropy is always positive, so we subtract it to the loss to maximize it.
+            entropy_loss = -self.entropy_weight * entropy_mean
+        expert_usage = pi.mean(
+            dim=list(range(pi.ndim - 1))
+        )  # Mean over all but last dim, which is num_experts
         metadata[MetadataKey.EXPERT_USAGE.value] = expert_usage
         return LossOutput(
             total_loss=base_output.total_loss + entropy_loss,
             component_losses=component_losses,
             metadata=metadata,
         )
-

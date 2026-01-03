@@ -9,7 +9,11 @@ import numpy as np
 import torch
 from transformers import AutoProcessor, AutoTokenizer, PreTrainedTokenizerFast
 
-from refactoring.data.constants import TokenizerType, TOKENIZED_ACTIONS_KEY, IS_PAD_ACTION_KEY
+from refactoring.data.constants import (
+    TokenizerType,
+    TOKENIZED_ACTIONS_KEY,
+    IS_PAD_ACTION_KEY,
+)
 
 # Disable tokenizers parallelism to avoid fork warnings with DataLoader workers
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -38,7 +42,7 @@ class ActionTokenizer:
         tokenizer_chain: list[str],
         use_pretrained_fast: bool = True,
         language_tokenizer_model: str | None = None,
-        fast_tokenizer_model: str  = "physical-intelligence/fast",
+        fast_tokenizer_model: str = "physical-intelligence/fast",
         num_special_tokens_to_skip: int = 128,
         max_token_len: int = 256,
         pad_token_id: int = 0,
@@ -92,7 +96,9 @@ class ActionTokenizer:
                     f"language_tokenizer_model must be provided when '{TokenizerType.LANGUAGE.value}' is in tokenizer_chain"
                 )
 
-            self.language_tokenizer = AutoTokenizer.from_pretrained(self.language_tokenizer_model)
+            self.language_tokenizer = AutoTokenizer.from_pretrained(
+                self.language_tokenizer_model
+            )
             if self.language_tokenizer.pad_token is None:
                 self.language_tokenizer.pad_token = self.language_tokenizer.eos_token
 
@@ -105,7 +111,6 @@ class ActionTokenizer:
                     f"FAST tokens ({self.fast_vocab_size}) + special tokens ({self.num_special_tokens_to_skip}). "
                     f"Required: {required_vocab_size}"
                 )
-
 
     def fit(self, action_chunks: np.ndarray) -> None:
         """Fit FAST tokenizer on action chunk data.
@@ -145,7 +150,9 @@ class ActionTokenizer:
             f"Fitted action tokenizer (chain={self.tokenizer_chain}, vocab_size={self.vocab_size})"
         )
 
-    def _map_fast_to_language_vocab(self, fast_tokens: list[int] | np.ndarray) -> np.ndarray:
+    def _map_fast_to_language_vocab(
+        self, fast_tokens: list[int] | np.ndarray
+    ) -> np.ndarray:
         """Map FAST tokens to language tokenizer vocabulary positions.
 
         FAST tokens are mapped to the END of the language vocabulary, avoiding special tokens:
@@ -159,16 +166,21 @@ class ActionTokenizer:
         """
         if self.language_tokenizer is None:
             raise RuntimeError("Language tokenizer not initialized")
-        fast_tokens_arr = np.array(fast_tokens) if isinstance(fast_tokens, list) else fast_tokens
+        fast_tokens_arr = (
+            np.array(fast_tokens) if isinstance(fast_tokens, list) else fast_tokens
+        )
         # Map FAST tokens to end of language vocab
         mapped_tokens = (
-            self.language_tokenizer.vocab_size - 1
+            self.language_tokenizer.vocab_size
+            - 1
             - self.num_special_tokens_to_skip
             - fast_tokens_arr
         )
         return mapped_tokens
 
-    def _unmap_language_to_fast_vocab(self, lang_tokens: np.ndarray | torch.Tensor) -> np.ndarray:
+    def _unmap_language_to_fast_vocab(
+        self, lang_tokens: np.ndarray | torch.Tensor
+    ) -> np.ndarray:
         """Reverse mapping from language vocab positions to FAST token IDs.
 
         Args:
@@ -183,7 +195,8 @@ class ActionTokenizer:
         if isinstance(lang_tokens, torch.Tensor):
             lang_tokens = lang_tokens.cpu().numpy()
         fast_tokens = (
-            self.language_tokenizer.vocab_size - 1
+            self.language_tokenizer.vocab_size
+            - 1
             - self.num_special_tokens_to_skip
             - lang_tokens
         )
@@ -233,7 +246,9 @@ class ActionTokenizer:
                 action_chunk_to_tokenize = action_chunk
 
         if self.fast_processor is not None:
-            fast_tokens = self.fast_processor(action_chunk_to_tokenize)[0]  # Returns list[list[int]], take first
+            fast_tokens = self.fast_processor(action_chunk_to_tokenize)[
+                0
+            ]  # Returns list[list[int]], take first
             if self.language_tokenizer is not None:
                 mapped_tokens = self._map_fast_to_language_vocab(fast_tokens)
                 tokens = mapped_tokens.tolist()
@@ -254,8 +269,12 @@ class ActionTokenizer:
                 is_pad = [False] * self.max_token_len
 
             return {
-                TOKENIZED_ACTIONS_KEY: torch.tensor(tokens, dtype=torch.long, device=self.device),
-                IS_PAD_ACTION_KEY: torch.tensor(is_pad, dtype=torch.bool, device=self.device),
+                TOKENIZED_ACTIONS_KEY: torch.tensor(
+                    tokens, dtype=torch.long, device=self.device
+                ),
+                IS_PAD_ACTION_KEY: torch.tensor(
+                    is_pad, dtype=torch.bool, device=self.device
+                ),
             }
 
         raise RuntimeError("No tokenizers in chain")
@@ -287,8 +306,7 @@ class ActionTokenizer:
         action_chunks: np.ndarray | torch.Tensor,
         is_pad_mask: torch.Tensor | np.ndarray | None = None,
     ) -> dict[str, torch.Tensor]:
-        """Encode action chunk(s) to discrete tokens, automatically adapting on the input shape.
-        """
+        """Encode action chunk(s) to discrete tokens, automatically adapting on the input shape."""
         if isinstance(action_chunks, torch.Tensor):
             arr = action_chunks
         else:
@@ -482,7 +500,8 @@ class ActionTokenizer:
             raise FileNotFoundError(f"Tokenizer path not found: {path}")
 
         state_dict = torch.load(
-            path / "action_tokenizer_state.pt", map_location=device or torch.device("cpu")
+            path / "action_tokenizer_state.pt",
+            map_location=device or torch.device("cpu"),
         )
 
         tokenizer = cls(

@@ -1,4 +1,3 @@
-
 import torch
 from torch import nn
 
@@ -8,17 +7,18 @@ from refactoring.models.encoding.fusion.sequential import SequentialFusion
 
 class AttentionFusion(SequentialFusion):
     """Combines sequence features by projecting them into a shared embedding space and then applying cross-attention to them.
-       If only one feature is provided, it is returned as-is after projection."""
+    If only one feature is provided, it is returned as-is after projection."""
+
     def __init__(
-            self,
-            input_features: list[str],
-            output_name: str,
-            hidden_dim: int,
-            input_feature_query: str | None = None,
-            num_heads: int = 8,
-            dropout: float = 0.1,
-            use_residual: bool = True,
-            use_norm: bool = True,
+        self,
+        input_features: list[str],
+        output_name: str,
+        hidden_dim: int,
+        input_feature_query: str | None = None,
+        num_heads: int = 8,
+        dropout: float = 0.1,
+        use_residual: bool = True,
+        use_norm: bool = True,
     ):
         """
         Args:
@@ -31,16 +31,22 @@ class AttentionFusion(SequentialFusion):
             use_residual: Whether to add a residual connection from the input to the output.
             use_norm: Whether to apply layer normalization after projection and before fusion.
         """
-        super().__init__(input_features=input_features, output_name=output_name, hidden_dim=hidden_dim,)
+        super().__init__(
+            input_features=input_features,
+            output_name=output_name,
+            hidden_dim=hidden_dim,
+        )
         self.use_residual = use_residual
         self.use_norm = use_norm
-        self.attention = nn.MultiheadAttention(hidden_dim, num_heads=num_heads, dropout=dropout, batch_first=True)
+        self.attention = nn.MultiheadAttention(
+            hidden_dim, num_heads=num_heads, dropout=dropout, batch_first=True
+        )
         self.input_feature_query = input_feature_query
         self.norms: nn.ModuleList | None = None
         if self.use_norm:
-            self.norms = nn.ModuleList([nn.LayerNorm(self.hidden_dim) for _ in input_features])
-
-
+            self.norms = nn.ModuleList(
+                [nn.LayerNorm(self.hidden_dim) for _ in input_features]
+            )
 
     def forward(self, features: list[torch.Tensor]) -> torch.Tensor:
         """
@@ -79,16 +85,9 @@ class AttentionFusion(SequentialFusion):
         result: torch.Tensor = fused
         return result
 
-
     def get_output_specification(self) -> FusionOutput:
         """Get output specification."""
         return FusionOutput(
             output_name=self.output_name,
             output_dim=self.hidden_dim,
         )
-
-
-
-
-
-

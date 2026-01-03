@@ -13,13 +13,28 @@ from refactoring.data.constants import (
     Cameras,
 )
 from refactoring.data.tokenization import Tokenizer
-from refactoring.data.transform import unnormalize_actions, detokenize_actions, normalize_observation, tokenize_observation
+from refactoring.data.transform import (
+    unnormalize_actions,
+    detokenize_actions,
+    normalize_observation,
+    tokenize_observation,
+)
 from refactoring.models.decoding.action_heads import MoEHead
-from refactoring.models.decoding.constants import (BINARY_LOGITS_KEY, LATENT_KEY, LOGVAR_KEY, MU_KEY,
-                                                   PRIOR_LATENT_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY, ROUTING_WEIGHT)
+from refactoring.models.decoding.constants import (
+    BINARY_LOGITS_KEY,
+    LATENT_KEY,
+    LOGVAR_KEY,
+    MU_KEY,
+    PRIOR_LATENT_KEY,
+    PRIOR_MU_KEY,
+    PRIOR_LOGVAR_KEY,
+    ROUTING_WEIGHT,
+)
 
+from refactoring.common.dict_of_tensor_mixin import DictOfTensorMixin
 from refactoring.data.normalization.normalizer import LinearNormalizer
 from refactoring.metrics.base import BaseLoss, LossOutput
+from refactoring.metrics.components import GripperLoss
 from refactoring.models.decoding.algorithm.base import DecodingAlgorithm
 from refactoring.models.decoding.algorithm.variational import VariationalAlgorithm
 from refactoring.models.decoding.decoders import MoEDecoder
@@ -32,17 +47,17 @@ class Policy(nn.Module):
     """General policy class that orchestrates encoding, decoding, and loss computation."""
 
     def __init__(
-            self,
-            encoding_pipeline: EncodingPipeline,
-            algorithm: DecodingAlgorithm,
-            decoder: ActionDecoder,
-            observation_space: ObservationSpace,
-            action_space: ActionSpace,
-            prediction_horizon: int,
-            observation_horizon: int,
-            loss: BaseLoss,
-            device: str,
-            validate_loss_keys: bool = True,
+        self,
+        encoding_pipeline: EncodingPipeline,
+        algorithm: DecodingAlgorithm,
+        decoder: ActionDecoder,
+        observation_space: ObservationSpace,
+        action_space: ActionSpace,
+        prediction_horizon: int,
+        observation_horizon: int,
+        loss: BaseLoss,
+        device: str,
+        validate_loss_keys: bool = True,
     ):
         """Initialize policy.
 
@@ -70,10 +85,12 @@ class Policy(nn.Module):
         self.device = torch.device(device)
         self.normalizer: LinearNormalizer = LinearNormalizer()
         self.tokenizer = None  # Set later via set_tokenizer()
+        self.denoising_thresholds = (
+            DictOfTensorMixin()
+        )  # Set later via set_denoising_thresholds()
         self.validate_decoder()
         if validate_loss_keys:
             self.validate_loss_keys()
-
 
     def validate_decoder(self):
         """Validate that the decoder's input specification matches the encoding pipeline's output.
@@ -82,7 +99,9 @@ class Policy(nn.Module):
             Uses final features (after fusion consumption) since that's what the decoder actually receives.
         """
         # Get final features - excludes features consumed by fusion modules
-        available_features_to_dims = self.encoding_pipeline.get_final_features_to_dimensions()
+        available_features_to_dims = (
+            self.encoding_pipeline.get_final_features_to_dimensions()
+        )
         available_features = list(available_features_to_dims.keys())
         decoder_input_keys = self.decoder.decoder_input.keys
         for expected_feature in decoder_input_keys:
@@ -93,7 +112,9 @@ class Policy(nn.Module):
                     f"Available final features: {available_features}"
                 )
         # Validate feature types expected by the decoder architecture (spatial, flat, etc.)
-        self.decoder.decoder_input.validate_feature_types(available_features_to_dims=available_features_to_dims)
+        self.decoder.decoder_input.validate_feature_types(
+            available_features_to_dims=available_features_to_dims
+        )
         # Note: Action head validation is done in ActionDecoder.__init__
 
         # Validate MoE gating feature key if using MoE decoder with gating network
@@ -117,7 +138,10 @@ class Policy(nn.Module):
         if gating_key in available_features:
             return
         # Check if gating key is provided by variational algorithm
-        if isinstance(self.algorithm, VariationalAlgorithm) and gating_key == LATENT_KEY:
+        if (
+            isinstance(self.algorithm, VariationalAlgorithm)
+            and gating_key == LATENT_KEY
+        ):
             return
         raise ValueError(
             f"MoE decoder gating feature key '{gating_key}' not found. "
@@ -136,8 +160,19 @@ class Policy(nn.Module):
         valid_loss_keys: set[str] = set()
         valid_loss_keys.update(self.decoder.action_heads.keys())
         if isinstance(self.algorithm, VariationalAlgorithm):
-            valid_loss_keys.update({LATENT_KEY, MU_KEY, LOGVAR_KEY, PRIOR_LATENT_KEY, PRIOR_MU_KEY, PRIOR_LOGVAR_KEY})
-        if isinstance(self.decoder, MoEDecoder) or any(isinstance(h, MoEHead) for h in self.decoder.action_heads.values()):
+            valid_loss_keys.update(
+                {
+                    LATENT_KEY,
+                    MU_KEY,
+                    LOGVAR_KEY,
+                    PRIOR_LATENT_KEY,
+                    PRIOR_MU_KEY,
+                    PRIOR_LOGVAR_KEY,
+                }
+            )
+        if isinstance(self.decoder, MoEDecoder) or any(
+            isinstance(h, MoEHead) for h in self.decoder.action_heads.values()
+        ):
             valid_loss_keys.add(ROUTING_WEIGHT)
         if self.decoder.__class__.__name__ == "FreeTransformerDecoder":
             valid_loss_keys.add(BINARY_LOGITS_KEY)
@@ -164,8 +199,35 @@ class Policy(nn.Module):
         self.encoding_pipeline.set_tokenizer(tokenizer)
         self.decoder.set_tokenizer(tokenizer)
 
+    def set_denoising_thresholds(self, thresholds: dict[str, float]):
+        """Set the denoising thresholds from training data.
 
-    def forward(self, batch: dict[str, dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
+        Args:
+            thresholds: Dictionary mapping observation keys to their denoising thresholds.
+                May be empty for precomputed actions.
+
+        Note:
+            These thresholds are computed from the dataset's action processor and stored
+            via DictOfTensorMixin to persist through checkpointing.
+        """
+        for key, value in thresholds.items():
+            self.denoising_thresholds.params_dict[key] = nn.Parameter(
+                torch.tensor(value), requires_grad=False
+            )
+
+    def set_gripper_class_weights(self, pos_weight: torch.Tensor | None) -> None:
+        """Set positive class weight for GripperLoss components in the loss module.
+
+        Args:
+            pos_weight: Tensor with positive class weight for BCE loss, or None to disable.
+        """
+        for module in self.loss_module.modules():
+            if isinstance(module, GripperLoss):
+                module.pos_weight = pos_weight
+
+    def forward(
+        self, batch: dict[str, dict[str, torch.Tensor]]
+    ) -> dict[str, torch.Tensor]:
         """Forward pass through observation encoding → action decoding.
 
         Args:
@@ -177,12 +239,13 @@ class Policy(nn.Module):
         obs = batch[OBSERVATION_KEY]
         actions = batch.get(ACTION_KEY, None)
         features = self.encoding_pipeline(obs)
-        return self.algorithm.forward(features=features, actions=actions, network=self.decoder)
-
+        return self.algorithm.forward(
+            features=features, actions=actions, network=self.decoder
+        )
 
     def compute_loss(
-            self,
-            batch: dict[str, dict[str, torch.Tensor]],
+        self,
+        batch: dict[str, dict[str, torch.Tensor]],
     ) -> LossOutput:
         """Compute loss using the configured loss module.
 
@@ -199,10 +262,9 @@ class Policy(nn.Module):
             is_pad=batch[ACTION_KEY].get(IS_PAD_ACTION_KEY, None),
         )  # type: ignore[no-any-return]
 
-
     def predict_action(
-            self,
-            obs_dict: dict[str, torch.Tensor],
+        self,
+        obs_dict: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Predict actions from observations.
 
@@ -212,24 +274,43 @@ class Policy(nn.Module):
         Returns:
             Predicted actions (on same device as policy)
         """
-        obs_dict = to_device(obs_dict, self.device) # Move nested observations to policy's device
-        normalized_obs = normalize_observation(observation=obs_dict,
-                                               normalizer=self.normalizer, observation_space=self.observation_space)
-        if self.tokenizer is not None and self.tokenizer.observation_tokenizer is not None:
-            normalized_obs = tokenize_observation(observation=normalized_obs, obs_tokenizer=self.tokenizer.observation_tokenizer)
+        obs_dict = to_device(
+            obs_dict, self.device
+        )  # Move nested observations to policy's device
+        normalized_obs = normalize_observation(
+            observation=obs_dict,
+            normalizer=self.normalizer,
+            observation_space=self.observation_space,
+        )
+        if (
+            self.tokenizer is not None
+            and self.tokenizer.observation_tokenizer is not None
+        ):
+            normalized_obs = tokenize_observation(
+                observation=normalized_obs,
+                obs_tokenizer=self.tokenizer.observation_tokenizer,
+            )
         features = self.encoding_pipeline(normalized_obs)
         predictions = self.algorithm.predict(features=features, network=self.decoder)
         if TOKENIZED_ACTIONS_KEY in predictions:
             action_tokens = predictions[TOKENIZED_ACTIONS_KEY]
             if self.tokenizer is None or self.tokenizer.action_tokenizer is None:
-                raise RuntimeError("Action tokenizer not set. Cannot detokenize actions.")
-            normalized_actions = detokenize_actions(action_tokens, action_tokenizer=self.tokenizer.action_tokenizer,
-                                                   action_space=self.action_space)
+                raise RuntimeError(
+                    "Action tokenizer not set. Cannot detokenize actions."
+                )
+            normalized_actions = detokenize_actions(
+                action_tokens,
+                action_tokenizer=self.tokenizer.action_tokenizer,
+                action_space=self.action_space,
+            )
             normalized_actions = to_device(normalized_actions, self.device)
         else:
             normalized_actions = predictions
-        actions = unnormalize_actions(normalized_actions=normalized_actions,
-                                      normalizer=self.normalizer, action_space=self.action_space)
+        actions = unnormalize_actions(
+            normalized_actions=normalized_actions,
+            normalizer=self.normalizer,
+            action_space=self.action_space,
+        )
         return actions  # type: ignore[no-any-return]
 
     def get_vision_encoder_modules(self) -> dict[str, nn.Module]:
@@ -254,16 +335,16 @@ class Policy(nn.Module):
         # Check if encoder can produce spatial feature maps for explainability
         def is_vision_encoder(encoder: nn.Module) -> bool:
             # TIMM-based encoders (CNNEncoder, DepthCNNEncoder)
-            if hasattr(encoder, 'backbone'):
+            if hasattr(encoder, "backbone"):
                 return True
             # DFormer-based encoders
-            if hasattr(encoder, 'stages'):
+            if hasattr(encoder, "stages"):
                 return True
             # FiLM-conditioned ResNet (ConditionalCNNEncoder)
-            if hasattr(encoder, 'layer4'):
+            if hasattr(encoder, "layer4"):
                 return True
             # LightGeometric encoder
-            return bool(hasattr(encoder, 'attention_block'))
+            return bool(hasattr(encoder, "attention_block"))
 
         # Check unconditional encoders
         for encoder_name, encoder in self.encoding_pipeline.encoders.items():
@@ -271,7 +352,10 @@ class Policy(nn.Module):
                 vision_encoders[encoder_name] = encoder
 
         # Check conditional encoders
-        for encoder_name, encoder in self.encoding_pipeline.conditional_encoders.items():
+        for (
+            encoder_name,
+            encoder,
+        ) in self.encoding_pipeline.conditional_encoders.items():
             if is_vision_encoder(encoder):
                 vision_encoders[encoder_name] = encoder
 
@@ -280,9 +364,11 @@ class Policy(nn.Module):
                 "No compatible vision encoders found in the encoding pipeline. "
                 "Explainer requires encoders that produce spatial feature maps "
                 "(CNNEncoder, DepthCNNEncoder, ConditionalCNNEncoder, DFormerEncoder, LightGeometricEncoder). "
-                "Available encoders: " +
-                str(list(self.encoding_pipeline.encoders.keys()) +
-                    list(self.encoding_pipeline.conditional_encoders.keys()))
+                "Available encoders: "
+                + str(
+                    list(self.encoding_pipeline.encoders.keys())
+                    + list(self.encoding_pipeline.conditional_encoders.keys())
+                )
             )
 
         return vision_encoders
@@ -316,17 +402,20 @@ class Policy(nn.Module):
         encoder = vision_encoders[encoder_name]
 
         # TIMM-based encoders (CNNEncoder, DepthCNNEncoder)
-        if hasattr(encoder, 'backbone'):
+        if hasattr(encoder, "backbone"):
             backbone = encoder.backbone
 
             # TimmBackbone wraps the actual model in _backbone
-            if hasattr(backbone, '_backbone'):
+            if hasattr(backbone, "_backbone"):
                 actual_backbone = backbone._backbone
                 # ResNet-style architectures have layer1, layer2, layer3, layer4
-                if hasattr(actual_backbone, 'layer4'):
+                if hasattr(actual_backbone, "layer4"):
                     return [actual_backbone.layer4]
                 # Other architectures might have stages
-                elif hasattr(actual_backbone, 'stages') and len(actual_backbone.stages) > 0:
+                elif (
+                    hasattr(actual_backbone, "stages")
+                    and len(actual_backbone.stages) > 0
+                ):
                     return [actual_backbone.stages[-1]]
                 else:
                     raise RuntimeError(
@@ -334,7 +423,7 @@ class Policy(nn.Module):
                         f"Backbone type: {type(actual_backbone).__name__}"
                     )
             # Direct TIMM models with stages attribute
-            elif hasattr(backbone, 'stages') and len(backbone.stages) > 0:
+            elif hasattr(backbone, "stages") and len(backbone.stages) > 0:
                 return [backbone.stages[-1]]
             else:
                 raise RuntimeError(
@@ -343,15 +432,15 @@ class Policy(nn.Module):
                 )
 
         # DFormer-based encoders
-        if hasattr(encoder, 'stages') and len(encoder.stages) > 0:
+        if hasattr(encoder, "stages") and len(encoder.stages) > 0:
             return [encoder.stages[-1]]
 
         # FiLM-conditioned ResNet (ConditionalCNNEncoder)
-        if hasattr(encoder, 'layer4') and len(encoder.layer4) > 0:
+        if hasattr(encoder, "layer4") and len(encoder.layer4) > 0:
             return [encoder.layer4[-1]]
 
         # LightGeometric encoder
-        if hasattr(encoder, 'attention_block'):
+        if hasattr(encoder, "attention_block"):
             return [encoder.attention_block]
 
         raise RuntimeError(
@@ -379,7 +468,7 @@ class Policy(nn.Module):
 
         mapping = {}
         for encoder_name, encoder in vision_encoders.items():
-            if not hasattr(encoder, 'input_specification'):
+            if not hasattr(encoder, "input_specification"):
                 continue
 
             # Get the input keys this encoder expects
@@ -399,5 +488,3 @@ class Policy(nn.Module):
             )
 
         return mapping
-
-

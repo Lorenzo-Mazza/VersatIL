@@ -64,7 +64,6 @@ def mock_action_space():
         has_gripper=False,
         gripper_type=GripperType.BINARY.value,
         gripper_dim=1,
-        custom_action_dims=None,
     ):
         action_space = MagicMock()
         action_space.has_position = has_position
@@ -74,7 +73,6 @@ def mock_action_space():
         action_space.has_gripper = has_gripper
         action_space.gripper_type = gripper_type
         action_space.gripper_dim = gripper_dim
-        action_space.custom_action_dims = custom_action_dims if custom_action_dims is not None else {}
         return action_space
     return factory
 
@@ -291,27 +289,6 @@ class TestNormalizeActions:
         result = normalize_actions(actions, normalizer, action_space)
 
         assert torch.equal(result[GRIPPER_ACTION_KEY], gripper_tensor)
-
-    def test_normalize_custom_actions(self, mock_normalizer, mock_action_space):
-        """Test normalizing custom action dimensions."""
-        normalizer = mock_normalizer()
-        action_space = mock_action_space(
-            has_position=True,
-            has_orientation=False,
-            has_gripper=False,
-            custom_action_dims={"force": 3, "torque": 3},
-        )
-
-        actions = {
-            POSITION_ACTION_KEY: torch.randn(16, 3),
-            "force": torch.randn(16, 3),
-            "torque": torch.randn(16, 3),
-        }
-
-        result = normalize_actions(actions, normalizer, action_space)
-
-        assert "force" in result
-        assert "torque" in result
 
 
 @pytest.mark.unit

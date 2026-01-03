@@ -35,9 +35,9 @@ class UNetInputBuilder(nn.Module):
     """
 
     def __init__(
-            self,
-            embedding_dim: int,
-            has_time_dim: bool = False,
+        self,
+        embedding_dim: int,
+        has_time_dim: bool = False,
     ):
         super().__init__()
         self.embedding_dim = embedding_dim
@@ -59,31 +59,36 @@ class UNetInputBuilder(nn.Module):
             ValueError: If a feature has an unsupported shape (4D spatial or 5D).
         """
         clean_features = {
-            k: v for k, v in features.items()
+            k: v
+            for k, v in features.items()
             if not EncoderOutputKeys.PADDING_MASK.value in k and k != IS_PAD_ACTION_KEY
         }
-        projected = self.projection(clean_features) # Project all features to common embedding dim
+        projected = self.projection(
+            clean_features
+        )  # Project all features to common embedding dim
         flat_features_list = []
         cls_token = None
         for name in sorted(projected.keys()):
             x = projected[name]
             if x.ndim == 2:  # pooled / single token (always T=1)
-                feature_embedding = x # (B, Emb)
+                feature_embedding = x  # (B, Emb)
             elif x.ndim == 3:
                 B, _, _ = x.shape
                 feature_embedding = x.reshape(B, -1)  # (B, Seq*Emb)
             elif x.ndim == 4:
                 if self.has_time_dim:  # (B, T, Seq, Emb)
                     B, _, _, _ = x.shape
-                    feature_embedding = x.reshape(B, -1) # (B, T*Seq*Emb)
+                    feature_embedding = x.reshape(B, -1)  # (B, T*Seq*Emb)
                 else:  # spatial (B, Emb, H, W)
                     raise ValueError(
                         f"4D feature '{name}' with no time dimension is not supported as input to U-Net Decoder. "
                         "Please pool your features accordingly using the encoding pipeline."
                     )
             elif x.ndim == 5:  # temporal spatial (B, T, Emb, H, W)
-                raise ValueError(f"5D feature {name} is not supported as input to U-Net Decoder. "
-                                 f"Please pool your features accordingly using the encoding pipeline.")
+                raise ValueError(
+                    f"5D feature {name} is not supported as input to U-Net Decoder. "
+                    f"Please pool your features accordingly using the encoding pipeline."
+                )
             else:
                 raise ValueError(f"Feature '{name}' has unsupported shape {x.shape}")
 
@@ -96,14 +101,6 @@ class UNetInputBuilder(nn.Module):
         if cls_token is not None:
             flat_features_list.append(cls_token)
 
-        return torch.cat(flat_features_list, dim=-1) if flat_features_list else None  # (B, Total_len*Emb)
-
-
-
-
-
-
-
-
-
-
+        return (
+            torch.cat(flat_features_list, dim=-1) if flat_features_list else None
+        )  # (B, Total_len*Emb)

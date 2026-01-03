@@ -10,6 +10,7 @@ os.chdir(ROOT_DIR)
 from legacy_config import ACTConfig
 from workspace import ACTWorkspace
 
+
 def main(config=None):
     if config is None:
         # Create default config
@@ -18,7 +19,7 @@ def main(config=None):
     # Print configuration
     print("\nConfiguration:")
     for key, value in vars(config).items():
-        if not key.startswith('_'):  # Skip internal attributes
+        if not key.startswith("_"):  # Skip internal attributes
             print(f"{key}: {value}")
     print()
     # Create workspace and run

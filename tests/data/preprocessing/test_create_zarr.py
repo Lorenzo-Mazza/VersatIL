@@ -5,12 +5,12 @@ from unittest.mock import MagicMock, patch
 import cv2
 import albumentations as A
 
-from refactoring.data.schemas.base import DatasetSchema
+from refactoring.data.raw.schemas.base import DatasetSchema
 from refactoring.data.constants import (
     Cameras,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
 )
-from refactoring.data.preprocessing.create_zarr import create_replay_buffer, _create_zarr_arrays, _append_observations, _append_images
+from refactoring.data.preprocessing.create_zarr_from_csv import create_replay_buffer, _create_zarr_arrays, _append_observations, _append_images
 
 
 class MockDatasetSchema(DatasetSchema):
@@ -42,7 +42,7 @@ def mock_schema(tmp_path):
         dataset_folders=[],
         zarr_path=str(tmp_path / "test.zarr"),
         dataset_filename="data.csv",
-        raw_observations=observation_space,
+        metadata=observation_space,
         image_path_config=MagicMock(),
         has_phase_labels=False,
     )
@@ -67,7 +67,7 @@ def mock_schema_with_language(tmp_path):
         dataset_folders=[],
         zarr_path=str(tmp_path / "test.zarr"),
         dataset_filename="data.csv",
-        raw_observations=observation_space,
+        metadata=observation_space,
         image_path_config=MagicMock(),
         has_phase_labels=False,
     )
@@ -188,7 +188,7 @@ class TestCreateZarrArrays:
         assert data_group.create_array.call_count == len(specs)
 
         # Verify language array was created with str dtype and no compressor
-        language_key = mock_schema_with_language.raw_observations.language_key
+        language_key = mock_schema_with_language.metadata.language_key
         data_group.create_array.assert_any_call(
             language_key,
             shape=(0,),
@@ -210,7 +210,7 @@ class TestAppendObservations:
         assert len(calls) == 1
         appended = calls[0][0][0]
         expected = sample_episode_df[
-            mock_schema.raw_observations.robot_frame_proprio_keys
+            mock_schema.metadata.robot_frame_proprio_keys
         ].values.astype(np.float32)
         np.testing.assert_allclose(appended, expected)
 
@@ -228,7 +228,7 @@ class TestAppendObservations:
         assert len(calls) == 1
 
         # Check language instructions
-        language_key = mock_schema_with_language.raw_observations.language_key
+        language_key = mock_schema_with_language.metadata.language_key
         calls = mocked_data_group[language_key].append.call_args_list
         assert len(calls) == 1
 
@@ -323,7 +323,7 @@ class TestLanguageInstructions:
     def test_language_spec_in_schema(self, mock_schema_with_language):
         """Test that language spec is correctly generated in schema."""
         specs = mock_schema_with_language.get_zarr_array_specs()
-        language_key = mock_schema_with_language.raw_observations.language_key
+        language_key = mock_schema_with_language.metadata.language_key
 
         assert language_key in specs
         assert specs[language_key]['dtype'] == 'str'
@@ -355,7 +355,7 @@ class TestLanguageInstructions:
             schema=mock_schema_with_language
         )
 
-        language_key = mock_schema_with_language.raw_observations.language_key
+        language_key = mock_schema_with_language.metadata.language_key
         calls = mocked_data_group[language_key].append.call_args_list
         assert len(calls) == 1
 
@@ -384,7 +384,7 @@ class TestLanguageInstructions:
             schema=mock_schema_with_language
         )
 
-        language_key = mock_schema_with_language.raw_observations.language_key
+        language_key = mock_schema_with_language.metadata.language_key
         calls = mocked_data_group[language_key].append.call_args_list
 
         appended_language = calls[0][0][0]

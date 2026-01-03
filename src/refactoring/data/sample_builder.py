@@ -5,27 +5,21 @@ Builds the final training/validation samples by:
 - Adding proprioceptive data
 - Adding actions
 - Computing padding masks
-- Tokenizing observations and actions (if configured)
+- Normalizing (and optionally tokenizing) observations and actions
 """
-from typing import Any
 
 import numpy as np
 import torch
 
-from refactoring.data.task import ActionSpace, ObservationSpace
+from refactoring.data.metadata import ObservationMetadata, ActionMetadata
+from refactoring.data.task import ObservationSpace, ActionSpace
 from refactoring.data.action_processor import ActionProcessor
 from refactoring.data.augmentation.augmentation_pipeline import AugmentationPipeline
 from refactoring.data.constants import (
     ACTION_KEY,
-    GRIPPER_ACTION_KEY,
     IS_PAD_ACTION_KEY,
-    LANGUAGE_KEY,
     OBSERVATION_KEY,
-    PHASE_LABEL_KEY,
-    PROPRIO_OBS_CAMERA_FRAME_KEY,
-    PROPRIO_OBS_ROBOT_FRAME_KEY,
     Cameras,
-    GripperType,
 )
 from refactoring.data.tokenization import Tokenizer
 from refactoring.data.normalization.normalizer import LinearNormalizer
@@ -49,17 +43,16 @@ class SampleBuilder:
     ):
         """
         Args:
-            action_space: Configuration for action space
-            observation_space: Configuration for observation space
+            action_space: Action space of the experiment
+            observation_space: Observation space of the experiment
             obs_horizon: Observation history length
             pred_horizon: Action prediction horizon
-            action_backward_shift: Backward shift for action timing
+            action_backward_shift: Backward shift to give to action timesteps (if actions have latency)
             augmentation_pipeline: Handles augmentations
             action_processor: Processes actions
             tokenizer: Unified tokenizer for observations and actions
-            normalizer: Normalizer for observations and actions 
+            normalizer: Normalizer for observations and actions
         """
-
         self.action_space = action_space
         self.observation_space = observation_space
         self.obs_horizon = obs_horizon
@@ -70,11 +63,11 @@ class SampleBuilder:
         self.tokenizer = tokenizer
         self.normalizer = normalizer
 
-
     def build_sample(
         self,
         padded_data: dict[str, np.ndarray],
-        action_dict: dict[str, np.ndarray],
+        action_data: dict[str, np.ndarray],
+        action_meta: dict[str, ActionMetadata],
         start_idx: int,
         sampler_indices: np.ndarray,
     ) -> dict[str, dict[str, torch.Tensor]]:
@@ -82,7 +75,8 @@ class SampleBuilder:
 
         Args:
             padded_data: Dictionary of padded episode data
-            action_dict: Dictionary of computed actions
+            action_data: Dictionary of computed actions
+            action_meta: Dictionary of action metadata
             start_idx: Starting index in sampler
             sampler_indices: Array of sampler indices
 
@@ -94,28 +88,41 @@ class SampleBuilder:
         Returns:
             Dictionary containing observation and action dictionaries. Each sub-dictionary maps keys to tensors.
         """
-        sample: dict[str, dict[str, torch.Tensor]] = {OBSERVATION_KEY: {}, ACTION_KEY: {}}
-        angle, rotation_matrix = self.augmentation_pipeline.setup_rotation()
-        self._add_images(sample=sample, padded_data=padded_data, angle=angle)
-        if self.observation_space.use_proprioceptive_data:
-            self._add_proprioceptive(sample=sample, padded_data=padded_data, angle=angle, rotation_matrix=rotation_matrix)
-        self._add_additional_observation_keys(sample=sample, padded_data=padded_data)
+        sample: dict[str, dict[str, torch.Tensor]] = {
+            OBSERVATION_KEY: {},
+            ACTION_KEY: {},
+        }
+        image_dict = self._get_sample_images(padded_data=padded_data)
+        sample[OBSERVATION_KEY].update(image_dict)
+        for key, metadata in self.observation_space.observations_metadata.items():
+            if isinstance(metadata, ObservationMetadata):  # Excludes cameras
+                sample[OBSERVATION_KEY].update(
+                    {
+                        key: self._slice_observation_tensor(
+                            key=key, metadata=metadata, padded_data=padded_data
+                        )
+                    }
+                )
+        for key, data in action_data.items():
+            metadata = action_meta[key]
+            sample[ACTION_KEY].update(
+                {
+                    key: self._slice_action_data(
+                        key=key, metadata=metadata, action_data=action_data
+                    )
+                }
+            )
 
-        if angle != 0 and rotation_matrix is not None and self.action_space.predict_in_camera_frame:
-            action_dict = self.action_processor.rotate_actions(action_dict=action_dict, R=rotation_matrix)
-        for action_key, action_array in action_dict.items():
-            if action_key == GRIPPER_ACTION_KEY and self.action_space.gripper_type == GripperType.BINARY.value:
-                sample[ACTION_KEY][action_key] = torch.from_numpy(action_array).long()
-            else:
-                sample[ACTION_KEY][action_key] = torch.from_numpy(action_array).float()
-        if self.action_space.task_has_phases:
-            self._add_phase_labels(sample=sample, padded_data=padded_data)
-        self._add_padding_mask(sample=sample, start_idx=start_idx, sampler_indices=sampler_indices)
+        sample[ACTION_KEY][IS_PAD_ACTION_KEY] = self._compute_action_padding_mask(
+            start_idx=start_idx, sampler_indices=sampler_indices
+        )
         sample = self.normalize_and_tokenize_sample(sample=sample)
         return sample
 
-
-    def normalize_and_tokenize_sample(self, sample: dict[str, dict[str, torch.Tensor]]) -> dict[str, dict[str, torch.Tensor]]:
+    def normalize_and_tokenize_sample(
+        self,
+        sample: dict[str, dict[str, torch.Tensor]],
+    ) -> dict[str, dict[str, torch.Tensor]]:
         """Normalize and tokenize a pre-built sample.
 
         Args:
@@ -125,88 +132,85 @@ class SampleBuilder:
             Normalized and tokenized sample.
         """
         if self.normalizer is not None:
-            sample = normalize_sample(sample=sample, normalizer=self.normalizer,
-                                      observation_space=self.observation_space, action_space=self.action_space)
+            sample = normalize_sample(
+                sample=sample,
+                normalizer=self.normalizer,
+                observation_space=self.observation_space,
+                action_space=self.action_space,
+            )
         if self.tokenizer is not None:
-            sample = tokenize_sample(sample=sample, tokenizer=self.tokenizer,)
+            sample = tokenize_sample(
+                sample=sample, tokenizer=self.tokenizer, action_space=self.action_space
+            )
         return sample
 
-
-    def _add_images(
+    def _get_sample_images(
         self,
-        sample: dict[str, Any],
         padded_data: dict[str, np.ndarray],
-        angle: float,
-    ) -> None:
-        """Add processed images to sample."""
-        for cam in self.observation_space.camera_keys:
+    ) -> dict[str, torch.Tensor]:
+        """Process images and return them as a dictionary of tensors."""
+        image_dict = {}
+        for meta in self.observation_space.cameras.values():
+            cam = meta.camera_key
             # the sampler now fetches action_backward_shift extra prior observations at the start of padded_data, effectively offsetting the entire sequence
-            img = padded_data[cam][self.action_backward_shift: self.action_backward_shift + self.obs_horizon]
+            img = padded_data[cam][
+                self.action_backward_shift : self.action_backward_shift
+                + self.obs_horizon
+            ]
             if cam != Cameras.DEPTH.value:
-                img = self.augmentation_pipeline.apply_rgb_augmentations(img, angle)
+                img = self.augmentation_pipeline.apply_rgb_augmentations(img)
                 img = img.astype(np.float32) / 255.0
                 # Convert to (T, C, H, W)
                 img = np.moveaxis(img, -1, 1)
             else:
-                # Depth image processing
-                img = self.augmentation_pipeline.apply_depth_augmentations(img, angle)
+                img = self.augmentation_pipeline.apply_depth_augmentations(img)
                 if len(img.shape) == 3:
                     img = img.astype(np.float32)[:, None]
-            sample[OBSERVATION_KEY][cam] = torch.from_numpy(img)
+            image_dict[cam] = torch.from_numpy(img)
+        return image_dict
 
-
-    def _add_proprioceptive(
+    def _slice_observation_tensor(
         self,
-        sample: dict[str, Any],
+        key: str,
         padded_data: dict[str, np.ndarray],
-        angle: float,
-        rotation_matrix: np.ndarray | None = None,
-    ) -> None:
-        """Add robot proprioceptive observations to sample."""
-        proprio_dict = {}
-        if self.observation_space.use_proprio_base_frame:
-            proprio_dict[PROPRIO_OBS_ROBOT_FRAME_KEY] = torch.from_numpy(
-                padded_data[PROPRIO_OBS_ROBOT_FRAME_KEY][self.action_backward_shift : self.action_backward_shift + self.obs_horizon]
-            ).float()
-        if self.observation_space.use_proprio_camera_frame:
-            camera_frame = padded_data[PROPRIO_OBS_CAMERA_FRAME_KEY][self.action_backward_shift : self.action_backward_shift + self.obs_horizon]
-            if angle > 0 and rotation_matrix is not None:
-                camera_frame = self.augmentation_pipeline.rotate_proprio_data(camera_frame, rotation_matrix)
-            proprio_dict[PROPRIO_OBS_CAMERA_FRAME_KEY] = torch.from_numpy(camera_frame).float()
-        sample[OBSERVATION_KEY].update(proprio_dict)
+        metadata: ObservationMetadata,
+    ) -> torch.Tensor | list[list[str]]:
+        """Slice `key` from observation data, and return it as tensor."""
+        observation_data = padded_data[key][
+            self.action_backward_shift : self.action_backward_shift + self.obs_horizon
+        ]
+        if metadata.dtype == "str":
+            return observation_data.tolist()
+        elif "float" in metadata.dtype:
+            return torch.from_numpy(observation_data).float()
+        elif "int" in metadata.dtype or "bool" in metadata.dtype:
+            return torch.from_numpy(observation_data).long()
+        else:
+            raise ValueError(f"Unsupported custom observation dtype: {metadata.dtype}")
 
+    @staticmethod
+    def _slice_action_data(
+        key: str,
+        action_data: dict[str, np.ndarray],
+        metadata: ActionMetadata,
+    ) -> torch.Tensor | list[list[str]]:
+        """Slice `key` from action data and return it as tensor."""
+        action_array = action_data[key]
+        if metadata.dtype == "str":
+            return action_array.tolist()
+        elif "float" in metadata.dtype:
+            return torch.from_numpy(action_array).float()
+        elif "int" in metadata.dtype or "bool" in metadata.dtype:
+            return torch.from_numpy(action_array).long()
+        else:
+            raise ValueError(f"Unsupported custom action dtype: {metadata.dtype}")
 
-    def _add_additional_observation_keys(
+    def _compute_action_padding_mask(
         self,
-        sample: dict[str, Any],
-        padded_data: dict[str, np.ndarray],
-    ) -> None:
-        """Add additional observations to sample, such as language."""
-        if self.observation_space.use_language:
-            lang_data = padded_data[LANGUAGE_KEY][self.action_backward_shift : self.action_backward_shift + self.obs_horizon]
-            sample[OBSERVATION_KEY][LANGUAGE_KEY] = lang_data.tolist()
-        for key in self.observation_space.custom_obs_keys:
-            custom_data = padded_data[key][self.action_backward_shift : self.action_backward_shift + self.obs_horizon]
-            sample[OBSERVATION_KEY][key] = torch.from_numpy(custom_data).float() # Assuming float type for custom obs
-
-
-    def _add_phase_labels(
-        self, sample: dict[str, Any], padded_data: dict[str, np.ndarray]
-    ) -> None:
-        """Add phase labels to sample."""
-        action_slice_start = self._get_action_slice_start()
-        padded_phases = padded_data[PHASE_LABEL_KEY]
-        next_phase = padded_phases[action_slice_start + 1: action_slice_start + self.pred_horizon + 1]
-        sample[ACTION_KEY][PHASE_LABEL_KEY] = torch.from_numpy(next_phase).long()
-
-
-    def _add_padding_mask(
-        self,
-        sample: dict[str, Any],
         start_idx: int,
         sampler_indices: np.ndarray,
-    ) -> None:
-        """Add padding mask indicating which timesteps are padded."""
+    ) -> torch.Tensor:
+        """Add action padding mask indicating which timesteps are padded."""
         action_slice_start = self._get_action_slice_start()
         (
             buffer_start_idx,
@@ -217,7 +221,7 @@ class SampleBuilder:
 
         action_positions = np.arange(self.pred_horizon) + action_slice_start
 
-        if self.action_space.deltas_as_actions:
+        if self.action_space.has_delta_actions:
             # For deltas, both current and next positions must be valid
             is_pad = np.logical_or(
                 np.logical_or(
@@ -235,11 +239,8 @@ class SampleBuilder:
                 action_positions + 1 < sample_start_idx,
                 action_positions + 1 >= sample_end_idx,
             )
-
-        sample[ACTION_KEY][IS_PAD_ACTION_KEY] = torch.from_numpy(is_pad).bool()
-
+        return torch.from_numpy(is_pad).bool()
 
     def _get_action_slice_start(self) -> int:
         """Get the starting index for action slice."""
         return self.obs_horizon - 1
-

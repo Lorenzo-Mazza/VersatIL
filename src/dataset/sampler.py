@@ -6,11 +6,14 @@ from dataset.replay_buffer import ReplayBuffer
 
 @numba.jit(nopython=True)
 def create_indices(
-        episode_ends: np.ndarray, sequence_length: int,
-        episode_mask: np.ndarray,
-        pad_before: int = 0, pad_after: int = 0,
-        skip_initial: int = 0,
-        debug: bool = True) -> np.ndarray:
+    episode_ends: np.ndarray,
+    sequence_length: int,
+    episode_mask: np.ndarray,
+    pad_before: int = 0,
+    pad_after: int = 0,
+    skip_initial: int = 0,
+    debug: bool = True,
+) -> np.ndarray:
     """Builds a list of starting points for fixed-length sequences across multiple episodes.
 
     Episodes are sections of data defined by their ending positions in episode_ends (cumulative, like [5, 10, 15] for episodes of length 5 each).
@@ -61,17 +64,19 @@ def create_indices(
             sample_start_idx = 0 + start_offset
             sample_end_idx = sequence_length - end_offset
             if debug:
-                assert (start_offset >= 0)
-                assert (end_offset >= 0)
-                assert (sample_end_idx - sample_start_idx) == (buffer_end_idx - buffer_start_idx)
-            indices.append([
-                buffer_start_idx, buffer_end_idx,
-                sample_start_idx, sample_end_idx])
+                assert start_offset >= 0
+                assert end_offset >= 0
+                assert (sample_end_idx - sample_start_idx) == (
+                    buffer_end_idx - buffer_start_idx
+                )
+            indices.append(
+                [buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx]
+            )
     indices = np.array(indices)
     return indices
 
 
-def get_val_mask(n_episodes, val_ratio, seed = 0):
+def get_val_mask(n_episodes, val_ratio, seed=0):
     """Makes a boolean array to pick which episodes are for validation.
 
     Randomly chooses a fraction (val_ratio) of episodes to mark as True (validation set).
@@ -98,7 +103,7 @@ def get_val_mask(n_episodes, val_ratio, seed = 0):
     return val_mask
 
 
-def downsample_mask(mask, max_n, seed = 0):
+def downsample_mask(mask, max_n, seed=0):
     """Reduces the number of True values in a mask to at most max_n.
 
     If there are more than max_n Trues, randomly pick max_n of them to keep True, rest False.
@@ -144,24 +149,24 @@ class SequenceSampler:
         key_first_k: For certain keys, load only first K steps (perf hack).
     """
 
-
-    def __init__(self,
-                 replay_buffer: ReplayBuffer,
-                 sequence_length: int,
-                 pad_before: int = 0,
-                 pad_after: int = 0,
-                 keys = None,
-                 key_first_k = dict(),
-                 episode_mask: Optional[np.ndarray] = None,
-                 skip_initial: int = 0,
-                 pad_with_zeros: bool = True
-                 ):
+    def __init__(
+        self,
+        replay_buffer: ReplayBuffer,
+        sequence_length: int,
+        pad_before: int = 0,
+        pad_after: int = 0,
+        keys=None,
+        key_first_k=dict(),
+        episode_mask: Optional[np.ndarray] = None,
+        skip_initial: int = 0,
+        pad_with_zeros: bool = True,
+    ):
         """
         key_first_k: dict str: int
             Only take first k data from these keys (to improve perf)
         """
         super().__init__()
-        assert (sequence_length >= 1)
+        assert sequence_length >= 1
         if keys is None:
             keys = list(replay_buffer.keys())
 
@@ -169,29 +174,28 @@ class SequenceSampler:
         if episode_mask is None:
             episode_mask = np.ones(episode_ends.shape, dtype=bool)
         if np.any(episode_mask):
-            indices = create_indices(episode_ends,
-                                     sequence_length=sequence_length,
-                                     pad_before=pad_before,
-                                     pad_after=pad_after,
-                                     episode_mask=episode_mask,
-                                     skip_initial=skip_initial
-                                     )
+            indices = create_indices(
+                episode_ends,
+                sequence_length=sequence_length,
+                pad_before=pad_before,
+                pad_after=pad_after,
+                episode_mask=episode_mask,
+                skip_initial=skip_initial,
+            )
         else:
             indices = np.zeros((0, 4), dtype=np.int64)
         # (buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx)
         self.indices = indices
         self.keys = list(keys)  # prevent OmegaConf list performance problem
         self.sequence_length = sequence_length
-        self.episode_mask=episode_mask
+        self.episode_mask = episode_mask
         self.replay_buffer = replay_buffer
         self.key_first_k = key_first_k
         self.pad_with_zeros = pad_with_zeros
 
-
     def __len__(self):
         """How many sequences are available."""
         return len(self.indices)
-
 
     def sample_sequence(self, idx):
         """Gets one sequence as a dict of arrays.
@@ -206,8 +210,12 @@ class SequenceSampler:
         Returns:
             Dict like {'obs': array(seq_len, obs_dim), 'action': array(seq_len, act_dim)}.
         """
-        buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx \
-            = self.indices[idx]
+        (
+            buffer_start_idx,
+            buffer_end_idx,
+            sample_start_idx,
+            sample_end_idx,
+        ) = self.indices[idx]
         result = dict()
         for key in self.keys:
             input_arr = self.replay_buffer[key]
@@ -219,11 +227,18 @@ class SequenceSampler:
                 # Observation data
                 n_data = buffer_end_idx - buffer_start_idx
                 k_data = min(self.key_first_k[key], n_data)
-                fill_value = np.nan if np.issubdtype(input_arr.dtype, np.floating) else 0
-                sample = np.full((n_data,) + input_arr.shape[1:],
-                                 fill_value=fill_value, dtype=input_arr.dtype)
+                fill_value = (
+                    np.nan if np.issubdtype(input_arr.dtype, np.floating) else 0
+                )
+                sample = np.full(
+                    (n_data,) + input_arr.shape[1:],
+                    fill_value=fill_value,
+                    dtype=input_arr.dtype,
+                )
                 try:
-                    sample[:k_data] = input_arr[buffer_start_idx:buffer_start_idx + k_data]
+                    sample[:k_data] = input_arr[
+                        buffer_start_idx : buffer_start_idx + k_data
+                    ]
                 except Exception as e:
                     raise ValueError(f"Error sampling key {key} at index {idx}: {e}")
             data = sample
@@ -232,13 +247,15 @@ class SequenceSampler:
                 if self.pad_with_zeros:
                     data = np.zeros(
                         shape=(self.sequence_length,) + input_arr.shape[1:],
-                        dtype=input_arr.dtype)
+                        dtype=input_arr.dtype,
+                    )
                     data[sample_start_idx:sample_end_idx] = sample
                 else:
                     # Pad with repeated values
                     data = np.empty(
                         shape=(self.sequence_length,) + input_arr.shape[1:],
-                        dtype=input_arr.dtype)
+                        dtype=input_arr.dtype,
+                    )
                     if sample_start_idx > 0:
                         data[:sample_start_idx] = sample[0]
                     if sample_end_idx < self.sequence_length:

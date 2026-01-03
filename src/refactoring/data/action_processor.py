@@ -10,155 +10,239 @@ import logging
 
 import numpy as np
 import scipy
+import matplotlib.pyplot as plt
+import seaborn as sns
 
+from refactoring.data.metadata import OnTheFlyActionMetadata, ActionMetadata, ProprioceptiveObservationMetadata, PositionObservationMetadata, \
+    ObservationMetadata
 from refactoring.data.task import ActionSpace
 from refactoring.data.constants import (
-    GRIPPER_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    POSITION_ACTION_KEY,
     GripperType,
-    OrientationRepresentation,
+    OrientationRepresentation, ActionComputationMethod, ProprioceptiveType,
 )
 
 
 class ActionProcessor:
     """Computes actions from robot observations with denoising support."""
 
-    def __init__(self, action_space: ActionSpace):
+    def __init__(
+            self,
+            action_space: ActionSpace,
+    ):
         """Initialize action processor.
 
         Args:
             action_space: TaskSpace action space configuration (contains all action-related settings)
         """
-        self.action_space = action_space
-        self.predict_in_camera_frame = action_space.predict_in_camera_frame
-        self.deltas_as_actions = action_space.deltas_as_actions
-        self.denoise_actions = action_space.denoise_actions
-        self.has_position = action_space.has_position
-        self.has_orientation = action_space.has_orientation
-        self.has_gripper = action_space.has_gripper
-        self.position_dim = action_space.position_dim if self.has_position else 0
-        self.orientation_dim = action_space.orientation_dim if self.has_orientation else 0
-        self.gripper_dim = action_space.gripper_dim if self.has_gripper else 0
-        self.action_denoising_threshold = 0.0
-        self.orientation_denoising_threshold = 0.0
+        self.action_space: ActionSpace = action_space
+        self.denoise_actions: bool = action_space.denoise_actions
+        self.denoising_percentile: float = action_space.denoising_percentile
+        self.denoising_thresholds: dict[str, float] = {}
+        self._denoising_thresholds_computed: bool = False
+        self.dataset_magnitudes: dict[str, np.ndarray] = {}
 
-    def compute_actions_from_observations(
-        self,
-        curr_obs: np.ndarray,
-        next_obs: np.ndarray,
-        curr_gripper: np.ndarray | None = None,
-        next_gripper: np.ndarray | None = None,
-    ) -> dict[str, np.ndarray]:
-        """Compute action dictionary from current and next observations.
 
-        Args:
-            curr_obs: Current observations (N, obs_dim)
-            next_obs: Next observations (N, obs_dim)
-            curr_gripper: Current gripper states (N, gripper_dim) - optional
-            next_gripper: Next gripper states (N, gripper_dim) - optional
+    @property
+    def requires_denoising_setup(self) -> bool:
+        """Check if denoising is enabled but thresholds haven't been computed.
 
         Returns:
-            Dictionary with action arrays for each modality
+            True if denoise_actions is enabled but thresholds haven't been computed yet.
         """
-        actions = {}
-        if self.has_position:
-            next_pos = next_obs[:, : self.position_dim]
-            curr_pos = curr_obs[:, : self.position_dim]
-            if self.denoise_actions:
-                next_pos, curr_pos = self.apply_position_denoising(
-                    next_pos, curr_pos
-                )
-            actions[POSITION_ACTION_KEY] = (
-                (next_pos - curr_pos) if self.deltas_as_actions else next_pos
-            )
+        return self.denoise_actions and not self._denoising_thresholds_computed
 
-        if self.has_orientation:
-            pos_end = self.position_dim
-            ori_end = pos_end + self.orientation_dim
-            next_ori = next_obs[:, pos_end:ori_end]
-            curr_ori = curr_obs[:, pos_end:ori_end]
-            if self.denoise_actions:
-                next_ori, curr_ori = self.apply_orientation_denoising(
-                    next_ori, curr_ori
-                )
-            actions[ORIENTATION_ACTION_KEY] = (
-                self._compute_orientation_deltas(curr_ori, next_ori)
-                if self.deltas_as_actions
-                else next_ori
-            )
-        if self.has_gripper and next_gripper is not None:
-            actions[GRIPPER_ACTION_KEY] = self.compute_gripper_actions(
-                curr_gripper, next_gripper
-            )
-        return actions
 
-    def compute_gripper_actions(
-        self,
-        curr_gripper: np.ndarray | None,
-        next_gripper: np.ndarray,
-    ) -> np.ndarray:
-        """Compute gripper actions from gripper states.
+    def compute_denoising_threshold(
+            self,
+            obs_data: np.ndarray,
+            key: str,
+            meta: ObservationMetadata,
+            episode_ends: np.ndarray,
+    ) -> None:
+        """Compute denoising thresholds from observation deltas of proprioceptive positions."""
+        if not isinstance(meta, PositionObservationMetadata):
+            logging.warning("Denoising threshold computation only supported for position observations.")
+            return
+        # Mask out cross-episode transitions
+        cross_indices = episode_ends[:-1] - 1
+        valid_mask = np.ones(len(obs_data) - 1, dtype=bool)
+        valid_mask[cross_indices] = False
+        deltas = obs_data[1:] - obs_data[:-1]  # (T-1, dim)
+        deltas = deltas[valid_mask]
+        norms = np.linalg.norm(deltas, axis=1)
+        non_zero = norms[norms > 0]
+        self.dataset_magnitudes[key] = norms
+        self.denoising_thresholds[key] = np.percentile(non_zero, self.denoising_percentile)
+        self._denoising_thresholds_computed = True
 
-        For most cases, gripper action is simply the next timestep's state.
-        This works for both binary (0/1) and continuous (0.0-1.0) grippers.
 
-        If deltas_as_actions is True and gripper is continuous, compute deltas.
-        Binary grippers always use next state (not deltas).
+    def compute_sample_actions(
+            self,
+            padded_data: dict[str, np.ndarray],
+            action_slice_start: int,
+            action_slice_end: int,
+    ) -> tuple[dict[str, np.ndarray], dict[str, ActionMetadata]]:
 
-        Args:
-            curr_gripper: Current gripper states (N, gripper_dim)
-            next_gripper: Next gripper states (N, gripper_dim)
+        """Compute actions from a sampled sequence of the zarr replay buffer.
 
-        Returns:
-            Gripper actions (N, gripper_dim)
+            Precomputed actions are extracted directly from the buffer.
+            On-the-fly actions are computed from current & next observations.
+            Additionally, denoising is applied to on-the-fly actions if enabled.
         """
-
-        gripper_type = self.action_space.gripper_type
-
-        if gripper_type == GripperType.BINARY.value:
-            # Binary gripper: action is next state (open/close command)
-            return next_gripper
-        elif gripper_type == GripperType.CONTINUOUS.value:
-            # Continuous gripper: can use deltas if requested
-            if self.deltas_as_actions and curr_gripper is not None:
-                return next_gripper - curr_gripper  # type: ignore[no-any-return]
+        action_data = {}
+        action_meta = {}
+        for key, meta in self.action_space.actions_metadata.items():
+            if meta.is_precomputed:
+                precomputed_actions = padded_data[key]
+                processed_action = precomputed_actions[action_slice_start:action_slice_end]
             else:
-                return next_gripper
-        else:
-            raise ValueError(f"Unsupported gripper type: {gripper_type}")
+                assert isinstance(meta, OnTheFlyActionMetadata)
+                obs_for_action = padded_data[key]
+                next_obs = obs_for_action[action_slice_start + 1:action_slice_end + 1]
+                current_obs = obs_for_action[action_slice_start:action_slice_end]
+                if self.denoise_actions and meta.action_type == ProprioceptiveType.POSITION.value:
+                    next_obs, current_obs = self.apply_delta_denoising(
+                        key=key,
+                        next_values=next_obs,
+                        current_values=current_obs
+                    )
+                processed_action = self.compute_action_on_the_fly(
+                    current_obs=current_obs, next_obs=next_obs, metadata=meta)
+
+            action_data[key] = processed_action
+            action_meta[key] = meta
 
 
-    def _compute_orientation_deltas(
-        self, curr_ori: np.ndarray, next_ori: np.ndarray
+        return action_data, action_meta
+
+
+    def log_movement_distribution(self) -> None:
+        """Log movement (observation delta) distribution stats."""
+        for key, norms in self.dataset_magnitudes.items():
+            logging.info(
+                f"{key} movement stats: "
+                f"mean={norms.mean():.6f}, std={norms.std():.6f}, "
+                f"min={norms.min():.6f}, max={norms.max():.6f}, "
+                f"p5={np.percentile(norms, 5):.6f}, p50={np.percentile(norms, 50):.6f}, "
+                f"p95={np.percentile(norms, 95):.6f}"
+            )
+
+            if key in self.denoising_thresholds:
+                threshold = self.denoising_thresholds[key]
+                num_below = np.sum(norms < threshold)
+                pct_below = 100.0 * num_below / len(norms)
+                logging.info(
+                    f"{key} denoising: threshold={threshold:.6f}, "
+                    f"{num_below}/{len(norms)} ({pct_below:.1f}%) movements zeroed"
+                )
+
+
+    def compute_action_on_the_fly(
+        self,
+        current_obs: np.ndarray,
+        next_obs: np.ndarray,
+        metadata: OnTheFlyActionMetadata,
     ) -> np.ndarray:
-        """Compute orientation deltas based on representation type."""
-        ori_repr = self.action_space.orientation_repr
-        if ori_repr == OrientationRepresentation.ROLL.value:
-            return self._compute_roll_deltas(curr_ori, next_ori)
-        elif ori_repr == OrientationRepresentation.QUATERNION.value:
-            return self._compute_quaternion_deltas(curr_ori, next_ori)
-        elif ori_repr == OrientationRepresentation.EULER.value:
-            return self._compute_euler_deltas(curr_ori, next_ori)
+        """Compute action from current and next observations."""
+        match metadata.action_type:
+            case ProprioceptiveType.POSITION.value:
+                return self.compute_position_action_from_observation(
+                    current_position=current_obs,
+                    next_position=next_obs,
+                    method=metadata.computation_method
+                )
+            case ProprioceptiveType.ORIENTATION.value:
+                return self.compute_orientation_action_from_observation(
+                    current_orientation=current_obs,
+                    next_orientation=next_obs,
+                    method=metadata.computation_method,
+                    representation=metadata.source_metadata.orientation_representation
+                )
+            case ProprioceptiveType.GRIPPER.value:
+                return self.compute_gripper_action_from_observation(
+                    current_gripper=current_obs,
+                    next_gripper=next_obs,
+                    method=metadata.computation_method,
+                    gripper_type=metadata.source_metadata.gripper_type
+                )
+            case _ :
+                raise ValueError(f"Unsupported action type for on-the-fly computation: {metadata.action_type}")
 
+
+    @staticmethod
+    def compute_position_action_from_observation(
+        current_position: np.ndarray,
+        next_position: np.ndarray,
+        method: str = ActionComputationMethod.DELTA.value
+    ) -> np.ndarray:
+        """Compute position action from current and next positions."""
+        match method:
+            case ActionComputationMethod.NEXT_TIMESTEP.value:
+                return next_position
+            case ActionComputationMethod.DELTA.value:
+                return next_position - current_position
+            case _:
+                raise ValueError(f"Unsupported position action computation method: {method}")
+
+
+    @staticmethod
+    def compute_gripper_action_from_observation(
+        current_gripper: np.ndarray,
+        next_gripper: np.ndarray,
+        method: str = ActionComputationMethod.DELTA.value,
+        gripper_type: str = GripperType.BINARY.value,
+    ) -> np.ndarray:
+        """Compute gripper action from current and next gripper states."""
+        if gripper_type == GripperType.BINARY.value:
+            if method != ActionComputationMethod.NEXT_TIMESTEP.value:
+                raise ValueError("Delta not supported for binary grippers; use NEXT_TIMESTEP")
+            return next_gripper
+        if method == ActionComputationMethod.NEXT_TIMESTEP.value:
+            return next_gripper
+        elif method == ActionComputationMethod.DELTA.value:
+            return next_gripper - current_gripper
         else:
-            raise ValueError(f"Unsupported orientation representation: {ori_repr}")
+            raise ValueError(f"Unsupported method: {method}")
 
 
+    def compute_orientation_action_from_observation(
+            self,
+            current_orientation: np.ndarray,
+            next_orientation: np.ndarray,
+            method: str = ActionComputationMethod.DELTA.value,
+            representation: str = OrientationRepresentation.QUATERNION.value
+    ) -> np.ndarray:
+        """Compute orientation action from current and next orientations."""
+        if method == ActionComputationMethod.NEXT_TIMESTEP.value:
+            return next_orientation
+        if method != ActionComputationMethod.DELTA.value:
+            raise ValueError(f"Unsupported method '{method}' for representation '{representation}'")
+        if representation == OrientationRepresentation.ROLL.value:
+            return self._compute_roll_deltas(current_orientation, next_orientation)
+        elif representation == OrientationRepresentation.QUATERNION.value:
+            return self._compute_quaternion_deltas(current_orientation, next_orientation)
+        elif representation == OrientationRepresentation.EULER.value:
+            return self._compute_euler_deltas(current_orientation, next_orientation)
+        else:
+            raise ValueError(f"Unsupported orientation representation: {representation}")
+
+
+    @staticmethod
     def _compute_quaternion_deltas(
-            self, curr_ori: np.ndarray, next_ori: np.ndarray
+            curr_ori: np.ndarray, next_ori: np.ndarray
     ) -> np.ndarray:
-        """Compute quaternion deltas (w, action_embedding, y, z format)."""
-        quat_order_from = [1, 2, 3, 0]  # to (action_embedding,y,z,w)
+        """Compute quaternion deltas (w, x, y, z format)."""
+        quat_order_from = [1, 2, 3, 0]  # to (x,y,z,w)
         curr_rot = scipy.spatial.transform.Rotation.from_quat(curr_ori[:, quat_order_from])
         next_rot = scipy.spatial.transform.Rotation.from_quat(next_ori[:, quat_order_from])
         rel_rot = next_rot * curr_rot.inv()
-        quat_order_to = [3, 0, 1, 2]  # back to (w,action_embedding,y,z)
+        quat_order_to = [3, 0, 1, 2]  # back to (w,x,y,z)
         return rel_rot.as_quat()[:, quat_order_to]  # type: ignore[no-any-return]
 
 
+    @staticmethod
     def _compute_roll_deltas(
-            self, curr_ori: np.ndarray, next_ori: np.ndarray
+            curr_ori: np.ndarray, next_ori: np.ndarray
     ) -> np.ndarray:
         """Compute roll angle deltas (simple angle difference in radians).
 
@@ -172,8 +256,9 @@ class ActionProcessor:
         return next_ori - curr_ori  # type: ignore[no-any-return]
 
 
+    @staticmethod
     def _compute_euler_deltas(
-        self, curr_ori: np.ndarray, next_ori: np.ndarray
+            curr_ori: np.ndarray, next_ori: np.ndarray
     ) -> np.ndarray:
         """Compute euler angle deltas."""
         curr_rot = scipy.spatial.transform.Rotation.from_euler("xyz", curr_ori)
@@ -182,181 +267,63 @@ class ActionProcessor:
         return rel_rot.as_euler("xyz")  # type: ignore[no-any-return]
 
 
-    def apply_position_denoising(
-        self, next_pos: np.ndarray, curr_pos: np.ndarray
+    def apply_delta_denoising(
+        self,
+        next_values: np.ndarray,
+        current_values: np.ndarray,
+        key: str
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Apply denoising threshold to position data.
+        """Apply denoising threshold to the magnitudes of delta movements between a quantity at time t and t+1.
 
-        Computes threshold on first call if not already set, then applies it.
+        Raises:
+            RuntimeError: If denoising thresholds haven't been computed.
         """
-        # Compute threshold on first call if not set
-        if self.action_denoising_threshold == 0.0:
-            self.compute_action_denoising_threshold(next_pos, curr_pos)
-
-        # Apply threshold
-        if self.action_denoising_threshold > 0:
-            diffs = next_pos - curr_pos
+        if self.requires_denoising_setup:
+            raise RuntimeError("Denoising is enabled but thresholds have not been computed.")
+        if key in self.denoising_thresholds:
+            next_values = next_values.copy()
+            diffs = next_values - current_values
             norms = np.linalg.norm(diffs, axis=1)
-            mask = norms < self.action_denoising_threshold
-            next_pos[mask] = curr_pos[mask]
-
-        return next_pos, curr_pos
-
-    def compute_action_denoising_threshold(
-        self, all_next_pos: np.ndarray, all_curr_pos: np.ndarray
-    ) -> None:
-        """Compute and store the action denoising threshold from all training data.
-
-        This should be called once during dataset initialization with all training samples.
-
-        Args:
-            all_next_pos: All next positions from training data (N, position_dim)
-            all_curr_pos: All current positions from training data (N, position_dim)
-        """
-        diffs = all_next_pos - all_curr_pos
-        norms = np.linalg.norm(diffs, axis=1)
-        non_zero_norms = norms[norms > 0]
-
-        if len(non_zero_norms) > 0:
-            self.action_denoising_threshold = np.percentile(non_zero_norms, 5)
-            logging.info(
-                f"Computed positional action threshold (5th percentile): "
-                f"{self.action_denoising_threshold}. "
-                f"All actions with norm below this will be set to zero."
-            )
-        else:
-            self.action_denoising_threshold = 0.0
+            mask = norms < self.denoising_thresholds[key]
+            next_values[mask] = current_values[mask]
+        return next_values, current_values
 
 
-    def apply_orientation_denoising(
-        self, next_ori: np.ndarray, curr_ori: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Apply denoising threshold to orientation data.
-
-        Computes threshold on first call if not already set, then applies it.
-        """
-        # Compute threshold on first call if not set
-        if self.orientation_denoising_threshold == 0.0:
-            self.compute_orientation_denoising_threshold(next_ori, curr_ori)
-
-        # Apply threshold
-        if self.orientation_denoising_threshold > 0:
-            angles = self._compute_orientation_magnitudes(curr_ori, next_ori)
-            mask = angles < self.orientation_denoising_threshold
-            next_ori[mask] = curr_ori[mask]
-
-        return next_ori, curr_ori
-
-    def compute_orientation_denoising_threshold(
-        self, all_next_ori: np.ndarray, all_curr_ori: np.ndarray
-    ) -> None:
-        """Compute and store the orientation denoising threshold from all training data.
-
-        This should be called once during dataset initialization with all training samples.
-
-        Args:
-            all_next_ori: All next orientations from training data (N, orientation_dim)
-            all_curr_ori: All current orientations from training data (N, orientation_dim)
-        """
-        angles = self._compute_orientation_magnitudes(all_curr_ori, all_next_ori)
-        non_zero_angles = angles[angles > 0]
-
-        if len(non_zero_angles) > 0:
-            self.orientation_denoising_threshold = np.percentile(non_zero_angles, 5)
-            logging.info(
-                f"Computed orientation threshold (5th percentile): "
-                f"{self.orientation_denoising_threshold}"
-            )
-        else:
-            self.orientation_denoising_threshold = 0.0
-
-
-    def _compute_orientation_magnitudes(
-            self, curr_ori: np.ndarray, next_ori: np.ndarray
-    ) -> np.ndarray:
-        """Compute angular distances between orientations."""
-        ori_repr = self.action_space.orientation_repr
-        if ori_repr == OrientationRepresentation.ROLL.value:
-            # Roll only representation, simply subtract values
-            rel_rotation = np.abs(next_ori[:, 0] - curr_ori[:, 0])
-        elif ori_repr == OrientationRepresentation.QUATERNION.value:
-            quat_order = [1, 2, 3, 0]  # to (action_embedding,y,z,w)
-            curr_rot = scipy.spatial.transform.Rotation.from_quat(
-                curr_ori[:, quat_order]
-            )
-            next_rot = scipy.spatial.transform.Rotation.from_quat(
-                next_ori[:, quat_order]
-            )
-            rel_rot = next_rot * curr_rot.inv()
-            rel_rotation = rel_rot.magnitude()
-        elif ori_repr == OrientationRepresentation.EULER.value:
-            curr_rot = scipy.spatial.transform.Rotation.from_euler("xyz", curr_ori)
-            next_rot = scipy.spatial.transform.Rotation.from_euler("xyz", next_ori)
-            rel_rot = next_rot * curr_rot.inv()
-            rel_rotation = rel_rot.magnitude()
-        else:
-            raise ValueError(f"Unsupported orientation representation: {ori_repr}")
-        return rel_rotation  # type: ignore[no-any-return]
-
-    def rotate_actions(
-        self, action_dict: dict[str, np.ndarray], R: np.ndarray
-    ) -> dict[str, np.ndarray]:
-        """Rotate actions by rotation matrix R (for augmentation).
-
-        Args:
-            action_dict: Dictionary of action arrays
-            R: 3x3 rotation matrix
+    def plot_action_magnitude_distribution(self) -> plt.Figure | None:
+        """Plot magnitude distributions of the actions before/after denoising.
 
         Returns:
-            Dictionary with rotated actions
+            The matplotlib figure, or None if no data available.
         """
-        rotated = {}
+        if not self.denoising_thresholds:
+            logging.warning("No denoising data available to plot")
+            return None
 
-        if POSITION_ACTION_KEY in action_dict:
-            rotated[POSITION_ACTION_KEY] = (
-                R @ action_dict[POSITION_ACTION_KEY].T
-            ).T
+        sns.set_theme(style="whitegrid", palette="muted")
+        num_plots = len(self.denoising_thresholds.keys())
+        fig, axes = plt.subplots(1, num_plots, figsize=(7 * num_plots, 5))
+        if num_plots == 1:
+            axes = [axes]
+        plot_idx = 0
+        for key in self.denoising_thresholds.keys():
+            ax = axes[plot_idx]
+            norms = self.dataset_magnitudes[key]
+            threshold = self.denoising_thresholds[key]
+            log_norms = np.log10(norms + 1e-10)
+            sns.histplot(log_norms, bins=100, alpha=0.6, label="Raw", color="steelblue", ax=ax)
+            if threshold > 0:
+                log_threshold = np.log10(threshold)
+                denoised = np.where(norms < threshold, 0.0, norms)
+                denoised_nonzero = denoised[denoised > 0]
+                if len(denoised_nonzero) > 0:
+                    sns.histplot(np.log10(denoised_nonzero), bins=100, alpha=0.6, label="Denoised", color="coral", ax=ax)
+                ax.axvline(log_threshold, color="crimson", linestyle="--", linewidth=2, label=f"Threshold: {threshold:.2e}")
+            ax.set_xlabel(f"log10({key} Observation Deltas Magnitude)", fontsize=11)
+            ax.set_ylabel("Count", fontsize=11)
+            ax.set_title(f"{key} Observation Deltas Distribution", fontsize=13, fontweight="bold")
+            ax.legend(frameon=True, fancybox=True)
+            plot_idx += 1
 
-        if ORIENTATION_ACTION_KEY in action_dict:
-            rotated[ORIENTATION_ACTION_KEY] = self._rotate_orientations(
-                action_dict[ORIENTATION_ACTION_KEY], R
-            )
-
-        if GRIPPER_ACTION_KEY in action_dict:
-            rotated[GRIPPER_ACTION_KEY] = action_dict[GRIPPER_ACTION_KEY]
-
-        return rotated
-
-
-    def _rotate_orientations(
-            self, orientations: np.ndarray, R: np.ndarray
-    ) -> np.ndarray:
-        """Rotate orientations by rotation matrix R."""
-        ori_repr = self.action_space.orientation_repr
-        R_rot = scipy.spatial.transform.Rotation.from_matrix(R)
-        if ori_repr == OrientationRepresentation.QUATERNION.value:
-            quat_order_from = [1, 2, 3, 0]  # to (action_embedding,y,z,w)
-            rot = scipy.spatial.transform.Rotation.from_quat(orientations[:, quat_order_from])
-            if self.deltas_as_actions:
-                rotated = R_rot * rot * R_rot.inv()
-            else:
-                rotated = R_rot * rot
-            quat_order_to = [3, 0, 1, 2]  # back to (w,action_embedding,y,z)
-            return rotated.as_quat()[:, quat_order_to]  # type: ignore[no-any-return]
-        elif ori_repr == OrientationRepresentation.EULER.value:
-            rot = scipy.spatial.transform.Rotation.from_euler("xyz", orientations)
-            if self.deltas_as_actions:
-                rotated = R_rot * rot * R_rot.inv()
-            else:
-                rotated = R_rot * rot
-            return rotated.as_euler("xyz")  # type: ignore[no-any-return]
-        elif ori_repr == OrientationRepresentation.ROLL.value:
-            if self.deltas_as_actions:
-                return orientations  # Roll deltas not rotated
-            else:
-                # Extract Z-axis rotation from R and add to roll
-                euler_angles = R_rot.as_euler("xyz")
-                z_rotation = euler_angles[2]  # Roll around Z-axis
-                return orientations + z_rotation  # type: ignore[no-any-return]
-        else:
-            raise ValueError(f"Unsupported orientation representation: {ori_repr}")
+        plt.tight_layout()
+        sns.reset_defaults()
+        return fig

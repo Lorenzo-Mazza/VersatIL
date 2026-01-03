@@ -87,7 +87,6 @@ class BaseMixtureOfExperts(nn.Module):
                 "temperature", torch.tensor(temperature, dtype=torch.float32)
             )
 
-
     def _build_gating_network(
         self,
         input_dim: int,
@@ -125,10 +124,7 @@ class BaseMixtureOfExperts(nn.Module):
         layers.append(mlp)
         return nn.Sequential(*layers).to(device)
 
-
-    def compute_routing_weights(
-        self, features: torch.Tensor
-    ) -> torch.Tensor:
+    def compute_routing_weights(self, features: torch.Tensor) -> torch.Tensor:
         """Compute routing weights from input or external source.
 
         Args:
@@ -145,9 +141,9 @@ class BaseMixtureOfExperts(nn.Module):
         logits = logits / self.temperature
         return F.softmax(logits, dim=-1)
 
-
     def get_expert_specialization(
-        self, gating_feature: torch.Tensor,
+        self,
+        gating_feature: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
         """Analyze expert usage patterns.
 
@@ -171,7 +167,6 @@ class BaseMixtureOfExperts(nn.Module):
             ROUTING_ENTROPY: entropy,
             TOP_EXPERT_CONFIDENCE: top_expert_confidence,
         }
-
 
     def _apply_routing(
         self,
@@ -199,7 +194,6 @@ class BaseMixtureOfExperts(nn.Module):
         else:
             raise ValueError(f"Unknown routing type: {self.routing_type}")
 
-
     def _combine_soft(
         self, stacked_predictions: torch.Tensor, weights: torch.Tensor
     ) -> torch.Tensor:
@@ -223,7 +217,6 @@ class BaseMixtureOfExperts(nn.Module):
             expanded_weights = expanded_weights.unsqueeze(-1)
         return (stacked_predictions * expanded_weights).sum(dim=1)
 
-
     def _combine_topk(
         self, stacked_predictions: torch.Tensor, weights: torch.Tensor
     ) -> torch.Tensor:
@@ -241,19 +234,25 @@ class BaseMixtureOfExperts(nn.Module):
             Weighted combination of top-k expert outputs with expert dimension summed out
         """
         if weights.ndim == 3:
-            weights = weights.transpose(1, 2) # (B, E, H)
+            weights = weights.transpose(1, 2)  # (B, E, H)
 
-        top_k_weights, top_k_indices = torch.topk(weights, self.top_k, dim=1) # (B, k)
+        top_k_weights, top_k_indices = torch.topk(weights, self.top_k, dim=1)  # (B, k)
         top_k_weights = top_k_weights / (top_k_weights.sum(dim=1, keepdim=True) + 1e-8)
         indices_expanded = top_k_indices
         for _ in range(stacked_predictions.ndim - top_k_indices.ndim):
             indices_expanded = indices_expanded.unsqueeze(-1)
 
-        expand_shape = list(stacked_predictions.shape) # [B, num_experts, pred_horizon, action_dim]
+        expand_shape = list(
+            stacked_predictions.shape
+        )  # [B, num_experts, pred_horizon, action_dim]
         expand_shape[1] = self.top_k
-        indices_expanded = indices_expanded.expand(expand_shape) # (B, k, pred_horizon, action_dim)
-        top_k_outputs = torch.gather(stacked_predictions, dim=1, index=indices_expanded) # (B, k, pred_horizon, action_dim)
+        indices_expanded = indices_expanded.expand(
+            expand_shape
+        )  # (B, k, pred_horizon, action_dim)
+        top_k_outputs = torch.gather(
+            stacked_predictions, dim=1, index=indices_expanded
+        )  # (B, k, pred_horizon, action_dim)
         expanded_weights = top_k_weights
         for _ in range(top_k_outputs.ndim - top_k_weights.ndim):
-            expanded_weights = expanded_weights.unsqueeze(-1) # (B, k, 1, 1)
+            expanded_weights = expanded_weights.unsqueeze(-1)  # (B, k, 1, 1)
         return (top_k_outputs * expanded_weights).sum(dim=1)

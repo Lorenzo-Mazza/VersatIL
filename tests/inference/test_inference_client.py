@@ -15,7 +15,6 @@ from refactoring.configs.experiment import ExperimentConfig
 from refactoring.configs.data.task import TaskSpaceConfig
 from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.configs.data.dataloader import DataLoaderConfig
-from refactoring.configs.data.dataset.schema import DatasetSchemaConfig
 from refactoring.configs.training import TrainingConfig, OptimizerConfig, AdamWConfig
 from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
 from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod
@@ -26,7 +25,7 @@ from refactoring.models.decoding.action_heads import ActionHead
 from refactoring.models.policy import Policy
 from refactoring.training.lightning_policy import LightningPolicy
 from refactoring.metrics.composite import ActionReconstructionLoss
-from refactoring.inference.client import InferenceClient
+from refactoring.inference.tso_client import TSOPolicyClient
 from tests.conftest import DummyNormalizer
 from refactoring.models.decoding.decoders.base import ActionDecoder
 
@@ -306,7 +305,7 @@ class TestInferenceClientInitialization:
         mock_lightning_policy.eval = MagicMock()
         mock_load_checkpoint.return_value = mock_lightning_policy
 
-        client = InferenceClient(
+        client = TSOPolicyClient(
             device=device,
             checkpoint_path=str(saved_checkpoint),
             temporal_agg=True,
@@ -337,7 +336,7 @@ class TestInferenceClientInitialization:
         empty_dir.mkdir()
 
         with pytest.raises(FileNotFoundError, match="Config file not found"):
-            InferenceClient(
+            TSOPolicyClient(
                 device=device,
                 checkpoint_path=str(empty_dir),
                 temporal_agg=True,
@@ -355,7 +354,7 @@ class TestInferenceClientInitialization:
         OmegaConf.save(test_config, config_file)
 
         with pytest.raises(FileNotFoundError, match="No checkpoint found"):
-            InferenceClient(
+            TSOPolicyClient(
                 device=device,
                 checkpoint_path=str(incomplete_dir),
                 temporal_agg=True,
@@ -377,7 +376,7 @@ class TestInferenceClientPrediction:
         mock_lightning_policy.eval = MagicMock()
         mock_load_checkpoint.return_value = mock_lightning_policy
 
-        client = InferenceClient(
+        client = TSOPolicyClient(
             device=device,
             checkpoint_path=str(saved_checkpoint),
             temporal_agg=True,
@@ -427,7 +426,7 @@ class TestInferenceClientPrediction:
         mock_lightning_policy.eval = MagicMock()
         mock_load_checkpoint.return_value = mock_lightning_policy
 
-        client = InferenceClient(
+        client = TSOPolicyClient(
             device=device,
             checkpoint_path=str(saved_checkpoint),
             temporal_agg=True,
@@ -479,7 +478,7 @@ class TestInferenceClientPrediction:
         mock_lightning_policy.eval = MagicMock()
         mock_load_checkpoint.return_value = mock_lightning_policy
 
-        client = InferenceClient(
+        client = TSOPolicyClient(
             device=device,
             checkpoint_path=str(saved_checkpoint),
             temporal_agg=False,

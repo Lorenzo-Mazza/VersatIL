@@ -6,6 +6,7 @@ import torch.nn as nn
 
 class PatchEmbedType(str, enum.Enum):
     """Patch embedding implementation types."""
+
     STANDARD = "standard"  # Single conv, standard ViT
     PROGRESSIVE = "progressive"  # Multi-stage like DFormer/Swin
     OVERLAPPING = "overlapping"  # Overlapping patches
@@ -13,13 +14,14 @@ class PatchEmbedType(str, enum.Enum):
 
 class PatchEmbedding(nn.Module):
     """Flexible patch embedding supporting multiple strategies."""
+
     def __init__(
-            self,
-            patch_size: int = 16,
-            in_chans: int = 3,
-            embed_dim: int = 768,
-            embed_type: str = PatchEmbedType.STANDARD.value,
-            norm_layer: type[nn.Module] | None = None,
+        self,
+        patch_size: int = 16,
+        in_chans: int = 3,
+        embed_dim: int = 768,
+        embed_type: str = PatchEmbedType.STANDARD.value,
+        norm_layer: type[nn.Module] | None = None,
     ):
         super().__init__()
 
@@ -41,16 +43,14 @@ class PatchEmbedding(nn.Module):
 
         self.norm = nn.LayerNorm(self.embed_dim) if norm_layer else nn.Identity()
 
-
     def _build_standard_projection(self) -> nn.Module:
         """Standard ViT: single large-stride convolution."""
         return nn.Conv2d(
             self.in_chans,
             self.embed_dim,
             kernel_size=self.patch_size,
-            stride=self.patch_size
+            stride=self.patch_size,
         )
-
 
     def _build_progressive_projection(self, norm_layer: type[nn.Module]) -> nn.Module:
         """Progressive downsampling like DFormer."""
@@ -58,33 +58,38 @@ class PatchEmbedding(nn.Module):
         stages = []
         current_dim = self.in_chans
         # Stage 1: in_chans -> embedding_dimension // 2, stride 2
-        stages.extend([
-            nn.Conv2d(current_dim, self.embed_dim // 2, 3, 2, 1),
-            norm_layer(self.embed_dim // 2),
-            nn.GELU(),
-            nn.Conv2d(self.embed_dim // 2, self.embed_dim // 2, 3, 1, 1),
-            norm_layer(self.embed_dim // 2),
-            nn.GELU(),
-        ])
+        stages.extend(
+            [
+                nn.Conv2d(current_dim, self.embed_dim // 2, 3, 2, 1),
+                norm_layer(self.embed_dim // 2),
+                nn.GELU(),
+                nn.Conv2d(self.embed_dim // 2, self.embed_dim // 2, 3, 1, 1),
+                norm_layer(self.embed_dim // 2),
+                nn.GELU(),
+            ]
+        )
         # Stage 2: embedding_dimension // 2 -> embedding_dimension, stride 2
-        stages.extend([
-            nn.Conv2d(self.embed_dim // 2, self.embed_dim, 3, 2, 1),
-            norm_layer(self.embed_dim),
-            nn.GELU(),
-            nn.Conv2d(self.embed_dim, self.embed_dim, 3, 1, 1),
-            norm_layer(self.embed_dim),
-        ])
+        stages.extend(
+            [
+                nn.Conv2d(self.embed_dim // 2, self.embed_dim, 3, 2, 1),
+                norm_layer(self.embed_dim),
+                nn.GELU(),
+                nn.Conv2d(self.embed_dim, self.embed_dim, 3, 1, 1),
+                norm_layer(self.embed_dim),
+            ]
+        )
         # Additional stages if patch_size requires more downsampling
         total_stride = 4  # 2 * 2 from above
         while total_stride < self.patch_size:
-            stages.extend([
-                nn.Conv2d(self.embed_dim, self.embed_dim, 3, 2, 1),
-                norm_layer(self.embed_dim),
-                nn.GELU(),
-            ])
+            stages.extend(
+                [
+                    nn.Conv2d(self.embed_dim, self.embed_dim, 3, 2, 1),
+                    norm_layer(self.embed_dim),
+                    nn.GELU(),
+                ]
+            )
             total_stride *= 2
         return nn.Sequential(*stages)
-
 
     def _build_overlapping_projection(self) -> nn.Module:
         """Overlapping patches with smaller stride."""
@@ -95,11 +100,12 @@ class PatchEmbedding(nn.Module):
             self.embed_dim,
             kernel_size=self.patch_size,
             stride=stride,
-            padding=padding
+            padding=padding,
         )
 
-
-    def forward(self, x: torch.Tensor, return_patch_size: bool = False) -> torch.Tensor | tuple[torch.Tensor, int, int]:
+    def forward(
+        self, x: torch.Tensor, return_patch_size: bool = False
+    ) -> torch.Tensor | tuple[torch.Tensor, int, int]:
         """
         Args:
             x: Tensor of images with shape (batch size, channels, height, width)
@@ -131,11 +137,14 @@ class PatchMerging(nn.Module):
     Input: [B, H, W, C] (H/W should be even for integer downsampling).
     Output: [B, H//2, W//2, out_dim].
     """
-    def __init__(self, dim: int, out_dim: int, norm_layer = nn.LayerNorm):
+
+    def __init__(self, dim: int, out_dim: int, norm_layer=nn.LayerNorm):
         super().__init__()
         self.dim = dim
         self.out_dim = out_dim
-        self.reduction = nn.Conv2d(dim, out_dim, kernel_size=3, stride=2, padding=1, bias=False)
+        self.reduction = nn.Conv2d(
+            dim, out_dim, kernel_size=3, stride=2, padding=1, bias=False
+        )
         self.norm_layer = norm_layer
         # Instantiate norm based on type
         if norm_layer == nn.LayerNorm:
@@ -143,7 +152,6 @@ class PatchMerging(nn.Module):
             self.norm = nn.LayerNorm(out_dim)
         else:
             self.norm = norm_layer(out_dim)  # e.g., nn.SyncBatchNorm(out_dim)
-
 
     def forward(self, x):
         """

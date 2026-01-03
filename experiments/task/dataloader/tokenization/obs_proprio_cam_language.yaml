@@ -6,7 +6,7 @@ tokenize_actions: false
 observation_tokenizer:
   tokenizer_model: ${language_model:GEMMA_2B}
   observation_keys:
-    - ${obs_key:PROPRIO_CAMERA_FRAME}
+    - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
     - ${obs_key:LANGUAGE}
   max_token_len: 64
   bin_continuous_data: true

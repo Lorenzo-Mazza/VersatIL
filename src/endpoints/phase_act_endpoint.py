@@ -1,4 +1,4 @@
-from legacy_config import  PhaseACTConfig
+from legacy_config import PhaseACTConfig
 from workspace import PhaseACTWorkspace
 
 
@@ -10,7 +10,7 @@ def main(config=None):
     # Print configuration
     print("\nConfiguration:")
     for key, value in vars(config).items():
-        if not key.startswith('_'):  # Skip internal attributes
+        if not key.startswith("_"):  # Skip internal attributes
             print(f"{key}: {value}")
     print()
     # Create workspace and run

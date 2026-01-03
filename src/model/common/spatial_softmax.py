@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class SpatialSoftmax2d(nn.Module):
     """
     Spatial soft-argmax pooling layer.
@@ -15,11 +16,14 @@ class SpatialSoftmax2d(nn.Module):
         learnable_temperature (bool): if True, τ is a learnable parameter.
         eps (float): numerical safety for τ.
     """
-    def __init__(self,
-                 normalize: bool = True,
-                 temperature: float = 1.0,
-                 learnable_temperature: bool = False,
-                 eps: float = 1e-6):
+
+    def __init__(
+        self,
+        normalize: bool = True,
+        temperature: float = 1.0,
+        learnable_temperature: bool = False,
+        eps: float = 1e-6,
+    ):
         super().__init__()
         self.normalize = normalize
         self.eps = eps
@@ -40,14 +44,16 @@ class SpatialSoftmax2d(nn.Module):
             return cached
 
         if self.normalize:
-            xs = torch.linspace(-1.0,  1.0, w, device=device, dtype=dtype)
-            ys = torch.linspace(-1.0,  1.0, h, device=device, dtype=dtype)
+            xs = torch.linspace(-1.0, 1.0, w, device=device, dtype=dtype)
+            ys = torch.linspace(-1.0, 1.0, h, device=device, dtype=dtype)
         else:
-            xs = torch.linspace(0.0,  w - 1.0, w, device=device, dtype=dtype)
-            ys = torch.linspace(0.0,  h - 1.0, h, device=device, dtype=dtype)
+            xs = torch.linspace(0.0, w - 1.0, w, device=device, dtype=dtype)
+            ys = torch.linspace(0.0, h - 1.0, h, device=device, dtype=dtype)
 
-        yy, xx = torch.meshgrid(ys, xs, indexing='ij')  # yy: (H,W) y-coords, xx: (H,W) action_embedding-coords
-        grid_x = xx.reshape(1, 1, h * w)                # (1,1,HW)
+        yy, xx = torch.meshgrid(
+            ys, xs, indexing="ij"
+        )  # yy: (H,W) y-coords, xx: (H,W) action_embedding-coords
+        grid_x = xx.reshape(1, 1, h * w)  # (1,1,HW)
         grid_y = yy.reshape(1, 1, h * w)
         self._grid_cache[key] = (grid_x, grid_y)
         return grid_x, grid_y
@@ -59,22 +65,22 @@ class SpatialSoftmax2d(nn.Module):
         """
         assert x.ndim == 4, f"Expected (B,C,H,W), got {tuple(x.shape)}"
         B, C, H, W = x.shape
-        tau = self.temperature.abs() + self.eps      # ensure positive τ
+        tau = self.temperature.abs() + self.eps  # ensure positive τ
 
         # softmax over flattened spatial dimension
         x_flat = x.reshape(B, C, H * W) / tau
-        attn = F.softmax(x_flat, dim=-1)             # (B, C, HW)
+        attn = F.softmax(x_flat, dim=-1)  # (B, C, HW)
 
         # broadcast coordinate grids to (B, C, HW)
         gx, gy = self._get_grids(H, W, x.device, x.dtype)  # (1,1,HW)
-        gx = gx.expand(B, C, -1)                    # (B, C, HW)
+        gx = gx.expand(B, C, -1)  # (B, C, HW)
         gy = gy.expand(B, C, -1)
 
         # expected coordinates
-        ex = (attn * gx).sum(dim=-1)                # (B, C)
-        ey = (attn * gy).sum(dim=-1)                # (B, C)
+        ex = (attn * gx).sum(dim=-1)  # (B, C)
+        ey = (attn * gy).sum(dim=-1)  # (B, C)
 
-        return torch.cat([ex, ey], dim=1)           # (B, 2C)
+        return torch.cat([ex, ey], dim=1)  # (B, 2C)
 
 
 if __name__ == "__main__":
@@ -82,5 +88,5 @@ if __name__ == "__main__":
     x = torch.randn(B, C, H, W)
     pool = SpatialSoftmax2d(normalize=True, temperature=1.0)
     y = pool(x)
-    assert y.shape == (B, 2*C)
+    assert y.shape == (B, 2 * C)
     print("SpatialSoftmax2d OK:", y.shape)

@@ -7,23 +7,28 @@ from refactoring.models.encoding.encoders.base import EncoderInput, EncodingMixi
 
 class ConditionalEncoder(EncodingMixin):
     """Encoder that conditions its outputs based on an external feature."""
+
     def __init__(
-            self,
-            input_specification: EncoderInput,
-            pretrained: bool = False,
-            frozen: bool = False,
-            device: str | None = "cuda" if torch.cuda.is_available() else "cpu",
+        self,
+        input_specification: EncoderInput,
+        pretrained: bool = False,
+        frozen: bool = False,
+        device: str | None = "cuda" if torch.cuda.is_available() else "cpu",
     ):
         if not input_specification.conditioning_key:
             raise ValueError("Conditional encoder requires conditioning_key")
-        super().__init__(input_specification=input_specification, pretrained=pretrained, frozen=frozen, device=device)
-
+        super().__init__(
+            input_specification=input_specification,
+            pretrained=pretrained,
+            frozen=frozen,
+            device=device,
+        )
 
     @abstractmethod
     def forward(
-            self,
-            inputs: dict[str, torch.Tensor],
-            conditioning: torch.Tensor,
+        self,
+        inputs: dict[str, torch.Tensor],
+        conditioning: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
         """Forward pass to extract features from images.
         Args:

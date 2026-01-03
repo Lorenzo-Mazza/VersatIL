@@ -5,11 +5,14 @@ from torch import nn
 
 class DepthwiseConv2D(nn.Module):
     """A depth-wise 2D convolution applies a single convolutional filter to each input channel independently,
-       without mixing channels (unlike standard convolution).
+    without mixing channels (unlike standard convolution).
     """
+
     def __init__(self, dimension, kernel_size, stride, padding):
         super().__init__()
-        self.convolution = nn.Conv2d(dimension, dimension, kernel_size, stride, padding, groups=dimension)
+        self.convolution = nn.Conv2d(
+            dimension, dimension, kernel_size, stride, padding, groups=dimension
+        )
 
     def forward(self, x: torch.Tensor):
         """

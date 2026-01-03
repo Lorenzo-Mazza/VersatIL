@@ -1,0 +1,15 @@
+defaults:
+  - base
+
+tokenize_observations: true
+tokenize_actions: true
+observation_tokenizer:
+  tokenizer_model: ${language_model:GEMMA_2B}
+  observation_keys:
+    - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
+  max_token_len: 32
+action_tokenizer:
+  tokenizer_chain:
+    - ${tokenizer_type:FAST}
+  use_pretrained_fast: false
+  max_token_len: 64

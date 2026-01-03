@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn as nn
 
@@ -15,17 +14,18 @@ from refactoring.models.layers.detr_transformer.transformer_encoder import (
 
 class Transformer(nn.Module):
     """Transformer with encoder-decoder architecture and DETR-style positional encodings."""
+
     def __init__(
-            self,
-            embedding_dimension: int = 512,
-            number_of_heads: int = 8,
-            number_of_encoder_layers: int = 6,
-            number_of_decoder_layers: int = 6,
-            feedforward_dimension: int = 2048,
-            dropout: float = 0.1,
-            activation: str = ActivationFunction.RELU.value,
-            normalize_before: bool = False,
-            return_intermediate_decoder: bool = False,
+        self,
+        embedding_dimension: int = 512,
+        number_of_heads: int = 8,
+        number_of_encoder_layers: int = 6,
+        number_of_decoder_layers: int = 6,
+        feedforward_dimension: int = 2048,
+        dropout: float = 0.1,
+        activation: str = ActivationFunction.RELU.value,
+        normalize_before: bool = False,
+        return_intermediate_decoder: bool = False,
     ):
         """Initialize transformer.
 
@@ -52,7 +52,9 @@ class Transformer(nn.Module):
             activation=activation,
             normalize_before=normalize_before,
         )
-        encoder_normalization = nn.LayerNorm(embedding_dimension) if normalize_before else None
+        encoder_normalization = (
+            nn.LayerNorm(embedding_dimension) if normalize_before else None
+        )
         self.encoder = TransformerEncoder(
             encoder_layer=encoder_layer,
             number_of_layers=number_of_encoder_layers,
@@ -76,24 +78,22 @@ class Transformer(nn.Module):
         )
         self._reset_parameters()
 
-
     def _reset_parameters(self):
         """Initialize parameters with Xavier uniform distribution."""
         for parameter in self.parameters():
             if parameter.dim() > 1:
                 nn.init.xavier_uniform_(parameter)
 
-
     def forward(
-            self,
-            source: torch.Tensor,
-            target: torch.Tensor,
-            source_mask: torch.Tensor | None = None,
-            target_mask: torch.Tensor | None = None,
-            source_key_padding_mask: torch.Tensor | None = None,
-            target_key_padding_mask: torch.Tensor | None = None,
-            source_positional_encoding: torch.Tensor | None = None,
-            target_positional_encoding: torch.Tensor | None = None,
+        self,
+        source: torch.Tensor,
+        target: torch.Tensor,
+        source_mask: torch.Tensor | None = None,
+        target_mask: torch.Tensor | None = None,
+        source_key_padding_mask: torch.Tensor | None = None,
+        target_key_padding_mask: torch.Tensor | None = None,
+        source_positional_encoding: torch.Tensor | None = None,
+        target_positional_encoding: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward pass through transformer.
 

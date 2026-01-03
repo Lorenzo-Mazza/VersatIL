@@ -12,7 +12,7 @@ defaults:
   - policy/encoding_pipeline: stereo_rgb
   - policy/decoder: act_default
   - policy/algorithm: bc_with_vae_gaussian
-  - policy/loss: act_with_vae
+  - policy/loss: regression_gripper_KL
   - inference: act_default
   - _self_
 
@@ -33,4 +33,4 @@ policy:
 # For example, to use different batch size:
 # task.dataloader.batch_size: 64
 # To override specific config components from command line, you can do for example
-# ```policy/loss=mmd_act``` to use MMD instead of KL in your loss
+# ```policy/loss=mmd_l1_pos_gripper_bce``` to use MMD instead of KL in your loss

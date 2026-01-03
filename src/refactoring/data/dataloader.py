@@ -2,26 +2,30 @@ import logging
 import shutil
 from pathlib import Path
 
-import numpy as np
 import torch
 import torch.utils.data as data
 from omegaconf import DictConfig
 
+from refactoring.configs.data.dataloader import DataLoaderConfig
 from refactoring.configs.data.tokenizer import TokenizationConfig
-from refactoring.data.constants import PHASE_LABEL_KEY
 from refactoring.data.episodic_dataset import EpisodicDataset
 from refactoring.data.normalization.normalizer import LinearNormalizer
-from refactoring.data.preprocessing.create_zarr import create_replay_buffer
+from refactoring.data.preprocessing.create_zarr_from_csv import create_replay_buffer
+from refactoring.data.preprocessing.create_zarr_from_hdf5 import (
+    create_replay_buffer_from_hdf5,
+)
 from refactoring.data.preprocessing.replay_buffer import ReplayBuffer
-from refactoring.data.schemas.base import DatasetSchema
-from refactoring.configs.data.dataloader import DataLoaderConfig
+from refactoring.data.raw.schemas.base import DatasetSchema
+from refactoring.data.raw.schemas.hdf5 import Hdf5DatasetSchema
 from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.data.tokenization.tokenizer import Tokenizer, validate_tokenizer_config
 
 
 def get_dataloaders(
     config: DictConfig,
-) -> tuple[data.DataLoader, data.DataLoader, LinearNormalizer, Tokenizer | None, float | None]:
+) -> tuple[
+    data.DataLoader, data.DataLoader, LinearNormalizer, Tokenizer | None, float | None
+]:
     """Create train and validation dataloaders with normalizer and optional tokenizer.
 
     Args:
@@ -34,22 +38,18 @@ def get_dataloaders(
       all target fields resolved into python objects.
     """
     schema: DatasetSchema = config.task.dataset_schema
-    action_space:ActionSpace = config.task.action_space
-    observation_space:ObservationSpace = config.task.observation_space
-    dataloader_config:DataLoaderConfig = config.task.dataloader
+    action_space: ActionSpace = config.task.action_space
+    observation_space: ObservationSpace = config.task.observation_space
+    dataloader_config: DataLoaderConfig = config.task.dataloader
     tokenization_config: TokenizationConfig = dataloader_config.tokenization
 
     validate_dataloader_config(dataloader_config)
     validate_tokenizer_config(tokenization_config)
 
-    #schema.zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/dataset.zarr"
+    #schema.zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/bowelretraction.zarr"
 
     logging.info(f"Using dataset schema: {schema.__class__.__name__}")
-    datasets_paths = _collect_dataset_paths(schema.dataset_folders, schema.dataset_filename)
-    logging.info(f"Found {len(datasets_paths)} episodes across {len(schema.dataset_folders)} folders")
-
-    _ensure_zarr_exists(schema=schema, datasets_paths=datasets_paths)
-
+    _ensure_zarr_exists(schema=schema)
 
     train_dataset = EpisodicDataset(
         zarr_path=schema.zarr_path,
@@ -79,6 +79,9 @@ def get_dataloaders(
         winsorize_kinematics=dataloader_config.winsorize_kinematics,
         kinematics_winsorize_quantiles=dataloader_config.kinematics_winsorize_quantiles,
         tokenization_config=tokenization_config,
+        clamp_kinematics_range=dataloader_config.clamp_kinematics_range,
+        min_kinematics_std=dataloader_config.min_kinematics_std,
+        min_kinematics_range=dataloader_config.min_kinematics_range,
         device=torch.device("cpu"),  # Keep on CPU for DataLoader workers
     )
     train_dataset.set_normalizer(normalizer)
@@ -87,12 +90,10 @@ def get_dataloaders(
     val_dataset.set_tokenizer(tokenizer)
 
     if action_space.denoise_actions:
-        val_dataset.action_processor.action_denoising_threshold = (
-            train_dataset.action_processor.action_denoising_threshold
+        val_dataset.action_processor.denoising_thresholds = (
+            train_dataset.action_processor.denoising_thresholds.copy()
         )
-        val_dataset.action_processor.orientation_denoising_threshold = (
-            train_dataset.action_processor.orientation_denoising_threshold
-        )
+        val_dataset.action_processor._denoising_thresholds_computed = True
 
     train_loader = data.DataLoader(
         train_dataset,
@@ -113,13 +114,21 @@ def get_dataloaders(
     )
 
     gripper_positive_class_weights = None
-    if config.task.action_space.has_gripper and config.task.action_space.use_gripper_class_weights:
-        gripper_positive_class_weights = train_dataset.get_gripper_positive_class_imbalance_weight()
+    if (
+        config.task.action_space.has_gripper_actions
+        and config.task.action_space.use_gripper_class_weights
+    ):
+        gripper_positive_class_weights = (
+            train_dataset.get_gripper_positive_class_imbalance_weight()
+        )
 
-    if config.task.action_space.task_has_phases:
-        _log_phase_distributions(train_dataset, val_dataset)
-
-    return train_loader, val_loader, normalizer, tokenizer, gripper_positive_class_weights
+    return (
+        train_loader,
+        val_loader,
+        normalizer,
+        tokenizer,
+        gripper_positive_class_weights,
+    )
 
 
 def validate_dataloader_config(config: DataLoaderConfig):
@@ -135,14 +144,18 @@ def validate_dataloader_config(config: DataLoaderConfig):
     if not 0 < config.val_ratio < 1:
         raise ValueError(f"val_ratio must be in range (0, 1), got {config.val_ratio}")
     if not 0 < config.total_ratio <= 1:
-        raise ValueError(f"total_ratio must be in range (0, 1], got {config.total_ratio}")
+        raise ValueError(
+            f"total_ratio must be in range (0, 1], got {config.total_ratio}"
+        )
     if config.skip_initial_episode_steps < 0:
         raise ValueError(
             f"skip_initial_episode_steps cannot be negative, "
             f"got {config.skip_initial_episode_steps}"
         )
     if config.downsample_factor < 1:
-        raise ValueError(f"downsample_factor must be >= 1, got {config.downsample_factor}")
+        raise ValueError(
+            f"downsample_factor must be >= 1, got {config.downsample_factor}"
+        )
     if config.action_backward_shift < 0:
         raise ValueError(
             f"action_backward_shift cannot be negative, "
@@ -150,28 +163,38 @@ def validate_dataloader_config(config: DataLoaderConfig):
         )
 
 
-def _collect_dataset_paths(dataset_folders: list[str], episode_filename: str) -> list[str]:
+def _collect_dataset_paths(
+    dataset_folders: list[str], episode_filename: str
+) -> list[str]:
     """Collect all episode CSV paths from dataset folders."""
     datasets_paths = []
     for folder in dataset_folders:
         root_path = Path(folder)
         episode_dirs = [
-            d for d in root_path.iterdir() if d.is_dir() and (d / episode_filename).exists()
+            d
+            for d in root_path.iterdir()
+            if d.is_dir() and (d / episode_filename).exists()
         ]
         datasets_paths.extend([str(d / episode_filename) for d in episode_dirs])
-    #datasets_paths = datasets_paths[:4]
+    # datasets_paths = datasets_paths[:4]
     return datasets_paths
 
 
-def _ensure_zarr_exists(
-        schema: DatasetSchema,
-        datasets_paths: list[str],
-) -> None:
-    """Create zarr if it doesn't exist or is invalid."""
+def _ensure_zarr_exists(schema: DatasetSchema) -> None:
+    """Create zarr if it doesn't exist or is invalid.
+
+    Dispatches to the appropriate creation function based on schema type:
+    - Hdf5DatasetSchema: Uses hdf5_paths from schema directly
+    - CsvDatasetSchema: Collects episode CSV paths from dataset_folders
+    """
     zarr_path = schema.zarr_path
-    #zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/dataset.zarr"
+    #zarr_path = (
+    #    "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/libero.zarr"
+    #)
+    # zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/bowelretraction.zarr"
     need_create = True
     required_keys = schema.get_required_zarr_keys()
+
     if Path(zarr_path).exists():
         try:
             logging.info(f"Loading existing replay buffer from {zarr_path}")
@@ -183,21 +206,38 @@ def _ensure_zarr_exists(
 
     if need_create:
         logging.info(f"Creating zarr replay buffer at: {zarr_path}")
-        create_replay_buffer(schema=schema, datasets_paths=datasets_paths)
+        if isinstance(schema, Hdf5DatasetSchema):
+            logging.info(f"Processing {len(schema.hdf5_paths)} HDF5 files")
+            create_replay_buffer_from_hdf5(schema=schema)
+        else:
+            datasets_paths = _collect_dataset_paths(
+                schema.dataset_folders, schema.dataset_filename
+            )
+            logging.info(
+                f"Found {len(datasets_paths)} episodes across {len(schema.dataset_folders)} folders"
+            )
+            create_replay_buffer(schema=schema, datasets_paths=datasets_paths)
 
 
 def _log_phase_distributions(
     train_dataset: EpisodicDataset, val_dataset: EpisodicDataset
 ) -> None:
     """Log phase label distributions for train and val."""
-    selected_eps = np.where(train_dataset.sampler.episode_mask)[0]
+    # TODO: Move to TSO Sensorium, this is a dataset specific, data analysis function!
+    logging.warning(
+        "Logging phase distributions is dataset-specific and should be moved to TSO Sensorium."
+    )
+    return
+
+    """selected_eps = np.where(train_dataset.sampler.episode_mask)[0]
+    phase_labels = []
     if len(selected_eps) > 0:
-        phase_labels = np.concatenate(
-            [
-                train_dataset.replay_buffer.get_episode(i)[PHASE_LABEL_KEY].flatten()
-                for i in selected_eps
-            ]
-        )
+        for i in selected_eps:
+            ep = train_dataset.replay_buffer.get_episode(i)
+            if PHASE_LABEL_KEY not in ep:
+                return
+            phase_labels.append(ep[PHASE_LABEL_KEY].flatten())
+        phase_labels = np.concatenate(phase_labels)
         phase_counts = np.bincount(phase_labels, minlength=5)
         logging.info(f"Train phase distribution: {dict(enumerate(phase_counts.tolist()))}")  # type: ignore[arg-type]
 
@@ -210,6 +250,4 @@ def _log_phase_distributions(
             ]
         )
         phase_counts_val = np.bincount(phase_labels_val, minlength=5)
-        logging.info(f"Val phase distribution: {dict(enumerate(phase_counts_val.tolist()))}")  # type: ignore[arg-type]
-
-
+        logging.info(f"Val phase distribution: {dict(enumerate(phase_counts_val.tolist()))}")  # type: ignore[arg-type]"""

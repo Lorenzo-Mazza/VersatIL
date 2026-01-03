@@ -1,0 +1,32 @@
+# FAST GPT Decoder with VAE Latent Variables for Bowel Retraction
+# Uses pure GPT-style autoregressive transformer with variational inference
+
+defaults:
+  - task: base
+  - policy: base
+  - experiment: bowel_retraction_act
+  - task/dataset_schema: bowel_retraction_v2
+  - task/dataloader: fast_tokenized
+  - task/action_space: deltas_cf_pos_gripper
+  - task/observation_space: stereo_rgb_proprio_cf
+  - training: gpt_decoder_default
+  - policy/encoding_pipeline: stereo_rgb_token_embedder
+  - policy/decoder: fast_gpt_decoder_default
+  - policy/algorithm: behavioral_cloning
+  - policy/loss: tokenCE
+  - inference: act_default
+  - override task/dataloader/tokenization: obs_proprio_cf_action_fast
+  - _self_
+
+task:
+  observation_horizon: 1  # FAST GPT Decoder uses single observation
+  prediction_horizon: 10  # Max sequence length for autoregressive generation
+
+policy:
+  _target_: refactoring.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: true

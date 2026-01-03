@@ -1,4 +1,3 @@
-
 import torch
 
 from refactoring.models.encoding.fusion.base import FusionOutput
@@ -7,14 +6,18 @@ from refactoring.models.encoding.fusion.sequential import SequentialFusion
 
 class ConcatFusion(SequentialFusion):
     """Combines sequence features by projecting them into a shared embedding space and then concatenating them."""
-    def __init__(
-            self,
-            input_features: list[str],
-            output_name: str,
-            hidden_dim: int,
-    ):
-        super().__init__(input_features=input_features, output_name=output_name, hidden_dim=hidden_dim)
 
+    def __init__(
+        self,
+        input_features: list[str],
+        output_name: str,
+        hidden_dim: int,
+    ):
+        super().__init__(
+            input_features=input_features,
+            output_name=output_name,
+            hidden_dim=hidden_dim,
+        )
 
     def forward(self, features: list[torch.Tensor]) -> torch.Tensor:
         """
@@ -38,9 +41,3 @@ class ConcatFusion(SequentialFusion):
             output_name=self.output_name,
             output_dim=output_dim,
         )
-
-
-
-
-
-

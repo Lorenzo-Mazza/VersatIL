@@ -12,6 +12,7 @@ from refactoring.models.layers.positional_encoding.base import (
 
 class LearnedPositionalEncoding1D(PositionalEncoding1D):
     """Learned positional encoding for 1D."""
+
     def __init__(
         self,
         embedding_dimension: int,
@@ -42,6 +43,7 @@ class LearnedPositionalEncoding1D(PositionalEncoding1D):
 
 class LearnedPositionalEncoding2D(PositionalEncoding2D):
     """Learned positional encoding for 2D."""
+
     def __init__(
         self,
         embedding_dimension: int,
@@ -53,7 +55,9 @@ class LearnedPositionalEncoding2D(PositionalEncoding2D):
         if embedding_dimension % 2 != 0:
             raise ValueError("embedding_dimension must be even for 2D learned encoding")
         if max_height is None or max_width is None:
-            raise ValueError("max_height and max_width must be provided for 2D learned encoding")
+            raise ValueError(
+                "max_height and max_width must be provided for 2D learned encoding"
+            )
         half_dim = embedding_dimension // 2
 
         super().__init__(
@@ -68,7 +72,13 @@ class LearnedPositionalEncoding2D(PositionalEncoding2D):
         height, width = input_values.shape
         rows = torch.arange(height, device=input_values.device)
         cols = torch.arange(width, device=input_values.device)
-        y_enc = self.row_encoding(rows).unsqueeze(1).repeat(1, width, 1)  # [height, width, half_dim]
-        x_enc = self.col_encoding(cols).unsqueeze(0).repeat(height, 1, 1)  # [height, width, half_dim]
-        encodings = torch.cat([y_enc, x_enc], dim=-1)  # [height, width, embedding_dimension]
+        y_enc = (
+            self.row_encoding(rows).unsqueeze(1).repeat(1, width, 1)
+        )  # [height, width, half_dim]
+        x_enc = (
+            self.col_encoding(cols).unsqueeze(0).repeat(height, 1, 1)
+        )  # [height, width, half_dim]
+        encodings = torch.cat(
+            [y_enc, x_enc], dim=-1
+        )  # [height, width, embedding_dimension]
         return encodings.permute(2, 0, 1)  # [embedding_dimension, height, width]

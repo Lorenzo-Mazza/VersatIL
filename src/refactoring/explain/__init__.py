@@ -8,7 +8,7 @@ from .explainer import (
     compute_saliency_maps,
     compute_integrated_grad_maps,
     create_target_layers_getter_from_policy,
-    show_cam_on_image
+    show_cam_on_image,
 )
 
 
@@ -20,5 +20,5 @@ __all__ = [
     "compute_saliency_maps",
     "compute_integrated_grad_maps",
     "create_target_layers_getter_from_policy",
-    "show_cam_on_image"
+    "show_cam_on_image",
 ]

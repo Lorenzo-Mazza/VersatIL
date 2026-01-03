@@ -9,15 +9,29 @@ import torch
 from torch import nn
 
 from refactoring.data.constants import IS_PAD_ACTION_KEY
-from refactoring.models.decoding.constants import LOGVAR_KEY, MU_KEY, LATENT_KEY, CLASS_TOKEN_KEY
-from refactoring.models.decoding.latent.posterior.base_posterior import PosteriorLatentEncoder
+from refactoring.models.decoding.constants import (
+    LOGVAR_KEY,
+    MU_KEY,
+    LATENT_KEY,
+    CLASS_TOKEN_KEY,
+)
+from refactoring.models.decoding.latent.posterior.base_posterior import (
+    PosteriorLatentEncoder,
+)
 from refactoring.models.decoding.latent.reparametrize import reparametrize
 from refactoring.models.layers.activation import ActivationFunction
-from refactoring.models.layers.detr_transformer import TransformerEncoder, TransformerEncoderLayer
-from refactoring.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
-from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D, SinusoidalPositionalEncoding2D
+from refactoring.models.layers.detr_transformer import (
+    TransformerEncoder,
+    TransformerEncoderLayer,
+)
+from refactoring.models.layers.positional_encoding.learned import (
+    LearnedPositionalEncoding1D,
+)
+from refactoring.models.layers.positional_encoding.sinusoidal import (
+    SinusoidalPositionalEncoding1D,
+    SinusoidalPositionalEncoding2D,
+)
 from refactoring.models.layers.transformer_input_builder import TransformerInputBuilder
-
 
 
 class VAETransformerEncoder(PosteriorLatentEncoder):
@@ -70,7 +84,10 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             use_proprioceptive: Whether to condition on proprioceptive observations
             exclude_keys: List of keys to exclude from encoding
         """
-        super().__init__(latent_dimension=latent_dimension, device=device, )
+        super().__init__(
+            latent_dimension=latent_dimension,
+            device=device,
+        )
         self.exclude_keys = exclude_keys if exclude_keys is not None else []
         self.embedding_dimension = embedding_dimension
         self.use_proprioceptive = use_proprioceptive
@@ -98,31 +115,35 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
                 normalize_before=self.normalize_before,
             ),
             number_of_layers=self.number_of_encoder_layers,
-            normalization=nn.LayerNorm(self.embedding_dimension) if self.normalize_before else None
+            normalization=nn.LayerNorm(self.embedding_dimension)
+            if self.normalize_before
+            else None,
         )
         temporal_positional_encoding = None
         if self.observation_horizon > 1:
-            temporal_positional_encoding = LearnedPositionalEncoding1D(embedding_dimension=self.embedding_dimension)
+            temporal_positional_encoding = LearnedPositionalEncoding1D(
+                embedding_dimension=self.embedding_dimension
+            )
 
         self.input_sequence_builder = TransformerInputBuilder(
             embedding_dim=self.embedding_dimension,
             has_time_dim=self.observation_horizon > 1,
-            spatial_positional_encoding_layer=
-            SinusoidalPositionalEncoding2D(embedding_dimension=self.embedding_dimension,
-            normalize=True),
+            spatial_positional_encoding_layer=SinusoidalPositionalEncoding2D(
+                embedding_dimension=self.embedding_dimension, normalize=True
+            ),
             flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
                 embedding_dimension=self.embedding_dimension,
                 maximum_length=1000,
             ),
             temporal_positional_encoding_layer=temporal_positional_encoding,
         )
-        self.cls_token = nn.Embedding(1, self.embedding_dimension) # CLS input token
+        self.cls_token = nn.Embedding(1, self.embedding_dimension)  # CLS input token
         self.latent_stats_projection = nn.Linear(
             self.embedding_dimension,
-            self.vae_latent_dimension * 2  # Latent gaussian distribution parameters: mu and logvar
+            self.vae_latent_dimension
+            * 2,  # Latent gaussian distribution parameters: mu and logvar
         )
         self.to(device)
-
 
     def encode(
         self,
@@ -148,13 +169,15 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         """
         if observations is not None:
             input_observations = {
-                k: v for k, v in observations.items()
-                if not (k in self.exclude_keys)}
+                k: v for k, v in observations.items() if not (k in self.exclude_keys)
+            }
         else:
             input_observations = {}
 
         for action in actions:
-            input_observations[action] = actions[action].to(self.cls_token.weight.device).float()
+            input_observations[action] = (
+                actions[action].to(self.cls_token.weight.device).float()
+            )
 
         batch_size = list(input_observations.values())[0].size(0)
         is_pad = input_observations.get(IS_PAD_ACTION_KEY)
@@ -164,20 +187,30 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
                 batch_size,
                 self.prediction_horizon,
                 dtype=torch.bool,
-                device=self.cls_token.weight.device
+                device=self.cls_token.weight.device,
             )
             input_observations[IS_PAD_ACTION_KEY] = is_pad
-        cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(batch_size, 1, 1) # (B, 1, emb_dim)
+        cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(
+            batch_size, 1, 1
+        )  # (B, 1, emb_dim)
         input_observations[CLASS_TOKEN_KEY] = cls_embedding
-        input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(input_observations) # (B, seq_len, embedding_dimension)
+        input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(
+            input_observations
+        )  # (B, seq_len, embedding_dimension), CLS token at the end
         encoder_output = self.transformer_encoder(
             input_tokens,
             positional_encoding=pos_encodings,
-            source_key_padding_mask=padding_mask
-        )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dim)
-        latent_stats = self.latent_stats_projection(encoder_output) # (B, latent_dim * 2)
-        mu, logvar = latent_stats.chunk(2, dim=1) # Each (B, latent_dim)
-        z = reparametrize(mu, logvar) # Sample using reparametrization trick (B, latent_dim)
+            source_key_padding_mask=padding_mask,
+        )[
+            :, -1, :
+        ]  # (B, CLS_TOKEN only, embedding_dim)
+        latent_stats = self.latent_stats_projection(
+            encoder_output
+        )  # (B, latent_dim * 2)
+        mu, logvar = latent_stats.chunk(2, dim=1)  # Each (B, latent_dim)
+        z = reparametrize(
+            mu, logvar
+        )  # Sample using reparametrization trick (B, latent_dim)
         return {
             LATENT_KEY: z,
             MU_KEY: mu,

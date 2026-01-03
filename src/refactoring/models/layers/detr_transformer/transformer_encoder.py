@@ -8,20 +8,23 @@ from refactoring.models.layers.detr_transformer.attention import FlashAttention
 
 class TransformerEncoderLayer(nn.Module):
     """Transformer encoder layer with pre- and post- normalization support."""
+
     def __init__(
-            self,
-            embedding_dimension: int,
-            number_of_heads: int,
-            feedforward_dimension: int = 2048,
-            dropout: float = 0.1,
-            activation: str = ActivationFunction.RELU.value,
-            normalize_before: bool = False,
+        self,
+        embedding_dimension: int,
+        number_of_heads: int,
+        feedforward_dimension: int = 2048,
+        dropout: float = 0.1,
+        activation: str = ActivationFunction.RELU.value,
+        normalize_before: bool = False,
     ):
         super().__init__()
         self.normalize_before = normalize_before
-        self.self_attention = FlashAttention(embedding_dimension=embedding_dimension,
-                                        number_of_heads=number_of_heads, dropout=dropout)
-        self.feedforward_linear1 = nn.Linear(embedding_dimension, feedforward_dimension)
+        self.self_attention = FlashAttention(
+            embedding_dimension=embedding_dimension,
+            number_of_heads=number_of_heads,
+            dropout=dropout,
+        )
         self.feedforward_dropout = nn.Dropout(dropout)
         self.feedforward_linear2 = nn.Linear(feedforward_dimension, embedding_dimension)
         self.normalization1 = nn.LayerNorm(embedding_dimension)
@@ -30,7 +33,8 @@ class TransformerEncoderLayer(nn.Module):
         self.dropout2 = nn.Dropout(dropout)
         if activation == ActivationFunction.SWIGLU.value:
             self.activation = ActivationFunction(activation).to_torch_activation()(
-                input_dim=embedding_dimension, hidden_dim=feedforward_dimension)
+                input_dim=embedding_dimension, hidden_dim=feedforward_dimension
+            )
             self.feedforward_network = nn.Sequential(
                 self.activation,
                 self.feedforward_dropout,
@@ -38,6 +42,9 @@ class TransformerEncoderLayer(nn.Module):
             )
         else:
             self.activation = ActivationFunction(activation).to_torch_activation()()
+            self.feedforward_linear1 = nn.Linear(
+                embedding_dimension, feedforward_dimension
+            )
             self.feedforward_network = nn.Sequential(
                 self.feedforward_linear1,
                 self.activation,
@@ -45,13 +52,12 @@ class TransformerEncoderLayer(nn.Module):
                 self.feedforward_linear2,
             )
 
-
     def forward(
-            self,
-            source: torch.Tensor,
-            source_mask: torch.Tensor | None = None,
-            source_key_padding_mask: torch.Tensor | None = None,
-            positional_encoding: torch.Tensor | None = None,
+        self,
+        source: torch.Tensor,
+        source_mask: torch.Tensor | None = None,
+        source_key_padding_mask: torch.Tensor | None = None,
+        positional_encoding: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward pass.
 
@@ -75,16 +81,19 @@ class TransformerEncoderLayer(nn.Module):
         source = self.normalization2(source) if self.normalize_before else source
         source = self.feedforward_network(source)
         source = residual + self.dropout2(source)
-        return source if self.normalize_before else self.normalization2(source) # (B, T, C)
+        return (
+            source if self.normalize_before else self.normalization2(source)
+        )  # (B, T, C)
 
 
 class TransformerEncoder(nn.Module):
     """Stack of transformer encoder layers."""
+
     def __init__(
-            self,
-            encoder_layer: TransformerEncoderLayer,
-            number_of_layers: int,
-            normalization: nn.Module | None = None,
+        self,
+        encoder_layer: TransformerEncoderLayer,
+        number_of_layers: int,
+        normalization: nn.Module | None = None,
     ):
         """Initialize transformer encoder.
 
@@ -94,13 +103,12 @@ class TransformerEncoder(nn.Module):
             normalization: Optional final normalization layer.
         """
         super().__init__()
-        self.layers = nn.ModuleList([
-            copy.deepcopy(encoder_layer) for _ in range(number_of_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [copy.deepcopy(encoder_layer) for _ in range(number_of_layers)]
+        )
         self.number_of_layers = number_of_layers
         self.normalization = normalization
         self._reset_parameters()
-
 
     def _reset_parameters(self):
         """Initialize parameters with Xavier uniform distribution."""
@@ -108,13 +116,12 @@ class TransformerEncoder(nn.Module):
             if parameter.dim() > 1:
                 nn.init.xavier_uniform_(parameter)
 
-
     def forward(
-            self,
-            source: torch.Tensor,
-            mask: torch.Tensor | None = None,
-            source_key_padding_mask: torch.Tensor | None = None,
-            positional_encoding: torch.Tensor | None = None,
+        self,
+        source: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        source_key_padding_mask: torch.Tensor | None = None,
+        positional_encoding: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward pass through all encoder layers.
 

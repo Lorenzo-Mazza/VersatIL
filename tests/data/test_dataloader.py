@@ -10,7 +10,6 @@ from refactoring.data.dataloader import (
     _log_phase_distributions,
 )
 from refactoring.configs.data.dataloader import DataLoaderConfig
-from refactoring.data.constants import SamplingMode
 
 
 @pytest.fixture
@@ -36,7 +35,6 @@ def dataloader_config_factory():
             'skip_initial_episode_steps': 0,
             'downsample_factor': 1,
             'action_backward_shift': 0,
-            'sampling_mode': SamplingMode.OVERLAPPING.value,
             'center_episode_start': False,
             'winsorize_depth': True,
             'depth_winsorize_quantiles': (0.01, 0.99),
@@ -55,7 +53,7 @@ def mock_schema_factory():
         schema = MagicMock()
         schema.zarr_path = zarr_path
         schema.dataset_folders = kwargs.get('dataset_folders', [])
-        schema.dataset_filename = kwargs.get('dataset_filename', 'episode.csv')
+        schema.dataset_filename = kwargs.get('episode_filename', 'episode.csv')
         schema.get_required_zarr_keys.return_value = kwargs.get(
             'required_keys', ['left', 'right', 'proprio_robot_frame']
         )

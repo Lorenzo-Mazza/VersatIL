@@ -10,7 +10,11 @@ the traditional approach for imposing a gaussian distribution for the inference 
 
 import torch
 
-from refactoring.models.decoding.constants import PRIOR_MU_KEY, PRIOR_LOGVAR_KEY, PRIOR_LATENT_KEY
+from refactoring.models.decoding.constants import (
+    PRIOR_MU_KEY,
+    PRIOR_LOGVAR_KEY,
+    PRIOR_LATENT_KEY,
+)
 from refactoring.models.decoding.latent import PriorLatentEncoder
 
 
@@ -54,8 +58,6 @@ class GaussianPrior(PriorLatentEncoder):
         else:
             # Sample from standard normal N(0, I)
             return torch.randn(batch_size, self.latent_dimension, device=self.device)
-
-
 
     def forward(
         self,

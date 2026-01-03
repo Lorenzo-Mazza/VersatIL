@@ -35,21 +35,42 @@ import wandb
 
 # Reuse existing modules
 from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
-from refactoring.models.encoding.encoders.constants import PoolingMethod, RGBBackboneType
+from refactoring.models.encoding.encoders.constants import (
+    PoolingMethod,
+    RGBBackboneType,
+)
 from refactoring.models.encoding.encoders.language.embedder import Embedder
 from refactoring.models.encoding.encoders.language.language import LanguageEncoder
 from refactoring.models.layers.transformer import BidirectionalDecoder
-from refactoring.models.layers.detr_transformer import TransformerEncoder, TransformerEncoderLayer
+from refactoring.models.layers.detr_transformer import (
+    TransformerEncoder,
+    TransformerEncoderLayer,
+)
 from refactoring.models.decoding.latent.reparametrize import reparametrize
 from refactoring.models.decoding.constants import (
-    LATENT_KEY, MU_KEY, LOGVAR_KEY,
-    PRIOR_MU_KEY, PRIOR_LOGVAR_KEY, PRIOR_LATENT_KEY, CLASS_TOKEN_KEY
+    LATENT_KEY,
+    MU_KEY,
+    LOGVAR_KEY,
+    PRIOR_MU_KEY,
+    PRIOR_LOGVAR_KEY,
+    PRIOR_LATENT_KEY,
+    CLASS_TOKEN_KEY,
 )
 from refactoring.models.layers.transformer_input_builder import TransformerInputBuilder
-from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D, SinusoidalPositionalEncoding2D
-from refactoring.metrics.components import MaximumMeanDiscrepancyLoss, KLDivergenceLoss, RegressionLoss
+from refactoring.models.layers.positional_encoding.sinusoidal import (
+    SinusoidalPositionalEncoding1D,
+    SinusoidalPositionalEncoding2D,
+)
+from refactoring.metrics.components import (
+    MaximumMeanDiscrepancyLoss,
+    KLDivergenceLoss,
+    RegressionLoss,
+)
 from refactoring.metrics.base import LossOutput
-from refactoring.data.constants import TOKENIZED_OBSERVATIONS_KEY, IS_PAD_OBSERVATION_KEY
+from refactoring.data.constants import (
+    TOKENIZED_OBSERVATIONS_KEY,
+    IS_PAD_OBSERVATION_KEY,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -58,6 +79,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CVAEConfig:
     """Configuration for CVAE model."""
+
     # Image settings
     image_size: int = 224
     image_channels: int = 3
@@ -113,92 +135,67 @@ def get_color_augmentation(strength: str = "strong") -> A.Compose:
         Albumentations Compose pipeline for color augmentations
     """
     if strength == "light":
-        return A.Compose([
-            A.ColorJitter(
-                brightness=0.2,
-                contrast=0.2,
-                saturation=0.2,
-                hue=0.05,
-                p=0.4
-            ),
-            A.RandomBrightnessContrast(
-                brightness_limit=0.2,
-                contrast_limit=0.2,
-                p=0.4
-            ),
-            A.RandomGamma(gamma_limit=(90, 110), p=0.2),
-        ])
+        return A.Compose(
+            [
+                A.ColorJitter(
+                    brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05, p=0.4
+                ),
+                A.RandomBrightnessContrast(
+                    brightness_limit=0.2, contrast_limit=0.2, p=0.4
+                ),
+                A.RandomGamma(gamma_limit=(90, 110), p=0.2),
+            ]
+        )
     elif strength == "medium":
-        return A.Compose([
-            A.ColorJitter(
-                brightness=0.3,
-                contrast=0.4,
-                saturation=0.5,
-                hue=0.1,
-                p=0.5
-            ),
-            A.RandomBrightnessContrast(
-                brightness_limit=0.4,
-                contrast_limit=0.4,
-                p=0.6
-            ),
-            A.RandomGamma(gamma_limit=(80, 120), p=0.3),
-            A.CLAHE(clip_limit=4.0, p=0.3),
-            A.RandomShadow(p=0.4),
-            A.ImageCompression(
-                quality_range=(50, 100),
-                p=0.2
-            ),
-        ])
+        return A.Compose(
+            [
+                A.ColorJitter(
+                    brightness=0.3, contrast=0.4, saturation=0.5, hue=0.1, p=0.5
+                ),
+                A.RandomBrightnessContrast(
+                    brightness_limit=0.4, contrast_limit=0.4, p=0.6
+                ),
+                A.RandomGamma(gamma_limit=(80, 120), p=0.3),
+                A.CLAHE(clip_limit=4.0, p=0.3),
+                A.RandomShadow(p=0.4),
+                A.ImageCompression(quality_range=(50, 100), p=0.2),
+            ]
+        )
     else:  # strong
-        return A.Compose([
-            # Core color jittering (diffusion model standard)
-            A.ColorJitter(
-                brightness=0.4,
-                contrast=0.5,
-                saturation=0.6,
-                hue=0.2,
-                p=0.7
-            ),
-            # Brightness/contrast (from strong_color.yaml)
-            A.RandomBrightnessContrast(
-                brightness_limit=0.5,
-                contrast_limit=0.5,
-                p=0.7
-            ),
-            # Gamma adjustment
-            A.RandomGamma(gamma_limit=(70, 130), p=0.5),
-            # CLAHE for local contrast enhancement
-            A.CLAHE(clip_limit=6.0, tile_grid_size=(8, 8), p=0.5),
-            # Lighting effects (from strong_color.yaml)
-            A.RandomSunFlare(
-                flare_roi=(0, 0, 1, 0.5),
-                src_color=(255, 255, 255),
-                p=0.3
-            ),
-            A.RandomShadow(
-                shadow_roi=(0, 0.5, 1, 1),
-                num_shadows_limit=(1, 2),
-                p=0.5
-            ),
-            # Image quality degradation
-            A.ImageCompression(
-                quality_range=(30, 100),
-                p=0.3
-            ),
-            # Additional color transforms for diffusion
-            A.HueSaturationValue(
-                hue_shift_limit=20,
-                sat_shift_limit=30,
-                val_shift_limit=20,
-                p=0.4
-            ),
-            A.RGBShift(r_shift_limit=20, g_shift_limit=20, b_shift_limit=20, p=0.3),
-            # Occasional grayscale (common in diffusion)
-            A.ToGray(p=0.05),
-            # Channel manipulation
-            A.ChannelShuffle(p=0.05),
-        ])
+        return A.Compose(
+            [
+                # Core color jittering (diffusion model standard)
+                A.ColorJitter(
+                    brightness=0.4, contrast=0.5, saturation=0.6, hue=0.2, p=0.7
+                ),
+                # Brightness/contrast (from strong_color.yaml)
+                A.RandomBrightnessContrast(
+                    brightness_limit=0.5, contrast_limit=0.5, p=0.7
+                ),
+                # Gamma adjustment
+                A.RandomGamma(gamma_limit=(70, 130), p=0.5),
+                # CLAHE for local contrast enhancement
+                A.CLAHE(clip_limit=6.0, tile_grid_size=(8, 8), p=0.5),
+                # Lighting effects (from strong_color.yaml)
+                A.RandomSunFlare(
+                    flare_roi=(0, 0, 1, 0.5), src_color=(255, 255, 255), p=0.3
+                ),
+                A.RandomShadow(
+                    shadow_roi=(0, 0.5, 1, 1), num_shadows_limit=(1, 2), p=0.5
+                ),
+                # Image quality degradation
+                A.ImageCompression(quality_range=(30, 100), p=0.3),
+                # Additional color transforms for diffusion
+                A.HueSaturationValue(
+                    hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.4
+                ),
+                A.RGBShift(r_shift_limit=20, g_shift_limit=20, b_shift_limit=20, p=0.3),
+                # Occasional grayscale (common in diffusion)
+                A.ToGray(p=0.05),
+                # Channel manipulation
+                A.ChannelShuffle(p=0.05),
+            ]
+        )
 
 
 def get_spatial_augmentation(
@@ -217,87 +214,96 @@ def get_spatial_augmentation(
         Albumentations Compose pipeline for spatial augmentations
     """
     if strength == "light":
-        return A.Compose([
-            # Mild blur
-            A.GaussianBlur(blur_limit=(3, 5), p=0.3),
-            # Light noise (std_range in albumentations 2.x)
-            A.GaussNoise(std_range=(0.02, 0.1), p=0.2),
-            # Mild scale/shift (use Affine in 2.x)
-            A.Affine(
-                translate_percent={"x": (-0.05, 0.05), "y": (-0.05, 0.05)},
-                scale=(0.9, 1.1),
-                rotate=0,
-                border_mode=0,
-                p=0.3
-            ),
-        ])
+        return A.Compose(
+            [
+                # Mild blur
+                A.GaussianBlur(blur_limit=(3, 5), p=0.3),
+                # Light noise (std_range in albumentations 2.x)
+                A.GaussNoise(std_range=(0.02, 0.1), p=0.2),
+                # Mild scale/shift (use Affine in 2.x)
+                A.Affine(
+                    translate_percent={"x": (-0.05, 0.05), "y": (-0.05, 0.05)},
+                    scale=(0.9, 1.1),
+                    rotate=0,
+                    border_mode=0,
+                    p=0.3,
+                ),
+            ]
+        )
     elif strength == "medium":
-        return A.Compose([
-            # Blur
-            A.GaussianBlur(blur_limit=(3, 7), p=0.5),
-            # Noise (std_range in albumentations 2.x)
-            A.GaussNoise(std_range=(0.05, 0.2), p=0.3),
-            # Cutout/dropout (albumentations 2.x uses fraction-based ranges)
-            A.CoarseDropout(
-                num_holes_range=(1, 8),
-                hole_height_range=(0.03, 0.06),  # ~7-14 pixels at 224px
-                hole_width_range=(0.03, 0.06),
-                fill=0,
-                p=0.3
-            ),
-            # Scale/shift (use Affine in 2.x)
-            A.Affine(
-                translate_percent={"x": (-0.0625, 0.0625), "y": (-0.0625, 0.0625)},
-                scale=(0.5, 1.6),
-                rotate=0,
-                border_mode=0,
-                p=0.5
-            ),
-        ])
+        return A.Compose(
+            [
+                # Blur
+                A.GaussianBlur(blur_limit=(3, 7), p=0.5),
+                # Noise (std_range in albumentations 2.x)
+                A.GaussNoise(std_range=(0.05, 0.2), p=0.3),
+                # Cutout/dropout (albumentations 2.x uses fraction-based ranges)
+                A.CoarseDropout(
+                    num_holes_range=(1, 8),
+                    hole_height_range=(0.03, 0.06),  # ~7-14 pixels at 224px
+                    hole_width_range=(0.03, 0.06),
+                    fill=0,
+                    p=0.3,
+                ),
+                # Scale/shift (use Affine in 2.x)
+                A.Affine(
+                    translate_percent={"x": (-0.0625, 0.0625), "y": (-0.0625, 0.0625)},
+                    scale=(0.5, 1.6),
+                    rotate=0,
+                    border_mode=0,
+                    p=0.5,
+                ),
+            ]
+        )
     else:  # strong
-        return A.Compose([
-            # Blur (from strong_spatial.yaml)
-            A.OneOf([
-                A.GaussianBlur(blur_limit=(3, 9), p=1.0),
-                A.MotionBlur(blur_limit=(3, 7), p=1.0),
-                A.MedianBlur(blur_limit=5, p=1.0),
-            ], p=0.6),
-            # Noise (std_range in albumentations 2.x)
-            A.OneOf([
-                A.GaussNoise(std_range=(0.1, 0.3), p=1.0),
-                A.ISONoise(color_shift=(0.01, 0.05), intensity=(0.1, 0.5), p=1.0),
-                A.MultiplicativeNoise(multiplier=(0.9, 1.1), p=1.0),
-            ], p=0.4),
-            # Cutout/dropout (albumentations 2.x uses fraction-based ranges)
-            A.CoarseDropout(
-                num_holes_range=(1, 12),
-                hole_height_range=(0.04, 0.08),  # ~9-18 pixels at 224px
-                hole_width_range=(0.04, 0.08),
-                fill=0,
-                p=0.5
-            ),
-            # Scale/shift/rotate (use Affine in 2.x)
-            A.Affine(
-                translate_percent={"x": (-0.1, 0.1), "y": (-0.1, 0.1)},
-                scale=(0.4, 1.8),
-                rotate=(-15, 15),  # Add rotation for image generation
-                border_mode=0,
-                p=0.6
-            ),
-            # Perspective transform (common in diffusion models)
-            A.Perspective(scale=(0.02, 0.08), p=0.3),
-            # Elastic transform (no alpha_affine in 2.x)
-            A.ElasticTransform(
-                alpha=50,
-                sigma=2.5,
-                border_mode=0,
-                p=0.2
-            ),
-            # Grid distortion
-            A.GridDistortion(num_steps=5, distort_limit=0.2, p=0.2),
-            # Optical distortion (lens effects)
-            A.OpticalDistortion(distort_limit=(-0.1, 0.1), p=0.2),
-        ])
+        return A.Compose(
+            [
+                # Blur (from strong_spatial.yaml)
+                A.OneOf(
+                    [
+                        A.GaussianBlur(blur_limit=(3, 9), p=1.0),
+                        A.MotionBlur(blur_limit=(3, 7), p=1.0),
+                        A.MedianBlur(blur_limit=5, p=1.0),
+                    ],
+                    p=0.6,
+                ),
+                # Noise (std_range in albumentations 2.x)
+                A.OneOf(
+                    [
+                        A.GaussNoise(std_range=(0.1, 0.3), p=1.0),
+                        A.ISONoise(
+                            color_shift=(0.01, 0.05), intensity=(0.1, 0.5), p=1.0
+                        ),
+                        A.MultiplicativeNoise(multiplier=(0.9, 1.1), p=1.0),
+                    ],
+                    p=0.4,
+                ),
+                # Cutout/dropout (albumentations 2.x uses fraction-based ranges)
+                A.CoarseDropout(
+                    num_holes_range=(1, 12),
+                    hole_height_range=(0.04, 0.08),  # ~9-18 pixels at 224px
+                    hole_width_range=(0.04, 0.08),
+                    fill=0,
+                    p=0.5,
+                ),
+                # Scale/shift/rotate (use Affine in 2.x)
+                A.Affine(
+                    translate_percent={"x": (-0.1, 0.1), "y": (-0.1, 0.1)},
+                    scale=(0.4, 1.8),
+                    rotate=(-15, 15),  # Add rotation for image generation
+                    border_mode=0,
+                    p=0.6,
+                ),
+                # Perspective transform (common in diffusion models)
+                A.Perspective(scale=(0.02, 0.08), p=0.3),
+                # Elastic transform (no alpha_affine in 2.x)
+                A.ElasticTransform(alpha=50, sigma=2.5, border_mode=0, p=0.2),
+                # Grid distortion
+                A.GridDistortion(num_steps=5, distort_limit=0.2, p=0.2),
+                # Optical distortion (lens effects)
+                A.OpticalDistortion(distort_limit=(-0.1, 0.1), p=0.2),
+            ]
+        )
 
 
 def get_diffusion_augmentation(
@@ -329,9 +335,13 @@ def get_diffusion_augmentation(
         transforms.append(
             A.RandomResizedCrop(
                 size=(image_size, image_size),
-                scale=(0.8, 1.0) if strength == "light" else (0.6, 1.0) if strength == "medium" else (0.5, 1.0),
+                scale=(0.8, 1.0)
+                if strength == "light"
+                else (0.6, 1.0)
+                if strength == "medium"
+                else (0.5, 1.0),
                 ratio=(0.9, 1.1) if strength == "light" else (0.75, 1.33),
-                p=0.8 if strength != "light" else 0.5
+                p=0.8 if strength != "light" else 0.5,
             )
         )
     else:
@@ -376,15 +386,17 @@ def get_val_transform(image_size: int = 224) -> A.Compose:
     Returns:
         Albumentations Compose pipeline for validation
     """
-    return A.Compose([
-        A.Resize(image_size, image_size),
-        A.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225],
-            max_pixel_value=255.0,
-        ),
-        ToTensorV2(),
-    ])
+    return A.Compose(
+        [
+            A.Resize(image_size, image_size),
+            A.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225],
+                max_pixel_value=255.0,
+            ),
+            ToTensorV2(),
+        ]
+    )
 
 
 # =============================================================================
@@ -448,11 +460,15 @@ class ImageCaptionDataset(Dataset):
             self._caption_mode = "json"
             self._load_json_format()
         else:
-            logger.warning(f"Captions path not found or unsupported: {captions_file}. Using dummy data.")
+            logger.warning(
+                f"Captions path not found or unsupported: {captions_file}. Using dummy data."
+            )
             self._use_dummy = True
 
         if not self._use_dummy:
-            logger.info(f"Loaded {len(self.image_names)} image-caption pairs ({self._caption_mode} mode)")
+            logger.info(
+                f"Loaded {len(self.image_names)} image-caption pairs ({self._caption_mode} mode)"
+            )
 
         # Set up albumentations transforms
         if is_training and augmentation_strength != "none":
@@ -466,22 +482,28 @@ class ImageCaptionDataset(Dataset):
             self.transform = get_val_transform(image_size=image_size)
             logger.info("Using validation transform (no augmentation)")
 
-        self.inverse_transform = transforms.Compose([
-            transforms.Normalize(
-                mean=[-0.485/0.229, -0.456/0.224, -0.406/0.225],
-                std=[1/0.229, 1/0.224, 1/0.225]
-            ),
-        ])
+        self.inverse_transform = transforms.Compose(
+            [
+                transforms.Normalize(
+                    mean=[-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
+                    std=[1 / 0.229, 1 / 0.224, 1 / 0.225],
+                ),
+            ]
+        )
 
     def _load_json_format(self):
         """Load captions from JSON file mapping image_name -> caption."""
-        with open(self.captions_path, 'r') as f:
+        with open(self.captions_path, "r") as f:
             self.captions = json.load(f)
         self.image_names = list(self.captions.keys())
         # Filter to only existing images
-        self.image_names = [n for n in self.image_names if (self.image_dir / n).exists()]
+        self.image_names = [
+            n for n in self.image_names if (self.image_dir / n).exists()
+        ]
         if not self.image_names:
-            logger.warning("No matching images found for JSON captions. Using dummy data.")
+            logger.warning(
+                "No matching images found for JSON captions. Using dummy data."
+            )
             self._use_dummy = True
 
     def _load_txt_dir_format(self):
@@ -491,9 +513,10 @@ class ImageCaptionDataset(Dataset):
         multiple caption lines. Uses caption_line_idx to select which line.
         """
         # Find all images
-        image_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}
+        image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
         image_files = [
-            f for f in self.image_dir.iterdir()
+            f
+            for f in self.image_dir.iterdir()
             if f.is_file() and f.suffix.lower() in image_extensions
         ]
 
@@ -513,7 +536,9 @@ class ImageCaptionDataset(Dataset):
                 matched += 1
 
         if not self.image_names:
-            logger.warning(f"No matching caption files found in {self.captions_path}. Using dummy data.")
+            logger.warning(
+                f"No matching caption files found in {self.captions_path}. Using dummy data."
+            )
             self._use_dummy = True
         else:
             logger.info(f"Matched {matched}/{len(image_files)} images to caption files")
@@ -525,7 +550,7 @@ class ImageCaptionDataset(Dataset):
         else:  # txt_dir mode
             img_stem = Path(image_name).stem
             caption_file = self.captions_path / f"{img_stem}.txt"
-            with open(caption_file, 'r', encoding='utf-8') as f:
+            with open(caption_file, "r", encoding="utf-8") as f:
                 lines = f.readlines()
             # Get the specified line (default: first line)
             line_idx = min(self.caption_line_idx, len(lines) - 1)
@@ -600,9 +625,13 @@ class SimpleCNNEncoder(nn.Module):
         super().__init__()
         # Use TIMM via transformers
         from transformers import TimmBackbone, TimmBackboneConfig
-        from refactoring.models.layers.convert_layers import replace_batchnorm_with_groupnorm
+        from refactoring.models.layers.convert_layers import (
+            replace_batchnorm_with_groupnorm,
+        )
 
-        config = TimmBackboneConfig(backbone, use_pretrained_backbone=pretrained, features_only=True)
+        config = TimmBackboneConfig(
+            backbone, use_pretrained_backbone=pretrained, features_only=True
+        )
         self.backbone = TimmBackbone(config=config)
 
         if use_group_norm:
@@ -645,7 +674,9 @@ class TextEncoder(nn.Module):
         # Load HuggingFace model
         config = AutoConfig.from_pretrained(model_name)
         if pretrained:
-            self.encoder = AutoModel.from_pretrained(model_name, attn_implementation="sdpa")
+            self.encoder = AutoModel.from_pretrained(
+                model_name, attn_implementation="sdpa"
+            )
         else:
             self.encoder = AutoModel.from_config(config, attn_implementation="sdpa")
 
@@ -678,7 +709,7 @@ class TextEncoder(nn.Module):
         )
         # Return ALL tokens, not just CLS
         # Invert attention_mask: attention_mask=1 means valid, we want padding_mask=True for padded
-        padding_mask = (attention_mask == 0)
+        padding_mask = attention_mask == 0
         return outputs.last_hidden_state, padding_mask
 
 
@@ -788,14 +819,20 @@ class PosteriorEncoder(nn.Module):
         text_pe = text_pe.expand(B, -1, -1)  # (B, seq_len+1, emb_dim)
 
         # Build sequence: [image_tokens, text_tokens, CLS]
-        sequence = torch.cat([image_emb, text_emb, cls], dim=1)  # (B, H*W + seq_len + 1, emb_dim)
+        sequence = torch.cat(
+            [image_emb, text_emb, cls], dim=1
+        )  # (B, H*W + seq_len + 1, emb_dim)
 
         # Build combined positional encoding
-        pos_enc = torch.cat([image_pe, text_pe], dim=1)  # (B, H*W + seq_len + 1, emb_dim)
+        pos_enc = torch.cat(
+            [image_pe, text_pe], dim=1
+        )  # (B, H*W + seq_len + 1, emb_dim)
 
         # Build padding mask: image tokens are never padded, text tokens may be, CLS never padded
         if text_padding_mask is not None:
-            image_mask = torch.zeros(B, num_image_tokens, dtype=torch.bool, device=image_tokens.device)
+            image_mask = torch.zeros(
+                B, num_image_tokens, dtype=torch.bool, device=image_tokens.device
+            )
             cls_mask = torch.zeros(B, 1, dtype=torch.bool, device=image_tokens.device)
             padding_mask = torch.cat([image_mask, text_padding_mask, cls_mask], dim=1)
         else:
@@ -1043,7 +1080,9 @@ class ImageDecoder(nn.Module):
         self.patch_size = 16
         self.num_patches_per_side = image_size // self.patch_size
         self.num_patches = self.num_patches_per_side ** 2
-        self.patch_queries = nn.Parameter(torch.randn(1, self.num_patches, embedding_dim))
+        self.patch_queries = nn.Parameter(
+            torch.randn(1, self.num_patches, embedding_dim)
+        )
 
         # BidirectionalDecoder (reusing existing module)
         self.decoder = BidirectionalDecoder(
@@ -1059,7 +1098,9 @@ class ImageDecoder(nn.Module):
         )
 
         # Project to patch pixels
-        self.patch_proj = nn.Linear(embedding_dim, self.patch_size * self.patch_size * image_channels)
+        self.patch_proj = nn.Linear(
+            embedding_dim, self.patch_size * self.patch_size * image_channels
+        )
 
         # CNN refinement upsampler
         self.refiner = nn.Sequential(
@@ -1197,7 +1238,9 @@ class ConditionalVAE(nn.Module):
             self.prior = GaussianPrior(latent_dim=config.latent_dim)
             logger.info("Using GAUSSIAN prior N(0, I)")
         else:
-            raise ValueError(f"Unknown prior_type: {config.prior_type}. Must be 'learned' or 'gaussian'.")
+            raise ValueError(
+                f"Unknown prior_type: {config.prior_type}. Must be 'learned' or 'gaussian'."
+            )
 
         # Image decoder p(x|z, c) - cross-attention to ALL text tokens
         self.decoder = ImageDecoder(
@@ -1212,7 +1255,9 @@ class ConditionalVAE(nn.Module):
             dropout=config.dropout,
         )
 
-    def encode_image(self, images: torch.Tensor) -> tuple[torch.Tensor, tuple[int, int]]:
+    def encode_image(
+        self, images: torch.Tensor
+    ) -> tuple[torch.Tensor, tuple[int, int]]:
         """Encode image to spatial tokens.
 
         Args:
@@ -1270,7 +1315,9 @@ class ConditionalVAE(nn.Module):
         text_tokens, text_padding_mask = self.encode_text(input_ids, attention_mask)
 
         # Posterior q(z|x, c) - uses ALL tokens with 2D PE for image
-        posterior_out = self.posterior(image_tokens, text_tokens, image_spatial_shape, text_padding_mask)
+        posterior_out = self.posterior(
+            image_tokens, text_tokens, image_spatial_shape, text_padding_mask
+        )
 
         # Prior p(z|c) - uses ALL text tokens
         prior_out = self.prior(text_tokens, text_padding_mask)
@@ -1353,9 +1400,13 @@ class CVAELoss(nn.Module):
         elif latent_loss_type == "kl":
             self.latent_loss_fn = KLDivergenceLoss(weight=latent_loss_weight)
         else:
-            raise ValueError(f"Unknown latent_loss_type: {latent_loss_type}. Must be 'mmd' or 'kl'.")
+            raise ValueError(
+                f"Unknown latent_loss_type: {latent_loss_type}. Must be 'mmd' or 'kl'."
+            )
 
-        logger.info(f"Using {latent_loss_type.upper()} loss for latent regularization (weight={latent_loss_weight})")
+        logger.info(
+            f"Using {latent_loss_type.upper()} loss for latent regularization (weight={latent_loss_weight})"
+        )
 
     def forward(
         self,
@@ -1386,7 +1437,9 @@ class CVAELoss(nn.Module):
         latent_loss = latent_output.total_loss
 
         # Total loss
-        total_loss = self.recon_weight * recon_loss + latent_loss  # latent loss already weighted
+        total_loss = (
+            self.recon_weight * recon_loss + latent_loss
+        )  # latent loss already weighted
 
         # Build component losses dict
         component_losses = {
@@ -1416,7 +1469,10 @@ class FIDCalculator:
         if self._inception is None:
             try:
                 from torchvision.models import inception_v3, Inception_V3_Weights
-                self._inception = inception_v3(weights=Inception_V3_Weights.IMAGENET1K_V1, transform_input=False)
+
+                self._inception = inception_v3(
+                    weights=Inception_V3_Weights.IMAGENET1K_V1, transform_input=False
+                )
                 self._inception.fc = nn.Identity()
                 self._inception.eval()
                 self._inception.to(self.device)
@@ -1425,7 +1481,9 @@ class FIDCalculator:
                 return None
         return self._inception
 
-    def _extract_features(self, images: torch.Tensor, already_normalized: bool = False) -> torch.Tensor | None:
+    def _extract_features(
+        self, images: torch.Tensor, already_normalized: bool = False
+    ) -> torch.Tensor | None:
         """Extract Inception features from images.
 
         Args:
@@ -1438,12 +1496,18 @@ class FIDCalculator:
             return None
 
         # Resize to 299x299
-        images = F.interpolate(images, size=(299, 299), mode="bilinear", align_corners=False)
+        images = F.interpolate(
+            images, size=(299, 299), mode="bilinear", align_corners=False
+        )
 
         # Only normalize if not already normalized
         if not already_normalized:
-            mean = torch.tensor([0.485, 0.456, 0.406], device=images.device).view(1, 3, 1, 1)
-            std = torch.tensor([0.229, 0.224, 0.225], device=images.device).view(1, 3, 1, 1)
+            mean = torch.tensor([0.485, 0.456, 0.406], device=images.device).view(
+                1, 3, 1, 1
+            )
+            std = torch.tensor([0.229, 0.224, 0.225], device=images.device).view(
+                1, 3, 1, 1
+            )
             images = (images - mean) / std
 
         with torch.no_grad():
@@ -1481,11 +1545,15 @@ class FIDCalculator:
             generated_images: Generated images (B, C, H, W)
             already_normalized: If True, images are already ImageNet normalized.
         """
-        real_features = self._extract_features(real_images, already_normalized=already_normalized)
-        gen_features = self._extract_features(generated_images, already_normalized=already_normalized)
+        real_features = self._extract_features(
+            real_images, already_normalized=already_normalized
+        )
+        gen_features = self._extract_features(
+            generated_images, already_normalized=already_normalized
+        )
 
         if real_features is None or gen_features is None:
-            return float('nan')
+            return float("nan")
 
         # Compute mean
         mu_real = real_features.mean(dim=0)
@@ -1513,9 +1581,15 @@ class FIDCalculator:
             sqrt_sigma_real = self._matrix_sqrt(sigma_real)
             product = sqrt_sigma_real @ sigma_gen @ sqrt_sigma_real
             sqrt_product = self._matrix_sqrt(product)
-            cov_term = torch.trace(sigma_real) + torch.trace(sigma_gen) - 2 * torch.trace(sqrt_product)
+            cov_term = (
+                torch.trace(sigma_real)
+                + torch.trace(sigma_gen)
+                - 2 * torch.trace(sqrt_product)
+            )
         except Exception as e:
-            logger.warning(f"FID covariance computation failed: {e}. Using mean-only approximation.")
+            logger.warning(
+                f"FID covariance computation failed: {e}. Using mean-only approximation."
+            )
             cov_term = torch.tensor(0.0, device=real_features.device)
 
         fid = (mean_term + cov_term).item()
@@ -1555,14 +1629,18 @@ def train_epoch(
 
         total_losses["total_loss"] += loss_output.total_loss.item()
         total_losses["recon_loss"] += loss_output.component_losses["recon_loss"].item()
-        total_losses["latent_loss"] += loss_output.component_losses[latent_loss_key].item()
+        total_losses["latent_loss"] += loss_output.component_losses[
+            latent_loss_key
+        ].item()
         num_batches += 1
 
-        pbar.set_postfix({
-            "loss": f"{loss_output.total_loss.item():.4f}",
-            "recon": f"{loss_output.component_losses['recon_loss'].item():.4f}",
-            f"{loss_fn.latent_loss_type}": f"{loss_output.component_losses[latent_loss_key].item():.4f}",
-        })
+        pbar.set_postfix(
+            {
+                "loss": f"{loss_output.total_loss.item():.4f}",
+                "recon": f"{loss_output.component_losses['recon_loss'].item():.4f}",
+                f"{loss_fn.latent_loss_type}": f"{loss_output.component_losses[latent_loss_key].item():.4f}",
+            }
+        )
 
     for k in total_losses:
         total_losses[k] /= num_batches
@@ -1597,7 +1675,9 @@ def evaluate(
 
         total_losses["total_loss"] += loss_output.total_loss.item()
         total_losses["recon_loss"] += loss_output.component_losses["recon_loss"].item()
-        total_losses["latent_loss"] += loss_output.component_losses[latent_loss_key].item()
+        total_losses["latent_loss"] += loss_output.component_losses[
+            latent_loss_key
+        ].item()
         num_batches += 1
 
         if fid_calculator and len(real_for_fid) < 32:
@@ -1611,7 +1691,9 @@ def evaluate(
         real_all = torch.cat(real_for_fid, dim=0)[:512].to(device)
         gen_all = torch.cat(gen_for_fid, dim=0)[:512].to(device)
         # Images are already ImageNet normalized from the dataloader
-        total_losses["fid"] = fid_calculator.compute_fid(real_all, gen_all, already_normalized=True)
+        total_losses["fid"] = fid_calculator.compute_fid(
+            real_all, gen_all, already_normalized=True
+        )
 
     return total_losses
 
@@ -1681,9 +1763,15 @@ def save_samples(
         gen_grid = make_grid(generated, nrow=4)
 
         wandb_images = {
-            "samples/real": wandb.Image(real_grid.permute(1, 2, 0).cpu().numpy(), caption="Real Images"),
-            "samples/reconstructed": wandb.Image(recon_grid.permute(1, 2, 0).cpu().numpy(), caption="Reconstructed"),
-            "samples/generated": wandb.Image(gen_grid.permute(1, 2, 0).cpu().numpy(), caption="Generated from Prior"),
+            "samples/real": wandb.Image(
+                real_grid.permute(1, 2, 0).cpu().numpy(), caption="Real Images"
+            ),
+            "samples/reconstructed": wandb.Image(
+                recon_grid.permute(1, 2, 0).cpu().numpy(), caption="Reconstructed"
+            ),
+            "samples/generated": wandb.Image(
+                gen_grid.permute(1, 2, 0).cpu().numpy(), caption="Generated from Prior"
+            ),
         }
         wandb.log(wandb_images, step=epoch)
 
@@ -1694,48 +1782,96 @@ def save_samples(
 # Main
 # =============================================================================
 def main():
-    parser = argparse.ArgumentParser(description="Train CVAE for conditional image generation")
-    parser.add_argument("--image_dir", type=str, default="/mnt/cluster/workspaces/mazzalore/celeb/image/images")
-    parser.add_argument("--captions_file", type=str, default="/mnt/cluster/workspaces/mazzalore/celeb/text/celeba-caption")
+    parser = argparse.ArgumentParser(
+        description="Train CVAE for conditional image generation"
+    )
+    parser.add_argument(
+        "--image_dir",
+        type=str,
+        default="/mnt/cluster/workspaces/mazzalore/celeb/image/images",
+    )
+    parser.add_argument(
+        "--captions_file",
+        type=str,
+        default="/mnt/cluster/workspaces/mazzalore/celeb/text/celeba-caption",
+    )
     parser.add_argument("--output_dir", type=str, default="./outputs/cvae")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=2000)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--latent_dim", type=int, default=256)
-    parser.add_argument("--latent_loss_weight", type=float, default=5.0,
-                        help="Weight for latent regularization loss (MMD or KL)")
+    parser.add_argument(
+        "--latent_loss_weight",
+        type=float,
+        default=5.0,
+        help="Weight for latent regularization loss (MMD or KL)",
+    )
     parser.add_argument("--recon_weight", type=float, default=1.0)
-    parser.add_argument("--eval_every", type=int, default=1,
-                        help="Evaluate on validation set every N epochs")
+    parser.add_argument(
+        "--eval_every",
+        type=int,
+        default=1,
+        help="Evaluate on validation set every N epochs",
+    )
     parser.add_argument("--save_every", type=int, default=10)
-    parser.add_argument("--text_model", type=str, default="google-bert/bert-base-uncased")
-    parser.add_argument("--train_ratio", type=float, default=0.7,
-                        help="Ratio of data for training (rest for validation)")
+    parser.add_argument(
+        "--text_model", type=str, default="google-bert/bert-base-uncased"
+    )
+    parser.add_argument(
+        "--train_ratio",
+        type=float,
+        default=0.7,
+        help="Ratio of data for training (rest for validation)",
+    )
     # Latent regularization arguments
-    parser.add_argument("--latent_loss", type=str, default="mmd",
-                        choices=["mmd", "kl"],
-                        help="Type of latent regularization loss: 'mmd' (Maximum Mean Discrepancy) or 'kl' (KL Divergence)")
-    parser.add_argument("--prior_type", type=str, default="learned",
-                        choices=["learned", "gaussian"],
-                        help="Type of prior: 'learned' (transformer-based) or 'gaussian' (fixed N(0,I))")
+    parser.add_argument(
+        "--latent_loss",
+        type=str,
+        default="mmd",
+        choices=["mmd", "kl"],
+        help="Type of latent regularization loss: 'mmd' (Maximum Mean Discrepancy) or 'kl' (KL Divergence)",
+    )
+    parser.add_argument(
+        "--prior_type",
+        type=str,
+        default="learned",
+        choices=["learned", "gaussian"],
+        help="Type of prior: 'learned' (transformer-based) or 'gaussian' (fixed N(0,I))",
+    )
     # Augmentation arguments
-    parser.add_argument("--augmentation", type=str, default="strong",
-                        choices=["none", "light", "medium", "strong"],
-                        help="Augmentation strength for training")
-    parser.add_argument("--no_horizontal_flip", action="store_true",
-                        help="Disable horizontal flip augmentation")
-    parser.add_argument("--caption_line_idx", type=int, default=0,
-                        help="Which caption line to use for multi-line caption files (default: 0)")
+    parser.add_argument(
+        "--augmentation",
+        type=str,
+        default="strong",
+        choices=["none", "light", "medium", "strong"],
+        help="Augmentation strength for training",
+    )
+    parser.add_argument(
+        "--no_horizontal_flip",
+        action="store_true",
+        help="Disable horizontal flip augmentation",
+    )
+    parser.add_argument(
+        "--caption_line_idx",
+        type=int,
+        default=0,
+        help="Which caption line to use for multi-line caption files (default: 0)",
+    )
     # WandB arguments
-    parser.add_argument("--wandb_project", type=str, default="cvae-image-generation",
-                        help="WandB project name")
-    parser.add_argument("--wandb_entity", type=str, default=None,
-                        help="WandB entity (team/username)")
-    parser.add_argument("--wandb_run_name", type=str, default=None,
-                        help="WandB run name")
-    parser.add_argument("--no_wandb", action="store_true",
-                        help="Disable WandB logging")
+    parser.add_argument(
+        "--wandb_project",
+        type=str,
+        default="cvae-image-generation",
+        help="WandB project name",
+    )
+    parser.add_argument(
+        "--wandb_entity", type=str, default=None, help="WandB entity (team/username)"
+    )
+    parser.add_argument(
+        "--wandb_run_name", type=str, default=None, help="WandB run name"
+    )
+    parser.add_argument("--no_wandb", action="store_true", help="Disable WandB logging")
     args = parser.parse_args()
 
     config = CVAEConfig(
@@ -1812,7 +1948,9 @@ def main():
     train_indices = indices[:train_size]
     val_indices = indices[train_size:]
 
-    logger.info(f"Dataset split: {train_size} train, {val_size} val (ratio: {args.train_ratio:.2f})")
+    logger.info(
+        f"Dataset split: {train_size} train, {val_size} val (ratio: {args.train_ratio:.2f})"
+    )
 
     # Create train dataset (with augmentation)
     train_dataset = Subset(full_dataset, train_indices)
@@ -1857,8 +1995,12 @@ def main():
         wandb.log({"model/num_parameters": num_params})
 
     # Optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=0.001)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.num_epochs, eta_min=1e-5)
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=config.learning_rate, weight_decay=0.001
+    )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=config.num_epochs, eta_min=1e-5
+    )
 
     # Loss
     loss_fn = CVAELoss(
@@ -1878,28 +2020,39 @@ def main():
         logger.info(f"\nEpoch {epoch + 1}/{config.num_epochs}")
 
         # Train
-        train_losses = train_epoch(model, train_loader, optimizer, loss_fn, config.device)
-        logger.info(f"Train - Loss: {train_losses['total_loss']:.4f}, "
-                    f"Recon: {train_losses['recon_loss']:.4f}, {latent_loss_name}: {train_losses['latent_loss']:.4f}")
+        train_losses = train_epoch(
+            model, train_loader, optimizer, loss_fn, config.device
+        )
+        logger.info(
+            f"Train - Loss: {train_losses['total_loss']:.4f}, "
+            f"Recon: {train_losses['recon_loss']:.4f}, {latent_loss_name}: {train_losses['latent_loss']:.4f}"
+        )
 
         # Log training metrics to wandb
         if use_wandb:
-            wandb.log({
-                "train/total_loss": train_losses["total_loss"],
-                "train/recon_loss": train_losses["recon_loss"],
-                f"train/{config.latent_loss}_loss": train_losses["latent_loss"],
-                "train/learning_rate": scheduler.get_last_lr()[0],
-                "epoch": epoch + 1,
-            }, step=epoch + 1)
+            wandb.log(
+                {
+                    "train/total_loss": train_losses["total_loss"],
+                    "train/recon_loss": train_losses["recon_loss"],
+                    f"train/{config.latent_loss}_loss": train_losses["latent_loss"],
+                    "train/learning_rate": scheduler.get_last_lr()[0],
+                    "epoch": epoch + 1,
+                },
+                step=epoch + 1,
+            )
 
         scheduler.step()
 
         # Validation every eval_every epochs
         if (epoch + 1) % args.eval_every == 0:
-            val_losses = evaluate(model, val_loader, loss_fn, config.device, fid_calculator)
+            val_losses = evaluate(
+                model, val_loader, loss_fn, config.device, fid_calculator
+            )
             fid_str = f", FID: {val_losses.get('fid', float('nan')):.2f}"
-            logger.info(f"Val - Loss: {val_losses['total_loss']:.4f}, "
-                        f"Recon: {val_losses['recon_loss']:.4f}, {latent_loss_name}: {val_losses['latent_loss']:.4f}{fid_str}")
+            logger.info(
+                f"Val - Loss: {val_losses['total_loss']:.4f}, "
+                f"Recon: {val_losses['recon_loss']:.4f}, {latent_loss_name}: {val_losses['latent_loss']:.4f}{fid_str}"
+            )
 
             # Log validation metrics to wandb
             if use_wandb:
@@ -1915,12 +2068,15 @@ def main():
             # Save best model based on validation loss
             if val_losses["total_loss"] < best_val_loss:
                 best_val_loss = val_losses["total_loss"]
-                torch.save({
-                    "epoch": epoch,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "loss": best_val_loss,
-                }, os.path.join(args.output_dir, "best_model.pt"))
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "loss": best_val_loss,
+                    },
+                    os.path.join(args.output_dir, "best_model.pt"),
+                )
                 logger.info(f"Saved best model (val_loss: {best_val_loss:.4f})")
 
                 if use_wandb:
@@ -1938,11 +2094,14 @@ def main():
             )
 
     # Save final model
-    torch.save({
-        "epoch": config.num_epochs,
-        "model_state_dict": model.state_dict(),
-        "config": config,
-    }, os.path.join(args.output_dir, "final_model.pt"))
+    torch.save(
+        {
+            "epoch": config.num_epochs,
+            "model_state_dict": model.state_dict(),
+            "config": config,
+        },
+        os.path.join(args.output_dir, "final_model.pt"),
+    )
 
     # Final wandb logging
     if use_wandb:

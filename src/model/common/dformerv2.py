@@ -20,7 +20,12 @@ from torch.nn.init import trunc_normal_  # noqa: E402
 # ---------------------------------------------------------------------
 # Minimal DropPath (stochastic depth) implementation
 # ---------------------------------------------------------------------
-def _drop_path(x: torch.Tensor, drop_prob: float = 0.0, training: bool = False, scale_by_keep: bool = True):
+def _drop_path(
+    x: torch.Tensor,
+    drop_prob: float = 0.0,
+    training: bool = False,
+    scale_by_keep: bool = True,
+):
     if drop_prob == 0.0 or not training:
         return x
     keep_prob = 1.0 - drop_prob
@@ -34,6 +39,7 @@ def _drop_path(x: torch.Tensor, drop_prob: float = 0.0, training: bool = False, 
 
 class DropPath(nn.Module):
     """Stochastic depth as in timm's DropPath, but implemented locally."""
+
     def __init__(self, drop_prob: float = 0.0, scale_by_keep: bool = True):
         super().__init__()
         self.drop_prob = float(drop_prob)
@@ -41,8 +47,6 @@ class DropPath(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return _drop_path(x, self.drop_prob, self.training, self.scale_by_keep)
-
-
 
 
 class LayerNorm2d(nn.Module):
@@ -140,7 +144,12 @@ class GeoPriorGen(nn.Module):
         angle = angle.unsqueeze(-1).repeat(1, 2).flatten()
         self.weight = nn.Parameter(torch.ones(2, 1, 1, 1), requires_grad=True)
         decay = torch.log(
-            1 - 2 ** (-initial_value - heads_range * torch.arange(num_heads, dtype=torch.float) / num_heads)
+            1
+            - 2
+            ** (
+                -initial_value
+                - heads_range * torch.arange(num_heads, dtype=torch.float) / num_heads
+            )
         )
         self.register_buffer("angle", angle)
         self.register_buffer("decay", decay)
@@ -197,7 +206,9 @@ class GeoPriorGen(nn.Module):
         HW_tuple: (H, W)
         H * W == l
         """
-        depth_map = F.interpolate(depth_map, size=HW_tuple, mode="bilinear", align_corners=False)
+        depth_map = F.interpolate(
+            depth_map, size=HW_tuple, mode="bilinear", align_corners=False
+        )
 
         if split_or_not:
             index = torch.arange(HW_tuple[0] * HW_tuple[1]).to(self.decay)
@@ -206,14 +217,22 @@ class GeoPriorGen(nn.Module):
             cos = torch.cos(index[:, None] * self.angle[None, :])
             cos = cos.reshape(HW_tuple[0], HW_tuple[1], -1)
 
-            mask_d_h = self.generate_1d_depth_decay(HW_tuple[0], HW_tuple[1], depth_map.transpose(-2, -1))
+            mask_d_h = self.generate_1d_depth_decay(
+                HW_tuple[0], HW_tuple[1], depth_map.transpose(-2, -1)
+            )
             mask_d_w = self.generate_1d_depth_decay(HW_tuple[1], HW_tuple[0], depth_map)
 
             mask_h = self.generate_1d_decay(HW_tuple[0])
             mask_w = self.generate_1d_decay(HW_tuple[1])
 
-            mask_h = self.weight[0] * mask_h.unsqueeze(0).unsqueeze(2) + self.weight[1] * mask_d_h
-            mask_w = self.weight[0] * mask_w.unsqueeze(0).unsqueeze(2) + self.weight[1] * mask_d_w
+            mask_h = (
+                self.weight[0] * mask_h.unsqueeze(0).unsqueeze(2)
+                + self.weight[1] * mask_d_h
+            )
+            mask_w = (
+                self.weight[0] * mask_w.unsqueeze(0).unsqueeze(2)
+                + self.weight[1] * mask_d_w
+            )
 
             geo_prior = ((sin, cos), (mask_h, mask_w))
 
@@ -241,7 +260,7 @@ class Decomposed_GSA(nn.Module):
         self.num_heads = num_heads
         self.head_dim = self.embed_dim * self.factor // num_heads
         self.key_dim = self.embed_dim // num_heads
-        self.scaling = self.key_dim**-0.5
+        self.scaling = self.key_dim ** -0.5
         self.q_proj = nn.Linear(embed_dim, embed_dim, bias=True)
         self.k_proj = nn.Linear(embed_dim, embed_dim, bias=True)
         self.v_proj = nn.Linear(embed_dim, embed_dim * self.factor, bias=True)
@@ -261,8 +280,12 @@ class Decomposed_GSA(nn.Module):
         lepe = self.lepe(v)
 
         k = k * self.scaling
-        q = q.view(bsz, h, w, self.num_heads, self.key_dim).permute(0, 3, 1, 2, 4)  # (b n h w d1)
-        k = k.view(bsz, h, w, self.num_heads, self.key_dim).permute(0, 3, 1, 2, 4)  # (b n h w d1)
+        q = q.view(bsz, h, w, self.num_heads, self.key_dim).permute(
+            0, 3, 1, 2, 4
+        )  # (b n h w d1)
+        k = k.view(bsz, h, w, self.num_heads, self.key_dim).permute(
+            0, 3, 1, 2, 4
+        )  # (b n h w d1)
         qr = angle_transform(q, sin, cos)
         kr = angle_transform(k, sin, cos)
 
@@ -290,9 +313,9 @@ class Decomposed_GSA(nn.Module):
         return output
 
     def reset_parameters(self):
-        nn.init.xavier_normal_(self.q_proj.weight, gain=2**-2.5)
-        nn.init.xavier_normal_(self.k_proj.weight, gain=2**-2.5)
-        nn.init.xavier_normal_(self.v_proj.weight, gain=2**-2.5)
+        nn.init.xavier_normal_(self.q_proj.weight, gain=2 ** -2.5)
+        nn.init.xavier_normal_(self.k_proj.weight, gain=2 ** -2.5)
+        nn.init.xavier_normal_(self.v_proj.weight, gain=2 ** -2.5)
         nn.init.xavier_normal_(self.out_proj.weight)
         nn.init.constant_(self.out_proj.bias, 0.0)
 
@@ -305,7 +328,7 @@ class Full_GSA(nn.Module):
         self.num_heads = num_heads
         self.head_dim = self.embed_dim * self.factor // num_heads
         self.key_dim = self.embed_dim // num_heads
-        self.scaling = self.key_dim**-0.5
+        self.scaling = self.key_dim ** -0.5
         self.q_proj = nn.Linear(embed_dim, embed_dim, bias=True)
         self.k_proj = nn.Linear(embed_dim, embed_dim, bias=True)
         self.v_proj = nn.Linear(embed_dim, embed_dim * self.factor, bias=True)
@@ -346,9 +369,9 @@ class Full_GSA(nn.Module):
         return output
 
     def reset_parameters(self):
-        nn.init.xavier_normal_(self.q_proj.weight, gain=2**-2.5)
-        nn.init.xavier_normal_(self.k_proj.weight, gain=2**-2.5)
-        nn.init.xavier_normal_(self.v_proj.weight, gain=2**-2.5)
+        nn.init.xavier_normal_(self.q_proj.weight, gain=2 ** -2.5)
+        nn.init.xavier_normal_(self.k_proj.weight, gain=2 ** -2.5)
+        nn.init.xavier_normal_(self.v_proj.weight, gain=2 ** -2.5)
         nn.init.xavier_normal_(self.out_proj.weight)
         nn.init.constant_(self.out_proj.bias, 0.0)
 
@@ -429,8 +452,12 @@ class RGBD_Block(nn.Module):
         self.Geo = GeoPriorGen(embed_dim, num_heads, init_value, heads_range)
 
         if layerscale:
-            self.gamma_1 = nn.Parameter(layer_init_values * torch.ones(1, 1, 1, embed_dim), requires_grad=True)
-            self.gamma_2 = nn.Parameter(layer_init_values * torch.ones(1, 1, 1, embed_dim), requires_grad=True)
+            self.gamma_1 = nn.Parameter(
+                layer_init_values * torch.ones(1, 1, 1, embed_dim), requires_grad=True
+            )
+            self.gamma_2 = nn.Parameter(
+                layer_init_values * torch.ones(1, 1, 1, embed_dim), requires_grad=True
+            )
 
     def forward(self, x: torch.Tensor, x_e: torch.Tensor, split_or_not=False):
         x = x + self.cnn_pos_encode(x)
@@ -438,10 +465,15 @@ class RGBD_Block(nn.Module):
 
         geo_prior = self.Geo((h, w), x_e, split_or_not=split_or_not)
         if self.layerscale:
-            x = x + self.drop_path(self.gamma_1 * self.Attention(self.layer_norm1(x), geo_prior, split_or_not))
+            x = x + self.drop_path(
+                self.gamma_1
+                * self.Attention(self.layer_norm1(x), geo_prior, split_or_not)
+            )
             x = x + self.drop_path(self.gamma_2 * self.ffn(self.layer_norm2(x)))
         else:
-            x = x + self.drop_path(self.Attention(self.layer_norm1(x), geo_prior, split_or_not))
+            x = x + self.drop_path(
+                self.Attention(self.layer_norm1(x), geo_prior, split_or_not)
+            )
             x = x + self.drop_path(self.ffn(self.layer_norm2(x)))
         return x
 
@@ -494,7 +526,9 @@ class BasicLayer(nn.Module):
 
         # patch merging layer
         if downsample is not None:
-            self.downsample = downsample(dim=embed_dim, out_dim=out_dim, norm_layer=norm_layer)
+            self.downsample = downsample(
+                dim=embed_dim, out_dim=out_dim, norm_layer=norm_layer
+            )
         else:
             self.downsample = None
 
@@ -502,7 +536,9 @@ class BasicLayer(nn.Module):
         b, h, w, d = x.size()
         for blk in self.blocks:
             if self.use_checkpoint:
-                x = checkpoint.checkpoint(blk, x=x, x_e=x_e, split_or_not=self.split_or_not)
+                x = checkpoint.checkpoint(
+                    blk, x=x, x_e=x_e, split_or_not=self.split_or_not
+                )
             else:
                 x = blk(x, x_e, split_or_not=self.split_or_not)
         if self.downsample is not None:
@@ -543,7 +579,9 @@ class dformerv2(nn.Module):
 
         # patch embedding
         self.patch_embed = PatchEmbed(
-            in_chans=3, embed_dim=embed_dims[0], norm_layer=norm_layer if self.patch_norm else None
+            in_chans=3,
+            embed_dim=embed_dims[0],
+            norm_layer=norm_layer if self.patch_norm else None,
         )
 
         # drop path rate
@@ -555,7 +593,9 @@ class dformerv2(nn.Module):
         for i_layer in range(self.num_layers):
             layer = BasicLayer(
                 embed_dim=embed_dims[i_layer],
-                out_dim=embed_dims[i_layer + 1] if (i_layer < self.num_layers - 1) else None,
+                out_dim=embed_dims[i_layer + 1]
+                if (i_layer < self.num_layers - 1)
+                else None,
                 depth=depths[i_layer],
                 num_heads=num_heads[i_layer],
                 init_value=init_values[i_layer],
@@ -714,7 +754,7 @@ def check_dformerv2(model_ctor, image_size=(256, 256), batch_size=2, device=None
         device: torch.device or None (auto: 'cuda' if available else 'cpu')
     """
     if device is None:
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     H, W = image_size
     torch.manual_seed(0)
@@ -739,15 +779,17 @@ def check_dformerv2(model_ctor, image_size=(256, 256), batch_size=2, device=None
     with torch.set_grad_enabled(True):
         outs = model(x_rgb, x_depth)  # tuple of 4 feature maps
 
-    assert isinstance(outs, tuple) and len(outs) == 4, f"Expected 4 outputs, got {len(outs)}"
+    assert (
+        isinstance(outs, tuple) and len(outs) == 4
+    ), f"Expected 4 outputs, got {len(outs)}"
     # Expected spatial sizes by stage:
     # Stage0: /4 (due to PatchEmbed: two stride-2 convs)
     # Stage1: /8  (PatchMerging stride-2)
     # Stage2: /16
     # Stage3: /32
     expected_hw = [
-        (H // 4,  W // 4),
-        (H // 8,  W // 8),
+        (H // 4, W // 4),
+        (H // 8, W // 8),
         (H // 16, W // 16),
         (H // 32, W // 32),
     ]
@@ -757,7 +799,7 @@ def check_dformerv2(model_ctor, image_size=(256, 256), batch_size=2, device=None
         assert y.dim() == 4, f"Stage {i} output must be 4D (B,C,H,W), got {y.shape}"
         B, C, h, w = y.shape
         assert B == batch_size, f"Stage {i}: wrong batch {B} != {batch_size}"
-        assert C == ec,        f"Stage {i}: wrong channels {C} != {ec}"
+        assert C == ec, f"Stage {i}: wrong channels {C} != {ec}"
         assert h == eh and w == ew, f"Stage {i}: wrong spatial {(h,w)} != {(eh,ew)}"
         print(f"Stage {i}: OK  ->  {tuple(y.shape)}")
 
@@ -766,8 +808,11 @@ def check_dformerv2(model_ctor, image_size=(256, 256), batch_size=2, device=None
     loss.backward()
 
     # Check that some gradients flowed
-    some_param_with_grad = any(p.grad is not None and p.grad.abs().sum().item() > 0
-                               for p in model.parameters() if p.requires_grad)
+    some_param_with_grad = any(
+        p.grad is not None and p.grad.abs().sum().item() > 0
+        for p in model.parameters()
+        if p.requires_grad
+    )
     assert some_param_with_grad, "No gradients found — something is off."
     print("Backward pass: OK (non-zero grads detected)")
 
@@ -779,29 +824,39 @@ def check_dformerv2(model_ctor, image_size=(256, 256), batch_size=2, device=None
 if __name__ == "__main__":
     # S
     print("\nChecking DFormerv2_S...")
-    _ = check_dformerv2(lambda: dformerv2(
-        out_indices=(0, 1, 2, 3),
-        embed_dims=[64, 128, 256, 512],
-        depths=[3, 4, 6, 3],  # trimmed for speed
-        num_heads=[4, 4, 8, 16],
-        heads_ranges=[4, 4, 6, 6],
-        drop_path_rate=0.0))
+    _ = check_dformerv2(
+        lambda: dformerv2(
+            out_indices=(0, 1, 2, 3),
+            embed_dims=[64, 128, 256, 512],
+            depths=[3, 4, 6, 3],  # trimmed for speed
+            num_heads=[4, 4, 8, 16],
+            heads_ranges=[4, 4, 6, 6],
+            drop_path_rate=0.0,
+        )
+    )
 
     # B
     print("\nChecking DFormerv2_B...")
-    _ = check_dformerv2(lambda: dformerv2(out_indices=(0,1,2,3),
-                                            depths=[2,4,8,2],  # trimmed for speed
-                                            drop_path_rate=0.0,
-                                          num_heads=[4, 4, 8, 16],
-                                          heads_ranges=[4, 4, 6, 6],
-                                          embed_dims=[64, 128, 256, 512],))
+    _ = check_dformerv2(
+        lambda: dformerv2(
+            out_indices=(0, 1, 2, 3),
+            depths=[2, 4, 8, 2],  # trimmed for speed
+            drop_path_rate=0.0,
+            num_heads=[4, 4, 8, 16],
+            heads_ranges=[4, 4, 6, 6],
+            embed_dims=[64, 128, 256, 512],
+        )
+    )
 
     # L
     print("\nChecking DFormerv2_L...")
-    _ = check_dformerv2(lambda: dformerv2(out_indices=(0,1,2,3),
-                                            depths=[2,4,8,2],  # trimmed for speed
-                                            drop_path_rate=0.0,
-                                            num_heads=[4, 4, 8, 16],
-                                          heads_ranges=[4, 4, 6, 6],
-                                          embed_dims=[64, 128, 256, 512],))
-
+    _ = check_dformerv2(
+        lambda: dformerv2(
+            out_indices=(0, 1, 2, 3),
+            depths=[2, 4, 8, 2],  # trimmed for speed
+            drop_path_rate=0.0,
+            num_heads=[4, 4, 8, 16],
+            heads_ranges=[4, 4, 6, 6],
+            embed_dims=[64, 128, 256, 512],
+        )
+    )

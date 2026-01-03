@@ -76,7 +76,6 @@ class MLPBlock(ActionHeadBlock):
             dropout=dropout,
         )
 
-
     def forward(self, action_embedding: torch.Tensor) -> torch.Tensor:
         """Forward pass through normalized MLP.
 
@@ -114,7 +113,9 @@ class AttentionBlock(ActionHeadBlock):
             normalization: Whether to apply layer normalization
         """
         super().__init__()
-        self.norm = nn.LayerNorm(embedding_dimension) if normalization else nn.Identity()
+        self.norm = (
+            nn.LayerNorm(embedding_dimension) if normalization else nn.Identity()
+        )
         self.input_dim = embedding_dimension
         self.output_dim = embedding_dimension
         self.attention = nn.MultiheadAttention(
@@ -158,7 +159,9 @@ class ResidualBlock(ActionHeadBlock):
         self.input_dim = block.input_dim
         self.output_dim = block.output_dim
         if self.input_dim != self.output_dim:
-            raise ValueError("Input and output dimensions must match for ResidualBlock.")
+            raise ValueError(
+                "Input and output dimensions must match for ResidualBlock."
+            )
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
 
     def forward(self, action_embedding: torch.Tensor) -> torch.Tensor:
@@ -170,5 +173,7 @@ class ResidualBlock(ActionHeadBlock):
         Returns:
             action_embedding + dropout(block(action_embedding))
         """
-        result: torch.Tensor = action_embedding + self.dropout(self.block(action_embedding))
+        result: torch.Tensor = action_embedding + self.dropout(
+            self.block(action_embedding)
+        )
         return result

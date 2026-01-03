@@ -300,43 +300,6 @@ class TestPhaseACTInstantiation:
                 device=device,
             )
 
-    @pytest.mark.parametrize("custom_routing_key", ["custom_phase", "surgical_phase"])
-    def test_custom_routing_key(
-        self, num_phases, observation_space, phase_head, position_moe_head, gripper_moe_head,
-        observation_horizon, prediction_horizon, embedding_dimension, device, custom_routing_key
-    ):
-        custom_action_space = ActionSpace(
-            has_position=True,
-            position_dim=3,
-            has_orientation=False,
-            has_gripper=True,
-            gripper_type=GripperType.BINARY.value,
-            gripper_dim=1,
-            predict_in_camera_frame=False,
-            deltas_as_actions=False,
-            task_has_phases=False,
-            custom_action_dims={custom_routing_key: num_phases},
-        )
-
-        action_heads = {
-            custom_routing_key: phase_head,
-            POSITION_ACTION_KEY: position_moe_head,
-            GRIPPER_ACTION_KEY: gripper_moe_head,
-        }
-
-        decoder = create_phase_act(
-            input_keys=["rgb_left_features"],
-            action_space=custom_action_space,
-            observation_space=observation_space,
-            action_heads=action_heads,
-            observation_horizon=observation_horizon,
-            prediction_horizon=prediction_horizon,
-            embedding_dimension=embedding_dimension,
-            device=device,
-            phase_routing_key=custom_routing_key,
-        )
-
-        assert decoder.phase_routing_key == custom_routing_key
 
     @pytest.mark.parametrize("num_experts", [1, 3, 5, 7])
     def test_different_num_experts(

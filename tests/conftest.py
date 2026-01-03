@@ -29,7 +29,7 @@ from omegaconf import OmegaConf
 from refactoring.data.constants import (
     Cameras,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
-    GRIPPER_STATE_OBS_KEY,
+    ProprioKey,
 )
 from refactoring.configs.main import MainConfig
 from refactoring.configs.experiment import ExperimentConfig
@@ -1042,7 +1042,7 @@ def minimal_yaml_config_factory():
                 "prediction_horizon": 4,
                 "dataloader": {"batch_size": 2, "image_height": 4, "image_width": 4},
                 "dataset_schema": {
-                    "_target_": "refactoring.data.schemas.bowel_retraction.BowelRetractionSchema",
+                    "_target_": "refactoring.data.schemas.custom.bowel_retraction.BowelRetractionSchema",
                     "dataset_folders": [],
                     "zarr_path": ""
                 }

@@ -1,4 +1,3 @@
-
 import torch
 
 from refactoring.models.encoding.fusion.base import FusionOutput
@@ -9,14 +8,15 @@ from refactoring.models.layers.activation import ActivationFunction
 
 class MLPFusion(SequentialFusion):
     """Combines sequence features by projecting them into a shared embedding space, concatenating, and then applying an MLP."""
+
     def __init__(
-            self,
-            input_features: list[str],
-            output_name: str,
-            hidden_dim: int,
-            mlp_hidden_dims : list[int],
-            activation_name: str = ActivationFunction.GELU.value,
-            dropout: float = 0.1,
+        self,
+        input_features: list[str],
+        output_name: str,
+        hidden_dim: int,
+        mlp_hidden_dims: list[int],
+        activation_name: str = ActivationFunction.GELU.value,
+        dropout: float = 0.1,
     ):
         """
         Args:
@@ -27,11 +27,17 @@ class MLPFusion(SequentialFusion):
             activation_name: Name of the activation function to use in the MLP.
             dropout: Dropout rate for the MLP.
         """
-        super().__init__(input_features=input_features, output_name=output_name, hidden_dim=hidden_dim,)
+        super().__init__(
+            input_features=input_features,
+            output_name=output_name,
+            hidden_dim=hidden_dim,
+        )
         self.mlp = MLP(
             input_dim=hidden_dim * len(input_features),
             hidden_dims=mlp_hidden_dims,
-            activation_function=ActivationFunction(activation_name).to_torch_activation(),
+            activation_function=ActivationFunction(
+                activation_name
+            ).to_torch_activation(),
             dropout=dropout,
         )
         self.output_dim = mlp_hidden_dims[-1]
@@ -54,7 +60,6 @@ class MLPFusion(SequentialFusion):
         concat = torch.cat(projected, dim=-1)
         result: torch.Tensor = self.mlp(concat)
         return result
-
 
     def get_output_specification(self) -> FusionOutput:
         """Get output specification."""

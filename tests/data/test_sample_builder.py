@@ -221,7 +221,7 @@ class TestBuildSample:
 
     def test_build_sample_with_phases(self, sample_builder, padded_data, action_dict, sampler_indices):
         """Test sample building with phase labels."""
-        sample_builder.action_space.task_has_phases = True
+        sample_builder.action_space.predict_task_phases = True
         padded_data[PHASE_LABEL_KEY] = np.array([[0], [1], [1], [2], [2], [3], [3], [4], [4], [0]], dtype=np.int64)
 
         sample = sample_builder.build_sample(
@@ -257,7 +257,7 @@ class TestAddImages:
     def test_add_rgb_images(self, sample_builder, padded_data):
         """Test RGB image processing."""
         sample = {OBSERVATION_KEY: {}}
-        sample_builder._add_images(sample, padded_data, angle=0)
+        sample_builder._get_sample_images(sample, padded_data, angle=0)
 
         assert Cameras.LEFT.value in sample[OBSERVATION_KEY]
         assert Cameras.RIGHT.value in sample[OBSERVATION_KEY]
@@ -278,7 +278,7 @@ class TestAddImages:
         padded_data[Cameras.DEPTH.value] = np.ones((10, 32, 32), dtype=np.float32) * 2.5
 
         sample = {OBSERVATION_KEY: {}}
-        sample_builder._add_images(sample, padded_data, angle=0)
+        sample_builder._get_sample_images(sample, padded_data, angle=0)
 
         assert Cameras.DEPTH.value in sample[OBSERVATION_KEY]
 
@@ -291,7 +291,7 @@ class TestAddImages:
     def test_add_images_with_rotation(self, sample_builder, padded_data):
         """Test image processing with rotation."""
         sample = {OBSERVATION_KEY: {}}
-        sample_builder._add_images(sample, padded_data, angle=45.0)
+        sample_builder._get_sample_images(sample, padded_data, angle=45.0)
 
         # Should call augmentation pipeline with angle
         assert sample_builder.augmentation_pipeline.apply_rgb_augmentations.call_count == 2
@@ -302,7 +302,7 @@ class TestAddImages:
         sample_builder.obs_horizon = 2
 
         sample = {OBSERVATION_KEY: {}}
-        sample_builder._add_images(sample, padded_data, angle=0)
+        sample_builder._get_sample_images(sample, padded_data, angle=0)
 
         left_img = sample[OBSERVATION_KEY][Cameras.LEFT.value]
         assert left_img.shape[0] == 2  # Only 2 timesteps
@@ -404,7 +404,7 @@ class TestAddPaddingMask:
         sample_builder.pred_horizon = 6
 
         sample = {ACTION_KEY:{}}
-        sample_builder._add_padding_mask(sample, start_idx=0, sampler_indices=indices)
+        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=indices)
 
         # action_slice_start = 2
         # action_positions = [2, 3, 4, 5, 6, 7]
@@ -429,13 +429,13 @@ class TestAddPaddingMask:
         # Delta actions: need both current AND next
         sample_builder.action_space.deltas_as_actions = True
         sample = {ACTION_KEY:{}}
-        sample_builder._add_padding_mask(sample, start_idx=0, sampler_indices=indices)
+        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=indices)
         delta_pad = sample[ACTION_KEY][IS_PAD_ACTION_KEY].numpy().copy()
 
         # Absolute actions: only need next
         sample_builder.action_space.deltas_as_actions = False
         sample = {ACTION_KEY:{}}
-        sample_builder._add_padding_mask(sample, start_idx=0, sampler_indices=indices)
+        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=indices)
         absolute_pad = sample[ACTION_KEY][IS_PAD_ACTION_KEY].numpy()
 
         # Position 0: action_position=2 (invalid), next=3 (valid at boundary)
@@ -458,13 +458,13 @@ class TestAddPaddingMask:
         # Test with deltas
         sample_builder.action_space.deltas_as_actions = True
         sample = {ACTION_KEY:{}}
-        sample_builder._add_padding_mask(sample, start_idx=0, sampler_indices=indices)
+        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=indices)
         delta_result = sample[ACTION_KEY][IS_PAD_ACTION_KEY].numpy()
 
         # Test with absolute
         sample_builder.action_space.deltas_as_actions = False
         sample = {ACTION_KEY:{}}
-        sample_builder._add_padding_mask(sample, start_idx=0, sampler_indices=indices)
+        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=indices)
         absolute_result = sample[ACTION_KEY][IS_PAD_ACTION_KEY].numpy()
 
         # action_positions = [2, 3, 4, 5]
@@ -476,7 +476,7 @@ class TestAddPaddingMask:
     def test_padding_mask_deltas_no_padding(self, sample_builder, sampler_indices):
         """Test padding mask for deltas with no padding needed."""
         sample = {ACTION_KEY:{}}
-        sample_builder._add_padding_mask(sample, start_idx=0, sampler_indices=sampler_indices)
+        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=sampler_indices)
 
         assert IS_PAD_ACTION_KEY in sample[ACTION_KEY]
         assert sample[ACTION_KEY][IS_PAD_ACTION_KEY].dtype == torch.bool
@@ -496,7 +496,7 @@ class TestAddPaddingMask:
         sample_builder.action_space.deltas_as_actions = False
 
         sample = {ACTION_KEY:{}}
-        sample_builder._add_padding_mask(sample, start_idx=0, sampler_indices=sampler_indices)
+        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=sampler_indices)
 
         # With absolute actions, only next position needs to be valid
         # action_positions = [2, 3, 4, 5]
@@ -511,7 +511,7 @@ class TestAddPaddingMask:
         sample_builder.action_backward_shift = 1
 
         sample = {ACTION_KEY:{}}
-        sample_builder._add_padding_mask(sample, start_idx=0, sampler_indices=sampler_indices)
+        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=sampler_indices)
 
         # action_slice_start = 3 - 1 - 1 = 1
         # action_positions = [1, 2, 3, 4]

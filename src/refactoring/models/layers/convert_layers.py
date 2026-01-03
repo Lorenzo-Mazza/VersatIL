@@ -1,13 +1,12 @@
-
 import torch.nn as nn
 from torch.nn.modules.batchnorm import _BatchNorm
 
 
 def convert_layers(
-        model: nn.Module,
-        layer_type_old: type[nn.Module],
-        layer_type_new: type[nn.Module],
-        convert_weights: bool = False,
+    model: nn.Module,
+    layer_type_old: type[nn.Module],
+    layer_type_new: type[nn.Module],
+    convert_weights: bool = False,
 ) -> nn.Module:
     """
     Recursively convert layers of a specific type in the model to a new type, in-place.

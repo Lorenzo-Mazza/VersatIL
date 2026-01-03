@@ -23,6 +23,7 @@ class DiffusionSchedulerConfig:
         set_alpha_to_one: Whether to set final alpha to 1 (DDIM only)
         steps_offset: Offset for timestep calculation (DDIM only)
     """
+
     scheduler_type: str
     num_train_timesteps: int
     num_inference_steps: int
@@ -178,5 +179,6 @@ def setup_inference_timesteps(
 
 class SchedulerType(str, enum.Enum):
     """Diffusion scheduler types (compatible with diffusers API)."""
+
     DDIM = "ddim"
     DDPM = "ddpm"

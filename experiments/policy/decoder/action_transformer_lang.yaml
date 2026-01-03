@@ -1,5 +1,6 @@
 defaults:
   - simple_action_transformer
+  - heads@action_heads: bowel_retraction
 
 input_keys:
   - left_rgb
@@ -17,33 +18,6 @@ attention_type: ${attention:GROUPED_QUERY}
 dropout_rate: 0.1
 attention_dropout: 0.05
 positional_encoding_type: ${pos_encoding:ROPE}
-
-action_heads:
-  position_action:
-    _target_: refactoring.models.decoding.action_heads.ActionHead
-    input_dim: ${policy.decoder.embedding_dimension}
-    output_dim: ${task.action_space.position_dim}
-    blocks:
-      - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
-        input_dim: ${policy.decoder.embedding_dimension}
-        hidden_dims:
-          - 256  # embedding_dimension // 2
-          - 128  # embedding_dimension // 4
-        output_dim: null
-        activation: ${activation_function:SILU}
-        dropout: ${policy.decoder.dropout_rate}
-  gripper_action:
-    _target_: refactoring.models.decoding.action_heads.ActionHead
-    input_dim: ${policy.decoder.embedding_dimension}
-    output_dim: ${task.action_space.gripper_dim}
-    blocks:
-      - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
-        input_dim: ${policy.decoder.embedding_dimension}
-        hidden_dims:
-          - 128  # embedding_dimension // 4
-        output_dim: null  # Outputs 128, then ActionHead projects 128 -> gripper_dim
-        activation: ${activation_function:SILU}
-        dropout: ${policy.decoder.dropout_rate}
 
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}

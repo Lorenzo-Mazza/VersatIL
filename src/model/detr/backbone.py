@@ -9,7 +9,13 @@ import torchvision
 from torch import nn
 from torchvision.models._utils import IntermediateLayerGetter
 from typing import Dict, List
-from torchvision.models import ResNet18_Weights, ResNet34_Weights, ResNet50_Weights, ResNet101_Weights, ResNet152_Weights
+from torchvision.models import (
+    ResNet18_Weights,
+    ResNet34_Weights,
+    ResNet50_Weights,
+    ResNet101_Weights,
+    ResNet152_Weights,
+)
 
 from legacy_constants import Cameras
 from model.detr.utils import NestedTensor, is_main_process
@@ -32,15 +38,29 @@ class FrozenBatchNorm2d(torch.nn.Module):
         self.register_buffer("running_mean", torch.zeros(n))
         self.register_buffer("running_var", torch.ones(n))
 
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
-                              missing_keys, unexpected_keys, error_msgs):
-        num_batches_tracked_key = prefix + 'num_batches_tracked'
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ):
+        num_batches_tracked_key = prefix + "num_batches_tracked"
         if num_batches_tracked_key in state_dict:
             del state_dict[num_batches_tracked_key]
 
         super(FrozenBatchNorm2d, self)._load_from_state_dict(
-            state_dict, prefix, local_metadata, strict,
-            missing_keys, unexpected_keys, error_msgs)
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
 
     def forward(self, x):
         # move reshapes to the beginning
@@ -56,8 +76,13 @@ class FrozenBatchNorm2d(torch.nn.Module):
 
 
 class BackboneBase(nn.Module):
-
-    def __init__(self, backbone: nn.Module, train_backbone: bool, num_channels: int, return_interm_layers: bool):
+    def __init__(
+        self,
+        backbone: nn.Module,
+        train_backbone: bool,
+        num_channels: int,
+        return_interm_layers: bool,
+    ):
         super().__init__()
         # for name, parameter in backbone.named_parameters(): # only train later layers # TODO do we want this?
         #     if not train_backbone or 'layer2' not in name and 'layer3' not in name and 'layer4' not in name:
@@ -65,7 +90,7 @@ class BackboneBase(nn.Module):
         if return_interm_layers:
             return_layers = {"layer1": "0", "layer2": "1", "layer3": "2", "layer4": "3"}
         else:
-            return_layers = {'layer4': "0"}
+            return_layers = {"layer4": "0"}
         self.body = IntermediateLayerGetter(backbone, return_layers=return_layers)
         self.num_channels = num_channels
 
@@ -73,41 +98,52 @@ class BackboneBase(nn.Module):
         xs = self.body(tensor)
         return xs
 
+
 WEIGHTS_MAP = {
-    'resnet18': ResNet18_Weights.DEFAULT,
-    'resnet34': ResNet34_Weights.DEFAULT,
-    'resnet50': ResNet50_Weights.DEFAULT,
-    'resnet101': ResNet101_Weights.DEFAULT,
-    'resnet152': ResNet152_Weights.DEFAULT,
+    "resnet18": ResNet18_Weights.DEFAULT,
+    "resnet34": ResNet34_Weights.DEFAULT,
+    "resnet50": ResNet50_Weights.DEFAULT,
+    "resnet101": ResNet101_Weights.DEFAULT,
+    "resnet152": ResNet152_Weights.DEFAULT,
 }
+
 
 class Backbone(BackboneBase):
     """ResNet backbone with frozen BatchNorm."""
 
-
-    def __init__(self, name: str,
-                 train_backbone: bool,
-                 return_interm_layers: bool,
-                 dilation: bool):
+    def __init__(
+        self,
+        name: str,
+        train_backbone: bool,
+        return_interm_layers: bool,
+        dilation: bool,
+    ):
         weights = WEIGHTS_MAP.get(name) if is_main_process() else None
         backbone = getattr(torchvision.models, name)(
             replace_stride_with_dilation=[False, False, dilation],
-            weights=weights, norm_layer=FrozenBatchNorm2d)
-        num_channels = 512 if name in ('resnet18', 'resnet34') else 2048
+            weights=weights,
+            norm_layer=FrozenBatchNorm2d,
+        )
+        num_channels = 512 if name in ("resnet18", "resnet34") else 2048
         super().__init__(backbone, train_backbone, num_channels, return_interm_layers)
+
 
 class DepthBackbone(BackboneBase):
     """Specialized ResNet backbone for depth (grayscale) images."""
 
-
-    def __init__(self, name: str,
-                 train_backbone: bool,
-                 return_interm_layers: bool,
-                 dilation: bool):
+    def __init__(
+        self,
+        name: str,
+        train_backbone: bool,
+        return_interm_layers: bool,
+        dilation: bool,
+    ):
         weights = WEIGHTS_MAP.get(name) if is_main_process() else None
         backbone = getattr(torchvision.models, name)(
             replace_stride_with_dilation=[False, False, dilation],
-            weights=weights, norm_layer=FrozenBatchNorm2d)
+            weights=weights,
+            norm_layer=FrozenBatchNorm2d,
+        )
 
         # Replace the first conv layer to accept single-channel input
         # Save the weights for the RGB model's first layer to adapt to grayscale
@@ -119,14 +155,14 @@ class DepthBackbone(BackboneBase):
             kernel_size=backbone.conv1.kernel_size,
             stride=backbone.conv1.stride,
             padding=backbone.conv1.padding,
-            bias=False if backbone.conv1.bias is None else True
+            bias=False if backbone.conv1.bias is None else True,
         )
 
         # Initialize the new layer with the average of RGB weights
         # This provides a better starting point than random initialization
         backbone.conv1.weight.data = original_weight.sum(dim=1, keepdim=True)
 
-        num_channels = 512 if name in ('resnet18', 'resnet34') else 2048
+        num_channels = 512 if name in ("resnet18", "resnet34") else 2048
         super().__init__(backbone, train_backbone, num_channels, return_interm_layers)
 
 
@@ -147,13 +183,13 @@ class Joiner(nn.Sequential):
 
 
 def build_backbone(
-        backbone: str,
-        hidden_dim: int,
-        position_embedding: str,
-        lr_backbone: float,
-        dilation: bool,
-        masks: bool = False,
-        is_depth: bool = False
+    backbone: str,
+    hidden_dim: int,
+    position_embedding: str,
+    lr_backbone: float,
+    dilation: bool,
+    masks: bool = False,
+    is_depth: bool = False,
 ) -> nn.Module:
     """Build a backbone for image processing.
 
@@ -166,12 +202,16 @@ def build_backbone(
         masks: Whether to return intermediate layers for segmentation masks
         is_depth: Whether this backbone is for a depth image (grayscale)
     """
-    position_embedding = build_position_encoding(hidden_dim=hidden_dim, position_embedding=position_embedding)
+    position_embedding = build_position_encoding(
+        hidden_dim=hidden_dim, position_embedding=position_embedding
+    )
     train_backbone = lr_backbone > 0
     return_interm_layers = masks
     if is_depth:
         # Create a grayscale-specific backbone for depth images
-        backbone = DepthBackbone(backbone, train_backbone, return_interm_layers, dilation)
+        backbone = DepthBackbone(
+            backbone, train_backbone, return_interm_layers, dilation
+        )
     else:
         # Regular RGB backbone
         backbone = Backbone(backbone, train_backbone, return_interm_layers, dilation)
@@ -181,13 +221,13 @@ def build_backbone(
 
 
 def build_backbones(
-        camera_names: List[str],
-        backbone: str,
-        hidden_dim: int,
-        position_embedding: str,
-        lr_backbone: float,
-        dilation: bool,
-        masks: bool = False,
+    camera_names: List[str],
+    backbone: str,
+    hidden_dim: int,
+    position_embedding: str,
+    lr_backbone: float,
+    dilation: bool,
+    masks: bool = False,
 ) -> Dict[str, nn.Module]:
     """Build backbones for all cameras specified in the config.
 
@@ -210,6 +250,6 @@ def build_backbones(
             lr_backbone=lr_backbone,
             dilation=dilation,
             masks=masks,
-            is_depth=is_depth
+            is_depth=is_depth,
         )
     return backbones

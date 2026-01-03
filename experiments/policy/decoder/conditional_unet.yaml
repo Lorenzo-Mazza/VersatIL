@@ -1,4 +1,6 @@
 # Conditional U-Net Decoder
+defaults:
+  - heads@action_heads: unet_bowel_retraction
 
 _target_: refactoring.models.decoding.decoders.factory.conditional_unet_decoder.ConditionalUNetDecoder
 
@@ -29,18 +31,6 @@ use_local_conditioning: false
 
 # Whether conditions predict scaling factors in FiLM
 condition_predict_scale: true
-
-action_heads:
-  position_action:
-    _target_: refactoring.models.decoding.action_heads.ActionHead
-    input_dim: ${task.action_space.position_dim}
-    output_dim: ${task.action_space.position_dim}
-    blocks: null
-  gripper_action:
-    _target_: refactoring.models.decoding.action_heads.ActionHead
-    input_dim: ${task.action_space.gripper_dim}
-    output_dim: ${task.action_space.gripper_dim}
-    blocks: null
 
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}

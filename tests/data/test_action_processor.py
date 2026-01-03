@@ -378,7 +378,7 @@ class TestOrientationDeltas:
         processor = ActionProcessor(basic_action_config)
 
         with pytest.raises(ValueError, match="Unsupported orientation representation"):
-            processor._compute_orientation_deltas(
+            processor.compute_orientation_deltas(
                 np.zeros((1, 4)), np.zeros((1, 4))
             )
 

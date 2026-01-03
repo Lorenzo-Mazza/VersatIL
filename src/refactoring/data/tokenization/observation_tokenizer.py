@@ -15,7 +15,11 @@ import numpy as np
 import torch
 from transformers import AutoTokenizer
 
-from refactoring.data.constants import LANGUAGE_KEY, TOKENIZED_OBSERVATIONS_KEY, IS_PAD_OBSERVATION_KEY
+from refactoring.data.constants import (
+    TOKENIZED_OBSERVATIONS_KEY,
+    IS_PAD_OBSERVATION_KEY,
+    ObsKey,
+)
 from refactoring.data.tokenization.binning_tokenizer import BinningTokenizer
 
 
@@ -74,11 +78,13 @@ class ObservationTokenizer:
             return
 
         for key in self.observation_keys:
-            if key == LANGUAGE_KEY:
+            if key == ObsKey.LANGUAGE.value:
                 continue  # Language doesn't need binning
 
             if key not in observation_data:
-                logging.warning(f"Key '{key}' not found in observation data, skipping binning")
+                logging.warning(
+                    f"Key '{key}' not found in observation data, skipping binning"
+                )
                 continue
 
             data = observation_data[key]
@@ -107,7 +113,9 @@ class ObservationTokenizer:
         """
         if not self._is_fitted:
             raise RuntimeError("Tokenizer must be fitted before encoding")
-        first_tensor = next((v for v in observations.values() if isinstance(v, torch.Tensor)), None)
+        first_tensor = next(
+            (v for v in observations.values() if isinstance(v, torch.Tensor)), None
+        )
         has_time_dim = first_tensor is not None and first_tensor.ndim >= 3
         batch_size, time_steps = None, None
         if has_time_dim:
@@ -163,17 +171,28 @@ class ObservationTokenizer:
             parts = []
             for key in self.observation_keys:
                 if key not in observations:
+                    logging.warning(
+                        f"Key '{key}' not found in observation data, skipping prompt"
+                    )
                     continue
 
                 data = observations[key]
-                if key == LANGUAGE_KEY:
+                if key == ObsKey.LANGUAGE.value:
                     if isinstance(data, list):
                         if batch_size > 1:
                             text_list = data[i]
-                            text = text_list if isinstance(text_list, str) else " ".join(text_list)
+                            text = (
+                                text_list
+                                if isinstance(text_list, str)
+                                else " ".join(text_list)
+                            )
                         else:
                             text_list = data[0] if data else []
-                            text = text_list if isinstance(text_list, str) else " ".join(text_list)
+                            text = (
+                                text_list
+                                if isinstance(text_list, str)
+                                else " ".join(text_list)
+                            )
                     else:
                         assert isinstance(data, str)
                         text = data
@@ -192,10 +211,14 @@ class ObservationTokenizer:
 
                     if self.bin_continuous_data and key in self.binning_tokenizers:
                         binned = self.binning_tokenizers[key].encode(sample)
-                        sample_str = " ".join(map(str, binned.cpu().numpy().flatten().tolist()))
+                        sample_str = " ".join(
+                            map(str, binned.cpu().numpy().flatten().tolist())
+                        )
                     else:
                         # Use raw float values as strings
-                        sample_str = " ".join(map(lambda x: f"{x:.3f}", sample.flatten().tolist()))
+                        sample_str = " ".join(
+                            map(lambda x: f"{x:.3f}", sample.flatten().tolist())
+                        )
 
                     key_readable = key.replace("_", " ")
                     parts.append(f"{key_readable}: {sample_str}")
@@ -286,7 +309,8 @@ class ObservationTokenizer:
         if not path.exists():
             raise FileNotFoundError(f"Tokenizer path not found: {path}")
         state_dict = torch.load(
-            path / "observation_tokenizer_state.pt", map_location=device or torch.device("cpu")
+            path / "observation_tokenizer_state.pt",
+            map_location=device or torch.device("cpu"),
         )
         tokenizer = cls(
             tokenizer_model=state_dict["tokenizer_model"],
@@ -297,6 +321,8 @@ class ObservationTokenizer:
             device=device,
         )
         tokenizer.load_state_dict(state_dict)
-        tokenizer.language_tokenizer = AutoTokenizer.from_pretrained(path / "language_tokenizer")
+        tokenizer.language_tokenizer = AutoTokenizer.from_pretrained(
+            path / "language_tokenizer"
+        )
         logging.info(f"Loaded observation tokenizer from {path}")
         return tokenizer

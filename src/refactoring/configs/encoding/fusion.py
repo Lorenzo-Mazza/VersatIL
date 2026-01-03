@@ -10,6 +10,7 @@ from refactoring.models.layers.activation import ActivationFunction
 @dataclass
 class FusionConfig:
     """A fusion module that combines multiple input features into one representation."""
+
     _target_: str = MISSING
     input_features: list[str] = MISSING
     output_name: str = MISSING
@@ -27,6 +28,7 @@ class AttentionFusionConfig(FusionConfig):
     num_heads: int = 8
     dropout: float = 0.1
     input_feature_query: str | None = None
+
 
 @dataclass
 class MLPFusionConfig(FusionConfig):

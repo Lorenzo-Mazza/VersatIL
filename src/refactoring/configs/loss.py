@@ -6,7 +6,6 @@ from typing import Any
 from omegaconf import MISSING
 
 from refactoring.data.constants import (
-    POSITION_ACTION_KEY,
     GripperType,
 )
 
@@ -23,7 +22,7 @@ class RegressionLossConfig(BaseLossConfig):
     """Configuration for regression loss (position, orientation)."""
 
     _target_: str = "refactoring.metrics.RegressionLoss"
-    action_keys: list[str] = field(default_factory=lambda: [POSITION_ACTION_KEY])
+    action_keys: list[str] = MISSING
     mse_weight: float = 1.0
     l1_weight: float = 0.0
     huber_weight: float = 0.0
@@ -36,7 +35,8 @@ class GripperLossConfig(BaseLossConfig):
     """Configuration for gripper loss."""
 
     _target_: str = "refactoring.metrics.GripperLoss"
-    gripper_type: str = GripperType.BINARY.value
+    key: str = MISSING
+    actions_metadata: Any = "${task.action_space.actions_metadata}"
     bce_weight: float = 1.0
     mse_weight: float = 1.0
     pos_weight: float | None = None
@@ -60,18 +60,21 @@ class BinaryKLDivergenceLossConfig(BaseLossConfig):
     latent_bits: int = MISSING
     entropy_weight: float = 0.005
 
+
 @dataclass
 class MaximumMeanDiscrepancyLossConfig(BaseLossConfig):
     """Configuration for Maximum Mean Discrepancy (MMD) loss."""
+
     _target_: str = "refactoring.metrics.MaximumMeanDiscrepancyLoss"
     weight: float = 1.0
+
 
 @dataclass
 class BinaryMaximumMeanDiscrepancyLossConfig(BaseLossConfig):
     """Configuration for Binary Maximum Mean Discrepancy (MMD) loss."""
+
     _target_: str = "refactoring.metrics.BinaryMaximumMeanDiscrepancyLoss"
     weight: float = 1.0
-
 
 
 @dataclass
@@ -80,7 +83,7 @@ class TrajectoryLengthLossConfig(BaseLossConfig):
 
     _target_: str = "refactoring.metrics.TrajectoryLengthLoss"
     weight: float = 0.1
-    action_key: str = POSITION_ACTION_KEY
+    action_key: str = MISSING
 
 
 @dataclass
@@ -89,7 +92,7 @@ class TrajectorySmoothnessConfig(BaseLossConfig):
 
     _target_: str = "refactoring.metrics.TrajectorySmoothness"
     weight: float = 0.01
-    action_key: str = POSITION_ACTION_KEY
+    action_key: str = MISSING
 
 
 @dataclass
@@ -97,13 +100,16 @@ class PhaseClassificationLossConfig(BaseLossConfig):
     """Configuration for phase classification loss."""
 
     _target_: str = "refactoring.metrics.PhaseClassificationLoss"
+    key: str = MISSING
     cross_entropy_weight: float = 1.0
     entropy_weight: float = 0.0
     label_smoothing: float = 0.0
 
+
 @dataclass
 class ActionTokenLossConfig(BaseLossConfig):
     """Configuration for action to token loss (TokenACT-style models)."""
+
     _target_: str = "refactoring.metrics.ActionTokenLoss"
     label_smoothing: float = 0.0
 
@@ -146,19 +152,24 @@ class PhaseActionLossConfig(BaseLossConfig):
 @dataclass
 class FixedVarianceGaussianNLLossConfig(BaseLossConfig):
     """Configuration for fixed variance Gaussian Negative Log-Likelihood loss."""
+
     _target_: str = "refactoring.metrics.FixedVarianceGaussianNLLoss"
     action_keys: list[str] = MISSING
     sigmas: dict[str, float] | None = None
     per_key_weights: dict[str, float] | None = None
     weight: float = 1.0
 
+
 @dataclass
-class FixedVarianceGripperMixtureNLLoss(BaseLossConfig):
+class FixedVarianceGripperMixtureNLLossConfig(BaseLossConfig):
     """Configuration for gripper Mixture Negative Log-Likelihood loss."""
+
     _target_: str = "refactoring.metrics.FixedVarianceGripperMixtureNLLoss"
-    gripper_type: str = GripperType.BINARY.value
-    sigma : float = 0.5
+    key: str = MISSING
+    actions_metadata: Any = "${task.action_space.actions_metadata}"
+    sigma: float = 0.5
     weight: float = 1.0
+
 
 @dataclass
 class CompositeLossConfig(BaseLossConfig):
@@ -172,5 +183,6 @@ class CompositeLossConfig(BaseLossConfig):
 @dataclass
 class MoELossConfig:
     """Configuration for Mixture of Experts (MoE) loss."""
+
     _target_: str = "refactoring.metrics.MoELoss"
     base_loss: BaseLossConfig = MISSING

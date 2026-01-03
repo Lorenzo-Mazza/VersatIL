@@ -85,7 +85,9 @@ class Tokenizer:
             logging.info(f"Saved action tokenizer to {action_path}")
 
     @classmethod
-    def from_pretrained(cls, path: str | Path, device: torch.device | None = None) -> "Tokenizer":
+    def from_pretrained(
+        cls, path: str | Path, device: torch.device | None = None
+    ) -> "Tokenizer":
         """Load tokenizers from disk.
 
         Args:
@@ -104,20 +106,29 @@ class Tokenizer:
 
         obs_path = path / "observation_tokenizer"
         if obs_path.exists():
-            observation_tokenizer = ObservationTokenizer.from_pretrained(obs_path, device=device)
+            observation_tokenizer = ObservationTokenizer.from_pretrained(
+                obs_path, device=device
+            )
             logging.info(f"Loaded observation tokenizer from {obs_path}")
 
         action_path = path / "action_tokenizer"
         if action_path.exists():
-            action_tokenizer = ActionTokenizer.from_pretrained(action_path, device=device)
+            action_tokenizer = ActionTokenizer.from_pretrained(
+                action_path, device=device
+            )
             logging.info(f"Loaded action tokenizer from {action_path}")
 
-        return cls(observation_tokenizer=observation_tokenizer, action_tokenizer=action_tokenizer)
+        return cls(
+            observation_tokenizer=observation_tokenizer,
+            action_tokenizer=action_tokenizer,
+        )
 
 
 def validate_tokenizer_config(config: TokenizationConfig):
     if config.tokenize_observations and config.observation_tokenizer is None:
-        raise ValueError("observation_tokenizer must be provided when tokenize_observations=True")
+        raise ValueError(
+            "observation_tokenizer must be provided when tokenize_observations=True"
+        )
     if config.tokenize_actions and config.action_tokenizer is None:
         raise ValueError("action_tokenizer must be provided when tokenize_actions=True")
 
@@ -129,7 +140,10 @@ def validate_tokenizer_config(config: TokenizationConfig):
                     f"Invalid tokenizer '{tokenizer}' in chain. Must be one of {valid_tokenizers}"
                 )
         # Validate language tokenizer model is provided if needed
-        if TokenizerType.LANGUAGE.value in config.action_tokenizer.tokenizer_chain and config.action_tokenizer.language_tokenizer_model is None:
+        if (
+            TokenizerType.LANGUAGE.value in config.action_tokenizer.tokenizer_chain
+            and config.action_tokenizer.language_tokenizer_model is None
+        ):
             raise ValueError(
                 f"language_tokenizer_model must be provided when '{TokenizerType.LANGUAGE.value}' key is in tokenizer_chain"
             )

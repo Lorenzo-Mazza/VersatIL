@@ -15,6 +15,7 @@ from refactoring.models.layers.positional_encoding.base import (
 
 class SinusoidalPositionalEncoding1D(PositionalEncoding1D):
     """Sinusoidal positional encoding for 1D."""
+
     def __init__(
         self,
         embedding_dimension: int,
@@ -54,17 +55,21 @@ class SinusoidalPositionalEncoding1D(PositionalEncoding1D):
             mlp_hidden_dimensions=mlp_hidden_dimensions,
             mlp_activation=mlp_activation,
         )
-        self.register_parameter("frequencies", nn.Parameter(self._temp_frequencies, requires_grad=self._learnable_frequencies))
+        self.register_parameter(
+            "frequencies",
+            nn.Parameter(
+                self._temp_frequencies, requires_grad=self._learnable_frequencies
+            ),
+        )
         del self._temp_frequencies
         del self._learnable_frequencies
 
-
     @classmethod
     def create_encoding_table(
-            cls,
-            number_of_positions: int,
-            embedding_dimension: int,
-            temperature: float = 10000.0,
+        cls,
+        number_of_positions: int,
+        embedding_dimension: int,
+        temperature: float = 10000.0,
     ) -> torch.Tensor:
         """Create a sinusoidal encoding table for transformer inputs.
 
@@ -90,20 +95,27 @@ class SinusoidalPositionalEncoding1D(PositionalEncoding1D):
         encoding_table: torch.Tensor = encoder(dummy_input)
         return encoding_table
 
-
     def _compute_encodings(self, input_values: torch.Tensor) -> torch.Tensor:
         if input_values.dim() == 0:
             input_values = input_values.unsqueeze(0)
         # Use temporary tensor during init, otherwise use registered parameter
-        if hasattr(self, 'frequencies'):
+        if hasattr(self, "frequencies"):
             frequencies = self.frequencies
         else:
             frequencies = self._temp_frequencies
-        scaled_values = input_values[:, None] * frequencies[None] if input_values.dim() == 1 else input_values * frequencies
+        scaled_values = (
+            input_values[:, None] * frequencies[None]
+            if input_values.dim() == 1
+            else input_values * frequencies
+        )
         sine_values = torch.sin(scaled_values)
         cosine_values = torch.cos(scaled_values)
         if self.ordering_mode == OrderingMode.INTERLEAVE_SIN_COS.value:
-            encodings = torch.zeros(*scaled_values.shape[:-1] or [1], self.embedding_dimension, device=input_values.device)
+            encodings = torch.zeros(
+                *scaled_values.shape[:-1] or [1],
+                self.embedding_dimension,
+                device=input_values.device,
+            )
             encodings[..., 0::2] = sine_values
             encodings[..., 1::2] = cosine_values
         elif self.ordering_mode == OrderingMode.CAT_COS_SIN.value:
@@ -115,6 +127,7 @@ class SinusoidalPositionalEncoding1D(PositionalEncoding1D):
 
 class SinusoidalPositionalEncoding2D(PositionalEncoding2D):
     """Sinusoidal positional encoding for 2D."""
+
     def __init__(
         self,
         embedding_dimension: int,
@@ -152,8 +165,11 @@ class SinusoidalPositionalEncoding2D(PositionalEncoding2D):
         dim_t = self.temperature ** (2 * (dim_t // 2) / num_pos_feats)
         pos_y = y_encoding[:, :, None] / dim_t
         pos_x = x_encoding[:, :, None] / dim_t
-        pos_y = torch.stack((pos_y[:, :, 0::2].sin(), pos_y[:, :, 1::2].cos()), dim=3).flatten(2)
-        pos_x = torch.stack((pos_x[:, :, 0::2].sin(), pos_x[:, :, 1::2].cos()), dim=3).flatten(2)
+        pos_y = torch.stack(
+            (pos_y[:, :, 0::2].sin(), pos_y[:, :, 1::2].cos()), dim=3
+        ).flatten(2)
+        pos_x = torch.stack(
+            (pos_x[:, :, 0::2].sin(), pos_x[:, :, 1::2].cos()), dim=3
+        ).flatten(2)
         pos = torch.cat((pos_y, pos_x), dim=2)
         return pos.permute(2, 0, 1)
-

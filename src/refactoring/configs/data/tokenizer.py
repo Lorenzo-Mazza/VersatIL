@@ -20,7 +20,9 @@ class ObservationTokenizationConfig:
 @dataclass
 class ActionTokenizationConfig:
     # Chain of tokenizers to apply in sequence
-    tokenizer_chain: list[str] = field(default_factory=lambda: [TokenizerType.FAST.value])
+    tokenizer_chain: list[str] = field(
+        default_factory=lambda: [TokenizerType.FAST.value]
+    )
     # For FAST tokenizer
     use_pretrained_fast: bool = True
     # For language tokenizer in chain (if TokenizerType.LANGUAGE.value in tokenizer_chain)

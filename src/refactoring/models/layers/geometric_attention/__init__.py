@@ -4,4 +4,9 @@ from .geometric_attention import GeometricSelfAttention
 from .geometric_bias import GeometricAttentionBias
 from .spatial_decay import SpatialDecayMask
 
-__all__ = ['GeometricSelfAttention', 'GeometricAttentionBias', 'DepthAwareDecayMask', 'SpatialDecayMask']
+__all__ = [
+    "GeometricSelfAttention",
+    "GeometricAttentionBias",
+    "DepthAwareDecayMask",
+    "SpatialDecayMask",
+]

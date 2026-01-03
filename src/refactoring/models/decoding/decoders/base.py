@@ -1,18 +1,11 @@
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 import torch
 import torch.nn as nn
 
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.data.constants import (
-    GRIPPER_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    PHASE_LABEL_KEY,
-    POSITION_ACTION_KEY,
-    GripperType,
-)
+from refactoring.common.omegaconf_ops import resolve_dict_keys
+from refactoring.data.task import ObservationSpace, ActionSpace
 from refactoring.data.tokenization import Tokenizer, ActionTokenizer
 from refactoring.models.decoding.constants import FeatureType
 
@@ -20,7 +13,8 @@ from refactoring.models.decoding.constants import FeatureType
 @dataclass
 class DecoderInput:
     """Structured input specification for decoder architectures."""
-    keys: list[str] # feature keys required by the decoder
+
+    keys: list[str]  # feature keys required by the decoder
     #: If specified, the decoder needs at least one input observation key from all these feature types
     #: They have to be `FeatureType` values, i.e. either 'spatial', 'sequential' or 'flat'
     required_types: list[str] = field(default_factory=list)
@@ -39,12 +33,15 @@ class DecoderInput:
             conditioning_set = {self.conditioning_key}
             missing_conditioning = set(self.conditioning_required) - conditioning_set
             if missing_conditioning:
-                raise ValueError(f"Missing required conditioning for decoder input: {missing_conditioning}")
+                raise ValueError(
+                    f"Missing required conditioning for decoder input: {missing_conditioning}"
+                )
             for group in self.conditioning_one_of_groups:
                 matches = conditioning_set.intersection(group)
                 if len(matches) != 1:
-                    raise ValueError(f"Exactly one from {group} required for decoder input conditioning")
-
+                    raise ValueError(
+                        f"Exactly one from {group} required for decoder input conditioning"
+                    )
 
     def validate_feature_types(
         self,
@@ -66,10 +63,17 @@ class DecoderInput:
                 feature_dim = available_features_to_dims[feature_name]
                 is_spatial = isinstance(feature_dim, tuple) and len(feature_dim) == 3
                 is_sequential = isinstance(feature_dim, tuple) and len(feature_dim) == 2
-                is_flat = isinstance(feature_dim, int) or (isinstance(feature_dim, tuple) and len(feature_dim) == 1)
-                if (expected_type == FeatureType.SPATIAL.value and is_spatial
-                        or expected_type == FeatureType.SEQUENTIAL.value and is_sequential
-                        or expected_type == FeatureType.FLAT.value and is_flat):
+                is_flat = isinstance(feature_dim, int) or (
+                    isinstance(feature_dim, tuple) and len(feature_dim) == 1
+                )
+                if (
+                    expected_type == FeatureType.SPATIAL.value
+                    and is_spatial
+                    or expected_type == FeatureType.SEQUENTIAL.value
+                    and is_sequential
+                    or expected_type == FeatureType.FLAT.value
+                    and is_flat
+                ):
                     matched = True
             if not matched:
                 raise ValueError(
@@ -82,13 +86,21 @@ class DecoderInput:
                 feature_dim = available_features_to_dims[key]
                 is_spatial = isinstance(feature_dim, tuple) and len(feature_dim) == 3
                 if feature_type == FeatureType.SPATIAL.value and is_spatial:
-                    raise ValueError("Decoder architecture cannot accept spatial features as input.")
+                    raise ValueError(
+                        "Decoder architecture cannot accept spatial features as input."
+                    )
                 is_sequential = isinstance(feature_dim, tuple) and len(feature_dim) == 2
                 if feature_type == FeatureType.SEQUENTIAL.value and is_sequential:
-                    raise ValueError("Decoder architecture cannot accept sequential features as input.")
-                is_flat = isinstance(feature_dim, int) or (isinstance(feature_dim, tuple) and len(feature_dim) == 1)
+                    raise ValueError(
+                        "Decoder architecture cannot accept sequential features as input."
+                    )
+                is_flat = isinstance(feature_dim, int) or (
+                    isinstance(feature_dim, tuple) and len(feature_dim) == 1
+                )
                 if feature_type == FeatureType.FLAT.value and is_flat:
-                    raise ValueError("Decoder architecture cannot accept flat features as input.")
+                    raise ValueError(
+                        "Decoder architecture cannot accept flat features as input."
+                    )
 
 
 class ActionDecoder(nn.Module, ABC):
@@ -105,25 +117,51 @@ class ActionDecoder(nn.Module, ABC):
     supports_tokenized_actions: bool = False
 
     def __init__(
-            self,
-            decoder_input: DecoderInput,
-            observation_space: ObservationSpace,
-            action_space: ActionSpace,
-            action_heads: dict,
-            device: str,
-            observation_horizon: int,
-            prediction_horizon: int,
+        self,
+        decoder_input: DecoderInput,
+        observation_space: ObservationSpace,
+        action_space: ActionSpace,
+        action_heads: dict,
+        device: str,
+        observation_horizon: int,
+        prediction_horizon: int,
     ):
         super().__init__()
         self.decoder_input = decoder_input
-        self.action_heads = nn.ModuleDict(action_heads)
+        resolved_heads = resolve_dict_keys(action_heads)
+        self.action_heads = nn.ModuleDict(resolved_heads)
         self.observation_space = observation_space
         self.action_space = action_space
         self.observation_horizon = observation_horizon
         self.prediction_horizon = prediction_horizon
         self.device = torch.device(device)
+        self._set_action_head_dimensions()
         self.validate_action_heads()
         self.tokenizer: ActionTokenizer | None = None
+
+    def _set_action_head_dimensions(self) -> None:
+        """Set output dimensions on action heads from action_space.
+
+        Each action head's output_dim is set based on the corresponding
+        action_space.actions_metadata[key].prediction_dimension.
+
+        Raises:
+            ValueError: If an action head key is not found in action_space.actions_metadata
+                (only for non-tokenized decoders)
+        """
+        if self.supports_tokenized_actions:
+            # Use placeholder dimension - set_tokenizer() will set real dimension
+            for head in self.action_heads.values():
+                head.set_output_dim(1)
+            return
+        for key, head in self.action_heads.items():
+            if key not in self.action_space.actions_metadata:
+                raise ValueError(
+                    f"Action head '{key}' not found in action_space.actions_metadata. "
+                    f"Available keys: {list(self.action_space.actions_metadata.keys())}"
+                )
+            dim = self.action_space.actions_metadata[key].prediction_dimension
+            head.set_output_dim(dim)
 
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
         """Set tokenizer for discrete action tokenization.
@@ -139,26 +177,26 @@ class ActionDecoder(nn.Module, ABC):
             self.tokenizer = None
             return
         if tokenizer is None:
-            raise ValueError("Tokenizer must be provided for tokenized action decoders.")
+            raise ValueError(
+                "Tokenizer must be provided for tokenized action decoders."
+            )
         self.tokenizer = tokenizer.action_tokenizer
 
     @abstractmethod
-    def forward(self,
-                features: dict[str, torch.Tensor],
-                actions: dict[str, torch.Tensor] | None = None
-                ) -> dict[str, torch.Tensor]:
+    def forward(
+        self,
+        features: dict[str, torch.Tensor],
+        actions: dict[str, torch.Tensor] | None = None,
+    ) -> dict[str, torch.Tensor]:
         """Forward pass of the Neural Network architecture for action decoding."""
-        raise NotImplementedError("Subclasses of ActionDecoder must implement the forward pass.")
+        raise NotImplementedError(
+            "Subclasses of ActionDecoder must implement the forward pass."
+        )
 
     @property
     def has_history(self) -> bool:
         """Whether the architecture processes temporal sequences."""
         return self.observation_horizon > 1
-
-    @property
-    def use_proprioceptive_observations(self) -> bool:
-        """Whether the architecture uses proprioceptive observations."""
-        return self.observation_space.use_proprioceptive_data
 
     @property
     def action_dim(self) -> int:
@@ -168,7 +206,7 @@ class ActionDecoder(nn.Module, ABC):
     @property
     def use_gripper_actions(self) -> bool:
         """Whether the architecture uses gripper actions."""
-        return self.action_space.has_gripper
+        return self.action_space.has_gripper_actions
 
     @property
     def gripper_dim(self) -> int | None:
@@ -176,24 +214,16 @@ class ActionDecoder(nn.Module, ABC):
         return self.action_space.gripper_dim if self.use_gripper_actions else None
 
     @property
-    def continuous_gripper(self) -> bool:
-        """Whether the gripper actions are continuous."""
-        return self.action_space.gripper_type == GripperType.CONTINUOUS.value if self.use_gripper_actions else False
-
-    @property
     def use_orientation_actions(self) -> bool:
         """Whether the architecture uses orientation actions."""
-        return self.action_space.has_orientation
+        return self.action_space.has_orientation_actions
 
     @property
     def orientation_dim(self) -> int | None:
         """Get the orientation dimension if used."""
-        return self.action_space.orientation_dim if self.use_orientation_actions else None
-
-    @property
-    def use_position_actions(self) -> bool:
-        """Whether the architecture uses position actions."""
-        return self.action_space.has_position
+        return (
+            self.action_space.orientation_dim if self.use_orientation_actions else None
+        )
 
     @property
     def position_dim(self) -> int | None:
@@ -216,21 +246,9 @@ class ActionDecoder(nn.Module, ABC):
             return
 
         configured_heads = set(self.action_heads.keys())
-
-        # Build required heads based on action space
         required_heads = {}
-        if self.use_position_actions:
-            required_heads[POSITION_ACTION_KEY] = self.position_dim
-        if self.use_orientation_actions:
-            required_heads[ORIENTATION_ACTION_KEY] = self.orientation_dim
-        if self.use_gripper_actions:
-            required_heads[GRIPPER_ACTION_KEY] = self.gripper_dim
-        if self.action_space.task_has_phases:
-            required_heads[PHASE_LABEL_KEY] = self.action_space.number_of_phases
-
-        if self.action_space.custom_action_dims:
-            for key, dim in self.action_space.custom_action_dims.items():
-                required_heads[key] = dim
+        for key, meta in self.action_space.actions_metadata.items():
+            required_heads[key] = meta.prediction_dimension
 
         required_keys = set(required_heads.keys())
         missing_heads = required_keys - configured_heads

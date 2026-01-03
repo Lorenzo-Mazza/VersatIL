@@ -2,7 +2,7 @@ defaults:
   - action_transformer@base_expert
 
 _target_: refactoring.models.decoding.decoders.moe.MoEDecoder
-gating_feature_key: ${obs_key:LATENT_KEY}
+gating_feature_key: ${latent_key:POSTERIOR_LATENT}
 temperature: 10.0
 learnable_temperature: true
 routing_type: ${moe_routing_type:SOFT}
@@ -29,35 +29,32 @@ base_expert:
   attention_dropout: 0.05
   positional_encoding_type: ${pos_encoding:ROPE}
 
-  action_heads:
-    position_action:
-      _target_: refactoring.models.decoding.action_heads.ActionHead
-      input_dim: ${policy.decoder.base_expert.embedding_dimension}
-      output_dim: ${task.action_space.position_dim}
-      blocks:
-        - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
-          input_dim: ${policy.decoder.base_expert.embedding_dimension}
-          hidden_dims:
-            - 256  # embedding_dimension // 2
-            - 128  # embedding_dimension // 4
-          output_dim: null
-          activation: ${activation_function:SILU}
-          dropout: ${policy.decoder.base_expert.dropout_rate}
-    gripper_action:
-      _target_: refactoring.models.decoding.action_heads.ActionHead
-      input_dim: ${policy.decoder.base_expert.embedding_dimension}
-      output_dim: ${task.action_space.gripper_dim}
-      blocks:
-        - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
-          input_dim: ${policy.decoder.base_expert.embedding_dimension}
-          hidden_dims:
-            - 128  # embedding_dimension // 4
-          output_dim: null  # Outputs 128, then ActionHead projects 128 -> gripper_dim
-          activation: ${activation_function:SILU}
-          dropout: ${policy.decoder.base_expert.dropout_rate}
-
   observation_horizon: ${task.observation_horizon}
   prediction_horizon: ${task.prediction_horizon}
   action_space: ${task.action_space}
   observation_space: ${task.observation_space}
   device: ${experiment.device}
+  action_heads:
+    ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}:
+      _target_: refactoring.models.decoding.action_heads.ActionHead
+      input_dim: ${policy.decoder.base_expert.embedding_dimension}
+      blocks:
+        - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
+          input_dim: ${policy.decoder.base_expert.embedding_dimension}
+          hidden_dims:
+            - 256
+            - 128
+          output_dim: null
+          activation: ${activation_function:SILU}
+          dropout: ${policy.decoder.base_expert.dropout_rate}
+    ${proprio_key:GRIPPER_STATE}:
+      _target_: refactoring.models.decoding.action_heads.ActionHead
+      input_dim: ${policy.decoder.base_expert.embedding_dimension}
+      blocks:
+        - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
+          input_dim: ${policy.decoder.base_expert.embedding_dimension}
+          hidden_dims:
+            - 128
+          output_dim: null
+          activation: ${activation_function:SILU}
+          dropout: ${policy.decoder.base_expert.dropout_rate}

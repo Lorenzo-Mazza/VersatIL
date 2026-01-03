@@ -46,6 +46,8 @@ class Embedder(Encoder):
             embedding_dim=embedding_dim,
         )
         self.padding_mask_name = f"{EncoderOutputKeys.TOKEN_EMBEDDING.value}_{EncoderOutputKeys.PADDING_MASK.value}"
+        # Dummy buffer to track the module's device without relying on parameters (which may be lazy-init)
+        self.register_buffer('_device_tracker', torch.zeros(1))
 
 
     def set_tokenizer_vocab_size(self, vocab_size: int):
@@ -63,6 +65,33 @@ class Embedder(Encoder):
             self.embedding.weight,
             mean=0.0,
             std=self.initializer_range,
+        )
+
+    def _load_from_state_dict(
+        self,
+        state_dict: dict,
+        prefix: str,
+        local_metadata: dict,
+        strict: bool,
+        missing_keys: list,
+        unexpected_keys: list,
+        error_msgs: list,
+    ) -> None:
+        """Load state dict with dynamic embedding resize for lazy-initialized vocab size."""
+        embedding_key = prefix + "embedding.weight"
+        if embedding_key in state_dict:
+            weight = state_dict[embedding_key]
+            vocab_size, emb_dim = weight.shape
+            if self.embedding.weight.shape[0] != vocab_size:
+                self.vocab_size = vocab_size
+                device = self._device_tracker.device
+                self.embedding = nn.Embedding(
+                    num_embeddings=vocab_size,
+                    embedding_dim=emb_dim,
+                    device=device,
+                )
+        super()._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
         )
 
 

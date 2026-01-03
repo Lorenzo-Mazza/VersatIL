@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from unittest.mock import MagicMock, patch
 
-from refactoring.data.normalization.normalizer_builder import NormalizerBuilder
+from refactoring.data.preprocessor_builder import PreprocessorBuilder
 from refactoring.data.normalization.normalizer import LinearNormalizer
 from refactoring.data.tokenization.tokenizer import Tokenizer
 from refactoring.configs.data.tokenizer import ObservationTokenizationConfig, ActionTokenizationConfig, TokenizationConfig
@@ -87,8 +87,8 @@ def observation_space():
 
 @pytest.fixture
 def normalizer_builder(mock_replay_buffer, mock_action_processor, observation_space):
-    """NormalizerBuilder instance."""
-    return NormalizerBuilder(
+    """PreprocessorBuilder instance."""
+    return PreprocessorBuilder(
         replay_buffer=mock_replay_buffer,
         action_processor=mock_action_processor,
         prediction_horizon=5,
@@ -100,14 +100,14 @@ def normalizer_builder(mock_replay_buffer, mock_action_processor, observation_sp
     )
 
 class TestNormalizerBuilderInitialization:
-    """Test NormalizerBuilder initialization."""
+    """Test PreprocessorBuilder initialization."""
 
 
     def test_init_stores_parameters(self, mock_replay_buffer, mock_action_processor, observation_space):
         """Test that initialization stores all parameters."""
         episode_ends = np.array([30, 70, 100])
 
-        builder = NormalizerBuilder(
+        builder = PreprocessorBuilder(
             replay_buffer=mock_replay_buffer,
             action_processor=mock_action_processor,
             prediction_horizon=10,
@@ -371,7 +371,7 @@ class TestCreateNormalizer:
             return original_getitem(key)
         mock_replay_buffer.__getitem__ = MagicMock(side_effect=getitem_with_language)
 
-        builder = NormalizerBuilder(
+        builder = PreprocessorBuilder(
             replay_buffer=mock_replay_buffer,
             action_processor=mock_action_processor,
             prediction_horizon=5,
@@ -458,7 +458,7 @@ class TestIntegration:
 
         mock_action_processor.action_space.gripper_type = GripperType.CONTINUOUS
 
-        builder = NormalizerBuilder(
+        builder = PreprocessorBuilder(
             replay_buffer=mock_replay_buffer,
             action_processor=mock_action_processor,
             prediction_horizon=5,

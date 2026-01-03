@@ -5,6 +5,7 @@ import enum
 
 class ExplanationType(str, enum.Enum):
     """Enum for model explanation/interpretability types."""
+
     GRADCAM = "gradcam"
     GRADCAM_PLUS_PLUS = "gradcam++"
     ABLATION_CAM = "ablation_cam"

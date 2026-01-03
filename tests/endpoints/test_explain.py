@@ -9,7 +9,7 @@ from refactoring.configs.main import MainConfig
 from refactoring.configs.data.task import TaskSpaceConfig
 from refactoring.data.task import ActionSpace, ObservationSpace
 from refactoring.configs.data.dataloader import DataLoaderConfig
-from refactoring.configs.data.dataset.schema import DatasetSchemaConfig
+from refactoring.configs.data.raw.schema import DatasetSchemaConfig
 from refactoring.configs.training import TrainingConfig
 from refactoring.configs.policy import PolicyConfig
 from refactoring.configs.inference import InferenceConfig

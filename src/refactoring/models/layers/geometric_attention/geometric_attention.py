@@ -17,18 +17,16 @@ class GeometricSelfAttention(nn.Module):
     3. Learned positional encoding (through depth-wise spatial convolution) on values
     """
 
-
     def __init__(
-            self,
-            embedding_dimension: int,
-            num_heads: int,
-            value_dimension_factor: int = 1,
-            decomposition_mode: str = AttentionDecompositionMode.FULL.value,
-            initial_decay: float = 5.0,
-            decay_range: float = 3.0,
-            depthwise_convolution_kernel_size: int = 5,
-            depthwise_convolution_padding: int = 2
-
+        self,
+        embedding_dimension: int,
+        num_heads: int,
+        value_dimension_factor: int = 1,
+        decomposition_mode: str = AttentionDecompositionMode.FULL.value,
+        initial_decay: float = 5.0,
+        decay_range: float = 3.0,
+        depthwise_convolution_kernel_size: int = 5,
+        depthwise_convolution_padding: int = 2,
     ):
         """Initializes geometric self-attention.
 
@@ -49,39 +47,40 @@ class GeometricSelfAttention(nn.Module):
         self.decomposition_mode = decomposition_mode
 
         self.head_dimension_key = embedding_dimension // num_heads
-        self.head_dimension_value = (embedding_dimension * value_dimension_factor) // num_heads
+        self.head_dimension_value = (
+            embedding_dimension * value_dimension_factor
+        ) // num_heads
         self.attention_scaling = self.head_dimension_key ** -0.5
 
-        self.query_projection = nn.Linear(embedding_dimension, embedding_dimension, bias=True)
-        self.key_projection = nn.Linear(embedding_dimension, embedding_dimension, bias=True)
+        self.query_projection = nn.Linear(
+            embedding_dimension, embedding_dimension, bias=True
+        )
+        self.key_projection = nn.Linear(
+            embedding_dimension, embedding_dimension, bias=True
+        )
         self.value_projection = nn.Linear(
-            embedding_dimension,
-            embedding_dimension * value_dimension_factor,
-            bias=True
+            embedding_dimension, embedding_dimension * value_dimension_factor, bias=True
         )
 
         self.learned_positional_encodings = DepthwiseConv2D(
             dimension=embedding_dimension * value_dimension_factor,
             kernel_size=depthwise_convolution_kernel_size,
             stride=1,
-            padding=depthwise_convolution_padding
+            padding=depthwise_convolution_padding,
         )
 
         self.output_projection = nn.Linear(
-            embedding_dimension * value_dimension_factor,
-            embedding_dimension,
-            bias=True
+            embedding_dimension * value_dimension_factor, embedding_dimension, bias=True
         )
 
         self.geometric_bias = GeometricAttentionBias(
             embedding_dimension=embedding_dimension,
             num_heads=num_heads,
             initial_decay=initial_decay,
-            decay_range=decay_range
+            decay_range=decay_range,
         )
 
         self._initialize_parameters()
-
 
     def _initialize_parameters(self):
         """Initializes projection weights with careful scaling."""
@@ -91,15 +90,14 @@ class GeometricSelfAttention(nn.Module):
         nn.init.xavier_normal_(self.output_projection.weight)
         nn.init.constant_(self.output_projection.bias, 0.0)
 
-
     def _compute_attention_full(
-            self,
-            query: torch.Tensor,
-            key: torch.Tensor,
-            value: torch.Tensor,
-            sine: torch.Tensor,
-            cosine: torch.Tensor,
-            attention_bias: torch.Tensor
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        sine: torch.Tensor,
+        cosine: torch.Tensor,
+        attention_bias: torch.Tensor,
     ) -> torch.Tensor:
         """Computes full 2D attention over all spatial positions.
 
@@ -116,8 +114,12 @@ class GeometricSelfAttention(nn.Module):
         """
         batch_size, _, height, width, _ = query.shape
 
-        query_rotated = self.geometric_bias.rotary_encoding.apply_rotation(query, sine, cosine)
-        key_rotated = self.geometric_bias.rotary_encoding.apply_rotation(key, sine, cosine)
+        query_rotated = self.geometric_bias.rotary_encoding.apply_rotation(
+            query, sine, cosine
+        )
+        key_rotated = self.geometric_bias.rotary_encoding.apply_rotation(
+            key, sine, cosine
+        )
 
         query_flat = query_rotated.flatten(2, 3)
         key_flat = key_rotated.flatten(2, 3)
@@ -134,16 +136,15 @@ class GeometricSelfAttention(nn.Module):
 
         return attended_values
 
-
     def _compute_attention_separable(
-            self,
-            query: torch.Tensor,
-            key: torch.Tensor,
-            value: torch.Tensor,
-            sine: torch.Tensor,
-            cosine: torch.Tensor,
-            height_bias: torch.Tensor,
-            width_bias: torch.Tensor
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        sine: torch.Tensor,
+        cosine: torch.Tensor,
+        height_bias: torch.Tensor,
+        width_bias: torch.Tensor,
     ) -> torch.Tensor:
         """Computes separable attention (horizontal then vertical).
 
@@ -161,12 +162,18 @@ class GeometricSelfAttention(nn.Module):
         """
         batch_size, _, height, width, _ = query.shape
 
-        query_rotated = self.geometric_bias.rotary_encoding.apply_rotation(query, sine, cosine)
-        key_rotated = self.geometric_bias.rotary_encoding.apply_rotation(key, sine, cosine)
+        query_rotated = self.geometric_bias.rotary_encoding.apply_rotation(
+            query, sine, cosine
+        )
+        key_rotated = self.geometric_bias.rotary_encoding.apply_rotation(
+            key, sine, cosine
+        )
 
         query_width = query_rotated.transpose(1, 2)
         key_width = key_rotated.transpose(1, 2)
-        value_height_first = value.reshape(batch_size, height, self.num_heads, width, -1).permute(0, 1, 2, 3, 4)
+        value_height_first = value.reshape(
+            batch_size, height, self.num_heads, width, -1
+        ).permute(0, 1, 2, 3, 4)
 
         attention_scores_width = torch.matmul(query_width, key_width.transpose(-1, -2))
         attention_scores_width = attention_scores_width + width_bias.transpose(1, 2)
@@ -177,7 +184,9 @@ class GeometricSelfAttention(nn.Module):
         key_height = key_rotated.permute(0, 3, 1, 2, 4)
         value_for_height = value_after_width.permute(0, 3, 2, 1, 4)
 
-        attention_scores_height = torch.matmul(query_height, key_height.transpose(-1, -2))
+        attention_scores_height = torch.matmul(
+            query_height, key_height.transpose(-1, -2)
+        )
         attention_scores_height = attention_scores_height + height_bias.transpose(1, 2)
         attention_weights_height = torch.softmax(attention_scores_height, dim=-1)
         attended_values = torch.matmul(attention_weights_height, value_for_height)
@@ -186,11 +195,8 @@ class GeometricSelfAttention(nn.Module):
 
         return attended_values
 
-
     def forward(
-            self,
-            input_tensor: torch.Tensor,
-            depth_map: torch.Tensor
+        self, input_tensor: torch.Tensor, depth_map: torch.Tensor
     ) -> torch.Tensor:
         """Applies geometric self-attention.
 
@@ -208,13 +214,19 @@ class GeometricSelfAttention(nn.Module):
         value = self.value_projection(input_tensor)
         key = key * self.attention_scaling
 
-        query = query.view(batch_size, height, width, self.num_heads, self.head_dimension_key)
+        query = query.view(
+            batch_size, height, width, self.num_heads, self.head_dimension_key
+        )
         query = query.permute(0, 3, 1, 2, 4)
 
-        key = key.view(batch_size, height, width, self.num_heads, self.head_dimension_key)
+        key = key.view(
+            batch_size, height, width, self.num_heads, self.head_dimension_key
+        )
         key = key.permute(0, 3, 1, 2, 4)
 
-        value = value.view(batch_size, height, width, self.num_heads, self.head_dimension_value)
+        value = value.view(
+            batch_size, height, width, self.num_heads, self.head_dimension_value
+        )
         value = value.permute(0, 3, 1, 2, 4)
 
         (sine, cosine), bias_masks = self.geometric_bias(
@@ -222,7 +234,7 @@ class GeometricSelfAttention(nn.Module):
             width=width,
             depth_map=depth_map,
             device=input_tensor.device,
-            decomposition_mode=self.decomposition_mode
+            decomposition_mode=self.decomposition_mode,
         )
 
         if self.decomposition_mode == AttentionDecompositionMode.SEPARABLE.value:
@@ -241,5 +253,3 @@ class GeometricSelfAttention(nn.Module):
         output = self.output_projection(output)
 
         return output  # type: ignore[no-any-return]
-
-

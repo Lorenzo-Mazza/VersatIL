@@ -4,6 +4,7 @@ from pathlib import Path
 
 CACHE_DIR = Path("/mnt/cluster/workspaces/mazzalore/pretrained_models")
 
+
 def setup_cache_directories():
     """Configure cache directories for model downloads before any test run."""
     os.environ["HF_HOME"] = str(CACHE_DIR / "huggingface")
@@ -15,4 +16,6 @@ def setup_cache_directories():
         CACHE_DIR / "torch" / "hub",
     ]:
         cache_path.mkdir(parents=True, exist_ok=True)
+
+
 setup_cache_directories()

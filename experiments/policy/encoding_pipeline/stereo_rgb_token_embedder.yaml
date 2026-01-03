@@ -31,6 +31,4 @@ encoders:
     max_token_len: 128
     embedding_dim: 512
 
-# No fusion stage needed - FASTGPTDecoder handles combining flat RGB features
-# with sequential language token embeddings internally via _prepare_feature_tokens
 fusion_stages: []

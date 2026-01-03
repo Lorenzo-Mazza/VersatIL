@@ -1,5 +1,6 @@
 defaults:
   - phase_act
+  - heads@action_heads: bowel_retraction_phase
 
 _target_: refactoring.models.decoding.decoders.factory.phase_act.PhaseACT
 
@@ -20,63 +21,6 @@ dropout_rate: 0.1
 normalize_before: false
 
 phase_routing_key: phase_label
-
-# Action heads with MoE for phase-conditioned predictions
-action_heads:
-  phase_label:
-    _target_: refactoring.models.decoding.action_heads.ActionHead
-    input_dim: ${policy.decoder.embedding_dimension}
-    output_dim: ${task.action_space.number_of_phases}
-    blocks:
-        - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
-          input_dim: ${policy.decoder.embedding_dimension}
-          hidden_dims:
-            - 256  # embedding_dimension // 2
-          output_dim: null
-          dropout: ${policy.decoder.dropout_rate}
-          activation: ${activation_function:SILU}
-
-  position_action:
-    _target_: refactoring.models.decoding.action_heads.MoEHead
-    output_dim: ${task.action_space.position_dim}
-    device: ${experiment.device}
-    num_experts: ${task.action_space.number_of_phases}
-    base_expert:
-      _target_: refactoring.models.decoding.action_heads.ActionHead
-      input_dim: ${policy.decoder.embedding_dimension}
-      output_dim: ${task.action_space.position_dim}
-      blocks:
-        - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
-          input_dim: ${policy.decoder.embedding_dimension}
-          hidden_dims:
-            - 256  # embedding_dimension // 2
-          output_dim: null  # Outputs 256, then ActionHead projects 256 -> position_dim
-          dropout: ${policy.decoder.dropout_rate}
-          activation: ${activation_function:SILU}
-    temperature: 5.0
-    learnable_temperature: true
-    routing_type: soft
-
-  gripper_action:
-    _target_: refactoring.models.decoding.action_heads.MoEHead
-    output_dim: ${task.action_space.gripper_dim}
-    device: ${experiment.device}
-    num_experts: ${task.action_space.number_of_phases}
-    base_expert:
-      _target_: refactoring.models.decoding.action_heads.ActionHead
-      input_dim: ${policy.decoder.embedding_dimension}
-      output_dim: ${task.action_space.gripper_dim}
-      blocks:
-        - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
-          input_dim: ${policy.decoder.embedding_dimension}
-          hidden_dims:
-            - 128  # embedding_dimension // 4
-          output_dim: null  # Outputs 128, then ActionHead projects 128 -> gripper_dim
-          dropout: ${policy.decoder.dropout_rate}
-          activation: ${activation_function:SILU}
-    temperature: 5.0
-    learnable_temperature: true
-    routing_type: soft
 
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}

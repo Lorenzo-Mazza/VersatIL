@@ -8,7 +8,8 @@ position and gripper predictions through phase-specific expert networks.
 
 import torch
 
-from refactoring.data.constants import ACTION_KEY, PHASE_LABEL_KEY
+from refactoring.common.omegaconf_ops import resolve_dict_keys
+from refactoring.data.constants import ACTION_KEY, ObsKey
 from refactoring.models.decoding.action_heads.moe import MoEHead
 from refactoring.models.decoding.constants import EXPERT_OUTPUTS, ROUTING_WEIGHT
 from refactoring.models.decoding.decoders.factory.act import ACT
@@ -27,7 +28,9 @@ class PhaseACT(ACT):
         3. Each expert specializes in one surgical phase
     """
 
-    def __init__(self, *args, phase_routing_key: str = PHASE_LABEL_KEY, **kwargs):
+    def __init__(
+        self, *args, phase_routing_key: str = ObsKey.PHASE_LABEL.value, **kwargs
+    ):
         """Initialize PhaseACT decoder.
 
         Args:
@@ -41,10 +44,29 @@ class PhaseACT(ACT):
                 f"PhaseACT requires '{self.phase_routing_key}' head for routing, "
                 f"but only found: {list(self.action_heads.keys())}"
             )
-        if any(isinstance(self.action_heads[key], MoEHead) for key in self.action_heads if key != self.phase_routing_key) is False:
-            raise ValueError("PhaseACT requires at least one MoE action head for phase-based routing.")
+        if not any(
+            isinstance(self.action_heads[key], MoEHead)
+            for key in self.action_heads
+            if key != self.phase_routing_key
+        ):
+            raise ValueError(
+                "PhaseACT requires at least one MoE action head for phase-based routing."
+            )
 
-    def _apply_action_heads(self, action_embeddings: torch.Tensor) -> dict[str, torch.Tensor]:
+        self._initialize_moe_experts()
+
+    def _initialize_moe_experts(self) -> None:
+        """Set num_experts on lazy MoE heads from phase metadata."""
+        resolved_metadata = resolve_dict_keys(dict(self.action_space.actions_metadata))
+        phase_metadata = resolved_metadata[self.phase_routing_key]
+        num_phases = phase_metadata.prediction_dimension
+        for key, head in self.action_heads.items():
+            if isinstance(head, MoEHead) and not head.is_initialized:
+                head.set_num_experts(num_phases)
+
+    def _apply_action_heads(
+        self, action_embeddings: torch.Tensor
+    ) -> dict[str, torch.Tensor]:
         """Apply action heads with phase-based routing.
 
         Flow:
@@ -67,7 +89,9 @@ class PhaseACT(ACT):
 
         # Get phase predictions (these become routing weights)
         phase_head = self.action_heads[self.phase_routing_key]
-        phase_logits = phase_head(action_embeddings)  # (B, prediction horizon, num_phases)
+        phase_logits = phase_head(
+            action_embeddings
+        )  # (B, prediction horizon, num_phases)
         predictions[self.phase_routing_key] = phase_logits
         for action_key, head in self.action_heads.items():
             if action_key == self.phase_routing_key:
@@ -76,11 +100,13 @@ class PhaseACT(ACT):
             if isinstance(head, MoEHead):
                 output = head(
                     action_embeddings,
-                    gating_feature=phase_logits  # Phase-based routing
+                    gating_feature=phase_logits,  # Phase-based routing
                 )
                 predictions[action_key] = output[ACTION_KEY]
-                predictions[ROUTING_WEIGHT] = output[ROUTING_WEIGHT] # This will be overwritten but is the same for all MoE heads
-                predictions[f'{action_key}_{EXPERT_OUTPUTS}'] = output[EXPERT_OUTPUTS]
+                predictions[ROUTING_WEIGHT] = output[
+                    ROUTING_WEIGHT
+                ]  # This will be overwritten but is the same for all MoE heads
+                predictions[f"{action_key}_{EXPERT_OUTPUTS}"] = output[EXPERT_OUTPUTS]
             else:
                 predictions[action_key] = head(action_embeddings)
         return predictions

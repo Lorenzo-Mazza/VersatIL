@@ -1,0 +1,10 @@
+defaults:
+  - base
+
+tokenize_observations: false
+tokenize_actions: true
+action_tokenizer:
+  tokenizer_chain:
+    - ${tokenizer_type:FAST}
+  use_pretrained_fast: false
+  max_token_len: 64

@@ -5,12 +5,19 @@ import logging
 import os
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
 import torch
+import wandb
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import OmegaConf, DictConfig
-from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint, StochasticWeightAveraging
+from pytorch_lightning.callbacks import (
+    EarlyStopping,
+    LearningRateMonitor,
+    ModelCheckpoint,
+    StochasticWeightAveraging,
+)
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.tuner import Tuner
@@ -24,16 +31,19 @@ from refactoring.data.normalization.normalizer import LinearNormalizer
 from refactoring.data.tokenization import Tokenizer
 from refactoring.metrics import MoELoss
 from refactoring.models.decoding.algorithm import VariationalAlgorithm
-from refactoring.models.decoding.decoders.factory.free_transformer import FreeTransformerDecoder
+from refactoring.models.decoding.decoders.factory.free_transformer import (
+    FreeTransformerDecoder,
+)
 from refactoring.models.policy import Policy
 from refactoring.training.callbacks import (
     ConfusionMatrixCallback,
     EMACallback,
     GradientNormCallback,
-    ReduceLROnPlateauCallback, ExpertUsageCallback, LatentVisualizationCallback,
+    ReduceLROnPlateauCallback,
+    ExpertUsageCallback,
+    LatentVisualizationCallback,
 )
 from refactoring.training.lightning_policy import LightningPolicy
-
 
 
 class Workspace:
@@ -57,14 +67,19 @@ class Workspace:
         """
         self.config: MainConfig = config
         self.original_yaml_config = original_yaml_config
-        self._ensure_configs_are_dataclasses()
         hydra_cfg = HydraConfig.get()
-        main_config_name = hydra_cfg.job.config_name if hydra_cfg.job.config_name else "experiment"
+        main_config_name = (
+            hydra_cfg.job.config_name if hydra_cfg.job.config_name else "experiment"
+        )
         additional_exp_name = config.experiment.name
         self.exp_name = f"{main_config_name}/{additional_exp_name}"
         self.config.experiment.name = self.exp_name
         self.original_yaml_config.experiment.name = self.exp_name
-        self.output_dir = Path(config.experiment.checkpoint_folder) / main_config_name / additional_exp_name
+        self.output_dir = (
+            Path(config.experiment.checkpoint_folder)
+            / main_config_name
+            / additional_exp_name
+        )
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._set_seed()
         self.policy: Policy | None = None
@@ -80,26 +95,6 @@ class Workspace:
         logging.info(f"Output directory: {self.output_dir}")
         self.save_config()
 
-    def _ensure_configs_are_dataclasses(self):
-        """Convert OmegaConf DictConfigs to dataclass instances where needed.
-
-        This ensures that configs with methods are actual dataclass instances, not OmegaConf DictConfigs, so their
-        methods can be called.
-
-        This is necessary because:
-        - ActionSpace has get_total_action_dim() and get_required_zarr_keys() methods
-        - ObservationSpace has get_required_zarr_keys() method
-        """
-        if OmegaConf.is_config(self.config.task):
-            config_dict = OmegaConf.to_container(self.config.task, resolve=True)
-            self.config.task = TaskSpaceConfig(**config_dict)
-        if OmegaConf.is_config(self.config.task.action_space):
-            config_dict = OmegaConf.to_container(self.config.task.action_space, resolve=True)
-            self.config.task.action_space = ActionSpace(**config_dict)
-        if OmegaConf.is_config(self.config.task.observation_space):
-            config_dict = OmegaConf.to_container(self.config.task.observation_space, resolve=True)
-            self.config.task.observation_space = ObservationSpace(**config_dict)
-
     def save_config(self):
         """Save configuration to YAML file in output directory.
 
@@ -109,11 +104,12 @@ class Workspace:
         """
         config_path = self.output_dir / "config.yaml"
         # Resolve all interpolations before saving
-        resolved_config = OmegaConf.to_container(self.original_yaml_config, resolve=True)
+        resolved_config = OmegaConf.to_container(
+            self.original_yaml_config, resolve=True
+        )
         resolved_config_dict = OmegaConf.create(resolved_config)
         OmegaConf.save(resolved_config_dict, config_path)
         logging.info(f"Config saved to {config_path}")
-
 
     def run(self):
         """Run the complete training workflow."""
@@ -123,15 +119,12 @@ class Workspace:
         self.lightning_policy._train_dataloader = self.train_loader
         self.lightning_policy._val_dataloader = self.val_loader
         self._setup_trainer()
-
-        # Run hyperparameter tuning if requested
         self._tune_hyperparameters()
 
         logging.info("Starting training...")
         assert self.trainer is not None, "Trainer should be initialized"
         self.trainer.fit(model=self.lightning_policy)
         logging.info(f"Training completed. Best checkpoint saved to {self.output_dir}")
-
 
     def _set_seed(self):
         """Set random seeds for reproducibility."""
@@ -151,7 +144,6 @@ class Workspace:
             gripper_class_weights,
         ) = get_dataloaders(self.config)
 
-        # Store gripper class weights if needed
         if gripper_class_weights is not None:
             self.gripper_class_weights = torch.tensor(
                 [gripper_class_weights],
@@ -169,6 +161,18 @@ class Workspace:
 
         logging.info(f"Train dataset size: {len(self.train_loader.dataset)} samples")
         logging.info(f"Val dataset size: {len(self.val_loader.dataset)} samples")
+        action_processor = self.train_loader.dataset.action_processor
+        fig = action_processor.plot_action_magnitude_distribution()
+        if fig is not None:
+            plot_path = self.output_dir / "action_deltas_distribution.png"
+            fig.savefig(plot_path, dpi=150, bbox_inches="tight", facecolor="white")
+            logging.info(f"Saved action delta distribution plot to {plot_path}")
+            if self.logger is not None:
+                self.logger.experiment.log(
+                    {"action_delta_distribution": wandb.Image(fig)}
+                )
+            plt.close(fig)
+        self.denoising_thresholds = action_processor.denoising_thresholds
 
     def _setup_policy(self):
         """Instantiate policy and wrap with Lightning."""
@@ -176,10 +180,14 @@ class Workspace:
         self.policy: Policy = self.config.policy
         self.policy.set_normalizer(self.normalizer)
         self.policy.set_tokenizer(self.tokenizer)
+        self.policy.set_denoising_thresholds(self.denoising_thresholds)
+        self.policy.set_gripper_class_weights(self.gripper_class_weights)
         # Calculate total training steps for LR scheduling
         # Steps per epoch = len(train_loader) // gradient_accumulate_every
         # Total steps = steps_per_epoch * num_epochs
-        steps_per_epoch = len(self.train_loader) // self.config.training.gradient_accumulate_every
+        steps_per_epoch = (
+            len(self.train_loader) // self.config.training.gradient_accumulate_every
+        )
         total_training_steps = steps_per_epoch * self.config.training.num_epochs
         self.lightning_policy = LightningPolicy(
             policy=self.policy,
@@ -199,7 +207,9 @@ class Workspace:
             gradient_clip_val = self.config.training.clip_max_norm
 
         if self.config.experiment.float32_matmul_precision is not None:
-            torch.set_float32_matmul_precision(self.config.experiment.float32_matmul_precision)
+            torch.set_float32_matmul_precision(
+                self.config.experiment.float32_matmul_precision
+            )
             logging.info(
                 f"Set float32 matmul precision to '{self.config.experiment.float32_matmul_precision}'"
             )
@@ -260,7 +270,9 @@ class Workspace:
             auto_insert_metric_name=False,
         )
         callbacks.append(checkpoint_callback_latest)
-        logging.info(f"Added latest checkpoint callback (every {self.config.experiment.checkpoint_every} epochs)")
+        logging.info(
+            f"Added latest checkpoint callback (every {self.config.experiment.checkpoint_every} epochs)"
+        )
 
         early_stopping_callback = EarlyStopping(
             monitor="val_loss",
@@ -275,13 +287,15 @@ class Workspace:
         callbacks.append(gradient_norm_callback)
         logging.info("Added GradientNorm callback (log every 50 steps)")
 
-        lr_monitor_callback = LearningRateMonitor(logging_interval='step')
+        lr_monitor_callback = LearningRateMonitor(logging_interval="step")
         callbacks.append(lr_monitor_callback)
         logging.info("Added LearningRateMonitor callback (logging per step)")
 
         if self.config.training.swa_lrs is not None:
             # Calculate start epoch based on fraction of total epochs
-            swa_epoch_start = int(self.config.training.swa_epoch_start * self.config.training.num_epochs)
+            swa_epoch_start = int(
+                self.config.training.swa_epoch_start * self.config.training.num_epochs
+            )
             swa_callback = StochasticWeightAveraging(
                 swa_lrs=self.config.training.swa_lrs,
                 swa_epoch_start=swa_epoch_start,
@@ -300,7 +314,9 @@ class Workspace:
             callbacks.append(cm_callback)
             logging.info("Added ConfusionMatrix callback for phase classification")
 
-        if isinstance(self.policy.algorithm, VariationalAlgorithm) or isinstance(self.policy.decoder, FreeTransformerDecoder):
+        if isinstance(self.policy.algorithm, VariationalAlgorithm) or isinstance(
+            self.policy.decoder, FreeTransformerDecoder
+        ):
             latent_vis_callback = LatentVisualizationCallback(
                 log_every_n_epochs=self.config.experiment.val_every,
             )
@@ -313,9 +329,14 @@ class Workspace:
                 cooldown=self.config.training.reduce_lr_cooldown,
             )
             callbacks.append(reduce_lr_callback)
-            logging.info(f"Added ReduceLROnPlateau callback (patience={self.config.training.reduce_lr_patience})")
+            logging.info(
+                f"Added ReduceLROnPlateau callback (patience={self.config.training.reduce_lr_patience})"
+            )
 
-        if any(isinstance(module, MoELoss) for module in self.policy.loss_module.loss_modules.values()):
+        if any(
+            isinstance(module, MoELoss)
+            for module in self.policy.loss_module.loss_modules.values()
+        ):
             expert_usage_callback = ExpertUsageCallback(log_every_n_epochs=1)
             callbacks.append(expert_usage_callback)
             logging.info("Added ExpertUsage callback for MoE loss")
@@ -344,7 +365,9 @@ class Workspace:
             save_dir=self.output_dir,
             log_model=False,  # We handle checkpointing ourselves
         )
-        wandb_logger.log_hyperparams(OmegaConf.to_container(self.original_yaml_config, resolve=True))
+        wandb_logger.log_hyperparams(
+            OmegaConf.to_container(self.original_yaml_config, resolve=True)
+        )
         logging.info(f"WandB logger created for experiment: {self.exp_name}")
         return wandb_logger
 
@@ -374,11 +397,12 @@ class Workspace:
 
         return strategy
 
-
     def _initialize_lazy_modules(self):
         """Initialize lazy modules by doing a dummy forward pass."""
         if self.train_loader is None or len(self.train_loader) == 0:
-            raise RuntimeError("Train loader is not initialized or empty, cannot initialize lazy modules")
+            raise RuntimeError(
+                "Train loader is not initialized or empty, cannot initialize lazy modules"
+            )
 
         data_iter = iter(self.train_loader)
         batch = next(data_iter)
@@ -403,10 +427,16 @@ class Workspace:
         assert self.trainer is not None, "Trainer must be initialized"
         assert self.lightning_policy is not None, "Lightning policy must be initialized"
         if self.config.experiment.distributed:
-            logging.warning("Hyperparameter tuning not supported with distributed training. Skipping...")
+            logging.warning(
+                "Hyperparameter tuning not supported with distributed training. Skipping..."
+            )
             return
         original_callbacks = self.trainer.callbacks.copy()
-        self.trainer.callbacks = [cb for cb in self.trainer.callbacks if not isinstance(cb, StochasticWeightAveraging)]
+        self.trainer.callbacks = [
+            cb
+            for cb in self.trainer.callbacks
+            if not isinstance(cb, StochasticWeightAveraging)
+        ]
         tuner = Tuner(self.trainer)
 
         if self.config.training.tune_lr:
@@ -437,8 +467,12 @@ class Workspace:
             checkpoint_path: Path to checkpoint file
         """
         logging.info(f"Loading checkpoint from: {checkpoint_path}")
-        checkpoint = torch.load(checkpoint_path, map_location=self.config.experiment.device)
-        assert self.policy is not None, "Policy must be initialized before loading checkpoint"
+        checkpoint = torch.load(
+            checkpoint_path, map_location=self.config.experiment.device
+        )
+        assert (
+            self.policy is not None
+        ), "Policy must be initialized before loading checkpoint"
         assert self.lightning_policy is not None, "LightningPolicy must be initialized"
         if "state_dict" in checkpoint:
             # Lightning checkpoint format
@@ -457,7 +491,6 @@ class Workspace:
         else:
             self.tokenizer = None
 
-
     def predict(self, obs_dict):
         """Predict actions from observations.
 
@@ -471,8 +504,11 @@ class Workspace:
             raise RuntimeError("Policy not initialized. Call run() first.")
         assert self.policy is not None, "Policy must be initialized"
         policy = self.policy
-        # Use EMA model if available
-        if self.config.training.use_ema and self.trainer is not None and hasattr(self.trainer, "callbacks"):
+        if (
+            self.config.training.use_ema
+            and self.trainer is not None
+            and hasattr(self.trainer, "callbacks")
+        ):
             for callback in self.trainer.callbacks:
                 if isinstance(callback, EMACallback) and callback.ema_model is not None:
                     policy = callback.ema_model

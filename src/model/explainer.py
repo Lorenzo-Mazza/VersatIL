@@ -20,11 +20,13 @@ def compute_gradcam_custom(
     output_selector: Callable[[torch.Tensor], torch.Tensor],
     target_camera: Optional[str] = None,
     eigen_smooth: bool = False,
-    **forward_kwargs
+    **forward_kwargs,
 ) -> Dict[str, torch.Tensor]:
     model.eval()
     cameras = [target_camera] if target_camera else camera_names
-    has_seq = any(len(observation.get(cam, torch.empty(0)).shape) == 5 for cam in cameras)
+    has_seq = any(
+        len(observation.get(cam, torch.empty(0)).shape) == 5 for cam in cameras
+    )
     example_cam = cameras[0]
     B = observation[example_cam].shape[0]
     if has_seq:
@@ -41,19 +43,24 @@ def compute_gradcam_custom(
         target_layer = target_layers_getter(camera)[0]  # Assume single target layer
         activations = []
 
-
         def forward_hook(module, inp, out):
             activations.append(out.detach())
+
         gradients = []
+
         def backward_hook(module, grad_inp, grad_out):
             gradients.append(grad_out[0].detach())
+
         handle_fwd = target_layer.register_forward_hook(forward_hook)
         handle_bwd = target_layer.register_full_backward_hook(backward_hook)
         predicted_actions, *_ = model(observation=observation, **forward_kwargs)
         model.zero_grad()
         target_output = output_selector(predicted_actions).mean()
         target_output.backward()
-        if explanation_type in [ExplanationType.GRADCAM.value, ExplanationType.GRADCAM_PLUS_PLUS.value]:
+        if explanation_type in [
+            ExplanationType.GRADCAM.value,
+            ExplanationType.GRADCAM_PLUS_PLUS.value,
+        ]:
             activation = activations[0]  # (B*T, C_f, H_f, W_f)
             gradient = gradients[0]
 
@@ -75,7 +82,9 @@ def compute_gradcam_custom(
                 alpha = grad2 / (2 * grad2 + sum_act * grad3 + eps)
                 aij = alpha * F.relu(gradient)
                 weights = aij.sum(dim=(3, 4))  # (B, T, C_f)
-            cam = F.relu((weights.unsqueeze(3).unsqueeze(4) * activation).sum(dim=2))  # (B, T, H_f, W_f)
+            cam = F.relu(
+                (weights.unsqueeze(3).unsqueeze(4) * activation).sum(dim=2)
+            )  # (B, T, H_f, W_f)
 
         elif explanation_type == ExplanationType.ABLATION_CAM.value:
             activation = activations[0]  # (B*T or B, C_f, H_f, W_f)
@@ -93,7 +102,10 @@ def compute_gradcam_custom(
 
             for i in range(0, C_f, batch_size_ablate):
                 num_channels = min(batch_size_ablate, C_f - i)
-                obs_repeated_chunk = {k: v.clone().repeat(num_channels, *([1] * (len(v.shape) - 1))) for k, v in observation.items() }
+                obs_repeated_chunk = {
+                    k: v.clone().repeat(num_channels, *([1] * (len(v.shape) - 1)))
+                    for k, v in observation.items()
+                }
 
                 def ablation_hook_chunk(module, inp, out):
                     for j in range(num_channels):
@@ -103,21 +115,34 @@ def compute_gradcam_custom(
                     return out
 
                 handle_ablate = target_layer.register_forward_hook(ablation_hook_chunk)
-                predicted_actions_chunk, *_ = model(observation=obs_repeated_chunk, **forward_kwargs)
+                predicted_actions_chunk, *_ = model(
+                    observation=obs_repeated_chunk, **forward_kwargs
+                )
                 handle_ablate.remove()
 
-                target_outputs_chunk = output_selector(predicted_actions_chunk)  
-                drops_chunk = target_output.detach().repeat(num_channels) - target_outputs_chunk.detach()
-                drops[i:i + num_channels] = drops_chunk
+                target_outputs_chunk = output_selector(predicted_actions_chunk)
+                drops_chunk = (
+                    target_output.detach().repeat(num_channels)
+                    - target_outputs_chunk.detach()
+                )
+                drops[i : i + num_channels] = drops_chunk
 
             weights = F.relu(drops).view(B, C_f)
-            cam = F.relu((weights.unsqueeze(1).unsqueeze(3).unsqueeze(4) * activation).sum(dim=2))  # (B, T, H_f, W_f)
+            cam = F.relu(
+                (weights.unsqueeze(1).unsqueeze(3).unsqueeze(4) * activation).sum(dim=2)
+            )  # (B, T, H_f, W_f)
 
         handle_fwd.remove()
 
-        input_size = observation[camera].shape[-2:] if not has_seq else observation[camera].shape[3:5]
+        input_size = (
+            observation[camera].shape[-2:]
+            if not has_seq
+            else observation[camera].shape[3:5]
+        )
         cam = cam.view(B * T, 1, H_f, W_f)
-        cam = F.interpolate(cam, size=input_size, mode='bicubic', align_corners=False).view(B, T, *input_size)
+        cam = F.interpolate(
+            cam, size=input_size, mode="bicubic", align_corners=False
+        ).view(B, T, *input_size)
 
         cam_min = cam.min(dim=3, keepdim=True)[0].min(dim=2, keepdim=True)[0]
         cam_max = cam.max(dim=3, keepdim=True)[0].max(dim=2, keepdim=True)[0]
@@ -134,7 +159,7 @@ def compute_saliency_maps(
     output_selector: Callable[[torch.Tensor], torch.Tensor],
     target_camera: Optional[str] = None,
     smooth: bool = False,
-    **forward_kwargs
+    **forward_kwargs,
 ) -> Dict[str, torch.Tensor]:
     """
     Compute vanilla saliency maps (input gradients) for input images using the full observation.
@@ -170,15 +195,22 @@ def compute_saliency_maps(
         saliency = grad.max(dim=1)[0].squeeze(0)
 
         if smooth:
-            saliency = tvf.gaussian_blur(saliency.unsqueeze(0).unsqueeze(0), kernel_size=(5, 5), sigma=(1.5, 1.5)).squeeze()
+            saliency = tvf.gaussian_blur(
+                saliency.unsqueeze(0).unsqueeze(0), kernel_size=(5, 5), sigma=(1.5, 1.5)
+            ).squeeze()
 
-        saliency = (saliency - saliency.min()) / (saliency.max() - saliency.min() + 1e-8)
-        saliency_maps[camera] = saliency if saliency.dim() == 3 else saliency.unsqueeze(0)
+        saliency = (saliency - saliency.min()) / (
+            saliency.max() - saliency.min() + 1e-8
+        )
+        saliency_maps[camera] = (
+            saliency if saliency.dim() == 3 else saliency.unsqueeze(0)
+        )
 
         obs_clone[camera].requires_grad_(False)
         obs_clone[camera].grad = None
 
     return saliency_maps
+
 
 def compute_integrated_grad_maps(
     model: nn.Module,
@@ -189,7 +221,7 @@ def compute_integrated_grad_maps(
     num_steps: int = 50,
     baseline: Optional[torch.Tensor] = None,
     smooth: bool = False,
-    **forward_kwargs
+    **forward_kwargs,
 ) -> Dict[str, torch.Tensor]:
     """
     Compute Integrated Gradients attributions for input images.
@@ -244,19 +276,23 @@ def compute_integrated_grad_maps(
         heatmap = attributions.abs().sum(dim=1).squeeze(0)
 
         if smooth:
-            heatmap = tvf.gaussian_blur(heatmap.unsqueeze(0).unsqueeze(0), kernel_size=(5, 5), sigma=(1.5, 1.5)).squeeze()
+            heatmap = tvf.gaussian_blur(
+                heatmap.unsqueeze(0).unsqueeze(0), kernel_size=(5, 5), sigma=(1.5, 1.5)
+            ).squeeze()
 
         heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
-        heatmaps[camera] = heatmap if heatmap.dim()==3 else heatmap.unsqueeze(0)
+        heatmaps[camera] = heatmap if heatmap.dim() == 3 else heatmap.unsqueeze(0)
 
     return heatmaps
 
 
-def show_cam_on_image(img: np.ndarray,
-                      mask: np.ndarray,
-                      use_rgb: bool = False,
-                      colormap: int = cv2.COLORMAP_JET,
-                      image_weight: float = 0.5) -> np.ndarray:
+def show_cam_on_image(
+    img: np.ndarray,
+    mask: np.ndarray,
+    use_rgb: bool = False,
+    colormap: int = cv2.COLORMAP_JET,
+    image_weight: float = 0.5,
+) -> np.ndarray:
     """Taken from grad-cam library.
 
     This function overlays the cam mask on the image as an heatmap.
@@ -275,13 +311,13 @@ def show_cam_on_image(img: np.ndarray,
     heatmap = np.float32(heatmap) / 255
 
     if np.max(img) > 1:
-        raise Exception(
-            "The input image should np.float32 in the range [0, 1]")
+        raise Exception("The input image should np.float32 in the range [0, 1]")
 
     if image_weight < 0 or image_weight > 1:
         raise Exception(
             f"image_weight should be in the range [0, 1].\
-                Got: {image_weight}")
+                Got: {image_weight}"
+        )
 
     cam = (1 - image_weight) * heatmap + image_weight * img
     cam = cam / np.max(cam)

@@ -28,18 +28,17 @@ class EncodingPipeline(nn.Module):
         semantically meaningful final features.
     """
 
-
     def __init__(
-            self,
-            encoders: dict[str, EncodingMixin],
-            fusion_stages: list[FusionModule] | None = None,
+        self,
+        encoders: dict[str, EncodingMixin],
+        fusion_stages: list[FusionModule] | None = None,
     ):
         """Initializes the encoding pipeline.
 
-                Args:
-                    encoders: Dictionary of instantiated encoders keyed by name.
-                    fusion_stages: List of instantiated fusion modules.
-                """
+        Args:
+            encoders: Dictionary of instantiated encoders keyed by name.
+            fusion_stages: List of instantiated fusion modules.
+        """
         super().__init__()
         self.encoders = nn.ModuleDict()
         self.conditional_encoders = nn.ModuleDict()
@@ -68,7 +67,6 @@ class EncodingPipeline(nn.Module):
                 result.add(f"{encoder_name}_{feature}")
         return result
 
-
     def _setup_encoders(self, encoders: dict[str, EncodingMixin]):
         """Setup encoders (already instantiated by Hydra)."""
         for encoder_name, encoder in encoders.items():
@@ -82,7 +80,6 @@ class EncodingPipeline(nn.Module):
             else:
                 self.encoders[encoder_name] = encoder
 
-
     def _setup_fusion_modules(self, fusion_stages: list[FusionModule] | None):
         """Setup fusion modules (already instantiated by Hydra).
 
@@ -93,7 +90,9 @@ class EncodingPipeline(nn.Module):
         self.fusion_stages = nn.ModuleList()
         if fusion_stages:
             for fusion in fusion_stages:
-                fusion.input_features = [self._resolve_feature_name(f) for f in fusion.input_features]
+                fusion.input_features = [
+                    self._resolve_feature_name(f) for f in fusion.input_features
+                ]
                 fusion.setup(self._feature_keys_to_dims)
                 self._feature_keys_to_dims[fusion.output_name] = fusion.get_output_dim()
                 # Track consumed features
@@ -101,15 +100,16 @@ class EncodingPipeline(nn.Module):
                     self._consumed_features.add(input_feat)
                 self.fusion_stages.append(fusion)
 
-
     def _resolve_feature_name(self, input_specification: str) -> str:
         """Resolve 'encoder_name' or 'encoder_name.output_selector' to actual feature name."""
-        if '.' in input_specification:
+        if "." in input_specification:
             # Explicit output_selector: "vlm.language"
-            encoder_name, selector = input_specification.split('.', 1)
+            encoder_name, selector = input_specification.split(".", 1)
             output = self.encoder_to_outputs[encoder_name]
             if selector not in output.features:
-                raise ValueError(f"Invalid output_selector '{selector}' for '{encoder_name}. Available: {output.features}'")
+                raise ValueError(
+                    f"Invalid output_selector '{selector}' for '{encoder_name}. Available: {output.features}'"
+                )
             else:
                 return f"{encoder_name}_{selector}"
         elif input_specification in self.encoder_to_outputs:
@@ -126,20 +126,17 @@ class EncodingPipeline(nn.Module):
             # Direct feature name (from fusion outputs) or invalid name (will be caught by the validation)
             return input_specification
 
-
     def _validate_pipeline(self) -> None:
         """Validates the entire pipeline configuration."""
         self._validate_encoder_outputs()
         available_features = self._validate_conditional_encoders()
         self._validate_fusion_stages(available_features)
 
-
     def _validate_encoder_outputs(self) -> None:
         """Validates encoder output keys for duplicates."""
         all_outputs = list(self.flatten_encoder_feature_names())
         if len(all_outputs) != len(set(all_outputs)):
             raise ValueError("Duplicate output keys detected from encoders")
-
 
     def _validate_conditional_encoders(self) -> set[str]:
         """Validates conditional encoders and builds available features set.
@@ -165,7 +162,6 @@ class EncodingPipeline(nn.Module):
 
         return available_features
 
-
     def _validate_fusion_stages(self, available_features: set[str]) -> set[str]:
         """Validates fusion stages' input features.
 
@@ -186,7 +182,9 @@ class EncodingPipeline(nn.Module):
             available_features.add(fusion.output_name)
         return available_features
 
-    def _flatten_observation_dict(self, observation: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def _flatten_observation_dict(
+        self, observation: dict[str, torch.Tensor]
+    ) -> dict[str, torch.Tensor]:
         """Flatten nested observation dict (identity for flat dicts).
 
         Flattens nested dictionaries (e.g., proprioceptive state) into a single-level dict.
@@ -211,10 +209,9 @@ class EncodingPipeline(nn.Module):
                 flattened[key] = value
         return flattened
 
-
     def forward(
-            self,
-            observation: dict[str, torch.Tensor],
+        self,
+        observation: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """
         Encode observations and fuse features hierarchically.
@@ -237,7 +234,9 @@ class EncodingPipeline(nn.Module):
             input_keys = encoder.input_specification.keys
             missing_keys = [key for key in input_keys if key not in flat_obs]
             if missing_keys:
-                logging.warning(f"Encoder '{encoder_name}' skipped: missing {missing_keys}")
+                logging.warning(
+                    f"Encoder '{encoder_name}' skipped: missing {missing_keys}"
+                )
                 continue
             encoder_input = {key: flat_obs[key] for key in input_keys}
             encoded = encoder(encoder_input)
@@ -251,7 +250,9 @@ class EncodingPipeline(nn.Module):
             input_keys = encoder.input_specification.keys
             missing_keys = [key for key in input_keys if key not in flat_obs]
             if missing_keys:
-                logging.warning(f"Conditional encoder '{encoder_name}' skipped: missing {missing_keys}")
+                logging.warning(
+                    f"Conditional encoder '{encoder_name}' skipped: missing {missing_keys}"
+                )
                 continue
             condition_key = encoder.condition_key
             encoder_input = {key: flat_obs[key] for key in input_keys}
@@ -262,7 +263,9 @@ class EncodingPipeline(nn.Module):
                     features[f"{encoder_name}_{feature_name}"] = encoded[feature_name]
 
         for fusion_module in self.fusion_stages:
-            input_features = [features[feat_name] for feat_name in fusion_module.input_features]
+            input_features = [
+                features[feat_name] for feat_name in fusion_module.input_features
+            ]
             features[fusion_module.output_name] = fusion_module(input_features)
 
         # Remove consumed features - fusion inputs are no longer needed
@@ -270,7 +273,9 @@ class EncodingPipeline(nn.Module):
             features.pop(consumed_feat, None)
 
         # Squeeze time dimension if it's 1
-        features = dict_apply(features, lambda x: x.squeeze(1) if x.ndim > 1 and x.shape[1] == 1 else x)
+        features = dict_apply(
+            features, lambda x: x.squeeze(1) if x.ndim > 1 and x.shape[1] == 1 else x
+        )
         return features
 
     def get_feature_names(self) -> list[str]:
@@ -289,7 +294,11 @@ class EncodingPipeline(nn.Module):
             List of feature names that are actually available in forward() output.
             Excludes features consumed by fusion modules.
         """
-        return [feat for feat in self._feature_keys_to_dims if feat not in self._consumed_features]
+        return [
+            feat
+            for feat in self._feature_keys_to_dims
+            if feat not in self._consumed_features
+        ]
 
     def get_features_to_dimensions(self) -> dict[str, int | tuple[int, ...]]:
         """Get a dictionary of the feature names and dimensions produced by the encoding pipeline.
@@ -308,10 +317,10 @@ class EncodingPipeline(nn.Module):
             in forward() output. Excludes features consumed by fusion modules.
         """
         return {
-            feat: dim for feat, dim in self._feature_keys_to_dims.items()
+            feat: dim
+            for feat, dim in self._feature_keys_to_dims.items()
             if feat not in self._consumed_features
         }
-
 
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
         """Set tokenizer and validate vocab sizes.
@@ -335,7 +344,7 @@ class EncodingPipeline(nn.Module):
                         f"but no observation tokenizer is available."
                     )
                 data_vocab_size = tokenizer.observation_tokenizer.vocab_size
-                if hasattr(encoder, 'set_tokenizer_vocab_size'):  # Embedder encoder
+                if hasattr(encoder, "set_tokenizer_vocab_size"):  # Embedder encoder
                     encoder.set_tokenizer_vocab_size(data_vocab_size)
                 encoder_vocab_size = encoder.get_vocab_size()
                 if encoder_vocab_size != data_vocab_size:
@@ -364,7 +373,6 @@ class EncodingPipeline(nn.Module):
                         f"Observation tokenizer model: {tokenizer.observation_tokenizer.tokenizer_model}"
                     )
 
-
     def __repr__(self) -> str:
         """Pretty print the pipeline structure."""
         lines = ["EncodingPipeline(", "  Encoders:"]
@@ -373,13 +381,17 @@ class EncodingPipeline(nn.Module):
             input_keys = encoder.input_specification.keys
             output = self.encoder_to_outputs[enc_name]
             output_keys = [f"{enc_name}_{feat}" for feat in output.features]
-            lines.append(f"    {enc_name}: {input_keys} -> {output_keys} ({encoder.__class__.__name__})")
+            lines.append(
+                f"    {enc_name}: {input_keys} -> {output_keys} ({encoder.__class__.__name__})"
+            )
 
         if self.fusion_stages:
             lines.append("  Fusion stages:")
             for i, fusion in enumerate(self.fusion_stages):
                 inputs = ", ".join(fusion.input_features)
-                lines.append(f"    {i}: [{inputs}] -> {fusion.output_name} ({fusion.__class__.__name__})")
+                lines.append(
+                    f"    {i}: [{inputs}] -> {fusion.output_name} ({fusion.__class__.__name__})"
+                )
 
         lines.append(")")
         return "\n".join(lines)

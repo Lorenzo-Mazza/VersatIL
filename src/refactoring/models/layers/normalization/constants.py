@@ -3,6 +3,7 @@ import enum
 
 class NormalizationType(str, enum.Enum):
     """Types of normalization layers."""
+
     LAYER_NORM = "layernorm"
     RMS_NORM = "rmsnorm"
     ADALN = "adaptive_layernorm"
