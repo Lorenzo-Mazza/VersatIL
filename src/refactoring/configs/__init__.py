@@ -77,7 +77,7 @@ from refactoring.configs.encoding.fusion import (
 from refactoring.configs.encoding.image import (
     ImageEncoderConfig,
     CNNEncoderConfig,
-    ViTEncoderConfig,
+    ViTEncoderConfig, ConditionalCNNEncoderConfig,
 )
 from refactoring.configs.experiment import ExperimentConfig
 from refactoring.configs.inference import InferenceConfig
@@ -458,6 +458,12 @@ def register_configs():
         name="cnn",
         node=CNNEncoderConfig,
     )
+    cs.store(
+        group="policy/encoding_pipeline/encoder/image",
+        name="conditional_cnn",
+        node=ConditionalCNNEncoderConfig,
+    )
+
     cs.store(
         group="policy/encoding_pipeline/encoder/image",
         name="vit",
