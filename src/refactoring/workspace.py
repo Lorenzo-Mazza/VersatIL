@@ -181,6 +181,7 @@ class Workspace:
         self.policy.set_normalizer(self.normalizer)
         self.policy.set_tokenizer(self.tokenizer)
         self.policy.set_denoising_thresholds(self.denoising_thresholds)
+        self.policy.set_gripper_class_weights(self.gripper_class_weights)
         # Calculate total training steps for LR scheduling
         # Steps per epoch = len(train_loader) // gradient_accumulate_every
         # Total steps = steps_per_epoch * num_epochs
