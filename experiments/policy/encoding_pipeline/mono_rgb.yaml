@@ -1,0 +1,19 @@
+defaults:
+  - encoder/image/cnn@encoders.left
+  - _self_
+
+_target_: refactoring.models.encoding.pipeline.EncodingPipeline
+
+encoders:
+  left:
+    _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
+    input_keys:
+    - ${cameras:LEFT}
+    backbone: ${rgb_backbone:EFFICIENTNET_B0}
+    pretrained: false
+    frozen: false
+    pooling_method: none
+    use_group_norm: true
+
+
+fusion_stages: []
