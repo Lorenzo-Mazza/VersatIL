@@ -26,14 +26,12 @@ class CNNEncoderConfig(ImageEncoderConfig):
 
 
 @dataclass
-class ConditionalCNNEncoder:
+class ConditionalCNNEncoderConfig(CNNEncoderConfig):
     _target_: str = (
         "refactoring.models.encoding.encoders.rgb.conditional_cnn.ConditionalCNNEncoder"
     )
     condition_key: str = MISSING
     condition_dim: int = MISSING
-    pooling_method: str = PoolingMethod.NONE.value
-    use_group_norm: bool = True
 
 
 @dataclass

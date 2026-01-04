@@ -208,57 +208,120 @@ class PreprocessorBuilder:
             winsorize_depth: Apply winsorization to depth
         """
         for camera_key, camera_meta in self.observation_space.cameras.items():
-            cam_array = self.replay_buffer[camera_key][:]
             if camera_key == Cameras.DEPTH.value:
-                self._setup_depth_normalizer(
-                    normalizer, camera_key, cam_array, device, winsorize_depth
+                depth_stats = self._compute_depth_stats_streaming(
+                    camera_key, winsorize_depth
                 )
+                self._setup_depth_normalizer(normalizer, camera_key, depth_stats, device)
             else:
                 self._setup_rgb_normalizer(normalizer, camera_key, device)
-            self._log_normalized_camera_stats(
-                camera_key=camera_key, cam_array=cam_array, normalizer=normalizer
-            )
+            self._log_camera_stats_sampled(camera_key, normalizer)
+
+    def _compute_depth_stats_streaming(
+        self,
+        camera_key: str,
+        winsorize: bool,
+        chunk_size: int = 1000,
+    ) -> dict[str, float]:
+        """Compute depth statistics using streaming to avoid loading entire array.
+
+        Uses vectorized per-chunk operations and parallel Welford for exact mean/variance.
+        Winsorization (if enabled) uses fast uniform random subsampling for quantiles.
+
+        Args:
+            camera_key: Key for depth camera in replay buffer
+            winsorize: Whether to apply winsorization
+            chunk_size: Number of frames to process at a time
+
+        Returns:
+            Dictionary with min, max, mean, std statistics (on clipped data if winsorized)
+        """
+        depth_array = self.replay_buffer[camera_key]
+        n_frames = len(depth_array)
+        total_pixels = depth_array.size
+        p_lower, p_upper = None, None
+        if winsorize and self.depth_winsorize_quantiles:
+            reservoir_size = min(100_000, total_pixels)
+            dtype = depth_array.dtype
+            if total_pixels == 0:
+                reservoir = np.empty(0, dtype=dtype)
+            elif total_pixels <= reservoir_size:
+                reservoir = depth_array.ravel()
+            else:
+                indices = np.random.choice(total_pixels, reservoir_size, replace=False)
+                reservoir = depth_array.ravel()[indices]
+            if reservoir.size > 0:
+                lower_q, upper_q = self.depth_winsorize_quantiles
+                p_lower, p_upper = np.quantile(reservoir, [lower_q, upper_q])
+                logging.info(
+                    f"Depth winsorization bounds [{lower_q}, {upper_q}]: "
+                    f"lower={p_lower:.4f}, upper={p_upper:.4f}"
+                )
+        global_min = np.inf
+        global_max = -np.inf
+        global_count = 0
+        global_mean = 0.0
+        global_m2 = 0.0
+        for start in range(0, n_frames, chunk_size):
+            end = min(start + chunk_size, n_frames)
+            chunk = depth_array[start:end]
+            if chunk.size == 0:
+                continue
+            if p_lower is not None:
+                chunk = np.clip(chunk, p_lower, p_upper)
+            flat = chunk.ravel()
+            n = flat.size
+            if n == 0:
+                continue
+            chunk_mean = flat.mean()
+            chunk_var = flat.var(ddof=0)
+            chunk_m2 = chunk_var * n
+            global_min = min(global_min, flat.min())
+            global_max = max(global_max, flat.max())
+            if global_count == 0:
+                global_mean = chunk_mean
+                global_m2 = chunk_m2
+                global_count = n
+            else:
+                delta = chunk_mean - global_mean
+                new_count = global_count + n
+                global_mean += delta * n / new_count
+                global_m2 += chunk_m2 + delta**2 * global_count * n / new_count
+                global_count = new_count
+        if global_count == 0:
+            return {"min": float("nan"), "max": float("nan"), "mean": 0.0, "std": 0.0}
+        std = np.sqrt(global_m2 / global_count)
+        logging.info(
+            f"Depth stats (streaming) - min: {global_min:.4f}, max: {global_max:.4f}, "
+            f"mean: {global_mean:.4f}, std: {std:.4f}"
+        )
+        return {
+            "min": float(global_min),
+            "max": float(global_max),
+            "mean": global_mean,
+            "std": std,
+        }
 
     def _setup_depth_normalizer(
         self,
         normalizer: LinearNormalizer,
         cam: str,
-        depth_arr: np.ndarray,
+        depth_stats: dict[str, float],
         device: torch.device | None,
-        winsorize: bool,
     ) -> None:
-        """Setup depth image normalizer with optional winsorization.
+        """Setup depth image normalizer from pre-computed stats.
 
         Args:
             normalizer: Normalizer to configure
             cam: Camera name
-            depth_arr: Depth array from dataset
+            depth_stats: Pre-computed statistics dict with min, max, mean, std
             device: Target device
-            winsorize: Apply winsorization
         """
-        depth_min = depth_arr.min()
-        depth_max = depth_arr.max()
-        depth_mean = depth_arr.mean()
-        depth_std = depth_arr.std()
-        if winsorize and self.depth_winsorize_quantiles:
-            lower_q, upper_q = self.depth_winsorize_quantiles
-            p_lower = np.quantile(depth_arr, lower_q)
-            p_upper = np.quantile(depth_arr, upper_q)
-            depth_arr_clipped = np.clip(depth_arr, p_lower, p_upper)
-            depth_min = depth_arr_clipped.min()
-            depth_max = depth_arr_clipped.max()
-            depth_mean = depth_arr_clipped.mean()
-            depth_std = depth_arr_clipped.std()
-            logging.info(
-                f"Depth after winsorization [{lower_q}, {upper_q}] - "
-                f"min: {depth_min:.4f}, max: {depth_max:.4f}, "
-                f"mean: {depth_mean:.4f}, std: {depth_std:.4f}"
-            )
         normalizer[cam] = get_depth_image_normalizer(
-            input_min=depth_min,
-            input_max=depth_max,
-            input_mean=depth_mean,
-            input_std=depth_std,
+            input_min=depth_stats["min"],
+            input_max=depth_stats["max"],
+            input_mean=depth_stats["mean"],
+            input_std=depth_stats["std"],
             norm_type=self.depth_norm_type,
             device=device,
         )
@@ -442,29 +505,40 @@ class PreprocessorBuilder:
                 )
         return winsorized
 
-    @staticmethod
-    def _log_normalized_camera_stats(
-        camera_key: str, cam_array: np.ndarray, normalizer: LinearNormalizer
+    def _log_camera_stats_sampled(
+        self,
+        camera_key: str,
+        normalizer: LinearNormalizer,
+        n_samples: int = 100,
     ) -> None:
-        """Log camera array statistics.
+        """Log camera statistics using a small sample to avoid loading full array.
 
         Args:
             camera_key: Camera name
-            cam_array: Camera data array
             normalizer: Configured normalizer
+            n_samples: Number of frames to sample for logging
         """
-        logging.info(
-            f"Camera {camera_key} stats before normalization - "
-            f"min: {cam_array.min()}, max: {cam_array.max()}, "
-            f"mean: {cam_array.mean()}, std: {cam_array.std()}"
+        cam_array = self.replay_buffer[camera_key]
+        n_frames = len(cam_array)
+        if n_frames == 0:
+            logging.info(f"Camera {camera_key}: empty array")
+            return
+        sample_indices = np.random.choice(
+            n_frames, size=min(n_samples, n_frames), replace=False
         )
-        after_norm = normalizer[camera_key].normalize(cam_array)
+        sample = cam_array[sample_indices]
         logging.info(
-            f"Camera {camera_key} stats after normalization - "
-            f"mean: {tensor_to_str(after_norm.mean())}, "
-            f"std: {tensor_to_str(after_norm.std())},"
-            f"min:  {tensor_to_str(after_norm.min())}, "
-            f"max:  {tensor_to_str(after_norm.max())}"
+            f"Camera {camera_key} stats (sampled {len(sample_indices)} frames) - "
+            f"min: {sample.min():.4f}, max: {sample.max():.4f}, "
+            f"mean: {sample.mean():.4f}, std: {sample.std():.4f}"
+        )
+        sample_normalized = normalizer[camera_key].normalize(sample)
+        logging.info(
+            f"Camera {camera_key} after normalization (sampled) - "
+            f"mean: {tensor_to_str(sample_normalized.mean())}, "
+            f"std: {tensor_to_str(sample_normalized.std())}, "
+            f"min: {tensor_to_str(sample_normalized.min())}, "
+            f"max: {tensor_to_str(sample_normalized.max())}"
         )
 
     def _log_normalized_proprio_stats(
