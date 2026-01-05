@@ -7,7 +7,7 @@ _target_: refactoring.models.decoding.algorithm.variational.VariationalAlgorithm
 
 base_algorithm:
   _target_: refactoring.models.decoding.algorithm.behavior_cloning.BehavioralCloning
-sampling_from_prior_probability: 0.5
+sampling_from_prior_probability: 0.25
 
 posterior_encoder:
   _target_: refactoring.models.decoding.latent.posterior.transformer_encoder.VAETransformerEncoder
@@ -17,12 +17,12 @@ posterior_encoder:
   observation_horizon: ${policy.observation_horizon}
   number_of_heads: 8
   feedforward_dimension: 1024
-  number_of_encoder_layers: 4cd..
+  number_of_encoder_layers: 4
   dropout_rate: 0.1
   device: ${policy.device}
-  exclude_keys:
-    - left_rgb
-    - right_rgb
+  #exclude_keys:
+  #  - left_rgb
+  #  - right_rgb
 
 prior:
   latent_dimension: 32
