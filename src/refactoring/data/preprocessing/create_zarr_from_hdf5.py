@@ -30,7 +30,7 @@ def create_replay_buffer_from_hdf5(schema: Hdf5DatasetSchema) -> None:
 
     episode_ends = []
     cumulative_len = 0
-    compressor = BloscCodec(cname="lz4", clevel=5, shuffle=BloscShuffle.noshuffle)
+    compressor = BloscCodec(cname="lz4", clevel=2, shuffle=BloscShuffle.noshuffle)
 
     cameras = schema.metadata.cameras
     if cameras:

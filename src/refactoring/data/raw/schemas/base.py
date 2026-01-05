@@ -90,7 +90,7 @@ class DatasetSchema(abc.ABC):
             if isinstance(obs, CameraMetadata):
                 specs[key] = {
                     "shape": (0, obs.image_height, obs.image_width, obs.channels),
-                    "chunks": (10, obs.image_height, obs.image_width, obs.channels),
+                    "chunks": (16, obs.image_height, obs.image_width, obs.channels),
                     "dtype": obs.dtype,
                     "needs_compressor": True,
                 }
@@ -98,7 +98,7 @@ class DatasetSchema(abc.ABC):
                 needs_compression = obs.dtype != "str"
                 specs[key] = {
                     "shape": (0, obs.dimension),
-                    "chunks": (100, obs.dimension),
+                    "chunks": (256, obs.dimension),
                     "dtype": obs.dtype,
                     "needs_compressor": needs_compression,
                 }
@@ -109,7 +109,7 @@ class DatasetSchema(abc.ABC):
                 dim = action.storage_dimension
             specs[key] = {
                 "shape": (0, dim),
-                "chunks": (100, dim),
+                "chunks": (256, dim),
                 "dtype": action.dtype,
                 "needs_compressor": True,
             }

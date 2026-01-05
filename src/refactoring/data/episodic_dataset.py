@@ -88,9 +88,10 @@ class EpisodicDataset(data.Dataset):
                 + action_space.get_required_zarr_keys()
             )
         )  # Remove duplicates
-        self.replay_buffer = ReplayBuffer.copy_from_path(
-            zarr_path=zarr_path, keys=all_keys
-        )
+        self.replay_buffer = ReplayBuffer.create_from_path(zarr_path=zarr_path)
+        missing_keys = set(all_keys) - set(self.replay_buffer.keys())
+        if missing_keys:
+            raise KeyError(f"Missing required keys in zarr: {missing_keys}")
         logging.info(f"Total episodes in buffer: {self.replay_buffer.n_episodes}")
         # Create episode mask (train/val split)
         episode_mask = self._create_episode_mask(

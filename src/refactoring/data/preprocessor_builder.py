@@ -93,9 +93,14 @@ class PreprocessorBuilder:
             Tuple of (normalizer, tokenizer) where tokenizer is None if not configured
         """
         self.compute_proprioceptive_denoising_thresholds()
-        all_data = self.replay_buffer.get_steps_slice(0, self.replay_buffer.n_steps)
+        action_keys = self.action_processor.action_space.get_required_zarr_keys()
+        action_source_data = {
+            key: self.replay_buffer[key][:]
+            for key in action_keys
+            if key in self.replay_buffer
+        }
         action_data, action_meta = self.action_processor.compute_sample_actions(
-            padded_data=all_data,
+            padded_data=action_source_data,
             action_slice_start=0,
             action_slice_end=self.replay_buffer.n_steps - 1,
         )
@@ -164,7 +169,10 @@ class PreprocessorBuilder:
         """
         normalizer = LinearNormalizer()
         data_to_normalize = {}
+        camera_keys = set(self.observation_space.cameras.keys())
         for key, meta in self.observation_space.observations_metadata.items():
+            if key in camera_keys:
+                continue
             if meta.needs_normalization:
                 if not meta.is_numerical:
                     raise ValueError(
@@ -246,10 +254,14 @@ class PreprocessorBuilder:
             if total_pixels == 0:
                 reservoir = np.empty(0, dtype=dtype)
             elif total_pixels <= reservoir_size:
-                reservoir = depth_array.ravel()
+                # Small array - load all and ravel (zarr v3 arrays don't have .ravel())
+                reservoir = depth_array[:].ravel()
             else:
-                indices = np.random.choice(total_pixels, reservoir_size, replace=False)
-                reservoir = depth_array.ravel()[indices]
+                # Large array - sample using multi-dimensional indexing
+                # (zarr v3 doesn't support flat indexing on arrays)
+                flat_indices = np.random.choice(total_pixels, reservoir_size, replace=False)
+                multi_indices = np.unravel_index(flat_indices, depth_array.shape)
+                reservoir = depth_array[multi_indices]
             if reservoir.size > 0:
                 lower_q, upper_q = self.depth_winsorize_quantiles
                 p_lower, p_upper = np.quantile(reservoir, [lower_q, upper_q])
@@ -376,7 +388,10 @@ class PreprocessorBuilder:
             )
             if obs_config.bin_continuous_data:
                 data_to_bin = {}
+                camera_keys = set(self.observation_space.cameras.keys())
                 for key, meta in self.observation_space.observations_metadata.items():
+                    if key in camera_keys:
+                        continue
                     if not meta.is_numerical:
                         continue
                     obs_data = self.replay_buffer[key][:]
@@ -519,7 +534,7 @@ class PreprocessorBuilder:
             n_samples: Number of frames to sample for logging
         """
         cam_array = self.replay_buffer[camera_key]
-        n_frames = len(cam_array)
+        n_frames = cam_array.shape[0]
         if n_frames == 0:
             logging.info(f"Camera {camera_key}: empty array")
             return
@@ -568,7 +583,3 @@ class PreprocessorBuilder:
                 f"min:  {tensor_to_str(after_norm.min())}, "
                 f"max:  {tensor_to_str(after_norm.max())}"
             )
-        """for cam_meta in self.observation_space.cameras:
-            cam = cam_meta.camera_key
-            output_stats = normalizer[cam].get_output_stats()
-            logging.info(f"Normalized {cam} image stats: {output_stats}")"""

@@ -102,6 +102,7 @@ def get_dataloaders(
         num_workers=config.task.dataloader.num_workers,
         pin_memory=True,
         persistent_workers=True,
+        prefetch_factor=2,
     )
 
     val_loader = data.DataLoader(
@@ -111,6 +112,7 @@ def get_dataloaders(
         num_workers=min(4, config.task.dataloader.num_workers),
         pin_memory=True,
         persistent_workers=True,
+        prefetch_factor=2,
     )
 
     gripper_positive_class_weights = None
@@ -198,7 +200,11 @@ def _ensure_zarr_exists(schema: DatasetSchema) -> None:
     if Path(zarr_path).exists():
         try:
             logging.info(f"Loading existing replay buffer from {zarr_path}")
-            ReplayBuffer.copy_from_path(zarr_path, keys=required_keys)
+            buffer = ReplayBuffer.create_from_path(zarr_path)
+            # Validate required keys exist
+            missing_keys = set(required_keys) - set(buffer.keys())
+            if missing_keys:
+                raise KeyError(f"Missing required keys: {missing_keys}")
             need_create = False
         except Exception as e:
             logging.info(f"Error loading {zarr_path}: {e}. Recreating...")
