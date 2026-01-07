@@ -1,6 +1,7 @@
 import logging
 
 import torch
+from torch import nn
 from transformers import AutoModel, AutoConfig
 from transformers.modeling_outputs import BaseModelOutput
 
@@ -30,6 +31,7 @@ class LanguageEncoder(Encoder):
         model_name: str = LanguageEncoderType.BERT_BASE.value,
         attention_type: str = AttentionImplementation.SDPA.value,
         max_token_len: int = 128,
+        use_embeddings_only: bool = False,
     ):
         """
         Args:
@@ -39,6 +41,7 @@ class LanguageEncoder(Encoder):
             model_name: Model identifier from LanguageEncoderType
             attention_type: Attention implementation to use
             max_token_len: Maximum token sequence length for the encoder
+            use_embeddings_only: If True, use only the pretrained token embedding layer
         """
         specification = EncoderInput(
             keys=[TOKENIZED_OBSERVATIONS_KEY, IS_PAD_OBSERVATION_KEY],
@@ -53,8 +56,13 @@ class LanguageEncoder(Encoder):
         self.attention_type = attention_type
         self.model_name = model_name
         self.max_token_len = max_token_len
+        self.use_embeddings_only = use_embeddings_only
+        if self.use_embeddings_only and self.pooling_method != PoolingMethod.NONE.value:
+            raise ValueError(
+                "use_embeddings_only=True is only compatible with pooling_method=PoolingMethod.NONE"
+            )
         self._build_encoder()
-        self.feature_dim = self.encoder.config.hidden_size
+        self.feature_dim = self.config.hidden_size
         self.pooling_head: LearnedAggregation | None = None
         self._setup_pooling()
         self.padding_mask_name = (
@@ -67,16 +75,32 @@ class LanguageEncoder(Encoder):
     def _build_encoder(self):
         """Build language encoder and tokenizer."""
         self.config = AutoConfig.from_pretrained(self.model_name)
-        if self.pretrained:
-            self.encoder = AutoModel.from_pretrained(
-                self.model_name,
-                attn_implementation=self.attention_type,
-                use_safetensors=True,
+        if self.use_embeddings_only:
+            self.encoder = nn.Embedding(
+                num_embeddings=self.config.vocab_size,
+                embedding_dim=self.config.hidden_size,
             )
+            if self.pretrained:
+                temp_model = AutoModel.from_pretrained(
+                    self.model_name,
+                    use_safetensors=True,
+                )
+                source_emb = temp_model.get_input_embeddings()
+                self.encoder.load_state_dict(source_emb.state_dict())
+                del temp_model
+            else:
+                nn.init.normal_(self.encoder.weight, mean=0.0, std=0.02)
         else:
-            self.encoder = AutoModel.from_config(
-                self.config, attn_implementation=self.attention_type
-            )
+            if self.pretrained:
+                self.encoder = AutoModel.from_pretrained(
+                    self.model_name,
+                    attn_implementation=self.attention_type,
+                    use_safetensors=True,
+                )
+            else:
+                self.encoder = AutoModel.from_config(
+                    self.config, attn_implementation=self.attention_type
+                )
 
     def _setup_pooling(self):
         """Set-up pooling head and output dimensionality accordingly."""
@@ -174,6 +198,8 @@ class LanguageEncoder(Encoder):
         language_mask = inputs.get(IS_PAD_OBSERVATION_KEY, None)
         T = None
         has_time = False
+        device = next(self.encoder.parameters()).device
+
         if text_input_ids.dim() == 3:
             B, T, seq_len = text_input_ids.shape
             text_input_ids = text_input_ids.reshape(B * T, -1)
@@ -192,14 +218,18 @@ class LanguageEncoder(Encoder):
             attention_mask = ~language_mask
         else:
             attention_mask = torch.ones_like(text_input_ids, dtype=torch.bool)
-        encoder_inputs = {
-            "input_ids": text_input_ids.to(self.encoder.device),
-            "attention_mask": attention_mask.to(self.encoder.device),
-        }
-        outputs = self.encoder(**encoder_inputs, return_dict=True)
-        features = self._pool_features(outputs)
-        padding_mask = ~attention_mask  # B, max_token_len*T, True for padding positions
 
+        if self.use_embeddings_only:
+            features = self.encoder(text_input_ids.to(device))
+        else:
+            encoder_inputs = {
+                "input_ids": text_input_ids.to(device),
+                "attention_mask": attention_mask.to(device),
+            }
+            outputs = self.encoder(**encoder_inputs, return_dict=True)
+            features = self._pool_features(outputs)
+
+        padding_mask = ~attention_mask  # B, max_token_len*T, True for padding positions
         if has_time:
             features = features.reshape(B, T, *features.shape[1:])
             if padding_mask.ndim >= 2:
@@ -232,4 +262,4 @@ class LanguageEncoder(Encoder):
         Returns:
             Vocabulary size of the language model
         """
-        return self.encoder.config.vocab_size
+        return self.config.vocab_size

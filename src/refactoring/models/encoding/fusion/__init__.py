@@ -3,7 +3,6 @@ from .base import FusionModule
 from .concat import ConcatFusion
 from .mlp import MLPFusion
 from .sequential import SequentialFusion
-from .spatial import SpatialFusion
 
 __all__ = [
     "FusionModule",
@@ -11,5 +10,4 @@ __all__ = [
     "MLPFusion",
     "SequentialFusion",
     "AttentionFusion",
-    "SpatialFusion",
 ]

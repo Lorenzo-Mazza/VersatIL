@@ -65,7 +65,6 @@ from refactoring.configs.encoding.encoder import (
     LanguageEncoderConfig,
     ProprioEncoderConfig,
     DFormerEncoderConfig,
-    EmbedderConfig,
 )
 from refactoring.configs.encoding.fusion import (
     FusionConfig,
@@ -493,9 +492,6 @@ def register_configs():
         group="policy/encoding_pipeline/encoder",
         name="dformer",
         node=DFormerEncoderConfig,
-    )
-    cs.store(
-        group="policy/encoding_pipeline/encoder", name="embedder", node=EmbedderConfig
     )
     cs.store(group="policy/encoding_pipeline/fusion", name="base", node=FusionConfig)
     cs.store(

@@ -85,12 +85,12 @@ class VLMEncoderConfig(EncoderConfig):
     pooling_method: str = PoolingMethod.NONE.value
 
 
-# These two configs don't inherit from EncoderConfig because their input keys are fixed, i.e. `TOKENIZED_OBSERVATIONS_KEY`
-
 
 @dataclass
 class LanguageEncoderConfig:
-    """Language encoder configuration."""
+    """Language encoder configuration.
+        It doesn't inherit from EncoderConfig because its input key is fixed, i.e. `TOKENIZED_OBSERVATIONS_KEY
+    """
 
     _target_: str = (
         "refactoring.models.encoding.encoders.language.language.LanguageEncoder"
@@ -100,18 +100,6 @@ class LanguageEncoderConfig:
     pretrained: bool = False
     frozen: bool = False
     max_token_len: int = 128
+    use_embeddings_only: bool = False
 
 
-@dataclass
-class EmbedderConfig:
-    """Embedding layer encoder configuration.
-
-    Simple encoder consisting of a single nn.Embedding layer that converts token IDs
-    into dense embeddings. Useful for tokenized observations or actions from the data pipeline.
-
-    Output shape: (max_token_len, embedding_dim)
-    """
-
-    _target_: str = "refactoring.models.encoding.encoders.language.embedder.Embedder"
-    embedding_dim: int = MISSING
-    max_token_len: int = MISSING

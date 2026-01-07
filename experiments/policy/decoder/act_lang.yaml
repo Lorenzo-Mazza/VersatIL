@@ -7,7 +7,7 @@ _target_: refactoring.models.decoding.decoders.factory.act.ACT
 input_keys:
   - left_rgb
   - right_rgb
-  - embedder_token_embedding
+  - instruction_language
 
 embedding_dimension: 512
 number_of_heads: 8

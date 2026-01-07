@@ -344,8 +344,6 @@ class EncodingPipeline(nn.Module):
                         f"but no observation tokenizer is available."
                     )
                 data_vocab_size = tokenizer.observation_tokenizer.vocab_size
-                if hasattr(encoder, "set_tokenizer_vocab_size"):  # Embedder encoder
-                    encoder.set_tokenizer_vocab_size(data_vocab_size)
                 encoder_vocab_size = encoder.get_vocab_size()
                 if encoder_vocab_size != data_vocab_size:
                     raise ValueError(

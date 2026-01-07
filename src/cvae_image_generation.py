@@ -2,7 +2,6 @@
 
 Proof of concept reusing existing modules:
 - CNNEncoder for image features
-- Embedder + LanguageEncoder for text features (HuggingFace transformers)
 - TransformerEncoder for posterior q(z|x, c) and prior p(z|c)
 - BidirectionalDecoder for image reconstruction
 - MaximumMeanDiscrepancyLoss from metrics.components
@@ -39,8 +38,6 @@ from refactoring.models.encoding.encoders.constants import (
     PoolingMethod,
     RGBBackboneType,
 )
-from refactoring.models.encoding.encoders.language.embedder import Embedder
-from refactoring.models.encoding.encoders.language.language import LanguageEncoder
 from refactoring.models.layers.transformer import BidirectionalDecoder
 from refactoring.models.layers.detr_transformer import (
     TransformerEncoder,

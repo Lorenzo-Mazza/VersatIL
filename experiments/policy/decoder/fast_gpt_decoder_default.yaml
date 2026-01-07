@@ -9,7 +9,7 @@ _target_: refactoring.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTD
 input_keys:
   - left_rgb
   - right_rgb
-  - embedder_token_embedding
+  - instruction_language
 
 max_seq_len: 512  # Maximum sequence length (features + action tokens)
 

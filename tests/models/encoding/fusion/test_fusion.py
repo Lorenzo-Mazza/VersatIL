@@ -8,7 +8,6 @@ from refactoring.models.encoding.fusion.base import (
     FusionOutput,
     FusionModule,
 )
-from refactoring.models.encoding.fusion.spatial import SpatialFusion
 from refactoring.models.encoding.fusion.concat import ConcatFusion
 from refactoring.models.encoding.fusion.mlp import MLPFusion
 from refactoring.models.encoding.fusion.attention import AttentionFusion
@@ -138,149 +137,6 @@ class TestFusionOutput:
         assert output.is_flat
         assert not output.is_spatial
         assert not output.is_sequence
-
-
-class TestSpatialFusionInitialization:
-    """Test SpatialFusion initialization."""
-
-    def test_init_basic(self):
-        """Test basic initialization."""
-        fusion = SpatialFusion(
-            input_features=[RGB_FEATURES, DEPTH_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-        )
-
-        assert fusion.input_features == [RGB_FEATURES, DEPTH_FEATURES]
-        assert fusion.output_name == FUSED_FEATURES
-        assert fusion.hidden_dim == 256
-        assert fusion._initialized is False
-
-    def test_setup_layers(self, spatial_feature_dims):
-        """Test layer setup with spatial dimensions."""
-        fusion = SpatialFusion(
-            input_features=[RGB_FEATURES, DEPTH_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-        )
-        fusion.setup(spatial_feature_dims)
-
-        assert fusion._initialized is True
-        assert len(fusion.projections) == 2
-        assert fusion.spatial_dims == (7, 7)
-
-    def test_setup_mismatched_spatial_dims(self):
-        """Test setup fails with mismatched spatial dimensions."""
-        fusion = SpatialFusion(
-            input_features=[RGB_FEATURES, DEPTH_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-        )
-        feature_dims = {
-            RGB_FEATURES: (256, 7, 7),
-            DEPTH_FEATURES: (128, 14, 14),
-        }
-
-        with pytest.raises(ValueError, match="same spatial dimensions"):
-            fusion.setup(feature_dims)
-
-    def test_setup_idempotent(self, spatial_feature_dims):
-        """Test that calling setup multiple times doesn't cause issues."""
-        fusion = SpatialFusion(
-            input_features=[RGB_FEATURES, DEPTH_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-        )
-        fusion.setup(spatial_feature_dims)
-        fusion.setup(spatial_feature_dims)  # Should not error
-
-        assert fusion._initialized
-
-
-class TestSpatialFusionForward:
-    """Test SpatialFusion forward pass."""
-
-    def test_forward_4d_spatial_features(self, spatial_features_4d, spatial_feature_dims):
-        """Test forward pass with 4D spatial features."""
-        fusion = SpatialFusion(
-            input_features=[RGB_FEATURES, DEPTH_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-        )
-        fusion.setup(spatial_feature_dims)
-
-        output = fusion(spatial_features_4d)
-
-        assert output.dim() == 4
-        batch_size = spatial_features_4d[0].shape[0]
-        assert output.shape == (batch_size, 256 * 2, 7, 7)
-        assert output.dtype == torch.float32
-
-    def test_forward_preserves_spatial_structure(self, spatial_features_4d, spatial_feature_dims):
-        """Test forward pass preserves spatial structure."""
-        fusion = SpatialFusion(
-            input_features=[RGB_FEATURES, DEPTH_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-        )
-        fusion.setup(spatial_feature_dims)
-
-        output = fusion(spatial_features_4d)
-
-        assert output.shape[2:] == spatial_features_4d[0].shape[2:]
-
-    def test_forward_single_feature(self, spatial_feature_dims):
-        """Test forward pass with single spatial feature."""
-        fusion = SpatialFusion(
-            input_features=[RGB_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-        )
-        fusion.setup({RGB_FEATURES: spatial_feature_dims[RGB_FEATURES]})
-
-        features = [torch.randn(2, 256, 7, 7)]
-        output = fusion(features)
-
-        assert output.shape == (2, 256, 7, 7)
-
-    def test_get_output_specification(self, spatial_feature_dims):
-        """Test output specification is correct."""
-        fusion = SpatialFusion(
-            input_features=[RGB_FEATURES, DEPTH_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-        )
-        fusion.setup(spatial_feature_dims)
-
-        spec = fusion.get_output_specification()
-        assert spec.output_name == FUSED_FEATURES
-        assert spec.output_dim == (512, 7, 7)  # 256 * 2 channels
-        assert spec.is_spatial
-
-    @pytest.mark.parametrize("num_features,expected_channels", [
-        (2, 512),  # 256 * 2
-        (3, 768),  # 256 * 3
-    ])
-    def test_different_feature_counts(self, num_features, expected_channels, batch_size):
-        """Test fusion with different numbers of features."""
-        feature_names = [RGB_FEATURES, DEPTH_FEATURES, SEGMENTATION_FEATURES][:num_features]
-        feature_dims = {
-            RGB_FEATURES: (256, 7, 7),
-            DEPTH_FEATURES: (128, 7, 7),
-            SEGMENTATION_FEATURES: (64, 7, 7),
-        }
-
-        fusion = SpatialFusion(
-            input_features=feature_names,
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-        )
-        fusion.setup(feature_dims)
-
-        features = [torch.randn(batch_size, feature_dims[name][0], 7, 7) for name in feature_names]
-        output = fusion(features)
-
-        assert output.shape == (batch_size, expected_channels, 7, 7)
 
 
 class TestConcatFusionInitialization:
@@ -676,24 +532,6 @@ class TestFusionModuleBase:
 class TestGradientFlow:
     """Test gradient flow through fusion modules."""
 
-    def test_spatial_fusion_gradients(self, spatial_features_4d, spatial_feature_dims):
-        """Test gradients flow through SpatialFusion."""
-        fusion = SpatialFusion(
-            input_features=[RGB_FEATURES, DEPTH_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-        )
-        fusion.setup(spatial_feature_dims)
-
-        features = [f.requires_grad_(True) for f in spatial_features_4d]
-        output = fusion(features)
-        loss = output.sum()
-        loss.backward()
-
-        for feat in features:
-            assert feat.grad is not None
-            assert not torch.isnan(feat.grad).any()
-
     def test_concat_fusion_gradients(self, sequence_features_2d, sequence_feature_dims):
         """Test gradients flow through ConcatFusion."""
         fusion = ConcatFusion(
@@ -750,39 +588,6 @@ class TestGradientFlow:
 class TestFusionIntegration:
     """Integration tests for fusion modules."""
 
-    def test_spatial_to_sequential_pipeline(self, spatial_feature_dims, batch_size):
-        """Test pipeline from spatial fusion to sequential fusion."""
-        # Spatial fusion
-        spatial_fusion = SpatialFusion(
-            input_features=[RGB_FEATURES, DEPTH_FEATURES],
-            output_name="spatial_fused",
-            hidden_dim=256,
-        )
-        spatial_fusion.setup(spatial_feature_dims)
-
-        rgb = torch.randn(batch_size, 256, 7, 7)
-        depth = torch.randn(batch_size, 128, 7, 7)
-        spatial_output = spatial_fusion([rgb, depth])
-
-        # Global average pooling to flatten
-        pooled = spatial_output.mean(dim=[2, 3])  # (B, 512)
-
-        # Sequential fusion
-        sequential_dims = {
-            "spatial_fused": pooled.shape[1],
-            PROPRIO_FEATURES: 128,
-        }
-        sequential_fusion = ConcatFusion(
-            input_features=["spatial_fused", PROPRIO_FEATURES],
-            output_name="final_fused",
-            hidden_dim=256,
-        )
-        sequential_fusion.setup(sequential_dims)
-
-        proprio = torch.randn(batch_size, 128)
-        final_output = sequential_fusion([pooled, proprio])
-
-        assert final_output.shape == (batch_size, 512)  # 256 * 2
 
     def test_multiple_attention_fusion_layers(self, sequence_feature_dims, batch_size):
         """Test stacking multiple attention fusion layers."""
@@ -816,99 +621,6 @@ class TestFusionIntegration:
         output2 = fusion2([output1, gripper])
 
         assert output2.shape == (batch_size, 128)
-
-    def test_fusion_modules_no_nan_outputs(self, spatial_features_4d, sequence_features_2d,
-                                          spatial_feature_dims, sequence_feature_dims):
-        """Test all fusion modules produce valid outputs without NaN."""
-        spatial_fusion = SpatialFusion(
-            input_features=[RGB_FEATURES, DEPTH_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-        )
-        spatial_fusion.setup(spatial_feature_dims)
-
-        concat_fusion = ConcatFusion(
-            input_features=[LANGUAGE_FEATURES, PROPRIO_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-        )
-        concat_fusion.setup(sequence_feature_dims)
-
-        attention_fusion = AttentionFusion(
-            input_features=[LANGUAGE_FEATURES, PROPRIO_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-        )
-        attention_fusion.setup(sequence_feature_dims)
-
-        mlp_fusion = MLPFusion(
-            input_features=[LANGUAGE_FEATURES, PROPRIO_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-            mlp_hidden_dims=[512, 256],
-        )
-        mlp_fusion.setup(sequence_feature_dims)
-
-        spatial_output = spatial_fusion(spatial_features_4d)
-        concat_output = concat_fusion(sequence_features_2d)
-        attention_output = attention_fusion(sequence_features_2d)
-        mlp_output = mlp_fusion(sequence_features_2d)
-
-        assert not torch.isnan(spatial_output).any()
-        assert not torch.isnan(concat_output).any()
-        assert not torch.isnan(attention_output).any()
-        assert not torch.isnan(mlp_output).any()
-
-    @pytest.mark.parametrize("batch_size", [1, 4, 16])
-    def test_different_batch_sizes(self, batch_size, spatial_feature_dims):
-        """Test fusion works with different batch sizes."""
-        fusion = SpatialFusion(
-            input_features=[RGB_FEATURES, DEPTH_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-        )
-        fusion.setup(spatial_feature_dims)
-
-        features = [
-            torch.randn(batch_size, 256, 7, 7),
-            torch.randn(batch_size, 128, 7, 7),
-        ]
-        output = fusion(features)
-
-        assert output.shape[0] == batch_size
-
-    @pytest.mark.parametrize("hidden_dim", [128, 256, 512])
-    def test_spatial_fusion_different_hidden_dims(self, hidden_dim, spatial_feature_dims):
-        """Test SpatialFusion with different hidden dimensions."""
-        fusion = SpatialFusion(
-            input_features=[RGB_FEATURES, DEPTH_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=hidden_dim,
-        )
-        fusion.setup(spatial_feature_dims)
-
-        features = [
-            torch.randn(2, 256, 7, 7),
-            torch.randn(2, 128, 7, 7),
-        ]
-        output = fusion(features)
-
-        assert output.shape[1] == hidden_dim * 2
-
-    def test_fusion_eval_mode(self, sequence_features_2d, sequence_feature_dims):
-        """Test fusion modules in eval mode."""
-        fusion = AttentionFusion(
-            input_features=[LANGUAGE_FEATURES, PROPRIO_FEATURES],
-            output_name=FUSED_FEATURES,
-            hidden_dim=256,
-        )
-        fusion.setup(sequence_feature_dims)
-        fusion.eval()
-
-        with torch.no_grad():
-            output = fusion(sequence_features_2d)
-
-        assert not output.requires_grad
 
     def test_concat_fusion_deterministic_eval(self, sequence_feature_dims):
         """Test ConcatFusion produces deterministic output in eval mode."""

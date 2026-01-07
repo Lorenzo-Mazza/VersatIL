@@ -9,7 +9,7 @@ defaults:
   - task/action_space: deltas_cf_pos_gripper
   - task/observation_space: stereo_rgb_language_proprio_cf
   - training: act_default
-  - policy/encoding_pipeline: stereo_rgb_token_embedder
+  - policy/encoding_pipeline: stereo_rgb_lang_encoder
   - policy/decoder: act_lang
   - policy/algorithm: bc_with_learned_prior
   - policy/loss: regression_gripper_MMD
