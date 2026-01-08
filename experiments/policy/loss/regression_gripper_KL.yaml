@@ -15,7 +15,7 @@ loss_modules:
       huber_weight: 0.0
 
     entropy:
-        weight: 0.001
+        weight: 0.00
         key: ${latent_key:PRIOR_LOGVAR}
 
     gripper_loss:
@@ -24,7 +24,7 @@ loss_modules:
       bce_weight: 0.05
 
     kl_divergence:
-        weight: 100.0
+        weight: 5.0
 
     trajectory_length:
         weight: 0.001

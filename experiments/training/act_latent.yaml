@@ -1,0 +1,41 @@
+defaults:
+  - base
+
+num_epochs: 100
+gradient_accumulate_every: 1
+
+optimizer:
+  target_class : "torch.optim.AdamW"
+  lr: 5.0e-5
+  weight_decay: 1e-2
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+  param_groups:
+    - name: backbone
+      lr: 1.0e-5
+      weight_decay: 1.0e-3
+      params_pattern: "encoding_pipeline.encoders.*.backbone"
+    - name: prior
+      lr: 2.0e-5
+      weight_decay: 1.0e-2
+      params_pattern: "decoder.algorithm.prior.*"
+    - name: posterior
+      lr: 5.0e-5
+      weight_decay: 2.0e-2
+      params_pattern: "decoder.algorithm.posterior_encoder.*"
+
+clip_gradient_norm: false
+clip_max_norm: 1.0
+
+lr_schedule: null
+lr_warmup_steps: 1000
+
+use_ema: false
+
+swa_lrs: null  # Set to a float (e.g., 0.05) to enable SWA
+swa_epoch_start: 0.8  # Start SWA at 80% of training
+swa_annealing_epochs: 10  # Anneal LR over 10 epochs
+
+tune_lr: false  # Automatically find optimal learning rate
+
+early_stopping_patience: 20
