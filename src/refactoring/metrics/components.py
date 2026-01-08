@@ -254,12 +254,18 @@ class GaussianEntropyLoss(BaseLoss):
         self,
         key: str = PRIOR_LOGVAR_KEY,
         weight: float = 0.01,
+        logvar_min: float = -4.0,  # σ² ≈ 0.018
+        logvar_max: float = 2.0,  # σ² ≈ 7.4
+        bound_weight: float = 1.0,
     ):
         """Initialize Gaussian entropy loss.
 
         Args:
             key: Prediction key for logvar tensor to compute entropy over.
             weight: Loss weight. Positive values encourage higher entropy.
+            logvar_min: Minimum logvar value.
+            logvar_max: Maximum logvar value.
+            bound_weight: Weight for the bound entropy loss.
         """
         super().__init__()
         if 'logvar' not in key:
@@ -268,6 +274,9 @@ class GaussianEntropyLoss(BaseLoss):
             )
         self.key = key
         self.weight = weight
+        self.logvar_min = logvar_min
+        self.logvar_max = logvar_max
+        self.bound_weight = bound_weight
 
     def get_required_keys(self) -> set[str]:
         """Returns required prediction keys."""
@@ -309,9 +318,14 @@ class GaussianEntropyLoss(BaseLoss):
                 f"Predictions must contain '{self.key}' for GaussianEntropyLoss."
             )
         logvar = predictions[self.key].float()
+        bound_violation = (
+            torch.relu(logvar - self.logvar_max).pow(2).mean()
+            + torch.relu(self.logvar_min - logvar).pow(2).mean()
+        )
         entropy = self.compute_entropy(logvar).mean()
+        total_loss = -self.weight * entropy + self.bound_weight * bound_violation
         return LossOutput(
-            total_loss=-self.weight * entropy,
+            total_loss=total_loss,
             component_losses={f"{self.key}_{MetricKey.ENTROPY.value}": entropy},
         )
 
