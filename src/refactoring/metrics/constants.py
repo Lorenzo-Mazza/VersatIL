@@ -23,6 +23,7 @@ class MetricKey(str, Enum):
     BINARY_MMD_LOSS = "binary_mmd_loss"
     LATENT_CODE_USAGE = "latent_usage_ratio"
     POSTERIOR_ENTROPY = "posterior_entropy"
+    ENTROPY = "entropy"
     SINKHORN_LOSS = "sinkhorn_loss"
     LENGTH_LOSS = "length_loss"
     SMOOTHNESS_LOSS = "smoothness_loss"

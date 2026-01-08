@@ -239,17 +239,97 @@ class GripperLoss(BaseLoss):
             )
 
 
+
+
+class GaussianEntropyLoss(BaseLoss):
+    """Entropy regularization for Gaussian distributions.
+
+    Maximizes entropy H(N(μ, σ²)) = 0.5 * sum(1 + log(2π) + logvar) to prevent
+    distribution collapse.
+
+    Since we maximize entropy, this loss contributes negatively to the total.
+    """
+
+    def __init__(
+        self,
+        key: str = PRIOR_LOGVAR_KEY,
+        weight: float = 0.01,
+    ):
+        """Initialize Gaussian entropy loss.
+
+        Args:
+            key: Prediction key for logvar tensor to compute entropy over.
+            weight: Loss weight. Positive values encourage higher entropy.
+        """
+        super().__init__()
+        if 'logvar' not in key:
+            raise ValueError(
+                f"GaussianEntropyLoss expects a logvar key, got '{key}'."
+            )
+        self.key = key
+        self.weight = weight
+
+    def get_required_keys(self) -> set[str]:
+        """Returns required prediction keys."""
+        return {self.key}
+
+    @staticmethod
+    def compute_entropy(logvar: torch.Tensor) -> torch.Tensor:
+        """Compute entropy of a diagonal Gaussian.
+
+        H(N(μ, σ²)) = 0.5 * sum(1 + log(2π) + logvar)
+
+        Args:
+            logvar: Log variance tensor (..., latent_dim).
+
+        Returns:
+            Entropy summed over latent dimensions, shape (...).
+        """
+        return 0.5 * (1 + math.log(2 * math.pi) + logvar).sum(dim=-1)
+
+
+    def forward(
+        self,
+        predictions: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        is_pad: torch.Tensor | None = None,
+    ) -> LossOutput:
+        """Compute negative entropy loss (to maximize entropy via minimization).
+
+        Args:
+            predictions: Must contain the logvar key.
+            targets: Unused.
+            is_pad: Unused.
+
+        Returns:
+            LossOutput with negative weighted entropy.
+        """
+        if self.key not in predictions:
+            raise ValueError(
+                f"Predictions must contain '{self.key}' for GaussianEntropyLoss."
+            )
+        logvar = predictions[self.key].float()
+        entropy = self.compute_entropy(logvar).mean()
+        return LossOutput(
+            total_loss=-self.weight * entropy,
+            component_losses={f"{self.key}_{MetricKey.ENTROPY.value}": entropy},
+        )
+
+
+
 class KLDivergenceLoss(BaseLoss):
     """KL divergence loss for VAE latent distributions."""
 
-    def __init__(self, weight: float = 10.0):
+    def __init__(self, weight: float = 10.0, prior_entropy_weight: float = 0.0):
         """Initialize KL divergence loss.
 
         Args:
             weight: Weight for KL divergence loss
+            prior_entropy_weight: Weight for prior entropy regularization
         """
         super().__init__()
         self.weight = weight
+        self.prior_entropy_weight = prior_entropy_weight
 
     def get_required_keys(self) -> set[str]:
         """Get required keys for KL divergence loss.

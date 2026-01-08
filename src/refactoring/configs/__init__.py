@@ -86,6 +86,7 @@ from refactoring.configs.loss import (
     ActionReconstructionLossConfig,
     RegressionLossConfig,
     BaseLossConfig,
+    GaussianEntropyLossConfig,
     GripperLossConfig,
     KLDivergenceLossConfig,
     BinaryKLDivergenceLossConfig,
@@ -420,6 +421,7 @@ def register_configs():
     cs.store(group="policy/loss", name="regression", node=RegressionLossConfig)
     cs.store(group="policy/loss", name="base", node=BaseLossConfig)
     cs.store(group="policy/loss", name="gripper", node=GripperLossConfig)
+    cs.store(group="policy/loss", name="entropy", node=GaussianEntropyLossConfig)
     cs.store(group="policy/loss", name="kl", node=KLDivergenceLossConfig)
     cs.store(group="policy/loss", name="mmd", node=MaximumMeanDiscrepancyLossConfig)
     cs.store(

@@ -51,6 +51,15 @@ class KLDivergenceLossConfig(BaseLossConfig):
 
 
 @dataclass
+class GaussianEntropyLossConfig(BaseLossConfig):
+    """Configuration for entropy loss."""
+
+    _target_: str = "refactoring.metrics.GaussianEntropyLoss"
+    key: str = MISSING
+    weight: float = 0.0
+
+
+@dataclass
 class BinaryKLDivergenceLossConfig(BaseLossConfig):
     """Configuration for binary KL divergence loss (Free Transformer)."""
 
