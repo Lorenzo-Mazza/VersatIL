@@ -209,16 +209,68 @@ class MetricsAccumulator:
 
         return z, z_prior, phase_per_sample
 
+    def compute_latent_statistics(self) -> dict[str, float]:
+        """Compute scalar statistics from latent distribution metadata.
+
+        Computes mean and std of mu, logvar, and z for both posterior and prior
+        distributions when available. Useful for monitoring training stability
+        and distribution behavior.
+
+        Returns:
+            Dictionary with scalar statistics for latent distributions.
+        """
+        stats: dict[str, float] = {}
+        if MetadataKey.POSTERIOR_MU.value in self.metadata:
+            all_mu = torch.cat(self.metadata[MetadataKey.POSTERIOR_MU.value], dim=0)
+            stats["posterior_mu_mean"] = float(all_mu.mean().item())
+            stats["posterior_mu_std"] = float(all_mu.std().item())
+
+        if MetadataKey.POSTERIOR_LOGVAR.value in self.metadata:
+            all_logvar = torch.cat(
+                self.metadata[MetadataKey.POSTERIOR_LOGVAR.value], dim=0
+            )
+            stats["posterior_logvar_mean"] = float(all_logvar.mean().item())
+            stats["posterior_logvar_std"] = float(all_logvar.std().item())
+            all_std = (0.5 * all_logvar).exp()
+            stats["posterior_std_mean"] = float(all_std.mean().item())
+
+        if MetadataKey.POSTERIOR_Z.value in self.metadata:
+            all_z = torch.cat(self.metadata[MetadataKey.POSTERIOR_Z.value], dim=0)
+            stats["posterior_z_mean"] = float(all_z.float().mean().item())
+            stats["posterior_z_std"] = float(all_z.float().std().item())
+
+        if MetadataKey.PRIOR_MU.value in self.metadata:
+            all_mu = torch.cat(self.metadata[MetadataKey.PRIOR_MU.value], dim=0)
+            stats["prior_mu_mean"] = float(all_mu.mean().item())
+            stats["prior_mu_std"] = float(all_mu.std().item())
+
+        if MetadataKey.PRIOR_LOGVAR.value in self.metadata:
+            all_logvar = torch.cat(self.metadata[MetadataKey.PRIOR_LOGVAR.value], dim=0)
+            stats["prior_logvar_mean"] = float(all_logvar.mean().item())
+            stats["prior_logvar_std"] = float(all_logvar.std().item())
+            all_std = (0.5 * all_logvar).exp()
+            stats["prior_std_mean"] = float(all_std.mean().item())
+
+        if MetadataKey.PRIOR_Z.value in self.metadata:
+            all_z = torch.cat(self.metadata[MetadataKey.PRIOR_Z.value], dim=0)
+            stats["prior_z_mean"] = float(all_z.float().mean().item())
+            stats["prior_z_std"] = float(all_z.float().std().item())
+
+        return stats
+
     def to_dict(self) -> dict[str, float]:
         """Convert to dictionary of averaged metrics.
 
         Returns:
-            Dictionary of metric values including optional phase metrics
+            Dictionary of metric values including optional phase and latent metrics
         """
         metrics = self.average()
         phase_metrics = self.compute_phase_metrics()
         if phase_metrics:
             metrics.update(phase_metrics)
+        latent_stats = self.compute_latent_statistics()
+        if latent_stats:
+            metrics.update(latent_stats)
         return metrics
 
     def reset(self):

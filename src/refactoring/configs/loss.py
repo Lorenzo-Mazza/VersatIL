@@ -48,6 +48,7 @@ class KLDivergenceLossConfig(BaseLossConfig):
 
     _target_: str = "refactoring.metrics.KLDivergenceLoss"
     weight: float = 0.0001
+    prior_regularization_weight: float = 0.0
 
 
 @dataclass
@@ -76,6 +77,7 @@ class MaximumMeanDiscrepancyLossConfig(BaseLossConfig):
 
     _target_: str = "refactoring.metrics.MaximumMeanDiscrepancyLoss"
     weight: float = 1.0
+    prior_regularization_weight: float = 0.0
 
 
 @dataclass

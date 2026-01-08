@@ -334,16 +334,25 @@ class GaussianEntropyLoss(BaseLoss):
 class KLDivergenceLoss(BaseLoss):
     """KL divergence loss for VAE latent distributions."""
 
-    def __init__(self, weight: float = 10.0, prior_entropy_weight: float = 0.0):
+    def __init__(
+        self,
+        weight: float = 10.0,
+        prior_entropy_weight: float = 0.0,
+        prior_regularization_weight: float = 0.0,
+    ):
         """Initialize KL divergence loss.
 
         Args:
-            weight: Weight for KL divergence loss
+            weight: Weight for KL divergence loss KL(posterior || prior)
             prior_entropy_weight: Weight for prior entropy regularization
+            prior_regularization_weight: Weight for KL(prior || N(0,I)) regularization.
+                Only meaningful for learned priors. Pushes the learned prior towards
+                a standard Gaussian.
         """
         super().__init__()
         self.weight = weight
         self.prior_entropy_weight = prior_entropy_weight
+        self.prior_regularization_weight = prior_regularization_weight
 
     def get_required_keys(self) -> set[str]:
         """Get required keys for KL divergence loss.
@@ -396,6 +405,17 @@ class KLDivergenceLoss(BaseLoss):
             print(f"per_dim_kl: min={kld.min().item():.4f}, max={kld.max().item():.4f}")
         kld = torch.clamp(kld, min=0.0)
         kld_mean = kld.mean()
+        component_losses = {MetricKey.KL_DIVERGENCE.value: kld_mean}
+        total_loss = self.weight * kld_mean
+        if self.prior_regularization_weight > 0.0:
+            # KL(N(μ, σ²) || N(0, I)) = 0.5 * sum(μ² + σ² - log(σ²) - 1)
+            prior_kl = 0.5 * (
+                mu_prior.pow(2) + logvar_prior.exp() - logvar_prior - 1
+            ).sum(dim=-1)
+            prior_kl_mean = prior_kl.mean()
+            component_losses[MetricKey.HYPERPRIOR_KL_REGULARIZATION.value] = prior_kl_mean
+            total_loss = total_loss + self.prior_regularization_weight * prior_kl_mean
+
         metadata = {
             MetadataKey.POSTERIOR_Z.value: predictions[LATENT_KEY],
             MetadataKey.POSTERIOR_MU.value: mu_posterior,
@@ -406,8 +426,8 @@ class KLDivergenceLoss(BaseLoss):
         }
 
         return LossOutput(
-            total_loss=self.weight * kld_mean,
-            component_losses={MetricKey.KL_DIVERGENCE.value: kld_mean},
+            total_loss=total_loss,
+            component_losses=component_losses,
             metadata=metadata,
         )
 
@@ -545,14 +565,19 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
     def __init__(
         self,
         weight: float = 1.0,
+        prior_regularization_weight: float = 0.0,
     ):
         """Initialize MMD loss.
 
         Args:
-            weight: Loss weight.
+            weight: Loss weight for MMD(posterior, prior).
+            prior_regularization_weight: Weight for MMD(prior, N(0,I)) regularization.
+                Only meaningful for learned priors. Pushes the learned prior towards
+                a standard Gaussian.
         """
         super().__init__()
         self.weight = weight
+        self.prior_regularization_weight = prior_regularization_weight
 
     def get_required_keys(self) -> set[str]:
         """Returns required prediction keys."""
@@ -613,6 +638,19 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         k_zp = self._compute_kernel(z_posterior, z_prior)
         # MMD² = E[k(z,z')] + E[k(p,p')] - 2E[k(z,p)]
         mmd = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
+
+        component_losses = {MetricKey.MMD_LOSS.value: mmd}
+        total_loss = self.weight * mmd
+
+        if self.prior_regularization_weight > 0.0:
+            z_standard = torch.randn_like(z_prior)  # Samples from N(0, I)
+            k_pp_standard = self._compute_kernel(z_prior, z_prior)
+            k_ss = self._compute_kernel(z_standard, z_standard)
+            k_ps = self._compute_kernel(z_prior, z_standard)
+            prior_mmd = k_pp_standard.mean() + k_ss.mean() - 2 * k_ps.mean()
+            component_losses[MetricKey.HYPERPRIOR_MMD_REGULARIZATION.value] = prior_mmd
+            total_loss = total_loss + self.prior_regularization_weight * prior_mmd
+
         metadata = {
             MetadataKey.POSTERIOR_Z.value: z_posterior,
             MetadataKey.POSTERIOR_MU.value: predictions[MU_KEY],
@@ -623,8 +661,8 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         }
 
         return LossOutput(
-            total_loss=self.weight * mmd,
-            component_losses={MetricKey.MMD_LOSS.value: mmd},
+            total_loss=total_loss,
+            component_losses=component_losses,
             metadata=metadata,
         )
 

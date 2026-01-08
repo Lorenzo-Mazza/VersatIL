@@ -46,6 +46,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         normalize_before: bool = False,
         use_proprioceptive: bool = False,
         exclude_keys: list[str] = None,
+        learn_variance: bool = True,
     ):
         super().__init__(
             latent_dimension=latent_dimension,
@@ -68,6 +69,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         self.prediction_horizon = prediction_horizon
         self.observation_horizon = observation_horizon
         self.device = device
+        self.learn_variance = learn_variance
         self.encoder = TransformerEncoder(
             encoder_layer=TransformerEncoderLayer(
                 embedding_dimension=self.embedding_dimension,
@@ -102,10 +104,10 @@ class PriorTransformerEncoder(PriorLatentEncoder):
             ),
         )
         self.cls_token = nn.Embedding(1, self.embedding_dimension)  # CLS input token
+        output_dim = self.latent_dimension * 2 if self.learn_variance else self.latent_dimension
         self.latent_stats_projection = nn.Linear(
             self.embedding_dimension,
-            self.latent_dimension
-            * 2,  # Latent gaussian distribution parameters: mu and logvar
+            output_dim,
         )
         self.to(device)
 
@@ -143,10 +145,12 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         )[
             :, -1, :
         ]  # (B, CLS_TOKEN only, embedding_dim)
-        latent_stats = self.latent_stats_projection(
-            encoder_output
-        )  # (B, latent_dim * 2)
-        mu, logvar = latent_stats.chunk(2, dim=1)  # Each (B, latent_dim)
+        latent_stats = self.latent_stats_projection(encoder_output)
+        if self.learn_variance:
+            mu, logvar = latent_stats.chunk(2, dim=1)  # Each (B, latent_dim)
+        else:
+            mu = latent_stats  # (B, latent_dim)
+            logvar = torch.zeros_like(mu)  # Fixed logvar = 0.0 (std = 1.0)
         z = reparametrize(
             mu, logvar
         )  # Sample using reparametrization trick (B, latent_dim)

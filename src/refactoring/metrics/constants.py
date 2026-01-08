@@ -40,6 +40,8 @@ class MetricKey(str, Enum):
     ACTION_NLL = "action_negative_log_likelihood"
     GRIPPER_NLL = "gripper_negative_log_likelihood"
     EXPERTS_ENTROPY = "experts_entropy"
+    HYPERPRIOR_KL_REGULARIZATION = "hyperprior_kl_regularization"
+    HYPERPRIOR_MMD_REGULARIZATION = "hyperprior_mmd_regularization"
 
 
 class LossModuleName(str, Enum):

@@ -80,6 +80,7 @@ class PriorTransformerEncoderConfig(PriorLatentEncoderConfig):
     dropout_rate: float = 0.1
     normalize_before: bool = False
     exclude_keys: list[str] | None = None
+    learn_variance: bool = True
 
 
 @dataclass
