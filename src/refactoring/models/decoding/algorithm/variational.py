@@ -133,11 +133,16 @@ class VariationalAlgorithm(DecodingAlgorithm):
     ) -> dict[str, torch.Tensor]:
         """Forward pass with variational latent encoding.
 
-        Training mode (actions provided):
+        Training mode (self.training=True):
             - Encodes actions via approximated posterior q_phi(z|a,s)
             - Trains learned prior to match approximated posterior (if learned)
-            - Augments features with latent z, sampled from the approximated posterior
+            - Stochastic mixing: samples from prior with probability p_prior
             - Delegates to base algorithm
+
+        Validation/eval mode (self.training=False):
+            - Still encodes posterior for loss computation (KL term)
+            - But uses ONLY prior samples for action decoding (like inference)
+            - Better evaluates actual inference performance
 
         Args:
             network: Action decoder network
@@ -158,11 +163,14 @@ class VariationalAlgorithm(DecodingAlgorithm):
             features=features,
             actions=actions,
         )
-        use_prior = torch.rand(1).item() < self.p_prior
-        if use_prior:
-            latent = prior_output[PRIOR_LATENT_KEY]
+        if self.training:
+            sample_from_prior = torch.rand(1).item() < self.p_prior
+            if sample_from_prior:
+                latent = prior_output[PRIOR_LATENT_KEY]
+            else:
+                latent = posterior_output[LATENT_KEY]
         else:
-            latent = posterior_output[LATENT_KEY]
+            latent = prior_output[PRIOR_LATENT_KEY]
         features_with_latent = {**features, LATENT_KEY: latent}  # (B, latent_dimension)
         predictions = self.base_algorithm.forward(
             network=network,
