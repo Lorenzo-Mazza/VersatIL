@@ -205,7 +205,7 @@ class ExpertUsageCallback(Callback):
                     wandb_image = _figure_to_wandb_image(fig)
                     trainer.logger.log_metrics(
                         {f"train_{key}": wandb_image},  # type: ignore[dict-item]
-                        step=trainer.global_step,
+                        step=trainer.current_epoch,
                     )
                 plt.close(fig)
 
@@ -228,7 +228,7 @@ class ExpertUsageCallback(Callback):
                     wandb_image = _figure_to_wandb_image(fig)
                     trainer.logger.log_metrics(
                         {f"val_{key}": wandb_image},  # type: ignore[dict-item]
-                        step=trainer.global_step,
+                        step=trainer.current_epoch,
                     )
                 plt.close(fig)
 
@@ -291,7 +291,7 @@ class ConfusionMatrixCallback(Callback):
                 wandb_image = _figure_to_wandb_image(fig)
                 trainer.logger.log_metrics(
                     {"train_phase_confusion_matrix": wandb_image},  # type: ignore[dict-item]
-                    step=trainer.global_step,
+                    step=trainer.current_epoch,
                 )
             plt.close(fig)
 
@@ -314,7 +314,7 @@ class ConfusionMatrixCallback(Callback):
                 wandb_image = _figure_to_wandb_image(fig)
                 trainer.logger.log_metrics(
                     {"val_phase_confusion_matrix": wandb_image},  # type: ignore[dict-item]
-                    step=trainer.global_step,
+                    step=trainer.current_epoch,
                 )
             plt.close(fig)
 
@@ -603,7 +603,7 @@ class LatentVisualizationCallback(Callback):
                     "posterior_latent_space_analysis": wandb_posterior_image,
                     "prior_latent_space_analysis": wandb_prior_image,
                 },
-                step=trainer.global_step,
+                step=trainer.current_epoch,
             )
         plt.close(posterior_fig)
         plt.close(prior_fig)

@@ -34,6 +34,7 @@ from refactoring.models.decoding.algorithm import VariationalAlgorithm
 from refactoring.models.decoding.decoders.factory.free_transformer import (
     FreeTransformerDecoder,
 )
+from refactoring.models.decoding.decoders.factory.phase_act import PhaseACT
 from refactoring.models.policy import Policy
 from refactoring.training.callbacks import (
     ConfusionMatrixCallback,
@@ -256,9 +257,10 @@ class Workspace:
             save_last=False,
             verbose=True,
             auto_insert_metric_name=False,
+            every_n_epochs=20,
         )
         callbacks.append(checkpoint_callback_best)
-        logging.info("Added ModelCheckpoint callback (top-k=3)")
+        logging.info(f"Added ModelCheckpoint callback (top-k=3, every 20 epochs)")
 
         checkpoint_callback_latest = ModelCheckpoint(
             dirpath=self.output_dir,
@@ -307,7 +309,7 @@ class Workspace:
                 f"start_epoch={swa_epoch_start}, annealing_epochs={self.config.training.swa_annealing_epochs})"
             )
 
-        if self.config.task.action_space.task_has_phases:
+        if isinstance(self.policy.decoder, PhaseACT):
             cm_callback = ConfusionMatrixCallback(
                 log_every_n_epochs=self.config.experiment.val_every,
             )
@@ -368,6 +370,8 @@ class Workspace:
         wandb_logger.log_hyperparams(
             OmegaConf.to_container(self.original_yaml_config, resolve=True)
         )
+        wandb.define_metric("epoch")
+        wandb.define_metric("*", step_metric="epoch")
         logging.info(f"WandB logger created for experiment: {self.exp_name}")
         return wandb_logger
 
