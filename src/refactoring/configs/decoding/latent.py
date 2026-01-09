@@ -45,8 +45,9 @@ class VAETransformerEncoderConfig(PosteriorLatentEncoderConfig):
     dropout_rate: float = 0.1
     normalize_before: bool = False
     exclude_keys: list[str] | None = None
-
-
+    min_logvar: float | None = None  
+    
+    
 @dataclass
 class GaussianPriorConfig(PriorLatentEncoderConfig):
     """Standard Gaussian N(0, I) prior configuration.
@@ -81,6 +82,7 @@ class PriorTransformerEncoderConfig(PriorLatentEncoderConfig):
     normalize_before: bool = False
     exclude_keys: list[str] | None = None
     learn_variance: bool = True
+    min_logvar: float | None = None
 
 
 @dataclass

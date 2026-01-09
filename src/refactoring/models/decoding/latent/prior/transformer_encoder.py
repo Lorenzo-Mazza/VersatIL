@@ -47,12 +47,14 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         use_proprioceptive: bool = False,
         exclude_keys: list[str] = None,
         learn_variance: bool = True,
+        min_logvar: float | None = None,
     ):
         super().__init__(
             latent_dimension=latent_dimension,
             device=device,
         )
         self.exclude_keys = exclude_keys if exclude_keys is not None else []
+        self.min_logvar = min_logvar
         self.embedding_dimension = embedding_dimension
         self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
@@ -151,6 +153,8 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         else:
             mu = latent_stats  # (B, latent_dim)
             logvar = torch.zeros_like(mu)  # Fixed logvar = 0.0 (std = 1.0)
+        if self.min_logvar is not None:
+            logvar = torch.clamp(logvar, min=self.min_logvar)
         z = reparametrize(
             mu, logvar
         )  # Sample using reparametrization trick (B, latent_dim)

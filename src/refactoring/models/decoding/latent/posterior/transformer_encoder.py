@@ -66,6 +66,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         normalize_before: bool = False,
         use_proprioceptive: bool = False,
         exclude_keys: list[str] = None,
+        min_logvar: float | None = None,
     ):
         """Initialize VAE latent action encoder.
 
@@ -83,12 +84,15 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             normalize_before: Use pre-normalization
             use_proprioceptive: Whether to condition on proprioceptive observations
             exclude_keys: List of keys to exclude from encoding
+            min_logvar: Minimum log variance for avoiding variance collapse
+
         """
         super().__init__(
             latent_dimension=latent_dimension,
             device=device,
         )
         self.exclude_keys = exclude_keys if exclude_keys is not None else []
+        self.min_logvar = min_logvar
         self.embedding_dimension = embedding_dimension
         self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
@@ -208,6 +212,8 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             encoder_output
         )  # (B, latent_dim * 2)
         mu, logvar = latent_stats.chunk(2, dim=1)  # Each (B, latent_dim)
+        if self.min_logvar is not None:
+            logvar = torch.clamp(logvar, min=self.min_logvar)
         z = reparametrize(
             mu, logvar
         )  # Sample using reparametrization trick (B, latent_dim)
