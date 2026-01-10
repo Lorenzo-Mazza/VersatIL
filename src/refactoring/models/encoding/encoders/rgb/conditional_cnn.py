@@ -2,6 +2,7 @@
 import timm
 import torch
 import torch.nn as nn
+from timm.layers import freeze_batch_norm_2d
 
 from refactoring.data.constants import Cameras, RGB_CAMERAS
 from refactoring.models.encoding.encoders.base import EncoderInput, EncoderOutput
@@ -10,6 +11,7 @@ from refactoring.models.encoding.encoders.constants import (
     EncoderOutputKeys,
     PoolingMethod,
     RGBBackboneType,
+    BatchNormHandling
 )
 from refactoring.models.layers.convert_layers import replace_batchnorm_with_groupnorm
 from refactoring.models.layers.modulation.film_residual_block import FiLMedResBlock
@@ -31,15 +33,15 @@ class ConditionalCNNEncoder(ConditionalEncoder):
     }
 
     def __init__(
-        self,
-        input_keys: str | list[str],
-        condition_key: str,
-        condition_dim: int,
-        backbone: str = RGBBackboneType.RESNET18.value,
-        pooling_method: str = PoolingMethod.SPATIAL_SOFTMAX.value,
-        use_group_norm: bool = True,
-        pretrained: bool = False,
-        frozen: bool = False,
+            self,
+            input_keys: str | list[str],
+            condition_key: str,
+            condition_dim: int,
+            backbone: str = RGBBackboneType.RESNET18.value,
+            pooling_method: str = PoolingMethod.SPATIAL_SOFTMAX.value,
+            batch_norm_handling: str = BatchNormHandling.FROZEN.value,
+            pretrained: bool = False,
+            frozen: bool = False,
     ):
         specification = EncoderInput(
             keys=input_keys, one_of_groups=[RGB_CAMERAS], conditioning_key=condition_key
@@ -49,7 +51,7 @@ class ConditionalCNNEncoder(ConditionalEncoder):
         )
         self.condition_key = condition_key
         self.condition_dim = condition_dim
-        self.use_group_norm = use_group_norm
+        self.batch_norm_handling = batch_norm_handling
         self.backbone_name = backbone
         self.pooling_method = pooling_method
 
@@ -76,26 +78,36 @@ class ConditionalCNNEncoder(ConditionalEncoder):
         self.bn1 = base_model.bn1
         self.relu = base_model.act1
         self.maxpool = base_model.maxpool
-
-        if self.use_group_norm:
-            num_channels = self.bn1.num_features
-            num_groups = num_channels // 16
-            self.bn1 = nn.GroupNorm(num_groups, num_channels)
-
         self.in_channels = 64
         self.layer1 = self._make_filmed_layer(64, config["layers"][0], stride=1)
         self.layer2 = self._make_filmed_layer(128, config["layers"][1], stride=2)
         self.layer3 = self._make_filmed_layer(256, config["layers"][2], stride=2)
         self.layer4 = self._make_filmed_layer(512, config["layers"][3], stride=2)
-
-        if self.use_group_norm:
-            self.layer1 = replace_batchnorm_with_groupnorm(self.layer1)
-            self.layer2 = replace_batchnorm_with_groupnorm(self.layer2)
-            self.layer3 = replace_batchnorm_with_groupnorm(self.layer3)
-            self.layer4 = replace_batchnorm_with_groupnorm(self.layer4)
-
         if self.pretrained:
             self._copy_pretrained_weights(base_model)
+        self._apply_batch_norm_handling()
+
+
+    def _apply_batch_norm_handling(self) -> None:
+        """Apply BatchNorm handling strategy to all layers."""
+        match self.batch_norm_handling:
+            case BatchNormHandling.FROZEN.value:
+                freeze_batch_norm_2d(self.bn1)
+                for layer in [self.layer1, self.layer2, self.layer3, self.layer4]:
+                    for block in layer:
+                        block.apply(lambda m: freeze_batch_norm_2d(m) or None)
+            case BatchNormHandling.CONVERT_TO_GROUPNORM.value:
+                num_channels = self.bn1.num_features
+                self.bn1 = nn.GroupNorm(num_channels // 16, num_channels)
+                self.layer1 = replace_batchnorm_with_groupnorm(self.layer1)
+                self.layer2 = replace_batchnorm_with_groupnorm(self.layer2)
+                self.layer3 = replace_batchnorm_with_groupnorm(self.layer3)
+                self.layer4 = replace_batchnorm_with_groupnorm(self.layer4)
+            case BatchNormHandling.DEFAULT.value:
+                pass
+            case _:
+                raise ValueError(f"Unknown batch norm handling: {self.batch_norm_handling}")
+
 
     def _make_filmed_layer(
         self, out_channels: int, num_blocks: int, stride: int

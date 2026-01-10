@@ -5,6 +5,7 @@ from omegaconf import MISSING
 from refactoring.configs import EncoderConfig
 from refactoring.models.encoding.encoders.constants import (
     PoolingMethod,
+    BatchNormHandling
 )
 
 
@@ -22,7 +23,7 @@ class CNNEncoderConfig(ImageEncoderConfig):
 
     _target_: str = "refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder"
     pooling_method: str = PoolingMethod.NONE.value
-    use_group_norm: bool = True
+    batch_norm_handling: str = BatchNormHandling.FROZEN.value
 
 
 @dataclass
@@ -32,7 +33,8 @@ class ConditionalCNNEncoderConfig(CNNEncoderConfig):
     )
     condition_key: str = MISSING
     condition_dim: int = MISSING
-
+    pooling_method: str = PoolingMethod.NONE.value
+    batch_norm_handling: str = BatchNormHandling.FROZEN.value
 
 @dataclass
 class ViTEncoderConfig(ImageEncoderConfig):

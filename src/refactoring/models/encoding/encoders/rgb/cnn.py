@@ -1,4 +1,5 @@
 import torch
+from timm.layers import freeze_batch_norm_2d
 from transformers import TimmBackbone, TimmBackboneConfig
 from transformers.modeling_outputs import BackboneOutput
 
@@ -8,6 +9,7 @@ from refactoring.models.encoding.encoders.constants import (
     EncoderOutputKeys,
     PoolingMethod,
     RGBBackboneType,
+    BatchNormHandling
 )
 from refactoring.models.encoding.encoders.unconditional import Encoder
 from refactoring.models.layers.convert_layers import replace_batchnorm_with_groupnorm
@@ -18,13 +20,13 @@ class CNNEncoder(Encoder):
     """Convolutional Neural Network encoder supporting multiple backbones via TIMM."""
 
     def __init__(
-        self,
-        input_keys: str | list[str],
-        backbone: str = RGBBackboneType.RESNET18.value,
-        pooling_method: str = PoolingMethod.AVERAGE.value,
-        use_group_norm: bool = True,
-        pretrained: bool = False,
-        frozen: bool = False,
+            self,
+            input_keys: str | list[str],
+            backbone: str = RGBBackboneType.RESNET18.value,
+            pooling_method: str = PoolingMethod.AVERAGE.value,
+            batch_norm_handling: str = BatchNormHandling.FROZEN.value,
+            pretrained: bool = False,
+            frozen: bool = False,
     ):
         specification = EncoderInput(keys=input_keys, one_of_groups=[RGB_CAMERAS])
         super().__init__(
@@ -36,7 +38,7 @@ class CNNEncoder(Encoder):
             raise ValueError(
                 f"Invalid backbone '{backbone}'. Must be one of: {valid_backbones}"
             )
-        self.use_group_norm = use_group_norm
+        self.batch_norm_handling = batch_norm_handling
         self.pooling_method = pooling_method
         self.backbone_name = backbone
         self._build_backbone()
@@ -53,8 +55,15 @@ class CNNEncoder(Encoder):
             features_only=True,
         )
         self.backbone = TimmBackbone(config=backbone_config)
-        if self.use_group_norm:
-            self.backbone = replace_batchnorm_with_groupnorm(self.backbone)  # type: ignore[assignment]
+        match self.batch_norm_handling:
+            case BatchNormHandling.FROZEN.value:
+                self.backbone.apply(freeze_batch_norm_2d)  # type: ignore[arg-type]
+            case BatchNormHandling.CONVERT_TO_GROUPNORM.value:
+                self.backbone = replace_batchnorm_with_groupnorm(self.backbone)
+            case BatchNormHandling.DEFAULT.value:
+                pass  # keep as-is
+            case _:
+                raise ValueError(f"Unknown batch norm handling: {self.batch_norm_handling}")
 
     def _setup_pooling(self):
         """Setup mock pooling head. The actual pooling head will be created in forward()."""

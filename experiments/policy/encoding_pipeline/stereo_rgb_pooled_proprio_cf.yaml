@@ -11,7 +11,7 @@ encoders:
     pretrained: false
     frozen: false
     pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
-    use_group_norm: true
+    batch_norm_handling: ${batch_norm_handling:FROZEN}
 
   right: # Output features will be accessible via "right_rgb"
     _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
@@ -20,7 +20,7 @@ encoders:
     pretrained: false
     frozen: false
     pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
-    use_group_norm: true
+    batch_norm_handling: ${batch_norm_handling:FROZEN}
 
   camera_frame: # Output features will be accessible via "camera_frame_proprio"
     _target_: refactoring.models.encoding.encoders.proprioceptive.base.ProprioceptiveEncoder

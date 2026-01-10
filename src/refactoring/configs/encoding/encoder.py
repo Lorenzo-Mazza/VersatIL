@@ -7,6 +7,7 @@ from refactoring.data.constants import Cameras
 from refactoring.models.encoding.encoders.constants import (
     LanguageEncoderType,
     PoolingMethod,
+    BatchNormHandling
 )
 from refactoring.models.layers.activation import ActivationFunction
 
@@ -27,7 +28,7 @@ class DepthCNNEncoderConfig(EncoderConfig):
 
     _target_: str = "refactoring.models.encoding.encoders.depth.cnn.DepthCNNEncoder"
     backbone: str = MISSING
-    use_group_norm: bool = True
+    batch_norm_handling: str = BatchNormHandling.FROZEN.value
     image_height: int = MISSING
     image_width: int = MISSING
     pooling_method: str = PoolingMethod.NONE.value

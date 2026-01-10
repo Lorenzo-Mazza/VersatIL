@@ -140,6 +140,7 @@ from refactoring.models.encoding.encoders.constants import (
     RGBBackboneType,
     PoolingMethod,
     LanguageEncoderType,
+    BatchNormHandling
 )
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
@@ -216,6 +217,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("rgb_backbone"):
         OmegaConf.register_new_resolver(
             "rgb_backbone", lambda name: RGBBackboneType[name].value
+        )
+    if not OmegaConf.has_resolver("batch_norm_handling"):
+        OmegaConf.register_new_resolver(
+            "batch_norm_handling", lambda name: BatchNormHandling[name].value
         )
     if not OmegaConf.has_resolver("precision"):
         OmegaConf.register_new_resolver(

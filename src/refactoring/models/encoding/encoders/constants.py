@@ -51,6 +51,18 @@ class PoolingMethod(str, enum.Enum):
     NONE = "none"  # Return full spatial features or last hidden state tokens without pooling
 
 
+class BatchNormHandling(str, enum.Enum):
+    """How to handle BatchNorm layers in CNN backbones.
+
+    BatchNorm is problematic for temporal data: when reshaping (B,T,C,H,W) to (B*T,C,H,W),
+    batch statistics mix frames across time, leaking future information into each frame's
+    representation. This causes train/test mismatch since the signal vanishes at inference.
+    """
+    DEFAULT = "default"  # Keep BatchNorm as-is.
+    FROZEN = "frozen"  # Freeze BN: preserves pretrained stats, no batch dependency
+    CONVERT_TO_GROUPNORM = "groupnorm"  # Replace with GroupNorm (per-sample stats, but loses pretrained weights benefits)
+
+
 class LanguageEncoderType(str, enum.Enum):
     """Available language encoders."""
 
