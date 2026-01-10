@@ -19,7 +19,7 @@ loss_modules:
       bce_weight: 0.05
 
     kl_divergence:
-        weight: 5.0
+        weight: 100.0
 
     trajectory_length:
         weight: 0.001
