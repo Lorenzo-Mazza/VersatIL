@@ -603,12 +603,10 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         Returns:
             Kernel matrix (N, M).
         """
-        dim = x.size(1)
         x = x.unsqueeze(1)  # (N, 1, D)
         y = y.unsqueeze(0)  # (1, M, D)
-        # Mean squared difference, normalized by dim
         mean_sq_diff = (x - y).pow(2).mean(dim=2)  # (N, M)
-        return torch.exp(-mean_sq_diff / dim)
+        return torch.exp(-mean_sq_diff)
 
     def forward(
         self,
@@ -708,7 +706,7 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
         y = y.unsqueeze(0)  # (1, M, D)
         # Mean squared difference, normalized by dim
         mean_sq_diff = (x - y).pow(2).mean(dim=2)  # (N, M)
-        return torch.exp(-mean_sq_diff / dim)
+        return torch.exp(-mean_sq_diff)
 
     def forward(
         self,
