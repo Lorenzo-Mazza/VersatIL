@@ -1,5 +1,6 @@
 defaults:
   - posterior/transformerencoder@posterior_encoder
+  - prior/vamp@prior
   - variational
 
 _target_: refactoring.models.decoding.algorithm.variational.VariationalAlgorithm
