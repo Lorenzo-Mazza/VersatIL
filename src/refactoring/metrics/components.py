@@ -566,6 +566,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         self,
         weight: float = 1.0,
         prior_regularization_weight: float = 0.0,
+        kernel_bandwidths: list[float] | None = None,
     ):
         """Initialize MMD loss.
 
@@ -574,10 +575,14 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             prior_regularization_weight: Weight for MMD(prior, N(0,I)) regularization.
                 Only meaningful for learned priors. Pushes the learned prior towards
                 a standard Gaussian.
+            kernel_bandwidths: Optional list of bandwidths for multi-scale RBF kernel.
         """
         super().__init__()
         self.weight = weight
         self.prior_regularization_weight = prior_regularization_weight
+        if kernel_bandwidths is None:
+            kernel_bandwidths = [0.1, 1.0, 10.0]
+        self.kernel_bandwidths = kernel_bandwidths
 
     def get_required_keys(self) -> set[str]:
         """Returns required prediction keys."""
@@ -591,7 +596,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         }
 
     def _compute_kernel(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """Compute RBF kernel with dimension-normalized bandwidth.
+        """Compute Multi-Scale RBF kernel with Median Heuristic.
 
         Uses implicit bandwidth σ² ∝ dim for scale invariance across
         different latent dimensionalities.
@@ -603,10 +608,24 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         Returns:
             Kernel matrix (N, M).
         """
-        x = x.unsqueeze(1)  # (N, 1, D)
-        y = y.unsqueeze(0)  # (1, M, D)
-        mean_sq_diff = (x - y).pow(2).mean(dim=2)  # (N, M)
-        return torch.exp(-mean_sq_diff)
+        if x.dim() > 2:
+            x = x.reshape(-1, x.size(-1))
+        if y.dim() > 2:
+            y = y.reshape(-1, y.size(-1))
+        x_norm = (x ** 2).sum(1).view(-1, 1)
+        y_norm = (y ** 2).sum(1).view(1, -1)
+        dist_sq = x_norm + y_norm - 2.0 * torch.mm(x, y.t())
+        dist_sq = torch.clamp(dist_sq, min=1e-6)
+        # We want sigma^2 to be the median squared distance in the combined batch.
+        median_dist = torch.median(dist_sq.detach())
+        sigma_sq = median_dist
+        if sigma_sq < 1e-6:
+            sigma_sq = torch.tensor(1.0, device=x.device)
+        kernel_val = torch.zeros_like(dist_sq)
+        for multiplier in self.kernel_bandwidths:
+            bandwidth = 2.0 * multiplier * sigma_sq
+            kernel_val += torch.exp(-dist_sq / bandwidth)
+        return kernel_val / len(self.kernel_bandwidths)
 
     def forward(
         self,
@@ -689,7 +708,7 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
         return {BINARY_LOGITS_KEY}
 
     def _compute_kernel(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """Compute RBF kernel with dimension-normalized bandwidth.
+        """Compute Multi-Scale RBF kernel with Median Heuristic.
 
         Uses implicit bandwidth σ² ∝ dim for scale invariance across
         different latent dimensionalities.
@@ -701,12 +720,24 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
         Returns:
             Kernel matrix (N, M).
         """
-        dim = x.size(1)
-        x = x.unsqueeze(1)  # (N, 1, D)
-        y = y.unsqueeze(0)  # (1, M, D)
-        # Mean squared difference, normalized by dim
-        mean_sq_diff = (x - y).pow(2).mean(dim=2)  # (N, M)
-        return torch.exp(-mean_sq_diff)
+        if x.dim() > 2:
+            x = x.reshape(-1, x.size(-1))
+        if y.dim() > 2:
+            y = y.reshape(-1, y.size(-1))
+        x_norm = (x ** 2).sum(1).view(-1, 1)
+        y_norm = (y ** 2).sum(1).view(1, -1)
+        dist_sq = x_norm + y_norm - 2.0 * torch.mm(x, y.t())
+        dist_sq = torch.clamp(dist_sq, min=1e-6)
+        # We want sigma^2 to be the median squared distance in the combined batch.
+        median_dist = torch.median(dist_sq.detach())
+        sigma_sq = median_dist
+        if sigma_sq < 1e-6:
+            sigma_sq = torch.tensor(1.0, device=x.device)
+        kernel_val = torch.zeros_like(dist_sq)
+        for multiplier in self.kernel_bandwidths:
+            bandwidth = 2.0 * multiplier * sigma_sq
+            kernel_val += torch.exp(-dist_sq / bandwidth)
+        return kernel_val / len(self.kernel_bandwidths)
 
     def forward(
         self,
