@@ -2,7 +2,6 @@ defaults:
   - regression@loss_modules.regression_loss
   - gripper@loss_modules.gripper_loss
   - kl@loss_modules.kl_divergence
-  - entropy@loss_modules.entropy
   - traj_len@loss_modules.trajectory_length
   - _self_
 _target_: refactoring.metrics.CompositeLoss
@@ -13,10 +12,6 @@ loss_modules:
       mse_weight: 0.0
       l1_weight: 1.0
       huber_weight: 0.0
-
-    entropy:
-        weight: 0.00
-        key: ${latent_key:PRIOR_LOGVAR}
 
     gripper_loss:
       key: ${proprio_key:GRIPPER_STATE}

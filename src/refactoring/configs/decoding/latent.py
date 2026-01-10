@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from omegaconf import MISSING
 
+from refactoring.configs.data.task import ActionSpaceConfig
 from refactoring.models.layers.activation import ActivationFunction
 
 
@@ -139,7 +140,8 @@ class VampPriorConfig(PriorLatentEncoderConfig):
     Args:
         latent_dimension: Dimension of latent variable z
         num_components: Number of mixture components K
-        pseudo_input_dim: Dimension of pseudo-inputs (should match action dim)
+        action_space: ActionSpace defining the action dimensions
+        prediction_horizon: Number of timesteps in action chunks
         device: Device to place prior on
         min_logvar: Optional minimum logvar clamp
     """
@@ -149,5 +151,6 @@ class VampPriorConfig(PriorLatentEncoderConfig):
     )
     latent_dimension: int = 32
     num_components: int = 50
-    pseudo_input_dim: int = MISSING  # Should match total action dimension
+    action_space: ActionSpaceConfig = "${policy.action_space}"  # type: ignore[assignment]
+    prediction_horizon: int = "${policy.prediction_horizon}"  # type: ignore[assignment]
     min_logvar: float | None = None

@@ -12,15 +12,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from refactoring.data.constants import IS_PAD_ACTION_KEY
+from refactoring.data.task import ActionSpace
 from refactoring.models.decoding.constants import (
     PRIOR_LATENT_KEY,
     PRIOR_LOG_PROB_KEY,
+    MU_KEY,
+    LOGVAR_KEY,
 )
 from refactoring.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from refactoring.models.decoding.latent.posterior.base_posterior import (
     PosteriorLatentEncoder,
 )
-from refactoring.models.decoding.constants import MU_KEY, LOGVAR_KEY
 
 
 def log_normal_diag(z: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
@@ -46,7 +49,8 @@ class VampPrior(PriorLatentEncoder):
     Args:
         latent_dimension: Dimension of latent variable z
         num_components: Number of mixture components K
-        pseudo_input_dim: Dimension of pseudo-inputs (should match encoder input)
+        action_space: ActionSpace defining the action dimensions
+        prediction_horizon: Number of timesteps in action chunks
         device: Device to place prior on
         min_logvar: Optional minimum logvar clamp
     """
@@ -55,15 +59,19 @@ class VampPrior(PriorLatentEncoder):
         self,
         latent_dimension: int,
         num_components: int,
-        pseudo_input_dim: int,
+        action_space: ActionSpace,
+        prediction_horizon: int,
         device: str,
         min_logvar: float | None = None,
     ):
         super().__init__(latent_dimension=latent_dimension, device=device)
         self.num_components = num_components
-        self.pseudo_input_dim = pseudo_input_dim
+        self.prediction_horizon = prediction_horizon
+        self.action_dim = action_space.get_total_action_dim()
         self.min_logvar = min_logvar
-        self.pseudo_inputs = nn.Parameter(torch.randn(num_components, pseudo_input_dim))
+        self.pseudo_inputs = nn.Parameter(
+            torch.randn(num_components, prediction_horizon, self.action_dim)
+        )
         self.log_weights = nn.Parameter(torch.zeros(num_components, 1, 1))
         self._encoder: PosteriorLatentEncoder | None = None
         self.to(torch.device(device))
@@ -92,7 +100,14 @@ class VampPrior(PriorLatentEncoder):
         Returns:
             Tuple of (means, logvars) each of shape (K, latent_dim)
         """
-        pseudo_actions = {"pseudo": self.pseudo_inputs.unsqueeze(1)}
+        is_pad = torch.zeros(
+            self.num_components, self.prediction_horizon,
+            dtype=torch.bool, device=self.pseudo_inputs.device
+        )
+        pseudo_actions = {
+            "pseudo": self.pseudo_inputs, # (K, prediction_horizon, action_dim)
+            IS_PAD_ACTION_KEY: is_pad,
+        }
         encoder_output = self.encoder.encode(actions=pseudo_actions, observations=None)
         mu = encoder_output[MU_KEY]  # (K, latent_dim)
         logvar = encoder_output[LOGVAR_KEY]  # (K, latent_dim)

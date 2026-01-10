@@ -27,5 +27,6 @@ prior:
   _target_: refactoring.models.decoding.latent.prior.vamp_prior.VampPrior
   latent_dimension: 32
   num_components: 50
-  pseudo_input_dim: ???  # Set to total action dimension (e.g., position_dim + orientation_dim + gripper_dim)
+  action_space: ${policy.action_space}
+  prediction_horizon: ${policy.prediction_horizon}
   device: ${policy.device}

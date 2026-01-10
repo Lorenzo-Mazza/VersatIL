@@ -356,18 +356,12 @@ class KLDivergenceLoss(BaseLoss):
         self.prior_regularization_weight = prior_regularization_weight
 
     def get_required_keys(self) -> set[str]:
-        """Get required keys for KL divergence loss.
-
-        Returns:
-            Set containing VAE latent distribution keys (mu, logvar)
-        """
+        """Get required keys for KL divergence loss."""
         return {
             LATENT_KEY,
             PRIOR_LATENT_KEY,
             MU_KEY,
             LOGVAR_KEY,
-            PRIOR_MU_KEY,
-            PRIOR_LOGVAR_KEY,
         }
 
     def forward(
@@ -415,9 +409,11 @@ class KLDivergenceLoss(BaseLoss):
             )
 
         # Standard Gaussian prior - uses closed-form KL
-        if not all(k in predictions for k in self.get_required_keys()):
+        required_keys = self.get_required_keys()
+        required_keys.update({PRIOR_MU_KEY, PRIOR_LOGVAR_KEY})
+        if not all(k in predictions for k in required_keys):
             raise ValueError(
-                f"Predictions must contain all {self.get_required_keys()}' for KLDivergenceLoss."
+                f"Predictions must contain '{required_keys}' for KLDivergenceLoss."
             )
         mu_posterior = predictions[MU_KEY].float()  # Using fp32 float for stability
         logvar_posterior = predictions[LOGVAR_KEY].float()
@@ -614,14 +610,12 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         self.kernel_bandwidths = kernel_bandwidths
 
     def get_required_keys(self) -> set[str]:
-        """Returns required prediction keys."""
+        """Get required keys for MMD loss."""
         return {
             LATENT_KEY,
             PRIOR_LATENT_KEY,
             MU_KEY,
             LOGVAR_KEY,
-            PRIOR_MU_KEY,
-            PRIOR_LOGVAR_KEY,
         }
 
     def _compute_kernel(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -672,9 +666,14 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         Returns:
             LossOutput with MMD loss.
         """
-        if not all(k in predictions for k in self.get_required_keys()):
+        is_mixture_prior = PRIOR_LOG_PROB_KEY in predictions
+        required_keys = {LATENT_KEY, PRIOR_LATENT_KEY, MU_KEY, LOGVAR_KEY}
+        if not is_mixture_prior:
+            required_keys.update({PRIOR_MU_KEY, PRIOR_LOGVAR_KEY})
+
+        if not all(k in predictions for k in required_keys):
             raise ValueError(
-                f"Predictions must contain '{self.get_required_keys()}'for MaximumMeanDiscrepancyLoss."
+                f"Predictions must contain '{required_keys}' for MaximumMeanDiscrepancyLoss."
             )
 
         z_posterior = predictions[LATENT_KEY]  # (B, latent_dim)
@@ -702,9 +701,11 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             MetadataKey.POSTERIOR_MU.value: predictions[MU_KEY],
             MetadataKey.POSTERIOR_LOGVAR.value: predictions[LOGVAR_KEY],
             MetadataKey.PRIOR_Z.value: z_prior,
-            MetadataKey.PRIOR_MU.value: predictions[PRIOR_MU_KEY],
-            MetadataKey.PRIOR_LOGVAR.value: predictions[PRIOR_LOGVAR_KEY],
         }
+        # Only include prior mu/logvar for Gaussian priors
+        if not is_mixture_prior:
+            metadata[MetadataKey.PRIOR_MU.value] = predictions[PRIOR_MU_KEY]
+            metadata[MetadataKey.PRIOR_LOGVAR.value] = predictions[PRIOR_LOGVAR_KEY]
 
         return LossOutput(
             total_loss=total_loss,
