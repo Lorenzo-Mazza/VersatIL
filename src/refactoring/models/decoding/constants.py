@@ -90,6 +90,7 @@ PRIOR_TARGET_KEY = "prior_target"  # Prior network target
 PRIOR_MU_KEY = "prior_mu"  # Prior latent mean
 PRIOR_LOGVAR_KEY = "prior_logvar"  # Prior latent log variance
 PRIOR_LATENT_KEY = "prior_latent"  # Prior latent embedding (z)
+PRIOR_LOG_PROB_KEY = "prior_log_prob"  # Prior log probability (for mixture priors)
 
 # Free Transformer keys
 BINARY_LOGITS_KEY = "binary_logits"  # Binary mapper logits for KL divergence

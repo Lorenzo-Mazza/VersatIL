@@ -58,6 +58,7 @@ from refactoring.configs.decoding.latent import (
     GaussianPriorConfig,
     DiffusionPriorConfig,
     PriorTransformerEncoderConfig,
+    VampPriorConfig,
 )
 from refactoring.configs.encoding.encoder import (
     DepthCNNEncoderConfig,
@@ -176,6 +177,7 @@ __all__ = [
     "VAETransformerEncoderConfig",
     "GaussianPriorConfig",
     "DiffusionPriorConfig",
+    "VampPriorConfig",
     "ActionHeadConfig",
     "MixtureOfExpertsHeadConfig",
     "ActionHeadBlockConfig",
@@ -415,6 +417,7 @@ def register_configs():
         name="transformerencoder",
         node=PriorTransformerEncoderConfig,
     )
+    cs.store(group="policy/algorithm/prior", name="vamp", node=VampPriorConfig)
 
     cs.store(group="policy/loss", name="composite", node=CompositeLossConfig)
     cs.store(group="policy/loss", name="phase_action", node=PhaseActionLossConfig)

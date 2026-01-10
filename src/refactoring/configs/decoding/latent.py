@@ -128,3 +128,26 @@ class DiffusionPriorConfig(PriorLatentEncoderConfig):
     # Network parameters
     activation: str = ActivationFunction.RELU.value
     dropout: float = 0.1
+
+
+@dataclass
+class VampPriorConfig(PriorLatentEncoderConfig):
+    """VampPrior (Variational Mixture of Posteriors) configuration.
+
+    Reference: "VAE with a VampPrior" (Tomczak & Welling, 2018)
+
+    Args:
+        latent_dimension: Dimension of latent variable z
+        num_components: Number of mixture components K
+        pseudo_input_dim: Dimension of pseudo-inputs (should match action dim)
+        device: Device to place prior on
+        min_logvar: Optional minimum logvar clamp
+    """
+
+    _target_: str = (
+        "refactoring.models.decoding.latent.prior.vamp_prior.VampPrior"
+    )
+    latent_dimension: int = 32
+    num_components: int = 50
+    pseudo_input_dim: int = MISSING  # Should match total action dimension
+    min_logvar: float | None = None

@@ -35,6 +35,7 @@ from refactoring.models.decoding.constants import (
     PRIOR_MU_KEY,
     PRIOR_LOGVAR_KEY,
     PRIOR_LATENT_KEY,
+    PRIOR_LOG_PROB_KEY,
 )
 
 
@@ -385,6 +386,35 @@ class KLDivergenceLoss(BaseLoss):
         Returns:
             LossOutput with KL divergence loss
         """
+        if PRIOR_LOG_PROB_KEY in predictions:
+            mu_q = predictions[MU_KEY].float()
+            logvar_q = predictions[LOGVAR_KEY].float()
+            std_q = (0.5 * logvar_q).exp()
+            z = predictions[LATENT_KEY]
+            log_p_z = predictions[PRIOR_LOG_PROB_KEY]  # (B,)
+            posterior = torch.distributions.Normal(mu_q, std_q)
+            log_q_z = posterior.log_prob(z).sum(dim=-1)  # (B,)
+            # KL(q || p) = E_q[log q - log p] ≈ log q(z) - log p(z)
+            kld = log_q_z - log_p_z
+            kld_mean = kld.mean()
+
+            component_losses = {MetricKey.KL_DIVERGENCE.value: kld_mean}
+            total_loss = self.weight * kld_mean
+
+            metadata = {
+                MetadataKey.POSTERIOR_Z.value: z,
+                MetadataKey.POSTERIOR_MU.value: mu_q,
+                MetadataKey.POSTERIOR_LOGVAR.value: logvar_q,
+                MetadataKey.PRIOR_Z.value: predictions.get(PRIOR_LATENT_KEY),
+            }
+
+            return LossOutput(
+                total_loss=total_loss,
+                component_losses=component_losses,
+                metadata=metadata,
+            )
+
+        # Standard Gaussian prior - uses closed-form KL
         if not all(k in predictions for k in self.get_required_keys()):
             raise ValueError(
                 f"Predictions must contain all {self.get_required_keys()}' for KLDivergenceLoss."
@@ -403,7 +433,6 @@ class KLDivergenceLoss(BaseLoss):
                 f"Warning: Negative KL divergence encountered: min={kld.min().item():.4f}"
             )
             print(f"per_dim_kl: min={kld.min().item():.4f}, max={kld.max().item():.4f}")
-        kld = torch.clamp(kld, min=0.0)
         kld_mean = kld.mean()
         component_losses = {MetricKey.KL_DIVERGENCE.value: kld_mean}
         total_loss = self.weight * kld_mean
