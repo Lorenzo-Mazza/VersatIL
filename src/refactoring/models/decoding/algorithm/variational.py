@@ -26,6 +26,7 @@ from refactoring.models.decoding.decoders.base import ActionDecoder
 from refactoring.models.decoding.latent import PosteriorLatentEncoder
 from refactoring.models.decoding.latent import PriorLatentEncoder
 from refactoring.models.decoding.latent.prior.gaussian_prior import GaussianPrior
+from refactoring.models.decoding.latent.prior.vamp_prior import VampPrior
 
 
 class VariationalAlgorithm(DecodingAlgorithm):
@@ -79,6 +80,8 @@ class VariationalAlgorithm(DecodingAlgorithm):
                 f"Latent dimension mismatch: prior.latent_dim={self.prior.latent_dimension} "
                 f"!= posterior_encoder.latent_dim={self.posterior_encoder.latent_dimension}"
             )
+        if isinstance(self.prior, VampPrior):
+            self.prior.set_encoder(self.posterior_encoder)
 
     def _variational_step(
         self,
