@@ -10,7 +10,7 @@ encoders:
     input_keys:
     - ${cameras:LEFT}
     backbone: ${rgb_backbone:EFFICIENTNET_B0}
-    pretrained: false
+    pretrained: true
     frozen: false
     pooling_method: none
     use_group_norm: true

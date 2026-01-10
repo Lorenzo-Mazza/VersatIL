@@ -12,7 +12,7 @@ encoders:
     input_keys:
     - ${cameras:LEFT}
     backbone: ${rgb_backbone:EFFICIENTNET_B0}
-    pretrained: false
+    pretrained: true
     frozen: false
     pooling_method: none
     batch_norm_handling: ${batch_norm_handling:FROZEN}
@@ -22,7 +22,7 @@ encoders:
     input_keys:
     - ${cameras:RIGHT}
     backbone: ${rgb_backbone:EFFICIENTNET_B0}
-    pretrained: false
+    pretrained: true
     frozen: false
     pooling_method: none
     batch_norm_handling: ${batch_norm_handling:FROZEN}
