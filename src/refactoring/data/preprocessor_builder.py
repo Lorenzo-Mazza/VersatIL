@@ -547,6 +547,8 @@ class PreprocessorBuilder:
             f"min: {sample.min():.4f}, max: {sample.max():.4f}, "
             f"mean: {sample.mean():.4f}, std: {sample.std():.4f}"
         )
+        if camera_key != Cameras.DEPTH.value:
+            sample = sample.astype(np.float32) / 255.0
         sample_normalized = normalizer[camera_key].normalize(sample)
         logging.info(
             f"Camera {camera_key} after normalization (sampled) - "
