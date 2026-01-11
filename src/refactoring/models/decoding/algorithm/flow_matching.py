@@ -1,6 +1,5 @@
 """Flow Matching algorithm for action generation via continuous normalizing flows."""
 
-
 import torch
 from torchcfm.conditional_flow_matching import ConditionalFlowMatcher
 
@@ -13,6 +12,7 @@ from refactoring.models.decoding.constants import (
     NOISE_KEY,
 )
 from refactoring.models.decoding.decoders.base import ActionDecoder
+from refactoring.models.layers.ode_solvers import integrate_ode
 
 
 class FlowMatching(DecodingAlgorithm):
@@ -119,14 +119,14 @@ class FlowMatching(DecodingAlgorithm):
         network: ActionDecoder,
         features: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
-        """Inference/prediction pass.
+        """Inference pass using ODE integration.
 
         Generates actions by integrating the learned velocity field from noise (t=0)
         to actions (t=1) using an ODE solver.
 
         Args:
-            network: The action decoder network module
-            features: Dict of encoded features from encoding pipeline
+            network: The action decoder network module.
+            features: Dict of encoded features from encoding pipeline.
 
         Returns:
             Decoder output dictionary containing action predictions.
@@ -135,110 +135,50 @@ class FlowMatching(DecodingAlgorithm):
         batch_size = first_feature.shape[0]
         device = first_feature.device
         dtype = first_feature.dtype
-        # Initialize trajectory with random noise
-        trajectory = {}
+        trajectory: dict[str, torch.Tensor] = {}
         for key, meta in network.action_space.actions_metadata.items():
             trajectory[key] = torch.randn(
                 batch_size,
                 network.prediction_horizon,
-                meta.prediction_dimension,  # type: ignore[arg-type]
+                meta.prediction_dimension,
                 device=device,
                 dtype=dtype,
-            )
-        # Integration step size
-        dt = 1.0 / self.num_inference_steps
-        # Integrate from t=0 to t=1
-        for step in range(self.num_inference_steps):
-            t = step / self.num_inference_steps
-            t_tensor = torch.full((batch_size,), t, device=device, dtype=dtype)
-            features_with_time = {**features, TIMESTEP_KEY: t_tensor}
-            # Compute velocity at current state
-            if self.ode_solver == ODESolver.EULER.value:
-                # Simple Euler integration: x_{t+dt} = x_t + dt * v_t
-                velocities = network(features_with_time, trajectory)
-                for key in trajectory:
-                    if key in velocities:
-                        trajectory[key] = trajectory[key] + dt * velocities[key]
+            )  # (B, H, D_k)
+        keys = sorted(trajectory.keys())
+        shapes = {k: trajectory[k].shape for k in keys}
+        stacked = torch.cat(
+            [trajectory[k].flatten(1) for k in keys], dim=-1
+        )  # (B, H*sum(D_k))
 
-            elif self.ode_solver == ODESolver.HEUN.value:
-                # Heun's method (2nd order): x_{t+dt} = x_t + dt * (v_t + v_{t+dt}) / 2
-                # First, compute v_t
-                v_t = network(features_with_time, trajectory)
+        def velocity_fn(z: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+            traj: dict[str, torch.Tensor] = {}
+            offset = 0
+            for k in keys:
+                flat_dim = shapes[k][1] * shapes[k][2]
+                traj[k] = z[:, offset : offset + flat_dim].view(shapes[k])  # (B, H, D_k)
+                offset += flat_dim
 
-                # Compute tentative x_{t+dt} using Euler
-                trajectory_tentative = {}
-                for key in trajectory:
-                    if key in v_t:
-                        trajectory_tentative[key] = trajectory[key] + dt * v_t[key]
-                    else:
-                        trajectory_tentative[key] = trajectory[key]
+            features_with_time = {**features, TIMESTEP_KEY: t}
+            velocities = network(features_with_time, traj)
 
-                # Compute v_{t+dt}
-                t_next = (step + 1) / self.num_inference_steps
-                t_next_tensor = torch.full(
-                    (batch_size,), t_next, device=device, dtype=dtype
-                )
-                features_with_time_next = {**features, TIMESTEP_KEY: t_next_tensor}
-                v_t_next = network(features_with_time_next, trajectory_tentative)
+            return torch.cat(
+                [velocities[k].flatten(1) for k in keys], dim=-1
+            )  # (B, H*sum(D_k))
 
-                # Update using average of velocities
-                for key in trajectory:
-                    if key in v_t and key in v_t_next:
-                        trajectory[key] = (
-                            trajectory[key] + dt * (v_t[key] + v_t_next[key]) / 2
-                        )
+        stacked_final = integrate_ode(
+            z_init=stacked,
+            velocity_fn=velocity_fn,
+            num_steps=self.num_inference_steps,
+            solver=self.ode_solver,
+        )  # (B, H*sum(D_k))
 
-            elif self.ode_solver == ODESolver.RK4.value:
-                # 4th order Runge-Kutta
-                # k1 = v(t, action_embedding)
-                k1 = network(features_with_time, trajectory)
+        result: dict[str, torch.Tensor] = {}
+        offset = 0
+        for k in keys:
+            flat_dim = shapes[k][1] * shapes[k][2]
+            result[k] = stacked_final[:, offset : offset + flat_dim].view(
+                shapes[k]
+            )  # (B, H, D_k)
+            offset += flat_dim
 
-                # k2 = v(t + dt/2, action_embedding + dt*k1/2)
-                trajectory_k2 = {}
-                for key in trajectory:
-                    if key in k1:
-                        trajectory_k2[key] = trajectory[key] + dt * k1[key] / 2
-                    else:
-                        trajectory_k2[key] = trajectory[key]
-
-                t_mid = t + dt / 2
-                t_mid_tensor = torch.full(
-                    (batch_size,), t_mid, device=device, dtype=dtype
-                )
-                features_with_time_mid = {**features, TIMESTEP_KEY: t_mid_tensor}
-                k2 = network(features_with_time_mid, trajectory_k2)
-
-                # k3 = v(t + dt/2, action_embedding + dt*k2/2)
-                trajectory_k3 = {}
-                for key in trajectory:
-                    if key in k2:
-                        trajectory_k3[key] = trajectory[key] + dt * k2[key] / 2
-                    else:
-                        trajectory_k3[key] = trajectory[key]
-                k3 = network(features_with_time_mid, trajectory_k3)
-
-                # k4 = v(t + dt, action_embedding + dt*k3)
-                trajectory_k4 = {}
-                for key in trajectory:
-                    if key in k3:
-                        trajectory_k4[key] = trajectory[key] + dt * k3[key]
-                    else:
-                        trajectory_k4[key] = trajectory[key]
-
-                t_next = t + dt
-                t_next_tensor = torch.full(
-                    (batch_size,), t_next, device=device, dtype=dtype
-                )
-                features_with_time_next = {**features, TIMESTEP_KEY: t_next_tensor}
-                k4 = network(features_with_time_next, trajectory_k4)
-
-                # Update: x_{t+dt} = x_t + dt * (k1 + 2*k2 + 2*k3 + k4) / 6
-                for key in trajectory:
-                    if key in k1 and key in k2 and key in k3 and key in k4:
-                        trajectory[key] = (
-                            trajectory[key]
-                            + dt * (k1[key] + 2 * k2[key] + 2 * k3[key] + k4[key]) / 6
-                        )
-
-        # Return final trajectory
-        return trajectory
+        return result
