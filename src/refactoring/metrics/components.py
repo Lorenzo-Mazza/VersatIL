@@ -591,7 +591,6 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         self,
         weight: float = 1.0,
         prior_regularization_weight: float = 0.0,
-        kernel_bandwidths: list[float] | None = None,
     ):
         """Initialize MMD loss.
 
@@ -600,14 +599,10 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             prior_regularization_weight: Weight for MMD(prior, N(0,I)) regularization.
                 Only meaningful for learned priors. Pushes the learned prior towards
                 a standard Gaussian.
-            kernel_bandwidths: Optional list of bandwidths for multi-scale RBF kernel.
         """
         super().__init__()
         self.weight = weight
         self.prior_regularization_weight = prior_regularization_weight
-        if kernel_bandwidths is None:
-            kernel_bandwidths = [0.1, 1.0, 10.0]
-        self.kernel_bandwidths = kernel_bandwidths
 
     def get_required_keys(self) -> set[str]:
         """Get required keys for MMD loss."""
@@ -635,20 +630,13 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             x = x.reshape(-1, x.size(-1))
         if y.dim() > 2:
             y = y.reshape(-1, y.size(-1))
-        x_norm = (x ** 2).sum(1).view(-1, 1)
-        y_norm = (y ** 2).sum(1).view(1, -1)
-        dist_sq = x_norm + y_norm - 2.0 * torch.mm(x, y.t())
-        dist_sq = torch.clamp(dist_sq, min=1e-6)
-        # We want sigma^2 to be the median squared distance in the combined batch.
-        median_dist = torch.median(dist_sq.detach())
-        sigma_sq = median_dist
-        if sigma_sq < 1e-6:
-            sigma_sq = torch.tensor(1.0, device=x.device)
-        kernel_val = torch.zeros_like(dist_sq)
-        for multiplier in self.kernel_bandwidths:
-            bandwidth = 2.0 * multiplier * sigma_sq
-            kernel_val += torch.exp(-dist_sq / bandwidth)
-        return kernel_val / len(self.kernel_bandwidths)
+        x_size = x.shape[0]
+        y_size = y.shape[0]
+        tiled_x = x.unsqueeze(1).repeat(1, y_size, 1) # (x_size, y_size, dim)
+        tiled_y = y.unsqueeze(0).repeat(x_size, 1, 1)  # (x_size, y_size, dim)
+        dist_sq = ((tiled_x - tiled_y) ** 2).mean(dim=2) # ||x-y||² / dim
+        kernel = torch.exp(-dist_sq)
+        return kernel
 
     def forward(
         self,
@@ -683,10 +671,8 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         k_zp = self._compute_kernel(z_posterior, z_prior)
         # MMD² = E[k(z,z')] + E[k(p,p')] - 2E[k(z,p)]
         mmd = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
-
         component_losses = {MetricKey.MMD_LOSS.value: mmd}
         total_loss = self.weight * mmd
-
         if self.prior_regularization_weight > 0.0:
             z_standard = torch.randn_like(z_prior)  # Samples from N(0, I)
             k_pp_standard = self._compute_kernel(z_prior, z_prior)
@@ -754,20 +740,13 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
             x = x.reshape(-1, x.size(-1))
         if y.dim() > 2:
             y = y.reshape(-1, y.size(-1))
-        x_norm = (x ** 2).sum(1).view(-1, 1)
-        y_norm = (y ** 2).sum(1).view(1, -1)
-        dist_sq = x_norm + y_norm - 2.0 * torch.mm(x, y.t())
-        dist_sq = torch.clamp(dist_sq, min=1e-6)
-        # We want sigma^2 to be the median squared distance in the combined batch.
-        median_dist = torch.median(dist_sq.detach())
-        sigma_sq = median_dist
-        if sigma_sq < 1e-6:
-            sigma_sq = torch.tensor(1.0, device=x.device)
-        kernel_val = torch.zeros_like(dist_sq)
-        for multiplier in self.kernel_bandwidths:
-            bandwidth = 2.0 * multiplier * sigma_sq
-            kernel_val += torch.exp(-dist_sq / bandwidth)
-        return kernel_val / len(self.kernel_bandwidths)
+        x_size = x.shape[0]
+        y_size = y.shape[0]
+        tiled_x = x.unsqueeze(1).repeat(1, y_size, 1) # (x_size, y_size, dim)
+        tiled_y = y.unsqueeze(0).repeat(x_size, 1, 1)  # (x_size, y_size, dim)
+        dist_sq = ((tiled_x - tiled_y) ** 2).mean(dim=2) # ||x-y||² / dim
+        kernel = torch.exp(-dist_sq)
+        return kernel
 
     def forward(
         self,

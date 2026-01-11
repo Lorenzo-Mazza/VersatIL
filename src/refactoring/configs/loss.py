@@ -78,7 +78,6 @@ class MaximumMeanDiscrepancyLossConfig(BaseLossConfig):
     _target_: str = "refactoring.metrics.MaximumMeanDiscrepancyLoss"
     weight: float = 1.0
     prior_regularization_weight: float = 0.0
-    kernel_bandwidths: list[float] | None = field(default_factory=lambda: [0.2, 0.5, 1.0, 2.0, 5.0])
 
 
 @dataclass
@@ -87,7 +86,6 @@ class BinaryMaximumMeanDiscrepancyLossConfig(BaseLossConfig):
 
     _target_: str = "refactoring.metrics.BinaryMaximumMeanDiscrepancyLoss"
     weight: float = 1.0
-    kernel_bandwidths: list[float] | None = field(default_factory=lambda: [0.2, 0.5, 1.0, 2.0, 5.0])
 
 
 @dataclass
