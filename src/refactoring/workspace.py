@@ -257,10 +257,9 @@ class Workspace:
             save_last=False,
             verbose=True,
             auto_insert_metric_name=False,
-            every_n_epochs=20,
         )
         callbacks.append(checkpoint_callback_best)
-        logging.info(f"Added ModelCheckpoint callback (top-k=3, every 20 epochs)")
+        logging.info(f"Added ModelCheckpoint callback (top-k=3)")
 
         checkpoint_callback_latest = ModelCheckpoint(
             dirpath=self.output_dir,
