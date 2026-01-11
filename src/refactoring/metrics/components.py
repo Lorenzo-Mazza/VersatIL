@@ -1183,13 +1183,10 @@ class PriorDenoisingLoss(BaseLoss):
             raise ValueError(
                 f"Predictions must contain '{PRIOR_TARGET_KEY}' for PriorDenoisingLoss."
             )
-
-        # Compute MSE loss between prediction and target
         prior_loss = F.mse_loss(
             predictions[PRIOR_PREDICTION_KEY],
             predictions[PRIOR_TARGET_KEY],
         )
-
         return LossOutput(
             total_loss=self.weight * prior_loss,
             component_losses={MetricKey.PRIOR_DENOISING_LOSS.value: prior_loss},

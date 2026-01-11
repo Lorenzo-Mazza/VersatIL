@@ -166,6 +166,11 @@ class VariationalAlgorithm(DecodingAlgorithm):
             features=features,
             actions=actions,
         )
+        if PRIOR_LATENT_KEY not in prior_output:
+            # Sample from prior if not already done in prior forward, e.g. for denoising-based priors
+            batch_size = next(iter(features.values())).shape[0]
+            z_sampled = self.prior.sample_prior(batch_size=batch_size, observations=features)
+            prior_output[PRIOR_LATENT_KEY] = z_sampled
         if self.training:
             sample_from_prior = torch.rand(1).item() < self.p_prior
             if sample_from_prior:

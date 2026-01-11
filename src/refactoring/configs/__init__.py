@@ -56,7 +56,7 @@ from refactoring.configs.decoding.latent import (
     PriorLatentEncoderConfig,
     VAETransformerEncoderConfig,
     GaussianPriorConfig,
-    DiffusionPriorConfig,
+    DenoisingTransformerPriorConfig,
     PriorTransformerEncoderConfig,
     VampPriorConfig,
 )
@@ -100,6 +100,7 @@ from refactoring.configs.loss import (
     BinaryMaximumMeanDiscrepancyLossConfig,
     FixedVarianceGaussianNLLossConfig,
     FixedVarianceGripperMixtureNLLossConfig,
+    PriorDenoisingLossConfig,
 )
 from refactoring.configs.main import MainConfig
 from refactoring.configs.policy import PolicyConfig
@@ -135,7 +136,7 @@ from refactoring.models.decoding.constants import (
     ACTION_LOGITS_KEY,
     LATENT_KEY,
     LatentKey,
-    MoERoutingType,
+    MoERoutingType, DenoisingAlgorithm,
 )
 from refactoring.models.encoding.encoders.constants import (
     RGBBackboneType,
@@ -145,6 +146,7 @@ from refactoring.models.encoding.encoders.constants import (
 )
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
+from refactoring.models.layers.diffusion_process import SchedulerType
 from refactoring.models.layers.normalization.constants import NormalizationType
 from refactoring.training.constants import Float32MatmulPrecision, PrecisionType
 
@@ -176,7 +178,7 @@ __all__ = [
     "PriorLatentEncoderConfig",
     "VAETransformerEncoderConfig",
     "GaussianPriorConfig",
-    "DiffusionPriorConfig",
+    "DenoisingTransformerPriorConfig",
     "VampPriorConfig",
     "ActionHeadConfig",
     "MixtureOfExpertsHeadConfig",
@@ -298,7 +300,14 @@ def register_resolvers():
         OmegaConf.register_new_resolver(
             "latent_key", lambda name: LatentKey[name].value
         )
-
+    if not OmegaConf.has_resolver("scheduler_type"):
+        OmegaConf.register_new_resolver(
+            "scheduler_type", lambda name: SchedulerType[name].value
+        )
+    if not OmegaConf.has_resolver("denoising_algorithm"):
+        OmegaConf.register_new_resolver(
+            "denoising_algorithm", lambda name: DenoisingAlgorithm[name].value
+        )
 
 def register_configs():
     cs = ConfigStore.instance()
@@ -410,14 +419,16 @@ def register_configs():
     )
     cs.store(group="policy/algorithm/prior", name="gaussian", node=GaussianPriorConfig)
     cs.store(
-        group="policy/algorithm/prior", name="diffusion", node=DiffusionPriorConfig
-    )
-    cs.store(
         group="policy/algorithm/prior",
         name="transformerencoder",
         node=PriorTransformerEncoderConfig,
     )
     cs.store(group="policy/algorithm/prior", name="vamp", node=VampPriorConfig)
+    cs.store(
+        group="policy/algorithm/prior",
+        name="dit",
+        node=DenoisingTransformerPriorConfig,
+    )
 
     cs.store(group="policy/loss", name="composite", node=CompositeLossConfig)
     cs.store(group="policy/loss", name="phase_action", node=PhaseActionLossConfig)
@@ -456,6 +467,11 @@ def register_configs():
         group="policy/loss",
         name="fv_bernoulli_nll",
         node=FixedVarianceGripperMixtureNLLossConfig,
+    )
+    cs.store(
+        group="policy/loss",
+        name="denoising_prior",
+        node=PriorDenoisingLossConfig,
     )
 
     cs.store(group="policy/encoding_pipeline", name="base", node=ImageEncoderConfig)

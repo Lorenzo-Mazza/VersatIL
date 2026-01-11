@@ -8,11 +8,9 @@ from hydra.utils import instantiate
 from refactoring.configs.decoding.latent import (
     VAETransformerEncoderConfig,
     GaussianPriorConfig,
-    DiffusionPriorConfig,
 )
 from refactoring.models.decoding.latent.posterior.transformer_encoder import VAETransformerEncoder
 from refactoring.models.decoding.latent.prior.gaussian_prior import GaussianPrior
-from refactoring.models.decoding.latent.prior.diffusion_mlp import DiffusionPrior
 
 
 @pytest.mark.unit
@@ -53,24 +51,3 @@ class TestGaussianPriorConfig:
 
         assert config_keys.issubset(params), f"Extra keys: {config_keys - params}"
 
-
-@pytest.mark.unit
-class TestDiffusionPriorConfig:
-
-    def test_config_has_correct_target(self):
-        config = DiffusionPriorConfig(latent_dim=32, conditioning_dim=128,)
-        assert config._target_ == "refactoring.models.decoding.latent.diffusion_prior.DiffusionPrior"
-
-    def test_config_instantiates_correctly(self):
-        config = DiffusionPriorConfig(latent_dim=32, conditioning_dim=128, device="cpu")
-        prior = instantiate(config)
-        assert isinstance(prior, DiffusionPrior)
-
-    def test_config_params_match_class_signature(self):
-        sig = inspect.signature(DiffusionPrior.__init__)
-        params = set(sig.parameters.keys()) - {'self'}
-
-        config = DiffusionPriorConfig(latent_dim=32, conditioning_dim=128,)
-        config_keys = {f.name for f in dataclasses.fields(config)} - {'_target_'}
-
-        assert config_keys.issubset(params), f"Extra keys: {config_keys - params}"

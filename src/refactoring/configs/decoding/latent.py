@@ -4,7 +4,14 @@ from dataclasses import dataclass
 from omegaconf import MISSING
 
 from refactoring.configs.data.task import ActionSpaceConfig
+from refactoring.models.decoding.constants import (
+    BetaSchedule,
+    DenoisingAlgorithm,
+    ODESolver,
+    PredictionType,
+)
 from refactoring.models.layers.activation import ActivationFunction
+from refactoring.models.layers.diffusion_process import SchedulerType
 
 
 @dataclass
@@ -56,9 +63,6 @@ class GaussianPriorConfig(PriorLatentEncoderConfig):
     Simple non-learned prior that samples from a standard normal distribution.
     This is the default prior for variational algorithms when no learned prior is specified.
 
-    Args:
-        latent_dim: Dimension of latent variable z
-        device: Device to place prior on
     """
 
     _target_: str = (
@@ -87,63 +91,10 @@ class PriorTransformerEncoderConfig(PriorLatentEncoderConfig):
 
 
 @dataclass
-class DiffusionPriorConfig(PriorLatentEncoderConfig):
-    """Diffusion-based learned prior configuration.
-
-    Uses a diffusion MLP to learn p(z|s) instead of using N(0,I) prior.
-    Trained via denoising to match posterior q(z|a,s) samples from VAE.
-
-    Args:
-        latent_dim: Dimension of latent variable z
-        conditioning_dim: Dimension of conditioning features (state)
-        hidden_dims: Hidden layer dimensions for denoising network
-        num_train_timesteps: Number of diffusion timesteps during training
-        num_inference_steps: Number of denoising steps during sampling
-        beta_start: Starting beta for noise schedule
-        beta_end: Ending beta for noise schedule
-        beta_schedule: Type of noise schedule
-        activation: Activation function for MLP
-        dropout: Dropout rate
-        device: Device to place prior on
-    """
-
-    _target_: str = (
-        "refactoring.models.decoding.latent.prior.diffusion_mlp.DiffusionPrior"
-    )
-
-    latent_dimension: int = 32
-    conditioning_dim: int = (
-        128  # Should match the sum of the dimension of the flat state features
-    )
-
-    # Denoising network architecture
-    hidden_dims: list[int] | None = None  # Defaults to [latent_dim*2, latent_dim*2]
-
-    # Diffusion parameters
-    num_train_timesteps: int = 100
-    num_inference_steps: int = 10
-    beta_start: float = 0.0001
-    beta_end: float = 0.02
-    beta_schedule: str = "squaredcos_cap_v2"
-
-    # Network parameters
-    activation: str = ActivationFunction.RELU.value
-    dropout: float = 0.1
-
-
-@dataclass
 class VampPriorConfig(PriorLatentEncoderConfig):
     """VampPrior (Variational Mixture of Posteriors) configuration.
 
     Reference: "VAE with a VampPrior" (Tomczak & Welling, 2018)
-
-    Args:
-        latent_dimension: Dimension of latent variable z
-        num_components: Number of mixture components K
-        action_space: ActionSpace defining the action dimensions
-        prediction_horizon: Number of timesteps in action chunks
-        device: Device to place prior on
-        min_logvar: Optional minimum logvar clamp
     """
 
     _target_: str = (
@@ -154,3 +105,37 @@ class VampPriorConfig(PriorLatentEncoderConfig):
     action_space: ActionSpaceConfig = "${policy.action_space}"  # type: ignore[assignment]
     prediction_horizon: int = "${policy.prediction_horizon}"  # type: ignore[assignment]
     min_logvar: float | None = None
+
+
+@dataclass
+class DenoisingTransformerPriorConfig(PriorLatentEncoderConfig):
+    """DiT-style transformer prior for denoising score matching.
+
+    Uses a non-autoregressive transformer where noisy latent z is treated
+    as a CLS token appended to observation tokens.
+    """
+
+    _target_: str = (
+        "refactoring.models.decoding.latent.prior.denoising_transformer.DenoisingTransformerPrior"
+    )
+    latent_dimension: int = 32
+    embedding_dimension: int = 256
+    number_of_heads: int = 8
+    number_of_layers: int = 4
+    feedforward_dimension: int = 1024
+    observation_horizon: int = "${policy.observation_horizon}"  # type: ignore[assignment]
+    algorithm_type: str = DenoisingAlgorithm.FLOW_MATCHING.value
+    sigma: float = 0.0
+    ode_solver: str = ODESolver.EULER.value
+    num_train_timesteps: int = 100
+    num_inference_steps: int = 10
+    beta_start: float = 0.0001
+    beta_end: float = 0.02
+    beta_schedule: str = BetaSchedule.SQUAREDCOS_CAP_V2.value
+    scheduler_type: str = SchedulerType.DDIM.value
+    prediction_type: str = PredictionType.EPSILON.value
+    clip_sample: bool = False
+    variance_type: str | None = None
+    dropout: float = 0.1
+    activation: str = ActivationFunction.SILU.value
+    exclude_keys: list[str] | None = None

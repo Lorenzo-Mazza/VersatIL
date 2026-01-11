@@ -194,6 +194,14 @@ class CompositeLossConfig(BaseLossConfig):
 
 
 @dataclass
+class PriorDenoisingLossConfig(BaseLossConfig):
+    """Configuration for diffusion prior denoising loss."""
+
+    _target_: str = "refactoring.metrics.PriorDenoisingLoss"
+    weight: float = 1.0
+
+
+@dataclass
 class MoELossConfig:
     """Configuration for Mixture of Experts (MoE) loss."""
 

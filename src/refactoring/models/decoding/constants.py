@@ -63,6 +63,13 @@ class ODESolver(str, enum.Enum):
     DOPRI5 = "dopri5"  # Dormand-Prince 5th order adaptive step size
 
 
+class DenoisingAlgorithm(str, enum.Enum):
+    """Algorithm type for denoising-based generative models."""
+
+    DIFFUSION = "diffusion"
+    FLOW_MATCHING = "flow_matching"
+
+
 # Feature keys for time/timestep conditioning
 TIMESTEP_KEY = (
     "timestep"  # For diffusion or flow processes (discrete or continuous timestep)

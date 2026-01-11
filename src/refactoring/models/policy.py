@@ -28,6 +28,8 @@ from refactoring.models.decoding.constants import (
     PRIOR_LATENT_KEY,
     PRIOR_MU_KEY,
     PRIOR_LOGVAR_KEY,
+    PRIOR_PREDICTION_KEY,
+    PRIOR_TARGET_KEY,
     ROUTING_WEIGHT,
 )
 
@@ -168,6 +170,8 @@ class Policy(nn.Module):
                     PRIOR_LATENT_KEY,
                     PRIOR_MU_KEY,
                     PRIOR_LOGVAR_KEY,
+                    PRIOR_PREDICTION_KEY,
+                    PRIOR_TARGET_KEY,
                 }
             )
         if isinstance(self.decoder, MoEDecoder) or any(

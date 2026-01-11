@@ -103,9 +103,9 @@ class ConditionalModulation(nn.Module):
 
             if x.size(0) == condition.size(0):
                 # x is (B, C, T) for Conv1D or (B, S, D) for Transformer
-                gamma = gamma.unsqueeze(-1)  # (B, feature_dim) -> (B, feature_dim, 1)
+                gamma = gamma.unsqueeze(1)  # (B, feature_dim) -> (B, 1, feature_dim) to broadcast over sequence
                 if self.use_shift:
-                    beta = self.shift_linear(condition).unsqueeze(-1)
+                    beta = self.shift_linear(condition).unsqueeze(1)
             elif x.size(1) == condition.size(0):
                 # Tensor with sequence-first: x is (S, B, D), condition is (B, condition_dim)
                 # gamma is (B, D) -> need (1, B, D) to broadcast over sequence

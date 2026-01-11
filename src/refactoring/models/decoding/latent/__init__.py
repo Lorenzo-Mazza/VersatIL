@@ -18,11 +18,13 @@ from refactoring.models.decoding.latent.posterior.base_posterior import (
     PosteriorLatentEncoder,
 )
 from refactoring.models.decoding.latent.prior.base_prior import PriorLatentEncoder
-from refactoring.models.decoding.latent.prior.diffusion_mlp import DiffusionPrior
 from refactoring.models.decoding.latent.prior.gaussian_prior import GaussianPrior
 from refactoring.models.decoding.latent.prior.vamp_prior import VampPrior
 from refactoring.models.decoding.latent.posterior.transformer_encoder import (
     VAETransformerEncoder,
+)
+from refactoring.models.decoding.latent.prior.denoising_transformer import (
+    DenoisingTransformerPrior
 )
 
 __all__ = [
@@ -30,6 +32,6 @@ __all__ = [
     "VAETransformerEncoder",
     "PriorLatentEncoder",
     "GaussianPrior",
-    "DiffusionPrior",
     "VampPrior",
+    "DenoisingTransformerPrior",
 ]
