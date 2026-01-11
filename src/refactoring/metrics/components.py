@@ -580,29 +580,89 @@ class BinaryKLDivergenceLoss(BaseLoss):
 
 class MaximumMeanDiscrepancyLoss(BaseLoss):
     """MMD loss for regularizing latent distributions toward a prior.
-
     Note:
-        From Info-VAE/MMD-VAE (https://ermongroup.github.io/blog/a-tutorial-on-mmd-variational-autoencoders/)
+        From Info-VAE/MMD-VAE[](https://ermongroup.github.io/blog/a-tutorial-on-mmd-variational-autoencoders/)
          Uses RBF kernel for robust distribution matching, to encourage q(z|x) ≈ p(z)
          where p(z) = N(0, I).
     """
-
     def __init__(
         self,
         weight: float = 1.0,
         prior_regularization_weight: float = 0.0,
+        kernel_bandwidths: list[float] | None = None,
     ):
         """Initialize MMD loss.
-
         Args:
             weight: Loss weight for MMD(posterior, prior).
             prior_regularization_weight: Weight for MMD(prior, N(0,I)) regularization.
                 Only meaningful for learned priors. Pushes the learned prior towards
                 a standard Gaussian.
+            kernel_bandwidths: Multipliers for the median heuristic (default: [0.2, 0.5, 1, 2, 5]).
         """
         super().__init__()
         self.weight = weight
         self.prior_regularization_weight = prior_regularization_weight
+        if kernel_bandwidths is None:
+            kernel_bandwidths = [0.2, 0.5, 1.0, 2.0, 5.0]
+        self.kernel_bandwidths = kernel_bandwidths
+
+    def _get_median_dist_sq(self, points: torch.Tensor) -> float:
+        """Compute median pairwise squared distance (shared heuristic)."""
+        points = points.detach()
+        device = points.device
+        n, _ = points.shape
+
+        max_samples = 2000
+        if n > max_samples:
+            idx = torch.randperm(n, device=device)[:max_samples]
+            points = points[idx]
+
+        norms = (points ** 2).sum(-1)
+        dist_sq = norms.unsqueeze(0) + norms.unsqueeze(1) - 2 * torch.mm(points, points.t())
+        dist_sq = torch.clamp(dist_sq, min=0.0)
+
+        triu_i, triu_j = torch.triu_indices(points.shape[0], points.shape[0], offset=1, device=device)
+        pairwise_dist_sq = dist_sq[triu_i, triu_j]
+
+        if pairwise_dist_sq.numel() == 0:
+            return 1.0
+
+        median = torch.median(pairwise_dist_sq)
+        if median <= 1e-6:
+            median = torch.tensor(1.0, device=device)
+        return median.item()
+
+    def _compute_rbf_kernel(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        median_dist_sq: float,
+    ) -> torch.Tensor:
+        """Compute multi-scale RBF kernel with shared bandwidth.
+        Args:
+            x: Points (N, D)
+            y: Points (M, D)
+            median_dist_sq: Shared median squared distance
+        Returns:
+            Kernel matrix (N, M)
+        """
+        if x.dim() > 2:
+            x = x.view(-1, x.size(-1))
+        if y.dim() > 2:
+            y = y.view(-1, y.size(-1))
+
+        xx = (x ** 2).sum(-1, keepdim=True)  # (N, 1)
+        yy = (y ** 2).sum(-1, keepdim=True).t()  # (1, M)
+        xy = torch.mm(x, y.t())  # (N, M)
+        dist_sq = xx + yy - 2 * xy
+        dist_sq = torch.clamp(dist_sq, min=1e-10)
+
+        kernel = torch.zeros_like(dist_sq)
+        for mult in self.kernel_bandwidths:
+            bandwidth = 2.0 * mult * median_dist_sq
+            kernel += torch.exp(-dist_sq / bandwidth)
+        kernel /= len(self.kernel_bandwidths)
+        return kernel
 
     def get_required_keys(self) -> set[str]:
         """Get required keys for MMD loss."""
@@ -613,31 +673,6 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             LOGVAR_KEY,
         }
 
-    def _compute_kernel(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """Compute Multi-Scale RBF kernel with Median Heuristic.
-
-        Uses implicit bandwidth σ² ∝ dim for scale invariance across
-        different latent dimensionalities.
-
-        Args:
-            x: First set of points (N, D).
-            y: Second set of points (M, D).
-
-        Returns:
-            Kernel matrix (N, M).
-        """
-        if x.dim() > 2:
-            x = x.reshape(-1, x.size(-1))
-        if y.dim() > 2:
-            y = y.reshape(-1, y.size(-1))
-        x_size = x.shape[0]
-        y_size = y.shape[0]
-        tiled_x = x.unsqueeze(1).repeat(1, y_size, 1) # (x_size, y_size, dim)
-        tiled_y = y.unsqueeze(0).repeat(x_size, 1, 1)  # (x_size, y_size, dim)
-        dist_sq = ((tiled_x - tiled_y) ** 2).mean(dim=2) # ||x-y||² / dim
-        kernel = torch.exp(-dist_sq)
-        return kernel
-
     def forward(
         self,
         predictions: dict[str, torch.Tensor],
@@ -645,12 +680,10 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         is_pad: torch.Tensor | None = None,
     ) -> LossOutput:
         """Compute MMD between latent samples and standard Gaussian prior.
-
         Args:
             predictions: Must contain LATENT_KEY with shape (B, latent_dim).
             targets: Unused (prior is implicit).
             is_pad: Unused.
-
         Returns:
             LossOutput with MMD loss.
         """
@@ -658,29 +691,39 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         required_keys = {LATENT_KEY, PRIOR_LATENT_KEY, MU_KEY, LOGVAR_KEY}
         if not is_mixture_prior:
             required_keys.update({PRIOR_MU_KEY, PRIOR_LOGVAR_KEY})
-
         if not all(k in predictions for k in required_keys):
-            raise ValueError(
-                f"Predictions must contain '{required_keys}' for MaximumMeanDiscrepancyLoss."
-            )
+            raise ValueError(f"Predictions must contain '{required_keys}' for MaximumMeanDiscrepancyLoss.")
 
-        z_posterior = predictions[LATENT_KEY]  # (B, latent_dim)
-        z_prior = predictions[PRIOR_LATENT_KEY]
-        k_zz = self._compute_kernel(z_posterior, z_posterior)
-        k_pp = self._compute_kernel(z_prior, z_prior)
-        k_zp = self._compute_kernel(z_posterior, z_prior)
-        # MMD² = E[k(z,z')] + E[k(p,p')] - 2E[k(z,p)]
-        mmd = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
-        component_losses = {MetricKey.MMD_LOSS.value: mmd}
-        total_loss = self.weight * mmd
+        z_posterior = predictions[LATENT_KEY]   # (B, latent_dim)
+        z_prior = predictions[PRIOR_LATENT_KEY] # (B, latent_dim)
+
+        combined = torch.cat([z_posterior, z_prior], dim=0)  # (2B, latent_dim)
+        median_dist_sq = self._get_median_dist_sq(combined)
+
+        k_zz = self._compute_rbf_kernel(z_posterior, z_posterior, median_dist_sq)
+        k_pp = self._compute_rbf_kernel(z_prior, z_prior, median_dist_sq)
+        k_zp = self._compute_rbf_kernel(z_posterior, z_prior, median_dist_sq)
+
+        mmd_sq = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
+        mmd_sq = torch.clamp(mmd_sq, min=0.0)
+
+        component_losses = {MetricKey.MMD_LOSS.value: mmd_sq}
+        total_loss = self.weight * mmd_sq
+
         if self.prior_regularization_weight > 0.0:
-            z_standard = torch.randn_like(z_prior)  # Samples from N(0, I)
-            k_pp_standard = self._compute_kernel(z_prior, z_prior)
-            k_ss = self._compute_kernel(z_standard, z_standard)
-            k_ps = self._compute_kernel(z_prior, z_standard)
-            prior_mmd = k_pp_standard.mean() + k_ss.mean() - 2 * k_ps.mean()
-            component_losses[MetricKey.HYPERPRIOR_MMD_REGULARIZATION.value] = prior_mmd
-            total_loss = total_loss + self.prior_regularization_weight * prior_mmd
+            z_standard = torch.randn_like(z_prior)  # (B, latent_dim)
+            combined_reg = torch.cat([z_prior, z_standard], dim=0)  # (2B, latent_dim)
+            median_reg = self._get_median_dist_sq(combined_reg)
+
+            k_pp_reg = self._compute_rbf_kernel(z_prior, z_prior, median_reg)
+            k_ss = self._compute_rbf_kernel(z_standard, z_standard, median_reg)
+            k_ps = self._compute_rbf_kernel(z_prior, z_standard, median_reg)
+
+            prior_mmd_sq = k_pp_reg.mean() + k_ss.mean() - 2 * k_ps.mean()
+            prior_mmd_sq = torch.clamp(prior_mmd_sq, min=0.0)
+
+            component_losses[MetricKey.HYPERPRIOR_MMD_REGULARIZATION.value] = prior_mmd_sq
+            total_loss = total_loss + self.prior_regularization_weight * prior_mmd_sq
 
         metadata = {
             MetadataKey.POSTERIOR_Z.value: z_posterior,
@@ -688,7 +731,6 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             MetadataKey.POSTERIOR_LOGVAR.value: predictions[LOGVAR_KEY],
             MetadataKey.PRIOR_Z.value: z_prior,
         }
-        # Only include prior mu/logvar for Gaussian priors
         if not is_mixture_prior:
             metadata[MetadataKey.PRIOR_MU.value] = predictions[PRIOR_MU_KEY]
             metadata[MetadataKey.PRIOR_LOGVAR.value] = predictions[PRIOR_LOGVAR_KEY]
