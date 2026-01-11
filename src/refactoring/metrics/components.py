@@ -606,27 +606,19 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             kernel_bandwidths = [0.2, 0.5, 1.0, 2.0, 5.0]
         self.kernel_bandwidths = kernel_bandwidths
 
-    def _get_median_dist_sq(self, points: torch.Tensor) -> float:
+    def _get_median_squared_distance(self, points: torch.Tensor) -> float:
         """Compute median pairwise squared distance (shared heuristic)."""
+        # Ref https://torchdrift.org/notebooks/note_on_mmd.html
         points = points.detach()
         device = points.device
         n, _ = points.shape
-
-        max_samples = 2000
-        if n > max_samples:
-            idx = torch.randperm(n, device=device)[:max_samples]
-            points = points[idx]
-
         norms = (points ** 2).sum(-1)
         dist_sq = norms.unsqueeze(0) + norms.unsqueeze(1) - 2 * torch.mm(points, points.t())
         dist_sq = torch.clamp(dist_sq, min=0.0)
-
         triu_i, triu_j = torch.triu_indices(points.shape[0], points.shape[0], offset=1, device=device)
         pairwise_dist_sq = dist_sq[triu_i, triu_j]
-
         if pairwise_dist_sq.numel() == 0:
             return 1.0
-
         median = torch.median(pairwise_dist_sq)
         if median <= 1e-6:
             median = torch.tensor(1.0, device=device)
@@ -698,14 +690,16 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         z_prior = predictions[PRIOR_LATENT_KEY] # (B, latent_dim)
 
         combined = torch.cat([z_posterior, z_prior], dim=0)  # (2B, latent_dim)
-        median_dist_sq = self._get_median_dist_sq(combined)
+        median_dist_sq = self._get_median_squared_distance(combined)
 
         k_zz = self._compute_rbf_kernel(z_posterior, z_posterior, median_dist_sq)
         k_pp = self._compute_rbf_kernel(z_prior, z_prior, median_dist_sq)
         k_zp = self._compute_rbf_kernel(z_posterior, z_prior, median_dist_sq)
 
         mmd_sq = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
-        mmd_sq = torch.clamp(mmd_sq, min=0.0)
+        if mmd_sq < 0:
+            print(f"Warning: Negative MMD encountered: {mmd_sq.item():.6f}")
+            mmd_sq = torch.clamp(mmd_sq, min=0.0)
 
         component_losses = {MetricKey.MMD_LOSS.value: mmd_sq}
         total_loss = self.weight * mmd_sq
