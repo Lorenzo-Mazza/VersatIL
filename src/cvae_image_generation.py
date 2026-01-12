@@ -31,6 +31,10 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import numpy as np
 import wandb
+import matplotlib.pyplot as plt
+import io
+from PIL import Image as PILImage
+from sklearn.manifold import TSNE
 
 # Reuse existing modules
 from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
@@ -1793,6 +1797,96 @@ def save_samples(
     return {"real": images, "reconstructed": reconstructed, "generated": generated}
 
 
+@torch.no_grad()
+def visualize_latent_space(
+    model: ConditionalVAE,
+    dataloader: DataLoader,
+    device: str,
+    epoch: int,
+    max_samples: int = 64,
+    use_wandb: bool = False,
+) -> None:
+    """Create t-SNE visualization of posterior and prior latent spaces.
+
+    Collects latent samples from the model and creates 2D t-SNE projections
+    for both posterior q(z|x,c) and prior p(z|c) distributions.
+
+    Args:
+        model: CVAE model
+        dataloader: Data loader
+        device: Device string
+        epoch: Current epoch (for wandb logging)
+        max_samples: Maximum samples to collect for t-SNE
+        use_wandb: Whether to log to wandb
+    """
+    model.eval()
+
+    posterior_z_list = []
+    prior_z_list = []
+    num_collected = 0
+
+    for batch in tqdm(dataloader, desc="Collecting latent samples"):
+        if num_collected >= max_samples:
+            break
+
+        images = batch["image"].to(device)
+        input_ids = batch["input_ids"].to(device)
+        attention_mask = batch["attention_mask"].to(device)
+
+        outputs = model(images, input_ids, attention_mask)
+
+        # Collect posterior and prior latents
+        posterior_z_list.append(outputs[LATENT_KEY].cpu().numpy())
+        prior_z_list.append(outputs[PRIOR_LATENT_KEY].cpu().numpy())
+        num_collected += images.shape[0]
+
+    # Concatenate all samples
+    posterior_z = np.concatenate(posterior_z_list, axis=0)[:max_samples]
+    prior_z = np.concatenate(prior_z_list, axis=0)[:max_samples]
+
+    logger.info(f"Collected {posterior_z.shape[0]} latent samples for t-SNE visualization")
+
+    # Compute t-SNE for posterior
+    perplexity = min(30, posterior_z.shape[0] - 1)
+    tsne = TSNE(n_components=2, random_state=42, perplexity=perplexity)
+
+    logger.info("Computing t-SNE for posterior latent space...")
+    posterior_2d = tsne.fit_transform(posterior_z)
+
+    logger.info("Computing t-SNE for prior latent space...")
+    prior_2d = tsne.fit_transform(prior_z)
+
+    # Create visualization figures
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+
+    # Posterior latent space
+    axes[0].scatter(posterior_2d[:, 0], posterior_2d[:, 1], alpha=0.5, s=10, c='blue')
+    axes[0].set_title(f"Posterior q(z|x,c) - Epoch {epoch}")
+    axes[0].set_xlabel("t-SNE Dimension 1")
+    axes[0].set_ylabel("t-SNE Dimension 2")
+
+    # Prior latent space
+    axes[1].scatter(prior_2d[:, 0], prior_2d[:, 1], alpha=0.5, s=10, c='orange')
+    axes[1].set_title(f"Prior p(z|c) - Epoch {epoch}")
+    axes[1].set_xlabel("t-SNE Dimension 1")
+    axes[1].set_ylabel("t-SNE Dimension 2")
+
+    plt.tight_layout()
+
+    # Log to wandb
+    if use_wandb and wandb.run is not None:
+        # Convert figure to wandb image
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
+        buf.seek(0)
+        pil_img = PILImage.open(buf)
+        wandb_img = wandb.Image(pil_img, caption=f"Latent Space t-SNE - Epoch {epoch}")
+        wandb.log({"latent_space/tsne": wandb_img}, step=epoch)
+        logger.info(f"Logged latent space t-SNE to wandb (epoch {epoch})")
+
+    plt.close(fig)
+
+
 # =============================================================================
 # Main
 # =============================================================================
@@ -2105,6 +2199,16 @@ def main():
                 config.device,
                 os.path.join(args.output_dir, f"samples_epoch_{epoch + 1}"),
                 epoch=epoch + 1,
+                use_wandb=use_wandb,
+            )
+
+            # Visualize latent space with t-SNE
+            visualize_latent_space(
+                model,
+                val_loader,
+                config.device,
+                epoch=epoch + 1,
+                max_samples=64,
                 use_wandb=use_wandb,
             )
 
