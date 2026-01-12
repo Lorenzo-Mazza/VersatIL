@@ -134,6 +134,7 @@ class LiberoClient(SocketClient):
         enable_logging: bool = False,
         compression_type: str = CompressionType.RAW.value,
         precision: str = PrecisionType.BF16_MIXED.value,
+        seed: int = 42,
     ):
         """Initialize LIBERO inference client.
 
@@ -155,6 +156,8 @@ class LiberoClient(SocketClient):
             server_address=model_server_address, server_port=model_server_port
         )
 
+        self.seed = seed
+        self._set_seed(seed)
         self.checkpoint_path = checkpoint_path
         self.checkpoint_name = checkpoint_name
         self.device = device
@@ -235,6 +238,14 @@ class LiberoClient(SocketClient):
         self.current_all_position_actions = None
         self.current_all_orientations = None
         self.current_all_grippers = None
+
+    def _set_seed(self, seed: int) -> None:
+        """Set random seeds for reproducibility across runs."""
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+        logging.info(f"Random seed set to {seed} for reproducible inference")
 
     def _load_model(self) -> Policy:
         """Load config and policy from checkpoint."""
