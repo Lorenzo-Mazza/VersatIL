@@ -82,10 +82,10 @@ class CVAEConfig:
     image_channels: int = 3
 
     # Architecture
-    embedding_dim: int = 512
-    latent_dim: int = 256
+    embedding_dim: int = 1024
+    latent_dim: int = 512
     num_heads: int = 8
-    num_encoder_layers: int = 4
+    num_encoder_layers: int = 8
     num_decoder_layers: int = 8
     feedforward_dim: int = 3200
     dropout: float = 0.1
@@ -100,9 +100,9 @@ class CVAEConfig:
 
     # Training
     batch_size: int = 64
-    learning_rate: float = 1e-4
+    learning_rate: float = 5e-4
     num_epochs: int = 100
-    latent_loss_weight: float = 50.0  # Weight for latent regularization (MMD or KL)
+    latent_loss_weight: float = 2000.0  # Weight for latent regularization (MMD or KL)
     recon_weight: float = 1.0
 
     # Latent regularization settings
@@ -849,6 +849,9 @@ class PosteriorEncoder(nn.Module):
         stats = self.to_latent(cls_output)
         mu, logvar = stats.chunk(2, dim=-1)
 
+        # Clamp logvar for numerical stability
+        logvar = logvar.clamp(min=-10.0)
+
         # Reparameterize
         z = reparametrize(mu, logvar)
 
@@ -961,6 +964,9 @@ class PriorEncoder(nn.Module):
         # Get latent stats
         stats = self.to_latent(cls_output)
         mu, logvar = stats.chunk(2, dim=-1)
+
+        # Clamp logvar for numerical stability
+        logvar = logvar.clamp(min=-10.0)
 
         # Reparameterize
         z = reparametrize(mu, logvar)
@@ -1094,20 +1100,34 @@ class ImageDecoder(nn.Module):
             attention_type="gqa",
         )
 
-        # Project to patch pixels
-        self.patch_proj = nn.Linear(
-            embedding_dim, self.patch_size * self.patch_size * image_channels
-        )
+        # Project to feature channels (not pixels) for CNN upsampling
+        self.feature_channels = 256
+        self.patch_proj = nn.Linear(embedding_dim, self.feature_channels)
 
-        # CNN refinement upsampler
-        self.refiner = nn.Sequential(
-            nn.Conv2d(image_channels, 64, 3, 1, 1),
+        # Deep CNN upsampler: 14x14 -> 28x28 -> 56x56 -> 224x224
+        self.upsampler = nn.Sequential(
+            # Stage 1: 14x14 -> 28x28
+            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Conv2d(self.feature_channels, 128, 3, 1, 1),
+            nn.GroupNorm(8, 128),
+            nn.SiLU(),
+            nn.Conv2d(128, 128, 3, 1, 1),
+            nn.GroupNorm(8, 128),
+            nn.SiLU(),
+            # Stage 2: 28x28 -> 56x56
+            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Conv2d(128, 64, 3, 1, 1),
             nn.GroupNorm(8, 64),
             nn.SiLU(),
             nn.Conv2d(64, 64, 3, 1, 1),
             nn.GroupNorm(8, 64),
             nn.SiLU(),
-            nn.Conv2d(64, image_channels, 3, 1, 1),
+            # Stage 3: 56x56 -> 224x224
+            nn.Upsample(scale_factor=4, mode='nearest'),
+            nn.Conv2d(64, 32, 3, 1, 1),
+            nn.GroupNorm(8, 32),
+            nn.SiLU(),
+            nn.Conv2d(32, image_channels, 3, 1, 1),
         )
 
     def forward(
@@ -1154,18 +1174,16 @@ class ImageDecoder(nn.Module):
             memory_padding_mask=memory_padding_mask,
         )  # (B, num_patches, emb_dim)
 
-        # Project to patch pixels
-        patches = self.patch_proj(decoded)  # (B, num_patches, patch_size^2 * C)
+        # Project to feature channels
+        features = self.patch_proj(decoded)  # (B, num_patches, feature_channels)
 
-        # Reshape to image
+        # Reshape to spatial feature map (B, C, H, W)
         h = w = self.num_patches_per_side
-        C = 3
-        patches = patches.view(B, h, w, self.patch_size, self.patch_size, C)
-        patches = patches.permute(0, 5, 1, 3, 2, 4)  # (B, C, h, p, w, p)
-        image = patches.reshape(B, C, self.image_size, self.image_size)
+        features = features.transpose(1, 2)  # (B, feature_channels, num_patches)
+        features = features.view(B, self.feature_channels, h, w)  # (B, 256, 14, 14)
 
-        # Refine
-        image = self.refiner(image)
+        # Upsample to full image size
+        image = self.upsampler(features)  # (B, 3, 224, 224)
 
         return image
 
@@ -1996,7 +2014,7 @@ def main():
         model.parameters(), lr=config.learning_rate, weight_decay=0.001
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=config.num_epochs, eta_min=1e-5
+        optimizer, T_max=config.num_epochs, eta_min=1e-4
     )
 
     # Loss
