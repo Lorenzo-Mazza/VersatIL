@@ -10,6 +10,7 @@ from refactoring.data.constants import (
 
 @dataclass
 class DataLoaderConfig:
+    preload_data_in_memory: bool = False # Whether to preload the entire zarr into RAM, speeds up training considerably but works only for small datasets.
     # Batching
     batch_size: int = 64
     num_workers: int = 16

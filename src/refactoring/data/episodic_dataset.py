@@ -65,6 +65,7 @@ class EpisodicDataset(data.Dataset):
         self.observation_space = observation_space
         self.pred_horizon = pred_horizon
         self.obs_horizon = obs_horizon
+        self.preload_data_in_memory = dataloader_config.preload_data_in_memory
         self.action_backward_shift = dataloader_config.action_backward_shift
         self.kinematics_norm_type = dataloader_config.kinematics_norm_type
         self.image_norm_type = dataloader_config.image_norm_type
@@ -88,7 +89,10 @@ class EpisodicDataset(data.Dataset):
                 + action_space.get_required_zarr_keys()
             )
         )  # Remove duplicates
-        self.replay_buffer = ReplayBuffer.create_from_path(zarr_path=zarr_path)
+        if self.preload_data_in_memory:
+            self.replay_buffer = ReplayBuffer.copy_from_path(zarr_path=zarr_path, keys=all_keys)
+        else:
+            self.replay_buffer = ReplayBuffer.create_from_path(zarr_path=zarr_path)
         missing_keys = set(all_keys) - set(self.replay_buffer.keys())
         if missing_keys:
             raise KeyError(f"Missing required keys in zarr: {missing_keys}")
@@ -104,7 +108,6 @@ class EpisodicDataset(data.Dataset):
             self._apply_downsampling(episode_mask, dataloader_config.downsample_factor)
             episode_mask = np.ones(self.replay_buffer.n_episodes, dtype=bool)
         self.episode_ends = self.replay_buffer.episode_ends[:]
-        # TODO: double check that in sampler we are actually sampling from t until t+k+1
         self.sampler = SequenceSampler(
             replay_buffer=self.replay_buffer,
             sequence_length=self.obs_horizon

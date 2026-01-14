@@ -15,6 +15,7 @@ from refactoring.data.preprocessing.create_zarr_from_hdf5 import (
     create_replay_buffer_from_hdf5,
 )
 from refactoring.data.preprocessing.replay_buffer import ReplayBuffer
+from refactoring.data.raw.schemas import CsvDatasetSchema
 from refactoring.data.raw.schemas.base import DatasetSchema
 from refactoring.data.raw.schemas.hdf5 import Hdf5DatasetSchema
 from refactoring.data.task import ActionSpace, ObservationSpace
@@ -46,10 +47,8 @@ def get_dataloaders(
     validate_dataloader_config(dataloader_config)
     validate_tokenizer_config(tokenization_config)
 
-    #schema.zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/bowelretraction.zarr"
-
     logging.info(f"Using dataset schema: {schema.__class__.__name__}")
-    _ensure_zarr_exists(schema=schema)
+    _ensure_zarr_exists(schema=schema, preload_in_memory=dataloader_config.preload_data_in_memory)
 
     train_dataset = EpisodicDataset(
         zarr_path=schema.zarr_path,
@@ -178,33 +177,31 @@ def _collect_dataset_paths(
             if d.is_dir() and (d / episode_filename).exists()
         ]
         datasets_paths.extend([str(d / episode_filename) for d in episode_dirs])
-    # datasets_paths = datasets_paths[:4]
     return datasets_paths
 
 
-def _ensure_zarr_exists(schema: DatasetSchema) -> None:
-    """Create zarr if it doesn't exist or is invalid.
+def _ensure_zarr_exists(schema: DatasetSchema, preload_in_memory: bool = False) -> None:
+    """Create zarr if it doesn't exist or is invalid. Optionally, preload in memory.
 
     Dispatches to the appropriate creation function based on schema type:
     - Hdf5DatasetSchema: Uses hdf5_paths from schema directly
     - CsvDatasetSchema: Collects episode CSV paths from dataset_folders
     """
     zarr_path = schema.zarr_path
-    #zarr_path = (
-    #    "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/libero.zarr"
-    #)
-    # zarr_path = "/home/mazzalore/PycharmProjects/Surg-IL/src/endpoints/local_test/bowelretraction.zarr"
     need_create = True
     required_keys = schema.get_required_zarr_keys()
 
     if Path(zarr_path).exists():
         try:
-            logging.info(f"Loading existing replay buffer from {zarr_path}")
-            buffer = ReplayBuffer.create_from_path(zarr_path)
-            # Validate required keys exist
-            missing_keys = set(required_keys) - set(buffer.keys())
-            if missing_keys:
-                raise KeyError(f"Missing required keys: {missing_keys}")
+            if preload_in_memory:
+                logging.info(f"Preloading replay buffer into memory from {zarr_path}")
+                ReplayBuffer.copy_from_path(zarr_path, keys=required_keys)
+            else:
+                logging.info(f"Loading existing replay buffer from {zarr_path}")
+                buffer = ReplayBuffer.create_from_path(zarr_path)
+                missing_keys = set(required_keys) - set(buffer.keys())
+                if missing_keys:
+                    raise KeyError(f"Missing required keys: {missing_keys}")
             need_create = False
         except Exception as e:
             logging.info(f"Error loading {zarr_path}: {e}. Recreating...")
@@ -215,7 +212,7 @@ def _ensure_zarr_exists(schema: DatasetSchema) -> None:
         if isinstance(schema, Hdf5DatasetSchema):
             logging.info(f"Processing {len(schema.hdf5_paths)} HDF5 files")
             create_replay_buffer_from_hdf5(schema=schema)
-        else:
+        elif isinstance(schema, CsvDatasetSchema):
             datasets_paths = _collect_dataset_paths(
                 schema.dataset_folders, schema.dataset_filename
             )
@@ -223,6 +220,10 @@ def _ensure_zarr_exists(schema: DatasetSchema) -> None:
                 f"Found {len(datasets_paths)} episodes across {len(schema.dataset_folders)} folders"
             )
             create_replay_buffer(schema=schema, datasets_paths=datasets_paths)
+        else:
+            raise NotImplementedError(
+                f"Zarr creation not implemented for schema type: {type(schema)}"
+            )
 
 
 def _log_phase_distributions(
