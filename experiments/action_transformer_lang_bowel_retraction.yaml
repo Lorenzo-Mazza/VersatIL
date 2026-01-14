@@ -28,6 +28,12 @@ policy:
   observation_horizon: ${task.observation_horizon}
   device: ${experiment.device}
   validate_loss_keys: true
+  loss:
+    loss_modules:
+      phase_passthrough:
+        _target_: refactoring.metrics.MetadataPassthrough
+        keys_mapping:
+          ${obs_key:PHASE_LABEL}: ${metadata_key:PHASE_LABEL}
 
 # Override specific parameters from defaults/command line if needed
 # For example, to use different batch size:

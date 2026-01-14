@@ -154,13 +154,18 @@ class ActionDecoder(nn.Module, ABC):
             for head in self.action_heads.values():
                 head.set_output_dim(1)
             return
+        predicted_metadata = {
+            k: v
+            for k, v in self.action_space.actions_metadata.items()
+            if v.requires_prediction_head
+        }
         for key, head in self.action_heads.items():
-            if key not in self.action_space.actions_metadata:
+            if key not in predicted_metadata:
                 raise ValueError(
                     f"Action head '{key}' not found in action_space.actions_metadata. "
-                    f"Available keys: {list(self.action_space.actions_metadata.keys())}"
+                    f"Available keys: {list(predicted_metadata.keys())}"
                 )
-            dim = self.action_space.actions_metadata[key].prediction_dimension
+            dim = predicted_metadata[key].prediction_dimension
             head.set_output_dim(dim)
 
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
@@ -241,14 +246,14 @@ class ActionDecoder(nn.Module, ABC):
         Raises:
             ValueError: If validation fails
         """
-        # Skip validation for tokenized action decoders
         if self.supports_tokenized_actions:
             return
 
         configured_heads = set(self.action_heads.keys())
         required_heads = {}
         for key, meta in self.action_space.actions_metadata.items():
-            required_heads[key] = meta.prediction_dimension
+            if meta.requires_prediction_head:
+                required_heads[key] = meta.prediction_dimension
 
         required_keys = set(required_heads.keys())
         missing_heads = required_keys - configured_heads

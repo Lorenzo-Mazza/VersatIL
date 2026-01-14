@@ -97,7 +97,7 @@ class MetricsAccumulator:
 
         # Concatenate all phase predictions and labels
         all_logits = torch.cat(self.metadata[MetadataKey.PHASE_LOGITS.value], dim=0)
-        all_labels = torch.cat(self.metadata[MetadataKey.PHASE_LABELS.value], dim=0)
+        all_labels = torch.cat(self.metadata[MetadataKey.PHASE_LABEL.value], dim=0)
 
         # Compute predictions
         preds = torch.argmax(all_logits, dim=-1).flatten().numpy()
@@ -128,7 +128,7 @@ class MetricsAccumulator:
 
         # Concatenate all phase predictions and labels
         all_logits = torch.cat(self.metadata[MetadataKey.PHASE_LOGITS.value], dim=0)
-        all_labels = torch.cat(self.metadata[MetadataKey.PHASE_LABELS.value], dim=0)
+        all_labels = torch.cat(self.metadata[MetadataKey.PHASE_LABEL.value], dim=0)
 
         # Compute predictions
         preds = torch.argmax(all_logits, dim=-1).flatten().numpy()
@@ -184,8 +184,8 @@ class MetricsAccumulator:
             Returns None if no latent data available.
         """
         z, z_prior, phase_per_sample = None, None, None
-        if MetadataKey.PHASE_LABELS.value in self.metadata:
-            all_phases = torch.cat(self.metadata[MetadataKey.PHASE_LABELS.value], dim=0)
+        if MetadataKey.PHASE_LABEL.value in self.metadata:
+            all_phases = torch.cat(self.metadata[MetadataKey.PHASE_LABEL.value], dim=0)
             # Handle phase labels: reduce (B, prediction_horizon) -> (N,) using mode
             phase_per_sample = torch.mode(all_phases, dim=1).values.numpy()
 

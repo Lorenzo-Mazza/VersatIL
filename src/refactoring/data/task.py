@@ -111,8 +111,12 @@ class ActionSpace:
         return result
 
     def get_total_action_dim(self) -> int:
-        """Calculate total action dimension."""
-        return sum(meta.prediction_dimension for meta in self.actions_metadata.values())
+        """Calculate total action dimension for predicted actions."""
+        return sum(
+            meta.prediction_dimension
+            for meta in self.actions_metadata.values()
+            if meta.requires_prediction_head
+        )
 
     @property
     def position_dim(self) -> int:

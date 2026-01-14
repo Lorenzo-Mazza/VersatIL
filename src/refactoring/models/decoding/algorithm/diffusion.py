@@ -201,6 +201,8 @@ class Diffusion(DecodingAlgorithm):
         # Initialize actions with random noise
         noisy_actions = {}
         for key, meta in network.action_space.actions_metadata.items():
+            if not meta.requires_prediction_head:
+                continue
             noisy_actions[key] = torch.randn(
                 batch_size,
                 network.prediction_horizon,

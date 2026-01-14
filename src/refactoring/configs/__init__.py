@@ -147,6 +147,7 @@ from refactoring.models.encoding.encoders.constants import (
 )
 from refactoring.models.layers.activation import ActivationFunction
 from refactoring.models.layers.constants import AttentionType, ConditioningType, PositionalEncodingType
+from refactoring.metrics.constants import MetadataKey
 from refactoring.models.layers.diffusion_process import SchedulerType
 from refactoring.models.layers.normalization.constants import NormalizationType
 from refactoring.training.constants import Float32MatmulPrecision, PrecisionType
@@ -313,6 +314,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("conditioning_type"):
         OmegaConf.register_new_resolver(
             "conditioning_type", lambda name: ConditioningType[name].value
+        )
+    if not OmegaConf.has_resolver("metadata_key"):
+        OmegaConf.register_new_resolver(
+            "metadata_key", lambda name: MetadataKey[name].value
         )
 
 def register_configs():

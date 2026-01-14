@@ -1062,7 +1062,7 @@ class PhaseClassificationLoss(BaseLoss):
 
         metadata = {
             MetadataKey.PHASE_LOGITS.value: pred_logits.detach(),
-            MetadataKey.PHASE_LABELS.value: target_labels.detach(),
+            MetadataKey.PHASE_LABEL.value: target_labels.detach(),
         }
 
         return LossOutput(
@@ -1537,5 +1537,46 @@ class MoELoss(BaseLoss):
         return LossOutput(
             total_loss=base_output.total_loss + entropy_loss,
             component_losses=component_losses,
+            metadata=metadata,
+        )
+
+
+class MetadataPassthrough(BaseLoss):
+    """Passthrough to add target keys to metadata without computing loss.
+
+    Useful for adding auxiliary data to metadata for
+    visualization/analysis without affecting training.
+    """
+
+    def __init__(self, keys_mapping: dict[str, str]):
+        """Initialize metadata passthrough.
+
+        Args:
+            keys_mapping: Mapping from target keys to metadata keys.
+                Example: {"phase_label": "phase_label"} extracts targets["phase_label"]
+                and stores it in metadata["phase_label"].
+        """
+        super().__init__()
+        self.keys_mapping = resolve_dict_keys(dict(keys_mapping))
+
+    def get_required_keys(self) -> set[str]:
+        """Get required target keys."""
+        return set(self.keys_mapping.keys())
+
+    def forward(
+        self,
+        predictions: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        is_pad: torch.Tensor | None = None,
+    ) -> LossOutput:
+        """Extract keys from targets and add to metadata."""
+        device = next(iter(predictions.values())).device
+        metadata = {}
+        for target_key, metadata_key in self.keys_mapping.items():
+            if target_key in targets:
+                metadata[metadata_key] = targets[target_key].detach()
+        return LossOutput(
+            total_loss=torch.tensor(0.0, device=device),
+            component_losses={},
             metadata=metadata,
         )

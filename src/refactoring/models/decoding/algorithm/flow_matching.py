@@ -137,6 +137,8 @@ class FlowMatching(DecodingAlgorithm):
         dtype = first_feature.dtype
         trajectory: dict[str, torch.Tensor] = {}
         for key, meta in network.action_space.actions_metadata.items():
+            if not meta.requires_prediction_head:
+                continue
             trajectory[key] = torch.randn(
                 batch_size,
                 network.prediction_horizon,

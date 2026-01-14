@@ -165,7 +165,7 @@ def tokenize_actions(
     action_components = []
     for key in sorted(action_space.actions_metadata.keys()):
         meta = action_space.actions_metadata[key]
-        if meta.is_numerical:
+        if meta.is_numerical and meta.requires_prediction_head:
             action_tensor = actions_to_tokenize[key]
             if action_tensor.ndim == 1:
                 action_tensor = action_tensor.unsqueeze(-1)
@@ -202,7 +202,7 @@ def detokenize_actions(
     current_idx = 0
     for key in sorted(action_space.actions_metadata.keys()):
         meta = action_space.actions_metadata[key]
-        if meta.is_numerical:
+        if meta.is_numerical and meta.requires_prediction_head:
             dim = meta.prediction_dimension
             action_dict[key] = actions[..., current_idx : current_idx + dim]
             current_idx += dim

@@ -108,7 +108,7 @@ class TestPhaseMetrics:
             component_losses={MetricKey.PHASE_CROSS_ENTROPY.value: torch.tensor(1.0, device=device)},
             metadata={
                 MetadataKey.PHASE_LOGITS.value: phase_logits,
-                MetadataKey.PHASE_LABELS.value: phase_labels,
+                MetadataKey.PHASE_LABEL.value: phase_labels,
             },
         )
 
@@ -141,7 +141,7 @@ class TestPhaseMetrics:
             component_losses={MetricKey.PHASE_CROSS_ENTROPY.value: torch.tensor(1.0, device=device)},
             metadata={
                 MetadataKey.PHASE_LOGITS.value: phase_logits,
-                MetadataKey.PHASE_LABELS.value: phase_labels,
+                MetadataKey.PHASE_LABEL.value: phase_labels,
             },
         )
 
@@ -171,7 +171,7 @@ class TestPhaseMetrics:
             component_losses={MetricKey.PHASE_CROSS_ENTROPY.value: torch.tensor(0.0, device=device)},
             metadata={
                 MetadataKey.PHASE_LOGITS.value: phase_logits,
-                MetadataKey.PHASE_LABELS.value: phase_labels,
+                MetadataKey.PHASE_LABEL.value: phase_labels,
             },
         )
 
@@ -198,7 +198,7 @@ class TestPhaseMetrics:
                 component_losses={MetricKey.PHASE_CROSS_ENTROPY.value: torch.tensor(1.0, device=device)},
                 metadata={
                     MetadataKey.PHASE_LOGITS.value: phase_logits,
-                    MetadataKey.PHASE_LABELS.value: phase_labels,
+                    MetadataKey.PHASE_LABEL.value: phase_labels,
                 },
             )
 
@@ -206,7 +206,7 @@ class TestPhaseMetrics:
 
         # Should have stored metadata from all batches
         assert len(metrics.metadata[MetadataKey.PHASE_LOGITS.value]) == 3
-        assert len(metrics.metadata[MetadataKey.PHASE_LABELS.value]) == 3
+        assert len(metrics.metadata[MetadataKey.PHASE_LABEL.value]) == 3
 
         # Should compute metrics across all batches
         metrics_dict = metrics.to_dict()

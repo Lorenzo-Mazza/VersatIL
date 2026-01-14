@@ -294,6 +294,8 @@ class ActionMetadata(BaseMetadata):
     Attributes:
         prediction_dimension: Dimension for model prediction. May differ from storage,
             e.g., class labels stored as 1 column but predicted as n_classes logits.
+        requires_prediction_head: Whether this action requires a prediction head.
+            Set to False for auxiliary/meta data that doesn't need prediction
     """
 
     def __init__(
@@ -303,6 +305,7 @@ class ActionMetadata(BaseMetadata):
         needs_normalization: bool,
         dtype: str,
         is_precomputed: bool,
+        requires_prediction_head: bool = True,
     ):
         super().__init__(
             dtype=dtype,
@@ -316,6 +319,7 @@ class ActionMetadata(BaseMetadata):
         self.prediction_dimension = prediction_dimension
         self.is_precomputed = is_precomputed
         self.action_type = ProprioceptiveType.CUSTOM.value
+        self.requires_prediction_head = requires_prediction_head
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
@@ -345,6 +349,7 @@ class OnTheFlyActionMetadata(ActionMetadata):
         self,
         source_metadata: ProprioceptiveObservationMetadata,
         computation_method: str = ActionComputationMethod.DELTA.value,
+        requires_prediction_head: bool = True,
     ):
         if not source_metadata.is_numerical:
             raise ValueError("Source metadata for on-the-fly action must be numerical.")
@@ -354,6 +359,7 @@ class OnTheFlyActionMetadata(ActionMetadata):
             needs_normalization=source_metadata.needs_normalization,
             dtype=source_metadata.dtype,
             is_precomputed=False,
+            requires_prediction_head=requires_prediction_head,
         )
         valid_methods = [e.value for e in ActionComputationMethod]
         if computation_method not in valid_methods:
@@ -397,6 +403,7 @@ class PrecomputedActionMetadata(ActionMetadata):
         dtype: str,
         slice_start: Optional[int] = None,
         slice_end: Optional[int] = None,
+        requires_prediction_head: bool = True,
     ):
         super().__init__(
             prediction_dimension=prediction_dimension,
@@ -404,6 +411,7 @@ class PrecomputedActionMetadata(ActionMetadata):
             needs_normalization=needs_normalization,
             dtype=dtype,
             is_precomputed=True,
+            requires_prediction_head=requires_prediction_head,
         )
         if not raw_data_column_keys:
             raise ValueError("raw_data_column_keys cannot be empty")

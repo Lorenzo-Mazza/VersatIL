@@ -161,6 +161,10 @@ class Policy(nn.Module):
         """
         valid_loss_keys: set[str] = set()
         valid_loss_keys.update(self.decoder.action_heads.keys())
+        # Add auxiliary action keys (requires_prediction_head=False) for metadata passthrough
+        for key, meta in self.action_space.actions_metadata.items():
+            if not meta.requires_prediction_head:
+                valid_loss_keys.add(key)
         if isinstance(self.algorithm, VariationalAlgorithm):
             valid_loss_keys.update(
                 {
