@@ -6,7 +6,7 @@ defaults:
   - experiment: bowel_retraction_act
   - task/dataset_schema: bowel_retraction_v2
   - task/dataloader: act_default
-  - task/action_space: deltas_cf_pos_gripper
+  - task/action_space: deltas_cf_pos_gripper_phase
   - task/observation_space: stereo_rgb
   - training: act_default
   - policy/encoding_pipeline: stereo_rgb
@@ -19,6 +19,10 @@ defaults:
 task:
   observation_horizon: 1
   prediction_horizon: 10
+  action_space:
+    actions_metadata:
+      ${obs_key:PHASE_LABEL}:
+        requires_prediction_head: false
 
 policy:
   _target_: refactoring.models.policy.Policy
