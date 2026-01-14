@@ -8,7 +8,7 @@ from refactoring.configs.decoding.action_head import MixtureOfExpertsHeadConfig
 from refactoring.configs.data.task import ActionSpaceConfig, ObservationSpaceConfig
 from refactoring.models.decoding.constants import MoERoutingType
 from refactoring.models.layers.activation import ActivationFunction
-from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
+from refactoring.models.layers.constants import AttentionType, ConditioningType, PositionalEncodingType
 from refactoring.models.layers.normalization.constants import NormalizationType
 
 
@@ -158,6 +158,36 @@ class ActionTransformerConfig(DecodingNetworkConfig):
     positional_encoding_type: str | None = (
         PositionalEncodingType.ROPE.value
     )  # Type of positional encoding
+
+
+@dataclass
+class LACTConfig(DecodingNetworkConfig):
+    """Latent Action Transformer (LACT) architecture configuration.
+
+    LACT extends a standard Action Transformer with latent-conditioned decoding.
+    It requires a latent embedding (from variational algorithm) and uses
+    AdaLN or FiLM conditioning on the learned queries and throughout the
+    transformer decoder layers.
+
+    Must be used with a variational algorithm (e.g., VariationalAlgorithm)
+    that provides the LATENT_KEY in the features dictionary.
+    """
+
+    _target_: str = "refactoring.models.decoding.decoders.factory.lact.LACT"
+    latent_dimension: int = MISSING
+    embedding_dimension: int = 256
+    number_of_heads: int = 8
+    number_of_key_value_heads: int | None = None
+    feedforward_dimension: int | None = None
+    number_of_layers: int = 6
+    activation: str = ActivationFunction.SWIGLU.value
+    normalization_type: str = NormalizationType.RMS_NORM.value
+    attention_type: str = AttentionType.MULTI_HEAD.value
+    conditioning_type: str = ConditioningType.ADALN.value
+    dropout_rate: float = 0.1
+    attention_dropout: float = 0.0
+    condition_queries: bool = True
+    modulation_init_strategy: str = "identity"
 
 
 # TODO: Implement these decoder architectures

@@ -26,3 +26,10 @@ class AttentionType(str, enum.Enum):
 
     MULTI_HEAD = "mha"
     GROUPED_QUERY = "gqa"
+
+
+class ConditioningType(str, enum.Enum):
+    """Types of conditional modulation for transformers."""
+
+    ADALN = "adaln"  # Adaptive Layer Normalization (modulate after norm)
+    FILM = "film"  # Feature-wise Linear Modulation (modulate features directly)

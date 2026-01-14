@@ -5,6 +5,12 @@ from refactoring.models.layers.transformer.bidirectional_decoder import (
     BidirectionalDecoder,
 )
 from refactoring.models.layers.transformer.autoregressive_decoder import GPTDecoder
+from refactoring.models.layers.transformer.conditional_bidirectional_decoder import (
+    ConditionalBidirectionalDecoder,
+)
+from refactoring.models.layers.transformer.conditional_decoder_layer import (
+    ConditionalTransformerDecoderLayer,
+)
 from refactoring.models.layers.transformer.decoder_layer import TransformerDecoderLayer
 from refactoring.models.layers.transformer.kv_cache import (
     DecoderKVCache,
@@ -20,6 +26,8 @@ from refactoring.models.layers.transformer.positional_encoding import (
 
 __all__ = [
     "BidirectionalDecoder",
+    "ConditionalBidirectionalDecoder",
+    "ConditionalTransformerDecoderLayer",
     "GPTDecoder",
     "TransformerDecoderLayer",
     "CachedAttention",

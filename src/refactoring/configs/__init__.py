@@ -44,6 +44,7 @@ from refactoring.configs.decoding.decoder import (
     ACTConfig,
     DecodingNetworkConfig,
     FreeTransformerConfig,
+    LACTConfig,
     MixtureOfExpertsDecoderConfig,
     FASTGPTDecoderConfig,
     FASTDETRDecoderConfig,
@@ -145,7 +146,7 @@ from refactoring.models.encoding.encoders.constants import (
     BatchNormHandling
 )
 from refactoring.models.layers.activation import ActivationFunction
-from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
+from refactoring.models.layers.constants import AttentionType, ConditioningType, PositionalEncodingType
 from refactoring.models.layers.diffusion_process import SchedulerType
 from refactoring.models.layers.normalization.constants import NormalizationType
 from refactoring.training.constants import Float32MatmulPrecision, PrecisionType
@@ -166,6 +167,7 @@ __all__ = [
     "DecodingNetworkConfig",
     "ACTConfig",
     "FreeTransformerConfig",
+    "LACTConfig",
     "MixtureOfExpertsDecoderConfig",
     "InferenceConfig",
     "DataLoaderConfig",
@@ -307,6 +309,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("denoising_algorithm"):
         OmegaConf.register_new_resolver(
             "denoising_algorithm", lambda name: DenoisingAlgorithm[name].value
+        )
+    if not OmegaConf.has_resolver("conditioning_type"):
+        OmegaConf.register_new_resolver(
+            "conditioning_type", lambda name: ConditioningType[name].value
         )
 
 def register_configs():
@@ -555,6 +561,7 @@ def register_configs():
         node=MoEFreeTransformerConfig,
     )
     cs.store(group="policy/decoder", name="moe", node=MixtureOfExpertsDecoderConfig)
+    cs.store(group="policy/decoder", name="lact_decoder", node=LACTConfig)
     cs.store(group="policy/decoder/action_head", name="base", node=ActionHeadConfig)
     cs.store(
         group="policy/decoder/action_head", name="moe", node=MixtureOfExpertsHeadConfig

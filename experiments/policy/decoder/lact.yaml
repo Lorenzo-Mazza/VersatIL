@@ -1,0 +1,28 @@
+defaults:
+  - lact_decoder
+  - heads@action_heads: bowel_retraction
+
+input_keys:
+  - left_rgb
+  - right_rgb
+
+latent_dimension: ${policy.algorithm.posterior_encoder.latent_dimension}
+embedding_dimension: 256
+number_of_heads: 8
+number_of_key_value_heads: 2
+feedforward_dimension: 1024
+number_of_layers: 2
+activation: ${activation_function:SWIGLU}
+normalization_type: ${normalization:RMS_NORM}
+attention_type: ${attention:MULTI_HEAD}
+conditioning_type: ${conditioning_type:ADALN}
+dropout_rate: 0.1
+attention_dropout: 0.0
+condition_queries: true
+modulation_init_strategy: identity
+
+observation_horizon: ${task.observation_horizon}
+prediction_horizon: ${task.prediction_horizon}
+action_space: ${task.action_space}
+observation_space: ${task.observation_space}
+device: ${experiment.device}

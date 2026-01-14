@@ -69,7 +69,8 @@ class TransformerInputBuilder(nn.Module):
             spatial_positional_encoding_layer: PositionalEncoding2D | None = None,
             flat_positional_encoding_layer: PositionalEncoding1D | None = None,
             temporal_positional_encoding_layer: PositionalEncoding1D | None = None,
-            use_camera_embeddings: bool = True
+            use_camera_embeddings: bool = True,
+            exclude_keys: list[str] | None = None,
     ):
         """Initialize TransformerInputBuilder.
 
@@ -81,11 +82,13 @@ class TransformerInputBuilder(nn.Module):
             temporal_positional_encoding_layer: Optional 1D positional encoding layer for temporal dimension.
             use_camera_embeddings: Whether to use camera embeddings for multi-camera 2D PE, so that each camera
                 view can be distinguished in the transformer input.
+            exclude_keys: Optional list of feature keys to exclude from the input sequence.
         Raises:
             ValueError: If provided positional encoding layers do not match expected types or dimensions.
         """
         super().__init__()
         self.embedding_dim = embedding_dim
+        self.exclude_keys = set(exclude_keys) if exclude_keys else set()
         self.projection = FeatureProjection(embedding_dim, has_time_dim=has_time_dim)
         if spatial_positional_encoding_layer is not None:
             if not isinstance(spatial_positional_encoding_layer, PositionalEncoding2D):
@@ -132,7 +135,9 @@ class TransformerInputBuilder(nn.Module):
         action_padding_mask = features.get(IS_PAD_ACTION_KEY, None)
         clean_features = {
             k: v for k, v in features.items()
-            if not EncoderOutputKeys.PADDING_MASK.value in k and k != IS_PAD_ACTION_KEY
+            if not EncoderOutputKeys.PADDING_MASK.value in k
+            and k != IS_PAD_ACTION_KEY
+            and k not in self.exclude_keys
         }
         projected = self.projection(clean_features) # Project all features to common embedding dim
         spatial_tokens_list = []
