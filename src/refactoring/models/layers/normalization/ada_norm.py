@@ -13,6 +13,7 @@ class AdaNorm(nn.Module):
         base_norm: nn.Module,
         condition_dim: int,
         feature_dim: int,
+        use_gate: bool = False,
         activation: str = ActivationFunction.SILU.value,
     ):
         super().__init__()
@@ -24,11 +25,16 @@ class AdaNorm(nn.Module):
             condition_dim=condition_dim,
             feature_dim=feature_dim,
             use_shift=True,
+            use_gate=use_gate,
             activation=ActivationFunction.SILU.value,
-            init_strategy="identity",
+            init_strategy="zero" if use_gate else "identity",
         )
 
-    def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
-        """Forward pass with optional conditioning"""
+    def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass with optional conditioning
+
+        Returns:
+            The normalized and modulated input x or a tuple with x and the gate value (alpha) to be used by the residual connection, if use_gate is True.
+        """
         x = self.norm(x)
         return self.modulation(x, condition)

@@ -71,10 +71,16 @@ class DiTBlock(nn.Module):
             dropout=dropout,
         )
         self.norm1 = AdaNorm(
-            nn.LayerNorm(embedding_dimension), timestep_dimension, embedding_dimension
+            base_norm=nn.LayerNorm(embedding_dimension),
+            condition_dim=timestep_dimension,
+            feature_dim=embedding_dimension,
+            use_gate=True
         )
         self.norm2 = AdaNorm(
-            nn.LayerNorm(embedding_dimension), timestep_dimension, embedding_dimension
+            base_norm=nn.LayerNorm(embedding_dimension),
+            condition_dim=timestep_dimension,
+            feature_dim=embedding_dimension,
+            use_gate=True
         )
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
@@ -112,7 +118,7 @@ class DiTBlock(nn.Module):
             Output tokens (B, T, D).
         """
         residual = x
-        x = self.norm1(x, timestep_embed)
+        x, gate1 = self.norm1(x, timestep_embed)
         x = self.self_attention(
             query=x,
             key=x,
@@ -121,11 +127,11 @@ class DiTBlock(nn.Module):
             key_positional_encoding=positional_encoding,
             key_padding_mask=key_padding_mask,
         )
-        x = residual + self.dropout1(x)
+        x = residual + gate1 * self.dropout1(x)
         residual = x
-        x = self.norm2(x, timestep_embed)
+        x, gate2 = self.norm2(x, timestep_embed)
         x = self.ffn(x)
-        x = residual + self.dropout2(x)
+        x = residual + gate2 * self.dropout2(x)
         return x
 
 
