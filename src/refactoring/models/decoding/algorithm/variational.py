@@ -56,7 +56,7 @@ class VariationalAlgorithm(DecodingAlgorithm):
         base_algorithm: DecodingAlgorithm,
         posterior_encoder: PosteriorLatentEncoder,
         prior: PriorLatentEncoder | None = None,
-        sampling_from_prior_probability: float = 0.25,
+        sampling_from_prior_probability: float = 0.0,
     ):
         """Initialize variational algorithm wrapper."""
         super().__init__()
