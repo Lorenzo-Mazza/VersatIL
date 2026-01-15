@@ -1202,9 +1202,15 @@ class PriorDenoisingLoss(BaseLoss):
             predictions[PRIOR_PREDICTION_KEY],
             predictions[PRIOR_TARGET_KEY],
         )
+        metadata: dict[str, torch.Tensor] = {}
+        if LATENT_KEY in predictions:
+            metadata[MetadataKey.POSTERIOR_Z.value] = predictions[LATENT_KEY]
+        if PRIOR_LATENT_KEY in predictions:
+            metadata[MetadataKey.PRIOR_Z.value] = predictions[PRIOR_LATENT_KEY]
         return LossOutput(
             total_loss=self.weight * prior_loss,
             component_losses={MetricKey.PRIOR_DENOISING_LOSS.value: prior_loss},
+            metadata=metadata,
         )
 
 
