@@ -93,15 +93,21 @@ class ConditionalModulation(nn.Module):
             gamma = gamma.view(x.size(0), x.size(1), 1, 1)
             if beta is not None:
                 beta = beta.view(x.size(0), x.size(1), 1, 1)
+            if gate is not None:
+                gate = gate.view(x.size(0), x.size(1), 1, 1)
         elif x.dim() == 3:
             if x.size(0) == condition.size(0):
                 gamma = gamma.unsqueeze(1)
                 if beta is not None:
                     beta = beta.unsqueeze(1)
+                if gate is not None:
+                    gate = gate.unsqueeze(1)
             elif x.size(1) == condition.size(0):
-                gamma = gamma.unsqueeze(0)
-                if beta is not None:
-                    beta = beta.unsqueeze(0)
+                    gamma = gamma.unsqueeze(0)
+                    if beta is not None:
+                        beta = beta.unsqueeze(0)
+                    if gate is not None:
+                        gate = gate.unsqueeze(0)
             else:
                 raise ValueError(
                     f"Cannot match batch dimension: x.shape={x.shape}, condition.shape={condition.shape}. "
