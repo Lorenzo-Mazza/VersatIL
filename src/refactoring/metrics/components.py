@@ -692,10 +692,12 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             raise ValueError(f"Predictions must contain '{required_keys}' for MaximumMeanDiscrepancyLoss.")
 
         z_posterior = predictions[LATENT_KEY]   # (B, latent_dim)
+        original_z_prior = predictions.get(PRIOR_LATENT_KEY, None) # (B, latent_dim) or None
         if self.use_fixed_gaussian_as_prior:
             z_prior = torch.randn_like(z_posterior)  # (B, latent_dim)
         else:
-            z_prior = predictions[PRIOR_LATENT_KEY] # (B, latent_dim)
+            assert original_z_prior is not None
+            z_prior = original_z_prior # (B, latent_dim)
 
         combined = torch.cat([z_posterior, z_prior], dim=0)  # (2B, latent_dim)
         median_dist_sq = self._get_median_squared_distance(combined)
@@ -731,8 +733,11 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             MetadataKey.POSTERIOR_Z.value: z_posterior,
             MetadataKey.POSTERIOR_MU.value: predictions[MU_KEY],
             MetadataKey.POSTERIOR_LOGVAR.value: predictions[LOGVAR_KEY],
-            MetadataKey.PRIOR_Z.value: z_prior,
         }
+        if self.use_fixed_gaussian_as_prior:
+            metadata[MetadataKey.HYPERPRIOR_Z.value] = z_prior
+        if original_z_prior is not None:
+            metadata[MetadataKey.PRIOR_Z.value] = original_z_prior
         if not is_mixture_prior and not self.use_fixed_gaussian_as_prior:
             metadata[MetadataKey.PRIOR_MU.value] = predictions[PRIOR_MU_KEY]
             metadata[MetadataKey.PRIOR_LOGVAR.value] = predictions[PRIOR_LOGVAR_KEY]

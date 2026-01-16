@@ -83,3 +83,4 @@ class MetadataKey(str, Enum):
     PRIOR_Z = "prior_z"
     PRIOR_MU = "prior_mu"
     PRIOR_LOGVAR = "prior_logvar"
+    HYPERPRIOR_Z = "hyperprior_z"
