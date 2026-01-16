@@ -661,12 +661,14 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
 
     def get_required_keys(self) -> set[str]:
         """Get required keys for MMD loss."""
-        return {
+        keys = {
             LATENT_KEY,
-            PRIOR_LATENT_KEY,
             MU_KEY,
             LOGVAR_KEY,
         }
+        if not self.use_fixed_gaussian_as_prior:
+            keys.add(PRIOR_LATENT_KEY)
+        return keys
 
     def forward(
         self,
