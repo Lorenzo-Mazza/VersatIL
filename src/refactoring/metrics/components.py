@@ -685,7 +685,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             LossOutput with MMD loss.
         """
         is_mixture_prior = PRIOR_LOG_PROB_KEY in predictions
-        required_keys = {LATENT_KEY, PRIOR_LATENT_KEY, MU_KEY, LOGVAR_KEY}
+        required_keys = self.get_required_keys()
         if not is_mixture_prior:
             required_keys.update({PRIOR_MU_KEY, PRIOR_LOGVAR_KEY})
         if not all(k in predictions for k in required_keys):
