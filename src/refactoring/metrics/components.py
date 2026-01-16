@@ -590,6 +590,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         weight: float = 1.0,
         prior_regularization_weight: float = 0.0,
         kernel_bandwidths: list[float] | None = None,
+        use_fixed_gaussian_as_prior: bool = False,
     ):
         """Initialize MMD loss.
         Args:
@@ -598,6 +599,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
                 Only meaningful for learned priors. Pushes the learned prior towards
                 a standard Gaussian.
             kernel_bandwidths: Multipliers for the median heuristic (default: [0.2, 0.5, 1, 2, 5]).
+            use_fixed_gaussian_as_prior: If True, always use standard Gaussian as prior
         """
         super().__init__()
         self.weight = weight
@@ -605,6 +607,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         if kernel_bandwidths is None:
             kernel_bandwidths = [0.2, 0.5, 1.0, 2.0, 5.0]
         self.kernel_bandwidths = kernel_bandwidths
+        self.use_fixed_gaussian_as_prior = use_fixed_gaussian_as_prior
 
     def _get_median_squared_distance(self, points: torch.Tensor) -> float:
         """Compute median pairwise squared distance (shared heuristic)."""
@@ -687,7 +690,10 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             raise ValueError(f"Predictions must contain '{required_keys}' for MaximumMeanDiscrepancyLoss.")
 
         z_posterior = predictions[LATENT_KEY]   # (B, latent_dim)
-        z_prior = predictions[PRIOR_LATENT_KEY] # (B, latent_dim)
+        if self.use_fixed_gaussian_as_prior:
+            z_prior = torch.randn_like(z_posterior)  # (B, latent_dim)
+        else:
+            z_prior = predictions[PRIOR_LATENT_KEY] # (B, latent_dim)
 
         combined = torch.cat([z_posterior, z_prior], dim=0)  # (2B, latent_dim)
         median_dist_sq = self._get_median_squared_distance(combined)
