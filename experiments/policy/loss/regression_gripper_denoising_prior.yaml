@@ -3,6 +3,7 @@ defaults:
   - gripper@loss_modules.gripper_loss
   - traj_len@loss_modules.trajectory_length
   - denoising_prior@loss_modules.denoising_prior
+  - mmd@loss_modules.maximum_mean_discrepancy
   - _self_
 
 _target_: refactoring.metrics.CompositeLoss
@@ -27,5 +28,9 @@ loss_modules:
         action_key: ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
 
     denoising_prior:
-      weight: 1.0
+      weight: 0.05
+
+    maximum_mean_discrepancy:
+      use_fixed_gaussian_as_prior: True
+      weight: 10.0
 
