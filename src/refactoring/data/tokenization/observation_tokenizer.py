@@ -203,7 +203,7 @@ class ObservationTokenizer:
                     # Handle continuous data (proprio, gripper, etc.)
                     if isinstance(data, torch.Tensor):
                         sample = data[i] if batch_size > 1 else data
-                        sample = sample.cpu().numpy()
+                        sample = sample.cpu().float().numpy()
                     elif isinstance(data, np.ndarray):
                         sample = data[i] if batch_size > 1 else data
                     else:
@@ -212,7 +212,7 @@ class ObservationTokenizer:
                     if self.bin_continuous_data and key in self.binning_tokenizers:
                         binned = self.binning_tokenizers[key].encode(sample)
                         sample_str = " ".join(
-                            map(str, binned.cpu().numpy().flatten().tolist())
+                            map(str, binned.cpu().float().numpy().flatten().tolist())
                         )
                     else:
                         # Use raw float values as strings
