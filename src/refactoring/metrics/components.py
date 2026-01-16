@@ -686,7 +686,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         """
         is_mixture_prior = PRIOR_LOG_PROB_KEY in predictions
         required_keys = self.get_required_keys()
-        if not is_mixture_prior:
+        if not is_mixture_prior and not self.use_fixed_gaussian_as_prior:
             required_keys.update({PRIOR_MU_KEY, PRIOR_LOGVAR_KEY})
         if not all(k in predictions for k in required_keys):
             raise ValueError(f"Predictions must contain '{required_keys}' for MaximumMeanDiscrepancyLoss.")
