@@ -733,7 +733,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             MetadataKey.POSTERIOR_LOGVAR.value: predictions[LOGVAR_KEY],
             MetadataKey.PRIOR_Z.value: z_prior,
         }
-        if not is_mixture_prior:
+        if not is_mixture_prior and not self.use_fixed_gaussian_as_prior:
             metadata[MetadataKey.PRIOR_MU.value] = predictions[PRIOR_MU_KEY]
             metadata[MetadataKey.PRIOR_LOGVAR.value] = predictions[PRIOR_LOGVAR_KEY]
 
