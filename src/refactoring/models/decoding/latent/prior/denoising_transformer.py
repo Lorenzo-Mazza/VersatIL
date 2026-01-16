@@ -53,6 +53,7 @@ class DiTBlock(nn.Module):
         timestep_dimension: Dimension of the timestep embedding.
         dropout: Dropout rate.
         activation: Activation function name.
+        use_gating: Whether to use gating in AdaNorm (often referred to as AdaLNZeroNorm).
     """
 
     def __init__(
@@ -63,8 +64,10 @@ class DiTBlock(nn.Module):
         timestep_dimension: int,
         dropout: float = 0.1,
         activation: str = ActivationFunction.SWIGLU.value,
+        use_gating: bool = True,
     ):
         super().__init__()
+        self.use_gating = use_gating
         self.self_attention = FlashAttention(
             embedding_dimension=embedding_dimension,
             number_of_heads=number_of_heads,
@@ -74,13 +77,13 @@ class DiTBlock(nn.Module):
             base_norm=nn.LayerNorm(embedding_dimension),
             condition_dim=timestep_dimension,
             feature_dim=embedding_dimension,
-            use_gate=True
+            use_gate=use_gating
         )
         self.norm2 = AdaNorm(
             base_norm=nn.LayerNorm(embedding_dimension),
             condition_dim=timestep_dimension,
             feature_dim=embedding_dimension,
-            use_gate=True
+            use_gate=use_gating
         )
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
@@ -118,7 +121,11 @@ class DiTBlock(nn.Module):
             Output tokens (B, T, D).
         """
         residual = x
-        x, gate1 = self.norm1(x, timestep_embed)
+        if self.use_gating:
+            x, gate1 = self.norm1(x, timestep_embed)
+        else:
+            x = self.norm1(x, timestep_embed)
+            gate1 = 1.0
         x = self.self_attention(
             query=x,
             key=x,
@@ -129,7 +136,11 @@ class DiTBlock(nn.Module):
         )
         x = residual + gate1 * self.dropout1(x)
         residual = x
-        x, gate2 = self.norm2(x, timestep_embed)
+        if self.use_gating:
+            x, gate2 = self.norm2(x, timestep_embed)
+        else:
+            x = self.norm2(x, timestep_embed)
+            gate2 = 1.0
         x = self.ffn(x)
         x = residual + gate2 * self.dropout2(x)
         return x
@@ -191,6 +202,7 @@ class DenoisingTransformerPrior(PriorLatentEncoder):
         variance_type: str | None = None,
         dropout: float = 0.1,
         activation: str = ActivationFunction.SILU.value,
+        use_gating: bool = True,
         exclude_keys: list[str] | None = None,
     ):
         super().__init__(latent_dimension=latent_dimension, device=device)
@@ -264,6 +276,7 @@ class DenoisingTransformerPrior(PriorLatentEncoder):
                 timestep_dimension=embedding_dimension,
                 dropout=dropout,
                 activation=activation,
+                use_gating=use_gating
             )
             for _ in range(number_of_layers)
         ])

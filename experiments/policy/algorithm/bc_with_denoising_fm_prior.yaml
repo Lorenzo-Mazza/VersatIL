@@ -29,6 +29,7 @@ prior:
   number_of_layers: 4
   feedforward_dimension: 1024
   dropout: 0.1
+  use_gating: True
   algorithm_type: ${denoising_algorithm:FLOW_MATCHING}
   sigma: 0.0
   ode_solver: "euler"

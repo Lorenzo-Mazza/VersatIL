@@ -138,4 +138,5 @@ class DenoisingTransformerPriorConfig(PriorLatentEncoderConfig):
     variance_type: str | None = None
     dropout: float = 0.1
     activation: str = ActivationFunction.SILU.value
+    use_gating: bool = True
     exclude_keys: list[str] | None = None
