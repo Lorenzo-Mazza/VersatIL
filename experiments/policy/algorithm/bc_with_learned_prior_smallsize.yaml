@@ -7,7 +7,7 @@ _target_: refactoring.models.decoding.algorithm.variational.VariationalAlgorithm
 
 base_algorithm:
   _target_: refactoring.models.decoding.algorithm.behavior_cloning.BehavioralCloning
-sampling_from_prior_probability: 0.25
+sampling_from_prior_probability: 0.0
 
 posterior_encoder:
   _target_: refactoring.models.decoding.latent.posterior.transformer_encoder.VAETransformerEncoder

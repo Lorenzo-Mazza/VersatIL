@@ -7,7 +7,7 @@ gradient_accumulate_every: 1
 optimizer:
   target_class : "torch.optim.AdamW"
   lr: 5.0e-5
-  weight_decay: 1e-2
+  weight_decay: 2e-2
   betas: [0.9, 0.999]
   eps: 1.0e-8
   param_groups:
@@ -16,12 +16,12 @@ optimizer:
       weight_decay: 1.0e-3
       params_pattern: "encoding_pipeline.encoders.*.backbone"
     - name: prior
-      lr: 2.0e-5
-      weight_decay: 1.0e-2
+      lr: 5.0e-5
+      weight_decay: 2.0e-2
       params_pattern: "decoder.algorithm.prior.*"
     - name: posterior
       lr: 5.0e-5
-      weight_decay: 2.0e-2
+      weight_decay: 0.05
       params_pattern: "decoder.algorithm.posterior_encoder.*"
 
 clip_gradient_norm: false

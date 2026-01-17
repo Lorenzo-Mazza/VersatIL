@@ -6,7 +6,7 @@ gating_feature_key: ${latent_key:POSTERIOR_LATENT}
 temperature: 10.0
 learnable_temperature: true
 routing_type: ${moe_routing_type:SOFT}
-num_experts: 12
+num_experts: 16
 gating_activation: ${activation_function:SILU}
 gating_input_dim: ${policy.algorithm.posterior_encoder.latent_dimension}
 gating_hidden_dims:
@@ -17,11 +17,11 @@ base_expert:
   input_keys:
     - left_rgb
     - right_rgb
-  embedding_dimension: 256
+  embedding_dimension: 64
   number_of_heads: 8
   number_of_key_value_heads: 2
-  feedforward_dimension: 1536
-  number_of_layers: 6
+  feedforward_dimension: 256
+  number_of_layers: 2
   activation: ${activation_function:SWIGLU}
   normalization_type: ${normalization:RMS_NORM}
   attention_type: ${attention:GROUPED_QUERY}
@@ -42,8 +42,8 @@ base_expert:
         - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
           input_dim: ${policy.decoder.base_expert.embedding_dimension}
           hidden_dims:
-            - 256
-            - 128
+            - 64
+            - 32
           output_dim: null
           activation: ${activation_function:SILU}
           dropout: ${policy.decoder.base_expert.dropout_rate}
@@ -54,7 +54,8 @@ base_expert:
         - _target_: refactoring.models.decoding.action_heads.blocks.MLPBlock
           input_dim: ${policy.decoder.base_expert.embedding_dimension}
           hidden_dims:
-            - 128
+            - 64
+            - 32
           output_dim: null
           activation: ${activation_function:SILU}
           dropout: ${policy.decoder.base_expert.dropout_rate}

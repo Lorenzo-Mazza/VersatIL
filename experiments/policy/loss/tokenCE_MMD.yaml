@@ -9,5 +9,5 @@ loss_modules:
       label_smoothing: 0.1
 
     maximum_mean_discrepancy:
-      weight: 50.0
+      weight: 10.0
 

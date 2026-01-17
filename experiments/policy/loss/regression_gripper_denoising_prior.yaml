@@ -32,5 +32,5 @@ loss_modules:
 
     maximum_mean_discrepancy:
       use_fixed_gaussian_as_prior: True
-      weight: 10.0
+      weight: 1.0
 

@@ -4,7 +4,7 @@ defaults:
 _target_: refactoring.data.task.ActionSpace
 use_gripper_class_weights: false
 denoise_actions: true
-denoising_percentile: 50
+denoising_percentile: 58
 
 actions_metadata:
   ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}:

@@ -22,5 +22,5 @@ loss_modules:
 
     trajectory_length:
         _target_: refactoring.metrics.TrajectoryLengthLoss
-        weight: 0.001
+        weight: 0.000
         action_key: ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}

@@ -4,6 +4,7 @@ defaults:
   - variational
 
 _target_: refactoring.models.decoding.algorithm.variational.VariationalAlgorithm
+sampling_from_prior_probability: 0.0
 
 base_algorithm:
   _target_: refactoring.models.decoding.algorithm.behavior_cloning.BehavioralCloning
@@ -19,14 +20,12 @@ posterior_encoder:
   number_of_encoder_layers: 4
   dropout_rate: 0.1
   device: ${policy.device}
-  exclude_keys:
-    - left_rgb
-    - right_rgb
+  min_logvar: -6.0
 
 prior:
   _target_: refactoring.models.decoding.latent.prior.vamp_prior.VampPrior
   latent_dimension: 32
-  num_components: 50
+  num_components: 16
   action_space: ${policy.action_space}
   prediction_horizon: ${policy.prediction_horizon}
   device: ${policy.device}

@@ -23,6 +23,11 @@ task:
     actions_metadata:
       ${obs_key:PHASE_LABEL}:
         requires_prediction_head: false
+        
+training:
+  early_stopping_patience: 30
+  clip_gradient_norm: true
+  clip_max_norm: 1.0
 
 policy:
   _target_: refactoring.models.policy.Policy

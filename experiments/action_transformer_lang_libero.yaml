@@ -4,11 +4,11 @@ defaults:
   - task: base
   - policy: base
   - experiment: bowel_retraction_act
-  - task/dataset_schema: libero_object
+  - task/dataset_schema: libero_10
   - task/dataloader: libero_default
   - task/action_space: libero_precomputed
   - task/observation_space: libero_rgb.yaml
-  - training: act_default
+  - training: act_latent
   - policy/encoding_pipeline: stereo_rgb_lang_encoder
   - policy/decoder: action_transformer_lang
   - policy/algorithm: bc_with_learned_prior
@@ -27,11 +27,11 @@ experiment:
 
 training:
   num_epochs: 200
-  early_stopping_patience: 50
-  lr_schedule: cosine
+  early_stopping_patience: 100
+  lr_schedule: null
   lr_warmup_steps: 20000
   clip_gradient_norm: true
-  clip_max_norm: 0.1
+  clip_max_norm: 1.0
 
 
 

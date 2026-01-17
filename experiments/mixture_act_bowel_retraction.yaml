@@ -5,11 +5,11 @@ defaults:
   - policy: base
   - experiment: bowel_retraction_act
   - task/dataset_schema: bowel_retraction_v2
-  - task/dataloader: act_default
+  - task/dataloader: act_lang_default
   - task/action_space: deltas_cf_pos_gripper_phase
-  - task/observation_space: stereo_rgb
+  - task/observation_space: stereo_rgb_language_proprio_cf
   - training: act_default
-  - policy/encoding_pipeline: stereo_rgb
+  - policy/encoding_pipeline: stereo_rgb_lang_encoder
   - policy/decoder: mixture_of_act
   - policy/algorithm: bc_with_learned_prior
   - policy/loss: moe_regression_gripper_MMD
@@ -38,6 +38,12 @@ policy:
         _target_: refactoring.metrics.MetadataPassthrough
         keys_mapping:
           ${obs_key:PHASE_LABEL}: ${metadata_key:PHASE_LABEL}
+  base_expert:
+    decoder:
+      input_keys:
+        - left_rgb
+        - right_rgb
+        - instruction_language
 
 # Override specific parameters from defaults/command line if needed
 # For example, to use different batch size:
