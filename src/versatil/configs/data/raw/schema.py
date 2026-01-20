@@ -28,3 +28,13 @@ class Hdf5DatasetSchemaConfig(DatasetSchemaConfig):
     """Configuration for HDF5 dataset schema."""
 
     hdf5_paths: list[str] = MISSING
+
+
+@dataclass
+class LeRobotDatasetSchemaConfig(DatasetSchemaConfig):
+    """Configuration for LeRobot dataset schema (v2.1 and v3.0)."""
+
+    _target_: str = "refactoring.data.raw.schemas.lerobot.create_lerobot_schema"
+    lerobot_path: str = MISSING
+    has_video_files: bool = True
+    tasks_format: str = "jsonl"
