@@ -1,10 +1,13 @@
-# Surg-IL: Imitation Learning Framework for Robotic Surgery
+# VersatIL: Imitation Learning for Any Robot Policy
 
-A modular, composable framework for training vision-based imitation learning policies on surgical manipulation tasks. Built with PyTorch Lightning and Hydra for reproducible research.
+![VersatIL Logo](media/VersatIL_logo.png)
 
-## 🎯 Overview
+A modular, composable framework for training vision-based imitation learning policies on robotic manipulation tasks. Built with PyTorch Lightning
+and Hydra for reproducible research.
 
-Surg-IL provides a flexible architecture where policies are composed from modular components:
+## Overview
+
+VersatIL provides a flexible architecture where policies are composed from modular components:
 
 ```
 Policy = Encoding Pipeline + Algorithm + Decoder + Loss
@@ -16,7 +19,7 @@ Policy = Encoding Pipeline + Algorithm + Decoder + Loss
 - **Decoder**: Neural architecture (Diffusion Transformer, DETR, GPT, UNet) that is used to decode features into robot actions.
 - **Loss**: Composable loss modules (MSE, Cross-Entropy, KL, etc.).
 
-The Surg-IL library enables rapid experimentation with different combinations of components across diverse datasets without code duplication.
+The VersatIL library enables rapid experimentation with different combinations of components across diverse datasets without code duplication.
 
 ---
 
@@ -35,14 +38,14 @@ Follow the instructions here https://github.com/conda-forge/miniforge
 
 ```bash
 # 1. Clone repository
-git clone https://gitlab.com/nct_tso_public/surg-il.git
-cd surg-il
+git clone https://gitlab.com/nct_tso_public/versatil.git
+cd versatil
 
 # 2. Configure git credentials
 git config --global credential.helper store
 # 3. Create environment (use Mamba for faster installation)
 mamba env create -f environment.yml
-mamba activate surg-il
+mamba activate versatil
 
 # 4. Install dependencies with uv
 UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
@@ -60,25 +63,25 @@ srun --gres=gpu:1 --cpus-per-task=1 --pty bash
 
 **1. Default Training:**
 ```bash
-# Train Action Chunking Transformer on bowel retraction
-python -m src.refactoring.endpoints.train --config-name act_bowel_retraction
+# Train Action Chunking Transformer on bowel retraction dataset
+python -m versatil.endpoints.train --config-name act_bowel_retraction
 
 ```
 
 **2. Override Configuration:**
 ```bash
 # Change batch size
-python -m src.refactoring.endpoints.train \
+python -m versatil.endpoints.train \
     --config-name act_bowel_retraction \
     task.dataloader.batch_size=64
 
 # Disable EMA
-python -m src.refactoring.endpoints.train \
+python -m versatil.endpoints.train \
     --config-name act_bowel_retraction \
     training.use_ema=false
 
 # Change learning rate
-python -m src.refactoring.endpoints.train \
+python -m versatil.endpoints.train \
     --config-name act_bowel_retraction \
     training.optimizer.lr=1e-4
 ```
@@ -108,13 +111,13 @@ predictions = algorithm.forward(
 loss = loss_module(predictions, targets)
 ```
 
-### Feature Naming Contract ⚠️
+### Feature Naming Contract
 
 Feature names follow a strict naming convention using the `EncoderOutputKeys` enum.
 
 **Rule**: `feature_name = "{encoder_name}_{EncoderOutputKeys.value}"`
 
-**EncoderOutputKeys enum** (`src/refactoring/models/encoding/encoders/constants.py`):
+**EncoderOutputKeys enum** (`src/versatil/models/encoding/encoders/constants.py`):
 ```python
 class EncoderOutputKeys(str, enum.Enum):
     RGB = "image"            # For RGB features
@@ -206,13 +209,13 @@ Fusion modules consume input features to prevent duplication:
 
 ### Algorithms
 
-Located in `src/refactoring/models/decoding/algorithm/`:
+Located in `src/versatil/models/decoding/algorithm/`:
 
 | Algorithm | Description | Use Case |
 |-----------|-------------|----------|
-| **BehavioralCloning** | Direct supervised learning | 
-| **ActionDiffusion** | DDPM-based action generation | 
-| **FlowMatching** | Continuous normalizing flows | 
+| **BehavioralCloning** | Direct supervised learning |
+| **ActionDiffusion** | DDPM-based action generation |
+| **FlowMatching** | Continuous normalizing flows |
 | **VariationalAlgorithm** | VAE wrapper for any algorithm | Adds latent variables to any base algorithm |
 
 **Variational Pattern** :
@@ -227,13 +230,13 @@ VariationalAlgorithm(
 
 ### Decoders
 
-Located in `src/refactoring/models/decoding/decoders/factory/`:
+Located in `src/versatil/models/decoding/decoders/factory/`:
 
 | Decoder               |  Architecture                | Best For                                           |
 |-----------------------|------------------------------|----------------------------------------------------|
 | **ActionTransformer** | Vanilla transformer          | General-purpose baseline                           |
 | **ACT**               | Action Chunking Transformer  | Long-horizon tasks (from ACT paper)                |
-| **PhaseACT**          | ACT + phase prediction       | Multi-phase surgical procedures                    |
+| **PhaseACT**          | ACT + phase prediction       | Multi-phase procedures                             |
 | **FASTGPTDecoder**    | Autoregressive GPT           | Discrete action tokenization (FAST)                |
 | **FASTDETRDecoder**   | DETR with FAST               | (Experimental)
 | **DPTransformer**     | Diffusion Policy transformer | From Diffusion Policy paper (not implemented yet ) |
@@ -242,7 +245,7 @@ Located in `src/refactoring/models/decoding/decoders/factory/`:
 
 ### Encoders
 
-Located in `src/refactoring/models/encoding/encoders/`:
+Located in `src/versatil/models/encoding/encoders/`:
 
 **RGB Encoders** (`rgb/`):
 - `CNNEncoder`: ResNet/EfficientNet backbones
@@ -261,7 +264,7 @@ Located in `src/refactoring/models/encoding/encoders/`:
 
 #### Encoder Input Keys ⚠️
 
-Encoder `input_keys` must use appropriate constants from `src/refactoring/data/constants.py`:
+Encoder `input_keys` must use appropriate constants from `src/versatil/data/constants.py`:
 
 | Encoder Type | Constants to Use | Example Values |
 |--------------|------------------|----------------|
@@ -279,12 +282,12 @@ Encoder `input_keys` must use appropriate constants from `src/refactoring/data/c
 ```yaml
 # RGB encoder (using Hydra resolver)
 left_rgb:
-  _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
+  _target_: versatil.models.encoding.encoders.rgb.cnn.CNNEncoder
   input_keys: ${cameras:LEFT}  # Resolves to "left"
 
 # Proprioceptive encoder
 proprio:
-  _target_: refactoring.models.encoding.encoders.proprioceptive.ProprioceptiveEncoder
+  _target_: versatil.models.encoding.encoders.proprioceptive.ProprioceptiveEncoder
   input_keys:
     - ${obs_key:PROPRIO_CAMERA_FRAME}  # Resolves to "proprio_camera_frame"
 ```
@@ -293,21 +296,21 @@ These keys match the observation dictionary keys from the dataset and ensure typ
 
 ### Fusion Modules
 
-Located in `src/refactoring/models/encoding/fusion/`:
+Located in `src/versatil/models/encoding/fusion/`:
 
 | Fusion | Method |
 |--------|--------|
-| **ConcatFusion** | Concatenate + MLP | 
-| **MLPFusion** | Learned projection | 
+| **ConcatFusion** | Concatenate + MLP |
+| **MLPFusion** | Learned projection |
 | **AttentionFusion** | Cross-attention |
-| **SequentialFusion** | Chain multiple fusions | 
+| **SequentialFusion** | Chain multiple fusions |
 
 ---
 
 ## 📁 Project Structure
 
 ```
-src/refactoring/
+src/versatil/
 ├── configs/                 # Hydra configuration dataclasses
 │   ├── main.py             # MainConfig (composes all configs)
 │   ├── experiment.py       # Experiment tracking, WandB, checkpointing
@@ -371,7 +374,7 @@ src/refactoring/
 │   └── accumulators.py     # Metric accumulation across batches
 │
 ├── inference/               # Inference clients
-│   ├── tso_client.py           # TSO inference client
+│   ├── tso_client.py       # TSO inference client
 │   └── libero_client.py    # LIBERO simulation client (ZMQ-based)
 │
 └── endpoints/               # Training/inference entry points
@@ -382,7 +385,7 @@ src/refactoring/
 
 ---
 
-## ⚙️ Configuration System
+## Configuration System
 
 ### Hydra Composition
 
@@ -459,7 +462,7 @@ policy:
 Raw Episode Dataset
   ↓
 [DatasetSchema] ← Defines how to read raw data (CSV or HDF5), locate images/depth maps
-  ↓                 - CSVDatasetSchema: for CSV + image files (e.g., Bowel Retraction)
+  ↓                 - CSVDatasetSchema: for CSV + image files
                     - HDF5DatasetSchema: for HDF5 files (e.g., LIBERO benchmark)
   ↓
 Zarr Dataset (.zarr file) ← Compressed, chunked storage. Created ONCE with all relevant keys
@@ -477,12 +480,12 @@ Policy ← Training
 
 ### Dataset Schema
 
-**Location**: `src/refactoring/data/raw/schemas/`
+**Location**: `src/versatil/data/raw/schemas/`
 
 **Purpose**: Defines how to extract data from raw sources and create Zarr arrays.
 
 ```python
-# Base class: src/refactoring/data/raw/schemas/base.py
+# Base class: src/versatil/data/raw/schemas/base.py
 class DatasetSchema(abc.ABC):
     """Abstract base class for dataset schemas.
 
@@ -502,7 +505,7 @@ class DatasetSchema(abc.ABC):
         ...
 ```
 
-**DatasetMetadata** (`src/refactoring/data/raw/zarr_meta.py`) aggregates all observation and action metadata:
+**DatasetMetadata** (`src/versatil/data/raw/zarr_meta.py`) aggregates all observation and action metadata:
 
 ```python
 @dataclass
@@ -531,7 +534,7 @@ The framework supports two action computation strategies:
 - Supports denoising based on dataset statistics
 
 ```python
-# ActionSpace (src/refactoring/data/task.py) defines what actions to use at runtime
+# ActionSpace (src/versatil/data/task.py) defines what actions to use at runtime
 class ActionSpace:
     actions_metadata: dict[str, ActionMetadata]  # Both precomputed and on-the-fly
 
@@ -542,7 +545,7 @@ class ActionSpace:
     def on_the_fly_actions(self) -> dict[str, OnTheFlyActionMetadata]: ...
 ```
 
-**Existing schema implementations** in `src/refactoring/data/raw/schemas/custom/`:
+**Existing schema implementations** in `src/versatil/data/raw/schemas/custom/`:
 - `BowelRetractionSchema` (CSV): Stores observations, computes actions on-the-fly
 - `LiberoSchema` (HDF5): Stores both observations and precomputed actions
 
@@ -551,10 +554,11 @@ class ActionSpace:
 Use the preprocessing functions based on your data format:
 
 **For CSV-based datasets:**
+
 ```python
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
-from refactoring.data.preprocessing.create_zarr_from_csv import create_replay_buffer
+from versatil.data.preprocessing.create_zarr_from_csv import create_replay_buffer
 
 # Load schema config
 cfg = OmegaConf.load("experiments/task/dataset_schema/bowel_retraction_v4.yaml")
@@ -568,10 +572,11 @@ create_replay_buffer(schema, episode_paths)
 ```
 
 **For HDF5-based datasets:**
+
 ```python
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
-from refactoring.data.preprocessing.create_zarr_from_hdf5 import create_replay_buffer_from_hdf5
+from versatil.data.preprocessing.create_zarr_from_hdf5 import create_replay_buffer_from_hdf5
 
 # Load schema config (hdf5_paths are defined in the YAML)
 cfg = OmegaConf.load("experiments/task/dataset_schema/libero_10.yaml")
@@ -621,7 +626,7 @@ camera_keys:
   - left   # ← Must match schema's camera_keys
   - right
 use_proprioceptive_data: true
-use_proprio_camera_frame: true 
+use_proprio_camera_frame: true
 use_language: false
 ```
 
@@ -645,7 +650,7 @@ if missing:
 
 **Step 1**: Define CSV structure constants
 ```python
-# src/refactoring/data/schemas/my_dataset.py
+# src/versatil/data/schemas/my_dataset.py
 MY_DATASET_ROBOT_FRAME_COLS = ["ee_pos_x", "ee_pos_y", "ee_pos_z", "ee_roll"]
 MY_DATASET_GRIPPER_COL = "gripper_width"
 MY_DATASET_LEFT_IMAGE_KEY = "left_camera_path"
@@ -690,7 +695,7 @@ class MyDatasetSchema(DatasetSchema):
 **Step 3**: Create Hydra config
 ```yaml
 # experiments/task/dataset/my_dataset.yaml
-_target_: refactoring.data.schemas.my_dataset.MyDatasetSchema
+_target_: versatil.data.schemas.my_dataset.MyDatasetSchema
 dataset_folders:
   - /data/my_dataset/train
 zarr_path: /data/my_dataset/train.zarr
@@ -711,24 +716,28 @@ defaults:
 
 ### Adding a New Encoder
 
-**1. Define config** (`src/refactoring/configs/encoding/encoder.py`):
+**1. Define config** (`src/versatil/configs/encoding/encoder.py`):
 ```python
 @dataclass
 class MyEncoderConfig(EncoderConfig):
-    _target_: str = "refactoring.models.encoding.encoders.my_encoder.MyEncoder"
+    _target_: str = "models.encoding.encoders.my_encoder.MyEncoder"
     feature_dim: int = 256
 ```
 
-**2. Implement encoder** (`src/refactoring/models/encoding/encoders/my_encoder.py`):
+**2. Implement encoder** (`src/versatil/models/encoding/encoders/my_encoder.py`):
+
 ```python
-from refactoring.models.encoding.encoders.base import Encoder, EncoderOutput
+from versatil.models.encoding.encoders.base import Encoder, EncoderOutput
+
 
 class MyEncoder(Encoder):
+
     def get_output_specification(self) -> EncoderOutput:
         return EncoderOutput(
             features=["embedding"],
             dimensions={"embedding": self.feature_dim}
         )
+
 
     def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         return {"embedding": self.encode(x)}
@@ -736,13 +745,13 @@ class MyEncoder(Encoder):
 
 **3. Create YAML config** (`experiments/policy/encoding/my_encoder.yaml`):
 ```yaml
-_target_: refactoring.models.encoding.encoders.my_encoder.MyEncoder
+_target_: versatil.models.encoding.encoders.my_encoder.MyEncoder
 feature_dim: 512
 ```
 
 ### Adding a New Algorithm
 
-**1. Inherit from `DecodingAlgorithm`** (`src/refactoring/models/decoding/algorithm/base.py`):
+**1. Inherit from `DecodingAlgorithm`** (`src/versatil/models/decoding/algorithm/base.py`):
 ```python
 class MyAlgorithm(DecodingAlgorithm):
     def forward(self, decoder_output, actions, **kwargs) -> dict:
@@ -818,7 +827,7 @@ checkpoints/experiment_name/last.ckpt
 
 **Resume training:**
 ```bash
-python -m src.refactoring.endpoints.train \
+python -m versatil.endpoints.train \
     --config-name act_bowel_retraction \
     experiment.resume_from=/path/to/checkpoint.ckpt
 ```
@@ -887,4 +896,3 @@ but it's not produced by any encoder
 ```
 **Solution**: Ensure decoder's `input_keys` match encoding pipeline's output features.
 Check `encoding_pipeline.get_final_features_to_dimensions()`.
-

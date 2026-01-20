@@ -2,10 +2,10 @@ import pytest
 import torch
 import torch.nn as nn
 
-from refactoring.models.encoding.encoders.proprioceptive import ProprioceptiveEncoder
-from refactoring.models.layers.activation import ActivationFunction
-from refactoring.models.encoding.encoders.constants import EncoderOutputKeys
-from refactoring.data.constants import (
+from versatil.models.encoding.encoders.proprioceptive import ProprioceptiveEncoder
+from versatil.models.layers.activation import ActivationFunction
+from versatil.models.encoding.encoders.constants import EncoderOutputKeys
+from versatil.data.constants import (
     PROPRIO_OBS_ROBOT_FRAME_KEY,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
 )

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from refactoring.data.constants import (
+from versatil.data.constants import (
     LANGUAGE_KEY,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
@@ -12,7 +12,7 @@ from refactoring.data.constants import (
     TOKENIZED_OBSERVATIONS_KEY,
     IS_PAD_OBSERVATION_KEY,
 )
-from refactoring.data.tokenization.observation_tokenizer import ObservationTokenizer
+from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
 
 
 @pytest.mark.integration

@@ -2,7 +2,7 @@
 import pytest
 import torch
 
-from refactoring.models.decoding.action_heads import (
+from versatil.models.decoding.action_heads import (
     ActionHead,
     MLPBlock,
     AttentionBlock,

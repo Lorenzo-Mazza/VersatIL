@@ -1,9 +1,9 @@
 import pytest
 import torch
 
-from refactoring.models.encoding.encoders.rgb.conditional_cnn import ConditionalCNNEncoder
-from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod, EncoderOutputKeys
-from refactoring.data.constants import Cameras
+from versatil.models.encoding.encoders.rgb.conditional_cnn import ConditionalCNNEncoder
+from versatil.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod, EncoderOutputKeys
+from versatil.data.constants import Cameras
 
 
 SUPPORTED_BACKBONES = [

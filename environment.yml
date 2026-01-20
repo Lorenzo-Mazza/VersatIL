@@ -1,4 +1,4 @@
-name: surg-il
+name: versatil
 channels:
   - conda-forge
 dependencies:

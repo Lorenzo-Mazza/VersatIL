@@ -1,11 +1,11 @@
 # Encoding pipeline for RGB + Depth with geometric attention fusion
 # Uses DFormerV2 for depth-aware encoding
 
-_target_: refactoring.models.encoding.pipeline.EncodingPipeline
+_target_: versatil.models.encoding.pipeline.EncodingPipeline
 
 encoders:
   left_depth:
-    _target_: refactoring.models.encoding.encoders.depth.light_geometric.LightGeometricEncoder
+    _target_: versatil.models.encoding.encoders.depth.light_geometric.LightGeometricEncoder
     input_keys:
       - ${cameras:LEFT}
       - ${cameras:DEPTH}
@@ -14,7 +14,7 @@ encoders:
     pooling_method: none
 
   right:
-    _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
+    _target_: versatil.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys:
      - ${cameras:RIGHT}
     backbone: ${rgb_backbone:RESNET18}

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from refactoring.endpoints import train
+from versatil.endpoints import train
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ def mock_instantiated_config_factory(tmp_path):
 @pytest.fixture(autouse=True)
 def mock_omega_conf_to_yaml():
     """Auto-mock OmegaConf.to_yaml to avoid DictConfig validation issues."""
-    with patch("refactoring.endpoints.train.OmegaConf") as mock:
+    with patch("versatil.endpoints.train.OmegaConf") as mock:
         mock.to_yaml.return_value = "mocked_yaml_output"
         yield mock
 
@@ -49,20 +49,20 @@ def mock_omega_conf_to_yaml():
 class TestTrainEndpointConfigInstantiation:
     """Test that train.py correctly instantiates configs from YAML."""
 
-    @patch("refactoring.endpoints.train.Workspace")
-    @patch("refactoring.endpoints.train.validate_config")
+    @patch("versatil.endpoints.train.Workspace")
+    @patch("versatil.endpoints.train.validate_config")
     @patch("hydra.utils.instantiate")
-    @patch("refactoring.endpoints.train.logger")
+    @patch("versatil.endpoints.train.logger")
     def test_empty_config_raises_error(
         self, mock_logger, mock_instantiate, mock_validate, mock_workspace_class
     ):
         with pytest.raises(ValueError, match="No configuration specified"):
             train.main.__wrapped__(None)
 
-    @patch("refactoring.endpoints.train.Workspace")
-    @patch("refactoring.endpoints.train.validate_config")
+    @patch("versatil.endpoints.train.Workspace")
+    @patch("versatil.endpoints.train.validate_config")
     @patch("hydra.utils.instantiate")
-    @patch("refactoring.endpoints.train.OmegaConf")
+    @patch("versatil.endpoints.train.OmegaConf")
     def test_hydra_instantiate_is_called(
         self,
         mock_omega_conf,
@@ -83,10 +83,10 @@ class TestTrainEndpointConfigInstantiation:
 
         mock_instantiate.assert_called_once_with(config)
 
-    @patch("refactoring.endpoints.train.Workspace")
-    @patch("refactoring.endpoints.train.validate_config")
+    @patch("versatil.endpoints.train.Workspace")
+    @patch("versatil.endpoints.train.validate_config")
     @patch("hydra.utils.instantiate")
-    @patch("refactoring.endpoints.train.logger")
+    @patch("versatil.endpoints.train.logger")
     def test_validate_config_is_called_with_instantiated_config(
         self,
         mock_logger,
@@ -108,8 +108,8 @@ class TestTrainEndpointConfigInstantiation:
 
         mock_validate.assert_called_once_with(instantiated)
 
-    @patch("refactoring.endpoints.train.Workspace")
-    @patch("refactoring.endpoints.train.validate_config")
+    @patch("versatil.endpoints.train.Workspace")
+    @patch("versatil.endpoints.train.validate_config")
     @patch("hydra.utils.instantiate")
     def test_workspace_created_with_both_configs(
         self,
@@ -133,8 +133,8 @@ class TestTrainEndpointConfigInstantiation:
             instantiated, original_yaml_config=config
         )
 
-    @patch("refactoring.endpoints.train.Workspace")
-    @patch("refactoring.endpoints.train.validate_config")
+    @patch("versatil.endpoints.train.Workspace")
+    @patch("versatil.endpoints.train.validate_config")
     @patch("hydra.utils.instantiate")
     def test_workspace_run_is_invoked(
         self,
@@ -161,10 +161,10 @@ class TestTrainEndpointConfigInstantiation:
 class TestTrainEndpointResumeCheckpoint:
     """Test checkpoint resume functionality."""
 
-    @patch("refactoring.endpoints.train.Workspace")
-    @patch("refactoring.endpoints.train.validate_config")
+    @patch("versatil.endpoints.train.Workspace")
+    @patch("versatil.endpoints.train.validate_config")
     @patch("hydra.utils.instantiate")
-    @patch("refactoring.endpoints.train.Path")
+    @patch("versatil.endpoints.train.Path")
     def test_load_checkpoint_called_when_resume_from_exists(
         self,
         mock_path_class,
@@ -193,11 +193,11 @@ class TestTrainEndpointResumeCheckpoint:
         workspace.load_checkpoint.assert_called_once_with(checkpoint_path)
         workspace.run.assert_called_once()
 
-    @patch("refactoring.endpoints.train.Workspace")
-    @patch("refactoring.endpoints.train.validate_config")
+    @patch("versatil.endpoints.train.Workspace")
+    @patch("versatil.endpoints.train.validate_config")
     @patch("hydra.utils.instantiate")
-    @patch("refactoring.endpoints.train.Path")
-    @patch("refactoring.endpoints.train.logger")
+    @patch("versatil.endpoints.train.Path")
+    @patch("versatil.endpoints.train.logger")
     def test_warning_logged_when_checkpoint_missing(
         self,
         mock_logger,
@@ -231,8 +231,8 @@ class TestTrainEndpointResumeCheckpoint:
         workspace.load_checkpoint.assert_not_called()
         workspace.run.assert_called_once()
 
-    @patch("refactoring.endpoints.train.Workspace")
-    @patch("refactoring.endpoints.train.validate_config")
+    @patch("versatil.endpoints.train.Workspace")
+    @patch("versatil.endpoints.train.validate_config")
     @patch("hydra.utils.instantiate")
     def test_no_load_checkpoint_when_resume_from_is_none(
         self,
@@ -260,10 +260,10 @@ class TestTrainEndpointResumeCheckpoint:
 class TestTrainEndpointDistributedDetection:
     """Test distributed training detection from environment variables."""
 
-    @patch("refactoring.endpoints.train.Workspace")
-    @patch("refactoring.endpoints.train.validate_config")
+    @patch("versatil.endpoints.train.Workspace")
+    @patch("versatil.endpoints.train.validate_config")
     @patch("hydra.utils.instantiate")
-    @patch("refactoring.endpoints.train.logger")
+    @patch("versatil.endpoints.train.logger")
     @patch.dict(os.environ, {"WORLD_SIZE": "4"}, clear=False)
     def test_world_size_env_var_sets_distributed_true(
         self,
@@ -287,10 +287,10 @@ class TestTrainEndpointDistributedDetection:
 
         assert config.experiment.distributed is True
 
-    @patch("refactoring.endpoints.train.Workspace")
-    @patch("refactoring.endpoints.train.validate_config")
+    @patch("versatil.endpoints.train.Workspace")
+    @patch("versatil.endpoints.train.validate_config")
     @patch("hydra.utils.instantiate")
-    @patch("refactoring.endpoints.train.logger")
+    @patch("versatil.endpoints.train.logger")
     @patch.dict(os.environ, {}, clear=True)
     def test_no_world_size_keeps_distributed_false(
         self,
@@ -316,10 +316,10 @@ class TestTrainEndpointDistributedDetection:
 
         assert config.experiment.distributed is False
 
-    @patch("refactoring.endpoints.train.Workspace")
-    @patch("refactoring.endpoints.train.validate_config")
+    @patch("versatil.endpoints.train.Workspace")
+    @patch("versatil.endpoints.train.validate_config")
     @patch("hydra.utils.instantiate")
-    @patch("refactoring.endpoints.train.logger")
+    @patch("versatil.endpoints.train.logger")
     @patch.dict(
         os.environ,
         {
@@ -359,10 +359,10 @@ class TestTrainEndpointDistributedDetection:
 class TestTrainEndpointExecutionFlow:
     """Integration tests verifying complete execution flow."""
 
-    @patch("refactoring.endpoints.train.Workspace")
-    @patch("refactoring.endpoints.train.validate_config")
+    @patch("versatil.endpoints.train.Workspace")
+    @patch("versatil.endpoints.train.validate_config")
     @patch("hydra.utils.instantiate")
-    @patch("refactoring.endpoints.train.logger")
+    @patch("versatil.endpoints.train.logger")
     def test_full_flow_without_resume(
         self,
         mock_logger,
@@ -389,10 +389,10 @@ class TestTrainEndpointExecutionFlow:
 
         workspace.load_checkpoint.assert_not_called()
 
-    @patch("refactoring.endpoints.train.Workspace")
-    @patch("refactoring.endpoints.train.validate_config")
+    @patch("versatil.endpoints.train.Workspace")
+    @patch("versatil.endpoints.train.validate_config")
     @patch("hydra.utils.instantiate")
-    @patch("refactoring.endpoints.train.Path")
+    @patch("versatil.endpoints.train.Path")
     @patch.dict(os.environ, {"WORLD_SIZE": "4"}, clear=False)
     def test_full_flow_with_resume_and_distributed(
         self,
@@ -426,10 +426,10 @@ class TestTrainEndpointExecutionFlow:
         workspace.load_checkpoint.assert_called_once_with(checkpoint_path)
         workspace.run.assert_called_once()
 
-    @patch("refactoring.endpoints.train.Workspace")
-    @patch("refactoring.endpoints.train.validate_config")
+    @patch("versatil.endpoints.train.Workspace")
+    @patch("versatil.endpoints.train.validate_config")
     @patch("hydra.utils.instantiate")
-    @patch("refactoring.endpoints.train.logger")
+    @patch("versatil.endpoints.train.logger")
     def test_execution_order_is_correct(
         self,
         mock_logger,

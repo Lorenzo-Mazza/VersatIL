@@ -10,26 +10,26 @@ This file demonstrates that:
 import pytest
 import torch
 
-from refactoring.data.constants import POSITION_ACTION_KEY, GRIPPER_ACTION_KEY
-from refactoring.models.decoding.algorithm import (
+from versatil.data.constants import POSITION_ACTION_KEY, GRIPPER_ACTION_KEY
+from versatil.models.decoding.algorithm import (
     BehavioralCloning,
     Diffusion,
     FlowMatching,
     VariationalAlgorithm,
 )
-from refactoring.models.decoding.constants import (
+from versatil.models.decoding.constants import (
     LATENT_KEY,
     MU_KEY,
     LOGVAR_KEY,
     PRIOR_PREDICTION_KEY,
     PRIOR_TARGET_KEY,
 )
-from refactoring.models.decoding.latent import (
+from versatil.models.decoding.latent import (
     VAETransformerEncoder,
     GaussianPrior,
     DiffusionPrior,
 )
-from refactoring.metrics.components import (
+from versatil.metrics.components import (
     KLDivergenceLoss,
     PriorDenoisingLoss,
 )

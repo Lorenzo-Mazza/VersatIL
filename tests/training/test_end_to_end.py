@@ -7,9 +7,9 @@ from unittest.mock import patch, MagicMock
 from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.callbacks import ModelCheckpoint, StochasticWeightAveraging
 
-from refactoring.workspace import Workspace
-from refactoring.training.callbacks import EMACallback, ConfusionMatrixCallback
-from refactoring.data.constants import (
+from versatil.workspace import Workspace
+from versatil.training.callbacks import EMACallback, ConfusionMatrixCallback
+from versatil.data.constants import (
     OBSERVATION_KEY,
     ACTION_KEY,
     POSITION_ACTION_KEY,
@@ -20,20 +20,20 @@ from refactoring.data.constants import (
     GripperType,
     Cameras,
 )
-from refactoring.data.normalization.normalizer import LinearNormalizer
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.models.policy import Policy
-from refactoring.models.encoding.pipeline import EncodingPipeline
-from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
-from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod
-from refactoring.models.decoding.algorithm.behavior_cloning import BehavioralCloning
-from refactoring.models.decoding.decoders.factory.act import ACT
-from refactoring.models.decoding.decoders.factory.phase_act import PhaseACT
-from refactoring.models.decoding.action_heads import ActionHead
-from refactoring.models.decoding.action_heads.moe import MoEHead
-from refactoring.models.decoding.latent.posterior.transformer_encoder import VAETransformerEncoder
-from refactoring.models.decoding.constants import MU_KEY, LOGVAR_KEY
-from refactoring.metrics.composite import ActionReconstructionLoss, PhaseActionLoss
+from versatil.data.normalization.normalizer import LinearNormalizer
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.models.policy import Policy
+from versatil.models.encoding.pipeline import EncodingPipeline
+from versatil.models.encoding.encoders.rgb.cnn import CNNEncoder
+from versatil.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod
+from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
+from versatil.models.decoding.decoders.factory.act import ACT
+from versatil.models.decoding.decoders.factory.phase_act import PhaseACT
+from versatil.models.decoding.action_heads import ActionHead
+from versatil.models.decoding.action_heads.moe import MoEHead
+from versatil.models.decoding.latent.posterior.transformer_encoder import VAETransformerEncoder
+from versatil.models.decoding.constants import MU_KEY, LOGVAR_KEY
+from versatil.metrics.composite import ActionReconstructionLoss, PhaseActionLoss
 from tests.conftest import DummyNormalizer
 
 
@@ -230,7 +230,7 @@ class TestEndToEndTraining:
                 workspace, mock_train_loader, mock_val_loader, mock_normalizer
             )
 
-            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+            with patch("versatil.workspace.instantiate", return_value=simple_policy):
                 workspace.run()
 
         assert workspace.policy == simple_policy
@@ -257,7 +257,7 @@ class TestEndToEndTraining:
                 workspace, mock_train_loader, mock_val_loader, mock_normalizer
             )
 
-            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+            with patch("versatil.workspace.instantiate", return_value=simple_policy):
                 workspace.run()
 
         assert workspace.output_dir.exists()
@@ -281,7 +281,7 @@ class TestEndToEndTraining:
                 workspace, mock_train_loader, mock_val_loader, mock_normalizer
             )
 
-            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+            with patch("versatil.workspace.instantiate", return_value=simple_policy):
                 workspace.run()
 
         ema_callbacks = [
@@ -735,7 +735,7 @@ class TestPhaseACTEndToEnd:
 
         action_heads[POSITION_ACTION_KEY] = MoEHead(
             base_expert_config={
-                "_target_": "refactoring.models.decoding.action_heads.head.ActionHead",
+                "_target_": "versatil.models.decoding.action_heads.head.ActionHead",
                 "input_dim": embedding_dim,
                 "output_dim": phase_act_action_space.position_dim,
                 "blocks": [],
@@ -754,7 +754,7 @@ class TestPhaseACTEndToEnd:
 
         action_heads[GRIPPER_ACTION_KEY] = MoEHead(
             base_expert_config={
-                "_target_": "refactoring.models.decoding.action_heads.head.ActionHead",
+                "_target_": "versatil.models.decoding.action_heads.head.ActionHead",
                 "input_dim": embedding_dim,
                 "output_dim": 1,
                 "blocks": [],
@@ -1263,9 +1263,9 @@ class TestHyperparameterTuning:
                 workspace, mock_train_loader, mock_val_loader, normalizer
             )
 
-            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+            with patch("versatil.workspace.instantiate", return_value=simple_policy):
                 # Mock Tuner to verify it's not called
-                with patch("refactoring.workspace.Tuner") as mock_tuner:
+                with patch("versatil.workspace.Tuner") as mock_tuner:
                     workspace.run()
 
                     # Tuner should not be instantiated when tuning is disabled
@@ -1293,9 +1293,9 @@ class TestHyperparameterTuning:
                 workspace, mock_train_loader, mock_val_loader, normalizer
             )
 
-            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+            with patch("versatil.workspace.instantiate", return_value=simple_policy):
                 # Mock Tuner to verify tuning is skipped
-                with patch("refactoring.workspace.Tuner") as mock_tuner:
+                with patch("versatil.workspace.Tuner") as mock_tuner:
                     workspace.run()
 
                     # Tuner should not be instantiated in distributed mode
@@ -1323,9 +1323,9 @@ class TestHyperparameterTuning:
                 workspace, mock_train_loader, mock_val_loader, normalizer
             )
 
-            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+            with patch("versatil.workspace.instantiate", return_value=simple_policy):
                 # Mock Tuner and scale_batch_size
-                with patch("refactoring.workspace.Tuner") as mock_tuner_class:
+                with patch("versatil.workspace.Tuner") as mock_tuner_class:
                     mock_tuner = MagicMock()
                     mock_tuner_class.return_value = mock_tuner
 
@@ -1363,9 +1363,9 @@ class TestHyperparameterTuning:
                 workspace, mock_train_loader, mock_val_loader, normalizer
             )
 
-            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+            with patch("versatil.workspace.instantiate", return_value=simple_policy):
                 # Mock Tuner and lr_find
-                with patch("refactoring.workspace.Tuner") as mock_tuner_class:
+                with patch("versatil.workspace.Tuner") as mock_tuner_class:
                     mock_tuner = MagicMock()
                     mock_lr_finder = MagicMock()
                     mock_lr_finder.suggestion.return_value = 1e-3
@@ -1406,9 +1406,9 @@ class TestHyperparameterTuning:
                 workspace, mock_train_loader, mock_val_loader, normalizer
             )
 
-            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+            with patch("versatil.workspace.instantiate", return_value=simple_policy):
                 # Mock Tuner and both tuning methods
-                with patch("refactoring.workspace.Tuner") as mock_tuner_class:
+                with patch("versatil.workspace.Tuner") as mock_tuner_class:
                     mock_tuner = MagicMock()
                     mock_lr_finder = MagicMock()
                     mock_lr_finder.suggestion.return_value = 5e-4
@@ -1446,9 +1446,9 @@ class TestHyperparameterTuning:
                 workspace, mock_train_loader, mock_val_loader, normalizer
             )
 
-            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+            with patch("versatil.workspace.instantiate", return_value=simple_policy):
                 # Mock Tuner
-                with patch("refactoring.workspace.Tuner") as mock_tuner_class:
+                with patch("versatil.workspace.Tuner") as mock_tuner_class:
                     mock_tuner = MagicMock()
 
                     # Mock LR finder
@@ -1492,9 +1492,9 @@ class TestHyperparameterTuning:
                 workspace, mock_train_loader, mock_val_loader, normalizer
             )
 
-            with patch("refactoring.workspace.instantiate", return_value=simple_policy):
+            with patch("versatil.workspace.instantiate", return_value=simple_policy):
                 # Mock Tuner
-                with patch("refactoring.workspace.Tuner") as mock_tuner_class:
+                with patch("versatil.workspace.Tuner") as mock_tuner_class:
                     mock_tuner = MagicMock()
                     mock_lr_finder = MagicMock()
                     mock_lr_finder.suggestion.return_value = 1e-3

@@ -5,12 +5,12 @@ from unittest.mock import MagicMock, patch
 import cv2
 import albumentations as A
 
-from refactoring.data.raw.schemas.base import DatasetSchema
-from refactoring.data.constants import (
+from versatil.data.raw.schemas.base import DatasetSchema
+from versatil.data.constants import (
     Cameras,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
 )
-from refactoring.data.preprocessing.create_zarr_from_csv import create_replay_buffer, _create_zarr_arrays, _append_observations, _append_images
+from versatil.data.preprocessing.create_zarr_from_csv import create_replay_buffer, _create_zarr_arrays, _append_observations, _append_images
 
 
 class MockDatasetSchema(DatasetSchema):
@@ -246,9 +246,9 @@ class TestAppendImages:
     """Test image appending."""
 
 
-    @patch("refactoring.data.preprocessing.create_zarr.cv2.imread")
-    @patch("refactoring.data.preprocessing.create_zarr.cv2.cvtColor")
-    @patch("refactoring.data.preprocessing.create_zarr.np.load")
+    @patch("versatil.data.preprocessing.create_zarr.cv2.imread")
+    @patch("versatil.data.preprocessing.create_zarr.cv2.cvtColor")
+    @patch("versatil.data.preprocessing.create_zarr.np.load")
     def test_append_images(self, mock_np_load, mock_cvtColor, mock_imread, sample_episode_df, mock_schema, mocked_data_group):
         resizer = A.NoOp()
         depth_resizer = A.NoOp()
@@ -288,9 +288,9 @@ class TestIntegration:
     """Integration tests for replay buffer creation."""
 
 
-    @patch("refactoring.data.preprocessing.create_zarr._create_zarr_arrays")
-    @patch("refactoring.data.preprocessing.create_zarr._append_observations")
-    @patch("refactoring.data.preprocessing.create_zarr._append_images")
+    @patch("versatil.data.preprocessing.create_zarr._create_zarr_arrays")
+    @patch("versatil.data.preprocessing.create_zarr._append_observations")
+    @patch("versatil.data.preprocessing.create_zarr._append_images")
     def test_create_replay_buffer(self, mock_append_images, mock_append_observations, mock_create_arrays, mock_schema, synthetic_data_dir):
         datasets_paths = [synthetic_data_dir]
 

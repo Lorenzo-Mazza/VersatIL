@@ -2,7 +2,7 @@ defaults:
   - tokenCE_binary_KL@loss_modules.moe_loss.base_loss
   - _self_
 
-_target_: refactoring.metrics.CompositeLoss
+_target_: versatil.metrics.CompositeLoss
 loss_modules:
     moe_loss:
-      _target_: refactoring.metrics.MoELoss
+      _target_: versatil.metrics.MoELoss

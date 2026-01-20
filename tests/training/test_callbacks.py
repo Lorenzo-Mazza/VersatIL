@@ -6,9 +6,9 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import LearningRateMonitor, StochasticWeightAveraging
 from unittest.mock import Mock, MagicMock, patch
 
-from refactoring.training.callbacks import EMACallback, GradientNormCallback, ConfusionMatrixCallback, ReduceLROnPlateauCallback
-from refactoring.training.lightning_policy import LightningPolicy
-from refactoring.configs.training import TrainingConfig, AdamWConfig
+from versatil.training.callbacks import EMACallback, GradientNormCallback, ConfusionMatrixCallback, ReduceLROnPlateauCallback
+from versatil.training.lightning_policy import LightningPolicy
+from versatil.configs.training import TrainingConfig, AdamWConfig
 
 
 @pytest.mark.unit

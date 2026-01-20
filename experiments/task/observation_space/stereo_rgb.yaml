@@ -1,11 +1,11 @@
 defaults:
   - base
 
-_target_: refactoring.data.task.ObservationSpace
+_target_: versatil.data.task.ObservationSpace
 
 observations_metadata:
   ${cameras:LEFT}:
-    _target_: refactoring.data.metadata.CameraMetadata
+    _target_: versatil.data.metadata.CameraMetadata
     camera_key: ${cameras:LEFT}
     dtype: uint8
     channels: 3
@@ -13,7 +13,7 @@ observations_metadata:
     image_height: 270
 
   ${cameras:RIGHT}:
-    _target_: refactoring.data.metadata.CameraMetadata
+    _target_: versatil.data.metadata.CameraMetadata
     camera_key: ${cameras:RIGHT}
     dtype: uint8
     channels: 3

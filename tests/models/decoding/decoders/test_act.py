@@ -3,11 +3,11 @@ import pytest
 import torch
 import warnings
 
-from refactoring.models.decoding.decoders.factory.act import ACT
-from refactoring.models.decoding.action_heads import ActionHead
-from refactoring.models.decoding.action_heads.blocks import MLPBlock
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.data.constants import (
+from versatil.models.decoding.decoders.factory.act import ACT
+from versatil.models.decoding.action_heads import ActionHead
+from versatil.models.decoding.action_heads.blocks import MLPBlock
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.constants import (
     POSITION_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
     GRIPPER_ACTION_KEY,
@@ -16,8 +16,8 @@ from refactoring.data.constants import (
     OrientationRepresentation,
     GripperType,
 )
-from refactoring.models.decoding.constants import MU_KEY, LOGVAR_KEY, LATENT_KEY
-from refactoring.models.decoding.action_heads import AttentionBlock, ResidualBlock
+from versatil.models.decoding.constants import MU_KEY, LOGVAR_KEY, LATENT_KEY
+from versatil.models.decoding.action_heads import AttentionBlock, ResidualBlock
 
 
 @pytest.fixture

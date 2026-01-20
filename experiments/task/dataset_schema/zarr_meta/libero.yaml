@@ -1,11 +1,11 @@
 defaults:
   - base
 
-_target_: refactoring.data.raw.zarr_meta.DatasetMetadata
+_target_: versatil.data.raw.zarr_meta.DatasetMetadata
 
 observations:
   ${proprio_key:EE_POS}:
-    _target_: refactoring.data.metadata.PositionObservationMetadata
+    _target_: versatil.data.metadata.PositionObservationMetadata
     raw_data_column_keys: [ee_pos]
     dtype: float32
     dimension: 3
@@ -13,7 +13,7 @@ observations:
     frame: ${coordinate_system:ROBOT_BASE}
 
   ${proprio_key:EE_ORI}:
-    _target_: refactoring.data.metadata.OrientationObservationMetadata
+    _target_: versatil.data.metadata.OrientationObservationMetadata
     raw_data_column_keys: [ee_ori]
     dtype: float32
     dimension: 3
@@ -22,7 +22,7 @@ observations:
     orientation_representation: ${orientation:EULER}
 
   ${proprio_key:GRIPPER_STATE}:
-    _target_: refactoring.data.metadata.GripperObservationMetadata
+    _target_: versatil.data.metadata.GripperObservationMetadata
     raw_data_column_keys: [gripper_states]
     dtype: float32
     dimension: 2
@@ -30,7 +30,7 @@ observations:
     gripper_type: ${gripper:CONTINUOUS}
 
   ${cameras:AGENTVIEW}:
-    _target_: refactoring.data.metadata.CameraMetadata
+    _target_: versatil.data.metadata.CameraMetadata
     camera_key: ${cameras:AGENTVIEW}
     dtype: uint8
     channels: 3
@@ -38,7 +38,7 @@ observations:
     image_height: 128
 
   ${cameras:EYE_IN_HAND}:
-    _target_: refactoring.data.metadata.CameraMetadata
+    _target_: versatil.data.metadata.CameraMetadata
     camera_key: ${cameras:EYE_IN_HAND}
     dtype: uint8
     channels: 3
@@ -46,7 +46,7 @@ observations:
     image_height: 128
 
   ${obs_key:LANGUAGE}:
-    _target_: refactoring.data.metadata.ObservationMetadata
+    _target_: versatil.data.metadata.ObservationMetadata
     raw_data_column_keys: [language]
     dtype: str
     dimension: 1
@@ -55,7 +55,7 @@ observations:
 
 precomputed_actions:
   ${proprio_key:EE_POS_ACTION}:
-    _target_: refactoring.data.metadata.PositionActionMetadata
+    _target_: versatil.data.metadata.PositionActionMetadata
     frame: ${coordinate_system:ROBOT_BASE}
     raw_data_column_keys: [actions]
     dtype: float32
@@ -66,7 +66,7 @@ precomputed_actions:
     slice_end: 3
 
   ${proprio_key:EE_ORI_ACTION}:
-    _target_: refactoring.data.metadata.OrientationActionMetadata
+    _target_: versatil.data.metadata.OrientationActionMetadata
     frame: ${coordinate_system:ROBOT_BASE}
     orientation_representation: ${orientation:EULER}
     raw_data_column_keys: [actions]
@@ -78,7 +78,7 @@ precomputed_actions:
     slice_end: 6
 
   ${proprio_key:GRIPPER_STATE_ACTION}:
-    _target_: refactoring.data.metadata.GripperActionMetadata
+    _target_: versatil.data.metadata.GripperActionMetadata
     gripper_type: ${gripper:BINARY}
     binary_gripper_range: ${gripper_range:MINUS_ONE_ONE}
     raw_data_column_keys: [actions]

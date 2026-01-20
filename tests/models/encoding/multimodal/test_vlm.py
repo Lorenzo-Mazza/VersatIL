@@ -1,13 +1,13 @@
 import pytest
 import torch
 
-from refactoring.models.encoding.encoders.multimodal.vlm import VLMEncoder
-from refactoring.models.encoding.encoders.constants import (
+from versatil.models.encoding.encoders.multimodal.vlm import VLMEncoder
+from versatil.models.encoding.encoders.constants import (
     PoolingMethod,
     ImageTextModelType,
     EncoderOutputKeys
 )
-from refactoring.data.constants import Cameras, TOKENIZED_OBSERVATIONS_KEY
+from versatil.data.constants import Cameras, TOKENIZED_OBSERVATIONS_KEY
 
 
 IMAGE_TEXT_MODELS_TO_OUTPUT_DIM = [

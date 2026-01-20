@@ -13,8 +13,8 @@ pytest.importorskip("geomloss")
 
 import torch
 
-from refactoring.data.constants import POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY
-from refactoring.metrics.constants import MetricKey
+from versatil.data.constants import POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY
+from versatil.metrics.constants import MetricKey
 
 
 # Lazy import to avoid compilation during test collection
@@ -23,7 +23,7 @@ def OptimalTransportLoss():
     """Lazy import OptimalTransportLoss to avoid compilation during test collection."""
     # Import from the add-ons module
     import importlib
-    add_ons = importlib.import_module("refactoring.metrics.add-ons")
+    add_ons = importlib.import_module("versatil.metrics.add-ons")
     return add_ons.OptimalTransportLoss
 
 

@@ -3,8 +3,8 @@ import dataclasses
 
 import pytest
 
-from refactoring.configs.experiment import ExperimentConfig
-from refactoring.training.constants import Float32MatmulPrecision, PrecisionType
+from versatil.configs.experiment import ExperimentConfig
+from versatil.training.constants import Float32MatmulPrecision, PrecisionType
 
 
 @pytest.mark.unit

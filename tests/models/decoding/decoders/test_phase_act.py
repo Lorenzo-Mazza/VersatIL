@@ -2,10 +2,10 @@
 import pytest
 import torch
 
-from refactoring.models.decoding.decoders.factory.phase_act import PhaseACT
-from refactoring.models.decoding.action_heads import ActionHead, MLPBlock, MoEHead
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.data.constants import (
+from versatil.models.decoding.decoders.factory.phase_act import PhaseACT
+from versatil.models.decoding.action_heads import ActionHead, MLPBlock, MoEHead
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.constants import (
     POSITION_ACTION_KEY,
     GRIPPER_ACTION_KEY,
     PHASE_LABEL_KEY,
@@ -13,7 +13,7 @@ from refactoring.data.constants import (
     Cameras,
     GripperType,
 )
-from refactoring.models.decoding.constants import (
+from versatil.models.decoding.constants import (
     MoERoutingType,
     ROUTING_WEIGHT,
     EXPERT_OUTPUTS,

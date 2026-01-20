@@ -5,21 +5,21 @@ import pytest
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
-from refactoring.configs.encoding.encoder import (
+from versatil.configs.encoding.encoder import (
     DepthCNNEncoderConfig,
     LanguageEncoderConfig,
     ProprioEncoderConfig,
 )
-from refactoring.configs.encoding.fusion import (
+from versatil.configs.encoding.fusion import (
     AttentionFusionConfig,
     ConcatFusionConfig,
 )
-from refactoring.configs.encoding.image import CNNEncoderConfig
-from refactoring.configs.encoding.pipeline import EncodingPipelineConfig
-from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
-from refactoring.models.encoding.fusion.attention import AttentionFusion
-from refactoring.models.encoding.fusion.concat import ConcatFusion
-from refactoring.models.encoding.pipeline import EncodingPipeline
+from versatil.configs.encoding.image import CNNEncoderConfig
+from versatil.configs.encoding.pipeline import EncodingPipelineConfig
+from versatil.models.encoding.encoders.rgb.cnn import CNNEncoder
+from versatil.models.encoding.fusion.attention import AttentionFusion
+from versatil.models.encoding.fusion.concat import ConcatFusion
+from versatil.models.encoding.pipeline import EncodingPipeline
 
 
 @pytest.mark.unit
@@ -29,7 +29,7 @@ class TestEncodingPipelineConfig:
         config = EncodingPipelineConfig(
             encoders={"test": CNNEncoderConfig(input_keys=["left"], backbone="timm/resnet18.a1_in1k")},
         )
-        assert config._target_ == "refactoring.models.encoding.pipeline.EncodingPipeline"
+        assert config._target_ == "versatil.models.encoding.pipeline.EncodingPipeline"
 
     def test_config_params_match_class_signature(self):
         sig = inspect.signature(EncodingPipeline.__init__)
@@ -54,7 +54,7 @@ class TestCNNEncoderConfig:
 
     def test_config_has_correct_target(self):
         config = CNNEncoderConfig(input_keys=["left"], backbone="timm/resnet18.a1_in1k")
-        assert config._target_ == "refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder"
+        assert config._target_ == "versatil.models.encoding.encoders.rgb.cnn.CNNEncoder"
 
     def test_config_instantiates_correctly(self):
         config = CNNEncoderConfig(input_keys=["left"], backbone="timm/resnet18.a1_in1k", image_height=224, image_width=224)
@@ -76,7 +76,7 @@ class TestDepthEncoderConfig:
 
     def test_config_has_correct_target(self):
         config = DepthCNNEncoderConfig(input_keys=["depth"], backbone="resnet18")
-        assert config._target_ == "refactoring.models.encoding.encoders.depth.cnn.DepthCNNEncoder"
+        assert config._target_ == "versatil.models.encoding.encoders.depth.cnn.DepthCNNEncoder"
 
     def test_default_use_group_norm(self):
         config = DepthCNNEncoderConfig(input_keys=["depth"], backbone="resnet18")
@@ -92,7 +92,7 @@ class TestStateEncoderConfig:
 
     def test_config_has_correct_target(self):
         config = ProprioEncoderConfig(input_keys=["proprio"])
-        assert config._target_ == "refactoring.models.encoding.encoders.proprioceptive.base.ProprioceptiveEncoder"
+        assert config._target_ == "versatil.models.encoding.encoders.proprioceptive.base.ProprioceptiveEncoder"
 
     def test_default_hidden_dims(self):
         config = ProprioEncoderConfig(input_keys=["proprio"])
@@ -108,7 +108,7 @@ class TestLanguageEncoderConfig:
 
     def test_config_has_correct_target(self):
         config = LanguageEncoderConfig(input_keys=["language_instruction"])
-        assert config._target_ == "refactoring.models.encoding.encoders.language.language.LanguageEncoder"
+        assert config._target_ == "versatil.models.encoding.encoders.language.language.LanguageEncoder"
 
 
 @pytest.mark.unit
@@ -120,7 +120,7 @@ class TestConcatFusionModule:
             output_name="fused",
             hidden_dim=256
         )
-        assert config._target_ == "refactoring.models.encoding.fusion.concat.ConcatFusion"
+        assert config._target_ == "versatil.models.encoding.fusion.concat.ConcatFusion"
 
     def test_config_instantiates_correctly(self):
         config = ConcatFusionConfig(
@@ -153,7 +153,7 @@ class TestAttentionFusionModule:
             output_name="fused",
             hidden_dim=256
         )
-        assert config._target_ == "refactoring.models.encoding.fusion.attention.AttentionFusion"
+        assert config._target_ == "versatil.models.encoding.fusion.attention.AttentionFusion"
 
     def test_config_instantiates_correctly(self):
         config = AttentionFusionConfig(

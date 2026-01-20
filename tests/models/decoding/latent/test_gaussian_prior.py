@@ -1,7 +1,7 @@
 """Tests for GaussianPrior - simple N(0,I) prior for variational models."""
 import pytest
 import torch
-from refactoring.models.decoding.latent import GaussianPrior
+from versatil.models.decoding.latent import GaussianPrior
 
 
 @pytest.mark.unit
@@ -605,9 +605,9 @@ class TestGaussianPriorIntegration:
 
     def test_with_variational_algorithm(self, device):
         """Test that GaussianPrior works with VariationalAlgorithm."""
-        from refactoring.models.decoding.algorithm.variational import VariationalAlgorithm
-        from refactoring.models.decoding.algorithm.behavior_cloning import BehavioralCloning
-        from refactoring.models.decoding.latent import VAETransformerEncoder
+        from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
+        from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
+        from versatil.models.decoding.latent import VAETransformerEncoder
 
         # Create VAE encoder
         vae_encoder = VAETransformerEncoder(
@@ -634,9 +634,9 @@ class TestGaussianPriorIntegration:
 
     def test_auto_creation_in_variational_wrapper(self, device):
         """Test auto-creation when prior=None in VariationalAlgorithm."""
-        from refactoring.models.decoding.algorithm.variational import VariationalAlgorithm
-        from refactoring.models.decoding.algorithm.behavior_cloning import BehavioralCloning
-        from refactoring.models.decoding.latent import VAETransformerEncoder
+        from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
+        from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
+        from versatil.models.decoding.latent import VAETransformerEncoder
 
         vae_encoder = VAETransformerEncoder(
             latent_dimension=16,

@@ -12,13 +12,13 @@ import pytest
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
-from refactoring.configs.decoding.action_head import (
+from versatil.configs.decoding.action_head import (
     ActionHeadConfig,
     MLPBlockConfig,
     AttentionBlockConfig,
     MixtureOfExpertsHeadConfig,
 )
-from refactoring.models.decoding.action_heads import (
+from versatil.models.decoding.action_heads import (
     ActionHead,
     MLPBlock,
     AttentionBlock,
@@ -30,8 +30,8 @@ from refactoring.models.decoding.action_heads import (
 class TestActionHeadConfig:
 
     def test_config_has_correct_target(self):
-        config = ActionHeadConfig(input_dim=256, output_dim=7)
-        assert config._target_ == "refactoring.models.decoding.action_heads.ActionHead"
+        config = ActionHeadConfig(input_dim=256)
+        assert config._target_ == "versatil.models.decoding.action_heads.ActionHead"
 
     def test_config_instantiates_correctly(self):
         config = ActionHeadConfig(input_dim=256, output_dim=7, blocks=[])
@@ -56,7 +56,7 @@ class TestMLPBlockConfig:
 
     def test_config_has_correct_target(self):
         config = MLPBlockConfig(input_dim=256)
-        assert config._target_ == "refactoring.models.decoding.action_heads.MLPBlock"
+        assert config._target_ == "versatil.models.decoding.action_heads.MLPBlock"
 
     def test_config_instantiates_correctly(self):
         config = MLPBlockConfig(input_dim=256, hidden_dims=[128, 64])
@@ -79,7 +79,7 @@ class TestAttentionBlockConfig:
 
     def test_config_has_correct_target(self):
         config = AttentionBlockConfig(embedding_dimension=256)
-        assert config._target_ == "refactoring.models.decoding.action_heads.AttentionBlock"
+        assert config._target_ == "versatil.models.decoding.action_heads.AttentionBlock"
 
     def test_config_instantiates_correctly(self):
         config = AttentionBlockConfig(embedding_dimension=256, num_heads=8)
@@ -106,7 +106,7 @@ class TestMixtureOfExpertsHeadConfig:
             base_expert=ActionHeadConfig(input_dim=256, output_dim=7, blocks=[]),
             num_experts=3,
         )
-        assert config._target_ == "refactoring.models.decoding.action_heads.MoEHead"
+        assert config._target_ == "versatil.models.decoding.action_heads.MoEHead"
 
     def test_config_instantiates_with_base_expert(self):
         config = MixtureOfExpertsHeadConfig(

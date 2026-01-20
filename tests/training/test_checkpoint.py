@@ -9,21 +9,21 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from refactoring.configs.experiment import ExperimentConfig
-from refactoring.configs.main import MainConfig
-from refactoring.configs.data.task import TaskSpaceConfig
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.configs.data.dataloader import DataLoaderConfig
-from refactoring.configs.training import TrainingConfig, OptimizerConfig
-from refactoring.configs.policy import PolicyConfig
-from refactoring.configs.inference import InferenceConfig
-from refactoring.workspace import Workspace
-from refactoring.training.lightning_policy import LightningPolicy
-from refactoring.training.callbacks import EMACallback
-from refactoring.data.constants import Cameras, GripperType, OrientationRepresentation, ACTION_KEY
-from refactoring.data.tokenization.tokenizer import Tokenizer
-from refactoring.data.tokenization.action_tokenizer import ActionTokenizer
-from refactoring.data.tokenization.binning_tokenizer import BinningTokenizer
+from versatil.configs.experiment import ExperimentConfig
+from versatil.configs.main import MainConfig
+from versatil.configs.data.task import TaskSpaceConfig
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.configs.data.dataloader import DataLoaderConfig
+from versatil.configs.training import TrainingConfig, OptimizerConfig
+from versatil.configs.policy import PolicyConfig
+from versatil.configs.inference import InferenceConfig
+from versatil.workspace import Workspace
+from versatil.training.lightning_policy import LightningPolicy
+from versatil.training.callbacks import EMACallback
+from versatil.data.constants import Cameras, GripperType, OrientationRepresentation, ACTION_KEY
+from versatil.data.tokenization.tokenizer import Tokenizer
+from versatil.data.tokenization.action_tokenizer import ActionTokenizer
+from versatil.data.tokenization.binning_tokenizer import BinningTokenizer
 
 
 @pytest.mark.unit

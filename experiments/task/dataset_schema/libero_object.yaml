@@ -2,7 +2,7 @@ defaults:
   - hdf5
   - zarr_meta/libero@metadata
 
-_target_: refactoring.data.raw.schemas.custom.libero.LiberoSchema
+_target_: versatil.data.raw.schemas.custom.libero.LiberoSchema
 zarr_path: /mnt/cluster/workspaces/mazzalore/libero_object.zarr
 hdf5_paths:
   - /mnt/cluster/workspaces/mazzalore/libero-pro/libero/datasets/libero_object/pick_up_the_alphabet_soup_and_place_it_in_the_basket_demo.hdf5

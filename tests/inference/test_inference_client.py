@@ -5,29 +5,29 @@ from unittest.mock import MagicMock, patch
 from omegaconf import OmegaConf
 from imitation_learning_toolkit.sockets.model_client import Action
 
-from refactoring.data.constants import (
+from versatil.data.constants import (
     Cameras,
     POSITION_ACTION_KEY,
     GRIPPER_ACTION_KEY,
     GripperType,
 )
-from refactoring.configs.experiment import ExperimentConfig
-from refactoring.configs.data.task import TaskSpaceConfig
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.configs.data.dataloader import DataLoaderConfig
-from refactoring.configs.training import TrainingConfig, OptimizerConfig, AdamWConfig
-from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
-from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod
-from refactoring.models.encoding.pipeline import EncodingPipeline
-from refactoring.models.decoding.algorithm.behavior_cloning import BehavioralCloning
-from refactoring.models.decoding.decoders.base import DecoderInput
-from refactoring.models.decoding.action_heads import ActionHead
-from refactoring.models.policy import Policy
-from refactoring.training.lightning_policy import LightningPolicy
-from refactoring.metrics.composite import ActionReconstructionLoss
-from refactoring.inference.tso_client import TSOPolicyClient
+from versatil.configs.experiment import ExperimentConfig
+from versatil.configs.data.task import TaskSpaceConfig
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.configs.data.dataloader import DataLoaderConfig
+from versatil.configs.training import TrainingConfig, OptimizerConfig, AdamWConfig
+from versatil.models.encoding.encoders.rgb.cnn import CNNEncoder
+from versatil.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod
+from versatil.models.encoding.pipeline import EncodingPipeline
+from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
+from versatil.models.decoding.decoders.base import DecoderInput
+from versatil.models.decoding.action_heads import ActionHead
+from versatil.models.policy import Policy
+from versatil.training.lightning_policy import LightningPolicy
+from versatil.metrics.composite import ActionReconstructionLoss
+from versatil.inference.tso_client import TSOPolicyClient
 from tests.conftest import DummyNormalizer
-from refactoring.models.decoding.decoders.base import ActionDecoder
+from versatil.models.decoding.decoders.base import ActionDecoder
 
 import numpy as np
 
@@ -73,7 +73,7 @@ def test_config():
     )
 
     dataset_schema_config = DatasetSchemaConfig(
-        _target_="refactoring.data.schemas.base.DatasetSchema",
+        _target_="versatil.data.schemas.base.DatasetSchema",
         dataset_folders=["dummy"],
         zarr_path="dummy.zarr",
     )
@@ -294,8 +294,8 @@ def device():
 class TestInferenceClientInitialization:
     """Test InferenceClient initialization and config loading."""
 
-    @patch('refactoring.inference.client.AbstractModelClient.__init__')
-    @patch('refactoring.inference.client.LightningPolicy.load_from_checkpoint')
+    @patch('versatil.inference.client.AbstractModelClient.__init__')
+    @patch('versatil.inference.client.LightningPolicy.load_from_checkpoint')
     def test_client_loads_config_and_model(self, mock_load_checkpoint, mock_super_init, saved_checkpoint, test_policy, device):
         """Test that InferenceClient properly loads config and model from checkpoint."""
         mock_super_init.return_value = None
@@ -327,7 +327,7 @@ class TestInferenceClientInitialization:
         mock_super_init.assert_called_once()
         mock_load_checkpoint.assert_called_once()
 
-    @patch('refactoring.inference.client.AbstractModelClient.__init__')
+    @patch('versatil.inference.client.AbstractModelClient.__init__')
     def test_client_raises_error_missing_config(self, mock_super_init, tmp_path, device):
         """Test that InferenceClient raises error when config.yaml is missing."""
         mock_super_init.return_value = None
@@ -342,7 +342,7 @@ class TestInferenceClientInitialization:
                 temporal_agg=True,
             )
 
-    @patch('refactoring.inference.client.AbstractModelClient.__init__')
+    @patch('versatil.inference.client.AbstractModelClient.__init__')
     def test_client_raises_error_missing_checkpoint(self, mock_super_init, tmp_path, device, test_config):
         """Test that InferenceClient raises error when checkpoint is missing."""
         mock_super_init.return_value = None
@@ -365,8 +365,8 @@ class TestInferenceClientInitialization:
 class TestInferenceClientPrediction:
     """Test InferenceClient prediction functionality with synthetic data."""
 
-    @patch('refactoring.inference.client.AbstractModelClient.__init__')
-    @patch('refactoring.inference.client.LightningPolicy.load_from_checkpoint')
+    @patch('versatil.inference.client.AbstractModelClient.__init__')
+    @patch('versatil.inference.client.LightningPolicy.load_from_checkpoint')
     def test_get_actions_from_model(self, mock_load_checkpoint, mock_super_init, saved_checkpoint, test_policy, device):
         """Test that client can generate actions from synthetic observations."""
         mock_super_init.return_value = None
@@ -415,8 +415,8 @@ class TestInferenceClientPrediction:
         assert len(actions[0].robot_action) == 4
         assert actions[0].gripper_action is not None
 
-    @patch('refactoring.inference.client.AbstractModelClient.__init__')
-    @patch('refactoring.inference.client.LightningPolicy.load_from_checkpoint')
+    @patch('versatil.inference.client.AbstractModelClient.__init__')
+    @patch('versatil.inference.client.LightningPolicy.load_from_checkpoint')
     def test_multiple_prediction_cycles(self, mock_load_checkpoint, mock_super_init, saved_checkpoint, test_policy, device):
         """Test that client can perform multiple prediction cycles."""
         mock_super_init.return_value = None
@@ -467,8 +467,8 @@ class TestInferenceClientPrediction:
             assert isinstance(actions, list)
             assert len(actions) > 0
 
-    @patch('refactoring.inference.client.AbstractModelClient.__init__')
-    @patch('refactoring.inference.client.LightningPolicy.load_from_checkpoint')
+    @patch('versatil.inference.client.AbstractModelClient.__init__')
+    @patch('versatil.inference.client.LightningPolicy.load_from_checkpoint')
     def test_temporal_aggregation_disabled(self, mock_load_checkpoint, mock_super_init, saved_checkpoint, test_policy, device):
         """Test that client works with temporal aggregation disabled."""
         mock_super_init.return_value = None

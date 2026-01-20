@@ -6,10 +6,10 @@
 # - Prior: Diffusion prior p(z|s) for sampling latents during inference
 # - Decoder: Diffusion algorithm for action generation
 
-_target_: refactoring.models.decoding.algorithm.variational.VariationalAlgorithm
+_target_: versatil.models.decoding.algorithm.variational.VariationalAlgorithm
 
 base_algorithm:
-  _target_: refactoring.models.decoding.algorithm.action_diffusion.Diffusion
+  _target_: versatil.models.decoding.algorithm.action_diffusion.Diffusion
   scheduler_type: ddpm
   num_train_timesteps: 100
   num_inference_steps: 10
@@ -21,7 +21,7 @@ base_algorithm:
   clip_sample: true
 
 posterior_encoder:
-  _target_: refactoring.models.decoding.latent.posterior.transformer_encoder.VAETransformerEncoder
+  _target_: versatil.models.decoding.latent.posterior.transformer_encoder.VAETransformerEncoder
   latent_dimension: 32
   embedding_dimension: 512
   prediction_horizon: ${policy.prediction_horizon}
@@ -33,7 +33,7 @@ posterior_encoder:
   device: ${policy.device}
 
 prior:
-  _target_: refactoring.models.decoding.latent.prior.diffusion_prior.DiffusionPrior
+  _target_: versatil.models.decoding.latent.prior.diffusion_prior.DiffusionPrior
   latent_dimension: 32
   conditioning_dim: 512  # Should match flat encoded features dimension
   hidden_dims: [256, 256]

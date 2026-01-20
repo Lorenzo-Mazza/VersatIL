@@ -3,11 +3,11 @@ defaults:
   - encoder/image/cnn@encoders.right
   - _self_
 
-_target_: refactoring.models.encoding.pipeline.EncodingPipeline
+_target_: versatil.models.encoding.pipeline.EncodingPipeline
 
 encoders:
   left:
-    _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
+    _target_: versatil.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys:
     - ${cameras:LEFT}
     backbone: ${rgb_backbone:EFFICIENTNET_B0}
@@ -17,7 +17,7 @@ encoders:
     batch_norm_handling: ${batch_norm_handling:FROZEN}
 
   right:
-    _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
+    _target_: versatil.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys:
     - ${cameras:RIGHT}
     backbone: ${rgb_backbone:EFFICIENTNET_B0}

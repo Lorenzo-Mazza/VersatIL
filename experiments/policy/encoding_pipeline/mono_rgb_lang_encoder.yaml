@@ -3,11 +3,11 @@ defaults:
   - encoder/language@encoders.instruction
   - _self_
 
-_target_: refactoring.models.encoding.pipeline.EncodingPipeline
+_target_: versatil.models.encoding.pipeline.EncodingPipeline
 
 encoders:
   left:
-    _target_: refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder
+    _target_: versatil.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys:
     - ${cameras:LEFT}
     backbone: ${rgb_backbone:EFFICIENTNET_B0}

@@ -19,7 +19,7 @@ from hydra import compose, initialize_config_dir
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
-from refactoring.data.constants import (
+from versatil.data.constants import (
     ACTION_KEY,
     Cameras,
     POSITION_ACTION_KEY,
@@ -27,9 +27,9 @@ from refactoring.data.constants import (
     OBSERVATION_KEY,
     IS_PAD_ACTION_KEY,
 )
-from refactoring.data.normalization.normalizer import LinearNormalizer
-from refactoring.data.tokenization.tokenizer import Tokenizer
-from refactoring.models.policy import Policy
+from versatil.data.normalization.normalizer import LinearNormalizer
+from versatil.data.tokenization.tokenizer import Tokenizer
+from versatil.models.policy import Policy
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 EXPERIMENTS_DIR = PROJECT_ROOT / "experiments"
@@ -53,7 +53,7 @@ def create_dummy_normalizer(config: DictConfig) -> LinearNormalizer:
     Returns:
         LinearNormalizer with identity parameters for all observation and action keys
     """
-    from refactoring.data.normalization.normalizer import SingleFieldLinearNormalizer
+    from versatil.data.normalization.normalizer import SingleFieldLinearNormalizer
 
     obs_space = instantiate(config.task.observation_space)
     action_space = instantiate(config.task.action_space)
@@ -266,7 +266,7 @@ class TestExperimentConfigLoading:
             cfg = compose(config_name=experiment_name)
 
             assert '_target_' in cfg.policy
-            assert cfg.policy._target_ == 'refactoring.models.policy.Policy'
+            assert cfg.policy._target_ == 'versatil.models.policy.Policy'
             assert 'encoding_pipeline' in cfg.policy
             assert 'decoder' in cfg.policy
             assert 'algorithm' in cfg.policy

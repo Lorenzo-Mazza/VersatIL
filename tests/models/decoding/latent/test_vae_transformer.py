@@ -3,8 +3,8 @@
 import pytest
 import torch
 
-from refactoring.models.decoding.constants import LATENT_KEY, LOGVAR_KEY, MU_KEY
-from refactoring.models.decoding.latent import VAETransformerEncoder
+from versatil.models.decoding.constants import LATENT_KEY, LOGVAR_KEY, MU_KEY
+from versatil.models.decoding.latent import VAETransformerEncoder
 
 
 @pytest.fixture

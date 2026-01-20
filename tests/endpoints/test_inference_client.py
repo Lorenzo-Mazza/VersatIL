@@ -6,17 +6,17 @@ from pathlib import Path
 from omegaconf import OmegaConf
 from unittest.mock import Mock, patch, MagicMock
 
-from refactoring.configs.experiment import ExperimentConfig
-from refactoring.configs.main import MainConfig
-from refactoring.configs.data.task import TaskSpaceConfig
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.configs.data.dataloader import DataLoaderConfig
-from refactoring.configs.training import TrainingConfig
-from refactoring.configs.policy import PolicyConfig
-from refactoring.configs.inference import InferenceConfig
-from refactoring.workspace import Workspace
-from refactoring.inference.tso_client import TSOPolicyClient
-from refactoring.data.constants import Cameras, OrientationRepresentation, GripperType
+from versatil.configs.experiment import ExperimentConfig
+from versatil.configs.main import MainConfig
+from versatil.configs.data.task import TaskSpaceConfig
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.configs.data.dataloader import DataLoaderConfig
+from versatil.configs.training import TrainingConfig
+from versatil.configs.policy import PolicyConfig
+from versatil.configs.inference import InferenceConfig
+from versatil.workspace import Workspace
+from versatil.inference.tso_client import TSOPolicyClient
+from versatil.data.constants import Cameras, OrientationRepresentation, GripperType
 
 
 @pytest.mark.unit
@@ -30,7 +30,7 @@ class TestInferenceClientConfigLoading:
         checkpoint_dir.mkdir()
 
         # Mock the model server to avoid network calls
-        with patch("refactoring.inference.client.AbstractModelClient.__init__"):
+        with patch("versatil.inference.client.AbstractModelClient.__init__"):
             # Should raise FileNotFoundError
             with pytest.raises(FileNotFoundError, match="Config file not found"):
                 TSOPolicyClient(
@@ -86,10 +86,10 @@ class TestInferenceClientConfigLoading:
         checkpoint_path.touch()
 
         # Mock AbstractModelClient and LightningPolicy
-        with patch("refactoring.inference.client.AbstractModelClient.__init__") as mock_abstract_init:
+        with patch("versatil.inference.client.AbstractModelClient.__init__") as mock_abstract_init:
             mock_abstract_init.return_value = None
 
-            with patch("refactoring.inference.client.LightningPolicy.load_from_checkpoint") as mock_load:
+            with patch("versatil.inference.client.LightningPolicy.load_from_checkpoint") as mock_load:
                 mock_model = Mock()
                 mock_model.policy = simple_policy
                 mock_model.eval = Mock()
@@ -162,10 +162,10 @@ class TestInferenceClientConfigLoading:
         checkpoint_path = workspace.output_dir / "latest.ckpt"
         checkpoint_path.touch()
 
-        with patch("refactoring.inference.client.AbstractModelClient.__init__") as mock_abstract_init:
+        with patch("versatil.inference.client.AbstractModelClient.__init__") as mock_abstract_init:
             mock_abstract_init.return_value = None
 
-            with patch("refactoring.inference.client.LightningPolicy.load_from_checkpoint") as mock_load:
+            with patch("versatil.inference.client.LightningPolicy.load_from_checkpoint") as mock_load:
                 # Create mock policy with correct observation/action spaces
                 mock_policy = Mock()
                 mock_policy.observation_space = obs_space
@@ -250,10 +250,10 @@ class TestInferenceClientConfigLoading:
         checkpoint_path = workspace.output_dir / "latest.ckpt"
         checkpoint_path.touch()
 
-        with patch("refactoring.inference.client.AbstractModelClient.__init__") as mock_abstract_init:
+        with patch("versatil.inference.client.AbstractModelClient.__init__") as mock_abstract_init:
             mock_abstract_init.return_value = None
 
-            with patch("refactoring.inference.client.LightningPolicy.load_from_checkpoint") as mock_load:
+            with patch("versatil.inference.client.LightningPolicy.load_from_checkpoint") as mock_load:
                 mock_model = Mock()
                 mock_model.policy = simple_policy
                 mock_model.eval = Mock()
@@ -332,10 +332,10 @@ class TestInferenceClientIntegrationWithWorkspace:
         checkpoint_path.touch()
 
         # Step 4: Load config via inference client
-        with patch("refactoring.inference.client.AbstractModelClient.__init__") as mock_abstract_init:
+        with patch("versatil.inference.client.AbstractModelClient.__init__") as mock_abstract_init:
             mock_abstract_init.return_value = None
 
-            with patch("refactoring.inference.client.LightningPolicy.load_from_checkpoint") as mock_load:
+            with patch("versatil.inference.client.LightningPolicy.load_from_checkpoint") as mock_load:
                 mock_model = Mock()
                 mock_model.policy = simple_policy
                 mock_model.eval = Mock()
@@ -402,7 +402,7 @@ class TestInferenceClientIntegrationWithWorkspace:
 
         # Don't create checkpoint file
 
-        with patch("refactoring.inference.client.AbstractModelClient.__init__") as mock_abstract_init:
+        with patch("versatil.inference.client.AbstractModelClient.__init__") as mock_abstract_init:
             mock_abstract_init.return_value = None
 
             # Should raise FileNotFoundError for missing checkpoint

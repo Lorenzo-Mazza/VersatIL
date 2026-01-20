@@ -3,9 +3,9 @@
 import pytest
 import torch
 
-from refactoring.metrics.accumulators import MetricsAccumulator
-from refactoring.metrics.base import LossOutput
-from refactoring.metrics.constants import MetricKey, MetadataKey
+from versatil.metrics.accumulators import MetricsAccumulator
+from versatil.metrics.base import LossOutput
+from versatil.metrics.constants import MetricKey, MetadataKey
 
 
 @pytest.fixture

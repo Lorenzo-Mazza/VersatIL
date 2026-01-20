@@ -1,10 +1,10 @@
 import pytest
 import torch
 
-from refactoring.models.encoding.encoders.depth import LightGeometricEncoder
-from refactoring.models.encoding.encoders.constants import PoolingMethod, EncoderOutputKeys
-from refactoring.data.constants import Cameras
-from refactoring.models.layers.constants import AttentionDecompositionMode
+from versatil.models.encoding.encoders.depth import LightGeometricEncoder
+from versatil.models.encoding.encoders.constants import PoolingMethod, EncoderOutputKeys
+from versatil.data.constants import Cameras
+from versatil.models.layers.constants import AttentionDecompositionMode
 
 
 @pytest.fixture

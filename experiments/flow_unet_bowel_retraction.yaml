@@ -1,4 +1,4 @@
-_target_: refactoring.configs.main.MainConfig
+_target_: versatil.configs.main.MainConfig
 
 defaults:
   - task: base

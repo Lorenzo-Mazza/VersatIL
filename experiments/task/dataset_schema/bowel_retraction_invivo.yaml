@@ -3,7 +3,7 @@ defaults:
   - zarr_meta/bowel_retraction@metadata
   - _self_
 
-_target_: refactoring.data.raw.schemas.custom.bowel_retraction.BowelRetractionSchema
+_target_: versatil.data.raw.schemas.custom.bowel_retraction.BowelRetractionSchema
 zarr_path: /mnt/cluster/datasets/bowel_retraction/v5/dataset.zarr
 dataset_folders:
   - /mnt/cluster/datasets/bowel_retraction/in_vivo

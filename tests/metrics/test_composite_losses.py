@@ -3,19 +3,19 @@
 import pytest
 import torch
 
-from refactoring.data.constants import (
+from versatil.data.constants import (
     POSITION_ACTION_KEY,
     GRIPPER_ACTION_KEY,
     PHASE_LABEL_KEY,
     GripperType,
 )
-from refactoring.metrics.composite import (
+from versatil.metrics.composite import (
     ActionReconstructionLoss,
     PhaseActionLoss,
     CompositeLoss,
 )
-from refactoring.metrics.components import RegressionLoss, GripperLoss
-from refactoring.metrics.constants import MetricKey
+from versatil.metrics.components import RegressionLoss, GripperLoss
+from versatil.metrics.constants import MetricKey
 
 
 @pytest.fixture

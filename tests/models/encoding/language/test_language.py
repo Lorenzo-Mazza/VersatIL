@@ -1,13 +1,13 @@
 import pytest
 import torch
 
-from refactoring.models.encoding.encoders.language import LanguageEncoder
-from refactoring.models.encoding.encoders.constants import (
+from versatil.models.encoding.encoders.language import LanguageEncoder
+from versatil.models.encoding.encoders.constants import (
     LanguageEncoderType,
     PoolingMethod,
     EncoderOutputKeys,
 )
-from refactoring.data.constants import TOKENIZED_OBSERVATIONS_KEY
+from versatil.data.constants import TOKENIZED_OBSERVATIONS_KEY
 
 
 LANGUAGE_MODELS = [

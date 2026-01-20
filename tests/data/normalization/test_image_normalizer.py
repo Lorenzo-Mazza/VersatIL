@@ -2,7 +2,7 @@ import pytest
 import torch
 import numpy as np
 
-from refactoring.data.normalization.image_normalizer import (
+from versatil.data.normalization.image_normalizer import (
     create_image_normalizer,
     get_rgb_image_normalizer,
     get_depth_image_normalizer,
@@ -14,12 +14,12 @@ from refactoring.data.normalization.image_normalizer import (
     _create_standardization_normalizer,
     _compute_scaled_values,
 )
-from refactoring.data.normalization.normalizer import (
+from versatil.data.normalization.normalizer import (
     SingleFieldLinearNormalizer,
     SequentialNormalizer,
     LinearNormalizer
 )
-from refactoring.data.constants import (
+from versatil.data.constants import (
     ImageNormalizationType,
     IMAGENET_RGB_MEAN,
     IMAGENET_RGB_STD,

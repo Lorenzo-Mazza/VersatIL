@@ -2,15 +2,15 @@
 import pytest
 import torch
 
-from refactoring.models.encoding.fusion.constants import FeatureType
-from refactoring.models.encoding.fusion.base import (
+from versatil.models.encoding.fusion.constants import FeatureType
+from versatil.models.encoding.fusion.base import (
     FusionInput,
     FusionOutput,
     FusionModule,
 )
-from refactoring.models.encoding.fusion.concat import ConcatFusion
-from refactoring.models.encoding.fusion.mlp import MLPFusion
-from refactoring.models.encoding.fusion.attention import AttentionFusion
+from versatil.models.encoding.fusion.concat import ConcatFusion
+from versatil.models.encoding.fusion.mlp import MLPFusion
+from versatil.models.encoding.fusion.attention import AttentionFusion
 
 
 RGB_FEATURES = "rgb_features"
