@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 import torch
 
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.data.constants import (
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.constants import (
     ACTION_KEY,
     GRIPPER_ACTION_KEY,
     IS_PAD_ACTION_KEY,
@@ -14,9 +14,9 @@ from refactoring.data.constants import (
     GripperType,
     OrientationRepresentation,
 )
-from refactoring.data.tokenization.tokenizer import Tokenizer
-from refactoring.models.decoding.constants import PREDICTED_ACTION_TOKENS_KEY
-from refactoring.models.decoding.decoders.factory.fast_detr_decoder import FASTDETRDecoder
+from versatil.data.tokenization.tokenizer import Tokenizer
+from versatil.models.decoding.constants import PREDICTED_ACTION_TOKENS_KEY
+from versatil.models.decoding.decoders.factory.fast_detr_decoder import FASTDETRDecoder
 
 
 @pytest.fixture

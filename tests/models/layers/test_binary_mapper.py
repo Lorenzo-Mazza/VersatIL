@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from refactoring.models.layers.free_transformer.binary_mapper import BinaryMapper
+from versatil.models.layers.free_transformer.binary_mapper import BinaryMapper
 
 
 class TestBinaryMapper:

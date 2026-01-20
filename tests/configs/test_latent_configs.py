@@ -5,12 +5,12 @@ import inspect
 import pytest
 from hydra.utils import instantiate
 
-from refactoring.configs.decoding.latent import (
+from versatil.configs.decoding.latent import (
     VAETransformerEncoderConfig,
     GaussianPriorConfig,
 )
-from refactoring.models.decoding.latent.posterior.transformer_encoder import VAETransformerEncoder
-from refactoring.models.decoding.latent.prior.gaussian_prior import GaussianPrior
+from versatil.models.decoding.latent.posterior.transformer_encoder import VAETransformerEncoder
+from versatil.models.decoding.latent.prior.gaussian_prior import GaussianPrior
 
 
 @pytest.mark.unit
@@ -18,7 +18,7 @@ class TestVAETransformerEncoderConfig:
 
     def test_config_has_correct_target(self):
         config = VAETransformerEncoderConfig(latent_dimension=32)
-        assert config._target_ == "refactoring.models.decoding.latent.vae_posterior.VAETransformerEncoder"
+        assert config._target_ == "versatil.models.decoding.latent.vae_posterior.VAETransformerEncoder"
 
     def test_config_params_match_class_signature(self):
         sig = inspect.signature(VAETransformerEncoder.__init__)
@@ -35,7 +35,7 @@ class TestGaussianPriorConfig:
 
     def test_config_has_correct_target(self):
         config = GaussianPriorConfig(latent_dim=32)
-        assert config._target_ == "refactoring.models.decoding.latent.gaussian_prior.GaussianPrior"
+        assert config._target_ == "versatil.models.decoding.latent.gaussian_prior.GaussianPrior"
 
     def test_config_instantiates_correctly(self):
         config = GaussianPriorConfig(latent_dim=32, device="cpu")

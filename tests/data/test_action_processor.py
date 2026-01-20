@@ -2,8 +2,8 @@ import pytest
 import numpy as np
 from unittest.mock import MagicMock
 
-from refactoring.data.action_processor import ActionProcessor
-from refactoring.data.constants import (
+from versatil.data.action_processor import ActionProcessor
+from versatil.data.constants import (
     POSITION_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
     GRIPPER_ACTION_KEY,

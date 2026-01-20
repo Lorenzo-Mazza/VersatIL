@@ -1,7 +1,7 @@
 import pytest
 import torch
-from refactoring.data.constants import KinematicsNormalizationType
-from refactoring.data.normalization.normalizer import (
+from versatil.data.constants import KinematicsNormalizationType
+from versatil.data.normalization.normalizer import (
     LinearNormalizer,
     SingleFieldLinearNormalizer,
     SequentialNormalizer,

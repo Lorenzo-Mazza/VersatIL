@@ -3,11 +3,11 @@ import numpy as np
 import torch
 from unittest.mock import MagicMock, patch
 
-from refactoring.data.preprocessor_builder import PreprocessorBuilder
-from refactoring.data.normalization.normalizer import LinearNormalizer
-from refactoring.data.tokenization.tokenizer import Tokenizer
-from refactoring.configs.data.tokenizer import ObservationTokenizationConfig, ActionTokenizationConfig, TokenizationConfig
-from refactoring.data.constants import (
+from versatil.data.preprocessor_builder import PreprocessorBuilder
+from versatil.data.normalization.normalizer import LinearNormalizer
+from versatil.data.tokenization.tokenizer import Tokenizer
+from versatil.configs.data.tokenizer import ObservationTokenizationConfig, ActionTokenizationConfig, TokenizationConfig
+from versatil.data.constants import (
     Cameras,
     POSITION_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
@@ -264,7 +264,7 @@ class TestSetupImageNormalizers:
         """Test RGB image normalizer setup."""
         normalizer = LinearNormalizer()
 
-        with patch('refactoring.data.normalization.normalizer_builder.get_rgb_image_normalizer') as mock_get:
+        with patch('versatil.data.normalization.normalizer_builder.get_rgb_image_normalizer') as mock_get:
             normalizer_builder._setup_image_normalizers(normalizer, device=None, winsorize_depth=True)
 
             # Should be called for each RGB camera
@@ -276,7 +276,7 @@ class TestSetupImageNormalizers:
         normalizer_builder.observation_space.camera_keys = [Cameras.DEPTH.value]
         normalizer = LinearNormalizer()
 
-        with patch('refactoring.data.normalization.normalizer_builder.get_depth_image_normalizer') as mock_get:
+        with patch('versatil.data.normalization.normalizer_builder.get_depth_image_normalizer') as mock_get:
             normalizer_builder._setup_image_normalizers(normalizer, device=None, winsorize_depth=False)
 
             mock_get.assert_called_once()
@@ -287,7 +287,7 @@ class TestSetupImageNormalizers:
         normalizer_builder.observation_space.camera_keys = [Cameras.DEPTH.value]
         normalizer = LinearNormalizer()
 
-        with patch('refactoring.data.normalization.normalizer_builder.get_depth_image_normalizer') as mock_get:
+        with patch('versatil.data.normalization.normalizer_builder.get_depth_image_normalizer') as mock_get:
             normalizer_builder._setup_image_normalizers(normalizer, device=None, winsorize_depth=True)
 
             # Winsorization should clip values, affecting min/max
@@ -301,7 +301,7 @@ class TestSetupImageNormalizers:
         normalizer_builder.observation_space.camera_keys = [Cameras.DEPTH.value]
         normalizer = LinearNormalizer()
 
-        with patch('refactoring.data.normalization.normalizer_builder.get_depth_image_normalizer') as mock_get:
+        with patch('versatil.data.normalization.normalizer_builder.get_depth_image_normalizer') as mock_get:
             normalizer_builder._setup_image_normalizers(normalizer, device=None, winsorize_depth=False)
 
             mock_get.assert_called_once()

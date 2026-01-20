@@ -2,7 +2,7 @@ defaults:
   - hdf5
   - zarr_meta/libero@metadata
 
-_target_: refactoring.data.raw.schemas.custom.libero.LiberoSchema
+_target_: versatil.data.raw.schemas.custom.libero.LiberoSchema
 zarr_path: /mnt/cluster/workspaces/mazzalore/libero_all.zarr
 hdf5_paths:
   # libero_10 (10 tasks)

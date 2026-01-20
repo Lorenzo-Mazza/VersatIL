@@ -3,11 +3,11 @@ import numpy as np
 import torch
 from unittest.mock import MagicMock
 
-from refactoring.data.sample_builder import SampleBuilder
-from refactoring.data.tokenization.tokenizer import Tokenizer
-from refactoring.data.tokenization.observation_tokenizer import ObservationTokenizer
-from refactoring.data.tokenization.action_tokenizer import ActionTokenizer
-from refactoring.data.constants import (
+from versatil.data.sample_builder import SampleBuilder
+from versatil.data.tokenization.tokenizer import Tokenizer
+from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
+from versatil.data.tokenization.action_tokenizer import ActionTokenizer
+from versatil.data.constants import (
     Cameras,
     OBSERVATION_KEY,
     PHASE_LABEL_KEY,

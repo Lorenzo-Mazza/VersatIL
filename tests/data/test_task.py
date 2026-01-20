@@ -1,7 +1,7 @@
 """Tests for task space module (ActionSpace, ObservationSpace, TaskSpace)."""
 import pytest
 from unittest.mock import MagicMock
-from refactoring.data.constants import (
+from versatil.data.constants import (
     OrientationRepresentation,
     GripperType,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
@@ -11,7 +11,7 @@ from refactoring.data.constants import (
     LANGUAGE_KEY,
     Cameras,
 )
-from refactoring.data.task import ActionSpace, ObservationSpace, TaskSpace
+from versatil.data.task import ActionSpace, ObservationSpace, TaskSpace
 
 
 @pytest.fixture

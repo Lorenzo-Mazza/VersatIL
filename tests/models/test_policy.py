@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 from unittest.mock import MagicMock, Mock
 
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.data.constants import (
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.constants import (
     POSITION_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
     GRIPPER_ACTION_KEY,
@@ -15,23 +15,23 @@ from refactoring.data.constants import (
     Cameras,
     GripperType,
 )
-from refactoring.metrics import (
+from versatil.metrics import (
     ActionReconstructionLoss,
     PhaseActionLoss,
 )
-from refactoring.models.encoding.encoders.base import EncoderInput, EncoderOutput
-from refactoring.models.encoding.encoders.depth.cnn import DepthCNNEncoder
-from refactoring.models.encoding.encoders.depth.dformerv2 import DFormerEncoder
-from refactoring.models.encoding.encoders.depth.light_geometric import LightGeometricEncoder
-from refactoring.models.encoding.encoders.rgb.cnn import CNNEncoder
-from refactoring.models.encoding.encoders.rgb.conditional_cnn import ConditionalCNNEncoder
-from refactoring.models.encoding.encoders.unconditional import Encoder
-from refactoring.models.policy import Policy
-from refactoring.models.decoding.algorithm.behavior_cloning import BehavioralCloning
-from refactoring.models.decoding.algorithm.variational import VariationalAlgorithm
-from refactoring.models.decoding.latent import VAETransformerEncoder, DiffusionPrior
-from refactoring.models.decoding.constants import LATENT_KEY
-from refactoring.metrics.components import PriorDenoisingLoss
+from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
+from versatil.models.encoding.encoders.depth.cnn import DepthCNNEncoder
+from versatil.models.encoding.encoders.depth.dformerv2 import DFormerEncoder
+from versatil.models.encoding.encoders.depth.light_geometric import LightGeometricEncoder
+from versatil.models.encoding.encoders.rgb.cnn import CNNEncoder
+from versatil.models.encoding.encoders.rgb.conditional_cnn import ConditionalCNNEncoder
+from versatil.models.encoding.encoders.unconditional import Encoder
+from versatil.models.policy import Policy
+from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
+from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
+from versatil.models.decoding.latent import VAETransformerEncoder, DiffusionPrior
+from versatil.models.decoding.constants import LATENT_KEY
+from versatil.metrics.components import PriorDenoisingLoss
 from tests.conftest import DummyNormalizer
 
 

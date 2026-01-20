@@ -3,14 +3,14 @@
 import pytest
 import torch
 
-from refactoring.data.constants import POSITION_ACTION_KEY, GRIPPER_ACTION_KEY
-from refactoring.models.decoding.algorithm import (
+from versatil.data.constants import POSITION_ACTION_KEY, GRIPPER_ACTION_KEY
+from versatil.models.decoding.algorithm import (
     VariationalAlgorithm,
     BehavioralCloning,
     FlowMatching,
 )
-from refactoring.models.decoding.constants import LATENT_KEY, MU_KEY, LOGVAR_KEY
-from refactoring.models.decoding.latent import (
+from versatil.models.decoding.constants import LATENT_KEY, MU_KEY, LOGVAR_KEY
+from versatil.models.decoding.latent import (
     VAETransformerEncoder,
     GaussianPrior,
     DiffusionPrior,
@@ -219,7 +219,7 @@ class TestVariationalAlgorithmWithDiffusionPrior:
         sample_actions,
     ):
         """Test that forward pass includes prior predictions/targets during training."""
-        from refactoring.models.decoding.constants import (
+        from versatil.models.decoding.constants import (
             PRIOR_PREDICTION_KEY,
             PRIOR_TARGET_KEY,
         )

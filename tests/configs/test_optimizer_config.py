@@ -5,7 +5,7 @@ import torch
 from hydra.utils import instantiate, get_class
 from omegaconf import OmegaConf
 
-from refactoring.configs.training import (
+from versatil.configs.training import (
     AdamConfig,
     AdamWConfig,
     OptimizerConfig,
@@ -13,7 +13,7 @@ from refactoring.configs.training import (
     SGDConfig,
     TrainingConfig,
 )
-from refactoring.training.lightning_policy import LightningPolicy
+from versatil.training.lightning_policy import LightningPolicy
 
 
 @pytest.mark.unit

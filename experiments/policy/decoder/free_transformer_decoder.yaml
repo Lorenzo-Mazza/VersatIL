@@ -2,7 +2,7 @@ defaults:
   - free_transformer
   - heads@action_heads: tokenized
 
-_target_: refactoring.models.decoding.decoders.factory.free_transformer.FreeTransformerDecoder
+_target_: versatil.models.decoding.decoders.factory.free_transformer.FreeTransformerDecoder
 
 # Input features from encoding pipeline
 input_keys:

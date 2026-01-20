@@ -3,13 +3,13 @@ import tempfile
 import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from refactoring.data.dataloader import (
+from versatil.data.dataloader import (
     validate_dataloader_config,
     _collect_dataset_paths,
     _ensure_zarr_exists,
     _log_phase_distributions,
 )
-from refactoring.configs.data.dataloader import DataLoaderConfig
+from versatil.configs.data.dataloader import DataLoaderConfig
 
 
 @pytest.fixture
@@ -283,8 +283,8 @@ class TestEnsureZarrExists:
         zarr_path = Path(temp_dir) / 'test.zarr'
         schema = mock_schema_factory(str(zarr_path))
 
-        with patch('refactoring.data.dataloader.ReplayBuffer.copy_from_path') as mock_copy, \
-             patch('refactoring.data.dataloader.create_replay_buffer') as mock_create:
+        with patch('versatil.data.dataloader.ReplayBuffer.copy_from_path') as mock_copy, \
+             patch('versatil.data.dataloader.create_replay_buffer') as mock_create:
             zarr_path.mkdir()
             _ensure_zarr_exists(schema, [])
 
@@ -296,8 +296,8 @@ class TestEnsureZarrExists:
         zarr_path = Path(temp_dir) / 'test.zarr'
         schema = mock_schema_factory(str(zarr_path))
 
-        with patch('refactoring.data.dataloader.ReplayBuffer.copy_from_path', side_effect=Exception("Load error")), \
-             patch('refactoring.data.dataloader.create_replay_buffer') as mock_create:
+        with patch('versatil.data.dataloader.ReplayBuffer.copy_from_path', side_effect=Exception("Load error")), \
+             patch('versatil.data.dataloader.create_replay_buffer') as mock_create:
             zarr_path.mkdir()
             _ensure_zarr_exists(schema, ['/path/to/episode.csv'])
 

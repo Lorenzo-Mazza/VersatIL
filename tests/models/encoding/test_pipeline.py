@@ -4,8 +4,8 @@ import torch
 import logging
 from unittest.mock import MagicMock
 
-from refactoring.models.encoding.pipeline import EncodingPipeline
-from refactoring.models.encoding.encoders.base import EncodingMixin, EncoderInput, EncoderOutput
+from versatil.models.encoding.pipeline import EncodingPipeline
+from versatil.models.encoding.encoders.base import EncodingMixin, EncoderInput, EncoderOutput
 from tests.conftest import DummyRGBEncoder, DummyDepthEncoder, DummyProprioEncoder
 
 

@@ -1,11 +1,11 @@
 defaults:
   - base
 
-_target_: refactoring.data.task.ObservationSpace
+_target_: versatil.data.task.ObservationSpace
 
 observations_metadata:
   ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}:
-    _target_: refactoring.data.metadata.PositionObservationMetadata
+    _target_: versatil.data.metadata.PositionObservationMetadata
     raw_data_column_keys: [camera_frame_tip_position_x, camera_frame_tip_position_y, camera_frame_tip_position_z]
     dtype: float32
     dimension: 3
@@ -13,7 +13,7 @@ observations_metadata:
     frame: ${coordinate_system:CAMERA}
 
   ${cameras:LEFT}:
-    _target_: refactoring.data.metadata.CameraMetadata
+    _target_: versatil.data.metadata.CameraMetadata
     camera_key: ${cameras:LEFT}
     dtype: uint8
     channels: 3
@@ -21,7 +21,7 @@ observations_metadata:
     image_height: 270
 
   ${cameras:RIGHT}:
-    _target_: refactoring.data.metadata.CameraMetadata
+    _target_: versatil.data.metadata.CameraMetadata
     camera_key: ${cameras:RIGHT}
     dtype: uint8
     channels: 3
@@ -29,7 +29,7 @@ observations_metadata:
     image_height: 270
 
   ${obs_key:LANGUAGE}:
-    _target_: refactoring.data.metadata.ObservationMetadata
+    _target_: versatil.data.metadata.ObservationMetadata
     raw_data_column_keys: [language]
     dtype: str
     dimension: 1

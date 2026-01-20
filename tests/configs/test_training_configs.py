@@ -3,7 +3,7 @@ import dataclasses
 
 import pytest
 
-from refactoring.configs.training import (
+from versatil.configs.training import (
     TrainingConfig,
     OptimizerConfig,
     AdamWConfig,

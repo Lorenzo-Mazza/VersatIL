@@ -1,8 +1,8 @@
 import pytest
 import torch
 
-from refactoring.models.encoding.encoders.constants import PoolingMethod
-from refactoring.models.layers.pooling.pooling_head import (
+from versatil.models.encoding.encoders.constants import PoolingMethod
+from versatil.models.layers.pooling.pooling_head import (
     PoolingHead,
     SpatialSoftmaxPooling,
     GlobalAveragePooling,

@@ -1,17 +1,17 @@
 import pytest
 import torch
 
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.data.constants import (
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.constants import (
     GRIPPER_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
     POSITION_ACTION_KEY,
     GripperType,
     OrientationRepresentation,
 )
-from refactoring.models.decoding.action_heads import ActionHead
-from refactoring.models.decoding.constants import TIMESTEP_KEY, FeatureType
-from refactoring.models.decoding.decoders.factory.conditional_unet_decoder import (
+from versatil.models.decoding.action_heads import ActionHead
+from versatil.models.decoding.constants import TIMESTEP_KEY, FeatureType
+from versatil.models.decoding.decoders.factory.conditional_unet_decoder import (
     ConditionalUNetDecoder,
 )
 

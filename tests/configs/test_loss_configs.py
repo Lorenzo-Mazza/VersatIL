@@ -4,7 +4,7 @@ import pytest
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
-from refactoring.configs.loss import (
+from versatil.configs.loss import (
     ActionReconstructionLossConfig,
     CompositeLossConfig,
     GripperLossConfig,
@@ -15,8 +15,8 @@ from refactoring.configs.loss import (
     TrajectoryLengthLossConfig,
     TrajectorySmoothnessConfig,
 )
-from refactoring.data.constants import GripperType
-from refactoring.metrics import (
+from versatil.data.constants import GripperType
+from versatil.metrics import (
     ActionReconstructionLoss,
     CompositeLoss,
     GripperLoss,
@@ -33,7 +33,7 @@ from refactoring.metrics import (
 class TestRegressionLossConfig:
     def test_config_has_correct_target(self):
         config = RegressionLossConfig()
-        assert config._target_ == "refactoring.metrics.RegressionLoss"
+        assert config._target_ == "versatil.metrics.RegressionLoss"
 
     def test_config_instantiates_correctly(self):
         config = RegressionLossConfig()
@@ -59,7 +59,7 @@ class TestRegressionLossConfig:
 class TestGripperLossConfig:
     def test_config_has_correct_target(self):
         config = GripperLossConfig()
-        assert config._target_ == "refactoring.metrics.GripperLoss"
+        assert config._target_ == "versatil.metrics.GripperLoss"
 
     def test_config_instantiates_correctly(self):
         config = GripperLossConfig()
@@ -83,7 +83,7 @@ class TestGripperLossConfig:
 class TestKLDivergenceLossConfig:
     def test_config_has_correct_target(self):
         config = KLDivergenceLossConfig()
-        assert config._target_ == "refactoring.metrics.KLDivergenceLoss"
+        assert config._target_ == "versatil.metrics.KLDivergenceLoss"
 
     def test_config_instantiates_correctly(self):
         config = KLDivergenceLossConfig()
@@ -107,7 +107,7 @@ class TestKLDivergenceLossConfig:
 class TestTrajectoryLengthLossConfig:
     def test_config_has_correct_target(self):
         config = TrajectoryLengthLossConfig()
-        assert config._target_ == "refactoring.metrics.TrajectoryLengthLoss"
+        assert config._target_ == "versatil.metrics.TrajectoryLengthLoss"
 
     def test_config_instantiates_correctly(self):
         config = TrajectoryLengthLossConfig()
@@ -127,7 +127,7 @@ class TestTrajectoryLengthLossConfig:
 class TestTrajectorySmoothnessConfig:
     def test_config_has_correct_target(self):
         config = TrajectorySmoothnessConfig()
-        assert config._target_ == "refactoring.metrics.TrajectorySmoothness"
+        assert config._target_ == "versatil.metrics.TrajectorySmoothness"
 
     def test_config_instantiates_correctly(self):
         config = TrajectorySmoothnessConfig()
@@ -147,7 +147,7 @@ class TestTrajectorySmoothnessConfig:
 class TestPhaseClassificationLossConfig:
     def test_config_has_correct_target(self):
         config = PhaseClassificationLossConfig()
-        assert config._target_ == "refactoring.metrics.PhaseClassificationLoss"
+        assert config._target_ == "versatil.metrics.PhaseClassificationLoss"
 
     def test_config_instantiates_correctly(self):
         config = PhaseClassificationLossConfig()
@@ -167,7 +167,7 @@ class TestPhaseClassificationLossConfig:
 class TestActionReconstructionLossConfig:
     def test_config_has_correct_target(self):
         config = ActionReconstructionLossConfig()
-        assert config._target_ == "refactoring.metrics.ActionReconstructionLoss"
+        assert config._target_ == "versatil.metrics.ActionReconstructionLoss"
 
     def test_config_instantiates_correctly(self):
         config = ActionReconstructionLossConfig()
@@ -191,7 +191,7 @@ class TestActionReconstructionLossConfig:
 class TestPhaseActionLossConfig:
     def test_config_has_correct_target(self):
         config = PhaseActionLossConfig()
-        assert config._target_ == "refactoring.metrics.PhaseActionLoss"
+        assert config._target_ == "versatil.metrics.PhaseActionLoss"
 
     def test_config_instantiates_correctly(self):
         config = PhaseActionLossConfig()
@@ -215,7 +215,7 @@ class TestPhaseActionLossConfig:
 class TestCompositeLossConfig:
     def test_config_has_correct_target(self):
         config = CompositeLossConfig()
-        assert config._target_ == "refactoring.metrics.CompositeLoss"
+        assert config._target_ == "versatil.metrics.CompositeLoss"
 
     def test_config_instantiates_correctly(self):
         config = CompositeLossConfig()

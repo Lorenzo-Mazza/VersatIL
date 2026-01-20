@@ -2,12 +2,12 @@
 import pytest
 import torch
 
-from refactoring.models.decoding.decoders import MoEDecoder, DecoderInput
-from refactoring.models.decoding.decoders.base import ActionDecoder
-from refactoring.models.decoding.constants import MoERoutingType, FeatureType
-from refactoring.models.decoding.action_heads import ActionHead
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.data.constants import (
+from versatil.models.decoding.decoders import MoEDecoder, DecoderInput
+from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.decoding.constants import MoERoutingType, FeatureType
+from versatil.models.decoding.action_heads import ActionHead
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.constants import (
     POSITION_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
     GRIPPER_ACTION_KEY,

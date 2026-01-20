@@ -1,16 +1,16 @@
 defaults:
   - base
 
-_target_: refactoring.data.task.ActionSpace
+_target_: versatil.data.task.ActionSpace
 use_gripper_class_weights: false
 denoise_actions: true
 denoising_percentile: 58
 
 actions_metadata:
   ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}:
-    _target_: refactoring.data.metadata.OnTheFlyActionMetadata
+    _target_: versatil.data.metadata.OnTheFlyActionMetadata
     source_metadata:
-      _target_: refactoring.data.metadata.PositionObservationMetadata
+      _target_: versatil.data.metadata.PositionObservationMetadata
       raw_data_column_keys: [camera_frame_tip_position_x, camera_frame_tip_position_y, camera_frame_tip_position_z]
       dtype: float32
       dimension: 3
@@ -19,9 +19,9 @@ actions_metadata:
     computation_method: delta
 
   ${proprio_key:GRIPPER_STATE}:
-    _target_: refactoring.data.metadata.OnTheFlyActionMetadata
+    _target_: versatil.data.metadata.OnTheFlyActionMetadata
     source_metadata:
-      _target_: refactoring.data.metadata.GripperObservationMetadata
+      _target_: versatil.data.metadata.GripperObservationMetadata
       raw_data_column_keys: [open]
       dtype: int8
       dimension: 1
@@ -31,7 +31,7 @@ actions_metadata:
     computation_method: next_timestep
 
   ${obs_key:PHASE_LABEL}:
-    _target_: refactoring.data.metadata.PrecomputedActionMetadata
+    _target_: versatil.data.metadata.PrecomputedActionMetadata
     raw_data_column_keys: [task_phase]
     dtype: uint8
     storage_dimension: 1

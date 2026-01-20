@@ -3,11 +3,11 @@ import dataclasses
 
 import pytest
 
-from refactoring.configs.data.task import TaskSpaceConfig
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.configs.data.dataloader import DataLoaderConfig
-from refactoring.configs.data.tokenizer import ObservationTokenizationConfig, ActionTokenizationConfig, TokenizationConfig
-from refactoring.data.constants import GripperType, OrientationRepresentation, TokenizerType
+from versatil.configs.data.task import TaskSpaceConfig
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.configs.data.dataloader import DataLoaderConfig
+from versatil.configs.data.tokenizer import ObservationTokenizationConfig, ActionTokenizationConfig, TokenizationConfig
+from versatil.data.constants import GripperType, OrientationRepresentation, TokenizerType
 
 
 @pytest.mark.unit

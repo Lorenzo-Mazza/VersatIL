@@ -2,7 +2,7 @@
 import pytest
 import torch
 from unittest.mock import MagicMock
-from refactoring.data.transform import (
+from versatil.data.transform import (
     normalize_sample,
     normalize_observation,
     normalize_actions,
@@ -12,7 +12,7 @@ from refactoring.data.transform import (
     tokenize_actions,
     detokenize_actions,
 )
-from refactoring.data.constants import (
+from versatil.data.constants import (
     OBSERVATION_KEY,
     ACTION_KEY,
     LANGUAGE_KEY,
@@ -28,7 +28,7 @@ from refactoring.data.constants import (
     GripperType,
     Cameras,
 )
-from refactoring.data.normalization.normalizer import LinearNormalizer
+from versatil.data.normalization.normalizer import LinearNormalizer
 
 
 @pytest.fixture

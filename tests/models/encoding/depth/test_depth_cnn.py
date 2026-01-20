@@ -1,9 +1,9 @@
 import pytest
 import torch
 
-from refactoring.models.encoding.encoders.depth.cnn import DepthCNNEncoder
-from refactoring.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod, EncoderOutputKeys
-from refactoring.data.constants import Cameras
+from versatil.models.encoding.encoders.depth.cnn import DepthCNNEncoder
+from versatil.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod, EncoderOutputKeys
+from versatil.data.constants import Cameras
 
 
 BACKBONE_FEATURE_DIMS = {

@@ -5,16 +5,16 @@ import inspect
 import pytest
 from hydra.utils import instantiate
 
-from refactoring.configs.decoding.algorithm import (
+from versatil.configs.decoding.algorithm import (
     BehavioralCloningConfig,
     DiffusionConfig,
     FlowMatchingConfig,
     VariationalAlgorithmConfig,
 )
-from refactoring.models.decoding.algorithm.behavior_cloning import BehavioralCloning
-from refactoring.models.decoding.algorithm.diffusion import Diffusion
-from refactoring.models.decoding.algorithm.flow_matching import FlowMatching
-from refactoring.models.decoding.algorithm.variational import VariationalAlgorithm
+from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
+from versatil.models.decoding.algorithm.diffusion import Diffusion
+from versatil.models.decoding.algorithm.flow_matching import FlowMatching
+from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
 
 
 @pytest.mark.unit
@@ -22,7 +22,7 @@ class TestBehavioralCloningConfig:
 
     def test_config_has_correct_target(self):
         config = BehavioralCloningConfig()
-        assert config._target_ == "refactoring.models.decoding.algorithm.behavior_cloning.BehavioralCloning"
+        assert config._target_ == "versatil.models.decoding.algorithm.behavior_cloning.BehavioralCloning"
 
     def test_config_instantiates_correctly(self):
         config = BehavioralCloningConfig()
@@ -44,7 +44,7 @@ class TestDiffusionConfig:
 
     def test_config_has_correct_target(self):
         config = DiffusionConfig()
-        assert config._target_ == "refactoring.models.decoding.algorithm.diffusion.Diffusion"
+        assert config._target_ == "versatil.models.decoding.algorithm.diffusion.Diffusion"
 
     def test_config_instantiates_correctly(self):
         config = DiffusionConfig()
@@ -66,7 +66,7 @@ class TestFlowMatchingConfig:
 
     def test_config_has_correct_target(self):
         config = FlowMatchingConfig()
-        assert config._target_ == "refactoring.models.decoding.algorithm.flow_matching.FlowMatching"
+        assert config._target_ == "versatil.models.decoding.algorithm.flow_matching.FlowMatching"
 
     def test_config_instantiates_correctly(self):
         config = FlowMatchingConfig()
@@ -87,16 +87,16 @@ class TestFlowMatchingConfig:
 class TestVariationalAlgorithmConfig:
 
     def test_config_has_correct_target(self):
-        from refactoring.configs.decoding.latent import VAETransformerEncoderConfig
+        from versatil.configs.decoding.latent import VAETransformerEncoderConfig
 
         config = VariationalAlgorithmConfig(
             base_algorithm=BehavioralCloningConfig(),
             posterior_encoder=VAETransformerEncoderConfig(latent_dimension=32),
         )
-        assert config._target_ == "refactoring.models.decoding.algorithm.variational.VariationalAlgorithm"
+        assert config._target_ == "versatil.models.decoding.algorithm.variational.VariationalAlgorithm"
 
     def test_config_params_match_class_signature(self):
-        from refactoring.configs.decoding.latent import VAETransformerEncoderConfig
+        from versatil.configs.decoding.latent import VAETransformerEncoderConfig
 
         sig = inspect.signature(VariationalAlgorithm.__init__)
         params = set(sig.parameters.keys()) - {'self'}

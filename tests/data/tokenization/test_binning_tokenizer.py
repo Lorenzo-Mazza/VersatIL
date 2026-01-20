@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from refactoring.data.tokenization.binning_tokenizer import BinningTokenizer
+from versatil.data.tokenization.binning_tokenizer import BinningTokenizer
 
 
 @pytest.fixture

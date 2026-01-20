@@ -10,7 +10,7 @@ import zarr
 from zarr.codecs import BloscCodec, BloscShuffle
 from zarr.storage import LocalStore, MemoryStore
 
-from refactoring.data.preprocessing.replay_buffer import ReplayBuffer
+from versatil.data.preprocessing.replay_buffer import ReplayBuffer
 
 
 @pytest.fixture
@@ -711,7 +711,7 @@ class TestChunkFunctions:
 
     def test_check_chunks_compatible_valid(self):
         """Test check_chunks_compatible with valid chunks"""
-        from refactoring.data.preprocessing.replay_buffer import check_chunks_compatible
+        from versatil.data.preprocessing.replay_buffer import check_chunks_compatible
         # Should not raise
         check_chunks_compatible((10, 4), (100, 4))
         check_chunks_compatible((5, 3, 2), (50, 30, 20))
@@ -719,35 +719,35 @@ class TestChunkFunctions:
 
     def test_check_chunks_compatible_wrong_dims(self):
         """Test check_chunks_compatible with wrong dimensions"""
-        from refactoring.data.preprocessing.replay_buffer import check_chunks_compatible
+        from versatil.data.preprocessing.replay_buffer import check_chunks_compatible
         with pytest.raises(AssertionError):
             check_chunks_compatible((10,), (100, 4))
 
 
     def test_check_chunks_compatible_negative(self):
         """Test check_chunks_compatible with negative chunk"""
-        from refactoring.data.preprocessing.replay_buffer import check_chunks_compatible
+        from versatil.data.preprocessing.replay_buffer import check_chunks_compatible
         with pytest.raises(AssertionError):
             check_chunks_compatible((-5, 4), (100, 4))
 
 
     def test_check_chunks_compatible_zero(self):
         """Test check_chunks_compatible with zero chunk"""
-        from refactoring.data.preprocessing.replay_buffer import check_chunks_compatible
+        from versatil.data.preprocessing.replay_buffer import check_chunks_compatible
         with pytest.raises(AssertionError):
             check_chunks_compatible((0, 4), (100, 4))
 
 
     def test_check_chunks_compatible_float(self):
         """Test check_chunks_compatible with float (non-integral)"""
-        from refactoring.data.preprocessing.replay_buffer import check_chunks_compatible
+        from versatil.data.preprocessing.replay_buffer import check_chunks_compatible
         with pytest.raises(AssertionError):
             check_chunks_compatible((10.5, 4), (100, 4))
 
 
     def test_get_optimal_chunks_basic(self):
         """Test get_optimal_chunks with basic array"""
-        from refactoring.data.preprocessing.replay_buffer import get_optimal_chunks
+        from versatil.data.preprocessing.replay_buffer import get_optimal_chunks
 
         # For a (1000, 10) float32 array
         chunks = get_optimal_chunks((1000, 10), np.float32)
@@ -758,7 +758,7 @@ class TestChunkFunctions:
 
     def test_get_optimal_chunks_with_max_length(self):
         """Test get_optimal_chunks with max_chunk_length"""
-        from refactoring.data.preprocessing.replay_buffer import get_optimal_chunks
+        from versatil.data.preprocessing.replay_buffer import get_optimal_chunks
 
         chunks = get_optimal_chunks((10000, 10), np.float32, max_chunk_length=100)
         assert chunks[0] <= 100  # Should respect max length
@@ -766,7 +766,7 @@ class TestChunkFunctions:
 
     def test_get_optimal_chunks_large_array(self):
         """Test get_optimal_chunks with large multidimensional array"""
-        from refactoring.data.preprocessing.replay_buffer import get_optimal_chunks
+        from versatil.data.preprocessing.replay_buffer import get_optimal_chunks
 
         # 3D array
         chunks = get_optimal_chunks((1000, 64, 64), np.float32, target_chunk_bytes=1e6)
@@ -805,7 +805,7 @@ class TestRechunkRecompress:
 
     def test_rechunk_array(self, empty_zarr_buffer, sample_episode_data):
         """Test rechunking an existing array"""
-        from refactoring.data.preprocessing.replay_buffer import rechunk_recompress_array
+        from versatil.data.preprocessing.replay_buffer import rechunk_recompress_array
 
         empty_zarr_buffer.add_episode(sample_episode_data)
 
@@ -825,7 +825,7 @@ class TestRechunkRecompress:
 
     def test_rechunk_no_change(self, empty_zarr_buffer, sample_episode_data):
         """Test rechunking with same chunks does nothing"""
-        from refactoring.data.preprocessing.replay_buffer import rechunk_recompress_array
+        from versatil.data.preprocessing.replay_buffer import rechunk_recompress_array
 
         empty_zarr_buffer.add_episode(sample_episode_data)
 
@@ -842,7 +842,7 @@ class TestRechunkRecompress:
 
     def test_recompress_array(self, empty_zarr_buffer, sample_episode_data):
         """Test recompressing an array"""
-        from refactoring.data.preprocessing.replay_buffer import rechunk_recompress_array
+        from versatil.data.preprocessing.replay_buffer import rechunk_recompress_array
 
         empty_zarr_buffer.add_episode(sample_episode_data, compressors='default')
 

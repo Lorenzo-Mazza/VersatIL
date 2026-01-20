@@ -7,9 +7,9 @@ from pathlib import Path
 from unittest.mock import MagicMock
 from torch.utils.data import DataLoader
 
-from refactoring.data.episodic_dataset import EpisodicDataset
-from refactoring.data.preprocessing.replay_buffer import ReplayBuffer
-from refactoring.data.constants import (
+from versatil.data.episodic_dataset import EpisodicDataset
+from versatil.data.preprocessing.replay_buffer import ReplayBuffer
+from versatil.data.constants import (
     Cameras,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
@@ -27,7 +27,7 @@ from refactoring.data.constants import (
     TOKENIZED_ACTIONS_KEY,
     TokenizerType,
 )
-from refactoring.configs.data.tokenizer import ObservationTokenizationConfig, ActionTokenizationConfig, TokenizationConfig
+from versatil.configs.data.tokenizer import ObservationTokenizationConfig, ActionTokenizationConfig, TokenizationConfig
 
 
 @pytest.fixture

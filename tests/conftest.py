@@ -26,19 +26,19 @@ import tempfile
 from omegaconf import OmegaConf
 
 
-from refactoring.data.constants import (
+from versatil.data.constants import (
     Cameras,
     PROPRIO_OBS_CAMERA_FRAME_KEY,
     ProprioKey,
 )
-from refactoring.configs.main import MainConfig
-from refactoring.configs.experiment import ExperimentConfig
-from refactoring.configs.data.task import TaskSpaceConfig
-from refactoring.configs.data.dataloader import DataLoaderConfig
-from refactoring.configs.training import TrainingConfig, AdamWConfig
-from refactoring.configs.policy import PolicyConfig
-from refactoring.configs.inference import InferenceConfig
-from refactoring.data.constants import (
+from versatil.configs.main import MainConfig
+from versatil.configs.experiment import ExperimentConfig
+from versatil.configs.data.task import TaskSpaceConfig
+from versatil.configs.data.dataloader import DataLoaderConfig
+from versatil.configs.training import TrainingConfig, AdamWConfig
+from versatil.configs.policy import PolicyConfig
+from versatil.configs.inference import InferenceConfig
+from versatil.data.constants import (
     OBSERVATION_KEY,
     ACTION_KEY,
     POSITION_ACTION_KEY,
@@ -46,16 +46,16 @@ from refactoring.data.constants import (
     GRIPPER_ACTION_KEY,
     PROPRIO_OBS_ROBOT_FRAME_KEY,
 )
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.data.constants import OrientationRepresentation, GripperType
-from refactoring.models.encoding.encoders.base import EncoderOutput, EncoderInput
-from refactoring.models.decoding.decoders.base import ActionDecoder, DecoderInput
-from refactoring.models.decoding.action_heads import ActionHead
-from refactoring.models.encoding.fusion.base import FusionModule, FusionInput, FusionOutput
-from refactoring.models.decoding.algorithm.behavior_cloning import BehavioralCloning
-from refactoring.models.encoding.pipeline import EncodingPipeline
-from refactoring.models.policy import Policy
-from refactoring.metrics.composite import ActionReconstructionLoss
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.constants import OrientationRepresentation, GripperType
+from versatil.models.encoding.encoders.base import EncoderOutput, EncoderInput
+from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.action_heads import ActionHead
+from versatil.models.encoding.fusion.base import FusionModule, FusionInput, FusionOutput
+from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
+from versatil.models.encoding.pipeline import EncodingPipeline
+from versatil.models.policy import Policy
+from versatil.metrics.composite import ActionReconstructionLoss
 
 
 
@@ -1033,16 +1033,16 @@ def minimal_yaml_config_factory():
                 "device": "cpu",
                 "use_wandb": False,
             },
-            "task": {"_target_": "refactoring.data.task.TaskSpace",
-                "action_space": {"_target_": "refactoring.data.task.ActionSpace",
+            "task": {"_target_": "versatil.data.task.TaskSpace",
+                "action_space": {"_target_": "versatil.data.task.ActionSpace",
                     "has_position": True, "position_dim": 3, "has_gripper": True, "gripper_dim": 1},
-                "observation_space": {"_target_": "refactoring.data.task.ObservationSpace",
+                "observation_space": {"_target_": "versatil.data.task.ObservationSpace",
                     "camera_keys": ["left"], "use_proprio_base_frame": True},
                 "observation_horizon": 2,
                 "prediction_horizon": 4,
                 "dataloader": {"batch_size": 2, "image_height": 4, "image_width": 4},
                 "dataset_schema": {
-                    "_target_": "refactoring.data.schemas.custom.bowel_retraction.BowelRetractionSchema",
+                    "_target_": "versatil.data.schemas.custom.bowel_retraction.BowelRetractionSchema",
                     "dataset_folders": [],
                     "zarr_path": ""
                 }
@@ -1056,17 +1056,17 @@ def minimal_yaml_config_factory():
                 }
             },
             "policy": {
-                "_target_": "refactoring.models.policy.Policy",
+                "_target_": "versatil.models.policy.Policy",
                 "observation_space": "${task.observation_space}",
                 "action_space": "${task.action_space}",
                 "prediction_horizon": "${task.prediction_horizon}",
                 "device": "${experiment.device}",
                 "validate_loss_keys": True,
                 "encoding_pipeline": {
-                    "_target_": "refactoring.models.encoding.pipeline.EncodingPipeline",
+                    "_target_": "versatil.models.encoding.pipeline.EncodingPipeline",
                     "encoders": {
                         "left_rgb": {
-                            "_target_": "refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder",
+                            "_target_": "versatil.models.encoding.encoders.rgb.cnn.CNNEncoder",
                             "input_keys": "${cameras: LEFT}",
                             "backbone": "${rgb_backbone: RESNET18}",
                             "pretrained": "false",
@@ -1078,7 +1078,7 @@ def minimal_yaml_config_factory():
                             },
                     },
                     "fusion_stages": [
-                        {"_target_": "refactoring.models.encoding.fusion.spatial.SpatialFusion",
+                        {"_target_": "versatil.models.encoding.fusion.spatial.SpatialFusion",
                         "input_features": ["left_rgb", ],
                                         "output_name": "visual_features",
                                         "hidden_dim": 512,
@@ -1086,10 +1086,10 @@ def minimal_yaml_config_factory():
                     ],
                 },
                 "algorithm": {
-                    "_target_": "refactoring.models.decoding.algorithm.behavior_cloning.BehavioralCloning",
+                    "_target_": "versatil.models.decoding.algorithm.behavior_cloning.BehavioralCloning",
                 },
                 "decoder": {
-                    "_target_": "refactoring.models.decoding.decoders.factory.act.ACT",
+                    "_target_": "versatil.models.decoding.decoders.factory.act.ACT",
                     "input_keys": ["visual_features"],
                     "embedding_dimension": 512,
                     "number_of_heads": 8,
@@ -1103,13 +1103,13 @@ def minimal_yaml_config_factory():
                     "device": "${experiment.device}",
                     "action_heads": {
                         "position_action": {
-                            "_target_": "refactoring.models.decoding.action_heads.ActionHead",
+                            "_target_": "versatil.models.decoding.action_heads.ActionHead",
                             "input_dim": "${policy.decoder.embedding_dimension}",
                             "output_dim": "${task.action_space.position_dim}",
                             "blocks": None,
                         },
                         "gripper_action": {
-                            "_target_": "refactoring.models.decoding.action_heads.ActionHead",
+                            "_target_": "versatil.models.decoding.action_heads.ActionHead",
                             "input_dim": "${policy.decoder.embedding_dimension}",
                             "output_dim": "${task.action_space.gripper_dim}",
                             "blocks": None,
@@ -1117,7 +1117,7 @@ def minimal_yaml_config_factory():
                     },
                 },
                 "loss": {
-                    "_target_": "refactoring.metrics.ActionReconstructionLoss",
+                    "_target_": "versatil.metrics.ActionReconstructionLoss",
                     "action_keys": None,
                     "mse_weight": 1.0,
                     "gripper_bce_weight": 1.0,

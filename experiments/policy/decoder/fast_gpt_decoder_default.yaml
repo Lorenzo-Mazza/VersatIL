@@ -3,7 +3,7 @@ defaults:
   - gpt
   - heads@action_heads: tokenized
 
-_target_: refactoring.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTDecoder
+_target_: versatil.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTDecoder
 
 # Key is always "{encoder_name}_{EncoderOutputType.value}" for each encoder in the encoding pipeline
 input_keys:

@@ -3,7 +3,7 @@ defaults:
   - binary_kl@loss_modules.binary_kl
   - _self_
 
-_target_: refactoring.metrics.CompositeLoss
+_target_: versatil.metrics.CompositeLoss
 loss_modules:
     token_loss:
       label_smoothing: 0.1

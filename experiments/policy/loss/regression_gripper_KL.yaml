@@ -4,7 +4,7 @@ defaults:
   - kl@loss_modules.kl_divergence
   - traj_len@loss_modules.trajectory_length
   - _self_
-_target_: refactoring.metrics.CompositeLoss
+_target_: versatil.metrics.CompositeLoss
 loss_modules:
     regression_loss:
       action_keys:

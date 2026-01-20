@@ -6,18 +6,18 @@ from hydra import compose, initialize_config_dir
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
-from refactoring.configs.decoding.action_head import ActionHeadConfig
-from refactoring.configs.decoding.decoder import (
+from versatil.configs.decoding.action_head import ActionHeadConfig
+from versatil.configs.decoding.decoder import (
     ACTConfig,
     FASTDETRDecoderConfig,
     FASTGPTDecoderConfig,
     MixtureOfExpertsDecoderConfig,
 )
-from refactoring.models.decoding.constants import MoERoutingType
-from refactoring.models.decoding.decoders.factory.act import ACT
-from refactoring.models.decoding.decoders.factory.fast_detr_decoder import FASTDETRDecoder
-from refactoring.models.decoding.decoders.factory.fast_gpt_decoder import FASTGPTDecoder
-from refactoring.models.layers.activation import ActivationFunction
+from versatil.models.decoding.constants import MoERoutingType
+from versatil.models.decoding.decoders.factory.act import ACT
+from versatil.models.decoding.decoders.factory.fast_detr_decoder import FASTDETRDecoder
+from versatil.models.decoding.decoders.factory.fast_gpt_decoder import FASTGPTDecoder
+from versatil.models.layers.activation import ActivationFunction
 
 
 @pytest.mark.unit
@@ -29,7 +29,7 @@ class TestACTConfig:
             },
             input_keys=["rgb_features"],
         )
-        assert config._target_ == "refactoring.models.decoding.decoders.factory.act.ACT"
+        assert config._target_ == "versatil.models.decoding.decoders.factory.act.ACT"
 
     def test_config_params_match_class_signature(self):
         sig = inspect.signature(ACT.__init__)
@@ -72,7 +72,7 @@ class TestFASTDETRDecoderConfig:
             },
             input_keys=["rgb_features"],
         )
-        assert config._target_ == "refactoring.models.decoding.decoders.factory.fast_detr_decoder.FASTDETRDecoder"
+        assert config._target_ == "versatil.models.decoding.decoders.factory.fast_detr_decoder.FASTDETRDecoder"
 
     def test_config_params_match_class_signature(self):
         sig = inspect.signature(FASTDETRDecoder.__init__)
@@ -122,7 +122,7 @@ class TestFASTDETRDecoderConfig:
         with initialize_config_dir(config_dir=str(decoder_config_dir), version_base=None):
             cfg = compose(config_name="fast_detr_decoder_default")
             assert cfg is not None
-            assert cfg._target_ == "refactoring.models.decoding.decoders.factory.fast_detr_decoder.FASTDETRDecoder"
+            assert cfg._target_ == "versatil.models.decoding.decoders.factory.fast_detr_decoder.FASTDETRDecoder"
             assert cfg.embedding_dimension == 512
 
 
@@ -135,7 +135,7 @@ class TestFASTGPTDecoderConfig:
             },
             input_keys=["visual_embedding"],
         )
-        assert config._target_ == "refactoring.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTDecoder"
+        assert config._target_ == "versatil.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTDecoder"
 
     def test_config_params_match_class_signature(self):
         sig = inspect.signature(FASTGPTDecoder.__init__)
@@ -203,7 +203,7 @@ class TestFASTGPTDecoderConfig:
         with initialize_config_dir(config_dir=str(decoder_config_dir), version_base=None):
             cfg = compose(config_name="fast_gpt_decoder_default")
             assert cfg is not None
-            assert cfg._target_ == "refactoring.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTDecoder"
+            assert cfg._target_ == "versatil.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTDecoder"
             assert cfg.embedding_dimension == 128
             assert cfg.action_vocabulary_size == 1024
             assert cfg.activation == "swiglu"
@@ -222,7 +222,7 @@ class TestMixtureOfExpertsDecoderConfig:
         )
         assert (
             config._target_
-            == "refactoring.models.decoding.decoders.mixture_of_experts.MoEDecoder"
+            == "versatil.models.decoding.decoders.mixture_of_experts.MoEDecoder"
         )
 
     def test_default_routing_type_is_soft(self):

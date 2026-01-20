@@ -2,11 +2,11 @@
 import pytest
 import torch
 
-from refactoring.models.decoding.decoders.factory.free_transformer import FreeTransformerDecoder
-from refactoring.models.decoding.action_heads import ActionHead
-from refactoring.models.decoding.action_heads.blocks import MLPBlock
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.data.constants import (
+from versatil.models.decoding.decoders.factory.free_transformer import FreeTransformerDecoder
+from versatil.models.decoding.action_heads import ActionHead
+from versatil.models.decoding.action_heads.blocks import MLPBlock
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.constants import (
     POSITION_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
     GRIPPER_ACTION_KEY,
@@ -15,7 +15,7 @@ from refactoring.data.constants import (
     OrientationRepresentation,
     GripperType,
 )
-from refactoring.models.decoding.constants import LATENT_KEY, BINARY_LOGITS_KEY
+from versatil.models.decoding.constants import LATENT_KEY, BINARY_LOGITS_KEY
 
 
 @pytest.fixture

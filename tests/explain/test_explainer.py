@@ -6,21 +6,21 @@ import torch.nn as nn
 import numpy as np
 from hydra.utils import instantiate
 
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.data.constants import Cameras, POSITION_ACTION_KEY
-from refactoring.models.decoding.action_heads import ActionHead
-from refactoring.models.decoding.algorithm.behavior_cloning import BehavioralCloning
-from refactoring.models.decoding.decoders.factory.act import ACT
-from refactoring.models.encoding.pipeline import EncodingPipeline
-from refactoring.explain import (
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.constants import Cameras, POSITION_ACTION_KEY
+from versatil.models.decoding.action_heads import ActionHead
+from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
+from versatil.models.decoding.decoders.factory.act import ACT
+from versatil.models.encoding.pipeline import EncodingPipeline
+from versatil.explain import (
     PolicyExplainerWrapper,
     compute_gradcam_for_policy,
     compute_saliency_maps,
     create_target_layers_getter_from_policy,
     show_cam_on_image,
 )
-from refactoring.models.policy import Policy
-from refactoring.metrics.components import RegressionLoss
+from versatil.models.policy import Policy
+from versatil.metrics.components import RegressionLoss
 
 
 @pytest.fixture
@@ -53,7 +53,7 @@ def test_policy_explainer_with_vision_encoder_types(encoder_type, encoder_params
     """Test explainer with different vision encoder types."""
     if encoder_type == "cnn":
         encoder_config = {
-            "_target_": "refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder",
+            "_target_": "versatil.models.encoding.encoders.rgb.cnn.CNNEncoder",
             "input_keys": Cameras.LEFT.value,
             "pooling_method": "none",
             **encoder_params
@@ -64,7 +64,7 @@ def test_policy_explainer_with_vision_encoder_types(encoder_type, encoder_params
         feature_key = "cnn_encoder_image"
     elif encoder_type == "depth_cnn":
         encoder_config = {
-            "_target_": "refactoring.models.encoding.encoders.depth.cnn.DepthCNNEncoder",
+            "_target_": "versatil.models.encoding.encoders.depth.cnn.DepthCNNEncoder",
             "input_keys": Cameras.DEPTH.value,
             "pooling_method": "none",
             **encoder_params
@@ -75,7 +75,7 @@ def test_policy_explainer_with_vision_encoder_types(encoder_type, encoder_params
         feature_key = "depth_cnn_encoder_depth"
     elif encoder_type == "dformer":
         encoder_config = {
-            "_target_": "refactoring.models.encoding.encoders.depth.dformerv2.DFormerEncoder",
+            "_target_": "versatil.models.encoding.encoders.depth.dformerv2.DFormerEncoder",
             "input_keys": [Cameras.LEFT.value, Cameras.DEPTH.value],
             "pooling_method": "none",
             **encoder_params
@@ -89,7 +89,7 @@ def test_policy_explainer_with_vision_encoder_types(encoder_type, encoder_params
         feature_key = "dformer_encoder_rgbd"
     elif encoder_type == "light_geometric":
         encoder_config = {
-            "_target_": "refactoring.models.encoding.encoders.depth.light_geometric.LightGeometricEncoder",
+            "_target_": "versatil.models.encoding.encoders.depth.light_geometric.LightGeometricEncoder",
             "input_keys": [Cameras.LEFT.value, Cameras.DEPTH.value],
             "pooling_method": "none",
             **encoder_params
@@ -173,7 +173,7 @@ def test_policy_explainer_with_vision_encoder_types(encoder_type, encoder_params
 def test_explainer_with_mixed_encoders(action_space, device):
     """Test explainer with mix of vision and non-vision encoders."""
     rgb_encoder_config = {
-        "_target_": "refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder",
+        "_target_": "versatil.models.encoding.encoders.rgb.cnn.CNNEncoder",
         "input_keys": Cameras.LEFT.value,
         "backbone": "timm/resnet18.a1_in1k",
         "pretrained": False,
@@ -181,7 +181,7 @@ def test_explainer_with_mixed_encoders(action_space, device):
     }
 
     proprio_encoder_config = {
-        "_target_": "refactoring.models.encoding.encoders.proprioceptive.base.ProprioceptiveEncoder",
+        "_target_": "versatil.models.encoding.encoders.proprioceptive.base.ProprioceptiveEncoder",
         "input_keys": "robot_state",
         "hidden_dims": [128, 128],
         "output_dim": 64,
@@ -274,7 +274,7 @@ def test_explainer_with_mixed_encoders(action_space, device):
 def test_explainer_with_conditional_encoder(action_space, device):
     """Test explainer with conditional (FiLM) encoder."""
     language_encoder_config = {
-        "_target_": "refactoring.models.encoding.encoders.language.language.LanguageEncoder",
+        "_target_": "versatil.models.encoding.encoders.language.language.LanguageEncoder",
         "input_keys": "language_instruction",
         "model_name": "sentence-transformers/all-MiniLM-L6-v2",
         "feature_extraction_method": "cls_token",
@@ -283,7 +283,7 @@ def test_explainer_with_conditional_encoder(action_space, device):
     }
 
     conditional_encoder_config = {
-        "_target_": "refactoring.models.encoding.encoders.rgb.conditional_cnn.ConditionalCNNEncoder",
+        "_target_": "versatil.models.encoding.encoders.rgb.conditional_cnn.ConditionalCNNEncoder",
         "input_keys": Cameras.LEFT.value,
         "condition_key": "language_encoder_language",
         "condition_dim": 384,
@@ -377,7 +377,7 @@ def test_explainer_with_conditional_encoder(action_space, device):
 def test_wrapper_forward_with_real_policy(action_space, device):
     """Test PolicyExplainerWrapper with real policy."""
     encoder_config = {
-        "_target_": "refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder",
+        "_target_": "versatil.models.encoding.encoders.rgb.cnn.CNNEncoder",
         "input_keys": Cameras.LEFT.value,
         "backbone": "timm/resnet18.a1_in1k",
         "pretrained": False,
@@ -459,7 +459,7 @@ def test_wrapper_forward_with_real_policy(action_space, device):
 def test_target_layers_getter_creation(action_space, device):
     """Test create_target_layers_getter_from_policy with real policy."""
     encoder_config = {
-        "_target_": "refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder",
+        "_target_": "versatil.models.encoding.encoders.rgb.cnn.CNNEncoder",
         "input_keys": Cameras.LEFT.value,
         "backbone": "timm/resnet18.a1_in1k",
         "pretrained": False,
@@ -529,7 +529,7 @@ def test_target_layers_getter_creation(action_space, device):
 def test_saliency_maps_with_real_policy(action_space, device):
     """Test compute_saliency_maps with real policy."""
     encoder_config = {
-        "_target_": "refactoring.models.encoding.encoders.rgb.cnn.CNNEncoder",
+        "_target_": "versatil.models.encoding.encoders.rgb.cnn.CNNEncoder",
         "input_keys": Cameras.LEFT.value,
         "backbone": "timm/resnet18.a1_in1k",
         "pretrained": False,

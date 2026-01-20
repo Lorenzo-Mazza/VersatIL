@@ -2,7 +2,7 @@
 defaults:
   - heads@action_heads: unet_bowel_retraction
 
-_target_: refactoring.models.decoding.decoders.factory.conditional_unet_decoder.ConditionalUNetDecoder
+_target_: versatil.models.decoding.decoders.factory.conditional_unet_decoder.ConditionalUNetDecoder
 
 # Key is always "{encoder_name}_{EncoderOutputType.value}" for each encoder in the encoding pipeline
 input_keys:

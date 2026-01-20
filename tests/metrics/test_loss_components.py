@@ -4,18 +4,18 @@ import pytest
 import torch
 import math
 
-from refactoring.data.constants import (
+from versatil.data.constants import (
     POSITION_ACTION_KEY,
     GRIPPER_ACTION_KEY,
     PHASE_LABEL_KEY,
     GripperType, TOKENIZED_ACTIONS_KEY, IS_PAD_ACTION_KEY,
 )
-from refactoring.models.decoding.constants import (
+from versatil.models.decoding.constants import (
     PRIOR_PREDICTION_KEY,
     PRIOR_TARGET_KEY,
     PREDICTED_ACTION_TOKENS_KEY, ACTION_LOGITS_KEY,
 )
-from refactoring.metrics.components import (
+from versatil.metrics.components import (
     RegressionLoss,
     GripperLoss,
     KLDivergenceLoss,
@@ -24,7 +24,7 @@ from refactoring.metrics.components import (
     PriorDenoisingLoss,
     ActionTokenLoss,
 )
-from refactoring.metrics.constants import MetricKey
+from versatil.metrics.constants import MetricKey
 
 
 @pytest.fixture

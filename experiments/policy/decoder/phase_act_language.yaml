@@ -2,7 +2,7 @@ defaults:
   - phase_act
   - heads@action_heads: bowel_retraction_phase
 
-_target_: refactoring.models.decoding.decoders.factory.phase_act.PhaseACT
+_target_: versatil.models.decoding.decoders.factory.phase_act.PhaseACT
 
 # Key is always "{encoder_name}_{EncoderOutputType.value}" for each encoder in the encoding pipeline
 input_keys:

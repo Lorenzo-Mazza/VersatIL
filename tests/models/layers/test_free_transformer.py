@@ -2,14 +2,14 @@
 import pytest
 import torch
 
-from refactoring.models.layers.free_transformer.free_transformer import (
+from versatil.models.layers.free_transformer.free_transformer import (
     FreeTransformerDecoderBlock,
     LatentConditionedTransformerBlock,
     FreeTransformerEncoderBlock,
     FreeTransformerEncoder,
     FreeTransformerDecoder,
 )
-from refactoring.models.layers.activation import ActivationFunction
+from versatil.models.layers.activation import ActivationFunction
 
 
 @pytest.fixture

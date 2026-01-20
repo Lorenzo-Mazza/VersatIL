@@ -4,10 +4,10 @@ import pytest
 import torch
 from pathlib import Path
 
-from refactoring.configs.data.tokenizer import TokenizationConfig
-from refactoring.data.tokenization.tokenizer import Tokenizer, validate_tokenizer_config
-from refactoring.data.tokenization.observation_tokenizer import ObservationTokenizer
-from refactoring.data.tokenization.action_tokenizer import ActionTokenizer
+from versatil.configs.data.tokenizer import TokenizationConfig
+from versatil.data.tokenization.tokenizer import Tokenizer, validate_tokenizer_config
+from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
+from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 
 
 @pytest.mark.unit

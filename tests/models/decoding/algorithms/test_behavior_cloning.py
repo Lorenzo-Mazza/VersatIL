@@ -8,13 +8,13 @@ import pytest
 import torch
 from unittest.mock import MagicMock
 
-from refactoring.data.constants import (
+from versatil.data.constants import (
     GRIPPER_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
     POSITION_ACTION_KEY,
 )
-from refactoring.models.decoding.constants import LATENT_KEY, LOGVAR_KEY, MU_KEY
-from refactoring.models.decoding.algorithm.behavior_cloning import BehavioralCloning
+from versatil.models.decoding.constants import LATENT_KEY, LOGVAR_KEY, MU_KEY
+from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
 
 
 @pytest.fixture

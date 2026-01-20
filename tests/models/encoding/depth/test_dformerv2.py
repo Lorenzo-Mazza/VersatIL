@@ -1,11 +1,11 @@
 import pytest
 import torch
 
-from refactoring.models.encoding.encoders.depth import DFormerEncoder
-from refactoring.models.encoding.encoders.constants import PoolingMethod, EncoderOutputKeys
-from refactoring.data.constants import Cameras
-from refactoring.models.encoding.encoders.depth.dformerv2 import DFormerVariant
-from refactoring.models.layers.constants import AttentionDecompositionMode
+from versatil.models.encoding.encoders.depth import DFormerEncoder
+from versatil.models.encoding.encoders.constants import PoolingMethod, EncoderOutputKeys
+from versatil.data.constants import Cameras
+from versatil.models.encoding.encoders.depth.dformerv2 import DFormerVariant
+from versatil.models.layers.constants import AttentionDecompositionMode
 from tests.conftest import CACHE_DIR
 
 

@@ -3,11 +3,11 @@
 import pytest
 import torch
 
-from refactoring.models.layers.activation import ActivationFunction
-from refactoring.models.layers.constants import AttentionType, PositionalEncodingType
-from refactoring.models.layers.normalization.constants import NormalizationType
-from refactoring.models.layers.transformer.autoregressive_decoder import GPTDecoder
-from refactoring.models.layers.transformer.decoder_layer import TransformerDecoderLayer
+from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.constants import AttentionType, PositionalEncodingType
+from versatil.models.layers.normalization.constants import NormalizationType
+from versatil.models.layers.transformer.autoregressive_decoder import GPTDecoder
+from versatil.models.layers.transformer.decoder_layer import TransformerDecoderLayer
 
 
 @pytest.mark.unit

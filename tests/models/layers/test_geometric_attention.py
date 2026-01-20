@@ -3,15 +3,15 @@ import pytest
 import torch
 from torch import nn
 
-from refactoring.models.layers.geometric_attention import (
+from versatil.models.layers.geometric_attention import (
     SpatialDecayMask,
     DepthAwareDecayMask,
     GeometricAttentionBias,
     GeometricSelfAttention,
 )
-from refactoring.models.layers.constants import AttentionDecompositionMode, Axis
-from refactoring.models.layers.convolution.depthwise_conv2d import DepthwiseConv2D
-from refactoring.models.layers.positional_encoding.rotary import RotaryPositionalEncoding2D
+from versatil.models.layers.constants import AttentionDecompositionMode, Axis
+from versatil.models.layers.convolution.depthwise_conv2d import DepthwiseConv2D
+from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding2D
 
 
 

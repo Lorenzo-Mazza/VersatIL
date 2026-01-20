@@ -7,8 +7,8 @@ episode masking, partial data loading, and various edge cases.
 import pytest
 import numpy as np
 
-from refactoring.data.preprocessing.replay_buffer import ReplayBuffer
-from refactoring.data.preprocessing.sampler import (
+from versatil.data.preprocessing.replay_buffer import ReplayBuffer
+from versatil.data.preprocessing.sampler import (
     SequenceSampler,
     create_indices,
     get_val_mask,

@@ -3,13 +3,13 @@
 import pytest
 import torch
 
-from refactoring.models.layers.constants import PositionalEncodingType
-from refactoring.models.layers.transformer.positional_encoding import (
+from versatil.models.layers.constants import PositionalEncodingType
+from versatil.models.layers.transformer.positional_encoding import (
     apply_rope_positional_encoding,
     create_positional_encoding,
 )
-from refactoring.models.layers.positional_encoding.rotary import RotaryPositionalEncoding1D
-from refactoring.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
+from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding1D
+from versatil.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
 
 
 @pytest.mark.unit

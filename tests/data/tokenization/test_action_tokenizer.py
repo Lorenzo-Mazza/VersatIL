@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 import torch
 
-from refactoring.data.constants import TokenizerType, TOKENIZED_ACTIONS_KEY, IS_PAD_ACTION_KEY
-from refactoring.data.tokenization.action_tokenizer import ActionTokenizer
+from versatil.data.constants import TokenizerType, TOKENIZED_ACTIONS_KEY, IS_PAD_ACTION_KEY
+from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 
 
 @pytest.mark.integration

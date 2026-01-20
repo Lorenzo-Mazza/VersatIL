@@ -2,12 +2,12 @@
 import pytest
 import torch
 
-from refactoring.models.decoding.action_heads import (
+from versatil.models.decoding.action_heads import (
     ActionHead,
     MLPBlock,
     MoEHead,
 )
-from refactoring.models.decoding.constants import MoERoutingType
+from versatil.models.decoding.constants import MoERoutingType
 
 
 @pytest.fixture

@@ -4,18 +4,18 @@ import pytest
 import torch
 from unittest.mock import Mock, patch
 
-from refactoring.configs.experiment import ExperimentConfig
-from refactoring.configs.main import MainConfig
-from refactoring.configs.data.task import TaskSpaceConfig
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.configs.data.dataloader import DataLoaderConfig
-from refactoring.configs.data.raw.schema import DatasetSchemaConfig
-from refactoring.configs.training import TrainingConfig
-from refactoring.configs.policy import PolicyConfig
-from refactoring.configs.inference import InferenceConfig
-from refactoring.workspace import Workspace
-from refactoring.endpoints.explain import ModelExplainer
-from refactoring.data.constants import Cameras, OrientationRepresentation
+from versatil.configs.experiment import ExperimentConfig
+from versatil.configs.main import MainConfig
+from versatil.configs.data.task import TaskSpaceConfig
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.configs.data.dataloader import DataLoaderConfig
+from versatil.configs.data.raw.schema import DatasetSchemaConfig
+from versatil.configs.training import TrainingConfig
+from versatil.configs.policy import PolicyConfig
+from versatil.configs.inference import InferenceConfig
+from versatil.workspace import Workspace
+from versatil.endpoints.explain import ModelExplainer
+from versatil.data.constants import Cameras, OrientationRepresentation
 
 
 @pytest.mark.unit
@@ -62,7 +62,7 @@ class TestExplainerConfigLoading:
                     image_width=480,
                 ),
                 dataset_schema=DatasetSchemaConfig(
-                    _target_="refactoring.data.schemas.bowel_retraction.BowelRetractionSchema",
+                    _target_="versatil.data.schemas.bowel_retraction.BowelRetractionSchema",
                     dataset_folders=[],
                     zarr_path="",
                 ),
@@ -80,7 +80,7 @@ class TestExplainerConfigLoading:
         checkpoint_path.touch()
 
         # Mock LightningPolicy.load_from_checkpoint to avoid loading real model
-        with patch("refactoring.endpoints.explain.LightningPolicy.load_from_checkpoint") as mock_load:
+        with patch("versatil.endpoints.explain.LightningPolicy.load_from_checkpoint") as mock_load:
             # Setup mock
             mock_model = Mock()
             mock_model.policy = simple_policy
@@ -124,7 +124,7 @@ class TestExplainerConfigLoading:
                     image_width=image_w,
                 ),
                 dataset_schema=DatasetSchemaConfig(
-                    _target_="refactoring.data.schemas.bowel_retraction.BowelRetractionSchema",
+                    _target_="versatil.data.schemas.bowel_retraction.BowelRetractionSchema",
                     dataset_folders=[],
                     zarr_path="",
                 ),
@@ -141,14 +141,14 @@ class TestExplainerConfigLoading:
                 "observation_horizon": 1,
                 "prediction_horizon": 4,
                 "dataloader": {"image_height": image_h, "image_width": image_w},
-                "dataset_schema": {"_target_": "refactoring.data.schemas.bowel_retraction.BowelRetractionSchema", "dataset_folders": [], "zarr_path": ""}
+                "dataset_schema": {"_target_": "versatil.data.schemas.bowel_retraction.BowelRetractionSchema", "dataset_folders": [], "zarr_path": ""}
             }
         )
         workspace = Workspace(config, original_yaml_config=original_yaml)
         checkpoint_path = workspace.output_dir / "latest.ckpt"
         checkpoint_path.touch()
 
-        with patch("refactoring.endpoints.explain.LightningPolicy.load_from_checkpoint") as mock_load:
+        with patch("versatil.endpoints.explain.LightningPolicy.load_from_checkpoint") as mock_load:
             mock_model = Mock()
             mock_model.policy = simple_policy
             mock_load.return_value = mock_model
@@ -192,7 +192,7 @@ class TestExplainerConfigLoading:
                     image_width=480,
                 ),
                 dataset_schema=DatasetSchemaConfig(
-                    _target_="refactoring.data.schemas.bowel_retraction.BowelRetractionSchema",
+                    _target_="versatil.data.schemas.bowel_retraction.BowelRetractionSchema",
                     dataset_folders=[],
                     zarr_path="",
                 ),
@@ -209,14 +209,14 @@ class TestExplainerConfigLoading:
                 "observation_space": {"camera_keys": ["left"]},
                 "observation_horizon": obs_horizon,
                 "prediction_horizon": 4,
-                "dataset_schema": {"_target_": "refactoring.data.schemas.bowel_retraction.BowelRetractionSchema", "dataset_folders": [], "zarr_path": ""}
+                "dataset_schema": {"_target_": "versatil.data.schemas.bowel_retraction.BowelRetractionSchema", "dataset_folders": [], "zarr_path": ""}
             }
         )
         workspace = Workspace(config, original_yaml_config=original_yaml)
         checkpoint_path = workspace.output_dir / "latest.ckpt"
         checkpoint_path.touch()
 
-        with patch("refactoring.endpoints.explain.LightningPolicy.load_from_checkpoint") as mock_load:
+        with patch("versatil.endpoints.explain.LightningPolicy.load_from_checkpoint") as mock_load:
             mock_model = Mock()
             mock_model.policy = simple_policy
             mock_load.return_value = mock_model
@@ -255,7 +255,7 @@ class TestExplainerConfigLoading:
                     image_width=480,
                 ),
                 dataset_schema=DatasetSchemaConfig(
-                    _target_="refactoring.data.schemas.bowel_retraction.BowelRetractionSchema",
+                    _target_="versatil.data.schemas.bowel_retraction.BowelRetractionSchema",
                     dataset_folders=["/fake/path"],
                     zarr_path="/fake/zarr.zarr",
                 ),
@@ -270,7 +270,7 @@ class TestExplainerConfigLoading:
         checkpoint_path = workspace.output_dir / "latest.ckpt"
         checkpoint_path.touch()
 
-        with patch("refactoring.endpoints.explain.LightningPolicy.load_from_checkpoint") as mock_load:
+        with patch("versatil.endpoints.explain.LightningPolicy.load_from_checkpoint") as mock_load:
             mock_model = Mock()
             mock_model.policy = simple_policy
             mock_load.return_value = mock_model
@@ -322,7 +322,7 @@ class TestExplainerIntegrationWithWorkspace:
                     image_width=640,
                 ),
                 dataset_schema=DatasetSchemaConfig(
-                    _target_="refactoring.data.schemas.bowel_retraction.BowelRetractionSchema",
+                    _target_="versatil.data.schemas.bowel_retraction.BowelRetractionSchema",
                     dataset_folders=[],
                     zarr_path="",
                 ),
@@ -340,7 +340,7 @@ class TestExplainerIntegrationWithWorkspace:
                 "observation_horizon": 2,
                 "prediction_horizon": 16,
                 "dataloader": {"batch_size": 32, "image_height": 480, "image_width": 640},
-                "dataset_schema": {"_target_": "refactoring.data.schemas.bowel_retraction.BowelRetractionSchema", "dataset_folders": [], "zarr_path": ""}
+                "dataset_schema": {"_target_": "versatil.data.schemas.bowel_retraction.BowelRetractionSchema", "dataset_folders": [], "zarr_path": ""}
             }
         )
         workspace = Workspace(config, original_yaml_config=original_yaml)
@@ -350,7 +350,7 @@ class TestExplainerIntegrationWithWorkspace:
         checkpoint_path = workspace.output_dir / "latest.ckpt"
         checkpoint_path.touch()
 
-        with patch("refactoring.endpoints.explain.LightningPolicy.load_from_checkpoint") as mock_load:
+        with patch("versatil.endpoints.explain.LightningPolicy.load_from_checkpoint") as mock_load:
             mock_model = Mock()
             mock_model.policy = simple_policy
             mock_load.return_value = mock_model

@@ -2,11 +2,11 @@ import dataclasses
 
 import pytest
 
-from refactoring.configs.decoding.algorithm import BehavioralCloningConfig
-from refactoring.configs.decoding.decoder import ACTConfig
-from refactoring.configs.encoding.pipeline import EncodingPipelineConfig
-from refactoring.configs.loss import ActionReconstructionLossConfig
-from refactoring.configs.policy import PolicyConfig
+from versatil.configs.decoding.algorithm import BehavioralCloningConfig
+from versatil.configs.decoding.decoder import ACTConfig
+from versatil.configs.encoding.pipeline import EncodingPipelineConfig
+from versatil.configs.loss import ActionReconstructionLossConfig
+from versatil.configs.policy import PolicyConfig
 
 
 @pytest.mark.unit
@@ -19,7 +19,7 @@ class TestPolicyConfig:
             decoder=ACTConfig(action_heads={}, input_keys=[]),
             loss=ActionReconstructionLossConfig(),
         )
-        assert config._target_ == "refactoring.models.policy.Policy"
+        assert config._target_ == "versatil.models.policy.Policy"
 
     def test_config_can_be_instantiated(self):
         config = PolicyConfig(

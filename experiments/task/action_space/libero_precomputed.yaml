@@ -1,13 +1,13 @@
 defaults:
   - base
 
-_target_: refactoring.data.task.ActionSpace
+_target_: versatil.data.task.ActionSpace
 use_gripper_class_weights: false
 denoise_actions: false
 
 actions_metadata:
   ${proprio_key:EE_POS_ACTION}:
-    _target_: refactoring.data.metadata.PositionActionMetadata
+    _target_: versatil.data.metadata.PositionActionMetadata
     frame: ${coordinate_system:ROBOT_BASE}
     raw_data_column_keys: [actions]
     dtype: float32
@@ -18,7 +18,7 @@ actions_metadata:
     slice_end: 3
 
   ${proprio_key:EE_ORI_ACTION}:
-    _target_: refactoring.data.metadata.OrientationActionMetadata
+    _target_: versatil.data.metadata.OrientationActionMetadata
     frame: ${coordinate_system:ROBOT_BASE}
     orientation_representation: ${orientation:EULER}
     raw_data_column_keys: [actions]
@@ -30,7 +30,7 @@ actions_metadata:
     slice_end: 6
 
   ${proprio_key:GRIPPER_STATE_ACTION}:
-    _target_: refactoring.data.metadata.GripperActionMetadata
+    _target_: versatil.data.metadata.GripperActionMetadata
     gripper_type: ${gripper:BINARY}
     binary_gripper_range: ${gripper_range:MINUS_ONE_ONE}
     raw_data_column_keys: [actions]

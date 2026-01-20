@@ -2,7 +2,7 @@ defaults:
   - act
   - heads@action_heads: bowel_retraction
 
-_target_: refactoring.models.decoding.decoders.factory.act.ACT
+_target_: versatil.models.decoding.decoders.factory.act.ACT
 
 input_keys:
   - left_rgb

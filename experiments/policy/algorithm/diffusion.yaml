@@ -1,6 +1,6 @@
 defaults:
   - diffusion_process
-_target_: refactoring.models.decoding.algorithm.diffusion.Diffusion
+_target_: versatil.models.decoding.algorithm.diffusion.Diffusion
 
 scheduler_type: ddim
 num_train_timesteps: 100

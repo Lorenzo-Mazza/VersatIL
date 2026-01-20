@@ -5,7 +5,7 @@ import numpy as np
 from unittest.mock import MagicMock, patch, call
 from omegaconf import OmegaConf
 
-from refactoring.data.augmentation.augmentation_pipeline import AugmentationPipeline
+from versatil.data.augmentation.augmentation_pipeline import AugmentationPipeline
 
 
 @pytest.fixture
@@ -157,7 +157,7 @@ class TestAugmentationPipelineInitialization:
         assert pipeline.rotation_transform == mock_rotation
 
 
-    @patch('refactoring.data.augmentation.augmentation_pipeline.A.Resize')
+    @patch('versatil.data.augmentation.augmentation_pipeline.A.Resize')
     def test_init_with_resize(self, mock_resize_class):
         """Test initialization with resize parameters."""
         mock_rgb_resize = MagicMock()
@@ -281,7 +281,7 @@ class TestApplyRGBAugmentations:
         mock_class = mock_resize_transform(return_value={'image': resized_frame})
         mock_instance = mock_class.return_value
 
-        with patch('refactoring.data.augmentation.augmentation_pipeline.A.Resize', new=mock_class):
+        with patch('versatil.data.augmentation.augmentation_pipeline.A.Resize', new=mock_class):
             pipeline = AugmentationPipeline(
                 target_height=224,
                 target_width=224,
@@ -326,7 +326,7 @@ class TestApplyRGBAugmentations:
         assert mock_spatial.call_count == 3
 
 
-    @patch('refactoring.data.augmentation.augmentation_pipeline.A.Rotate')
+    @patch('versatil.data.augmentation.augmentation_pipeline.A.Rotate')
     def test_apply_rgb_with_rotation(self, mock_rotate_class, sample_rgb_images):
         """Test rotation is applied with correct interpolation."""
         pipeline = AugmentationPipeline(train=True)
@@ -348,7 +348,7 @@ class TestApplyRGBAugmentations:
         """Test rotation is skipped when angle is 0."""
         pipeline = AugmentationPipeline(train=True)
 
-        with patch('refactoring.data.augmentation.augmentation_pipeline.A.Rotate') as mock_rotate:
+        with patch('versatil.data.augmentation.augmentation_pipeline.A.Rotate') as mock_rotate:
             result = pipeline.apply_rgb_augmentations(sample_rgb_images, angle=0)
 
             mock_rotate.assert_not_called()
@@ -361,7 +361,7 @@ class TestApplyRGBAugmentations:
         mock_instance = mock_class.return_value
         mock_color = mock_color_augmentation(side_effect=lambda image: {'image': image * 1.1})
         mock_spatial = mock_spatial_augmentation(side_effect=lambda image: {'image': image + 0.1})
-        with patch('refactoring.data.augmentation.augmentation_pipeline.A.Resize', new=mock_class):
+        with patch('versatil.data.augmentation.augmentation_pipeline.A.Resize', new=mock_class):
             pipeline = AugmentationPipeline(
                 color_augmentation=mock_color,
                 spatial_augmentation=mock_spatial,
@@ -398,7 +398,7 @@ class TestApplyDepthAugmentations:
         mock_class = mock_resize_transform(return_value={'image': resized_frame})
         mock_instance = mock_class.return_value
 
-        with patch('refactoring.data.augmentation.augmentation_pipeline.A.Resize', new=mock_class):
+        with patch('versatil.data.augmentation.augmentation_pipeline.A.Resize', new=mock_class):
             pipeline = AugmentationPipeline(
                 target_height=128,
                 target_width=128,
@@ -443,7 +443,7 @@ class TestApplyDepthAugmentations:
         rotated_frame = np.rot90(sample_depth_images[0])
         mock_class = mock_rotate_transform(side_effect=lambda **kwargs: {'image': np.rot90(kwargs['image'])})
         mock_instance = mock_class.return_value
-        with patch('refactoring.data.augmentation.augmentation_pipeline.A.Rotate', new=mock_class):
+        with patch('versatil.data.augmentation.augmentation_pipeline.A.Rotate', new=mock_class):
             result = pipeline.apply_depth_augmentations(sample_depth_images, angle=90.0)
         assert result.shape == sample_depth_images.shape
         np.testing.assert_allclose(result[0], rotated_frame)
@@ -455,7 +455,7 @@ class TestApplyDepthAugmentations:
         """Test rotation is skipped when angle is 0 for depth."""
         pipeline = AugmentationPipeline(train=True)
 
-        with patch('refactoring.data.augmentation.augmentation_pipeline.A.Rotate') as mock_rotate:
+        with patch('versatil.data.augmentation.augmentation_pipeline.A.Rotate') as mock_rotate:
             result = pipeline.apply_depth_augmentations(sample_depth_images, angle=0)
 
             mock_rotate.assert_not_called()
@@ -467,7 +467,7 @@ class TestApplyDepthAugmentations:
         mock_resize = mock_resize_transform(side_effect=lambda **kwargs: {'image': kwargs['image'] + 0.1})
         mock_spatial = mock_spatial_augmentation(side_effect=lambda image: {'image': image - 0.05})
         mock_instance_resize = mock_resize.return_value
-        with patch('refactoring.data.augmentation.augmentation_pipeline.A.Resize', new=mock_resize):
+        with patch('versatil.data.augmentation.augmentation_pipeline.A.Resize', new=mock_resize):
             pipeline = AugmentationPipeline(
                 spatial_augmentation=mock_spatial,
                 target_height=64,  # Same size
@@ -606,7 +606,7 @@ class TestIntegration:
         assert angle == 30.0
         assert R is not None
 
-        with patch('refactoring.data.augmentation.augmentation_pipeline.A.Rotate', new=mock_rotate):
+        with patch('versatil.data.augmentation.augmentation_pipeline.A.Rotate', new=mock_rotate):
             result = pipeline.apply_rgb_augmentations(sample_rgb_images, angle=angle)
 
         expected = (((sample_rgb_images * 1.1) - 0.05) + 0.01)
@@ -629,7 +629,7 @@ class TestIntegration:
         )
         angle, R = pipeline.setup_rotation()
 
-        with patch('refactoring.data.augmentation.augmentation_pipeline.A.Rotate', new=mock_rotate):
+        with patch('versatil.data.augmentation.augmentation_pipeline.A.Rotate', new=mock_rotate):
             result = pipeline.apply_depth_augmentations(sample_depth_images, angle=angle)
 
         expected = ((sample_depth_images - 0.05) + 0.01)
@@ -681,7 +681,7 @@ class TestIntegration:
         """Test integration with resize, rotation, and proprio."""
         mock_rotation = mock_rotation_augmentation(p=1.0, limit=[90, 90])
         mock_resize = mock_resize_transform(side_effect=lambda **kwargs: {'image': kwargs['image'][::2, ::2]})  # Downsample by factor of 2
-        with patch('refactoring.data.augmentation.augmentation_pipeline.A.Resize', new=mock_resize):
+        with patch('versatil.data.augmentation.augmentation_pipeline.A.Resize', new=mock_resize):
             pipeline = AugmentationPipeline(
                 rotation_augmentation=mock_rotation,
                 target_height=32,

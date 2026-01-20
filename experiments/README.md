@@ -1,6 +1,6 @@
 # Experiments Configuration
 
-This directory contains modular Hydra/OmegaConf configuration files for running experiments with the refactored needle-threading imitation learning framework.
+This directory contains modular Hydra/OmegaConf configuration files for running experiments with the VersatIL imitation learning framework.
 
 ## Overview
 
@@ -150,10 +150,10 @@ Use Hydra to compose configs:
 
 ```bash
 # Run ACT experiment
-python -m refactoring.endpoints.train --config-path experiments --config-name act_bowel_retraction
+python -m versatil.endpoints.train --config-path experiments --config-name act_bowel_retraction
 
 # Run Phase ACT experiment
-python -m refactoring.endpoints.train --config-path experiments --config-name phase_act_bowel_retraction
+python -m versatil.endpoints.train --config-path experiments --config-name phase_act_bowel_retraction
 ```
 
 ### Overriding Parameters
@@ -162,19 +162,19 @@ Override any parameter from the command line:
 
 ```bash
 # Change batch size
-python -m refactoring.endpoints.train \
+python -m versatil.endpoints.train \
     --config-path experiments \
     --config-name act_bowel_retraction \
     task.dataloader.batch_size=64
 
 # Change learning rate
-python -m refactoring.endpoints.train \
+python -m versatil.endpoints.train \
     --config-path experiments \
     --config-name act_bowel_retraction \
     training.optimizer.learning_rate=5e-5
 
 # Use different encoder
-python -m refactoring.endpoints.train \
+python -m versatil.endpoints.train \
     --config-path experiments \
     --config-name act_bowel_retraction \
     policy/encoding=rgb_depth_geometric
@@ -232,14 +232,13 @@ Maps to: `experiments/phase_act_bowel_retraction.yaml`
 - Training: LR 5e-5, WD 1e-3, no schedule
 - Prediction horizon: 5
 
-## Key Differences from Legacy Configs
+## Key Design Principles
 
 1. **Modularity**: Each component in a separate file instead of monolithic JSON
 2. **Composition**: Mix and match configs via Hydra defaults
 3. **Type Safety**: Configs validated against dataclasses at load time
-4. **No `promote_sparsity`**: This legacy feature hasn't been ported to refactored code yet
-5. **Separate encoding/decoding**: Clearer separation of concerns
-6. **Algorithm vs Architecture**: Learning algorithm (BC, diffusion) decoupled from network architecture (transformer, UNet)
+4. **Separate encoding/decoding**: Clearer separation of concerns
+5. **Algorithm vs Architecture**: Learning algorithm (BC, diffusion) decoupled from network architecture (transformer, UNet)
 
 ## Adding New Configurations
 
@@ -256,12 +255,12 @@ Example - new encoder:
 # experiments/policy/encoding/my_encoder.yaml
 encoders:
   my_encoder:
-    _target_: refactoring.models.encoding.encoders.my_module.MyEncoder
+    _target_: versatil.models.encoding.encoders.my_module.MyEncoder
     input_keys: left_image
     my_param: 42
 
 fusion_stages:
-  - _target_: refactoring.models.encoding.fusion.concat.ConcatFusion
+  - _target_: versatil.models.encoding.fusion.concat.ConcatFusion
     input_features:
       - my_encoder_features
     output_name: visual_features
@@ -279,5 +278,3 @@ fusion_stages:
 
 - [Hydra Documentation](https://hydra.cc/docs/intro/)
 - [OmegaConf Documentation](https://omegaconf.readthedocs.io/)
-- Project: `CLAUDE.md` for refactored architecture details
-- Legacy configs: `src/endpoints/default_configs/`

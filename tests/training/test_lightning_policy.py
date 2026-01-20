@@ -3,9 +3,9 @@
 import torch
 from unittest.mock import Mock
 
-from refactoring.training.lightning_policy import LightningPolicy
-from refactoring.data.constants import OBSERVATION_KEY
-from refactoring.configs.training import TrainingConfig, OptimizerConfig, AdamWConfig, ParameterGroupConfig
+from versatil.training.lightning_policy import LightningPolicy
+from versatil.data.constants import OBSERVATION_KEY
+from versatil.configs.training import TrainingConfig, OptimizerConfig, AdamWConfig, ParameterGroupConfig
 
 
 class TestLightningPolicyBasics:

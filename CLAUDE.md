@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Surg-IL: Imitation Learning framework for robotic manipulation. The codebase is undergoing a **major refactoring** from legacy monolithic code to a new modular architecture in `src/refactoring/`. All new development should target the refactored package.
+VersatIL: Imitation Learning framework for robotic manipulation. The codebase provides a modular architecture in `src/versatil/`. All new development should target the versatil package.
 
-**Goal**: Refactor all legacy code into the new modular design in `src/refactoring/`.
+**Goal**: Develop all new code in the modular design in `src/versatil/`.
 
 ## Environment Setup
 
@@ -66,9 +66,9 @@ black src/ tests/
 black --check src/ tests/
 ```
 
-## Refactored Architecture (`src/refactoring/`)
+## VersatIL Architecture (`src/versatil/`)
 
-The new modular design separates concerns into composable components configured via Hydra.
+The modular design separates concerns into composable components configured via Hydra.
 
 ### Core Design Philosophy
 
@@ -82,7 +82,7 @@ Where:
 ### Directory Structure
 
 ```
-src/refactoring/
+src/versatil/
 ├── configs/           # Hydra configuration dataclasses
 │   ├── main.py       # MainConfig composes all configs
 │   ├── experiment.py # Experiment tracking, checkpointing, WandB
@@ -155,7 +155,7 @@ src/refactoring/
 │       └── bowel_retraction.py
 │
 ├── common/           # Shared utilities
-│   ├── tensor_utils.py       # Tensor manipulation helpers
+│   ├── tensor_ops.py       # Tensor manipulation helpers
 │   ├── dict_of_tensor_mixin.py
 │   ├── module_attr_mixin.py
 │   └── set_cache_dir.py      # HuggingFace cache directory
@@ -177,7 +177,7 @@ src/refactoring/
 
 #### 1. Feature Flow and Validation
 
-**EncodingPipeline inputs**: Encoder `input_keys` must use appropriate constants from `src/refactoring/data/constants.py`:
+**EncodingPipeline inputs**: Encoder `input_keys` must use appropriate constants from `src/versatil/data/constants.py`:
   - **RGB/Depth encoders**: Use `Cameras` enum values
     - `Cameras.LEFT.value` ("left"), `Cameras.RIGHT.value` ("right"), `Cameras.DEPTH.value` ("depth")
     - Example: `input_keys: ${cameras:LEFT}` resolves to `"left"` via Hydra resolver
@@ -200,7 +200,7 @@ src/refactoring/
 
 **Validation** happens at Policy instantiation:
 ```python
-# src/refactoring/models/policy.py:41-55
+# src/versatil/models/policy.py:41-55
 def validate_decoder(self):
     available_features_to_dims = self.encoding_pipeline.get_features_to_dimensions()
     decoder_feature_specifications = self.decoder.architecture.input_specification.feature_keys_to_types
@@ -301,14 +301,14 @@ All algorithms are now **pure** (no latent variables). Use `VariationalAlgorithm
 
 **TaskConfig** defines what data the experiment uses at runtime:
 
-**ObservationSpace** (`src/refactoring/data/task.py:74-104`):
+**ObservationSpace** (`src/versatil/data/task.py:74-104`):
 - Which cameras to use (RGB/depth)
 - Whether to use proprioceptive data (robot/camera frame)
 - Language instructions
 - Gripper state
 - Returns required Zarr keys via `get_required_zarr_keys()`
 
-**ActionSpace** (`src/refactoring/data/task.py:18-70`):
+**ActionSpace** (`src/versatil/data/task.py:18-70`):
 - Position (dim, camera frame vs robot frame)
 - Orientation (representation: roll/euler/quaternion)
 - Gripper (binary vs continuous)
@@ -332,11 +332,11 @@ Raw Episodes (CSV)
 ```
 
 **Key Classes**:
-- **ReplayBuffer** (`src/refactoring/data/preprocessing/replay_buffer.py`): Converts episodes to Zarr
-- **EpisodicDataset** (`src/refactoring/data/episodic_dataset.py`): Loads temporal windows from Zarr
-- **SampleBuilder** (`src/refactoring/data/sample_builder.py`): Constructs samples with obs/action
-- **ActionProcessor** (`src/refactoring/data/action_processor.py`): Computes actions from proprioceptive data
-- **Normalizer** (`src/refactoring/data/normalize/normalizer.py`): Per-key min-max normalization
+- **ReplayBuffer** (`src/versatil/data/preprocessing/replay_buffer.py`): Converts episodes to Zarr
+- **EpisodicDataset** (`src/versatil/data/episodic_dataset.py`): Loads temporal windows from Zarr
+- **SampleBuilder** (`src/versatil/data/sample_builder.py`): Constructs samples with obs/action
+- **ActionProcessor** (`src/versatil/data/action_processor.py`): Computes actions from proprioceptive data
+- **Normalizer** (`src/versatil/data/normalize/normalizer.py`): Per-key min-max normalization
 
 #### 6. Hydra Configuration System
 
@@ -356,21 +356,12 @@ Use `hydra.utils.instantiate()` to build objects from configs:
 encoder = instantiate(encoder_config)
 ```
 
-### Legacy Code (To Be Replaced)
+### Adding New Components
 
-The following are legacy implementations that will be deprecated:
-
-- `src/workspace.py` → Will be replaced by `src/refactoring/workspace.py` (TODO)
-- `src/endpoints/*_endpoint.py` → Will use new configs and workspace
-- `src/model/` → Models being ported to `src/refactoring/models/`
-- `src/dataset/` → Ported to `src/refactoring/data/`
-- `src/legacy/` → Old implementations kept for reference
-- `src/refactoring/configs/legacy_config.py` → Temporary bridge to old system
-
-**When porting legacy code**:
+**When adding new components**:
 1. Identify the component type (encoder, decoder, fusion, etc.)
-2. Create corresponding config dataclass in `src/refactoring/configs/`
-3. Implement module in `src/refactoring/models/` following base class interfaces
+2. Create corresponding config dataclass in `src/versatil/configs/`
+3. Implement module in `src/versatil/models/` following base class interfaces
 4. Add tests in `tests/` with appropriate markers
 5. Update this documentation
 
@@ -384,7 +375,7 @@ From `.github/copilot-instructions.md`:
 
 Additional standards:
 - Black formatter (line length 88, Python 3.11 target)
-- Use enums from `refactoring.constants.data` for data keys
+- Use enums from `versatil.constants.data` for data keys
 - Prefer dataclasses for configurations
 - Use `Dict[str, torch.Tensor]` for observation/action dictionaries
 
@@ -394,11 +385,11 @@ Test structure mirrors source code:
 ```
 tests/
 ├── conftest.py                      # Shared fixtures
-├── data/                            # Mirror src/refactoring/data/
+├── data/                            # Mirror versatil.data
 │   ├── test_episodic_dataset.py
 │   ├── normalize/
 │   └── preprocess/
-└── models/                          # Mirror src/refactoring/models/
+└── models/                          # Mirror versatil.models
     ├── encoding/
     └── layers/
 ```
@@ -413,18 +404,18 @@ tests/
 
 ### Adding a New Encoder
 
-1. **Define config** in `src/refactoring/configs/encoding/encoder.py`:
+1. **Define config** in `src/versatil/configs/encoding/encoder.py`:
 ```python
 @dataclass
 class MyEncoderConfig(EncoderConfig):
-    _target_: str = "refactoring.models.encoding.encoders.my_encoder.MyEncoder"
+    _target_: str = "versatil.models.encoding.encoders.my_encoder.MyEncoder"
     feature_dim: int = 256
 ```
 
-2. **Implement encoder** in `src/refactoring/models/encoding/encoders/my_encoder.py`:
+2. **Implement encoder** in `src/versatil/models/encoding/encoders/my_encoder.py`:
 
 ```python
-from refactoring.models.encoding.encoders.unconditional import Encoder, EncoderOutput
+from versatil.models.encoding.encoders.unconditional import Encoder, EncoderOutput
 
 
 class MyEncoder(Encoder):
@@ -447,14 +438,14 @@ class MyEncoder(Encoder):
 1. **Implement architecture** inheriting from `Architecture` base class
 2. **Define `DecoderInput`** specifying required features and types
 3. **Implement forward pass** that processes features dict
-4. **Create config** in `src/refactoring/configs/decoding/architecture.py`
+4. **Create config** in `src/versatil/configs/decoding/architecture.py`
 
 ### Adding a New Algorithm
 
-1. **Inherit from `Algorithm`** (`src/refactoring/models/decoding/algorithm/base.py`)
+1. **Inherit from `Algorithm`** (`src/versatil/models/decoding/algorithm/base.py`)
 2. **Implement `forward()`** for training (with actions)
 3. **Implement `predict()`** for inference (without actions)
-4. **Create config** in `src/refactoring/configs/decoding/algorithm.py`
+4. **Create config** in `src/versatil/configs/decoding/algorithm.py`
 
 ## WandB Integration
 
@@ -485,13 +476,12 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 ## TODOs
 - The explainer looks buggy and hardcoded. It will probably need a huge refactor to fit into the new architecture.
 - Integrate SMOL-VLA somewhere in the pipeline (e.g. add smol_vlm as subclass of vlm )
-3. Introduce the diffusion transformer and the conditional-unet decoders in the decoders package, based on the old models.diffusion_policy code.
-4. Introduce the DiT action decoder.
-7. Refactor the codebase files: old files go into legacy, new files go outside of the refactoring folder. Update the paths accordingly.
-8. Add tests for all the layers package.
-10. Verify compliance of tests to ruff
-11. Introduce pre-commit hooks
-12. Write proper changelog, etc.
+- Introduce the diffusion transformer and the conditional-unet decoders in the decoders package, based on the old models.diffusion_policy code.
+- Introduce the DiT action decoder.
+- Add tests for all the layers package.
+- Verify compliance of tests to ruff
+- Introduce pre-commit hooks
+- Write proper changelog, etc.
 
 ## For future versions
 - **Implement LoRA config for parameter-efficient fine-tuning**:

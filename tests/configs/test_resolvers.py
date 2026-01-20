@@ -4,10 +4,10 @@ import pytest
 from omegaconf import OmegaConf
 from omegaconf.errors import InterpolationResolutionError
 
-from refactoring.configs import register_resolvers  # Import to trigger resolver registration
-from refactoring.data.constants import Cameras, GripperType, OrientationRepresentation
-from refactoring.models.encoding.encoders.constants import RGBBackboneType
-from refactoring.training.constants import Float32MatmulPrecision, PrecisionType
+from versatil.configs import register_resolvers  # Import to trigger resolver registration
+from versatil.data.constants import Cameras, GripperType, OrientationRepresentation
+from versatil.models.encoding.encoders.constants import RGBBackboneType
+from versatil.training.constants import Float32MatmulPrecision, PrecisionType
 
 
 @pytest.mark.unit

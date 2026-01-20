@@ -3,12 +3,12 @@ import pytest
 import torch
 from typing import Dict, Optional
 
-from refactoring.models.decoding.algorithm.behavior_cloning import BehavioralCloning
-from refactoring.models.decoding.algorithm.diffusion import Diffusion
-from refactoring.models.decoding.algorithm.flow_matching import FlowMatching
-from refactoring.models.decoding.decoders.base import ActionDecoder, DecoderInput
-from refactoring.data.task import ActionSpace, ObservationSpace
-from refactoring.data.constants import (
+from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
+from versatil.models.decoding.algorithm.diffusion import Diffusion
+from versatil.models.decoding.algorithm.flow_matching import FlowMatching
+from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.constants import (
     POSITION_ACTION_KEY,
     ORIENTATION_ACTION_KEY,
     GRIPPER_ACTION_KEY,
@@ -16,13 +16,13 @@ from refactoring.data.constants import (
     GripperType,
     Cameras,
 )
-from refactoring.models.decoding.constants import (
+from versatil.models.decoding.constants import (
     PredictionType,
     BetaSchedule,
     VarianceType,
     ODESolver,
 )
-from refactoring.models.layers.diffusion_process import SchedulerType
+from versatil.models.layers.diffusion_process import SchedulerType
 
 
 # Mock decoder for testing algorithms
@@ -41,7 +41,7 @@ class MockActionDecoder(ActionDecoder):
         decoder_input = DecoderInput(keys=["features"])
 
         # Create simple action heads
-        from refactoring.models.decoding.action_heads import ActionHead
+        from versatil.models.decoding.action_heads import ActionHead
 
         action_heads = {}
         if action_space.has_position:
@@ -248,7 +248,7 @@ class TestDiffusion:
     ])
     def test_prediction_types(self, mock_decoder, features, actions, prediction_type):
         """Test all prediction types."""
-        from refactoring.models.decoding.constants import TIMESTEP_KEY, NOISE_KEY, TARGET_DIFFUSION_KEY
+        from versatil.models.decoding.constants import TIMESTEP_KEY, NOISE_KEY, TARGET_DIFFUSION_KEY
 
         algo = Diffusion(
             num_train_timesteps=50,
@@ -301,7 +301,7 @@ class TestDiffusion:
 
     def test_forward_pass(self, mock_decoder, features, actions):
         """Test forward pass during training."""
-        from refactoring.models.decoding.constants import TIMESTEP_KEY, NOISE_KEY, TARGET_DIFFUSION_KEY
+        from versatil.models.decoding.constants import TIMESTEP_KEY, NOISE_KEY, TARGET_DIFFUSION_KEY
 
         algo = Diffusion(num_train_timesteps=100)
         outputs = algo.forward(mock_decoder, features, actions)
