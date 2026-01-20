@@ -1,26 +1,14 @@
-"""Final prediction layer for DiT with adaptive layer normalization modulation.
-
-This layer normalizes, modulates with condition, and projects to output dimension.
-"""
+"""Final prediction layer for DiT with adaptive layer normalization modulation."""
 
 import torch
 import torch.nn as nn
 
 
 class FinalPredictionLayer(nn.Module):
-    """Final layer that predicts noise (epsilon) with adaptive LN modulation.
-
-    This layer normalizes, modulates with condition, and projects to output dim.
-    Uses adaptive layer normalization (adaLN) pattern similar to DiT.
-    """
+    """Final layer that predicts noise (epsilon) with adaptive LN modulation."""
 
     def __init__(self, hidden_dim: int, output_dim: int) -> None:
-        """Initialize the FinalPredictionLayer.
-
-        Args:
-            hidden_dim: Input hidden dimensionality.
-            output_dim: Output dimensionality (action_dim).
-        """
+        """Initialize the FinalPredictionLayer."""
         super().__init__()
 
         # Layer norm without learnable affine parameters

@@ -10,23 +10,12 @@ from typing import List
 import torch
 import torch.nn as nn
 
-from refactoring.models.layers.dit.dit_encoder_layer import DiTEncoderLayer
-
+from versatil.models.layers.dit.dit_encoder_layer import DiTEncoderLayer
 
 class DiTEncoder(nn.Module):
-    """Stack of self-attention encoder blocks that returns intermediate outputs.
+    """Stack of DiT encoder layers."""
 
-    This encoder processes observation tokens and returns outputs from each layer,
-    which are used to condition corresponding decoder layers.
-    """
-
-    def __init__(self, base_block: nn.Module, num_layers: int) -> None:
-        """Initialize the DiTEncoder.
-
-        Args:
-            base_block: The base DiTEncoderLayer to copy.
-            num_layers: Number of layers.
-        """
+    def __init__(self, base_block: DiTEncoderLayer, num_layers: int) -> None:
         super().__init__()
         self.layers = nn.ModuleList([copy.deepcopy(base_block) for _ in range(num_layers)])
 

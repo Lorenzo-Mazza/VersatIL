@@ -3,20 +3,16 @@
 import torch
 import torch.nn as nn
 
-from refactoring.models.layers.activation import ActivationFunction
-from refactoring.models.layers.constants import AttentionType
-from refactoring.models.layers.normalization.ada_norm import AdaNorm
-from refactoring.models.layers.normalization.constants import NormalizationType
-from refactoring.models.layers.normalization.factory import create_normalization_layer
-from refactoring.models.layers.transformer.attention import CachedAttention
+from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.constants import AttentionType
+from versatil.models.layers.normalization.ada_norm import AdaNorm
+from versatil.models.layers.normalization.constants import NormalizationType
+from versatil.models.layers.normalization.factory import create_normalization_layer
+from versatil.models.layers.transformer.attention import CachedAttention
 
 
 class DiTEncoderLayer(nn.Module):
-    """Single self-attention encoder layer for DiT.
-
-    Similar to standard transformer encoder layer but simpler, designed for
-    sequence-first format (S, B, D) used by MultiheadAttention.
-    """
+    """Single self-attention encoder layer for DiT."""
 
     def __init__(
         self,
@@ -28,15 +24,7 @@ class DiTEncoderLayer(nn.Module):
         normalization_type: str = NormalizationType.ADALN.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
     ) -> None:
-        """Initialize the DiTEncoderLayer.
-
-        Args:
-            embedding_dim: Dimensionality of the embeddings.
-            num_heads: Number of attention heads.
-            feedforward_dim: Hidden dimensionality in the feedforward network.
-            dropout: Dropout rate.
-            activation_name: Name of the activation function.
-        """
+        """Initialize the DiTEncoderLayer."""
         super().__init__()
 
         # Self-attention (custom attention uses batch-first inputs)
@@ -85,15 +73,7 @@ class DiTEncoderLayer(nn.Module):
         source_tensor: torch.Tensor,
         positional_embedding: torch.Tensor,
     ) -> torch.Tensor:
-        """Apply the encoder layer.
-
-        Args:
-            source_tensor: Input tensor (sequence_length, batch_size, embedding_dim).
-            positional_embedding: Positional embedding (sequence_length, batch_size, embedding_dim).
-
-        Returns:
-            Processed tensor (sequence_length, batch_size, embedding_dim).
-        """
+        """Apply the encoder layer."""
         # Add positional embedding to queries and keys for self-attention
         query = key = source_tensor + positional_embedding
         condition = positional_embedding.mean(dim=0)
@@ -139,7 +119,7 @@ class DiTEncoderLayer(nn.Module):
         return norm_layer(x)
 
     def reset_parameters(self) -> None:
-        """Reset parameters using Xavier uniform initialization."""
+        """Reset parameters to zeros (DiT initialization)."""
         for param in self.parameters():
             if param.dim() > 1:
                 nn.init.xavier_uniform_(param)
