@@ -18,7 +18,6 @@ from versatil.models.layers.dit.dit_decoder import DiTDecoder
 from versatil.models.layers.dit.dit_encoder import DiTEncoder, DiTEncoderLayer
 from versatil.models.layers.dit.dit_decoder_layer import DiTDecoderLayer
 from versatil.models.layers.dit.timestep_embedding import TimestepEmbeddingNetwork
-from versatil.models.layers.feature_projection import FeatureProjection
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.positional_encoding.learned import (
