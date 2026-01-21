@@ -3,7 +3,7 @@ _target_: versatil.configs.main.MainConfig
 defaults:
   - task: base
   - policy: base
-  - experiment: bowel_retraction_diffusion_unet
+  - experiment: bowel_retraction_flow_dit
   - task/dataset_schema: bowel_retraction_v2
   - task/dataloader: diffusion_default
   - task/action_space: deltas_cf_pos_gripper

@@ -1,7 +1,7 @@
 defaults:
   - base
 
-name: flow_${now:%Y%m%d_%H%M%S}_br_flow_dit_cf_lr1e-6_wd1e-6
+name: flow_${now:%Y%m%d_%H%M%S}_br_flow_updated_dit_cf_lr1e-6_wd1e-6
 seed: 42
 
 checkpoint_folder: /mnt/cluster/environments/jeonbongg/checkpoint/bowel_retraction
