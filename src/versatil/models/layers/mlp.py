@@ -21,11 +21,11 @@ class MLP(nn.Module):
             input_dim: Input feature dimension
             hidden_dims: List of hidden layer dimensions
             output_dim: Output feature dimension
-            activation_function: Activation function class
+            activation_function: Activation function class callable
             dropout: Dropout rate between layers
         """
         super().__init__()
-        hidden_dims = hidden_dims or [input_dim]
+        hidden_dims = hidden_dims if hidden_dims is not None else []
         layers: list[nn.Module] = []
         prev_dim = input_dim
         for hidden_dim in hidden_dims:

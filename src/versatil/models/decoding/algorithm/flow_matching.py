@@ -12,6 +12,7 @@ from versatil.models.decoding.constants import (
     NOISE_KEY,
 )
 from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.decoding.decoders.factory.diffusion_action_transformer import DiTDecoder
 from versatil.models.layers.ode_solvers import integrate_ode
 
 
@@ -104,7 +105,10 @@ class FlowMatching(DecodingAlgorithm):
         # Time is in [0, 1] and has shape (batch_size,)
         features_with_time = {**features, TIMESTEP_KEY: times}
         # Predict velocity field
-        predictions = network(features_with_time, interpolated_actions)
+        predictions = network(
+            features=features_with_time,
+            actions=interpolated_actions
+        )
         # Return predictions and targets
         return {
             **predictions,
@@ -135,6 +139,10 @@ class FlowMatching(DecodingAlgorithm):
         batch_size = first_feature.shape[0]
         device = first_feature.device
         dtype = first_feature.dtype
+
+        if isinstance(network, DiTDecoder):
+            network.reset_encoder_cache() # Clear any cached encoder outputs before inference
+
         trajectory: dict[str, torch.Tensor] = {}
         for key, meta in network.action_space.actions_metadata.items():
             if not meta.requires_prediction_head:
@@ -146,41 +154,42 @@ class FlowMatching(DecodingAlgorithm):
                 device=device,
                 dtype=dtype,
             )  # (B, H, D_k)
-        keys = sorted(trajectory.keys())
-        shapes = {k: trajectory[k].shape for k in keys}
+        action_keys = sorted(trajectory.keys())
+        shapes = {k: trajectory[k].shape for k in action_keys}
+        flat_action_dimensions = {key: shapes[key][1] * shapes[key][2] for key in action_keys}
         stacked = torch.cat(
-            [trajectory[k].flatten(1) for k in keys], dim=-1
+            [trajectory[k].flatten(1) for k in action_keys], dim=-1
         )  # (B, H*sum(D_k))
 
-        def velocity_fn(z: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-            traj: dict[str, torch.Tensor] = {}
+        def velocity_wrapper(z: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+            """Wrapper to compute velocities from stacked action representation, used as Callable in `integrate_ode`."""
+            current_trajectory: dict[str, torch.Tensor] = {}
             offset = 0
-            for k in keys:
-                flat_dim = shapes[k][1] * shapes[k][2]
-                traj[k] = z[:, offset : offset + flat_dim].view(shapes[k])  # (B, H, D_k)
-                offset += flat_dim
-
+            for current_key in action_keys:
+                flat_action_size = flat_action_dimensions[current_key]
+                trajectory[current_key] = z[:, offset : offset + flat_action_size].view(shapes[current_key])  # (B, H, D_k)
+                offset += flat_action_dimension
             features_with_time = {**features, TIMESTEP_KEY: t}
-            velocities = network(features_with_time, traj)
-
+            velocities = network(
+                features=features_with_time,
+                actions=current_trajectory
+            )
             return torch.cat(
-                [velocities[k].flatten(1) for k in keys], dim=-1
+                [velocities[current_key].flatten(1) for current_key in action_keys], dim=-1
             )  # (B, H*sum(D_k))
 
         stacked_final = integrate_ode(
             z_init=stacked,
-            velocity_fn=velocity_fn,
+            velocity_fn=velocity_wrapper,
             num_steps=self.num_inference_steps,
             solver=self.ode_solver,
         )  # (B, H*sum(D_k))
-
         result: dict[str, torch.Tensor] = {}
-        offset = 0
-        for k in keys:
-            flat_dim = shapes[k][1] * shapes[k][2]
-            result[k] = stacked_final[:, offset : offset + flat_dim].view(
-                shapes[k]
+        current_offset = 0
+        for key in action_keys:
+            flat_action_dimension = shapes[key][1] * shapes[key][2]
+            result[key] = stacked_final[:, current_offset : current_offset + flat_action_dimension].view(
+                shapes[key]
             )  # (B, H, D_k)
-            offset += flat_dim
-
+            current_offset += flat_action_dimension
         return result

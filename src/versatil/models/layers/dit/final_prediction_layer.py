@@ -3,64 +3,63 @@
 import torch
 import torch.nn as nn
 
+from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.normalization.ada_norm import AdaNorm
+
 
 class FinalPredictionLayer(nn.Module):
-    """Final layer that predicts noise (epsilon) with adaptive LN modulation."""
+    """Final layer that predicts noise (epsilon) with adaptive LN modulation.
 
-    def __init__(self, hidden_dim: int, output_dim: int) -> None:
-        """Initialize the FinalPredictionLayer."""
+    Uses the standard DiT modulation: norm(x) * (1 + scale) + shift
+    """
+
+    def __init__(
+            self,
+            hidden_dimension: int,
+            output_dimension: int,
+            activation: str = ActivationFunction.SILU.value,
+    ) -> None:
+        """Initialize the final prediction layer of the transformer.
+
+        Args:
+            hidden_dimension: Input hidden dimension.
+            output_dimension: Output dimension.
+            activation: Activation function for the AdaNorm modulation network.
+        """
         super().__init__()
-
-        # Layer norm without learnable affine parameters
-        self.final_norm = nn.LayerNorm(hidden_dim, elementwise_affine=False, eps=1e-6)
-
-        # Output projection
-        self.output_linear = nn.Linear(hidden_dim, output_dim, bias=True)
-
-        # Adaptive LN modulation: produces shift and scale from condition
-        self.adaptive_ln_modulation = nn.Sequential(
-            nn.SiLU(), nn.Linear(hidden_dim, 2 * hidden_dim, bias=True)
+        base_norm = nn.LayerNorm(
+            hidden_dimension, elementwise_affine=False, eps=1e-6  # Layer norm without learnable affine parameters
         )
+        self.ada_norm = AdaNorm(
+            base_norm=base_norm,
+            condition_dim=hidden_dimension,
+            feature_dim=hidden_dimension,
+            use_gate=False, # no gate needed at the end
+            activation=activation,
+        )
+        self.output_linear = nn.Linear(hidden_dimension, output_dimension, bias=True)
+        self.reset_parameters()
 
     def forward(
         self,
-        input_tensor: torch.Tensor,
-        timestep_embedding: torch.Tensor,
-        condition_tensor: torch.Tensor,
+        hidden_states: torch.Tensor,
+        conditioning_embedding: torch.Tensor,
     ) -> torch.Tensor:
-        """Predict the output.
+        """Predict the output with adaptive modulation.
 
         Args:
-            input_tensor: Input tensor (sequence_length, batch_size, hidden_dim).
-            timestep_embedding: Timestep embedding (batch_size, hidden_dim).
-            condition_tensor: Condition tensor (sequence_length, batch_size, hidden_dim).
+            hidden_states: Input tensor (batch_size (B), sequence_length (S), hidden_dim (D)).
+            conditioning_embedding: Combined timestep + encoder conditioning (batch_size, hidden_dim).
 
         Returns:
             Predicted tensor (batch_size, sequence_length, output_dim).
         """
-        # Combine condition by mean over sequence and add to timestep
-        condition_mean = torch.mean(condition_tensor, dim=0)  # (B, D)
-        combined_condition = condition_mean + timestep_embedding  # (B, D)
+        modulated_states = self.ada_norm(hidden_states, conditioning_embedding) # (B, S, D)
+        return self.output_linear(modulated_states) # (B, S, output_dim)
 
-        # Compute shift and scale for modulation
-        modulation_params = self.adaptive_ln_modulation(
-            combined_condition
-        )  # (B, 2*D)
-        shift, scale = modulation_params.chunk(2, dim=1)  # Each: (B, D)
-
-        # Apply modulation after norm
-        # input_tensor: (S, B, D), shift/scale: (B, D) -> broadcast to (1, B, D)
-        normalized = self.final_norm(input_tensor)  # (S, B, D)
-        modulated = normalized * scale[None] + shift[None]  # (S, B, D)
-
-        # Project to output dimension
-        output = self.output_linear(modulated)  # (S, B, output_dim)
-
-        # Transpose to batch-first: (B, S, output_dim)
-        return output.transpose(0, 1)
 
     def reset_parameters(self) -> None:
         """Reset parameters to zeros (DiT initialization)."""
-        for param in self.parameters():
-            nn.init.zeros_(param)
-
+        nn.init.zeros_(self.output_linear.weight)
+        if self.output_linear.bias is not None:
+            nn.init.zeros_(self.output_linear.bias)

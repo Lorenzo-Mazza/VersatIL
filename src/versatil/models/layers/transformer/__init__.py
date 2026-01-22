@@ -1,10 +1,10 @@
-"""GPT-style transformer with KV cache support for autoregressive generation."""
+"""Transformer layers package, with custom Flash Attention implementation, cache support and modular layer customization."""
 
 from versatil.models.layers.transformer.attention import CachedAttention
+from versatil.models.layers.transformer.autoregressive_decoder import GPTDecoder
 from versatil.models.layers.transformer.bidirectional_decoder import (
     BidirectionalDecoder,
 )
-from versatil.models.layers.transformer.autoregressive_decoder import GPTDecoder
 from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
     ConditionalBidirectionalDecoder,
 )
@@ -12,6 +12,8 @@ from versatil.models.layers.transformer.conditional_decoder_layer import (
     ConditionalTransformerDecoderLayer,
 )
 from versatil.models.layers.transformer.decoder_layer import TransformerDecoderLayer
+from versatil.models.layers.transformer.encoder import TransformerEncoder
+from versatil.models.layers.transformer.encoder_layer import TransformerEncoderLayer
 from versatil.models.layers.transformer.kv_cache import (
     DecoderKVCache,
     LayerKVCache,
@@ -25,6 +27,8 @@ from versatil.models.layers.transformer.positional_encoding import (
 )
 
 __all__ = [
+    "TransformerEncoder",
+    "TransformerEncoderLayer",
     "BidirectionalDecoder",
     "ConditionalBidirectionalDecoder",
     "ConditionalTransformerDecoderLayer",

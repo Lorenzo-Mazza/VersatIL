@@ -1,8 +1,7 @@
 # Conditional U-Net Decoder
 defaults:
+  - unet
   - heads@action_heads: unet_bowel_retraction
-
-_target_: versatil.models.decoding.decoders.factory.conditional_unet_decoder.ConditionalUNetDecoder
 
 # Key is always "{encoder_name}_{EncoderOutputType.value}" for each encoder in the encoding pipeline
 input_keys:
@@ -10,10 +9,7 @@ input_keys:
   - right_rgb
   - camera_frame_proprio
 
-# Diffusion timestep embedding dimension
 embedding_dimension: 256
-
-# U-Net downsampling channel dimensions
 down_dimensions:
   - 256
   - 512

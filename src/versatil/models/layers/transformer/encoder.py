@@ -1,4 +1,4 @@
-"""Bidirectional transformer decoder for non-autoregressive generation."""
+"""Bidirectional transformer encoder for sequence encoding."""
 
 import math
 
@@ -9,28 +9,25 @@ from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.transformer.decoder_layer import TransformerDecoderLayer
 from versatil.models.layers.normalization.factory import create_normalization_layer
-from versatil.models.layers.transformer.positional_encoding import (
-    create_positional_encoding,
-)
+from versatil.models.layers.normalization.rms_norm import RMSNorm
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
-from versatil.models.layers.positional_encoding.rotary import (
-    RotaryPositionalEncoding,
-)
+from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
 )
-from versatil.models.layers.normalization.rms_norm import RMSNorm
+from versatil.models.layers.transformer.encoder_layer import TransformerEncoderLayer
+from versatil.models.layers.transformer.positional_encoding import (
+    create_positional_encoding,
+)
 
 
-class BidirectionalDecoder(nn.Module):
-    """Bidirectional transformer decoder for non-autoregressive generation.
+class TransformerEncoder(nn.Module):
+    """Bidirectional transformer encoder for sequence encoding.
 
-    It has no KV cache (all tokens processed in parallel), does not use a causal mask and
-     always uses cross-attention to encoded features.
+    Processes all tokens in parallel with bidirectional self-attention.
     """
 
     def __init__(
@@ -51,10 +48,10 @@ class BidirectionalDecoder(nn.Module):
         normalization_epsilon: float = 1e-6,
         initializer_range: float = 0.02,
     ):
-        """Initialize bidirectional decoder.
+        """Initialize transformer encoder.
 
         Args:
-            number_of_layers: Number of decoder layers
+            number_of_layers: Number of encoder layers
             embedding_dimension: Model embedding dimension
             number_of_heads: Number of attention heads
             number_of_key_value_heads: Number of K/V heads (for GQA)
@@ -71,7 +68,6 @@ class BidirectionalDecoder(nn.Module):
             initializer_range: Standard deviation for weight initialization
         """
         super().__init__()
-
         self.number_of_layers = number_of_layers
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
@@ -84,7 +80,6 @@ class BidirectionalDecoder(nn.Module):
         else:
             self.number_of_key_value_heads = number_of_heads
         self.head_dimension = embedding_dimension // number_of_heads
-
         self.positional_encoding = None
         if positional_encoding_type is not None:
             self.positional_encoding = create_positional_encoding(
@@ -93,10 +88,9 @@ class BidirectionalDecoder(nn.Module):
                 maximum_length=maximum_sequence_length,
                 num_heads=number_of_heads,
             )
-
         self.layers = nn.ModuleList(
             [
-                TransformerDecoderLayer(
+                TransformerEncoderLayer(
                     embedding_dimension=embedding_dimension,
                     number_of_heads=number_of_heads,
                     number_of_key_value_heads=number_of_key_value_heads,
@@ -106,15 +100,12 @@ class BidirectionalDecoder(nn.Module):
                     activation=activation,
                     normalization_type=normalization_type,
                     attention_type=attention_type,
-                    use_cross_attention=True,
                     bias=bias,
                     normalization_epsilon=normalization_epsilon,
-                    autoregressive=False,
                 )
                 for _ in range(number_of_layers)
             ]
         )
-
         self.final_normalization = create_normalization_layer(
             normalization_type=normalization_type,
             dimension=embedding_dimension,
@@ -128,7 +119,6 @@ class BidirectionalDecoder(nn.Module):
             std = self.initializer_range / math.sqrt(3 * self.number_of_layers)
         else:
             std = self.initializer_range
-
         if isinstance(module, nn.Linear):
             module.weight.data.normal_(mean=0.0, std=std)
             if module.bias is not None:
@@ -146,54 +136,39 @@ class BidirectionalDecoder(nn.Module):
     @staticmethod
     def _expand_padding_mask(
         padding_mask: torch.Tensor,
-        query_length: int,
+        sequence_length: int,
     ) -> torch.Tensor:
         """Expand 2D padding mask to 4D attention mask.
 
         Args:
-            padding_mask: (B, key_length) where True means masked/padded
-            query_length: Length of query sequence
+            padding_mask: (B, seq_length) where True means masked/padded
+            sequence_length: Length of the sequence
 
         Returns:
-            Attention mask (B, 1, query_length, key_length) where True means masked
+            Attention mask (B, 1, seq_length, seq_length) where True means masked
         """
-        # (B, key_length) -> (B, 1, 1, key_length) -> (B, 1, query_length, key_length)
-        return padding_mask.unsqueeze(1).unsqueeze(2).expand(-1, -1, query_length, -1)
+        return padding_mask.unsqueeze(1).unsqueeze(2).expand(-1, -1, sequence_length, -1)
 
     def forward(
         self,
         hidden_states: torch.Tensor,
-        encoded_features: torch.Tensor,
-        query_padding_mask: torch.Tensor | None = None,
-        memory_padding_mask: torch.Tensor | None = None,
+        padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Forward pass through bidirectional decoder.
+        """Forward pass through transformer encoder.
 
         Args:
-            hidden_states: Query embeddings (B, query_length, D)
-            encoded_features: Encoder features to cross-attend to (B, memory_length, D)
-            query_padding_mask: Optional padding mask for queries (B, query_length)
-                where True means padded position. Used for self-attention.
-            memory_padding_mask: Optional padding mask for memory (B, memory_length)
-                where True means padded position. Used for cross-attention.
+            hidden_states: Input embeddings (B, seq_length, D)
+            padding_mask: Optional padding mask (B, seq_length)
+                where True means padded position.
 
         Returns:
-            Output hidden states (B, query_length, D)
+            Output hidden states (B, seq_length, D)
         """
-        query_length = hidden_states.shape[1]
-
-        self_attention_mask = None
-        if query_padding_mask is not None:
-            self_attention_mask = self._expand_padding_mask(
-                query_padding_mask, query_length
-            )
-        cross_attention_mask = None
-        if memory_padding_mask is not None:
-            cross_attention_mask = self._expand_padding_mask(
-                memory_padding_mask, query_length
-            )
-
-        if isinstance(
+        sequence_length = hidden_states.shape[1]
+        attention_mask = None
+        if padding_mask is not None:
+            attention_mask = self._expand_padding_mask(padding_mask, sequence_length)
+        if self.positional_encoding is not None and isinstance(
             self.positional_encoding,
             (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D),
         ):
@@ -203,17 +178,11 @@ class BidirectionalDecoder(nn.Module):
             if isinstance(self.positional_encoding, RotaryPositionalEncoding)
             else None
         )
-
         for layer in self.layers:
-            hidden_states, _ = layer(
+            hidden_states = layer(
                 hidden_states=hidden_states,
-                encoded_features=encoded_features,
-                self_attention_mask=self_attention_mask,
-                cross_attention_mask=cross_attention_mask,
-                layer_cache=None,
-                use_cache=False,
+                attention_mask=attention_mask,
                 positional_encoding=rope_pe,
             )
-
         hidden_states = self.final_normalization(hidden_states)
         return hidden_states

@@ -42,7 +42,9 @@ from versatil.configs.decoding.algorithm import (
 )
 from versatil.configs.decoding.decoder import (
     ACTConfig,
+    ConditionalUNetDecoderConfig,
     DecodingNetworkConfig,
+    DiTDecoderConfig,
     FreeTransformerConfig,
     LACTConfig,
     MixtureOfExpertsDecoderConfig,
@@ -167,6 +169,8 @@ __all__ = [
     "LanguageEncoderConfig",
     "DecodingNetworkConfig",
     "ACTConfig",
+    "ConditionalUNetDecoderConfig",
+    "DiTDecoderConfig",
     "FreeTransformerConfig",
     "LACTConfig",
     "MixtureOfExpertsDecoderConfig",
@@ -567,6 +571,8 @@ def register_configs():
     )
     cs.store(group="policy/decoder", name="moe", node=MixtureOfExpertsDecoderConfig)
     cs.store(group="policy/decoder", name="lact_decoder", node=LACTConfig)
+    cs.store(group="policy/decoder", name="dit", node=DiTDecoderConfig)
+    cs.store(group="policy/decoder", name="unet", node=ConditionalUNetDecoderConfig)
     cs.store(group="policy/decoder/action_head", name="base", node=ActionHeadConfig)
     cs.store(
         group="policy/decoder/action_head", name="moe", node=MixtureOfExpertsHeadConfig
