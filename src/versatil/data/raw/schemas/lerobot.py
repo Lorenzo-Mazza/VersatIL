@@ -1,4 +1,4 @@
-"""Dataset schema for LeRobot datasets (v2.1 and v3.0 formats).
+"""Dataset schema for LeRobot dataset V3.0.
 
 LeRobot is a HuggingFace robotics dataset format using:
 - Parquet files for tabular data (observation.state, action, timestamps)
@@ -8,11 +8,9 @@ LeRobot is a HuggingFace robotics dataset format using:
 Reference: https://github.com/huggingface/lerobot
 """
 
-import abc
 import io
 import json
 from pathlib import Path
-from typing import Any
 
 import albumentations as A
 import cv2
@@ -20,385 +18,240 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-from versatil.data.constants import ObsKey
+from versatil.data.constants import ObsKey, LeRobotPathsV30
 from versatil.data.metadata import CameraMetadata
 from versatil.data.raw.schemas.base import DatasetSchema
 from versatil.data.raw.zarr_meta import DatasetMetadata
 
-
-class LeRobotDatasetSchema(DatasetSchema):
-    """Abstract base class for LeRobot dataset schemas.
-
-    LeRobot datasets use Parquet files for tabular data, MP4 videos or
-    embedded PNG images for camera observations, and JSON/Parquet metadata.
-    Requires explicit DatasetMetadata to specify observation/action mappings.
+def decode_video_frames(
+    video_path: Path,
+    timestamps: list[float],
+    tolerance_s: float = 0.01,
+) -> list:
     """
-
-    def __init__(
-        self,
-        lerobot_path: str,
-        zarr_path: str,
-        metadata: DatasetMetadata,
-        has_video_files: bool = True,
-        tasks_format: str = "jsonl",
-    ):
-        self.lerobot_path = Path(lerobot_path)
-        self.has_video_files = has_video_files
-        self.tasks_format = tasks_format
-        self.info = self._load_info_json()
-        self.version = self._detect_version()
-        super().__init__(zarr_path=zarr_path, metadata=metadata)
-        self.tasks = self._load_tasks()
-
-    def _load_info_json(self) -> dict:
-        info_path = self.lerobot_path / "meta" / "info.json"
-        if not info_path.exists():
-            raise FileNotFoundError(f"info.json not found at {info_path}")
-        with open(info_path, "r") as f:
-            return json.load(f)
-
-    def _detect_version(self) -> str:
-        """Detect v2.1 or v3.0 from file naming patterns.
-
-        v2.1: chunk*/episode_*.parquet (one episode per file)
-        v3.0: chunk*/file*.parquet (multiple episodes per file)
-        """
-        data_dir = self.lerobot_path / "data"
-        if not data_dir.exists():
-            raise FileNotFoundError(f"Data directory not found at {data_dir}")
-        if list(data_dir.glob("chunk*/episode_*.parquet")):
-            return "2.1"
-        if list(data_dir.glob("chunk*/file*.parquet")):
-            return "3.0"
-        raise ValueError(
-            f"Could not detect LeRobot version from {data_dir}. "
-            "Expected chunk*/episode_*.parquet (v2.1) or chunk*/file*.parquet (v3.0)"
-        )
-
-    def _load_tasks(self) -> dict[int, str]:
-        tasks: dict[int, str] = {}
-        if self.tasks_format == "parquet":
-            tasks_path = self.lerobot_path / "meta" / "tasks.parquet"
-            if tasks_path.exists():
-                df = pd.read_parquet(tasks_path)
-                if "task_index" in df.columns:
-                    for _, row in df.iterrows():
-                        tasks[int(row["task_index"])] = str(row.iloc[0])
-                else:
-                    for idx, row in df.iterrows():
-                        tasks[int(idx)] = str(row.iloc[0])
-        else:
-            tasks_path = self.lerobot_path / "meta" / "tasks.jsonl"
-            if tasks_path.exists():
-                with open(tasks_path, "r") as f:
-                    for line in f:
-                        if line.strip():
-                            task = json.loads(line)
-                            tasks[task["task_index"]] = task["task"]
-        return tasks
-
-    @staticmethod
-    def _decode_png_bytes(img_data: dict | bytes) -> np.ndarray:
-        if isinstance(img_data, dict):
-            img_bytes = img_data.get("bytes", img_data.get("path", b""))
-        else:
-            img_bytes = img_data
-        img = Image.open(io.BytesIO(img_bytes))
-        return np.array(img)
-
-    @abc.abstractmethod
-    def get_episode_identifiers(self) -> list[Any]:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def load_episode_parquet(self, episode_id: Any) -> pd.DataFrame:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def load_episode_video_frames(
-        self,
-        episode_id: Any,
-        camera_key: str,
-        frame_indices: list[int],
-    ) -> np.ndarray:
-        raise NotImplementedError
-
-
-class LeRobotV21Schema(LeRobotDatasetSchema):
-    """Schema for LeRobot v2.1 datasets with per-episode files.
-
-    Structure:
-        data/chunk-000/episode_000000.parquet (one episode per file)
-        videos/chunk-000/<camera>/episode_000000.mp4
-    """
-
-    def get_episode_identifiers(self) -> list[int]:
-        data_dir = self.lerobot_path / "data"
-        episode_files = sorted(data_dir.glob("chunk*/episode_*.parquet"))
-        return [int(f.stem.replace("episode_", "")) for f in episode_files]
-
-    def _find_episode_parquet(self, episode_id: int) -> Path:
-        data_dir = self.lerobot_path / "data"
-        pattern = f"chunk*/episode_{episode_id:06d}.parquet"
-        matches = list(data_dir.glob(pattern))
-        if not matches:
-            raise FileNotFoundError(f"Episode {episode_id} parquet not found")
-        return matches[0]
-
-    def _find_episode_video(self, episode_id: int, camera_key: str) -> Path:
-        videos_dir = self.lerobot_path / "videos"
-        pattern = f"chunk*/{camera_key}/episode_{episode_id:06d}.mp4"
-        matches = list(videos_dir.glob(pattern))
-        if not matches:
-            raise FileNotFoundError(f"Episode {episode_id} video for {camera_key} not found")
-        return matches[0]
-
-    def load_episode_parquet(self, episode_id: int) -> pd.DataFrame:
-        parquet_path = self._find_episode_parquet(episode_id)
-        return pd.read_parquet(parquet_path)
-
-    def load_episode_video_frames(
-        self,
-        episode_id: int,
-        camera_key: str,
-        frame_indices: list[int],
-    ) -> np.ndarray:
-        video_path = self._find_episode_video(episode_id, camera_key)
-        return self._decode_video_frames(video_path, frame_indices)
-
-    def _decode_video_frames(
-        self,
-        video_path: Path,
-        frame_indices: list[int],
-    ) -> np.ndarray:
-        cap = cv2.VideoCapture(str(video_path))
-        if not cap.isOpened():
-            raise IOError(f"Cannot open video: {video_path}")
-        frames = []
-        frame_set = set(frame_indices)
-        current_idx = 0
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            if current_idx in frame_set:
-                frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            current_idx += 1
-            if len(frames) == len(frame_indices):
-                break
-        cap.release()
-        idx_to_frame = {idx: f for idx, f in zip(sorted(frame_set), frames)}
-        return np.stack([idx_to_frame[i] for i in frame_indices])
-
-    def extract_episode(
-        self,
-        episode_id: int,
-        resizer: A.Resize | A.NoOp,
-        depth_resizer: A.Resize | A.NoOp,
-    ) -> dict[str, np.ndarray]:
-        data: dict[str, np.ndarray] = {}
-        df = self.load_episode_parquet(episode_id)
-        episode_length = len(df)
-        for zarr_key, obs in self.metadata.observations.items():
-            if isinstance(obs, CameraMetadata):
-                continue
-            col_key = obs.raw_data_column_keys[0]
-            if col_key in df.columns:
-                data[zarr_key] = np.stack(df[col_key].values).astype(obs.dtype)
-        for zarr_key, action in self.metadata.precomputed_actions.items():
-            col_key = action.raw_data_column_keys[0]
-            if col_key in df.columns:
-                data[zarr_key] = np.stack(df[col_key].values).astype(action.dtype)
-        frame_indices = list(range(episode_length))
-        for zarr_key, cam_meta in self.metadata.cameras.items():
-            frames = self.load_episode_video_frames(
-                episode_id, cam_meta.camera_key, frame_indices
-            )
-            resized = [resizer(image=f)["image"] for f in frames]
-            data[zarr_key] = np.stack(resized).astype(cam_meta.dtype)
-        if "task_index" in df.columns and self.tasks:
-            task_texts = [
-                [self.tasks.get(idx, "")] for idx in df["task_index"].values
-            ]
-            data[ObsKey.LANGUAGE.value] = np.array(task_texts)
-        return data
-
-
-class LeRobotV30Schema(LeRobotDatasetSchema):
-    """Schema for LeRobot v3.0 datasets with multi-episode files.
-
-    Structure:
-        data/chunk_000/file_000.parquet (contains multiple episodes)
-        videos/<camera>/chunk_000/file_000.mp4 (multi-episode)
-        meta/episodes/chunk_000.parquet (episode metadata with bounds)
-    """
-
-    def __init__(self, *args: Any, **kwargs: Any):
-        super().__init__(*args, **kwargs)
-        self._episode_metadata = self._load_episode_metadata()
-        self._data_cache: dict[str, pd.DataFrame] = {}
-        self._video_cache: dict[str, cv2.VideoCapture] = {}
-
-    def _load_episode_metadata(self) -> pd.DataFrame:
-        episodes_dir = self.lerobot_path / "meta" / "episodes"
-        if not episodes_dir.exists():
-            raise FileNotFoundError(f"Episodes metadata not found: {episodes_dir}")
-        parquet_files = sorted(episodes_dir.glob("*.parquet"))
-        return pd.concat([pd.read_parquet(f) for f in parquet_files], ignore_index=True)
-
-    def get_episode_identifiers(self) -> list[int]:
-        return list(self._episode_metadata["episode_index"].unique())
-
-    def _get_episode_data_range(self, episode_id: int) -> tuple[int, int]:
-        row = self._episode_metadata[
-            self._episode_metadata["episode_index"] == episode_id
-        ].iloc[0]
-        if "data_index_from" in row:
-            return int(row["data_index_from"]), int(row["data_index_to"])
-        episode_df = self._episode_metadata[
-            self._episode_metadata["episode_index"] <= episode_id
-        ]
-        if "length" in episode_df.columns:
-            end = episode_df["length"].sum()
-            start = end - row["length"]
-            return int(start), int(end)
-        return 0, 1
-
-    def _get_data_file_for_index(self, global_idx: int) -> tuple[Path, int]:
-        data_dir = self.lerobot_path / "data"
-        chunks = sorted(data_dir.glob("chunk_*"))
-        cumulative = 0
-        for chunk_dir in chunks:
-            files = sorted(chunk_dir.glob("*.parquet"))
-            for file_path in files:
-                cache_key = str(file_path)
-                if cache_key not in self._data_cache:
-                    self._data_cache[cache_key] = pd.read_parquet(file_path)
-                file_len = len(self._data_cache[cache_key])
-                if cumulative + file_len > global_idx:
-                    return file_path, global_idx - cumulative
-                cumulative += file_len
-        raise IndexError(f"Global index {global_idx} out of range")
-
-    def load_episode_parquet(self, episode_id: int) -> pd.DataFrame:
-        start_idx, end_idx = self._get_episode_data_range(episode_id)
-        all_rows = []
-        for global_idx in range(start_idx, end_idx):
-            file_path, local_idx = self._get_data_file_for_index(global_idx)
-            df = self._data_cache[str(file_path)]
-            all_rows.append(df.iloc[local_idx : local_idx + 1])
-        return pd.concat(all_rows, ignore_index=True)
-
-    def load_episode_video_frames(
-        self,
-        episode_id: int,
-        camera_key: str,
-        frame_indices: list[int],
-    ) -> np.ndarray:
-        start_idx, _ = self._get_episode_data_range(episode_id)
-        frames = []
-        for local_frame_idx in frame_indices:
-            global_idx = start_idx + local_frame_idx
-            frames.append(self._decode_single_frame(camera_key, global_idx))
-        return np.stack(frames)
-
-    def _decode_single_frame(self, camera_key: str, global_idx: int) -> np.ndarray:
-        videos_dir = self.lerobot_path / "videos" / camera_key
-        chunks = sorted(videos_dir.glob("chunk_*"))
-        cumulative = 0
-        for chunk_dir in chunks:
-            files = sorted(chunk_dir.glob("*.mp4"))
-            for video_path in files:
-                cache_key = str(video_path)
-                if cache_key not in self._video_cache:
-                    self._video_cache[cache_key] = cv2.VideoCapture(str(video_path))
-                cap = self._video_cache[cache_key]
-                frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                if cumulative + frame_count > global_idx:
-                    local_frame_idx = global_idx - cumulative
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, local_frame_idx)
-                    ret, frame = cap.read()
-                    if not ret:
-                        raise IOError(
-                            f"Failed to read frame {local_frame_idx} from {video_path}"
-                        )
-                    return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                cumulative += frame_count
-        raise IndexError(f"Global frame index {global_idx} out of range")
-
-    def extract_episode(
-        self,
-        episode_id: int,
-        resizer: A.Resize | A.NoOp,
-        depth_resizer: A.Resize | A.NoOp,
-    ) -> dict[str, np.ndarray]:
-        data: dict[str, np.ndarray] = {}
-        df = self.load_episode_parquet(episode_id)
-        episode_length = len(df)
-        for zarr_key, obs in self.metadata.observations.items():
-            if isinstance(obs, CameraMetadata):
-                continue
-            col_key = obs.raw_data_column_keys[0]
-            if col_key in df.columns:
-                data[zarr_key] = np.stack(df[col_key].values).astype(obs.dtype)
-        for zarr_key, action in self.metadata.precomputed_actions.items():
-            col_key = action.raw_data_column_keys[0]
-            if col_key in df.columns:
-                data[zarr_key] = np.stack(df[col_key].values).astype(action.dtype)
-        frame_indices = list(range(episode_length))
-        for zarr_key, cam_meta in self.metadata.cameras.items():
-            frames = self.load_episode_video_frames(
-                episode_id, cam_meta.camera_key, frame_indices
-            )
-            resized = [resizer(image=f)["image"] for f in frames]
-            data[zarr_key] = np.stack(resized).astype(cam_meta.dtype)
-        if "task_index" in df.columns and self.tasks:
-            task_texts = [
-                [self.tasks.get(idx, "")] for idx in df["task_index"].values
-            ]
-            data[ObsKey.LANGUAGE.value] = np.array(task_texts)
-        return data
-
-    def __del__(self) -> None:
-        for cap in self._video_cache.values():
-            if cap.isOpened():
-                cap.release()
-
-
-def create_lerobot_schema(
-    lerobot_path: str,
-    zarr_path: str,
-    metadata: DatasetMetadata,
-) -> LeRobotDatasetSchema:
-    """Factory function to create appropriate LeRobot schema based on version.
-
-    Auto-detects v2.1 (per-episode) or v3.0 (multi-episode) from directory structure.
+    Loads frames from a video at given timestamps using OpenCV.
 
     Args:
-        lerobot_path: Path to LeRobot dataset root directory.
-        zarr_path: Output path for Zarr store.
-        metadata: DatasetMetadata specifying observations and actions.
+        video_path (str or Path): path to video file
+        timestamps (list[float]): timestamps in seconds
+        tolerance_s (float): maximum allowed deviation in seconds
 
     Returns:
-        LeRobotV21Schema or LeRobotV30Schema instance.
+        list of PIL.Image
     """
-    lerobot_path_obj = Path(lerobot_path)
-    data_dir = lerobot_path_obj / "data"
-    if not data_dir.exists():
-        raise FileNotFoundError(f"Data directory not found at {data_dir}")
-    if list(data_dir.glob("chunk*/episode_*.parquet")):
-        return LeRobotV21Schema(
-            lerobot_path=lerobot_path,
-            zarr_path=zarr_path,
-            metadata=metadata,
+    cap = cv2.VideoCapture(str(video_path))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps <= 0:
+        raise ValueError(f"Failed to read FPS from video: {video_path}")
+
+    loaded_frames = []
+
+    for timestamp in timestamps:
+        frame_idx = round(timestamp * fps)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+
+        ret, frame = cap.read()
+        if not ret:
+            raise RuntimeError(f"Failed to read frame at timestamp={timestamp:.4f}s from video: {video_path}")
+
+        actual_timestamp_s = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+
+        if abs(actual_timestamp_s - timestamp) > tolerance_s:
+            raise RuntimeError(
+                f"Timestamp tolerance exceeded: requested={timestamp:.4f}, got={actual_timestamp_s:.4f}, video={video_path}"
+            )
+        
+        # Convert BGR (OpenCV) -> RGB (PIL)
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(frame_rgb)
+        loaded_frames.append(pil_image)
+    cap.release()
+    
+    return loaded_frames
+
+
+class LeRobotDatasetMetadataV30:
+    
+    def __init__(
+        self,
+        dataset_path: str | Path
+    ):
+        self.dataset_path = Path(dataset_path)
+        self.info = self._load_info()
+        self.tasks = pd.read_parquet(self.dataset_path / LeRobotPathsV30.DEFAULT_TASKS_PATH)
+        self.episodes = self._load_episodes()
+
+    def _load_info(self):
+        info_path = self.dataset_path / LeRobotPathsV30.INFO_PATH
+        with open(info_path) as f:
+            return json.load(f)
+
+    def _load_episodes(self) ->  pd.DataFrame:
+        episodes_dir = self.dataset_path / LeRobotPathsV30.EPISODES_DIR
+        paths = sorted(episodes_dir.glob("*/*.parquet"))
+        dfs = [pd.read_parquet(str(path)) for path in paths]
+        df = pd.concat(dfs, ignore_index=True)
+        df = df.loc[:, ~df.columns.str.startswith("stats/")]
+        
+        return df
+
+    def get_version(self) -> str:
+        return self.info["codebase_version"]
+
+    def get_data_file_path(self, episode_index: int) -> Path:
+        episode = self.get_episode_meta(episode_index)
+        chunk_idx = episode["data/chunk_index"].item()
+        file_idx = episode["data/file_index"].item()
+        fpath = self.info["data_path"].format(chunk_index=chunk_idx, file_index=file_idx)
+        return self.dataset_path / Path(fpath)
+
+    def get_image_file_path(self, episode_index: int, image_key: str, frame_index: int) -> Path:
+        fpath = LeRobotPathsV30.DEFAULT_IMAGE_PATH.format(
+            image_key=image_key, episode_index=episode_index, frame_index=frame_index
         )
-    if list(data_dir.glob("chunk_*/file_*.parquet")):
-        return LeRobotV30Schema(
-            lerobot_path=lerobot_path,
-            zarr_path=zarr_path,
-            metadata=metadata,
-        )
-    raise ValueError(
-        f"Could not detect LeRobot version from {data_dir}. "
-        "Expected chunk*/episode_*.parquet (v2.1) or chunk_*/file_*.parquet (v3.0)"
-    )
+        return self.dataset_path / Path(fpath)
+
+    def get_video_file_path(self, episode_index: int, video_key: str) -> Path:
+        episode = self.get_episode_meta(episode_index)
+        chunk_idx = episode[f"videos/{video_key}/chunk_index"].item()
+        file_idx = episode[f"videos/{video_key}/file_index"].item()
+        fpath = self.info["video_path"].format(video_key=video_key, chunk_index=chunk_idx, file_index=file_idx)
+        return self.dataset_path / Path(fpath)
+
+    def get_episode_meta(self, episode_index: int) -> pd.DataFrame:
+        return self.episodes[self.episodes['episode_index'] == episode_index]
+
+    def get_features(self) -> dict:
+        return self.info['features']
+
+    def get_image_keys(self) -> list[str]:
+        return [key for key, ft in self.get_features().items() if ft["dtype"] == "image"]
+
+    def get_video_keys(self) -> list[str]:
+        return [key for key, ft in self.get_features().items() if ft["dtype"] == "video"]
+
+    def get_total_episodes(self) -> int:
+        return self.info["total_episodes"]
+
+class LeRobotDatasetSchemaV30(DatasetSchema):
+
+    def __init__(self, dataset_path: str, zarr_path: str, metadata: DatasetMetadata):
+        self.dataset_path = Path(dataset_path)
+        super().__init__(zarr_path=zarr_path, metadata=metadata)
+
+        self.lerobot_metadata = LeRobotDatasetMetadataV30(dataset_path=dataset_path)
+
+    def _get_frames_from_videos(self, query_timestamps: dict[str, list[float]], episode_index: int) -> dict[str, list]:
+        episode = self.lerobot_metadata.get_episode_meta(episode_index)
+        videos = {}
+        for video_key, query_timestamp in query_timestamps.items():
+            from_timestamp = episode[f"videos/{video_key}/from_timestamp"].item()
+            shifted_query_timestamp = [from_timestamp + timestamp for timestamp in query_timestamp]
+            video_path = self.lerobot_metadata.get_video_file_path(episode_index, video_key)
+            frames = decode_video_frames(video_path, shifted_query_timestamp)
+            videos[video_key] = frames
+            
+        return videos
+
+    def _get_images_from_filesystem(self, episode_index: int, image_key: str, frame_indexes: list[int]) -> list:
+        frames = []
+        for frame_index in frame_indexes:
+            image_path = self.lerobot_metadata.get_image_file_path(episode_index, image_key, frame_index)
+            assert image_path.exists(), f"Image was not found: {image_path}"
+            frames.append(Image.open(image_path))
+        return frames
+
+    def get_episode_parquet(self, episode_id: int) -> pd.DataFrame:
+        episode_df = pd.read_parquet(self.lerobot_metadata.get_data_file_path(episode_id))
+        episode_df = episode_df[episode_df['episode_index'] == episode_id].reset_index(drop=True)
+        return episode_df
+
+    def get_episode_videos_frames(self, episode_id: int, preloaded_episode_df: pd.DataFrame = None) -> dict[str, list]:
+        episode_df = preloaded_episode_df if preloaded_episode_df is not None else self.get_episode_parquet(episode_id)
+        
+        video_keys = self.lerobot_metadata.get_video_keys()        
+        
+        frames = {}
+        if video_keys:
+            timestamps = episode_df['timestamp'].tolist()
+            query_timestamps = {
+                k: timestamps for k in video_keys
+            }
+            frames = self._get_frames_from_videos(query_timestamps, episode_id)
+            
+        return frames
+
+    def get_episode_images(self, episode_id: int, preloaded_episode_df: pd.DataFrame = None) -> dict[str, list]:
+        episode_df = preloaded_episode_df if preloaded_episode_df is not None else self.get_episode_parquet(episode_id)
+        
+        image_keys = self.lerobot_metadata.get_image_keys()
+        images = {}
+        
+        if image_keys:
+            frame_indexes = episode_df['frame_index'].tolist()
+            episode_cols = episode_df.columns.tolist()
+            
+            for image_key in image_keys:   
+                frames = []
+                
+                if image_key in episode_cols:
+                    encoded_images = episode_df[image_key].tolist()
+                    for encoded_image in encoded_images:
+                        if 'bytes' in encoded_image:
+                            frames.append(Image.open(io.BytesIO(encoded_image['bytes'])))
+                        else:
+                            path = self.dataset_path / Path(encoded_image['path'])
+                            frames.append(Image.open(path))
+                else:
+                    frames = self._get_images_from_filesystem(episode_id, image_key, frame_indexes)
+                
+                images[image_key] = frames
+        
+        return images
+
+    def get_episode_language_instruction(self, episode_id: int, preloaded_episode_df: pd.DataFrame = None) -> str:
+        episode_df = preloaded_episode_df if preloaded_episode_df is not None else self.get_episode_parquet(episode_id)
+        task_index = episode_df.iloc[0]['task_index'].item()
+        return self.lerobot_metadata.tasks.iloc[task_index].name
+        
+    
+    def extract_episode(self, episode_id: int, resizer: A.Resize | A.NoOp, depth_resizer: A.Resize | A.NoOp,) -> dict:
+        
+        episode_df = self.get_episode_parquet(episode_id)
+        language_instruction = self.get_episode_language_instruction(episode_id, episode_df)       
+        videos = self.get_episode_videos_frames(episode_id, episode_df)
+        images = self.get_episode_images(episode_id, episode_df)
+        frames = videos | images
+
+        data = {}
+
+        # Process observations
+        for zarr_key, obs in self.metadata.observations.items():
+            if isinstance(obs, CameraMetadata):
+                camera_key = obs.camera_key
+                assert camera_key in frames, f'The camera key: {camera_key} does not exist in the dataset.'
+                resized_frames = [resizer(image=np.array(f))["image"] for f in frames[camera_key]]
+                data[zarr_key] = np.stack(resized_frames).astype(obs.dtype)
+
+            else:
+                col_key = obs.raw_data_column_keys[0]
+                assert col_key in episode_df.columns, f'The column {col_key} does not exist in the dataset.'
+                
+                obs_array = np.stack(episode_df[col_key].values)
+                if obs.slice_start is not None and obs.slice_end is not None:
+                    obs_array = obs_array[:, obs.slice_start : obs.slice_end]
+                data[zarr_key] = obs_array.astype(obs.dtype)
+
+        # Process precomputed actions
+        for zarr_key, action in self.metadata.precomputed_actions.items():
+            col_key = action.raw_data_column_keys[0]
+            assert col_key in episode_df.columns, f'The column {col_key} does not exist in the dataset.'
+            
+            action_array = np.stack(episode_df[col_key].values)
+            if action.slice_start is not None and action.slice_end is not None:
+                action_array = action_array[:, action.slice_start : action.slice_end]
+            data[zarr_key] = action_array.astype(action.dtype)
+
+        data[ObsKey.LANGUAGE.value] = language_instruction
+            
+        return data
