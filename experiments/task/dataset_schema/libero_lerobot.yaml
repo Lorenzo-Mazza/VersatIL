@@ -4,4 +4,4 @@ defaults:
 
 _target_: versatil.data.raw.schemas.lerobot.LeRobotDatasetSchemaV30
 dataset_path: /mnt/cluster/datasets/robotics_lerobot/libero
-zarr_path: /mnt/cluster/datasets/robotics_zarr
+zarr_path: /mnt/cluster/datasets/robotics_zarr/libero_lerobot.zarr

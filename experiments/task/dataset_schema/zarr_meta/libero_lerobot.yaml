@@ -27,7 +27,7 @@ observations:
 
   ${proprio_key:GRIPPER_STATE}:
     _target_: versatil.data.metadata.GripperObservationMetadata
-    raw_data_column_keys: [gripper_states]
+    raw_data_column_keys: [observation.state]
     dtype: float32
     dimension: 2
     needs_normalization: false
