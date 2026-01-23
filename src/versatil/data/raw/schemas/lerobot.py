@@ -209,16 +209,20 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         
         return images
 
-    def get_episode_language_instruction(self, episode_id: int, preloaded_episode_df: pd.DataFrame = None) -> str:
+    def get_episode_language_instructions(self, episode_id: int, preloaded_episode_df: pd.DataFrame = None) -> list:
         episode_df = preloaded_episode_df if preloaded_episode_df is not None else self.get_episode_parquet(episode_id)
-        task_index = episode_df.iloc[0]['task_index'].item()
-        return self.lerobot_metadata.tasks.iloc[task_index].name
+
+        language_instructions = [
+            [self.lerobot_metadata.tasks.iloc[i].name] for i in episode_df['task_index'].tolist()
+        ]
+        
+        return language_instructions
         
     
     def extract_episode(self, episode_id: int, resizer: A.Resize | A.NoOp, depth_resizer: A.Resize | A.NoOp,) -> dict:
         
         episode_df = self.get_episode_parquet(episode_id)
-        language_instruction = self.get_episode_language_instruction(episode_id, episode_df)       
+        language_instructions = self.get_episode_language_instructions(episode_id, episode_df)       
         videos = self.get_episode_videos_frames(episode_id, episode_df)
         images = self.get_episode_images(episode_id, episode_df)
         frames = videos | images
@@ -229,9 +233,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         for zarr_key, obs in self.metadata.observations.items():
             
             if zarr_key == ObsKey.LANGUAGE.value:
-                data[zarr_key] = np.array(
-                    [[language_instruction]] * len(episode_df)
-                )  # Shape (T, 1)
+                data[zarr_key] = np.array(language_instructions)
 
             elif isinstance(obs, CameraMetadata):
                 camera_key = obs.camera_key
