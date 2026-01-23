@@ -227,7 +227,13 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
         # Process observations
         for zarr_key, obs in self.metadata.observations.items():
-            if isinstance(obs, CameraMetadata):
+            
+            if zarr_key == ObsKey.LANGUAGE.value:
+                data[zarr_key] = np.array(
+                    [[language_instruction]] * len(episode_df)
+                )  # Shape (T, 1)
+
+            elif isinstance(obs, CameraMetadata):
                 camera_key = obs.camera_key
                 assert camera_key in frames, f'The camera key: {camera_key} does not exist in the dataset.'
                 resized_frames = [resizer(image=np.array(f))["image"] for f in frames[camera_key]]
@@ -251,7 +257,5 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
             if action.slice_start is not None and action.slice_end is not None:
                 action_array = action_array[:, action.slice_start : action.slice_end]
             data[zarr_key] = action_array.astype(action.dtype)
-
-        data[ObsKey.LANGUAGE.value] = language_instruction
             
         return data
