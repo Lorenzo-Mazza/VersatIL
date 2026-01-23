@@ -150,8 +150,7 @@ class SampleBuilder:
     ) -> dict[str, torch.Tensor]:
         """Process images and return them as a dictionary of tensors."""
         image_dict = {}
-        for meta in self.observation_space.cameras.values():
-            cam = meta.camera_key
+        for cam in self.observation_space.cameras.keys():
             # the sampler now fetches action_backward_shift extra prior observations at the start of padded_data, effectively offsetting the entire sequence
             img = padded_data[cam][
                 self.action_backward_shift : self.action_backward_shift
