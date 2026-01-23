@@ -9,7 +9,7 @@ input_keys:
   - right_rgb
   - camera_frame_proprio
 
-diffusion_transformer_type: ${dit_type:STANDARD}
+diffusion_transformer_type: ${dit_type:CROSS_CONDITIONING}
 max_sequence_length: 1024
 embedding_dimension: 512
 timestep_embedding_dimension: 256

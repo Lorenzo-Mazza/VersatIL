@@ -137,9 +137,10 @@ from versatil.data.constants import (
 )
 from versatil.models.decoding.constants import (
     ACTION_LOGITS_KEY,
-    LATENT_KEY,
     LatentKey,
-    MoERoutingType, DenoisingAlgorithm,
+    MoERoutingType,
+    DenoisingAlgorithm,
+    DiTType,
 )
 from versatil.models.encoding.encoders.constants import (
     RGBBackboneType,
@@ -322,6 +323,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("metadata_key"):
         OmegaConf.register_new_resolver(
             "metadata_key", lambda name: MetadataKey[name].value
+        )
+    if not OmegaConf.has_resolver("dit_type"):
+        OmegaConf.register_new_resolver(
+            "dit_type", lambda name: DiTType[name].value
         )
 
 def register_configs():

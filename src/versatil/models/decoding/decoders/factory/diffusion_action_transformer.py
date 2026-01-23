@@ -11,19 +11,20 @@ from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import TIMESTEP_KEY, FeatureType
+from versatil.models.decoding.constants import TIMESTEP_KEY, FeatureType, DiTType
 from versatil.models.decoding.decoders.base import DecoderInput
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.layers import MLP
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.dit.transformer import DiffusionTransformer
+from versatil.models.layers.dit import CrossConditioningDiffusionTransformer
+from versatil.models.layers.dit.standard_transformer import DiffusionTransformer
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
 from versatil.models.layers.positional_encoding.sinusoidal import (
-    SinusoidalPositionalEncoding1D,
+    SinusoidalPositionalEncoding1D, SinusoidalPositionalEncoding2D,
 )
 from versatil.models.layers.transformer_input_builder import TransformerInputBuilder
 
@@ -56,6 +57,7 @@ class DiTDecoder(ActionDecoder):
         observation_horizon: int,
         prediction_horizon: int,
         device: str,
+        diffusion_transformer_type: str = DiTType.CROSS_CONDITIONING.value,
         max_sequence_length: int = 1024,
         embedding_dimension: int = 512,
         timestep_embedding_dimension: int = 256,
@@ -82,6 +84,7 @@ class DiTDecoder(ActionDecoder):
             observation_horizon: Number of observation timesteps (for history)
             prediction_horizon: Number of actions to predict (horizon)
             device: Device to run the model on
+            diffusion_transformer_type: Type of Diffusion Transformer architecture
             max_sequence_length: Maximum sequence length for input tokens
             embedding_dimension: Transformer hidden dimension
             timestep_embedding_dimension: Diffusion timestep embedding dimension
@@ -103,6 +106,7 @@ class DiTDecoder(ActionDecoder):
         self.observation_horizon = observation_horizon
         self.prediction_horizon = prediction_horizon
         self.device = device
+        self.diffusion_transformer_type = diffusion_transformer_type
         self.max_sequence_length = max_sequence_length
         self.embedding_dimension = embedding_dimension
         self.timestep_embedding_dimension = timestep_embedding_dimension
@@ -121,7 +125,6 @@ class DiTDecoder(ActionDecoder):
 
         decoder_input = DecoderInput(
             keys=input_keys,
-            raises_for_types=[FeatureType.SPATIAL.value],
             requires_actions=True,
         )
         # Action heads are not used by DiT (it handles all processing internally)
@@ -146,6 +149,9 @@ class DiTDecoder(ActionDecoder):
 
     def _build_transformer_components(self):
         """Build core Diffusion Transformer encoder-decoder and positional encodings."""
+        image_positional_encoding = SinusoidalPositionalEncoding2D(
+            embedding_dimension=self.embedding_dimension, normalize=True
+        )
         temporal_positional_encoding = None
         if self.observation_horizon > 1:
             temporal_positional_encoding = LearnedPositionalEncoding1D(
@@ -155,30 +161,56 @@ class DiTDecoder(ActionDecoder):
         self.input_builder = TransformerInputBuilder(
             embedding_dim=self.embedding_dimension,
             has_time_dim=self.observation_horizon > 1,
-            spatial_positional_encoding_layer=None,
+            spatial_positional_encoding_layer=image_positional_encoding,
             flat_positional_encoding_layer=SinusoidalPositionalEncoding1D(
                 embedding_dimension=self.embedding_dimension
             ),
             temporal_positional_encoding_layer=temporal_positional_encoding,
         )
-        self.transformer = DiffusionTransformer(
-            number_of_encoder_layers=self.number_of_encoder_layers,
-            number_of_decoder_layers=self.number_of_decoder_layers,
-            embedding_dimension=self.embedding_dimension,
-            number_of_heads=self.number_of_heads,
-            number_of_key_value_heads=self.number_of_key_value_heads,
-            feedforward_dimension=self.feedforward_dimension,
-            dropout=self.dropout_rate,
-            attention_dropout=self.attention_dropout,
-            activation=self.activation,
-            normalization_type=self.normalization_type,
-            attention_type=self.attention_type,
-            positional_encoding_type=self.positional_encoding_type,
-            maximum_sequence_length=self.max_sequence_length,
-            maximum_decoder_length=self.prediction_horizon,
-            timestep_embedding_dimension=self.timestep_embedding_dimension,
-            use_gating=self.use_gating,
-        )
+        match self.diffusion_transformer_type:
+            case DiTType.STANDARD.value:
+                self.transformer = DiffusionTransformer(
+                    number_of_encoder_layers=self.number_of_encoder_layers,
+                    number_of_decoder_layers=self.number_of_decoder_layers,
+                    embedding_dimension=self.embedding_dimension,
+                    number_of_heads=self.number_of_heads,
+                    number_of_key_value_heads=self.number_of_key_value_heads,
+                    feedforward_dimension=self.feedforward_dimension,
+                    dropout=self.dropout_rate,
+                    attention_dropout=self.attention_dropout,
+                    activation=self.activation,
+                    normalization_type=self.normalization_type,
+                    attention_type=self.attention_type,
+                    positional_encoding_type=self.positional_encoding_type,
+                    maximum_sequence_length=self.max_sequence_length,
+                    maximum_decoder_length=self.prediction_horizon,
+                    timestep_embedding_dimension=self.timestep_embedding_dimension,
+                    use_gating=self.use_gating,
+                )
+            case DiTType.CROSS_CONDITIONING.value:
+                self.transformer = CrossConditioningDiffusionTransformer(
+                    number_of_encoder_layers=self.number_of_encoder_layers,
+                    number_of_decoder_layers=self.number_of_decoder_layers,
+                    embedding_dimension=self.embedding_dimension,
+                    number_of_heads=self.number_of_heads,
+                    number_of_key_value_heads=self.number_of_key_value_heads,
+                    feedforward_dimension=self.feedforward_dimension,
+                    dropout=self.dropout_rate,
+                    attention_dropout=self.attention_dropout,
+                    activation=self.activation,
+                    normalization_type=self.normalization_type,
+                    attention_type=self.attention_type,
+                    positional_encoding_type=self.positional_encoding_type,
+                    maximum_sequence_length=self.max_sequence_length,
+                    maximum_decoder_length=self.prediction_horizon,
+                    timestep_embedding_dimension=self.timestep_embedding_dimension,
+                    use_gating=self.use_gating,
+                )
+            case _:
+                raise ValueError(
+                    f"Unsupported diffusion_transformer_type: {self.diffusion_transformer_type}"
+                )
+
         self.noisy_input_projection = MLP(
             input_dim=self.action_space.get_total_action_dim(),
             output_dim=self.embedding_dimension,

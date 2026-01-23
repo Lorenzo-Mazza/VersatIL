@@ -6,7 +6,7 @@ from omegaconf import MISSING
 
 from versatil.configs.decoding.action_head import MixtureOfExpertsHeadConfig
 from versatil.configs.data.task import ActionSpaceConfig, ObservationSpaceConfig
-from versatil.models.decoding.constants import MoERoutingType
+from versatil.models.decoding.constants import MoERoutingType, DiTType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, ConditioningType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -293,6 +293,7 @@ class DiTDecoderConfig(DecodingNetworkConfig):
     attention_dropout: float = 0.0
     positional_encoding_type: str | None = PositionalEncodingType.ROPE.value
     use_gating: bool = True
+    diffusion_transformer_type: str = DiTType.STANDARD.value
 
 
 @dataclass

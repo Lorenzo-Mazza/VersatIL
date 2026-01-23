@@ -70,6 +70,11 @@ class DenoisingAlgorithm(str, enum.Enum):
     FLOW_MATCHING = "flow_matching"
 
 
+class DiTType(str, enum.Enum):
+    """Types of DIT models."""
+    STANDARD = "standard"
+    CROSS_CONDITIONING = "cross_conditioning"
+
 # Feature keys for time/timestep conditioning
 TIMESTEP_KEY = (
     "timestep"  # For diffusion or flow processes (discrete or continuous timestep)
