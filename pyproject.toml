@@ -48,8 +48,7 @@ dependencies = [
   "pykeops",
   "geomloss",
     "h5py",
-  "imitation-learning-toolkit",
-  "tiktoken"
+  "imitation-learning-toolkit"
 ]
 
 [[tool.uv.index]]
