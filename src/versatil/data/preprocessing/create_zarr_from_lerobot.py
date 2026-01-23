@@ -8,10 +8,10 @@ import zarr.storage
 from threadpoolctl import threadpool_limits
 from zarr.codecs import BloscCodec, BloscShuffle
 
-from versatil.data.raw.schemas.lerobot import LeRobotDatasetSchema
+from versatil.data.raw.schemas.lerobot import LeRobotDatasetSchemaV30
 
 
-def create_replay_buffer_from_lerobot(schema: LeRobotDatasetSchema) -> None:
+def create_replay_buffer_from_lerobot(schema: LeRobotDatasetSchemaV30) -> None:
     """Creates a Zarr-based replay buffer from a LeRobot dataset.
 
     Args:
@@ -19,9 +19,8 @@ def create_replay_buffer_from_lerobot(schema: LeRobotDatasetSchema) -> None:
     """
     print(
         f"Creating Zarr dataset at {schema.zarr_path} "
-        f"from LeRobot dataset at {schema.lerobot_path}"
+        f"from LeRobot dataset at {schema.dataset_path}"
     )
-    print(f"Detected LeRobot version: {schema.version}")
     print(f"Using schema: {schema.__class__.__name__}")
 
     store = zarr.storage.LocalStore(schema.zarr_path)
@@ -48,13 +47,13 @@ def create_replay_buffer_from_lerobot(schema: LeRobotDatasetSchema) -> None:
 
     _create_zarr_arrays(data_group, schema, compressor)
 
-    episode_ids = schema.get_episode_identifiers()
-    print(f"Processing {len(episode_ids)} episodes...")
+    total_episodes = schema.lerobot_metadata.get_total_episodes()
+    print(f"Processing {total_episodes} episodes...")
 
     with threadpool_limits(1):
-        for i, episode_id in enumerate(episode_ids):
+        for i, episode_id in enumerate(range(total_episodes)):
             if i % 50 == 0:
-                print(f"  Processing episode {i+1}/{len(episode_ids)}...")
+                print(f"  Processing episode {i+1}/{total_episodes}...")
             episode_data = schema.extract_episode(episode_id, resizer, depth_resizer)
             for key, array in episode_data.items():
                 data_group[key].append(array)
@@ -76,7 +75,7 @@ def create_replay_buffer_from_lerobot(schema: LeRobotDatasetSchema) -> None:
 
 def _create_zarr_arrays(
     data_group: zarr.Group,
-    schema: LeRobotDatasetSchema,
+    schema: LeRobotDatasetSchemaV30,
     compressor: BloscCodec,
 ) -> None:
     specs = schema.get_zarr_array_specs()
