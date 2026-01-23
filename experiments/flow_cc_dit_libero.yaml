@@ -1,3 +1,4 @@
+# Configuration for training a Cross-Attention Conditioning Diffusion Transformer with flow matching on Libero dataset
 _target_: versatil.configs.main.MainConfig
 
 defaults:
