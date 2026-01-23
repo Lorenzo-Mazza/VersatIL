@@ -15,7 +15,7 @@ def create_replay_buffer_from_lerobot(schema: LeRobotDatasetSchemaV30) -> None:
     """Creates a Zarr-based replay buffer from a LeRobot dataset.
 
     Args:
-        schema: LeRobotDatasetSchema instance (v2.1 or v3.0).
+        schema: LeRobotDatasetSchemaV30 instance.
     """
     print(
         f"Creating Zarr dataset at {schema.zarr_path} "

@@ -32,6 +32,6 @@ class Hdf5DatasetSchemaConfig(DatasetSchemaConfig):
 
 @dataclass
 class LeRobotDatasetSchemaConfig(DatasetSchemaConfig):
-    """Configuration for LeRobot dataset schema (v2.1 and v3.0)."""
+    """Configuration for LeRobot dataset schema V30"""
 
     dataset_path: str = MISSING
