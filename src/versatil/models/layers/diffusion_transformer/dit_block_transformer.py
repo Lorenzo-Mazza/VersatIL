@@ -1,15 +1,16 @@
-"""
-Diffusion Transformer architecture from the PixArt paper.
+""" 'DiT Block' architecture inspired by the original implementation by Peebles and Xie, adapted for robotics in
+ "The Ingredients for Robotic Diffusion Transformers" by Dasari et al.
 
-This architecture incorporates cross-attention modules into standard Diffusion Transformer (DiT)
-to inject conditioning information. Differently from the original DiT, the conditioning information
-is added via cross-attention layers rather than averaging and summing it to the timestep embedding.
-This allows for more fine-grained control over how the decoder attends to the conditioning information.
+ The implementation by Dasari had several bugs/differences from the original DiT paper, which have been corrected here.
+
+ The architecture consists of an encoder-decoder transformer where the encoder processes pooled observation features,
+    and the decoder generates action tokens conditioned on both the timestep embedding and the encoder output mean.
 
 References:
-    https://github.com/PixArt-alpha/PixArt-alpha/blob/master/diffusion/model/nets/PixArt.py#L25
-    https://arxiv.org/pdf/2310.00426
-    https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/transformers/pixart_transformer_2d.py
+    https://arxiv.org/html/2410.10088v1
+    https://github.com/SudeepDasari/dit-policy/blob/main/data4robotics/models/diffusion.py#L282
+    https://arxiv.org/abs/2212.09748
+    https://github.com/facebookresearch/DiT/blob/main/models.py
 """
 
 import torch
@@ -17,34 +18,25 @@ import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.dit.cross_conditioning_decoder import (
-    CrossConditioningDecoder,
-)
-from versatil.models.layers.dit.final_prediction_layer import FinalPredictionLayer
+from versatil.models.layers.diffusion_transformer.dit_decoder import DiffusionTransformerDecoder
+from versatil.models.layers.diffusion_transformer.final_prediction_layer import FinalPredictionLayer
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.positional_encoding.base import (
-    DenominatorMode,
-    OrderingMode,
-    PositionSource,
-)
-from versatil.models.layers.positional_encoding.sinusoidal import (
-    SinusoidalPositionalEncoding1D,
-)
+from versatil.models.layers.positional_encoding.base import DenominatorMode, OrderingMode, PositionSource
+from versatil.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
 from versatil.models.layers.transformer.encoder import TransformerEncoder
 
 
-class CrossConditioningDiffusionTransformer(nn.Module):
-    """Encoder-decoder transformer with cross-attention conditioning (PixArt-style).
+class DiTBlock(nn.Module):
+    """DiT-Block paper network architecture.
 
-    Unlike the standard DiffusionTransformer which averages encoder outputs and adds them
-    to the timestep embedding, this architecture uses cross-attention to allow the decoder
-    to attend to all encoder hidden states. This enables more fine-grained conditioning.
+    The encoder processes input tokens bidirectionally and pools output to a single vector.
+    The decoder generates output tokens conditioned on (timestep + pooled encoder output) via AdaLN.
 
-    Architecture:
-        - Encoder: Bidirectional transformer (processes observation tokens)
-        - Decoder: DiT decoder with cross-attention (generates action tokens)
-        - Timestep conditioning: AdaNorm in self-attention and FFN blocks
-        - Encoder conditioning: Cross-attention with standard LayerNorm
+    Shape notation:
+        B: batch size
+        S: encoder sequence length
+        T: decoder sequence length
+        D: embedding dimension
     """
 
     def __init__(
@@ -70,15 +62,14 @@ class CrossConditioningDiffusionTransformer(nn.Module):
         use_gating: bool = True,
         initializer_range: float = 0.02,
     ):
-        """Initialize the CrossConditioningDiffusionTransformer.
+        """Initialize the DiffusionTransformer.
 
         Args:
             number_of_encoder_layers: Number of encoder layers.
             number_of_decoder_layers: Number of decoder layers.
             embedding_dimension: Hidden dimension of the transformer.
             number_of_heads: Number of attention heads.
-            output_dimension: Output dimension (defaults to embedding_dimension).
-            number_of_key_value_heads: Number of K/V heads (for GQA).
+            number_of_key_value_heads: Number of Key/Values heads (for Group Query Attention).
             feedforward_dimension: Feedforward network hidden dimension.
             dropout: Dropout rate.
             attention_dropout: Dropout rate for attention.
@@ -91,7 +82,7 @@ class CrossConditioningDiffusionTransformer(nn.Module):
             timestep_embedding_dimension: Dimension for timestep sinusoidal embedding.
             bias: Whether to use bias in linear layers.
             normalization_epsilon: Epsilon for normalization layers.
-            use_gating: Whether to use gating in decoder AdaNorm (AdaLN-Zero style).
+            use_gating: Whether to use gating in decoder AdaNorm (often referred to as AdaLNZeroNorm).
             initializer_range: Standard deviation for weight initialization.
         """
         super().__init__()
@@ -99,10 +90,8 @@ class CrossConditioningDiffusionTransformer(nn.Module):
         self.number_of_encoder_layers = number_of_encoder_layers
         self.number_of_decoder_layers = number_of_decoder_layers
         self.initializer_range = initializer_range
-
         if feedforward_dimension is None:
             feedforward_dimension = 4 * embedding_dimension
-
         self.timestep_embedding_network = SinusoidalPositionalEncoding1D(
             embedding_dimension=timestep_embedding_dimension,
             denominator_mode=DenominatorMode.HALF_MINUS_ONE.value,
@@ -112,9 +101,8 @@ class CrossConditioningDiffusionTransformer(nn.Module):
             temperature=10000.0,
             learnable_frequencies=False,
             mlp_activation=nn.SiLU,
-            mlp_hidden_dimensions=[embedding_dimension, embedding_dimension],
+            mlp_hidden_dimensions=[embedding_dimension, embedding_dimension]
         )
-
         self.encoder = TransformerEncoder(
             number_of_layers=number_of_encoder_layers,
             embedding_dimension=embedding_dimension,
@@ -132,8 +120,7 @@ class CrossConditioningDiffusionTransformer(nn.Module):
             normalization_epsilon=normalization_epsilon,
             initializer_range=initializer_range,
         )
-
-        self.decoder = CrossConditioningDecoder(
+        self.decoder = DiffusionTransformerDecoder(
             number_of_layers=number_of_decoder_layers,
             embedding_dimension=embedding_dimension,
             timestep_dimension=embedding_dimension,
@@ -152,11 +139,8 @@ class CrossConditioningDiffusionTransformer(nn.Module):
             use_gating=use_gating,
             initializer_range=initializer_range,
         )
-
         self.output_dimension = output_dimension or embedding_dimension
-        self.epsilon_network = FinalPredictionLayer(
-            self.embedding_dimension, self.output_dimension
-        )
+        self.epsilon_network = FinalPredictionLayer(self.embedding_dimension, self.output_dimension)
 
     def forward(
         self,
@@ -170,33 +154,32 @@ class CrossConditioningDiffusionTransformer(nn.Module):
         """Forward pass through the transformer.
 
         Args:
-            decoder_hidden_states: Decoder input tokens (B, T, D).
+            decoder_hidden_states: Decoder input tokens (batch size (B), decoder sequence length (T), embedding dimension (D)).
             timesteps: Diffusion timesteps (B,).
-            encoder_hidden_states: Encoder input tokens (B, S, D).
+            encoder_hidden_states: Encoder input tokens (B, encoder sequence length (S), D).
             encoder_padding_mask: Padding mask for encoder (B, S).
             decoder_padding_mask: Padding mask for decoder (B, T).
-            encoder_cache: Precomputed encoder outputs (B, S, D) for inference caching.
+            encoder_cache: Precomputed encoder output mean (B, D) for inference.
 
         Returns:
-            Tuple of (encoder_outputs, decoder_output):
-                - encoder_outputs: Full encoder hidden states (B, S, D) for caching.
-                - decoder_output: Decoder output tokens (B, T, output_dimension).
+            Tuple of (encoder_output_mean, decoder_output):
+                - encoder_output_mean: Mean of encoder outputs (B, D) for caching.
+                - decoder_output: Decoder output tokens (B, T, self.output_dimension).
         """
         if encoder_cache is None:
-            encoder_outputs = self.forward_encoder(
+            encoder_output_mean = self.forward_encoder(
                 encoder_hidden_states, encoder_padding_mask
             )
         else:
-            encoder_outputs = encoder_cache
+            encoder_output_mean = encoder_cache
 
         decoder_output = self.forward_decoder(
             decoder_hidden_states,
             timesteps,
-            encoder_outputs,
+            encoder_output_mean,
             decoder_padding_mask,
-            encoder_padding_mask,
         )
-        return encoder_outputs, decoder_output
+        return encoder_output_mean, decoder_output
 
     def forward_encoder(
         self,
@@ -206,44 +189,42 @@ class CrossConditioningDiffusionTransformer(nn.Module):
         """Encode input tokens.
 
         Args:
-            hidden_states: Input tokens (B, S, D).
+            hidden_states: Input tokens (batch size (B), encoder sequence length (S), embedding dimension (D)).
             padding_mask: Padding mask (B, S) where True means masked.
 
         Returns:
-            Encoder hidden states (B, S, D) for cross-attention.
+            Mean of encoder outputs (B, D) for conditioning the decoder.
         """
-        return self.encoder(
+        encoder_output = self.encoder(
             hidden_states=hidden_states,
             padding_mask=padding_mask,
         )
+        encoder_output_mean = encoder_output.mean(dim=1) # Mean over sequence length, shape (B, D)
+        return encoder_output_mean
 
     def forward_decoder(
         self,
         hidden_states: torch.Tensor,
         timesteps: torch.Tensor,
-        encoder_hidden_states: torch.Tensor,
-        decoder_padding_mask: torch.Tensor | None = None,
-        encoder_padding_mask: torch.Tensor | None = None,
+        encoder_output_mean: torch.Tensor,
+        padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Decode with timestep and encoder conditioning.
+        """Decode with timestep conditioning.
 
         Args:
-            hidden_states: Decoder input tokens (B, T, D).
+            hidden_states: Decoder input tokens (batch size (B), decoder sequence length (T), embedding dimension (D)).
             timesteps: Timesteps (B,).
-            encoder_hidden_states: Encoder outputs for cross-attention (B, S, D).
-            decoder_padding_mask: Padding mask for decoder (B, T).
-            encoder_padding_mask: Padding mask for encoder (B, S).
+            encoder_output_mean: Mean encoder output (B, D).
+            padding_mask: Padding mask (B, T).
 
         Returns:
-            Decoder output tokens (B, T, output_dimension).
+            Decoder output tokens (B, T, self.output_dimension).
         """
-        timestep_embedding = self.timestep_embedding_network(timesteps)
-
+        timestep_embedding = self.timestep_embedding_network(timesteps) # (B, D)
+        combined_conditioning = timestep_embedding + encoder_output_mean
         decoder_output = self.decoder(
             hidden_states=hidden_states,
-            conditioning_embedding=timestep_embedding,
-            encoder_hidden_states=encoder_hidden_states,
-            decoder_padding_mask=decoder_padding_mask,
-            encoder_padding_mask=encoder_padding_mask,
+            conditioning_embedding=combined_conditioning,
+            padding_mask=padding_mask,
         )
-        return self.epsilon_network(decoder_output, timestep_embedding)
+        return self.epsilon_network(decoder_output, combined_conditioning)

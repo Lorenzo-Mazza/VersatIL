@@ -1,4 +1,4 @@
-# Configuration for training a Cross-Attention Conditioning Diffusion Transformer with flow matching on Libero dataset
+# Configuration for training a Cross-Attention Diffusion Transformer with flow matching on Libero dataset
 _target_: versatil.configs.main.MainConfig
 
 defaults:
@@ -11,7 +11,7 @@ defaults:
   - task/observation_space: libero_rgb
   - training: diffusion_default
   - policy/encoding_pipeline: stereo_rgb_lang_encoder
-  - policy/decoder: dit_transformer
+  - policy/decoder: dit_cross_attention_transformer
   - policy/algorithm: flow_matching
   - policy/loss: regressionMSE_gripper
   - inference: diffusion_default
@@ -51,11 +51,11 @@ policy:
         right:
             input_keys:
               - ${cameras:EYE_IN_HAND}
+
   decoder:
       input_keys:
         - left_rgb
         - right_rgb
-      diffusion_transformer_type: ${dit_type:CROSS_CONDITIONING}   # enable this line to use cross-conditioning DiT
 
 # Override specific parameters from defaults/command line if needed
 # For example, to use different batch size:

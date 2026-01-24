@@ -1,6 +1,5 @@
-# DiT (Diffusion Transformer) Decoder
 defaults:
-  - dit
+  - diffusion_act
   - heads@action_heads: unet_bowel_retraction
 
 # Key is always "{encoder_name}_{EncoderOutputType.value}" for each encoder in the encoding pipeline
@@ -9,14 +8,13 @@ input_keys:
   - right_rgb
   - camera_frame_proprio
 
-diffusion_transformer_type: ${dit_type:STANDARD}
+diffusion_transformer_type: ${dit_type:CROSS_ATTENTION}
 max_sequence_length: 1024
 embedding_dimension: 512
 timestep_embedding_dimension: 256
 number_of_heads: 8
 number_of_key_value_heads: null
-number_of_encoder_layers: 6
-number_of_decoder_layers: 6
+number_of_layers: 6
 feedforward_dimension: 2048
 activation: ${activation_function:SILU}
 normalization_type: ${normalization:LAYER_NORM}

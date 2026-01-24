@@ -268,16 +268,16 @@ class MixtureOfExpertsDecoderConfig(DecodingNetworkConfig):
 
 
 @dataclass
-class DiTDecoderConfig(DecodingNetworkConfig):
-    """DiT (Diffusion Transformer) decoder configuration.
+class DiTBlockActionTransformerConfig(DecodingNetworkConfig):
+    """DiTBlock action transformer with pooled conditioning.
 
-    Encoder-decoder transformer with DiT-style AdaLN modulation for diffusion-based
-    action generation.
+    Encoder-decoder architecture that pools encoder output to a single conditioning
+    vector.
 
     Must be used with a denoising algorithm that provides timesteps and noisy actions.
     """
 
-    _target_: str = "versatil.models.decoding.decoders.factory.diffusion_action_transformer.DiTDecoder"
+    _target_: str = "versatil.models.decoding.decoders.factory.dit_block_action_transformer.DiTBlockActionTransformer"
     max_sequence_length: int = 1024
     embedding_dimension: int = 512
     timestep_embedding_dimension: int = 256
@@ -293,7 +293,33 @@ class DiTDecoderConfig(DecodingNetworkConfig):
     attention_dropout: float = 0.0
     positional_encoding_type: str | None = PositionalEncodingType.ROPE.value
     use_gating: bool = True
-    diffusion_transformer_type: str = DiTType.STANDARD.value
+
+
+@dataclass
+class DiffusionActionTransformerConfig(DecodingNetworkConfig):
+    """Diffusion action transformer for CrossAttentionDiT and MMDiT.
+
+    Decoder-only architecture that operates on unpooled observation tokens.
+
+    Must be used with a denoising algorithm that provides timesteps and noisy actions.
+    """
+
+    _target_: str = "versatil.models.decoding.decoders.factory.diffusion_action_transformer.DiffusionActionTransformer"
+    diffusion_transformer_type: str = DiTType.CROSS_ATTENTION.value
+    max_sequence_length: int = 1024
+    embedding_dimension: int = 512
+    timestep_embedding_dimension: int = 256
+    number_of_heads: int = 8
+    number_of_key_value_heads: int | None = None
+    number_of_layers: int = 6
+    feedforward_dimension: int = 2048
+    activation: str = ActivationFunction.SWIGLU.value
+    normalization_type: str = NormalizationType.RMS_NORM.value
+    attention_type: str = AttentionType.MULTI_HEAD.value
+    dropout_rate: float = 0.1
+    attention_dropout: float = 0.0
+    positional_encoding_type: str | None = PositionalEncodingType.ROPE.value
+    use_gating: bool = True
 
 
 @dataclass

@@ -10,7 +10,7 @@ defaults:
   - task/observation_space: libero_rgb
   - training: diffusion_default
   - policy/encoding_pipeline: language_conditional_stereo_rgb_pooled
-  - policy/decoder: dit_transformer
+  - policy/decoder: dit_block_transformer
   - policy/algorithm: flow_matching
   - policy/loss: regressionMSE_gripper
   - inference: diffusion_default

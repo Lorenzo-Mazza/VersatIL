@@ -7,7 +7,7 @@ import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.dit.cross_conditioning_decoder_layer import (
+from versatil.models.layers.diffusion_transformer.cross_attention_dit_layer import (
     CrossConditioningDecoderLayer,
 )
 from versatil.models.layers.normalization.ada_norm import AdaNorm

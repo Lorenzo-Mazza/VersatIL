@@ -71,9 +71,10 @@ class DenoisingAlgorithm(str, enum.Enum):
 
 
 class DiTType(str, enum.Enum):
-    """Types of DIT models."""
-    STANDARD = "standard"
-    CROSS_CONDITIONING = "cross_conditioning"
+    """Types of Diffusion Transformer architectures."""
+    CROSS_ATTENTION = "cross_attention" # PixArt style Cross-Attention DiT
+    MMDIT = "mmdit" # Multimodal Diffusion Transformer (Stable Diffusion 3 style)
+    DIT_BLOCK = "dit_block" # DiT-Block (DiT Policy style)
 
 # Feature keys for time/timestep conditioning
 TIMESTEP_KEY = (

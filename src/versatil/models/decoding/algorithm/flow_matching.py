@@ -12,7 +12,7 @@ from versatil.models.decoding.constants import (
     NOISE_KEY,
 )
 from versatil.models.decoding.decoders.base import ActionDecoder
-from versatil.models.decoding.decoders.factory.diffusion_action_transformer import DiTDecoder
+from versatil.models.decoding.decoders.factory.dit_block_action_transformer import DiTBlockActionTransformer
 from versatil.models.layers.ode_solvers import integrate_ode
 
 
@@ -140,7 +140,7 @@ class FlowMatching(DecodingAlgorithm):
         device = first_feature.device
         dtype = first_feature.dtype
 
-        if isinstance(network, DiTDecoder):
+        if isinstance(network, DiTBlockActionTransformer):
             network.reset_encoder_cache() # Clear any cached encoder outputs before inference
 
         trajectory: dict[str, torch.Tensor] = {}
