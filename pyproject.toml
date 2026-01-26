@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "A python library for training any robot policy through Imitation Learning, with dependencies handled by uv"
 authors = [
     { name = "Lorenzo Mazza", email = "lorenzo.mazza@nct-dresden.de" },
+    { name = "Ariel Rodriguez", email = "ariel.rodriguezjimenez@nct-dresden.de" }
 ]
 license = {text = "MIT"}
 requires-python = ">=3.11"
