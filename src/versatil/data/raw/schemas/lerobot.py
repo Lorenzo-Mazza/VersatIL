@@ -16,12 +16,13 @@ import albumentations as A
 import cv2
 import numpy as np
 import pandas as pd
-from PIL import Image
 
 from versatil.data.constants import ObsKey, LeRobotPathsV30
 from versatil.data.metadata import CameraMetadata
 from versatil.data.raw.schemas.base import DatasetSchema
 from versatil.data.raw.zarr_meta import DatasetMetadata
+
+from typing import Any
 
 def decode_video_frames(
     video_path: Path,
@@ -79,8 +80,7 @@ def decode_video_frames(
 
         # Convert BGR (OpenCV) -> RGB (PIL)
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        pil_image = Image.fromarray(frame_rgb)
-        loaded_frames.append(pil_image)
+        loaded_frames.append(frame_rgb)
 
     cap.release()
 
@@ -114,7 +114,7 @@ class LeRobotDatasetMetadataV30:
         )
         self.episodes = self._load_episodes()
 
-    def _load_info(self) -> dict:
+    def _load_info(self) -> dict[str, Any]:
         """Load and parse the info.json metadata file.
 
         Returns:
@@ -161,10 +161,10 @@ class LeRobotDatasetMetadataV30:
         episode = self.get_episode_meta(episode_index)
         chunk_idx = episode["data/chunk_index"].item()
         file_idx = episode["data/file_index"].item()
-        fpath = self.info["data_path"].format(
+        file_path = self.info["data_path"].format(
             chunk_index=chunk_idx, file_index=file_idx
         )
-        return self.dataset_path / Path(fpath)
+        return self.dataset_path / Path(file_path)
 
     def get_image_file_path(
         self, episode_index: int, image_key: str, frame_index: int
@@ -182,10 +182,10 @@ class LeRobotDatasetMetadataV30:
         Returns:
             Absolute path to the image file.
         """
-        fpath = LeRobotPathsV30.DEFAULT_IMAGE_PATH.format(
+        file_path = LeRobotPathsV30.DEFAULT_IMAGE_PATH.format(
             image_key=image_key, episode_index=episode_index, frame_index=frame_index
         )
-        return self.dataset_path / Path(fpath)
+        return self.dataset_path / Path(file_path)
 
     def get_video_file_path(self, episode_index: int, video_key: str) -> Path:
         """Get the path to a video file for a specific episode and camera.
@@ -203,10 +203,10 @@ class LeRobotDatasetMetadataV30:
         episode = self.get_episode_meta(episode_index)
         chunk_idx = episode[f"videos/{video_key}/chunk_index"].item()
         file_idx = episode[f"videos/{video_key}/file_index"].item()
-        fpath = self.info["video_path"].format(
+        file_path = self.info["video_path"].format(
             video_key=video_key, chunk_index=chunk_idx, file_index=file_idx
         )
-        return self.dataset_path / Path(fpath)
+        return self.dataset_path / Path(file_path)
 
     def get_episode_meta(self, episode_index: int) -> pd.DataFrame:
         """Get metadata for a specific episode.
@@ -219,7 +219,7 @@ class LeRobotDatasetMetadataV30:
         """
         return self.episodes[self.episodes["episode_index"] == episode_index]
 
-    def get_features(self) -> dict:
+    def get_features(self) -> dict[str, Any]:
         """Get the feature schema definition from info.json.
 
         Features describe the data columns and their types (e.g., state, action,
@@ -273,7 +273,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
     def _get_frames_from_videos(
         self, query_timestamps: dict[str, list[float]], episode_index: int
-    ) -> dict[str, list]:
+    ) -> dict[str, list[np.array]]:
         """Extract frames from video files at specified timestamps.
 
         LeRobot videos may have an offset (from_timestamp) that needs to be
@@ -305,7 +305,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
     def _get_images_from_filesystem(
         self, episode_index: int, image_key: str, frame_indexes: list[int]
-    ) -> list:
+    ) -> list[np.array]:
         """Load images from individual files on the filesystem.
 
         Used when images are stored as separate files rather than embedded
@@ -318,17 +318,18 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
         Returns:
             List of PIL Images in frame order.
-
-        Raises:
-            AssertionError: If an expected image file does not exist.
         """
         frames = []
         for frame_index in frame_indexes:
             image_path = self.lerobot_metadata.get_image_file_path(
                 episode_index, image_key, frame_index
             )
-            assert image_path.exists(), f"Image was not found: {image_path}"
-            frames.append(Image.open(image_path))
+            if not image_path.exists():
+                raise ValueError(f"Image was not found: {image_path}")
+
+            img = cv2.open(image_path)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            frames.append(img)
         return frames
 
     def get_episode_parquet(self, episode_id: int) -> pd.DataFrame:
@@ -342,7 +343,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
     def get_episode_videos_frames(
         self, episode_id: int, preloaded_episode_df: pd.DataFrame = None
-    ) -> dict[str, list]:
+    ) -> dict[str, list[np.array]]:
         """Extract all video frames for an episode.
 
         Args:
@@ -373,7 +374,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
     def get_episode_images(
         self, episode_id: int, preloaded_episode_df: pd.DataFrame = None
-    ) -> dict[str, list]:
+    ) -> dict[str, list[np.array]]:
         """Extract all images for an episode.
 
         Images in LeRobot can be stored in three ways:
@@ -411,14 +412,17 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
                     encoded_images = episode_df[image_key].tolist()
                     for encoded_image in encoded_images:
                         if "bytes" in encoded_image:
-                            # Decode from embedded bytes
-                            frames.append(
-                                Image.open(io.BytesIO(encoded_image["bytes"]))
-                            )
+                            
+                            img = cv2.imdecode(np.frombuffer(encoded_image["bytes"], np.uint8), cv2.IMREAD_COLOR)
+                            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                            frames.append(img)
+                        
                         else:
-                            # Load from path reference
-                            path = self.dataset_path / Path(encoded_image["path"])
-                            frames.append(Image.open(path))
+                            
+                            img_path = self.dataset_path / Path(encoded_image["path"])
+                            img = cv2.imread(img_path)
+                            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                            frames.append(img)
                 else:
                     # Images stored as separate files on disk
                     frames = self._get_images_from_filesystem(
@@ -451,14 +455,8 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         episode_id: int,
         resizer: A.Resize | A.NoOp,
         depth_resizer: A.Resize | A.NoOp,
-    ) -> dict:
+    ) -> dict[str, np.array]:
         """Extract and convert a complete episode to zarr format.
-
-        This is the main conversion method that:
-        1. Loads all raw data (parquet, videos, images)
-        2. Maps LeRobot features to zarr observation/action keys
-        3. Applies image resizing transforms
-        4. Handles optional slicing of vector observations/actions
 
         Args:
             episode_id: Index of the episode to extract.
@@ -470,10 +468,6 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
             Dictionary mapping Zarr keys to numpy arrays ready for storage.
             Keys correspond to observations and precomputed_actions defined
             in the DatasetMetadata.
-
-        Raises:
-            AssertionError: If a required camera_key or column is not found
-                in the dataset.
         """
         # Load all raw data for this episode
         episode_df = self.get_episode_parquet(episode_id)
@@ -497,9 +491,10 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
             elif isinstance(obs, CameraMetadata):
                 # Camera observations: extract frames and resize
                 camera_key = obs.camera_key
-                assert camera_key in frames, (
-                    f"The camera key: {camera_key} does not exist in the dataset."
-                )
+
+                if camera_key not in frames:
+                    raise ValueError(f"The camera key: {camera_key} does not exist in the dataset.")
+
                 resized_frames = [
                     resizer(image=np.array(f))["image"] for f in frames[camera_key]
                 ]
@@ -508,9 +503,9 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
             else:
                 # Vector observations (proprioceptive state, etc.)
                 col_key = obs.raw_data_column_keys[0]
-                assert col_key in episode_df.columns, (
-                    f"The column {col_key} does not exist in the dataset."
-                )
+
+                if col_key not in episode_df.columns:
+                    raise ValueError(f"The column {col_key} does not exist in the dataset.")
 
                 obs_array = np.stack(episode_df[col_key].values)
                 # Apply optional slicing to extract specific dimensions
@@ -521,9 +516,9 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         # Process precomputed actions (pre-computed in LeRobot format)
         for zarr_key, action in self.metadata.precomputed_actions.items():
             col_key = action.raw_data_column_keys[0]
-            assert col_key in episode_df.columns, (
-                f"The column {col_key} does not exist in the dataset."
-            )
+
+            if col_key not in episode_df.columns:
+                raise ValueError(f"The column {col_key} does not exist in the dataset.")
 
             action_array = np.stack(episode_df[col_key].values)
             # Apply optional slicing to extract specific action dimensions

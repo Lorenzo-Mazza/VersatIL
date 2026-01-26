@@ -45,7 +45,6 @@ class ProprioKey(str, enum.Enum):
 
     GRIPPER_STATE = "gripper_state_obs"
     GRIPPER_STATE_ACTION = "gripper_state_action"
-    CAMERA_FRAME_CARTESIAN_TIP_POS_ACTION = "action_camera_frame"
 
 
 class ObsKey(str, enum.Enum):
