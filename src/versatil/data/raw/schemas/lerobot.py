@@ -435,7 +435,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
     def get_episode_language_instructions(
         self, episode_id: int, preloaded_episode_df: pd.DataFrame = None
-    ) -> list:
+    ) -> list[list[str]]:
         episode_df = (
             preloaded_episode_df
             if preloaded_episode_df is not None
