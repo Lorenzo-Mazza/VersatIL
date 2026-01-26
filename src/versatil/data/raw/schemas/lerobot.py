@@ -28,7 +28,7 @@ def decode_video_frames(
     video_path: Path,
     timestamps: list[float],
     tolerance_s: float = 0.01,
-) -> list:
+) -> list[np.array]:
     """Load frames from a video file at specified timestamps using OpenCV.
 
     This function seeks to specific timestamps in a video file and extracts
