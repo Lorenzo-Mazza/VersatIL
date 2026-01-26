@@ -8,21 +8,21 @@ LeRobot is a HuggingFace robotics dataset format using:
 Reference: https://github.com/huggingface/lerobot
 """
 
-import io
 import json
 from pathlib import Path
+from typing import Any
 
 import albumentations as A
 import cv2
 import numpy as np
-import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from versatil.data.constants import ObsKey, LeRobotPathsV30
 from versatil.data.metadata import CameraMetadata
 from versatil.data.raw.schemas.base import DatasetSchema
 from versatil.data.raw.zarr_meta import DatasetMetadata
 
-from typing import Any
 
 def decode_video_frames(
     video_path: Path,
@@ -109,7 +109,7 @@ class LeRobotDatasetMetadataV30:
     def __init__(self, dataset_path: str | Path):
         self.dataset_path = Path(dataset_path)
         self.info = self._load_info()
-        self.tasks = pd.read_parquet(
+        self.tasks = pq.read_table(
             self.dataset_path / LeRobotPathsV30.DEFAULT_TASKS_PATH
         )
         self.episodes = self._load_episodes()
@@ -124,24 +124,27 @@ class LeRobotDatasetMetadataV30:
         with open(info_path) as f:
             return json.load(f)
 
-    def _load_episodes(self) -> pd.DataFrame:
+    def _load_episodes(self) -> pa.Table:
         """Load and concatenate all episode metadata parquet files.
 
         Episode metadata is stored in chunks under meta/episodes/.
-        This method loads all chunks and concatenates them into a single DataFrame,
+        This method loads all chunks and concatenates them into a single Table,
         excluding statistics columns (prefixed with "stats/").
 
         Returns:
-            DataFrame containing metadata for all episodes.
+            PyArrow Table containing metadata for all episodes.
         """
         episodes_dir = self.dataset_path / LeRobotPathsV30.EPISODES_DIR
         paths = sorted(episodes_dir.glob("*/*.parquet"))
-        dfs = [pd.read_parquet(str(path)) for path in paths]
-        df = pd.concat(dfs, ignore_index=True)
+        tables = [pq.read_table(str(path)) for path in paths]
+        table = pa.concat_tables(tables)
         # Remove statistics columns as they're not needed for data loading
-        df = df.loc[:, ~df.columns.str.startswith("stats/")]
+        cols_to_keep = [
+            col for col in table.column_names if not col.startswith("stats/")
+        ]
+        table = table.select(cols_to_keep)
 
-        return df
+        return table
 
     def get_version(self) -> str:
         return self.info["codebase_version"]
@@ -159,8 +162,8 @@ class LeRobotDatasetMetadataV30:
             Absolute path to the episode's parquet data file.
         """
         episode = self.get_episode_meta(episode_index)
-        chunk_idx = episode["data/chunk_index"].item()
-        file_idx = episode["data/file_index"].item()
+        chunk_idx = episode["data/chunk_index"][0].as_py()
+        file_idx = episode["data/file_index"][0].as_py()
         file_path = self.info["data_path"].format(
             chunk_index=chunk_idx, file_index=file_idx
         )
@@ -201,23 +204,24 @@ class LeRobotDatasetMetadataV30:
             Absolute path to the video file (typically MP4).
         """
         episode = self.get_episode_meta(episode_index)
-        chunk_idx = episode[f"videos/{video_key}/chunk_index"].item()
-        file_idx = episode[f"videos/{video_key}/file_index"].item()
+        chunk_idx = episode[f"videos/{video_key}/chunk_index"][0].as_py()
+        file_idx = episode[f"videos/{video_key}/file_index"][0].as_py()
         file_path = self.info["video_path"].format(
             video_key=video_key, chunk_index=chunk_idx, file_index=file_idx
         )
         return self.dataset_path / Path(file_path)
 
-    def get_episode_meta(self, episode_index: int) -> pd.DataFrame:
+    def get_episode_meta(self, episode_index: int) -> pa.Table:
         """Get metadata for a specific episode.
 
         Args:
             episode_index: Index of the episode to retrieve.
 
         Returns:
-            DataFrame row(s) containing the episode's metadata.
+            PyArrow Table row(s) containing the episode's metadata.
         """
-        return self.episodes[self.episodes["episode_index"] == episode_index]
+        mask = pa.compute.equal(self.episodes["episode_index"], episode_index)
+        return self.episodes.filter(mask)
 
     def get_features(self) -> dict[str, Any]:
         """Get the feature schema definition from info.json.
@@ -291,7 +295,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         videos = {}
         for video_key, query_timestamp in query_timestamps.items():
             # Videos may start at an offset within the file
-            from_timestamp = episode[f"videos/{video_key}/from_timestamp"].item()
+            from_timestamp = episode[f"videos/{video_key}/from_timestamp"][0].as_py()
             shifted_query_timestamp = [
                 from_timestamp + timestamp for timestamp in query_timestamp
             ]
@@ -332,32 +336,28 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
             frames.append(img)
         return frames
 
-    def get_episode_parquet(self, episode_id: int) -> pd.DataFrame:
-        episode_df = pd.read_parquet(
-            self.lerobot_metadata.get_data_file_path(episode_id)
-        )
-        episode_df = episode_df[episode_df["episode_index"] == episode_id].reset_index(
-            drop=True
-        )
-        return episode_df
+    def get_episode_parquet(self, episode_id: int) -> pa.Table:
+        table = pq.read_table(self.lerobot_metadata.get_data_file_path(episode_id))
+        mask = pa.compute.equal(table["episode_index"], episode_id)
+        return table.filter(mask)
 
     def get_episode_videos_frames(
-        self, episode_id: int, preloaded_episode_df: pd.DataFrame = None
+        self, episode_id: int, preloaded_episode_table: pa.Table = None
     ) -> dict[str, list[np.array]]:
         """Extract all video frames for an episode.
 
         Args:
             episode_id: Index of the episode.
-            preloaded_episode_df: Optional pre-loaded episode DataFrame to avoid
+            preloaded_episode_table: Optional pre-loaded episode Table to avoid
                 redundant parquet reads.
 
         Returns:
             Dictionary mapping video keys to lists of PIL Images, one per timestep.
             Returns empty dict if dataset has no video features.
         """
-        episode_df = (
-            preloaded_episode_df
-            if preloaded_episode_df is not None
+        episode_table = (
+            preloaded_episode_table
+            if preloaded_episode_table is not None
             else self.get_episode_parquet(episode_id)
         )
 
@@ -366,14 +366,14 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         frames = {}
         if video_keys:
             # Use episode timestamps to query video frames
-            timestamps = episode_df["timestamp"].tolist()
+            timestamps = episode_table["timestamp"].to_pylist()
             query_timestamps = {k: timestamps for k in video_keys}
             frames = self._get_frames_from_videos(query_timestamps, episode_id)
 
         return frames
 
     def get_episode_images(
-        self, episode_id: int, preloaded_episode_df: pd.DataFrame = None
+        self, episode_id: int, preloaded_episode_table: pa.Table = None
     ) -> dict[str, list[np.array]]:
         """Extract all images for an episode.
 
@@ -384,16 +384,16 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
         Args:
             episode_id: Index of the episode.
-            preloaded_episode_df: Optional pre-loaded episode DataFrame to avoid
+            preloaded_episode_table: Optional pre-loaded episode Table to avoid
                 redundant parquet reads.
 
         Returns:
             Dictionary mapping image keys to lists of PIL Images, one per timestep.
             Returns empty dict if dataset has no image features.
         """
-        episode_df = (
-            preloaded_episode_df
-            if preloaded_episode_df is not None
+        episode_table = (
+            preloaded_episode_table
+            if preloaded_episode_table is not None
             else self.get_episode_parquet(episode_id)
         )
 
@@ -401,26 +401,27 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         images = {}
 
         if image_keys:
-            frame_indexes = episode_df["frame_index"].tolist()
-            episode_cols = episode_df.columns.tolist()
+            frame_indexes = episode_table["frame_index"].to_pylist()
+            episode_cols = episode_table.column_names
 
             for image_key in image_keys:
                 frames = []
 
                 if image_key in episode_cols:
                     # Images are embedded in parquet (as bytes or paths)
-                    encoded_images = episode_df[image_key].tolist()
+                    encoded_images = episode_table[image_key].to_pylist()
                     for encoded_image in encoded_images:
                         if "bytes" in encoded_image:
-                            
-                            img = cv2.imdecode(np.frombuffer(encoded_image["bytes"], np.uint8), cv2.IMREAD_COLOR)
+                            img = cv2.imdecode(
+                                np.frombuffer(encoded_image["bytes"], np.uint8),
+                                cv2.IMREAD_COLOR,
+                            )
                             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                             frames.append(img)
-                        
+
                         else:
-                            
                             img_path = self.dataset_path / Path(encoded_image["path"])
-                            img = cv2.imread(img_path)
+                            img = cv2.imread(str(img_path))
                             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                             frames.append(img)
                 else:
@@ -434,18 +435,18 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         return images
 
     def get_episode_language_instructions(
-        self, episode_id: int, preloaded_episode_df: pd.DataFrame = None
+        self, episode_id: int, preloaded_episode_table: pa.Table = None
     ) -> list[list[str]]:
-        episode_df = (
-            preloaded_episode_df
-            if preloaded_episode_df is not None
+        episode_table = (
+            preloaded_episode_table
+            if preloaded_episode_table is not None
             else self.get_episode_parquet(episode_id)
         )
 
         # Map task indices to task names (language instructions)
+        task_names = self.lerobot_metadata.tasks[1].to_pylist()
         language_instructions = [
-            [self.lerobot_metadata.tasks.iloc[i].name]
-            for i in episode_df["task_index"].tolist()
+            [task_names[i]] for i in episode_table["task_index"].to_pylist()
         ]
 
         return language_instructions
@@ -470,12 +471,12 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
             in the DatasetMetadata.
         """
         # Load all raw data for this episode
-        episode_df = self.get_episode_parquet(episode_id)
+        episode_table = self.get_episode_parquet(episode_id)
         language_instructions = self.get_episode_language_instructions(
-            episode_id, episode_df
+            episode_id, episode_table
         )
-        videos = self.get_episode_videos_frames(episode_id, episode_df)
-        images = self.get_episode_images(episode_id, episode_df)
+        videos = self.get_episode_videos_frames(episode_id, episode_table)
+        images = self.get_episode_images(episode_id, episode_table)
         # Merge video and image frames (video keys take precedence if overlap)
         frames = videos | images
 
@@ -483,7 +484,6 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
         # Process observations based on their type
         for zarr_key, obs in self.metadata.observations.items():
-
             if zarr_key == ObsKey.LANGUAGE.value:
                 # Language instructions are stored as string arrays
                 data[zarr_key] = np.array(language_instructions)
@@ -493,7 +493,9 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
                 camera_key = obs.camera_key
 
                 if camera_key not in frames:
-                    raise ValueError(f"The camera key: {camera_key} does not exist in the dataset.")
+                    raise ValueError(
+                        f"The camera key: {camera_key} does not exist in the dataset."
+                    )
 
                 resized_frames = [
                     resizer(image=np.array(f))["image"] for f in frames[camera_key]
@@ -504,10 +506,12 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
                 # Vector observations (proprioceptive state, etc.)
                 col_key = obs.raw_data_column_keys[0]
 
-                if col_key not in episode_df.columns:
-                    raise ValueError(f"The column {col_key} does not exist in the dataset.")
+                if col_key not in episode_table.column_names:
+                    raise ValueError(
+                        f"The column {col_key} does not exist in the dataset."
+                    )
 
-                obs_array = np.stack(episode_df[col_key].values)
+                obs_array = np.stack(episode_table[col_key].to_pylist())
                 # Apply optional slicing to extract specific dimensions
                 if obs.slice_start is not None and obs.slice_end is not None:
                     obs_array = obs_array[:, obs.slice_start : obs.slice_end]
@@ -517,10 +521,12 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         for zarr_key, action in self.metadata.precomputed_actions.items():
             col_key = action.raw_data_column_keys[0]
 
-            if col_key not in episode_df.columns:
-                raise ValueError(f"The column {col_key} does not exist in the dataset.")
+            if col_key not in episode_table.column_names:
+                raise ValueError(
+                    f"The column {col_key} does not exist in the dataset."
+                )
 
-            action_array = np.stack(episode_df[col_key].values)
+            action_array = np.stack(episode_table[col_key].to_pylist())
             # Apply optional slicing to extract specific action dimensions
             if action.slice_start is not None and action.slice_end is not None:
                 action_array = action_array[:, action.slice_start : action.slice_end]
