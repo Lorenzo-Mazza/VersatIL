@@ -1,25 +1,20 @@
-_target_: versatil.configs.main.MainConfig
+_target_: refactoring.configs.main.MainConfig
 
 defaults:
   - task: base
   - policy: base
   - experiment: bowel_retraction_act
-  - task/dataset_schema: bowel_retraction_v4
+  - task/dataset_schema: bowel_retraction_v2
   - task/dataloader: act_lang_default
   - task/action_space: deltas_cf_pos_gripper_phase
   - task/observation_space: stereo_rgb_language_proprio_cf
   - training: act_default
   - policy/encoding_pipeline: stereo_rgb_lang_encoder
-  - policy/decoder: action_transformer_lang
+  - policy/decoder: lact
   - policy/algorithm: bc_with_learned_prior
   - policy/loss: regression_gripper_MMD
   - inference: act_default
   - _self_
-
-training:
-  early_stopping_patience: 30
-  clip_gradient_norm: true
-  clip_max_norm: 20.0
 
 task:
   observation_horizon: 1
@@ -29,8 +24,13 @@ task:
       ${obs_key:PHASE_LABEL}:
         requires_prediction_head: false
 
+training:
+  early_stopping_patience: 30
+  clip_gradient_norm: true
+  clip_max_norm: 20.0
+
 policy:
-  _target_: versatil.models.policy.Policy
+  _target_: refactoring.models.policy.Policy
   observation_space: ${task.observation_space}
   action_space: ${task.action_space}
   prediction_horizon: ${task.prediction_horizon}
@@ -40,9 +40,14 @@ policy:
   loss:
     loss_modules:
       phase_passthrough:
-        _target_: versatil.metrics.MetadataPassthrough
+        _target_: refactoring.metrics.MetadataPassthrough
         keys_mapping:
           ${obs_key:PHASE_LABEL}: ${metadata_key:PHASE_LABEL}
+  decoder:
+    input_keys:
+      - left_rgb
+      - right_rgb
+      - instruction_language
 
 # Override specific parameters from defaults/command line if needed
 # For example, to use different batch size:

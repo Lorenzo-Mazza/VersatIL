@@ -14,7 +14,7 @@ wandb_entity: nct-dresden
 device: cuda
 distributed: false
 
-precision: ${precision:BF16_MIXED}
+precision: ${precision:FP32}
 float32_matmul_precision: ${float32_matmul:MEDIUM}
 
 checkpoint_every: 100
