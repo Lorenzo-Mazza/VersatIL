@@ -1,0 +1,54 @@
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - task: base
+  - policy: base
+  - experiment: bowel_retraction_act
+  - task/dataset_schema: metaworld_mt50
+  - task/dataloader: libero_default
+  - task/action_space: metaworld_mt50_precomputed
+  - task/observation_space: metaworld_mt50_rgb
+  - training: act_latent
+  - policy/encoding_pipeline: mono_rgb_lang_encoder
+  - policy/decoder: action_transformer_lang
+  - policy/algorithm: bc_with_learned_prior
+  - policy/loss: regression_continuous_gripper
+  - inference: act_default
+  - override policy/decoder/heads@policy.decoder.action_heads: metaworld_mt50
+  - _self_
+
+task:
+  observation_horizon: 1
+  prediction_horizon: 10
+
+experiment:
+  precision: ${precision:FP32}
+  checkpoint_folder: /mnt/cluster/workspaces/rodriguar/libero_exp/
+
+training:
+  num_epochs: 200
+  early_stopping_patience: 100
+  lr_schedule: null
+  lr_warmup_steps: 20000
+  clip_gradient_norm: true
+  clip_max_norm: 1.0
+
+
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: true
+  encoding_pipeline:
+    encoders:
+        left:
+            input_keys:
+              - ${cameras:AGENTVIEW}
+  decoder:
+    input_keys:
+      - left_rgb
+      - instruction_language

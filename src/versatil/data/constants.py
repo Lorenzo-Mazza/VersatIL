@@ -17,6 +17,8 @@ class Cameras(enum.Enum):
     IMAGE = 'observation.images.image'
     IMAGE_2 = 'observation.images.image2'
 
+    IMAGE_METAWORLD_LEROBOT = 'observation.image'
+
 
 class CoordinateSystem(str, enum.Enum):
     """Enum for different coordinate systems supported by the codebase"""

@@ -584,12 +584,12 @@ class GripperActionMetadata(PrecomputedActionMetadata):
     def __init__(
         self,
         gripper_type: str,
-        binary_gripper_range: str,
         raw_data_column_keys: list[str],
         storage_dimension: int,
         prediction_dimension: int,
         needs_normalization: bool,
         dtype: str,
+        binary_gripper_range: str = BinaryGripperRange.ZERO_ONE.value,
         slice_start: Optional[int] = None,
         slice_end: Optional[int] = None,
     ):

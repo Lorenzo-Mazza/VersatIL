@@ -1,0 +1,21 @@
+defaults:
+  - base
+
+_target_: versatil.data.task.ObservationSpace
+
+observations_metadata:
+  ${cameras:AGENTVIEW}:
+    _target_: versatil.data.metadata.CameraMetadata
+    camera_key: ${cameras:IMAGE_METAWORLD_LEROBOT}
+    dtype: uint8
+    channels: 3
+    image_width: 256
+    image_height: 256
+
+  ${obs_key:LANGUAGE}:
+    _target_: versatil.data.metadata.ObservationMetadata
+    raw_data_column_keys: [task]
+    dtype: str
+    dimension: 1
+    is_numerical: false
+    needs_normalization: false

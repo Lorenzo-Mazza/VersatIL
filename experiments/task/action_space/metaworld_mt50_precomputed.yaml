@@ -1,0 +1,29 @@
+defaults:
+  - base
+
+_target_: versatil.data.task.ActionSpace
+use_gripper_class_weights: false
+denoise_actions: false
+
+actions_metadata:
+  ${proprio_key:EE_POS_ACTION}:
+    _target_: versatil.data.metadata.PositionActionMetadata
+    frame: ${coordinate_system:ROBOT_BASE}
+    raw_data_column_keys: [action]
+    dtype: float32
+    storage_dimension: 4
+    prediction_dimension: 3
+    needs_normalization: true
+    slice_start: 0
+    slice_end: 3
+
+  ${proprio_key:GRIPPER_STATE_ACTION}:
+    _target_: versatil.data.metadata.GripperActionMetadata
+    gripper_type: ${gripper:CONTINUOUS}
+    raw_data_column_keys: [action]
+    dtype: float32
+    storage_dimension: 4
+    prediction_dimension: 1
+    needs_normalization: false
+    slice_start: 3
+    slice_end: 4
