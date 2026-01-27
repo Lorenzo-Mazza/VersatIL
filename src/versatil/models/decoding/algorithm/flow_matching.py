@@ -116,7 +116,7 @@ class FlowMatching(DecodingAlgorithm):
                     logit_mean=self.logit_mean,
                     logit_std=self.logit_std,
                 )
-            epsilon = torch.randn_like(action)
+            epsilon = torch.randn_like(action.float())
             x_t = self.flow_matcher.sample_xt(x0=noise, x1=action, t=times, epsilon=epsilon)
             u_t = self.flow_matcher.compute_conditional_flow(x0=noise, x1=action, t=times, xt=x_t)
             interpolated_actions[key] = x_t
