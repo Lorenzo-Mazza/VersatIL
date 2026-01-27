@@ -42,7 +42,7 @@ def decode_video_frames(
             and actual frame timestamps. Defaults to 0.01 (10ms).
 
     Returns:
-        List of PIL Images corresponding to each requested timestamp.
+        List of cv2 images (numpy arrays) corresponding to each requested timestamp.
 
     Raises:
         ValueError: If the video FPS cannot be read (invalid or corrupted video).
@@ -77,8 +77,7 @@ def decode_video_frames(
                 f"Timestamp tolerance exceeded: requested={timestamp:.4f}, "
                 f"got={actual_timestamp_s:.4f}, video={video_path}"
             )
-
-        # Convert BGR (OpenCV) -> RGB (PIL)
+        
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         loaded_frames.append(frame_rgb)
 
@@ -235,11 +234,21 @@ class LeRobotDatasetMetadataV30:
         return self.info["features"]
 
     def get_image_keys(self) -> list[str]:
+        """Get feature keys for image-type observations.
+
+        Returns:
+            List of image key names (e.g., ["observation.images.top"]).
+        """
         return [
             key for key, ft in self.get_features().items() if ft["dtype"] == "image"
         ]
 
     def get_video_keys(self) -> list[str]:
+        """Get feature keys for video-type observations.
+
+        Returns:
+            List of video key names (e.g., ["observation.images.top"]).
+        """
         return [
             key for key, ft in self.get_features().items() if ft["dtype"] == "video"
         ]
@@ -289,7 +298,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
             episode_index: Index of the episode to extract frames from.
 
         Returns:
-            Dictionary mapping video keys to lists of PIL Images.
+            Dictionary mapping video keys to lists of cv2 images (numpy arrays).
         """
         episode = self.lerobot_metadata.get_episode_meta(episode_index)
         videos = {}
@@ -321,7 +330,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
             frame_indexes: List of frame indices to load.
 
         Returns:
-            List of PIL Images in frame order.
+            List of cv2 images (numpy arrays) in frame order.
         """
         frames = []
         for frame_index in frame_indexes:
@@ -352,7 +361,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
                 redundant parquet reads.
 
         Returns:
-            Dictionary mapping video keys to lists of PIL Images, one per timestep.
+            Dictionary mapping video keys to lists of cv2 images (numpy arrays), one per timestep.
             Returns empty dict if dataset has no video features.
         """
         episode_table = (
@@ -388,7 +397,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
                 redundant parquet reads.
 
         Returns:
-            Dictionary mapping image keys to lists of PIL Images, one per timestep.
+            Dictionary mapping image keys to lists of cv2 images (numpy arrays), one per timestep.
             Returns empty dict if dataset has no image features.
         """
         episode_table = (
