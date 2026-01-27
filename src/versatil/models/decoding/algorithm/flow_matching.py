@@ -167,8 +167,8 @@ class FlowMatching(DecodingAlgorithm):
             offset = 0
             for current_key in action_keys:
                 flat_action_size = flat_action_dimensions[current_key]
-                trajectory[current_key] = z[:, offset : offset + flat_action_size].view(shapes[current_key])  # (B, H, D_k)
-                offset += flat_action_dimension
+                current_trajectory[current_key] = z[:, offset : offset + flat_action_size].view(shapes[current_key])  # (B, H, D_k)
+                offset += flat_action_size
             features_with_time = {**features, TIMESTEP_KEY: t}
             velocities = network(
                 features=features_with_time,
