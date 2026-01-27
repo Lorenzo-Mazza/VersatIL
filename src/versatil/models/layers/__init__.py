@@ -8,12 +8,16 @@ from versatil.models.layers.pooling.spatial_softmax import SpatialSoftmax
 from versatil.models.layers.positional_encoding.rotary import (
     RotaryPositionalEncoding2D,
 )
-from versatil.models.layers.diffusion_process import (
+from versatil.models.layers.denoising.diffusion_process import (
     DiffusionSchedulerConfig,
     add_noise_to_tensor,
     create_noise_scheduler,
     sample_random_timesteps,
     setup_inference_timesteps,
+)
+from versatil.models.layers.denoising.timestep_sampling import (
+    TimestepSampler,
+    sample_timesteps,
 )
 
 from .convert_layers import convert_layers
@@ -39,4 +43,6 @@ __all__ = [
     "create_noise_scheduler",
     "sample_random_timesteps",
     "setup_inference_timesteps",
+    "TimestepSampler",
+    "sample_timesteps",
 ]

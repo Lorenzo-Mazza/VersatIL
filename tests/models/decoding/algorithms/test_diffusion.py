@@ -3,9 +3,7 @@ import pytest
 import torch
 from typing import Dict, Optional
 
-from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
 from versatil.models.decoding.algorithm.diffusion import Diffusion
-from versatil.models.decoding.algorithm.flow_matching import FlowMatching
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import (
@@ -20,9 +18,8 @@ from versatil.models.decoding.constants import (
     PredictionType,
     BetaSchedule,
     VarianceType,
-    ODESolver,
 )
-from versatil.models.layers.diffusion_process import SchedulerType
+from versatil.models.layers.denoising.diffusion_process import SchedulerType
 
 
 # Mock decoder for testing algorithms

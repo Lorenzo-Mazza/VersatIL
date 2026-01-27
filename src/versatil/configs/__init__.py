@@ -152,7 +152,8 @@ from versatil.models.encoding.encoders.constants import (
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, ConditioningType, PositionalEncodingType
 from versatil.metrics.constants import MetadataKey
-from versatil.models.layers.diffusion_process import SchedulerType
+from versatil.models.layers.denoising.diffusion_process import SchedulerType
+from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.training.constants import Float32MatmulPrecision, PrecisionType
 
@@ -329,6 +330,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("dit_type"):
         OmegaConf.register_new_resolver(
             "dit_type", lambda name: DiTType[name].value
+        )
+    if not OmegaConf.has_resolver("timestep_sampler"):
+        OmegaConf.register_new_resolver(
+            "timestep_sampler", lambda name: TimestepSampler[name].value
         )
 
 def register_configs():

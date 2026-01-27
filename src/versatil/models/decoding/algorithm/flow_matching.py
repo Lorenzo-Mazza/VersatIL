@@ -13,7 +13,8 @@ from versatil.models.decoding.constants import (
 )
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.dit_block_action_transformer import DiTBlockActionTransformer
-from versatil.models.layers.ode_solvers import integrate_ode
+from versatil.models.layers.denoising.ode_solvers import integrate_ode
+from versatil.models.layers.denoising.timestep_sampling import TimestepSampler, sample_timesteps
 
 
 class FlowMatching(DecodingAlgorithm):
@@ -30,9 +31,12 @@ class FlowMatching(DecodingAlgorithm):
     (Euler, Heun, or RK4) to generate actions.
 
     Args:
-        sigma: Noise level for conditional flow matching (0 = deterministic OT)
-        num_inference_steps: Number of integration steps during inference
-        ode_solver: ODE solver to use ("euler", "heun", or "rk4")
+        sigma: Noise level for conditional flow matching (0 = deterministic OT).
+        num_inference_steps: Number of integration steps during inference.
+        ode_solver: ODE solver to use ("euler", "heun", or "rk4").
+        timestep_sampler: Timestep sampling strategy.
+        logit_mean: Mean for logit-normal (shifts mode; 0 centers at t=0.5).
+        logit_std: Std for logit-normal (smaller = more concentrated).
     """
 
     def __init__(
@@ -40,6 +44,9 @@ class FlowMatching(DecodingAlgorithm):
         sigma: float = 0.0,
         num_inference_steps: int = 10,
         ode_solver: str = ODESolver.EULER.value,
+        timestep_sampler: str = TimestepSampler.LOGIT_NORMAL.value,
+        logit_mean: float = 0.0,
+        logit_std: float = 1.0,
     ):
         """Initialize Flow Matching algorithm."""
         super().__init__()
@@ -47,10 +54,19 @@ class FlowMatching(DecodingAlgorithm):
         self.flow_matcher = ConditionalFlowMatcher(sigma=sigma)
         self.num_inference_steps = num_inference_steps
         self.ode_solver = ode_solver
+        self.timestep_sampler = timestep_sampler
+        self.logit_mean = logit_mean
+        self.logit_std = logit_std
+
         valid_solvers = [e.value for e in ODESolver]
         if self.ode_solver not in valid_solvers:
             raise ValueError(
                 f"Unknown ODE solver: {ode_solver}. Expected one of {valid_solvers}"
+            )
+        valid_samplers = [e.value for e in TimestepSampler]
+        if self.timestep_sampler not in valid_samplers:
+            raise ValueError(
+                f"Unknown timestep sampler: {timestep_sampler}. Expected one of {valid_samplers}"
             )
 
     def forward(
@@ -82,34 +98,35 @@ class FlowMatching(DecodingAlgorithm):
         """
         if actions is None:
             raise ValueError("Flow Matching algorithm requires actions during training")
-        # Sample flow for each action component
+
         interpolated_actions = {}
         target_velocities = {}
         times, noise, is_pad = None, None, None
+
         for key, action in actions.items():
             if key == IS_PAD_ACTION_KEY:
                 is_pad = action
-                continue  # Skip padding mask
-            # Sample noise from standard normal
+                continue
             noise = torch.randn_like(action.float(), device=action.device)
-            # Sample time, interpolated state, and target velocity
-            t, x_t, u_t = self.flow_matcher.sample_location_and_conditional_flow(
-                x0=noise, x1=action
-            )
+            if times is None:
+                times = sample_timesteps(
+                    batch_size=action.shape[0],
+                    device=action.device,
+                    sampler=self.timestep_sampler,
+                    logit_mean=self.logit_mean,
+                    logit_std=self.logit_std,
+                )
+            epsilon = torch.randn_like(action)
+            x_t = self.flow_matcher.sample_xt(x0=noise, x1=action, t=times, epsilon=epsilon)
+            u_t = self.flow_matcher.compute_conditional_flow(x0=noise, x1=action, t=times, xt=x_t)
             interpolated_actions[key] = x_t
             target_velocities[key] = u_t
-            # Times are the same for all action components
-            if times is None:
-                times = t
-        # Add time to features for conditioning
-        # Time is in [0, 1] and has shape (batch_size,)
+
         features_with_time = {**features, TIMESTEP_KEY: times}
-        # Predict velocity field
         predictions = network(
             features=features_with_time,
             actions=interpolated_actions
         )
-        # Return predictions and targets
         return {
             **predictions,
             TARGET_VELOCITY_KEY: target_velocities,
@@ -141,7 +158,7 @@ class FlowMatching(DecodingAlgorithm):
         dtype = first_feature.dtype
 
         if isinstance(network, DiTBlockActionTransformer):
-            network.reset_encoder_cache() # Clear any cached encoder outputs before inference
+            network.reset_encoder_cache()
 
         trajectory: dict[str, torch.Tensor] = {}
         for key, meta in network.action_space.actions_metadata.items():

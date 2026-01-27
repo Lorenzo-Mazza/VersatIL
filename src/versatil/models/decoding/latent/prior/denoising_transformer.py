@@ -9,7 +9,7 @@ import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer.attention import FlashAttention
-from versatil.models.layers.diffusion_process import (
+from versatil.models.layers.denoising.diffusion_process import (
     DiffusionSchedulerConfig,
     add_noise_to_tensor,
     create_noise_scheduler,
@@ -18,7 +18,7 @@ from versatil.models.layers.diffusion_process import (
     SchedulerType,
 )
 from versatil.models.layers.normalization.ada_norm import AdaNorm
-from versatil.models.layers.ode_solvers import integrate_ode
+from versatil.models.layers.denoising.ode_solvers import integrate_ode
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )

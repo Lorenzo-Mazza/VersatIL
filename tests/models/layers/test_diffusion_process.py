@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from versatil.models.layers.diffusion_process import (
+from versatil.models.layers.denoising.diffusion_process import (
     DiffusionSchedulerConfig,
     add_noise_to_tensor,
     create_noise_scheduler,
