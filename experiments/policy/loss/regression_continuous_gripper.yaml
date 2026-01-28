@@ -25,3 +25,7 @@ loss_modules:
         _target_: versatil.metrics.TrajectoryLengthLoss
         weight: 0.000
         action_key: ${proprio_key:EE_POS_ACTION}
+    
+    kl_divergence:                                                                                                                                                                              
+      _target_: versatil.metrics.KLDivergenceLoss                                                                                                                                               
+      weight: 100.0
