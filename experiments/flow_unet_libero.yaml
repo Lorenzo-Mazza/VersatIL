@@ -10,16 +10,16 @@ defaults:
   - task/observation_space: libero_rgb
   - training: diffusion_default
   - policy/encoding_pipeline: language_conditional_stereo_rgb_pooled
-  - policy/decoder: dit_block_transformer
+  - policy/decoder: conditional_unet
   - policy/algorithm: flow_matching
   - policy/loss: regressionMSE_gripper
   - inference: diffusion_default
-  - override policy/decoder/heads@policy.decoder.action_heads: libero
+  - override policy/decoder/heads@policy.decoder.action_heads: unet_libero
   - _self_
 
 task:
   observation_horizon: 1
-  prediction_horizon: 10
+  prediction_horizon: 16
   dataloader:
     tokenization:
       observation_tokenizer:

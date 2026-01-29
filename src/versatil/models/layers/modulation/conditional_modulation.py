@@ -97,11 +97,18 @@ class ConditionalModulation(nn.Module):
                 gate = gate.view(x.size(0), x.size(1), 1, 1)
         elif x.dim() == 3:
             if x.size(0) == condition.size(0):
-                gamma = gamma.unsqueeze(1)
-                if beta is not None:
-                    beta = beta.unsqueeze(1)
-                if gate is not None:
-                    gate = gate.unsqueeze(1)
+                if x.size(1) == self.feature_dim: # Conv1D format: (B, C, T) - channels in dim 1
+                    gamma = gamma.unsqueeze(2)  # (B, C) -> (B, C, 1)
+                    if beta is not None:
+                        beta = beta.unsqueeze(2)
+                    if gate is not None:
+                        gate = gate.unsqueeze(2)
+                else: # Transformer format: (B, S, D) - features in dim 2
+                    gamma = gamma.unsqueeze(1)  # (B, D) -> (B, 1, D)
+                    if beta is not None:
+                        beta = beta.unsqueeze(1)
+                    if gate is not None:
+                        gate = gate.unsqueeze(1)
             elif x.size(1) == condition.size(0):
                     gamma = gamma.unsqueeze(0)
                     if beta is not None:
