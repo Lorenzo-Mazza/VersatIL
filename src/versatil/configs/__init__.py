@@ -7,6 +7,7 @@ from versatil.configs.data.raw import (
     DatasetSchemaConfig,
     CsvDatasetSchemaConfig,
     Hdf5DatasetSchemaConfig,
+    LeRobotDatasetSchemaConfig,
     DatasetMetadataConfig,
 )
 from versatil.configs.data.metadata import (
@@ -376,6 +377,7 @@ def register_configs():
         name="gripper",
         node=GripperActionMetadataConfig,
     )
+    cs.store(group="task/dataset_schema", name="lerobot", node=LeRobotDatasetSchemaConfig)
     cs.store(group="task/dataset_schema", name="base", node=DatasetSchemaConfig)
     cs.store(group="task/dataset_schema", name="hdf5", node=Hdf5DatasetSchemaConfig)
     cs.store(group="task/dataset_schema", name="csv", node=CsvDatasetSchemaConfig)

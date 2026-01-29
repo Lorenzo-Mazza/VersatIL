@@ -13,6 +13,12 @@ class Cameras(enum.Enum):
     AGENTVIEW = "agentview_rgb"
     EYE_IN_HAND = "eye_in_hand_rgb"
 
+    #LIBERO LEROBOT
+    IMAGE = 'observation.images.image'
+    IMAGE_2 = 'observation.images.image2'
+
+    IMAGE_METAWORLD_LEROBOT = 'observation.image'
+
 
 class CoordinateSystem(str, enum.Enum):
     """Enum for different coordinate systems supported by the codebase"""
@@ -114,6 +120,23 @@ class TokenizerType(str, enum.Enum):
     FAST = "fast"  # FAST action tokenizer
     LANGUAGE = "language"  # Language model tokenizer (BERT, GPT, Gemma, etc.)
 
+class LeRobotPathsV30(str, enum.Enum):
+    INFO_PATH = "meta/info.json"
+    STATS_PATH = "meta/stats.json"
+
+    EPISODES_DIR = "meta/episodes"
+    DATA_DIR = "data"
+    VIDEO_DIR = "videos"
+
+    CHUNK_FILE_PATTERN = "chunk-{chunk_index:03d}/file-{file_index:03d}"
+    DEFAULT_TASKS_PATH = "meta/tasks.parquet"
+    DEFAULT_EPISODES_PATH = EPISODES_DIR + "/" + CHUNK_FILE_PATTERN + ".parquet"
+    DEFAULT_DATA_PATH = DATA_DIR + "/" + CHUNK_FILE_PATTERN + ".parquet"
+    DEFAULT_VIDEO_PATH = VIDEO_DIR + "/{video_key}/" + CHUNK_FILE_PATTERN + ".mp4"
+    DEFAULT_IMAGE_PATH = "images/{image_key}/episode-{episode_index:06d}/frame-{frame_index:06d}.png"
+
+    def __str__(self):
+        return self.value
 
 #: Observation keys
 OBSERVATION_KEY = "observation"

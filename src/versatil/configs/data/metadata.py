@@ -26,6 +26,8 @@ class ObservationMetadataConfig:
     dtype: str = MISSING
     is_numerical: bool = MISSING
     needs_normalization: bool = MISSING
+    slice_start: Optional[int] = None
+    slice_end: Optional[int] = None
 
 
 @dataclass

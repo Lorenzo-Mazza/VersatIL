@@ -13,7 +13,7 @@ encoders:
     pretrained: true
     frozen: false
     pooling_method: none
-    use_group_norm: true
+    batch_norm_handling: ${batch_norm_handling:FROZEN}
 
 
 fusion_stages: []

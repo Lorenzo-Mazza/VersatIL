@@ -62,6 +62,8 @@ class ObservationMetadata(BaseMetadata):
     Attributes:
         raw_data_column_keys: List of keys in the raw dataset corresponding to the observation.
         dimension: Dimension that will be used to store the observation in the zarr store.
+        slice_start: Optional starting index for slicing a larger stored observation vector.
+        slice_end: Optional ending index (exclusive) for slicing a larger stored observation vector.
     """
 
     def __init__(
@@ -71,14 +73,29 @@ class ObservationMetadata(BaseMetadata):
         dtype: str,
         is_numerical: bool,
         needs_normalization: bool,
+        slice_start: Optional[int] = None,
+        slice_end: Optional[int] = None,
     ):
         super().__init__(dtype, is_numerical, needs_normalization)
         if not raw_data_column_keys:
             raise ValueError("raw_data_column_keys cannot be empty")
         if dimension <= 0:
             raise ValueError(f"dimension must be positive, got {dimension}")
+        if slice_start is not None and slice_end is not None:
+            if slice_start < 0 or slice_end < 0:
+                raise ValueError("slice_start and slice_end must be non-negative")
+            if slice_start >= slice_end:
+                raise ValueError(
+                    f"slice_start ({slice_start}) must be less than slice_end ({slice_end})"
+                )
+            if slice_end - slice_start != dimension:
+                raise ValueError(
+                    f"Slice range ({slice_end - slice_start}) must equal dimension ({dimension})"
+                )
         self.raw_data_column_keys = raw_data_column_keys
         self.dimension = dimension
+        self.slice_start = slice_start
+        self.slice_end = slice_end
 
     def __eq__(self, other: object) -> bool:
         """Equality function."""
@@ -88,6 +105,8 @@ class ObservationMetadata(BaseMetadata):
             super().__eq__(other)
             and self.raw_data_column_keys == other.raw_data_column_keys
             and self.dimension == other.dimension
+            and self.slice_start == other.slice_start
+            and self.slice_end == other.slice_end
         )
 
 
@@ -105,6 +124,8 @@ class PositionObservationMetadata(ObservationMetadata):
         dtype: str,
         needs_normalization: bool,
         frame: str = CoordinateSystem.ROBOT_BASE.value,
+        slice_start: Optional[int] = None,
+        slice_end: Optional[int] = None,
     ):
         if "float" not in dtype:
             raise ValueError("Position observations dtype must be a float type.")
@@ -114,6 +135,8 @@ class PositionObservationMetadata(ObservationMetadata):
             dtype=dtype,
             is_numerical=True,
             needs_normalization=needs_normalization,
+            slice_start=slice_start,
+            slice_end=slice_end,
         )
         valid_frames = [e.value for e in CoordinateSystem]
         if frame not in valid_frames:
@@ -144,6 +167,8 @@ class OrientationObservationMetadata(ObservationMetadata):
         needs_normalization: bool,
         frame: str = CoordinateSystem.ROBOT_BASE.value,
         orientation_representation: str = OrientationRepresentation.ROLL.value,
+        slice_start: Optional[int] = None,
+        slice_end: Optional[int] = None,
     ):
         if "float" not in dtype:
             raise ValueError("Orientation observations dtype must be a float type.")
@@ -153,6 +178,8 @@ class OrientationObservationMetadata(ObservationMetadata):
             dtype=dtype,
             is_numerical=True,
             needs_normalization=needs_normalization,
+            slice_start=slice_start,
+            slice_end=slice_end,
         )
         valid_frames = [e.value for e in CoordinateSystem]
         if frame not in valid_frames:
@@ -193,6 +220,8 @@ class GripperObservationMetadata(ObservationMetadata):
         needs_normalization: bool,
         gripper_type: str = GripperType.BINARY.value,
         binary_gripper_range: str = BinaryGripperRange.ZERO_ONE.value,
+        slice_start: Optional[int] = None,
+        slice_end: Optional[int] = None,
     ):
         super().__init__(
             raw_data_column_keys=raw_data_column_keys,
@@ -200,6 +229,8 @@ class GripperObservationMetadata(ObservationMetadata):
             dtype=dtype,
             is_numerical=True,
             needs_normalization=needs_normalization,
+            slice_start=slice_start,
+            slice_end=slice_end,
         )
         valid_types = [e.value for e in GripperType]
         if gripper_type not in valid_types:
@@ -553,12 +584,12 @@ class GripperActionMetadata(PrecomputedActionMetadata):
     def __init__(
         self,
         gripper_type: str,
-        binary_gripper_range: str,
         raw_data_column_keys: list[str],
         storage_dimension: int,
         prediction_dimension: int,
         needs_normalization: bool,
         dtype: str,
+        binary_gripper_range: str = BinaryGripperRange.ZERO_ONE.value,
         slice_start: Optional[int] = None,
         slice_end: Optional[int] = None,
     ):

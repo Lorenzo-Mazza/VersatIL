@@ -28,3 +28,10 @@ class Hdf5DatasetSchemaConfig(DatasetSchemaConfig):
     """Configuration for HDF5 dataset schema."""
 
     hdf5_paths: list[str] = MISSING
+
+
+@dataclass
+class LeRobotDatasetSchemaConfig(DatasetSchemaConfig):
+    """Configuration for LeRobot dataset schema V30"""
+
+    dataset_path: str = MISSING

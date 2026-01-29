@@ -14,10 +14,12 @@ from versatil.data.preprocessing.create_zarr_from_csv import create_replay_buffe
 from versatil.data.preprocessing.create_zarr_from_hdf5 import (
     create_replay_buffer_from_hdf5,
 )
+from versatil.data.preprocessing.create_zarr_from_lerobot import create_replay_buffer_from_lerobot
 from versatil.data.preprocessing.replay_buffer import ReplayBuffer
 from versatil.data.raw.schemas import CsvDatasetSchema
 from versatil.data.raw.schemas.base import DatasetSchema
 from versatil.data.raw.schemas.hdf5 import Hdf5DatasetSchema
+from versatil.data.raw.schemas.lerobot import LeRobotDatasetSchemaV30
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization.tokenizer import Tokenizer, validate_tokenizer_config
 
@@ -220,6 +222,8 @@ def _ensure_zarr_exists(schema: DatasetSchema, preload_in_memory: bool = False) 
                 f"Found {len(datasets_paths)} episodes across {len(schema.dataset_folders)} folders"
             )
             create_replay_buffer(schema=schema, datasets_paths=datasets_paths)
+        elif isinstance(schema, LeRobotDatasetSchemaV30):
+            create_replay_buffer_from_lerobot(schema=schema)
         else:
             raise NotImplementedError(
                 f"Zarr creation not implemented for schema type: {type(schema)}"
