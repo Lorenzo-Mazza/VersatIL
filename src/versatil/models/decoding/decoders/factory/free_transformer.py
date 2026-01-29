@@ -80,12 +80,17 @@ class FreeTransformerDecoder(ActionDecoder):
             observation_horizon: Number of observation timesteps
             prediction_horizon: Number of action timesteps to predict
             device: Device for computation
+            max_seq_len: Maximum input token sequence length
             embedding_dimension: Model embedding dimension
             number_of_heads: Number of attention heads
+            number_of_key_value_heads: Number of K/V heads for GQA (None = same as heads = MHA)
             feedforward_dimension: FFN hidden dimension
             number_of_decoder_layers: Total decoder layers (must be even for latent injection at midpoint)
             number_of_encoder_layers: Number of latent encoder layers (training only)
             latent_bits: Number of bits for latent codes (2^bits total codes, default 16 → 65536)
+            activation: Activation function name
+            normalization_type: Normalization type name
+            attention_type: Attention type name (gqa, mha)
             dropout_rate: Dropout probability
             attention_dropout: Attention dropout probability
             positional_encoding_type: Type of positional encoding (sinusoidal, rope, None)

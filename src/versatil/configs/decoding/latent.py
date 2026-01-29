@@ -11,7 +11,7 @@ from versatil.models.decoding.constants import (
     PredictionType,
 )
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.diffusion_process import SchedulerType
+from versatil.models.layers.denoising.diffusion_process import SchedulerType
 
 
 @dataclass

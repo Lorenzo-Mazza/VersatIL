@@ -13,7 +13,7 @@ from versatil.models.decoding.constants import (
     PredictionType,
     VarianceType,
 )
-from versatil.models.layers.diffusion_process import SchedulerType
+from versatil.models.layers.denoising.diffusion_process import SchedulerType
 
 
 @dataclass
@@ -68,6 +68,9 @@ class FlowMatchingConfig(DecodingAlgorithmConfig):
     sigma: float = 0.0
     ode_solver: str = ODESolver.EULER.value
     num_inference_steps: int = 10
+    timestep_sampler: str = "logit_normal"
+    logit_mean: float = 0.0
+    logit_std: float = 1.0
 
 
 @dataclass

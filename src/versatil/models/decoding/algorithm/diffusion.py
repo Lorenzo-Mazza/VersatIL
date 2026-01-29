@@ -20,7 +20,8 @@ import torch
 
 from versatil.data.constants import IS_PAD_ACTION_KEY
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
-from versatil.models.layers.diffusion_process import (
+from versatil.models.decoding.decoders.factory.dit_block_action_transformer import DiTBlockActionTransformer
+from versatil.models.layers.denoising.diffusion_process import (
     DiffusionSchedulerConfig,
     add_noise_to_tensor,
     create_noise_scheduler,
@@ -211,6 +212,8 @@ class Diffusion(DecodingAlgorithm):
                 dtype=dtype,
             )
         setup_inference_timesteps(self.noise_scheduler, self.num_inference_steps)
+        if isinstance(network, DiTBlockActionTransformer):
+            network.reset_encoder_cache() # Clear any cached encoder outputs before inference
 
         # Iteratively denoise
         for t in self.noise_scheduler.timesteps:  # type: ignore[union-attr]

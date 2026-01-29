@@ -140,6 +140,27 @@ class EMACallback(Callback):
 
         return max(self.min_value, min(value, self.max_value))  # type: ignore[no-any-return]
 
+    def on_save_checkpoint(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        checkpoint: dict,
+    ) -> None:
+        """Inject EMA weights into the checkpoint.
+
+        Args:
+            trainer: Lightning trainer
+            pl_module: Lightning module
+            checkpoint: Checkpoint dictionary being saved
+        """
+        if self.ema_model is None:
+            return
+        ema_state = self.ema_model.state_dict()
+        for key, value in ema_state.items():
+            ckpt_key = f"policy.{key}"
+            if ckpt_key in checkpoint["state_dict"]:
+                checkpoint["state_dict"][ckpt_key] = value.clone()
+
     def on_validation_start(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ) -> None:

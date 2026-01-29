@@ -16,6 +16,11 @@ defaults:
   - inference: act_default
   - _self_
 
+training:
+  early_stopping_patience: 30
+  clip_gradient_norm: true
+  clip_max_norm: 20.0
+
 task:
   observation_horizon: 1
   prediction_horizon: 10

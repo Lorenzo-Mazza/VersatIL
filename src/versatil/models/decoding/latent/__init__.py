@@ -26,11 +26,15 @@ from versatil.models.decoding.latent.posterior.transformer_encoder import (
 from versatil.models.decoding.latent.prior.denoising_transformer import (
     DenoisingTransformerPrior
 )
+from versatil.models.decoding.latent.prior.transformer_encoder import (
+    PriorTransformerEncoder,
+)
 
 __all__ = [
     "PosteriorLatentEncoder",
     "VAETransformerEncoder",
     "PriorLatentEncoder",
+    "PriorTransformerEncoder",
     "GaussianPrior",
     "VampPrior",
     "DenoisingTransformerPrior",

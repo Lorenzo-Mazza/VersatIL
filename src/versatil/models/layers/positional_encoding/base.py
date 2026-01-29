@@ -44,11 +44,11 @@ class PositionalEncoding(abc.ABC, nn.Module):
             None  # An extra learnable MLP layer after positional encoding.
         )
         if mlp_hidden_dimensions:
-            # Use nn.SiLU as default if mlp_activation is None
             activation = mlp_activation if mlp_activation is not None else nn.SiLU
             self.mlp_network = MLP(
                 input_dim=embedding_dimension,
-                hidden_dims=mlp_hidden_dimensions,
+                hidden_dims=mlp_hidden_dimensions[:-1],
+                output_dim=mlp_hidden_dimensions[-1],
                 activation_function=activation,
             )
 

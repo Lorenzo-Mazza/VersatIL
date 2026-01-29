@@ -43,7 +43,10 @@ from versatil.configs.decoding.algorithm import (
 )
 from versatil.configs.decoding.decoder import (
     ACTConfig,
+    ConditionalUNetDecoderConfig,
     DecodingNetworkConfig,
+    DiffusionActionTransformerConfig,
+    DiTBlockActionTransformerConfig,
     FreeTransformerConfig,
     LACTConfig,
     MixtureOfExpertsDecoderConfig,
@@ -136,9 +139,10 @@ from versatil.data.constants import (
 )
 from versatil.models.decoding.constants import (
     ACTION_LOGITS_KEY,
-    LATENT_KEY,
     LatentKey,
-    MoERoutingType, DenoisingAlgorithm,
+    MoERoutingType,
+    DenoisingAlgorithm,
+    DiTType,
 )
 from versatil.models.encoding.encoders.constants import (
     RGBBackboneType,
@@ -149,7 +153,8 @@ from versatil.models.encoding.encoders.constants import (
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, ConditioningType, PositionalEncodingType
 from versatil.metrics.constants import MetadataKey
-from versatil.models.layers.diffusion_process import SchedulerType
+from versatil.models.layers.denoising.diffusion_process import SchedulerType
+from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.training.constants import Float32MatmulPrecision, PrecisionType
 
@@ -168,6 +173,9 @@ __all__ = [
     "LanguageEncoderConfig",
     "DecodingNetworkConfig",
     "ACTConfig",
+    "ConditionalUNetDecoderConfig",
+    "DiTBlockActionTransformerConfig",
+    "DiffusionActionTransformerConfig",
     "FreeTransformerConfig",
     "LACTConfig",
     "MixtureOfExpertsDecoderConfig",
@@ -319,6 +327,14 @@ def register_resolvers():
     if not OmegaConf.has_resolver("metadata_key"):
         OmegaConf.register_new_resolver(
             "metadata_key", lambda name: MetadataKey[name].value
+        )
+    if not OmegaConf.has_resolver("dit_type"):
+        OmegaConf.register_new_resolver(
+            "dit_type", lambda name: DiTType[name].value
+        )
+    if not OmegaConf.has_resolver("timestep_sampler"):
+        OmegaConf.register_new_resolver(
+            "timestep_sampler", lambda name: TimestepSampler[name].value
         )
 
 def register_configs():
@@ -569,6 +585,9 @@ def register_configs():
     )
     cs.store(group="policy/decoder", name="moe", node=MixtureOfExpertsDecoderConfig)
     cs.store(group="policy/decoder", name="lact_decoder", node=LACTConfig)
+    cs.store(group="policy/decoder", name="dit_block", node=DiTBlockActionTransformerConfig)
+    cs.store(group="policy/decoder", name="diffusion_act", node=DiffusionActionTransformerConfig)
+    cs.store(group="policy/decoder", name="unet", node=ConditionalUNetDecoderConfig)
     cs.store(group="policy/decoder/action_head", name="base", node=ActionHeadConfig)
     cs.store(
         group="policy/decoder/action_head", name="moe", node=MixtureOfExpertsHeadConfig

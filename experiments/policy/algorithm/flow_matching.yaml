@@ -4,3 +4,6 @@ defaults:
 ode_solver: "euler"
 num_inference_steps: 10
 sigma: 0.0
+timestep_sampler: ${timestep_sampler:LOGIT_NORMAL}
+logit_mean: 0.0
+logit_std: 1.0

@@ -181,6 +181,10 @@ class TransformerDecoderLayer(nn.Module):
                 raise ValueError(
                     "encoded_features required when use_cross_attention=True and no cached cross KV"
                 )
+            if self.cross_attention is None:
+                raise ValueError(
+                    "cross_attention module is None, but use_cross_attention=True"
+                )
             residual = hidden_states
             hidden_states = self.cross_attention_normalization(hidden_states)
             use_cross_cache = (

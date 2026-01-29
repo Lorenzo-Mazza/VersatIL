@@ -10,8 +10,8 @@ base_algorithm:
 
 posterior_encoder:
   _target_: versatil.models.decoding.latent.posterior.transformer_encoder.VAETransformerEncoder
-  latent_dimension: 32
-  embedding_dimension: 256
+  latent_dimension: 64
+  embedding_dimension: 512
   prediction_horizon: ${policy.prediction_horizon} 
   observation_horizon: ${policy.observation_horizon}
   number_of_heads: 8
@@ -27,8 +27,8 @@ posterior_encoder:
 
 
 prior:
-  latent_dimension: 32
-  embedding_dimension: 256
+  latent_dimension: 64
+  embedding_dimension: 512
   prediction_horizon: ${policy.prediction_horizon}
   observation_horizon: ${policy.observation_horizon}
   number_of_heads: 8

@@ -77,14 +77,12 @@ class BidirectionalDecoder(nn.Module):
         self.number_of_heads = number_of_heads
         self.maximum_sequence_length = maximum_sequence_length
         self.initializer_range = initializer_range
-
         if attention_type == AttentionType.GROUPED_QUERY.value:
             if number_of_key_value_heads is None:
                 raise ValueError("number_of_key_value_heads required for GQA")
             self.number_of_key_value_heads = number_of_key_value_heads
         else:
             self.number_of_key_value_heads = number_of_heads
-
         self.head_dimension = embedding_dimension // number_of_heads
 
         self.positional_encoding = None

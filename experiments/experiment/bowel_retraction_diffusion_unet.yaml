@@ -1,20 +1,20 @@
 defaults:
   - base
 
-name: ${now:%Y%m%d_%H%M%S}
+name: diffusion_${now:%Y%m%d_%H%M%S}_br_diffusion_unet_cf_lr1e-6_wd1e-6
 seed: 42
 
-checkpoint_folder: /mnt/cluster/workspaces/mazzalore/bowel_retraction/
+checkpoint_folder: /mnt/cluster/environments/jeonbongg/checkpoint/bowel_retraction
 resume_from: null
 
 use_wandb: true
-wandb_project: surg-il
-wandb_entity: null
+wandb_project: bonggeun-research
+wandb_entity: nct-dresden
 
 device: cuda
 distributed: false
 
-precision: ${precision:BF16_MIXED}
+precision: ${precision:FP32}
 float32_matmul_precision: ${float32_matmul:MEDIUM}
 
 checkpoint_every: 100

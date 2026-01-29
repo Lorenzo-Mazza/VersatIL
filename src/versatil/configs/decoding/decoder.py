@@ -6,7 +6,7 @@ from omegaconf import MISSING
 
 from versatil.configs.decoding.action_head import MixtureOfExpertsHeadConfig
 from versatil.configs.data.task import ActionSpaceConfig, ObservationSpaceConfig
-from versatil.models.decoding.constants import MoERoutingType
+from versatil.models.decoding.constants import MoERoutingType, DiTType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, ConditioningType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -190,34 +190,6 @@ class LACTConfig(DecodingNetworkConfig):
     modulation_init_strategy: str = "identity"
 
 
-# TODO: Implement these decoder architectures
-# @dataclass
-# class UNetConfig(DecodingNetworkConfig):
-#     """U-Net architecture configuration."""
-#     _target_: str = "versatil.models.decoding.decoders.unet.UNetArchitecture"
-#     down_dims: Tuple[int, int, int] = (256, 512, 1024)
-#     kernel_size: int = 5
-#     n_groups: int = 8
-#     latent_dim: int = 32
-
-
-# @dataclass
-# class DPTransformerConfig(DecodingNetworkConfig):
-#     """Diffusion Policy-like Transformer architecture configuration."""
-#     _target_: str = "versatil.models.decoding.decoders.dp_transformer.DPTransformerArchitecture"
-#     kernel_size: int = 5
-#     n_groups: int = 8
-#     latent_dim: int = 32
-
-
-# @dataclass
-# class MLPConfig(DecodingNetworkConfig):
-#     """Simple MLP architecture configuration."""
-#     _target_: str = "versatil.models.decoding.decoders.mlp.MLPArchitecture"
-#     hidden_dims: List[int] = field(default_factory=lambda: [256, 128])
-#     activation: str = "relu"
-
-
 @dataclass
 class FreeTransformerConfig(DecodingNetworkConfig):
     """Free Transformer architecture configuration.
@@ -293,3 +265,71 @@ class MixtureOfExpertsDecoderConfig(DecodingNetworkConfig):
     learnable_temperature: bool = False
     gating_dropout: float = 0.1
     gating_normalization: bool = True
+
+
+@dataclass
+class DiTBlockActionTransformerConfig(DecodingNetworkConfig):
+    """DiTBlock action transformer with pooled conditioning.
+
+    Encoder-decoder architecture that pools encoder output to a single conditioning
+    vector.
+
+    Must be used with a denoising algorithm that provides timesteps and noisy actions.
+    """
+
+    _target_: str = "versatil.models.decoding.decoders.factory.dit_block_action_transformer.DiTBlockActionTransformer"
+    max_sequence_length: int = 1024
+    embedding_dimension: int = 512
+    timestep_embedding_dimension: int = 256
+    number_of_heads: int = 8
+    number_of_key_value_heads: int | None = None
+    number_of_encoder_layers: int = 6
+    number_of_decoder_layers: int = 6
+    feedforward_dimension: int = 2048
+    activation: str = ActivationFunction.SWIGLU.value
+    normalization_type: str = NormalizationType.RMS_NORM.value
+    attention_type: str = AttentionType.MULTI_HEAD.value
+    dropout_rate: float = 0.1
+    attention_dropout: float = 0.0
+    positional_encoding_type: str | None = PositionalEncodingType.ROPE.value
+    use_gating: bool = True
+
+
+@dataclass
+class DiffusionActionTransformerConfig(DecodingNetworkConfig):
+    """Diffusion action transformer for CrossAttentionDiT and MMDiT.
+
+    Decoder-only architecture that operates on unpooled observation tokens.
+
+    Must be used with a denoising algorithm that provides timesteps and noisy actions.
+    """
+
+    _target_: str = "versatil.models.decoding.decoders.factory.diffusion_action_transformer.DiffusionActionTransformer"
+    diffusion_transformer_type: str = DiTType.CROSS_ATTENTION.value
+    max_sequence_length: int = 1024
+    embedding_dimension: int = 512
+    timestep_embedding_dimension: int = 256
+    number_of_heads: int = 8
+    number_of_key_value_heads: int | None = None
+    number_of_layers: int = 6
+    feedforward_dimension: int = 2048
+    activation: str = ActivationFunction.SWIGLU.value
+    normalization_type: str = NormalizationType.RMS_NORM.value
+    attention_type: str = AttentionType.MULTI_HEAD.value
+    dropout_rate: float = 0.1
+    attention_dropout: float = 0.0
+    positional_encoding_type: str | None = PositionalEncodingType.ROPE.value
+    use_gating: bool = True
+
+
+@dataclass
+class ConditionalUNetDecoderConfig(DecodingNetworkConfig):
+    """Conditional U-Net decoder configuration."""
+
+    _target_: str = "versatil.models.decoding.decoders.factory.conditional_unet_decoder.ConditionalUNetDecoder"
+    embedding_dimension: int = 256
+    down_dimensions: list[int] = field(default_factory=lambda: [256, 512, 1024])
+    kernel_size: int = 5
+    num_groups: int = 8
+    use_local_conditioning: bool = False
+    condition_predict_scale: bool = False

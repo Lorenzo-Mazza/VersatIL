@@ -34,9 +34,9 @@ def create_normalization_layer(
         if condition_dim is None:
             raise ValueError("condition_dim is required for ada_ln / ada_rms")
         if normalization_type == NormalizationType.ADALN.value:
-            base_norm = nn.LayerNorm(dimension, eps=epsilon)
+            base_norm = nn.LayerNorm(dimension, eps=epsilon, elementwise_affine=False)
         else:
-            base_norm = RMSNorm(dimension, eps=epsilon)
+            base_norm = RMSNorm(dimension, eps=epsilon, elementwise_affine=False)
         return AdaNorm(base_norm, condition_dim=condition_dim, feature_dim=dimension)
     elif normalization_type == NormalizationType.LAYER_NORM.value:
         return nn.LayerNorm(dimension, eps=epsilon)

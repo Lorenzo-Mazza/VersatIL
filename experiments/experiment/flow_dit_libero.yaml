@@ -1,0 +1,22 @@
+defaults:
+  - base
+
+name: flow_dit_libero_10_${now:%Y%m%d_%H%M%S}
+seed: 42
+
+checkpoint_folder: /mnt/cluster/environments/jeonbongg/checkpoint/bowel_retraction/libero
+resume_from: null
+
+use_wandb: true
+wandb_project: bonggeun-research
+wandb_entity: nct-dresden
+
+device: cuda
+distributed: false
+
+precision: ${precision:FP32}
+float32_matmul_precision: ${float32_matmul:MEDIUM}
+
+checkpoint_every: 100
+val_every: 1
+plot_every: 200
