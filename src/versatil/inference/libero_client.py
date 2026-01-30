@@ -200,12 +200,6 @@ class LiberoClient(SocketClient):
                 f"Expected LeRobotDatasetSchemaV30 or Hdf5DatasetSchema."
             )
 
-        if self.use_lerobot_preprocessing:
-            if self.image_height != 256 or self.image_width != 256:
-                raise ValueError(
-                    f"Lerobot preprocessing requires 256x256 images, but model was trained with "
-                    f"{self.image_height}x{self.image_width}. Check your model config."
-                )
         self._server_resolution_validated = False
 
         obs_space: ObservationSpace = self.policy.observation_space
