@@ -37,6 +37,8 @@ from versatil.data.metadata import (
     OrientationActionMetadata,
     PositionActionMetadata,
 )
+from versatil.data.raw.schemas.hdf5 import Hdf5DatasetSchema
+from versatil.data.raw.schemas.lerobot import LeRobotDatasetSchemaV30
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.policy import Policy
@@ -184,6 +186,27 @@ class LiberoClient(SocketClient):
         self.image_height = self.config.task.dataloader.image_height
         self.image_width = self.config.task.dataloader.image_width
         self.observation_buffer_size = self.observation_horizon
+
+        dataset_schema = self.config.task.dataset_schema
+        if isinstance(dataset_schema, LeRobotDatasetSchemaV30):
+            self.use_lerobot_preprocessing = True
+            logging.info("Detected LeRobot dataset schema - enabling 180-degree image rotation")
+        elif isinstance(dataset_schema, Hdf5DatasetSchema):
+            self.use_lerobot_preprocessing = False
+            logging.info("Detected HDF5 dataset schema - using standard preprocessing")
+        else:
+            raise ValueError(
+                f"Unsupported dataset schema type: {type(dataset_schema).__name__}. "
+                f"Expected LeRobotDatasetSchemaV30 or Hdf5DatasetSchema."
+            )
+
+        if self.use_lerobot_preprocessing:
+            if self.image_height != 256 or self.image_width != 256:
+                raise ValueError(
+                    f"Lerobot preprocessing requires 256x256 images, but model was trained with "
+                    f"{self.image_height}x{self.image_width}. Check your model config."
+                )
+        self._server_resolution_validated = False
 
         obs_space: ObservationSpace = self.policy.observation_space
         action_space: ActionSpace = self.policy.action_space
@@ -447,6 +470,22 @@ class LiberoClient(SocketClient):
                 "LiberoClient requires at least one camera (agentview_rgb or eye_in_hand_rgb)."
             )
 
+    def _preprocess_image(self, image: np.ndarray) -> np.ndarray:
+        """Preprocess image based on training dataset type.
+
+        For Lerobot: rotate 180 degrees to match training preprocessing.
+
+        Args:
+            image: Input image array (H, W, C)
+
+        Returns:
+            Preprocessed image array
+        """
+        if self.use_lerobot_preprocessing:
+            # Rotate 180 degrees: flip both vertical and horizontal axes
+            return np.ascontiguousarray(image[::-1, ::-1])
+        return image
+
     def get_observation(self) -> tuple[LiberoObservation, bool, bool]:
         """Request and process an observation from the LIBERO server.
 
@@ -477,11 +516,23 @@ class LiberoClient(SocketClient):
                 f"Unexpected server status: {response[LiberoResponseKeys.STATUS.value]}"
             )
 
+        if self.use_lerobot_preprocessing and not self._server_resolution_validated:
+            server_height = response.get("image_height")
+            server_width = response.get("image_width")
+            if server_height != 256 or server_width != 256:
+                raise ValueError(
+                    f"Lerobot preprocessing requires server resolution of 256x256, "
+                    f"but server is using {server_height}x{server_width}. "
+                    f"Start the server with --resolution 256."
+                )
+            self._server_resolution_validated = True
+
         agentview_rgb = None
         if LiberoResponseKeys.AGENTVIEW_RGB.value in response:
             agentview_rgb = decompress_array(
                 response[LiberoResponseKeys.AGENTVIEW_RGB.value], self.compression_type
             )
+            agentview_rgb = self._preprocess_image(agentview_rgb)
             if self.enable_logging:
                 logging.info(
                     f"Agentview shape: {agentview_rgb.shape}, dtype: {agentview_rgb.dtype}, range: [{agentview_rgb.min()}, {agentview_rgb.max()}]"
@@ -492,6 +543,7 @@ class LiberoClient(SocketClient):
                 response[LiberoResponseKeys.EYE_IN_HAND_RGB.value],
                 self.compression_type,
             )
+            eye_in_hand_rgb = self._preprocess_image(eye_in_hand_rgb)
             if self.enable_logging:
                 logging.info(
                     f"Eye-in-hand shape: {eye_in_hand_rgb.shape}, dtype: {eye_in_hand_rgb.dtype}, range: [{eye_in_hand_rgb.min()}, {eye_in_hand_rgb.max()}]"
