@@ -22,6 +22,7 @@ class Hdf5DatasetSchema(DatasetSchema):
         hdf5_paths: list[str],
         zarr_path: str,
         metadata: DatasetMetadata,
+        dataset_type: str,
     ):
         """Initialize the HDF5 dataset schema.
 
@@ -29,10 +30,12 @@ class Hdf5DatasetSchema(DatasetSchema):
             hdf5_paths: List of paths to HDF5 files
             zarr_path: Path to save/load the zarr file
             metadata: Metadata to use for creating the zarr store from the raw data.
+            dataset_type: Type of dataset used by the schema (e.g., 'libero', 'tso', 'metaworld')
         """
         super().__init__(
             zarr_path=zarr_path,
             metadata=metadata,
+            dataset_type=dataset_type,
         )
         self.hdf5_paths = hdf5_paths
 
