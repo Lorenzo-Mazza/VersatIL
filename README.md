@@ -392,7 +392,7 @@ src/versatil/
 Configs use Hydra's composition pattern:
 
 ```yaml
-# yaml_configs/act_bowel_retraction.yaml
+# hydra_configs/act_bowel_retraction.yaml
 defaults:
   - experiment: bowel_retraction_fast_decoder
   - task/dataset_schema: bowel_retraction_v2
@@ -416,16 +416,16 @@ task:
 
 | Config Group | Location | Purpose |
 |--------------|----------|---------|
-| `experiment` | `yaml_configs/experiment/` | Name, checkpointing, WandB |
-| `task/dataset_schema` | `yaml_configs/task/dataset/` | Dataset schema (observation/action keys) |
-| `task/dataloader` | `yaml_configs/task/dataloader/` | Batch size, workers, augmentation |
-| `task/action_space` | `yaml_configs/task/action_space/` | Action dimensions, gripper, orientation |
-| `task/observation_space` | `yaml_configs/task/observation_space/` | Cameras, proprio, language |
-| `training` | `yaml_configs/training/` | Optimizer, LR, EMA, gradient clipping |
-| `policy/encoding_pipeline` | `yaml_configs/policy/encoding_pipeline/` | Encoder + fusion composition |
-| `policy/decoder` | `yaml_configs/policy/decoder/` | Decoder architecture |
-| `policy/algorithm` | `yaml_configs/policy/algorithm/` | BC, diffusion, flow matching, variational |
-| `policy/loss` | `yaml_configs/policy/loss/` | Loss function configuration |
+| `experiment` | `hydra_configs/experiment/` | Name, checkpointing, WandB |
+| `task/dataset_schema` | `hydra_configs/task/dataset/` | Dataset schema (observation/action keys) |
+| `task/dataloader` | `hydra_configs/task/dataloader/` | Batch size, workers, augmentation |
+| `task/action_space` | `hydra_configs/task/action_space/` | Action dimensions, gripper, orientation |
+| `task/observation_space` | `hydra_configs/task/observation_space/` | Cameras, proprio, language |
+| `training` | `hydra_configs/training/` | Optimizer, LR, EMA, gradient clipping |
+| `policy/encoding_pipeline` | `hydra_configs/policy/encoding_pipeline/` | Encoder + fusion composition |
+| `policy/decoder` | `hydra_configs/policy/decoder/` | Decoder architecture |
+| `policy/algorithm` | `hydra_configs/policy/algorithm/` | BC, diffusion, flow matching, variational |
+| `policy/loss` | `hydra_configs/policy/loss/` | Loss function configuration |
 
 ### Interpolation
 
@@ -561,7 +561,7 @@ from omegaconf import OmegaConf
 from versatil.data.preprocessing.create_zarr_from_csv import create_replay_buffer
 
 # Load schema config
-cfg = OmegaConf.load("yaml_configs/task/dataset_schema/bowel_retraction_v4.yaml")
+cfg = OmegaConf.load("hydra_configs/task/dataset_schema/bowel_retraction_v4.yaml")
 schema = instantiate(cfg)
 
 # Get list of episode CSV paths
@@ -579,7 +579,7 @@ from omegaconf import OmegaConf
 from versatil.data.preprocessing.create_zarr_from_hdf5 import create_replay_buffer_from_hdf5
 
 # Load schema config (hdf5_paths are defined in the YAML)
-cfg = OmegaConf.load("yaml_configs/task/dataset_schema/libero_10.yaml")
+cfg = OmegaConf.load("hydra_configs/task/dataset_schema/libero_10.yaml")
 schema = instantiate(cfg)
 
 # Create Zarr dataset
@@ -601,7 +601,7 @@ dataset.zarr/
 
 ### Task Configuration
 
-**Location**: `yaml_configs/task/`
+**Location**: `hydra_configs/task/`
 
 **Purpose**: Defines what data to **use at runtime** from the Zarr dataset.
 
@@ -609,7 +609,7 @@ dataset.zarr/
 
 1. **ActionSpace** (`action_space/`): What actions to predict
 ```yaml
-# yaml_configs/task/action_space/position_gripper_deltas_cf.yaml
+# hydra_configs/task/action_space/position_gripper_deltas_cf.yaml
 has_position: true
 position_dim: 3
 has_orientation: false
@@ -621,7 +621,7 @@ deltas_as_actions: true        # Predict deltas, not absolute
 
 2. **ObservationSpace** (`observation_space/`): What observations to use
 ```yaml
-# yaml_configs/task/observation_space/rgb_proprio_cf.yaml
+# hydra_configs/task/observation_space/rgb_proprio_cf.yaml
 camera_keys:
   - left   # ← Must match schema's camera_keys
   - right
@@ -694,7 +694,7 @@ class MyDatasetSchema(DatasetSchema):
 
 **Step 3**: Create Hydra config
 ```yaml
-# yaml_configs/task/dataset/my_dataset.yaml
+# hydra_configs/task/dataset/my_dataset.yaml
 _target_: versatil.data.schemas.my_dataset.MyDatasetSchema
 dataset_folders:
   - /data/my_dataset/train
@@ -743,7 +743,7 @@ class MyEncoder(Encoder):
         return {"embedding": self.encode(x)}
 ```
 
-**3. Create YAML config** (`yaml_configs/policy/encoding/my_encoder.yaml`):
+**3. Create YAML config** (`hydra_configs/policy/encoding/my_encoder.yaml`):
 ```yaml
 _target_: versatil.models.encoding.encoders.my_encoder.MyEncoder
 feature_dim: 512
@@ -772,7 +772,7 @@ class MyAlgorithm(DecodingAlgorithm):
 Create a new experiment YAML that composes existing components:
 
 ```yaml
-# yaml_configs/my_experiment.yaml
+# hydra_configs/my_experiment.yaml
 defaults:
   - experiment: bowel_retraction_fast_decoder
   - task/dataset_schema: bowel_retraction_v2
