@@ -10,6 +10,7 @@ import os
 import torch
 from omegaconf import OmegaConf
 
+from versatil.data.constants import DatasetType
 from versatil.inference.tso_client import TSOPolicyClient
 from versatil.inference.libero_client import LiberoClient
 
@@ -102,14 +103,14 @@ def detect_client_type(checkpoint_path: str) -> str:
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Config file not found at {config_path}")
     config = OmegaConf.load(config_path)
-    target = config.task.dataset_schema._target_
-    if "libero" in target.lower():
+    dataset_type = config.task.dataset_schema.dataset_type
+    if dataset_type == DatasetType.LIBERO.value:
         return ClientType.LIBERO.value
-    elif "bowel_retraction" in target.lower():
+    elif dataset_type == DatasetType.TSO.value:
         return ClientType.TSO.value
     else:
         raise ValueError(
-            f"Unknown dataset schema: {target}. Cannot determine client type."
+            f"Unknown dataset type: {dataset_type}. Cannot determine client type."
         )
 
 
