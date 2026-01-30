@@ -276,11 +276,12 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
     Attributes:
         dataset_path: Root path to the LeRobot dataset directory.
         lerobot_metadata: Metadata handler for accessing dataset structure.
+        dataset_type: String with the dataset type used by the schema (e.g. libero, metaworld, etc.)
     """
 
-    def __init__(self, dataset_path: str, zarr_path: str, metadata: DatasetMetadata):
+    def __init__(self, dataset_path: str, zarr_path: str, metadata: DatasetMetadata, dataset_type: str):
         self.dataset_path = Path(dataset_path)
-        super().__init__(zarr_path=zarr_path, metadata=metadata)
+        super().__init__(zarr_path=zarr_path, metadata=metadata, dataset_type=dataset_type)
 
         self.lerobot_metadata = LeRobotDatasetMetadataV30(dataset_path=dataset_path)
 

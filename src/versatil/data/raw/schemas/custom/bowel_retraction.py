@@ -10,6 +10,7 @@ import pandas as pd
 from versatil.data.constants import (
     Cameras,
     CoordinateSystem,
+    DatasetType,
     GripperType,
     ProprioKey,
     ObsKey,
@@ -51,6 +52,7 @@ class BowelRetractionSchema(CsvDatasetSchema):
         dataset_folders: list[str],
         zarr_path: str,
         metadata: DatasetMetadata,
+        dataset_type: str = DatasetType.TSO.value,
     ):
         """Initialize and validate the bowel retraction schema.
 
@@ -58,8 +60,13 @@ class BowelRetractionSchema(CsvDatasetSchema):
             dataset_folders: List of folders containing episode CSVs.
             zarr_path: Path to save/load the zarr store.
             metadata: Metadata to use for creating the zarr store from the raw data.
-
+            dataset_type: Type of dataset. Must be 'tso'.
         """
+        if dataset_type != DatasetType.TSO.value:
+            raise ValueError(
+                f"BowelRetractionSchema only supports dataset_type='{DatasetType.TSO.value}', "
+                f"got '{dataset_type}'"
+            )
         self._validate_metadata(metadata)
         self.left_image_csv_key = BOWEL_RETRACTION_LEFT_IMAGE_KEY
         self.right_image_csv_key = BOWEL_RETRACTION_RIGHT_IMAGE_KEY
@@ -75,6 +82,7 @@ class BowelRetractionSchema(CsvDatasetSchema):
             episode_filename=BOWEL_RETRACTION_EPISODE_FILENAME,
             zarr_path=zarr_path,
             metadata=metadata,
+            dataset_type=dataset_type,
         )
 
     @staticmethod
