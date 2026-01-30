@@ -1,8 +1,36 @@
-"""Surg-IL library."""
+"""VersatIL library."""
+import os
 import warnings
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+CACHE_DIR = Path(os.environ.get("VERSATIL_CACHE_DIR", Path.home() / ".cache" / "versatil"))
+
+
+def setup_cache_directories():
+    """Configure cache directories for model downloads."""
+    os.environ["HF_HOME"] = str(CACHE_DIR / "huggingface")
+    os.environ["HF_HUB_CACHE"] = str(CACHE_DIR / "huggingface" / "hub")
+    os.environ["TORCH_HOME"] = str(CACHE_DIR / "torch")
+    for cache_path in [
+        CACHE_DIR / "huggingface" / "transformers",
+        CACHE_DIR / "huggingface" / "hub",
+        CACHE_DIR / "torch" / "hub",
+    ]:
+        cache_path.mkdir(parents=True, exist_ok=True)
+
+
+setup_cache_directories()
 
 warnings.filterwarnings(
     "ignore",
     category=UserWarning,
     module="pydantic._internal._generate_schema",
 )
+warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
+warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
+warnings.filterwarnings("ignore", category=FutureWarning, module="timm")
+warnings.filterwarnings("ignore", category=UserWarning, module="timm")

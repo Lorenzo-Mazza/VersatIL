@@ -1,0 +1,10 @@
+defaults:
+  - csv
+  - zarr_meta/bowel_retraction@metadata
+  - _self_
+
+_target_: versatil.data.raw.schemas.custom.bowel_retraction.BowelRetractionSchema
+zarr_path: ${zarr_dir:bowel_retraction/fixed_viewpoint_phantom/dataset.zarr}
+dataset_folders:
+  - ${bowel_retraction_dir:v1}
+  - ${bowel_retraction_dir:v2}

@@ -1,0 +1,34 @@
+# @package _global_
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: base
+  - /task/dataset_schema: bowel_retraction_v2
+  - /task/dataloader: bowel_retraction
+  - /task/action_space: deltas_cf_pos_gripper_phase
+  - /task/observation_space: stereo_rgbd
+  - /training: phase_act_default
+  - /policy/encoding_pipeline: stereo_rgb_geometric_depth
+  - /policy/decoder: phase_act_depth
+  - /policy/algorithm: bc_with_vae_gaussian
+  - /policy/loss: regression_gripper_KL_phaseCE
+  - /inference: default
+  - _self_
+
+experiment:
+  checkpoint_folder: ${checkpoint_dir:bowel_retraction}
+
+task:
+  observation_horizon: 1  # Phase ACT does not use history
+  prediction_horizon: 10
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: true
+

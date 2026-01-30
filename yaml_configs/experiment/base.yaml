@@ -1,0 +1,19 @@
+name: ${now:%Y%m%d_%H%M%S}
+seed: 42
+
+checkpoint_folder: ${checkpoint_dir:}
+resume_from: null
+
+use_wandb: true
+wandb_project: ${env:WANDB_PROJECT,versatil}
+wandb_entity: ${env:WANDB_ENTITY,null}
+
+device: cuda
+distributed: false
+
+precision: ${precision:FP32}
+float32_matmul_precision: ${float32_matmul:MEDIUM}
+
+checkpoint_every: 100
+val_every: 1
+plot_every: 100

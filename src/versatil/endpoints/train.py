@@ -15,7 +15,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-EXPERIMENTS_DIR = PROJECT_ROOT / "experiments"
+EXPERIMENTS_DIR = PROJECT_ROOT / "yaml_configs"
 
 
 @hydra.main(version_base=None, config_path=str(EXPERIMENTS_DIR), config_name="main")

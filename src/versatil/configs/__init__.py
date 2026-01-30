@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 from hydra.core.config_store import ConfigStore
 from omegaconf import OmegaConf
 
@@ -335,6 +338,51 @@ def register_resolvers():
     if not OmegaConf.has_resolver("timestep_sampler"):
         OmegaConf.register_new_resolver(
             "timestep_sampler", lambda name: TimestepSampler[name].value
+        )
+
+    if not OmegaConf.has_resolver("env"):
+        OmegaConf.register_new_resolver(
+            "env", lambda key, default=None: os.environ.get(key, default)
+        )
+    if not OmegaConf.has_resolver("checkpoint_dir"):
+        OmegaConf.register_new_resolver(
+            "checkpoint_dir",
+            lambda subpath="": str(Path(os.environ.get("VERSATIL_CHECKPOINT_DIR", ".")) / subpath),
+        )
+    if not OmegaConf.has_resolver("zarr_dir"):
+        OmegaConf.register_new_resolver(
+            "zarr_dir",
+            lambda subpath="": str(Path(os.environ.get("VERSATIL_ZARR_DIR", ".")) / subpath),
+        )
+    if not OmegaConf.has_resolver("cache_dir"):
+        OmegaConf.register_new_resolver(
+            "cache_dir",
+            lambda: os.environ.get("VERSATIL_CACHE_DIR", str(Path.home() / ".cache" / "versatil")),
+        )
+    if not OmegaConf.has_resolver("pretrained_dir"):
+        OmegaConf.register_new_resolver(
+            "pretrained_dir",
+            lambda subpath="": str(Path(os.environ.get("VERSATIL_PRETRAINED_DIR", ".")) / subpath),
+        )
+    if not OmegaConf.has_resolver("bowel_retraction_dir"):
+        OmegaConf.register_new_resolver(
+            "bowel_retraction_dir",
+            lambda subpath="": str(Path(os.environ.get("VERSATIL_BOWEL_RETRACTION_DIR", ".")) / subpath),
+        )
+    if not OmegaConf.has_resolver("libero_hdf5_dir"):
+        OmegaConf.register_new_resolver(
+            "libero_hdf5_dir",
+            lambda subpath="": str(Path(os.environ.get("VERSATIL_LIBERO_HDF5_DIR", ".")) / subpath),
+        )
+    if not OmegaConf.has_resolver("libero_lerobot_dir"):
+        OmegaConf.register_new_resolver(
+            "libero_lerobot_dir",
+            lambda subpath="": str(Path(os.environ.get("VERSATIL_LIBERO_LEROBOT_DIR", ".")) / subpath),
+        )
+    if not OmegaConf.has_resolver("metaworld_lerobot_dir"):
+        OmegaConf.register_new_resolver(
+            "metaworld_lerobot_dir",
+            lambda subpath="": str(Path(os.environ.get("VERSATIL_METAWORLD_LEROBOT_DIR", ".")) / subpath),
         )
 
 def register_configs():

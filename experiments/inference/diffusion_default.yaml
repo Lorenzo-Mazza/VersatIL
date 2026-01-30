@@ -1,5 +1,0 @@
-defaults:
-  - base
-
-temporal_agg: true
-update_rate_hz: 3.0

@@ -1,9 +1,0 @@
-# Inference configuration for ACT
-defaults:
-  - base
-
-# Temporal aggregation (exponential smoothing)
-temporal_agg: true
-
-# Control frequency
-update_rate_hz: 3.0
