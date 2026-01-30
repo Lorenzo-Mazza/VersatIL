@@ -4,7 +4,7 @@ _target_: versatil.configs.main.MainConfig
 defaults:
   - /task: base
   - /policy: base
-  - /experiment: base
+  - /experiment: default
   - /task/dataset_schema: libero_lerobot
   - /task/dataloader: libero_lerobot
   - /task/action_space: libero_precomputed_lerobot

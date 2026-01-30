@@ -5,7 +5,7 @@ _target_: versatil.configs.main.MainConfig
 defaults:
   - /task: base
   - /policy: base
-  - /experiment: base
+  - /experiment: default
   - /task/dataset_schema: libero_10
   - /task/dataloader: libero
   - /task/action_space: libero_precomputed

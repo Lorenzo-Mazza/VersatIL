@@ -1,4 +1,5 @@
 """VersatIL library."""
+import logging
 import os
 import warnings
 from pathlib import Path
@@ -6,6 +7,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logging.getLogger("timm").setLevel(logging.ERROR)
+logging.getLogger("transformers").setLevel(logging.ERROR)
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 
 CACHE_DIR = Path(os.environ.get("VERSATIL_CACHE_DIR", Path.home() / ".cache" / "versatil"))
 
@@ -34,3 +39,6 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
 warnings.filterwarnings("ignore", category=FutureWarning, module="timm")
 warnings.filterwarnings("ignore", category=UserWarning, module="timm")
+warnings.filterwarnings("ignore", category=UserWarning, module="albumentations")
+warnings.filterwarnings("ignore", category=UserWarning, module="hydra")
+warnings.filterwarnings("ignore", message="Trying to infer the `batch_size`")
