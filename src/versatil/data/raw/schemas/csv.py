@@ -22,6 +22,7 @@ class CsvDatasetSchema(DatasetSchema):
         zarr_path: str,
         episode_filename: str,
         metadata: DatasetMetadata,
+        dataset_type: str,
     ):
         """Initialize the CSV dataset schema.
 
@@ -30,10 +31,12 @@ class CsvDatasetSchema(DatasetSchema):
             zarr_path: Path to save/load the zarr file
             episode_filename: Name and format of the episode CSV data file in each folder
             metadata: Metadata to use for creating the zarr store from the raw data.
+            dataset_type: Type of dataset (e.g., 'libero', 'tso', 'metaworld')
         """
         super().__init__(
             zarr_path=zarr_path,
             metadata=metadata,
+            dataset_type=dataset_type,
         )
         self.dataset_folders = dataset_folders
         self.dataset_filename = episode_filename

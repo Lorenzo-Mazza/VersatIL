@@ -4,6 +4,7 @@ defaults:
   - _self_
 
 _target_: versatil.data.raw.schemas.custom.bowel_retraction.BowelRetractionSchema
+dataset_type: ${dataset_type:TSO}
 zarr_path: ${zarr_dir:bowel_retraction/phantom_exvivo/dataset.zarr}
 dataset_folders:
   - ${bowel_retraction_dir:v1}

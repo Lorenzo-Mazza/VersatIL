@@ -11,7 +11,7 @@ defaults:
   - /task/observation_space: libero_rgb
   - /training: ema_cosine_schedule
   - /policy/encoding_pipeline: language_conditional_stereo_rgb_pooled
-  - /policy/decoder: dit_block_transformer
+  - /policy/decoder: conditional_unet
   - /policy/algorithm: flow_matching
   - /policy/loss: regressionMSE_gripper
   - /inference: default
@@ -20,7 +20,7 @@ defaults:
 
 task:
   observation_horizon: 1
-  prediction_horizon: 10
+  prediction_horizon: 16 # 3-layer U-Net needs the prediction horizon to be a multiple of 4.
   dataloader:
     tokenization:
       observation_tokenizer:

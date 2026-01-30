@@ -14,6 +14,7 @@ class DatasetSchemaConfig:
     _target_: str = MISSING
     zarr_path: str = MISSING
     metadata: DatasetMetadataConfig = MISSING
+    dataset_type: str = MISSING
 
 
 @dataclass

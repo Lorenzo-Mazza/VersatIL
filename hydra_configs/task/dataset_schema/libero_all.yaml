@@ -3,6 +3,7 @@ defaults:
   - zarr_meta/libero@metadata
 
 _target_: versatil.data.raw.schemas.custom.libero.LiberoSchema
+dataset_type: ${dataset_type:LIBERO}
 zarr_path: ${zarr_dir:libero_single_datasets_hdf5/libero_all.zarr}
 hdf5_paths:
   # libero_10 (10 tasks)

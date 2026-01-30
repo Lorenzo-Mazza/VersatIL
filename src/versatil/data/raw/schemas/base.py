@@ -38,15 +38,18 @@ class DatasetSchema(abc.ABC):
         self,
         zarr_path: str,
         metadata: DatasetMetadata,
+        dataset_type: str,
     ):
         """Initialize the dataset schema.
 
         Args:
             zarr_path: Path to save/load the zarr file
             metadata: Metadata of the raw dataset
+            dataset_type: Type of dataset (e.g., 'libero', 'tso', 'metaworld')
         """
         self.zarr_path = zarr_path
         self.metadata = metadata
+        self.dataset_type = dataset_type
 
     @abc.abstractmethod
     def extract_episode(

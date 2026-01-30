@@ -120,6 +120,14 @@ class TokenizerType(str, enum.Enum):
     FAST = "fast"  # FAST action tokenizer
     LANGUAGE = "language"  # Language model tokenizer (BERT, GPT, Gemma, etc.)
 
+
+class DatasetType(str, enum.Enum):
+    """Enum for dataset types, independent of storage format."""
+    LIBERO = "libero"
+    TSO = "tso"
+    METAWORLD = "metaworld"
+
+
 class LeRobotPathsV30(str, enum.Enum):
     INFO_PATH = "meta/info.json"
     STATS_PATH = "meta/stats.json"

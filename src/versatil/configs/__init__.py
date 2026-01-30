@@ -129,6 +129,7 @@ from versatil.data.constants import (
     BinaryGripperRange,
     Cameras,
     CoordinateSystem,
+    DatasetType,
     GripperType,
     GRIPPER_ACTION_KEY,
     ObsKey,
@@ -338,6 +339,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("timestep_sampler"):
         OmegaConf.register_new_resolver(
             "timestep_sampler", lambda name: TimestepSampler[name].value
+        )
+    if not OmegaConf.has_resolver("dataset_type"):
+        OmegaConf.register_new_resolver(
+            "dataset_type", lambda name: DatasetType[name].value
         )
 
     if not OmegaConf.has_resolver("env"):

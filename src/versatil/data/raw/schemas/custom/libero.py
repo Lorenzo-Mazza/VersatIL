@@ -4,7 +4,7 @@ import albumentations as A
 import h5py
 import numpy as np
 
-from versatil.data.constants import Cameras, ObsKey
+from versatil.data.constants import Cameras, DatasetType, ObsKey
 from versatil.data.metadata import (
     CameraMetadata,
     ObservationMetadata,
@@ -35,6 +35,7 @@ class LiberoSchema(Hdf5DatasetSchema):
         hdf5_paths: list[str],
         zarr_path: str,
         metadata: DatasetMetadata,
+        dataset_type: str = DatasetType.LIBERO.value,
     ):
         """Initialize the LIBERO schema.
 
@@ -42,7 +43,13 @@ class LiberoSchema(Hdf5DatasetSchema):
             hdf5_paths: List of paths to LIBERO HDF5 files. Each file is a separate task.
             zarr_path: Path to save/load the zarr file
             metadata: Metadata to use for creating the zarr store from the raw data.
+            dataset_type: Type of dataset. Must be 'libero'.
         """
+        if dataset_type != DatasetType.LIBERO.value:
+            raise ValueError(
+                f"LiberoSchema only supports dataset_type='{DatasetType.LIBERO.value}', "
+                f"got '{dataset_type}'"
+            )
         self.obs_group_path = "obs"
         self.actions_key = "actions"
         self.extract_language_from_filename = True
@@ -50,6 +57,7 @@ class LiberoSchema(Hdf5DatasetSchema):
             hdf5_paths=hdf5_paths,
             zarr_path=zarr_path,
             metadata=metadata,
+            dataset_type=dataset_type,
         )
 
     def get_demo_names(self, hdf5_path: str) -> list[str]:
