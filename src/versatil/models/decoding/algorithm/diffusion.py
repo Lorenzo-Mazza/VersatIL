@@ -18,9 +18,11 @@ See diffusion_process.py for detailed documentation of these components.
 
 import torch
 
-from versatil.data.constants import IS_PAD_ACTION_KEY
+from versatil.data.constants import SampleKey
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
-from versatil.models.decoding.decoders.factory.dit_block_action_transformer import DiTBlockActionTransformer
+from versatil.models.decoding.decoders.factory.dit_block_action_transformer import (
+    DiTBlockActionTransformer,
+)
 from versatil.models.layers.denoising.diffusion_process import (
     DiffusionSchedulerConfig,
     add_noise_to_tensor,
@@ -30,12 +32,10 @@ from versatil.models.layers.denoising.diffusion_process import (
     SchedulerType,
 )
 from versatil.models.decoding.constants import (
-    TIMESTEP_KEY,
     BetaSchedule,
+    DecoderOutputKey,
     PredictionType,
     VarianceType,
-    NOISE_KEY,
-    TARGET_DIFFUSION_KEY,
 )
 from versatil.models.decoding.decoders.base import ActionDecoder
 
@@ -146,7 +146,7 @@ class Diffusion(DecodingAlgorithm):
         noise = {}
         is_pad = None
         for key, action in actions.items():
-            if key == IS_PAD_ACTION_KEY:
+            if key == SampleKey.IS_PAD_ACTION.value:
                 is_pad = action
                 continue  # Skip padding mask
             noisy_actions[key], noise[key] = add_noise_to_tensor(
@@ -156,7 +156,7 @@ class Diffusion(DecodingAlgorithm):
             )
 
         # Add timesteps to features for eventual conditioning
-        features_with_time = {**features, TIMESTEP_KEY: timesteps}
+        features_with_time = {**features, DecoderOutputKey.TIMESTEP.value: timesteps}
 
         predictions = network(features_with_time, noisy_actions)
         if self.prediction_type == PredictionType.EPSILON.value:
@@ -172,10 +172,10 @@ class Diffusion(DecodingAlgorithm):
             )
         return {
             **predictions,
-            TARGET_DIFFUSION_KEY: target,
-            NOISE_KEY: noise,
-            IS_PAD_ACTION_KEY: is_pad,
-            TIMESTEP_KEY: timesteps,
+            DecoderOutputKey.TARGET_DIFFUSION.value: target,
+            DecoderOutputKey.NOISE.value: noise,
+            SampleKey.IS_PAD_ACTION.value: is_pad,
+            DecoderOutputKey.TIMESTEP.value: timesteps,
         }
 
     def predict(
@@ -213,13 +213,13 @@ class Diffusion(DecodingAlgorithm):
             )
         setup_inference_timesteps(self.noise_scheduler, self.num_inference_steps)
         if isinstance(network, DiTBlockActionTransformer):
-            network.reset_encoder_cache() # Clear any cached encoder outputs before inference
+            network.reset_encoder_cache()  # Clear any cached encoder outputs before inference
 
         # Iteratively denoise
         for t in self.noise_scheduler.timesteps:  # type: ignore[union-attr]
             # Expand timestep to batch dimension
             timestep = t.unsqueeze(0).expand(batch_size).to(device)
-            features_with_time = {**features, TIMESTEP_KEY: timestep}
+            features_with_time = {**features, DecoderOutputKey.TIMESTEP.value: timestep}
             model_output = network(features_with_time, noisy_actions)
             for key in noisy_actions:
                 if key in model_output:

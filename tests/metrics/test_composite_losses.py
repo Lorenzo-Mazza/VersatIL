@@ -4,10 +4,9 @@ import pytest
 import torch
 
 from versatil.data.constants import (
-    POSITION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    PHASE_LABEL_KEY,
     GripperType,
+    ObsKey,
+    ProprioceptiveType,
 )
 from versatil.metrics.composite import (
     ActionReconstructionLoss,
@@ -41,19 +40,19 @@ def position_dim():
 class TestActionReconstructionLoss:
     def test_basic_reconstruction_loss(self, device, batch_size, horizon, position_dim):
         loss_fn = ActionReconstructionLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             mse_weight=1.0,
             gripper_bce_weight=1.0,
             use_vae=False,
         )
 
         predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            GRIPPER_ACTION_KEY: torch.randn(batch_size, horizon, 1, device=device),
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device),
+            ProprioceptiveType.GRIPPER.value: torch.randn(batch_size, horizon, 1, device=device),
         }
         targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            GRIPPER_ACTION_KEY: torch.randint(
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device),
+            ProprioceptiveType.GRIPPER.value: torch.randint(
                 0, 2, (batch_size, horizon, 1), device=device
             ).float(),
         }
@@ -65,7 +64,7 @@ class TestActionReconstructionLoss:
 
     def test_with_vae_kl_divergence(self, device, batch_size, horizon, position_dim):
         loss_fn = ActionReconstructionLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             mse_weight=1.0,
             kl_weight=0.001,
             use_vae=True,
@@ -73,14 +72,14 @@ class TestActionReconstructionLoss:
 
         latent_dim = 32
         predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            GRIPPER_ACTION_KEY: torch.randn(batch_size, horizon, 1, device=device),
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device),
+            ProprioceptiveType.GRIPPER.value: torch.randn(batch_size, horizon, 1, device=device),
             "mu": torch.randn(batch_size, latent_dim, device=device),
             "logvar": torch.randn(batch_size, latent_dim, device=device),
         }
         targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            GRIPPER_ACTION_KEY: torch.randint(
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device),
+            ProprioceptiveType.GRIPPER.value: torch.randint(
                 0, 2, (batch_size, horizon, 1), device=device
             ).float(),
         }
@@ -96,19 +95,19 @@ class TestActionReconstructionLoss:
         self, device, batch_size, horizon, position_dim
     ):
         loss_fn = ActionReconstructionLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             mse_weight=1.0,
             length_weight=0.1,
             smoothness_weight=0.01,
         )
 
         predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            GRIPPER_ACTION_KEY: torch.randn(batch_size, horizon, 1, device=device),
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device),
+            ProprioceptiveType.GRIPPER.value: torch.randn(batch_size, horizon, 1, device=device),
         }
         targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            GRIPPER_ACTION_KEY: torch.randint(
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device),
+            ProprioceptiveType.GRIPPER.value: torch.randint(
                 0, 2, (batch_size, horizon, 1), device=device
             ).float(),
         }
@@ -131,23 +130,23 @@ class TestPhaseActionLoss:
     ):
         n_phases = 5
         loss_fn = PhaseActionLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             mse_weight=1.0,
             phase_ce_weight=1.0,
             use_vae=False,
         )
 
         predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            GRIPPER_ACTION_KEY: torch.randn(batch_size, horizon, 1, device=device),
-            PHASE_LABEL_KEY: torch.randn(batch_size, horizon, n_phases, device=device),
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device),
+            ProprioceptiveType.GRIPPER.value: torch.randn(batch_size, horizon, 1, device=device),
+            ObsKey.PHASE_LABEL.value: torch.randn(batch_size, horizon, n_phases, device=device),
         }
         targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            GRIPPER_ACTION_KEY: torch.randint(
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device),
+            ProprioceptiveType.GRIPPER.value: torch.randint(
                 0, 2, (batch_size, horizon, 1), device=device
             ).float(),
-            PHASE_LABEL_KEY: torch.randint(
+            ObsKey.PHASE_LABEL.value: torch.randint(
                 0, n_phases, (batch_size, horizon), device=device
             ),
         }
@@ -165,7 +164,7 @@ class TestCompositeLoss:
     def test_composite_loss_combination(self, device, batch_size, horizon, position_dim):
         loss_modules = {
             "regression": RegressionLoss(
-                action_keys=[POSITION_ACTION_KEY], mse_weight=1.0
+                action_keys=[ProprioceptiveType.POSITION.value], mse_weight=1.0
             ),
             "gripper": GripperLoss(gripper_type=GripperType.BINARY.value),
         }
@@ -174,12 +173,12 @@ class TestCompositeLoss:
         loss_fn = CompositeLoss(loss_modules=loss_modules, weights=weights)
 
         predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            GRIPPER_ACTION_KEY: torch.randn(batch_size, horizon, 1, device=device),
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device),
+            ProprioceptiveType.GRIPPER.value: torch.randn(batch_size, horizon, 1, device=device),
         }
         targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            GRIPPER_ACTION_KEY: torch.randint(
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device),
+            ProprioceptiveType.GRIPPER.value: torch.randint(
                 0, 2, (batch_size, horizon, 1), device=device
             ).float(),
         }

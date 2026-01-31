@@ -3,18 +3,18 @@
 import torch
 from torchcfm.conditional_flow_matching import ConditionalFlowMatcher
 
-from versatil.data.constants import IS_PAD_ACTION_KEY
+from versatil.data.constants import SampleKey
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
-from versatil.models.decoding.constants import (
-    ODESolver,
-    TARGET_VELOCITY_KEY,
-    TIMESTEP_KEY,
-    NOISE_KEY,
-)
+from versatil.models.decoding.constants import DecoderOutputKey, ODESolver
 from versatil.models.decoding.decoders.base import ActionDecoder
-from versatil.models.decoding.decoders.factory.dit_block_action_transformer import DiTBlockActionTransformer
+from versatil.models.decoding.decoders.factory.dit_block_action_transformer import (
+    DiTBlockActionTransformer,
+)
 from versatil.models.layers.denoising.ode_solvers import integrate_ode
-from versatil.models.layers.denoising.timestep_sampling import TimestepSampler, sample_timesteps
+from versatil.models.layers.denoising.timestep_sampling import (
+    TimestepSampler,
+    sample_timesteps,
+)
 
 
 class FlowMatching(DecodingAlgorithm):
@@ -104,7 +104,7 @@ class FlowMatching(DecodingAlgorithm):
         times, noise, is_pad = None, None, None
 
         for key, action in actions.items():
-            if key == IS_PAD_ACTION_KEY:
+            if key == SampleKey.IS_PAD_ACTION.value:
                 is_pad = action
                 continue
             noise = torch.randn_like(action.float(), device=action.device)
@@ -117,22 +117,23 @@ class FlowMatching(DecodingAlgorithm):
                     logit_std=self.logit_std,
                 )
             epsilon = torch.randn_like(action.float())
-            x_t = self.flow_matcher.sample_xt(x0=noise, x1=action, t=times, epsilon=epsilon)
-            u_t = self.flow_matcher.compute_conditional_flow(x0=noise, x1=action, t=times, xt=x_t)
+            x_t = self.flow_matcher.sample_xt(
+                x0=noise, x1=action, t=times, epsilon=epsilon
+            )
+            u_t = self.flow_matcher.compute_conditional_flow(
+                x0=noise, x1=action, t=times, xt=x_t
+            )
             interpolated_actions[key] = x_t
             target_velocities[key] = u_t
 
-        features_with_time = {**features, TIMESTEP_KEY: times}
-        predictions = network(
-            features=features_with_time,
-            actions=interpolated_actions
-        )
+        features_with_time = {**features, DecoderOutputKey.TIMESTEP.value: times}
+        predictions = network(features=features_with_time, actions=interpolated_actions)
         return {
             **predictions,
-            TARGET_VELOCITY_KEY: target_velocities,
-            NOISE_KEY: noise,
-            TIMESTEP_KEY: times,
-            IS_PAD_ACTION_KEY: is_pad,
+            DecoderOutputKey.TARGET_VELOCITY.value: target_velocities,
+            DecoderOutputKey.NOISE.value: noise,
+            DecoderOutputKey.TIMESTEP.value: times,
+            SampleKey.IS_PAD_ACTION.value: is_pad,
         }
 
     def predict(
@@ -173,7 +174,9 @@ class FlowMatching(DecodingAlgorithm):
             )  # (B, H, D_k)
         action_keys = sorted(trajectory.keys())
         shapes = {k: trajectory[k].shape for k in action_keys}
-        flat_action_dimensions = {key: shapes[key][1] * shapes[key][2] for key in action_keys}
+        flat_action_dimensions = {
+            key: shapes[key][1] * shapes[key][2] for key in action_keys
+        }
         stacked = torch.cat(
             [trajectory[k].flatten(1) for k in action_keys], dim=-1
         )  # (B, H*sum(D_k))
@@ -184,15 +187,19 @@ class FlowMatching(DecodingAlgorithm):
             offset = 0
             for current_key in action_keys:
                 flat_action_size = flat_action_dimensions[current_key]
-                current_trajectory[current_key] = z[:, offset : offset + flat_action_size].view(shapes[current_key])  # (B, H, D_k)
+                current_trajectory[current_key] = z[
+                    :, offset : offset + flat_action_size
+                ].view(
+                    shapes[current_key]
+                )  # (B, H, D_k)
                 offset += flat_action_size
-            features_with_time = {**features, TIMESTEP_KEY: t}
+            features_with_time = {**features, DecoderOutputKey.TIMESTEP.value: t}
             velocities = network(
-                features=features_with_time,
-                actions=current_trajectory
+                features=features_with_time, actions=current_trajectory
             )
             return torch.cat(
-                [velocities[current_key].flatten(1) for current_key in action_keys], dim=-1
+                [velocities[current_key].flatten(1) for current_key in action_keys],
+                dim=-1,
             )  # (B, H*sum(D_k))
 
         stacked_final = integrate_ode(
@@ -205,7 +212,9 @@ class FlowMatching(DecodingAlgorithm):
         current_offset = 0
         for key in action_keys:
             flat_action_dimension = shapes[key][1] * shapes[key][2]
-            result[key] = stacked_final[:, current_offset : current_offset + flat_action_dimension].view(
+            result[key] = stacked_final[
+                :, current_offset : current_offset + flat_action_dimension
+            ].view(
                 shapes[key]
             )  # (B, H, D_k)
             current_offset += flat_action_dimension

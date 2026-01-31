@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from versatil.data.constants import TokenizerType, TOKENIZED_ACTIONS_KEY, IS_PAD_ACTION_KEY
+from versatil.data.constants import TokenizerType, SampleKey
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 
 
@@ -39,9 +39,9 @@ class TestActionTokenizerFASTOnly:
         # Encode batch of chunks (N, T, D)
         result = tokenizer.encode(normalized_action_chunks)
 
-        assert TOKENIZED_ACTIONS_KEY in result
-        assert IS_PAD_ACTION_KEY in result
-        tokens = result[TOKENIZED_ACTIONS_KEY]
+        assert SampleKey.TOKENIZED_ACTIONS.value in result
+        assert SampleKey.IS_PAD_ACTION.value in result
+        tokens = result[SampleKey.TOKENIZED_ACTIONS.value]
         assert tokens.device == device
         assert tokens.dtype == torch.long
 
@@ -67,8 +67,8 @@ class TestActionTokenizerFASTOnly:
         result = tokenizer.encode(single_chunk, is_pad_mask=is_pad)
 
         # Should only tokenize first 2 timesteps
-        assert TOKENIZED_ACTIONS_KEY in result
-        assert IS_PAD_ACTION_KEY in result
+        assert SampleKey.TOKENIZED_ACTIONS.value in result
+        assert SampleKey.IS_PAD_ACTION.value in result
 
     def test_cannot_fit_pretrained(self, device, normalized_action_chunks):
         """Test that fitting raises error when using pretrained weights."""
@@ -115,7 +115,7 @@ class TestActionTokenizerCustomFAST:
         assert tokenizer.vocab_size == 1024
         # Encode entire batch of chunks
         result = tokenizer.encode(normalized_action_chunks[0]) # Single chunk (T, D)
-        tokens = result[TOKENIZED_ACTIONS_KEY]
+        tokens = result[SampleKey.TOKENIZED_ACTIONS.value]
         decoded = tokenizer.decode(tokens)
         assert decoded.shape == normalized_action_chunks[0].shape
         # Assert decoded actions are close to original
@@ -204,7 +204,7 @@ class TestActionTokenizerWithLanguageMapping:
         )
 
         result = tokenizer.encode(normalized_action_chunks)
-        tokens = result[TOKENIZED_ACTIONS_KEY]
+        tokens = result[SampleKey.TOKENIZED_ACTIONS.value]
 
         # Tokens should be in language vocab range
         assert tokens.max() < tokenizer.vocab_size
@@ -231,10 +231,10 @@ class TestActionTokenizerWithLanguageMapping:
 
         single_chunk = normalized_action_chunks[0]
         result = tokenizer.encode(single_chunk)
-        tokens = result[TOKENIZED_ACTIONS_KEY]
+        tokens = result[SampleKey.TOKENIZED_ACTIONS.value]
 
         # Tokens should be in the high end of vocab (excluding padding)
-        non_pad_tokens = tokens[~result[IS_PAD_ACTION_KEY]]
+        non_pad_tokens = tokens[~result[SampleKey.IS_PAD_ACTION.value]]
         lang_vocab_size = tokenizer.language_tokenizer.vocab_size
 
         # FAST tokens mapped to: lang_vocab_size - 1 - num_special - fast_token_id
@@ -334,8 +334,8 @@ class TestActionTokenizerDeviceHandling:
         single_chunk = normalized_action_chunks[0]
         result = tokenizer.encode(single_chunk)
 
-        assert result[TOKENIZED_ACTIONS_KEY].device == device
-        assert result[IS_PAD_ACTION_KEY].device == device
+        assert result[SampleKey.TOKENIZED_ACTIONS.value].device == device
+        assert result[SampleKey.IS_PAD_ACTION.value].device == device
 
 
 @pytest.mark.integration
@@ -353,8 +353,8 @@ class TestActionTokenizerEdgeCases:
         action_tensor = torch.from_numpy(normalized_action_chunks[0]).to(device)
         result = tokenizer.encode(action_tensor)
 
-        assert TOKENIZED_ACTIONS_KEY in result
-        assert result[TOKENIZED_ACTIONS_KEY].device == device
+        assert SampleKey.TOKENIZED_ACTIONS.value in result
+        assert result[SampleKey.TOKENIZED_ACTIONS.value].device == device
 
     def test_decode_batch(self, device, normalized_action_chunks):
         """Test decoding a batch of token sequences."""
@@ -366,7 +366,7 @@ class TestActionTokenizerEdgeCases:
 
         # Encode to get valid tokens
         result = tokenizer.encode(normalized_action_chunks)
-        tokens = result[TOKENIZED_ACTIONS_KEY]
+        tokens = result[SampleKey.TOKENIZED_ACTIONS.value]
 
         # Decode batch
         reconstructed = tokenizer.decode(tokens)
@@ -389,5 +389,5 @@ class TestActionTokenizerEdgeCases:
         result = tokenizer.encode(normalized_action_chunks)
 
         # Shape should be (N, max_token_len)
-        assert result[TOKENIZED_ACTIONS_KEY].shape == (len(normalized_action_chunks), max_len)
-        assert result[IS_PAD_ACTION_KEY].shape == (len(normalized_action_chunks), max_len)
+        assert result[SampleKey.TOKENIZED_ACTIONS.value].shape == (len(normalized_action_chunks), max_len)
+        assert result[SampleKey.IS_PAD_ACTION.value].shape == (len(normalized_action_chunks), max_len)

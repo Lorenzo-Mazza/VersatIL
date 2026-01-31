@@ -53,9 +53,9 @@ class VAETransformerEncoderConfig(PosteriorLatentEncoderConfig):
     dropout_rate: float = 0.1
     normalize_before: bool = False
     exclude_keys: list[str] | None = None
-    min_logvar: float | None = None  
-    
-    
+    min_logvar: float | None = None
+
+
 @dataclass
 class GaussianPriorConfig(PriorLatentEncoderConfig):
     """Standard Gaussian N(0, I) prior configuration.
@@ -65,9 +65,7 @@ class GaussianPriorConfig(PriorLatentEncoderConfig):
 
     """
 
-    _target_: str = (
-        "versatil.models.decoding.latent.prior.gaussian_prior.GaussianPrior"
-    )
+    _target_: str = "versatil.models.decoding.latent.prior.gaussian_prior.GaussianPrior"
     latent_dimension: int = 32
 
 
@@ -97,9 +95,7 @@ class VampPriorConfig(PriorLatentEncoderConfig):
     Reference: "VAE with a VampPrior" (Tomczak & Welling, 2018)
     """
 
-    _target_: str = (
-        "versatil.models.decoding.latent.prior.vamp_prior.VampPrior"
-    )
+    _target_: str = "versatil.models.decoding.latent.prior.vamp_prior.VampPrior"
     latent_dimension: int = 32
     num_components: int = 50
     action_space: ActionSpaceConfig = "${policy.action_space}"  # type: ignore[assignment]
@@ -115,9 +111,7 @@ class DenoisingTransformerPriorConfig(PriorLatentEncoderConfig):
     as a CLS token appended to observation tokens.
     """
 
-    _target_: str = (
-        "versatil.models.decoding.latent.prior.denoising_transformer.DenoisingTransformerPrior"
-    )
+    _target_: str = "versatil.models.decoding.latent.prior.denoising_transformer.DenoisingTransformerPrior"
     latent_dimension: int = 32
     embedding_dimension: int = 256
     number_of_heads: int = 8

@@ -16,10 +16,8 @@ from versatil.data.task import ObservationSpace, ActionSpace
 from versatil.data.action_processor import ActionProcessor
 from versatil.data.augmentation.augmentation_pipeline import AugmentationPipeline
 from versatil.data.constants import (
-    ACTION_KEY,
-    IS_PAD_ACTION_KEY,
-    OBSERVATION_KEY,
     Cameras,
+    SampleKey,
 )
 from versatil.data.tokenization import Tokenizer
 from versatil.data.normalization.normalizer import LinearNormalizer
@@ -89,14 +87,14 @@ class SampleBuilder:
             Dictionary containing observation and action dictionaries. Each sub-dictionary maps keys to tensors.
         """
         sample: dict[str, dict[str, torch.Tensor]] = {
-            OBSERVATION_KEY: {},
-            ACTION_KEY: {},
+            SampleKey.OBSERVATION.value: {},
+            SampleKey.ACTION.value: {},
         }
         image_dict = self._get_sample_images(padded_data=padded_data)
-        sample[OBSERVATION_KEY].update(image_dict)
+        sample[SampleKey.OBSERVATION.value].update(image_dict)
         for key, metadata in self.observation_space.observations_metadata.items():
             if isinstance(metadata, ObservationMetadata):  # Excludes cameras
-                sample[OBSERVATION_KEY].update(
+                sample[SampleKey.OBSERVATION.value].update(
                     {
                         key: self._slice_observation_tensor(
                             key=key, metadata=metadata, padded_data=padded_data
@@ -105,7 +103,7 @@ class SampleBuilder:
                 )
         for key, data in action_data.items():
             metadata = action_meta[key]
-            sample[ACTION_KEY].update(
+            sample[SampleKey.ACTION.value].update(
                 {
                     key: self._slice_action_data(
                         key=key, metadata=metadata, action_data=action_data
@@ -113,7 +111,9 @@ class SampleBuilder:
                 }
             )
 
-        sample[ACTION_KEY][IS_PAD_ACTION_KEY] = self._compute_action_padding_mask(
+        sample[SampleKey.ACTION.value][
+            SampleKey.IS_PAD_ACTION.value
+        ] = self._compute_action_padding_mask(
             start_idx=start_idx, sampler_indices=sampler_indices
         )
         sample = self.normalize_and_tokenize_sample(sample=sample)

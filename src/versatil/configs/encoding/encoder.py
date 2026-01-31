@@ -7,7 +7,7 @@ from versatil.data.constants import Cameras
 from versatil.models.encoding.encoders.constants import (
     LanguageEncoderType,
     PoolingMethod,
-    BatchNormHandling
+    BatchNormHandling,
 )
 from versatil.models.layers.activation import ActivationFunction
 
@@ -38,9 +38,7 @@ class DepthCNNEncoderConfig(EncoderConfig):
 class DFormerEncoderConfig(EncoderConfig):
     """DFormer RGB+Depth encoder configuration."""
 
-    _target_: str = (
-        "versatil.models.encoding.encoders.depth.dformerv2.DFormerEncoder"
-    )
+    _target_: str = "versatil.models.encoding.encoders.depth.dformerv2.DFormerEncoder"
     input_keys: list[str] = field(
         default_factory=lambda: [Cameras.LEFT.value, Cameras.DEPTH.value]
     )
@@ -53,7 +51,9 @@ class DFormerEncoderConfig(EncoderConfig):
 class LightGeometricEncoderConfig(EncoderConfig):
     """Geometric RGB+Depth encoder configuration."""
 
-    _target_: str = "versatil.models.encoding.encoders.depth.light_geometric.LightGeometricEncoder"
+    _target_: str = (
+        "versatil.models.encoding.encoders.depth.light_geometric.LightGeometricEncoder"
+    )
     input_keys: list[str] = field(
         default_factory=lambda: [Cameras.LEFT.value, Cameras.DEPTH.value]
     )
@@ -86,11 +86,10 @@ class VLMEncoderConfig(EncoderConfig):
     pooling_method: str = PoolingMethod.NONE.value
 
 
-
 @dataclass
 class LanguageEncoderConfig:
     """Language encoder configuration.
-        It doesn't inherit from EncoderConfig because its input key is fixed, i.e. `TOKENIZED_OBSERVATIONS_KEY
+    It doesn't inherit from EncoderConfig because its input key is fixed, i.e. `SampleKey.TOKENIZED_OBSERVATIONS`
     """
 
     _target_: str = (
@@ -102,5 +101,3 @@ class LanguageEncoderConfig:
     frozen: bool = False
     max_token_len: int = 128
     use_embeddings_only: bool = False
-
-

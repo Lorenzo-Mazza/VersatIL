@@ -33,7 +33,7 @@ class ACT(ActionDecoder):
 
     Note: Latent action encoding is handled at the Algorithm level,
     not within this decoder. The decoder expects latent embeddings to be passed
-    via the features dictionary with key LATENT_KEY.
+    via the features dictionary with key LatentKey.POSTERIOR_LATENT.
     """
 
     def __init__(
@@ -195,7 +195,7 @@ class ACT(ActionDecoder):
             Dictionary containing action head predictions (e.g. position, orientation, gripper)
 
         Note:
-            If LATENT_KEY is present in features, it will be used as an extra token embedding for the transformer cross-attention.
+            If LatentKey.POSTERIOR_LATENT is present in features, it will be used as an extra token embedding for the transformer cross-attention.
         """
         # This creates a sequence of input tokens and positional encodings in the format ACT expects
         input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(

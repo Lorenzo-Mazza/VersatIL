@@ -3,22 +3,12 @@
 import torch
 from torch import nn
 
-from versatil.data.constants import (
-    TOKENIZED_ACTIONS_KEY,
-    ACTION_KEY,
-    IS_PAD_ACTION_KEY,
-)
+from versatil.data.constants import SampleKey
 from versatil.data.tokenization import Tokenizer
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_heads.moe import MoEHead
 from versatil.models.decoding.action_masking import make_attention_mask
-from versatil.models.decoding.constants import (
-    ROUTING_WEIGHT,
-    ACTION_LOGITS_KEY,
-    BINARY_LOGITS_KEY,
-    LATENT_CODES,
-    PREDICTED_ACTION_TOKENS_KEY,
-)
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders import ActionDecoder
 from versatil.models.decoding.decoders.factory.free_transformer import (
     FreeTransformerDecoder,
@@ -46,7 +36,9 @@ class MoEFreeTransformer(FreeTransformerDecoder):
             *args, **kwargs: Arguments passed to the base FreeTransformer decoder.
         """
         super().__init__(*args, **kwargs)
-        self.moe_action_head: MoEHead = self.action_heads[ACTION_LOGITS_KEY]
+        self.moe_action_head: MoEHead = self.action_heads[
+            DecoderOutputKey.ACTION_LOGITS.value
+        ]
         self.expert_gating_projection = None
 
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
@@ -99,7 +91,7 @@ class MoEFreeTransformer(FreeTransformerDecoder):
         feature_token_mask: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         prefix_len = feature_tokens.shape[1]
-        target_token_ids = actions[TOKENIZED_ACTIONS_KEY]
+        target_token_ids = actions[SampleKey.TOKENIZED_ACTIONS.value]
         action_token_embeddings = self.token_embedding(target_token_ids)
         full_attention_mask, full_key_padding_mask = make_attention_mask(
             feature_tokens=feature_tokens,
@@ -136,13 +128,13 @@ class MoEFreeTransformer(FreeTransformerDecoder):
         logits_dict = self.moe_action_head(
             features=action_outputs, gating_feature=gating_logits
         )
-        logits = logits_dict[ACTION_KEY]
-        expert_usage = logits_dict[ROUTING_WEIGHT]
+        logits = logits_dict[SampleKey.ACTION.value]
+        expert_usage = logits_dict[DecoderOutputKey.ROUTING_WEIGHTS.value]
         return {
-            ACTION_LOGITS_KEY: logits,
-            BINARY_LOGITS_KEY: bit_logits,
-            LATENT_CODES: latent_codes,
-            ROUTING_WEIGHT: expert_usage,
+            DecoderOutputKey.ACTION_LOGITS.value: logits,
+            DecoderOutputKey.BINARY_LOGITS.value: bit_logits,
+            DecoderOutputKey.LATENT_CODES.value: latent_codes,
+            DecoderOutputKey.ROUTING_WEIGHTS.value: expert_usage,
         }
 
     def _forward_inference(
@@ -197,7 +189,7 @@ class MoEFreeTransformer(FreeTransformerDecoder):
             logits_dict = self.moe_action_head(
                 features=last_output, gating_feature=gating_logits
             )
-            logits = logits_dict[ACTION_KEY]  # (B, 1, vocab_size)
+            logits = logits_dict[SampleKey.ACTION.value]  # (B, 1, vocab_size)
             logits_scaled = logits / self.temperature.clamp(min=0.01)
             if self.deterministic:
                 next_token = torch.argmax(logits, dim=-1)  # (B, 1)
@@ -206,7 +198,9 @@ class MoEFreeTransformer(FreeTransformerDecoder):
                 next_token = torch.multinomial(
                     probs.squeeze(-1), num_samples=1
                 )  # (B, 1)
-            expert_usage = logits_dict[ROUTING_WEIGHT]  # (B, 1, num_experts)
+            expert_usage = logits_dict[
+                DecoderOutputKey.ROUTING_WEIGHTS.value
+            ]  # (B, 1, num_experts)
             expert_usages.append(expert_usage)
             next_token_embedding = self.token_embedding(
                 next_token
@@ -214,10 +208,10 @@ class MoEFreeTransformer(FreeTransformerDecoder):
             generated_tokens.append(next_token)
 
         return {
-            PREDICTED_ACTION_TOKENS_KEY: torch.cat(
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.cat(
                 generated_tokens, dim=1
             ),  # (B, max_seq_len)
-            f"{ACTION_LOGITS_KEY}_{ROUTING_WEIGHT}": torch.cat(
+            f"{DecoderOutputKey.ACTION_LOGITS.value}_{DecoderOutputKey.ROUTING_WEIGHTS.value}": torch.cat(
                 expert_usages, dim=1
             ),  # (B, max_seq_len, num_experts)
         }

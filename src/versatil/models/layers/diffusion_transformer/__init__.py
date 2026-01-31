@@ -35,13 +35,19 @@ from versatil.models.layers.diffusion_transformer.cross_attention_dit_layer impo
 from versatil.models.layers.diffusion_transformer.cross_attention_dit import (
     CrossAttentionDiT,
 )
-from versatil.models.layers.diffusion_transformer.dit_decoder import DiffusionTransformerDecoder
+from versatil.models.layers.diffusion_transformer.dit_decoder import (
+    DiffusionTransformerDecoder,
+)
 from versatil.models.layers.diffusion_transformer.dit_decoder_layer import DecoderLayer
-from versatil.models.layers.diffusion_transformer.final_prediction_layer import FinalPredictionLayer
+from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
+    FinalPredictionLayer,
+)
 from versatil.models.layers.diffusion_transformer.joint_attention import JointAttention
 from versatil.models.layers.diffusion_transformer.mmdit_decoder import MMDiTDecoder
 from versatil.models.layers.diffusion_transformer.mmdit_layer import MMDiTLayer
-from versatil.models.layers.diffusion_transformer.mmdit_transformer import MMDiTTransformer
+from versatil.models.layers.diffusion_transformer.mmdit_transformer import (
+    MMDiTTransformer,
+)
 from versatil.models.layers.diffusion_transformer.query_key_norm import QueryKeyNorm
 from versatil.models.layers.diffusion_transformer.dit_block_transformer import DiTBlock
 

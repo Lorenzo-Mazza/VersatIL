@@ -11,20 +11,11 @@ from versatil.data.episodic_dataset import EpisodicDataset
 from versatil.data.preprocessing.replay_buffer import ReplayBuffer
 from versatil.data.constants import (
     Cameras,
-    PROPRIO_OBS_ROBOT_FRAME_KEY,
-    PROPRIO_OBS_CAMERA_FRAME_KEY,
-    GRIPPER_STATE_OBS_KEY,
-    GRIPPER_ACTION_KEY,
-    POSITION_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
     GripperType,
-    OBSERVATION_KEY,
-    IS_PAD_ACTION_KEY,
-    LANGUAGE_KEY,
-    ACTION_KEY,
-    TOKENIZED_OBSERVATIONS_KEY,
-    IS_PAD_OBSERVATION_KEY,
-    TOKENIZED_ACTIONS_KEY,
+    ObsKey,
+    ProprioceptiveType,
+    ProprioKey,
+    SampleKey,
     TokenizerType,
 )
 from versatil.configs.data.tokenizer import ObservationTokenizationConfig, ActionTokenizationConfig, TokenizationConfig
@@ -56,9 +47,9 @@ def action_config():
     config.orientation_repr = "quaternion"
     config.denoise_actions = False
     config.get_required_zarr_keys.return_value = [
-        PROPRIO_OBS_ROBOT_FRAME_KEY,
-        PROPRIO_OBS_CAMERA_FRAME_KEY,
-        GRIPPER_STATE_OBS_KEY,
+        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
+        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value,
+        ProprioKey.GRIPPER_STATE.value,
     ]
     return config
 
@@ -76,7 +67,7 @@ def observation_config():
     config.get_required_zarr_keys.return_value = [
         Cameras.LEFT.value,
         Cameras.RIGHT.value,
-        PROPRIO_OBS_ROBOT_FRAME_KEY,
+        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
     ]
     return config
 
@@ -94,8 +85,8 @@ def observation_config_with_language():
     config.get_required_zarr_keys.return_value = [
         Cameras.LEFT.value,
         Cameras.RIGHT.value,
-        PROPRIO_OBS_ROBOT_FRAME_KEY,
-        LANGUAGE_KEY,
+        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
+        ObsKey.LANGUAGE.value,
     ]
     return config
 
@@ -132,9 +123,9 @@ def simple_replay_buffer(temp_zarr_dir):
         episode = {
             Cameras.LEFT.value: np.random.randint(0, 255, (ep_len, 32, 32, 3), dtype=np.uint8),
             Cameras.RIGHT.value: np.random.randint(0, 255, (ep_len, 32, 32, 3), dtype=np.uint8),
-            PROPRIO_OBS_ROBOT_FRAME_KEY: np.random.randn(ep_len, 7).astype(np.float32),
-            PROPRIO_OBS_CAMERA_FRAME_KEY: np.random.randn(ep_len, 7).astype(np.float32),
-            GRIPPER_STATE_OBS_KEY: np.random.randint(0, 2, (ep_len, 1)).astype(np.float32),
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(ep_len, 7).astype(np.float32),
+            ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(ep_len, 7).astype(np.float32),
+            ProprioKey.GRIPPER_STATE.value: np.random.randint(0, 2, (ep_len, 1)).astype(np.float32),
         }
         buffer.add_episode(episode)
 
@@ -152,12 +143,12 @@ def uncentered_replay_buffer(temp_zarr_dir):
     episode = {
         Cameras.LEFT.value: np.random.randint(0, 255, (5, 32, 32, 3), dtype=np.uint8),
         Cameras.RIGHT.value: np.random.randint(0, 255, (5, 32, 32, 3), dtype=np.uint8),
-        PROPRIO_OBS_ROBOT_FRAME_KEY: np.vstack([
+        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.vstack([
             np.hstack([first_pos, np.random.randn(4)]),
             np.random.randn(4, 7)
         ]).astype(np.float32),
-        PROPRIO_OBS_CAMERA_FRAME_KEY: np.random.randn(5, 7).astype(np.float32),
-        GRIPPER_STATE_OBS_KEY: np.random.randint(0, 2, (5, 1)).astype(np.float32),
+        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(5, 7).astype(np.float32),
+        ProprioKey.GRIPPER_STATE.value: np.random.randint(0, 2, (5, 1)).astype(np.float32),
     }
     buffer.add_episode(episode)
     buffer.save_to_path(str(zarr_path))
@@ -174,9 +165,9 @@ def gripper_imbalanced_buffer(temp_zarr_dir):
     episode = {
         Cameras.LEFT.value: np.random.randint(0, 255, (10, 32, 32, 3), dtype=np.uint8),
         Cameras.RIGHT.value: np.random.randint(0, 255, (10, 32, 32, 3), dtype=np.uint8),
-        PROPRIO_OBS_ROBOT_FRAME_KEY: np.random.randn(10, 7).astype(np.float32),
-        PROPRIO_OBS_CAMERA_FRAME_KEY: np.random.randn(10, 7).astype(np.float32),
-        GRIPPER_STATE_OBS_KEY: gripper_states,
+        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(10, 7).astype(np.float32),
+        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(10, 7).astype(np.float32),
+        ProprioKey.GRIPPER_STATE.value: gripper_states,
     }
     buffer.add_episode(episode)
     buffer.save_to_path(str(zarr_path))
@@ -194,10 +185,10 @@ def language_replay_buffer(temp_zarr_dir):
         episode = {
             Cameras.LEFT.value: np.random.randint(0, 255, (ep_len, 32, 32, 3), dtype=np.uint8),
             Cameras.RIGHT.value: np.random.randint(0, 255, (ep_len, 32, 32, 3), dtype=np.uint8),
-            PROPRIO_OBS_ROBOT_FRAME_KEY: np.random.randn(ep_len, 7).astype(np.float32),
-            PROPRIO_OBS_CAMERA_FRAME_KEY: np.random.randn(ep_len, 7).astype(np.float32),
-            GRIPPER_STATE_OBS_KEY: np.random.randint(0, 2, (ep_len, 1)).astype(np.float32),
-            LANGUAGE_KEY: np.array([f'episode_{ep_idx}_instruction_{i}' for i in range(ep_len)], dtype=object),
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(ep_len, 7).astype(np.float32),
+            ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(ep_len, 7).astype(np.float32),
+            ProprioKey.GRIPPER_STATE.value: np.random.randint(0, 2, (ep_len, 1)).astype(np.float32),
+            ObsKey.LANGUAGE.value: np.array([f'episode_{ep_idx}_instruction_{i}' for i in range(ep_len)], dtype=object),
         }
         buffer.add_episode(episode)
 
@@ -227,10 +218,10 @@ def varlen_language_buffer(temp_zarr_dir):
     episode = {
         Cameras.LEFT.value: np.random.randint(0, 255, (10, 32, 32, 3), dtype=np.uint8),
         Cameras.RIGHT.value: np.random.randint(0, 255, (10, 32, 32, 3), dtype=np.uint8),
-        PROPRIO_OBS_ROBOT_FRAME_KEY: np.random.randn(10, 7).astype(np.float32),
-        PROPRIO_OBS_CAMERA_FRAME_KEY: np.random.randn(10, 7).astype(np.float32),
-        GRIPPER_STATE_OBS_KEY: np.random.randint(0, 2, (10, 1)).astype(np.float32),
-        LANGUAGE_KEY: np.array(instructions, dtype=object),
+        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(10, 7).astype(np.float32),
+        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(10, 7).astype(np.float32),
+        ProprioKey.GRIPPER_STATE.value: np.random.randint(0, 2, (10, 1)).astype(np.float32),
+        ObsKey.LANGUAGE.value: np.array(instructions, dtype=object),
     }
     buffer.add_episode(episode)
     buffer.save_to_path(str(zarr_path))
@@ -246,10 +237,10 @@ def long_language_buffer(temp_zarr_dir):
     episode = {
         Cameras.LEFT.value: np.random.randint(0, 255, (20, 32, 32, 3), dtype=np.uint8),
         Cameras.RIGHT.value: np.random.randint(0, 255, (20, 32, 32, 3), dtype=np.uint8),
-        PROPRIO_OBS_ROBOT_FRAME_KEY: np.random.randn(20, 7).astype(np.float32),
-        PROPRIO_OBS_CAMERA_FRAME_KEY: np.random.randn(20, 7).astype(np.float32),
-        GRIPPER_STATE_OBS_KEY: np.random.randint(0, 2, (20, 1)).astype(np.float32),
-        LANGUAGE_KEY: np.array([f'instruction_{i}' for i in range(20)], dtype=object),
+        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(20, 7).astype(np.float32),
+        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(20, 7).astype(np.float32),
+        ProprioKey.GRIPPER_STATE.value: np.random.randint(0, 2, (20, 1)).astype(np.float32),
+        ObsKey.LANGUAGE.value: np.array([f'instruction_{i}' for i in range(20)], dtype=object),
     }
     buffer.add_episode(episode)
     buffer.save_to_path(str(zarr_path))
@@ -265,10 +256,10 @@ def downsample_language_buffer(temp_zarr_dir):
     episode = {
         Cameras.LEFT.value: np.random.randint(0, 255, (20, 32, 32, 3), dtype=np.uint8),
         Cameras.RIGHT.value: np.random.randint(0, 255, (20, 32, 32, 3), dtype=np.uint8),
-        PROPRIO_OBS_ROBOT_FRAME_KEY: np.random.randn(20, 7).astype(np.float32),
-        PROPRIO_OBS_CAMERA_FRAME_KEY: np.random.randn(20, 7).astype(np.float32),
-        GRIPPER_STATE_OBS_KEY: np.random.randint(0, 2, (20, 1)).astype(np.float32),
-        LANGUAGE_KEY: np.array([f'step_{i}' for i in range(20)], dtype=object),
+        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(20, 7).astype(np.float32),
+        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(20, 7).astype(np.float32),
+        ProprioKey.GRIPPER_STATE.value: np.random.randint(0, 2, (20, 1)).astype(np.float32),
+        ObsKey.LANGUAGE.value: np.array([f'step_{i}' for i in range(20)], dtype=object),
     }
     buffer.add_episode(episode)
     buffer.save_to_path(str(zarr_path))
@@ -531,7 +522,7 @@ class TestCentering:
 
         current_start = 0
         for end in dataset.episode_ends:
-            first_obs = dataset.replay_buffer[PROPRIO_OBS_ROBOT_FRAME_KEY][current_start]
+            first_obs = dataset.replay_buffer[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value][current_start]
             first_pos = first_obs[:3]
             assert np.allclose(first_pos, 0, atol=1e-6), f"First position not zero: {first_pos}"
             current_start = end
@@ -553,7 +544,7 @@ class TestCentering:
             seed=42,
         )
 
-        actual_first = dataset.replay_buffer[PROPRIO_OBS_ROBOT_FRAME_KEY][0][:3]
+        actual_first = dataset.replay_buffer[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value][0][:3]
         np.testing.assert_allclose(actual_first, first_pos, rtol=1e-5)
 
 
@@ -644,12 +635,12 @@ class TestGetItem:
         sample = dataset[0]
 
         assert isinstance(sample, dict)
-        assert OBSERVATION_KEY in sample
-        assert ACTION_KEY in sample
-        assert IS_PAD_ACTION_KEY in sample[ACTION_KEY]
-        assert POSITION_ACTION_KEY in sample[ACTION_KEY]
-        assert ORIENTATION_ACTION_KEY in sample[ACTION_KEY]
-        assert GRIPPER_ACTION_KEY in sample[ACTION_KEY]
+        assert SampleKey.OBSERVATION.value in sample
+        assert SampleKey.ACTION.value in sample
+        assert SampleKey.IS_PAD_ACTION.value in sample[SampleKey.ACTION.value]
+        assert ProprioceptiveType.POSITION.value in sample[SampleKey.ACTION.value]
+        assert ProprioceptiveType.ORIENTATION.value in sample[SampleKey.ACTION.value]
+        assert ProprioceptiveType.GRIPPER.value in sample[SampleKey.ACTION.value]
 
 
     def test_getitem_observation_has_correct_structure(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
@@ -669,7 +660,7 @@ class TestGetItem:
             pytest.skip("No valid samples in dataset")
 
         sample = dataset[0]
-        obs = sample[OBSERVATION_KEY]
+        obs = sample[SampleKey.OBSERVATION.value]
 
         assert Cameras.LEFT.value in obs
         assert Cameras.RIGHT.value in obs
@@ -697,11 +688,11 @@ class TestGetItem:
             pytest.skip("No valid samples in dataset")
 
         sample = dataset[0]
-        assert ACTION_KEY in sample
-        assert sample[ACTION_KEY][POSITION_ACTION_KEY].shape == (4, 3)
-        assert sample[ACTION_KEY][ORIENTATION_ACTION_KEY].shape == (4, 4)
-        assert sample[ACTION_KEY][GRIPPER_ACTION_KEY].shape == (4, 1)
-        assert sample[ACTION_KEY][IS_PAD_ACTION_KEY].shape == (4,)
+        assert SampleKey.ACTION.value in sample
+        assert sample[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape == (4, 3)
+        assert sample[SampleKey.ACTION.value][ProprioceptiveType.ORIENTATION.value].shape == (4, 4)
+        assert sample[SampleKey.ACTION.value][ProprioceptiveType.GRIPPER.value].shape == (4, 1)
+        assert sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].shape == (4,)
 
 
     def test_getitem_gripper_has_correct_dtype(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
@@ -723,8 +714,8 @@ class TestGetItem:
             pytest.skip("No valid samples in dataset")
 
         sample = dataset[0]
-        assert ACTION_KEY in sample
-        assert sample[ACTION_KEY][GRIPPER_ACTION_KEY].dtype == torch.long
+        assert SampleKey.ACTION.value in sample
+        assert sample[SampleKey.ACTION.value][ProprioceptiveType.GRIPPER.value].dtype == torch.long
 
 
 class TestActionComputation:
@@ -833,10 +824,10 @@ class TestIntegration:
 
         for i in range(min(3, len(dataset))):
             sample = dataset[i]
-            assert OBSERVATION_KEY in sample
-            assert ACTION_KEY in sample
-            assert POSITION_ACTION_KEY in sample[ACTION_KEY]
-            assert IS_PAD_ACTION_KEY in sample[ACTION_KEY]
+            assert SampleKey.OBSERVATION.value in sample
+            assert SampleKey.ACTION.value in sample
+            assert ProprioceptiveType.POSITION.value in sample[SampleKey.ACTION.value]
+            assert SampleKey.IS_PAD_ACTION.value in sample[SampleKey.ACTION.value]
 
 
     def test_normalizer_creation(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
@@ -873,10 +864,10 @@ class TestIntegration:
             pytest.skip("No valid samples")
 
         sample = dataset[0]
-        assert ACTION_KEY in sample
-        assert sample[OBSERVATION_KEY][Cameras.LEFT.value].shape[0] == 5
-        assert sample[ACTION_KEY][POSITION_ACTION_KEY].shape[0] == 8
-        assert sample[ACTION_KEY][IS_PAD_ACTION_KEY].shape[0] == 8
+        assert SampleKey.ACTION.value in sample
+        assert sample[SampleKey.OBSERVATION.value][Cameras.LEFT.value].shape[0] == 5
+        assert sample[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape[0] == 8
+        assert sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].shape[0] == 8
 
 
 class TestLanguageInDataset:
@@ -901,10 +892,10 @@ class TestLanguageInDataset:
 
         sample = dataset[0]
 
-        assert OBSERVATION_KEY in sample
-        assert LANGUAGE_KEY in sample[OBSERVATION_KEY]
+        assert SampleKey.OBSERVATION.value in sample
+        assert ObsKey.LANGUAGE.value in sample[SampleKey.OBSERVATION.value]
 
-        lang_data = sample[OBSERVATION_KEY][LANGUAGE_KEY]
+        lang_data = sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]
         assert isinstance(lang_data, list)
         assert len(lang_data) == 3
 
@@ -932,10 +923,10 @@ class TestLanguageInDataset:
         loader = DataLoader(dataset, batch_size=2, shuffle=False)
         batch = next(iter(loader))
 
-        assert OBSERVATION_KEY in batch
-        assert LANGUAGE_KEY in batch[OBSERVATION_KEY]
+        assert SampleKey.OBSERVATION.value in batch
+        assert ObsKey.LANGUAGE.value in batch[SampleKey.OBSERVATION.value]
 
-        batch_lang = batch[OBSERVATION_KEY][LANGUAGE_KEY]
+        batch_lang = batch[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]
         assert isinstance(batch_lang, list)
 
         # DataLoader collates by timestep, creating list of tuples
@@ -968,7 +959,7 @@ class TestLanguageInDataset:
             pytest.skip("No valid samples")
 
         sample = dataset[0]
-        lang_data = sample[OBSERVATION_KEY][LANGUAGE_KEY]
+        lang_data = sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]
 
         # Verify language data is present and correctly formatted
         assert isinstance(lang_data, list)
@@ -997,7 +988,7 @@ class TestLanguageInDataset:
             pytest.skip("No valid samples")
 
         sample = dataset[0]
-        assert LANGUAGE_KEY not in sample[OBSERVATION_KEY]
+        assert ObsKey.LANGUAGE.value not in sample[SampleKey.OBSERVATION.value]
 
 
     def test_language_with_downsampling(self, downsample_language_buffer, action_config, observation_config_with_language, dataloader_config):
@@ -1019,8 +1010,8 @@ class TestLanguageInDataset:
             pytest.skip("No valid samples after downsampling")
 
         sample = dataset[0]
-        assert LANGUAGE_KEY in sample[OBSERVATION_KEY]
-        assert isinstance(sample[OBSERVATION_KEY][LANGUAGE_KEY], list)
+        assert ObsKey.LANGUAGE.value in sample[SampleKey.OBSERVATION.value]
+        assert isinstance(sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value], list)
 
 
 @pytest.mark.integration
@@ -1066,7 +1057,7 @@ class TestNormalizerAndTokenizerIntegration:
         # Create tokenization config
         obs_tokenization = ObservationTokenizationConfig(
             tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=False,
             max_token_len=256,
         )
@@ -1166,7 +1157,7 @@ class TestNormalizerAndTokenizerIntegration:
         # Create tokenization config
         obs_tokenization = ObservationTokenizationConfig(
             tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=False,
             max_token_len=256,
         )
@@ -1205,7 +1196,7 @@ class TestNormalizerAndTokenizerIntegration:
         # Create tokenization config for both obs and actions
         obs_tokenization = ObservationTokenizationConfig(
             tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=False,
             max_token_len=256,
         )
@@ -1236,14 +1227,14 @@ class TestNormalizerAndTokenizerIntegration:
         sample = dataset[0]
 
         # Verify tokenized data is present
-        assert TOKENIZED_OBSERVATIONS_KEY in sample[OBSERVATION_KEY]
-        assert IS_PAD_OBSERVATION_KEY in sample[OBSERVATION_KEY]
-        assert TOKENIZED_ACTIONS_KEY in sample[ACTION_KEY]
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value in sample[SampleKey.OBSERVATION.value]
+        assert SampleKey.IS_PAD_OBSERVATION.value in sample[SampleKey.OBSERVATION.value]
+        assert SampleKey.TOKENIZED_ACTIONS.value in sample[SampleKey.ACTION.value]
 
         # Verify dtypes
-        assert sample[OBSERVATION_KEY][TOKENIZED_OBSERVATIONS_KEY].dtype == torch.long
-        assert sample[OBSERVATION_KEY][IS_PAD_OBSERVATION_KEY].dtype == torch.bool
-        assert sample[ACTION_KEY][TOKENIZED_ACTIONS_KEY].dtype == torch.long
+        assert sample[SampleKey.OBSERVATION.value][SampleKey.TOKENIZED_OBSERVATIONS.value].dtype == torch.long
+        assert sample[SampleKey.OBSERVATION.value][SampleKey.IS_PAD_OBSERVATION.value].dtype == torch.bool
+        assert sample[SampleKey.ACTION.value][SampleKey.TOKENIZED_ACTIONS.value].dtype == torch.long
 
 @pytest.mark.unit
 class TestComputeSampleActionsSlicing:
@@ -1272,17 +1263,17 @@ class TestComputeSampleActionsSlicing:
         # Create known padded data
         total_len = obs_horizon + pred_horizon
         padded_data = {
-            PROPRIO_OBS_ROBOT_FRAME_KEY: np.arange(total_len * 7).reshape(total_len, 7).astype(np.float32),
-            GRIPPER_STATE_OBS_KEY: np.arange(total_len).reshape(total_len, 1).astype(np.float32),
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.arange(total_len * 7).reshape(total_len, 7).astype(np.float32),
+            ProprioKey.GRIPPER_STATE.value: np.arange(total_len).reshape(total_len, 1).astype(np.float32),
         }
 
         # Compute actions
         action_dict = dataset._compute_sample_actions(padded_data)
 
         # Verify we got pred_horizon actions
-        assert action_dict[POSITION_ACTION_KEY].shape[0] == pred_horizon
+        assert action_dict[ProprioceptiveType.POSITION.value].shape[0] == pred_horizon
         if action_config.has_gripper:
-            assert action_dict[GRIPPER_ACTION_KEY].shape[0] == pred_horizon
+            assert action_dict[ProprioceptiveType.GRIPPER.value].shape[0] == pred_horizon
 
     def test_action_slicing_computes_correct_deltas(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
         """Test that actions are computed from correct observation pairs."""
@@ -1305,8 +1296,8 @@ class TestComputeSampleActionsSlicing:
         sequential_positions = np.arange(total_len * 7).reshape(total_len, 7).astype(np.float32)
         
         padded_data = {
-            PROPRIO_OBS_ROBOT_FRAME_KEY: sequential_positions,
-            GRIPPER_STATE_OBS_KEY: np.arange(total_len).reshape(total_len, 1).astype(np.float32),
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: sequential_positions,
+            ProprioKey.GRIPPER_STATE.value: np.arange(total_len).reshape(total_len, 1).astype(np.float32),
         }
 
         # For obs_horizon=3, pred_horizon=4:
@@ -1318,12 +1309,12 @@ class TestComputeSampleActionsSlicing:
         action_dict = dataset._compute_sample_actions(padded_data)
 
         # Verify we got the right number of actions
-        assert len(action_dict[POSITION_ACTION_KEY]) == pred_horizon
+        assert len(action_dict[ProprioceptiveType.POSITION.value]) == pred_horizon
 
         # The action processor should compute deltas (next - curr)
         # We can't verify exact values without knowing the action processor implementation,
         # but we can verify the shapes are correct
-        assert action_dict[POSITION_ACTION_KEY].shape == (pred_horizon, 3)
+        assert action_dict[ProprioceptiveType.POSITION.value].shape == (pred_horizon, 3)
 
     def test_gripper_action_slicing_aligned_with_position(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
         """Test that gripper actions use same slicing as position actions."""
@@ -1343,15 +1334,15 @@ class TestComputeSampleActionsSlicing:
 
         total_len = obs_horizon + pred_horizon
         padded_data = {
-            PROPRIO_OBS_ROBOT_FRAME_KEY: np.arange(total_len * 7).reshape(total_len, 7).astype(np.float32),
-            GRIPPER_STATE_OBS_KEY: np.arange(total_len).reshape(total_len, 1).astype(np.float32),
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.arange(total_len * 7).reshape(total_len, 7).astype(np.float32),
+            ProprioKey.GRIPPER_STATE.value: np.arange(total_len).reshape(total_len, 1).astype(np.float32),
         }
 
         action_dict = dataset._compute_sample_actions(padded_data)
 
         # Both should have pred_horizon timesteps
-        assert action_dict[POSITION_ACTION_KEY].shape[0] == pred_horizon
-        assert action_dict[GRIPPER_ACTION_KEY].shape[0] == pred_horizon
+        assert action_dict[ProprioceptiveType.POSITION.value].shape[0] == pred_horizon
+        assert action_dict[ProprioceptiveType.GRIPPER.value].shape[0] == pred_horizon
 
     def test_action_uses_camera_frame_when_configured(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
         """Test that action computation uses camera frame when configured."""
@@ -1370,16 +1361,16 @@ class TestComputeSampleActionsSlicing:
 
         total_len = 7
         padded_data = {
-            PROPRIO_OBS_CAMERA_FRAME_KEY: np.arange(total_len * 7).reshape(total_len, 7).astype(np.float32),
-            PROPRIO_OBS_ROBOT_FRAME_KEY: np.zeros((total_len, 7), dtype=np.float32),  # Different values
-            GRIPPER_STATE_OBS_KEY: np.arange(total_len).reshape(total_len, 1).astype(np.float32),
+            ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.arange(total_len * 7).reshape(total_len, 7).astype(np.float32),
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.zeros((total_len, 7), dtype=np.float32),  # Different values
+            ProprioKey.GRIPPER_STATE.value: np.arange(total_len).reshape(total_len, 1).astype(np.float32),
         }
 
         action_dict = dataset._compute_sample_actions(padded_data)
 
         # Should use camera frame data (non-zero) not robot frame (zeros)
         # If implementation is correct, actions won't all be zero
-        assert action_dict[POSITION_ACTION_KEY].shape == (4, 3)
+        assert action_dict[ProprioceptiveType.POSITION.value].shape == (4, 3)
 
     def test_action_slicing_boundary_conditions(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
         """Test slicing doesn't go out of bounds."""
@@ -1399,12 +1390,12 @@ class TestComputeSampleActionsSlicing:
 
         total_len = obs_horizon + pred_horizon
         padded_data = {
-            PROPRIO_OBS_ROBOT_FRAME_KEY: np.arange(total_len * 7).reshape(total_len, 7).astype(np.float32),
-            GRIPPER_STATE_OBS_KEY: np.arange(total_len).reshape(total_len, 1).astype(np.float32),
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.arange(total_len * 7).reshape(total_len, 7).astype(np.float32),
+            ProprioKey.GRIPPER_STATE.value: np.arange(total_len).reshape(total_len, 1).astype(np.float32),
         }
 
         # Should not raise index error
         action_dict = dataset._compute_sample_actions(padded_data)
         
-        assert action_dict[POSITION_ACTION_KEY].shape == (1, 3)
-        assert action_dict[GRIPPER_ACTION_KEY].shape == (1, 1)
+        assert action_dict[ProprioceptiveType.POSITION.value].shape == (1, 3)
+        assert action_dict[ProprioceptiveType.GRIPPER.value].shape == (1, 1)

@@ -7,7 +7,7 @@ from versatil.models.encoding.encoders.constants import (
     ImageTextModelType,
     EncoderOutputKeys
 )
-from versatil.data.constants import Cameras, TOKENIZED_OBSERVATIONS_KEY
+from versatil.data.constants import Cameras
 
 
 IMAGE_TEXT_MODELS_TO_OUTPUT_DIM = [
@@ -51,7 +51,7 @@ class TestImageTextEncoderInitialization:
     @pytest.mark.parametrize("model_name,vision_dim,text_dim", IMAGE_TEXT_MODELS_TO_OUTPUT_DIM)
     def test_initialization(self, model_name, vision_dim, text_dim):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=model_name,
             pretrained=True,
             frozen=True,
@@ -66,7 +66,7 @@ class TestImageTextEncoderInitialization:
 
     def test_get_output_specification(self):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=ImageTextModelType.CLIP_VITB32.value,
             pretrained=False,
             frozen=True,
@@ -81,21 +81,21 @@ class TestImageTextEncoderInitialization:
 
     def test_input_specification(self):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=ImageTextModelType.CLIP_VITB32.value,
             pretrained=False,
             frozen=True,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
 
-        assert set(encoder.input_specification.keys) == {Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY}
-        assert TOKENIZED_OBSERVATIONS_KEY in encoder.input_specification.required
+        assert set(encoder.input_specification.keys) == {Cameras.LEFT.value}
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value in encoder.input_specification.required
         assert [Cameras.LEFT.value, Cameras.RIGHT.value] in encoder.input_specification.one_of_groups
 
     def test_init_missing_camera(self):
         with pytest.raises(ValueError, match="Exactly one from"):
             VLMEncoder(
-                input_keys=[TOKENIZED_OBSERVATIONS_KEY],
+                input_keys=[SampleKey.TOKENIZED_OBSERVATIONS.value],
                 model_name=ImageTextModelType.CLIP_VITB32.value,
                 pretrained=False,
                 frozen=True,
@@ -115,7 +115,7 @@ class TestImageTextEncoderInitialization:
     def test_init_multiple_cameras(self):
         with pytest.raises(ValueError, match="Exactly one from"):
             VLMEncoder(
-                input_keys=[Cameras.LEFT.value, Cameras.RIGHT.value, TOKENIZED_OBSERVATIONS_KEY],
+                input_keys=[Cameras.LEFT.value, Cameras.RIGHT.value],
                 model_name=ImageTextModelType.CLIP_VITB32.value,
                 pretrained=False,
                 frozen=True,
@@ -124,7 +124,7 @@ class TestImageTextEncoderInitialization:
 
     def test_init_frozen(self):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=ImageTextModelType.CLIP_VITB32.value,
             pretrained=False,
             frozen=True,
@@ -143,7 +143,7 @@ class TestImageTextEncoderForward:
     @pytest.mark.parametrize("model_name,vision_dim,text_dim", IMAGE_TEXT_MODELS_TO_OUTPUT_DIM)
     def test_forward_4d_input(self, model_name, vision_dim, text_dim, image_inputs_factory, text_inputs_factory):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=model_name,
             pretrained=False,
             frozen=True,
@@ -156,7 +156,7 @@ class TestImageTextEncoderForward:
 
         input_dict = {
             Cameras.LEFT.value: images,
-            TOKENIZED_OBSERVATIONS_KEY: text
+            SampleKey.TOKENIZED_OBSERVATIONS.value: text
         }
         output_dict = encoder(input_dict)
 
@@ -177,7 +177,7 @@ class TestImageTextEncoderForward:
     @pytest.mark.parametrize("model_name,vision_dim,text_dim", IMAGE_TEXT_MODELS_TO_OUTPUT_DIM)
     def test_forward_5d_input(self, model_name, vision_dim, text_dim, image_inputs_factory, text_inputs_factory):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=model_name,
             pretrained=False,
             frozen=True,
@@ -192,7 +192,7 @@ class TestImageTextEncoderForward:
 
         input_dict = {
             Cameras.LEFT.value: images,
-            TOKENIZED_OBSERVATIONS_KEY: text
+            SampleKey.TOKENIZED_OBSERVATIONS.value: text
         }
         output_dict = encoder(input_dict)
 
@@ -211,7 +211,7 @@ class TestImageTextEncoderForward:
     @pytest.mark.parametrize("feature_method", FEATURE_EXTRACTION_METHODS)
     def test_feature_extraction_methods(self, feature_method, image_inputs_factory, text_inputs_factory):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=ImageTextModelType.CLIP_VITB32.value,
             pretrained=False,
             frozen=True,
@@ -224,7 +224,7 @@ class TestImageTextEncoderForward:
 
         input_dict = {
             Cameras.LEFT.value: images,
-            TOKENIZED_OBSERVATIONS_KEY: text
+            SampleKey.TOKENIZED_OBSERVATIONS.value: text
         }
         output_dict = encoder(input_dict)
 
@@ -248,7 +248,7 @@ class TestImageTextEncoderForward:
 
     def test_forward_output_keys_match_specification(self, image_inputs_factory, text_inputs_factory):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=ImageTextModelType.CLIP_VITB32.value,
             pretrained=False,
             frozen=True,
@@ -261,7 +261,7 @@ class TestImageTextEncoderForward:
 
         input_dict = {
             Cameras.LEFT.value: images,
-            TOKENIZED_OBSERVATIONS_KEY: text
+            SampleKey.TOKENIZED_OBSERVATIONS.value: text
         }
         output_dict = encoder(input_dict)
         output_spec = encoder.get_output_specification()
@@ -271,7 +271,7 @@ class TestImageTextEncoderForward:
     @pytest.mark.parametrize("feature_method", FEATURE_EXTRACTION_METHODS)
     def test_forward_dimensions_match_specification(self, feature_method, image_inputs_factory, text_inputs_factory):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=ImageTextModelType.CLIP_VITB32.value,
             pretrained=False,
             frozen=True,
@@ -284,7 +284,7 @@ class TestImageTextEncoderForward:
 
         input_dict = {
             Cameras.LEFT.value: images,
-            TOKENIZED_OBSERVATIONS_KEY: text
+            SampleKey.TOKENIZED_OBSERVATIONS.value: text
         }
         output_dict = encoder(input_dict)
         output_spec = encoder.get_output_specification()
@@ -299,7 +299,7 @@ class TestImageTextEncoderForward:
 
     def test_gradients_enabled_unfrozen(self, image_inputs_factory, text_inputs_factory):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=ImageTextModelType.CLIP_VITB32.value,
             pretrained=False,
             frozen=False,
@@ -312,7 +312,7 @@ class TestImageTextEncoderForward:
 
         input_dict = {
             Cameras.LEFT.value: images,
-            TOKENIZED_OBSERVATIONS_KEY: text
+            SampleKey.TOKENIZED_OBSERVATIONS.value: text
         }
         output_dict = encoder(input_dict)
 
@@ -323,7 +323,7 @@ class TestImageTextEncoderForward:
 
     def test_eval_mode_determinism(self, image_inputs_factory, text_inputs_factory):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=ImageTextModelType.CLIP_VITB32.value,
             pretrained=False,
             frozen=True,
@@ -338,7 +338,7 @@ class TestImageTextEncoderForward:
 
         input_dict = {
             Cameras.LEFT.value: images,
-            TOKENIZED_OBSERVATIONS_KEY: text
+            SampleKey.TOKENIZED_OBSERVATIONS.value: text
         }
 
         with torch.no_grad():
@@ -351,7 +351,7 @@ class TestImageTextEncoderForward:
     def test_multiple_camera_types(self, text_inputs_factory):
         for camera in [Cameras.LEFT.value, Cameras.RIGHT.value]:
             encoder = VLMEncoder(
-                input_keys=[camera, TOKENIZED_OBSERVATIONS_KEY],
+                input_keys=[camera],
                 model_name=ImageTextModelType.CLIP_VITB32.value,
                 pretrained=False,
                 frozen=True,
@@ -364,7 +364,7 @@ class TestImageTextEncoderForward:
 
             input_dict = {
                 camera: images,
-                TOKENIZED_OBSERVATIONS_KEY: text
+                SampleKey.TOKENIZED_OBSERVATIONS.value: text
             }
             output_dict = encoder(input_dict)
 
@@ -379,7 +379,7 @@ class TestImageTextEncoderOutputSpecification:
     @pytest.mark.parametrize("model_name,vision_dim,text_dim", IMAGE_TEXT_MODELS_TO_OUTPUT_DIM)
     def test_output_specification_structure(self, model_name, vision_dim, text_dim):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=model_name,
             pretrained=False,
             frozen=True,
@@ -399,7 +399,7 @@ class TestImageTextEncoderOutputSpecification:
 
     def test_output_specification_multi_output(self):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=ImageTextModelType.CLIP_VITB32.value,
             pretrained=False,
             frozen=True,
@@ -417,7 +417,7 @@ class TestImageTextEncoderIntegration:
 
     def test_complete_forward_backward_pass(self, image_inputs_factory, text_inputs_factory):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=ImageTextModelType.CLIP_VITB32.value,
             pretrained=False,
             frozen=False,
@@ -432,7 +432,7 @@ class TestImageTextEncoderIntegration:
 
         input_dict = {
             Cameras.LEFT.value: images,
-            TOKENIZED_OBSERVATIONS_KEY: text
+            SampleKey.TOKENIZED_OBSERVATIONS.value: text
         }
         output_dict = encoder(input_dict)
         loss = output_dict[EncoderOutputKeys.RGB.value].mean() + output_dict[EncoderOutputKeys.LANGUAGE.value].mean()
@@ -443,7 +443,7 @@ class TestImageTextEncoderIntegration:
 
     def test_eval_mode_no_gradients(self, image_inputs_factory, text_inputs_factory):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=ImageTextModelType.CLIP_VITB32.value,
             pretrained=False,
             frozen=True,
@@ -458,7 +458,7 @@ class TestImageTextEncoderIntegration:
 
         input_dict = {
             Cameras.LEFT.value: images,
-            TOKENIZED_OBSERVATIONS_KEY: text
+            SampleKey.TOKENIZED_OBSERVATIONS.value: text
         }
 
         with torch.no_grad():
@@ -469,7 +469,7 @@ class TestImageTextEncoderIntegration:
 
     def test_consistent_output_shapes(self, image_inputs_factory, text_inputs_factory):
         encoder = VLMEncoder(
-            input_keys=[Cameras.LEFT.value, TOKENIZED_OBSERVATIONS_KEY],
+            input_keys=[Cameras.LEFT.value],
             model_name=ImageTextModelType.CLIP_VITB32.value,
             pretrained=False,
             frozen=True,
@@ -484,11 +484,11 @@ class TestImageTextEncoderIntegration:
 
         input1 = {
             Cameras.LEFT.value: images1,
-            TOKENIZED_OBSERVATIONS_KEY: text1
+            SampleKey.TOKENIZED_OBSERVATIONS.value: text1
         }
         input2 = {
             Cameras.LEFT.value: images2,
-            TOKENIZED_OBSERVATIONS_KEY: text2
+            SampleKey.TOKENIZED_OBSERVATIONS.value: text2
         }
 
         output1 = encoder(input1)

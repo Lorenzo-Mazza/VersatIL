@@ -54,7 +54,9 @@ class ConditionalModulation(nn.Module):
 
     def init_parameters(self):
         """Initialize weights based on strategy."""
-        linear_layers = [m for m in self.projection.modules() if isinstance(m, nn.Linear)]
+        linear_layers = [
+            m for m in self.projection.modules() if isinstance(m, nn.Linear)
+        ]
         if self.init_strategy == "identity" or self.init_strategy == "zero":
             for layer in linear_layers:
                 nn.init.constant_(layer.weight, 0)
@@ -66,7 +68,9 @@ class ConditionalModulation(nn.Module):
         else:
             raise ValueError(f"Unknown init_strategy: {self.init_strategy}")
 
-    def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x: torch.Tensor, condition: torch.Tensor
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
             x: Features to modulate
@@ -96,25 +100,27 @@ class ConditionalModulation(nn.Module):
             if gate is not None:
                 gate = gate.view(x.size(0), x.size(1), 1, 1)
         elif x.dim() == 3:
-            if x.size(0) == condition.size(0): # Batch size in dim 0
-                if x.size(1) == self.feature_dim: # Conv1D format: (B, C, T) - channels in dim 1
+            if x.size(0) == condition.size(0):  # Batch size in dim 0
+                if (
+                    x.size(1) == self.feature_dim
+                ):  # Conv1D format: (B, C, T) - channels in dim 1
                     gamma = gamma.unsqueeze(2)  # (B, C) -> (B, C, 1)
                     if beta is not None:
                         beta = beta.unsqueeze(2)
                     if gate is not None:
                         gate = gate.unsqueeze(2)
-                else: # Transformer format: (B, S, D) - features in dim 2
+                else:  # Transformer format: (B, S, D) - features in dim 2
                     gamma = gamma.unsqueeze(1)  # (B, D) -> (B, 1, D)
                     if beta is not None:
                         beta = beta.unsqueeze(1)
                     if gate is not None:
                         gate = gate.unsqueeze(1)
             elif x.size(1) == condition.size(0):
-                    gamma = gamma.unsqueeze(0)
-                    if beta is not None:
-                        beta = beta.unsqueeze(0)
-                    if gate is not None:
-                        gate = gate.unsqueeze(0)
+                gamma = gamma.unsqueeze(0)
+                if beta is not None:
+                    beta = beta.unsqueeze(0)
+                if gate is not None:
+                    gate = gate.unsqueeze(0)
             else:
                 raise ValueError(
                     f"Cannot match batch dimension: x.shape={x.shape}, condition.shape={condition.shape}. "
@@ -128,5 +134,3 @@ class ConditionalModulation(nn.Module):
         if self.use_gate:
             return result, gate
         return result
-
-

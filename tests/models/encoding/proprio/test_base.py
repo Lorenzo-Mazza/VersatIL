@@ -5,10 +5,7 @@ import torch.nn as nn
 from versatil.models.encoding.encoders.proprioceptive import ProprioceptiveEncoder
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
-from versatil.data.constants import (
-    PROPRIO_OBS_ROBOT_FRAME_KEY,
-    PROPRIO_OBS_CAMERA_FRAME_KEY,
-)
+from versatil.data.constants import ProprioKey
 
 
 @pytest.fixture
@@ -74,21 +71,21 @@ def camera_frame_input_3d(batch_size, temporal_length, camera_frame_dim):
 @pytest.fixture
 def single_input_dict_2d(robot_frame_input_2d):
     """Input dictionary with only robot frame (2D)."""
-    return {PROPRIO_OBS_ROBOT_FRAME_KEY: robot_frame_input_2d}
+    return {ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: robot_frame_input_2d}
 
 
 @pytest.fixture
 def single_input_dict_3d(robot_frame_input_3d):
     """Input dictionary with only robot frame (3D temporal)."""
-    return {PROPRIO_OBS_ROBOT_FRAME_KEY: robot_frame_input_3d}
+    return {ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: robot_frame_input_3d}
 
 
 @pytest.fixture
 def dual_input_dict_2d(robot_frame_input_2d, camera_frame_input_2d):
     """Input dictionary with both robot and camera frames (2D)."""
     return {
-        PROPRIO_OBS_ROBOT_FRAME_KEY: robot_frame_input_2d,
-        PROPRIO_OBS_CAMERA_FRAME_KEY: camera_frame_input_2d,
+        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: robot_frame_input_2d,
+        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: camera_frame_input_2d,
     }
 
 
@@ -96,8 +93,8 @@ def dual_input_dict_2d(robot_frame_input_2d, camera_frame_input_2d):
 def dual_input_dict_3d(robot_frame_input_3d, camera_frame_input_3d):
     """Input dictionary with both robot and camera frames (3D temporal)."""
     return {
-        PROPRIO_OBS_ROBOT_FRAME_KEY: robot_frame_input_3d,
-        PROPRIO_OBS_CAMERA_FRAME_KEY: camera_frame_input_3d,
+        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: robot_frame_input_3d,
+        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: camera_frame_input_3d,
     }
 
 
@@ -108,26 +105,26 @@ class TestProprioceptiveEncoderInit:
     def test_init_single_input_key(self, output_dim):
         """Test initialization with single input key."""
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
         )
         assert encoder.output_dim == output_dim
-        assert encoder.input_specification.keys == [PROPRIO_OBS_ROBOT_FRAME_KEY]
+        assert encoder.input_specification.keys == [ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value]
         assert encoder.network is None
 
     def test_init_multiple_input_keys(self, output_dim):
         """Test initialization with multiple input keys."""
         encoder = ProprioceptiveEncoder(
-            input_keys=[PROPRIO_OBS_ROBOT_FRAME_KEY, PROPRIO_OBS_CAMERA_FRAME_KEY],
+            input_keys=[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value],
             output_dim=output_dim,
         )
-        assert encoder.input_specification.keys == [PROPRIO_OBS_ROBOT_FRAME_KEY, PROPRIO_OBS_CAMERA_FRAME_KEY]
+        assert encoder.input_specification.keys == [ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value]
 
     def test_init_with_hidden_dims(self, output_dim):
         """Test initialization with hidden layers."""
         hidden_dims = [256, 128]
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             hidden_dims=hidden_dims,
         )
@@ -136,7 +133,7 @@ class TestProprioceptiveEncoderInit:
     def test_init_with_activation(self, output_dim):
         """Test initialization with custom activation."""
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             activation=ActivationFunction.GELU.value,
         )
@@ -146,7 +143,7 @@ class TestProprioceptiveEncoderInit:
         """Test initialization with dropout."""
         dropout = 0.2
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             dropout=dropout,
         )
@@ -155,7 +152,7 @@ class TestProprioceptiveEncoderInit:
     def test_init_frozen(self, output_dim):
         """Test initialization with frozen weights."""
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             frozen=True,
         )
@@ -169,7 +166,7 @@ class TestProprioceptiveEncoderForward2D:
     def test_forward_single_input_no_hidden(self, single_input_dict_2d, output_dim, batch_size, robot_frame_dim):
         """Test forward with single input and no hidden layers."""
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             hidden_dims=None,
         )
@@ -183,7 +180,7 @@ class TestProprioceptiveEncoderForward2D:
         """Test forward with single input and hidden layers."""
         hidden_dims = [256, 128]
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             hidden_dims=hidden_dims,
         )
@@ -195,7 +192,7 @@ class TestProprioceptiveEncoderForward2D:
     def test_forward_dual_input(self, dual_input_dict_2d, output_dim, batch_size):
         """Test forward with both robot and camera frame inputs."""
         encoder = ProprioceptiveEncoder(
-            input_keys=[PROPRIO_OBS_ROBOT_FRAME_KEY, PROPRIO_OBS_CAMERA_FRAME_KEY],
+            input_keys=[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value],
             output_dim=output_dim,
             hidden_dims=[256],
         )
@@ -207,7 +204,7 @@ class TestProprioceptiveEncoderForward2D:
     def test_forward_empty_hidden_dims(self, single_input_dict_2d, output_dim, batch_size):
         """Test forward with empty hidden_dims list (should create linear layer)."""
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             hidden_dims=[],
         )
@@ -224,7 +221,7 @@ class TestProprioceptiveEncoderForward3D:
     def test_forward_single_input_temporal(self, single_input_dict_3d, output_dim, batch_size, temporal_length):
         """Test forward with temporal input (batch, time, features)."""
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             hidden_dims=[256],
         )
@@ -236,7 +233,7 @@ class TestProprioceptiveEncoderForward3D:
     def test_forward_dual_input_temporal(self, dual_input_dict_3d, output_dim, batch_size, temporal_length):
         """Test forward with temporal dual inputs."""
         encoder = ProprioceptiveEncoder(
-            input_keys=[PROPRIO_OBS_ROBOT_FRAME_KEY, PROPRIO_OBS_CAMERA_FRAME_KEY],
+            input_keys=[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value],
             output_dim=output_dim,
             hidden_dims=[256, 128],
         )
@@ -248,7 +245,7 @@ class TestProprioceptiveEncoderForward3D:
     def test_forward_no_hidden_temporal(self, single_input_dict_3d, output_dim, batch_size, temporal_length):
         """Test forward with temporal input and no hidden layers."""
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             hidden_dims=None,
         )
@@ -265,7 +262,7 @@ class TestProprioceptiveEncoderOutputDimensions:
     def test_get_output_dims(self, output_dim):
         """Test get_output_dims method."""
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
         )
 
@@ -276,7 +273,7 @@ class TestProprioceptiveEncoderOutputDimensions:
     def test_get_output_specification(self, output_dim):
         """Test get_output_specification method."""
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
         )
 
@@ -292,13 +289,13 @@ class TestProprioceptiveEncoderNetworkBuilding:
     def test_network_builds_lazily(self, output_dim):
         """Test that network is built lazily on first forward."""
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
         )
 
         assert encoder.network is None
 
-        inputs = {PROPRIO_OBS_ROBOT_FRAME_KEY: torch.randn(2, 7)}
+        inputs = {ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: torch.randn(2, 7)}
         _ = encoder.forward(inputs, is_train=True)
 
         assert encoder.network is not None
@@ -306,12 +303,12 @@ class TestProprioceptiveEncoderNetworkBuilding:
     def test_network_input_dim_inference(self, batch_size, robot_frame_dim, output_dim):
         """Test that network correctly infers input dimension."""
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             hidden_dims=[128],
         )
 
-        inputs = {PROPRIO_OBS_ROBOT_FRAME_KEY: torch.randn(batch_size, robot_frame_dim)}
+        inputs = {ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: torch.randn(batch_size, robot_frame_dim)}
         _ = encoder.forward(inputs, is_train=True)
 
         first_layer = encoder.network.layers[0]
@@ -321,14 +318,14 @@ class TestProprioceptiveEncoderNetworkBuilding:
     def test_network_concatenates_multiple_inputs(self, batch_size, robot_frame_dim, camera_frame_dim, output_dim):
         """Test that network correctly concatenates multiple input keys."""
         encoder = ProprioceptiveEncoder(
-            input_keys=[PROPRIO_OBS_ROBOT_FRAME_KEY, PROPRIO_OBS_CAMERA_FRAME_KEY],
+            input_keys=[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value],
             output_dim=output_dim,
             hidden_dims=[128],
         )
 
         inputs = {
-            PROPRIO_OBS_ROBOT_FRAME_KEY: torch.randn(batch_size, robot_frame_dim),
-            PROPRIO_OBS_CAMERA_FRAME_KEY: torch.randn(batch_size, camera_frame_dim),
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: torch.randn(batch_size, robot_frame_dim),
+            ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: torch.randn(batch_size, camera_frame_dim),
         }
         _ = encoder.forward(inputs, is_train=True)
 
@@ -344,10 +341,10 @@ class TestProprioceptiveEncoderEdgeCases:
     def test_single_feature_input(self, batch_size, output_dim):
         """Test with single feature input (e.g., gripper state)."""
         single_feature_input = torch.randn(batch_size, 1)
-        inputs = {PROPRIO_OBS_ROBOT_FRAME_KEY: single_feature_input}
+        inputs = {ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: single_feature_input}
 
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             hidden_dims=[64],
         )
@@ -358,10 +355,10 @@ class TestProprioceptiveEncoderEdgeCases:
     def test_high_dimensional_input(self, batch_size, output_dim):
         """Test with high-dimensional input."""
         high_dim_input = torch.randn(batch_size, 50)
-        inputs = {PROPRIO_OBS_ROBOT_FRAME_KEY: high_dim_input}
+        inputs = {ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: high_dim_input}
 
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             hidden_dims=[256, 128],
         )
@@ -371,10 +368,10 @@ class TestProprioceptiveEncoderEdgeCases:
 
     def test_batch_size_one(self, output_dim, robot_frame_dim):
         """Test with batch size of 1."""
-        inputs = {PROPRIO_OBS_ROBOT_FRAME_KEY: torch.randn(1, robot_frame_dim)}
+        inputs = {ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: torch.randn(1, robot_frame_dim)}
 
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
         )
         output = encoder.forward(inputs, is_train=True)
@@ -384,10 +381,10 @@ class TestProprioceptiveEncoderEdgeCases:
     def test_large_batch_size(self, output_dim, robot_frame_dim):
         """Test with large batch size."""
         large_batch = 128
-        inputs = {PROPRIO_OBS_ROBOT_FRAME_KEY: torch.randn(large_batch, robot_frame_dim)}
+        inputs = {ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: torch.randn(large_batch, robot_frame_dim)}
 
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             hidden_dims=[256],
         )
@@ -403,7 +400,7 @@ class TestProprioceptiveEncoderGradientFlow:
     def test_gradient_flow_unfrozen(self, single_input_dict_2d, output_dim):
         """Test that gradients flow through unfrozen encoder."""
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             hidden_dims=[128],
             frozen=False,
@@ -421,7 +418,7 @@ class TestProprioceptiveEncoderGradientFlow:
     def test_no_gradient_flow_frozen(self, single_input_dict_2d, output_dim):
         """Test that gradients don't flow through frozen encoder."""
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             hidden_dims=[128],
             frozen=True,
@@ -444,10 +441,10 @@ class TestProprioceptiveEncoderRealistic:
     def test_surgical_robot_single_arm(self, batch_size, output_dim):
         """Test with realistic surgical robot configuration (single arm)."""
         proprio_dim = 8
-        inputs = {PROPRIO_OBS_ROBOT_FRAME_KEY: torch.randn(batch_size, proprio_dim)}
+        inputs = {ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: torch.randn(batch_size, proprio_dim)}
 
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             hidden_dims=[256, 128],
             activation=ActivationFunction.RELU.value,
@@ -462,12 +459,12 @@ class TestProprioceptiveEncoderRealistic:
         right_arm_dim = 7
 
         inputs = {
-            PROPRIO_OBS_ROBOT_FRAME_KEY: torch.randn(batch_size, left_arm_dim),
-            PROPRIO_OBS_CAMERA_FRAME_KEY: torch.randn(batch_size, right_arm_dim),
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: torch.randn(batch_size, left_arm_dim),
+            ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: torch.randn(batch_size, right_arm_dim),
         }
 
         encoder = ProprioceptiveEncoder(
-            input_keys=[PROPRIO_OBS_ROBOT_FRAME_KEY, PROPRIO_OBS_CAMERA_FRAME_KEY],
+            input_keys=[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value],
             output_dim=output_dim,
             hidden_dims=[512, 256],
         )
@@ -481,11 +478,11 @@ class TestProprioceptiveEncoderRealistic:
         proprio_dim = 7
 
         inputs = {
-            PROPRIO_OBS_ROBOT_FRAME_KEY: torch.randn(batch_size, trajectory_length, proprio_dim)
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: torch.randn(batch_size, trajectory_length, proprio_dim)
         }
 
         encoder = ProprioceptiveEncoder(
-            input_keys=PROPRIO_OBS_ROBOT_FRAME_KEY,
+            input_keys=ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
             output_dim=output_dim,
             hidden_dims=[256],
         )

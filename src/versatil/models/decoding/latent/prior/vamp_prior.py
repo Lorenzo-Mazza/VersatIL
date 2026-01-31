@@ -12,21 +12,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from versatil.data.constants import IS_PAD_ACTION_KEY
+from versatil.data.constants import SampleKey
 from versatil.data.task import ActionSpace
-from versatil.models.decoding.constants import (
-    PRIOR_LATENT_KEY,
-    PRIOR_LOG_PROB_KEY,
-    MU_KEY,
-    LOGVAR_KEY,
-)
+from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from versatil.models.decoding.latent.posterior.base_posterior import (
     PosteriorLatentEncoder,
 )
 
 
-def log_normal_diag(z: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+def log_normal_diag(
+    z: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor
+) -> torch.Tensor:
     """Compute log probability of z under diagonal Gaussian N(mu, exp(logvar)).
 
     Args:
@@ -37,9 +34,11 @@ def log_normal_diag(z: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor) -> 
     Returns:
         Log probability, shape (..., latent_dim) - per-dimension log probs
     """
-    log_p = -0.5 * (torch.log(2 * torch.pi * torch.ones(1, device=z.device))
-                    + logvar
-                    + (z - mu) ** 2 / torch.exp(logvar))
+    log_p = -0.5 * (
+        torch.log(2 * torch.pi * torch.ones(1, device=z.device))
+        + logvar
+        + (z - mu) ** 2 / torch.exp(logvar)
+    )
     return log_p
 
 
@@ -101,16 +100,18 @@ class VampPrior(PriorLatentEncoder):
             Tuple of (means, logvars) each of shape (K, latent_dim)
         """
         is_pad = torch.zeros(
-            self.num_components, self.prediction_horizon,
-            dtype=torch.bool, device=self.pseudo_inputs.device
+            self.num_components,
+            self.prediction_horizon,
+            dtype=torch.bool,
+            device=self.pseudo_inputs.device,
         )
         pseudo_actions = {
-            "pseudo": self.pseudo_inputs, # (K, prediction_horizon, action_dim)
-            IS_PAD_ACTION_KEY: is_pad,
+            "pseudo": self.pseudo_inputs,  # (K, prediction_horizon, action_dim)
+            SampleKey.IS_PAD_ACTION.value: is_pad,
         }
         encoder_output = self.encoder.encode(actions=pseudo_actions, observations=None)
-        mu = encoder_output[MU_KEY]  # (K, latent_dim)
-        logvar = encoder_output[LOGVAR_KEY]  # (K, latent_dim)
+        mu = encoder_output[LatentKey.POSTERIOR_MU.value]  # (K, latent_dim)
+        logvar = encoder_output[LatentKey.POSTERIOR_LOGVAR.value]  # (K, latent_dim)
         if self.min_logvar is not None:
             logvar = torch.clamp(logvar, min=self.min_logvar)
         return mu, logvar
@@ -156,14 +157,14 @@ class VampPrior(PriorLatentEncoder):
             observations: Conditioning features (ignored for VampPrior)
 
         Returns:
-            Dictionary with PRIOR_LATENT_KEY and PRIOR_LOG_PROB_KEY
+            Dictionary with LatentKey.PRIOR_LATENT and LatentKey.PRIOR_LOG_PROB
         """
         batch_size = target_latents.size(0)
         z = self.sample_prior(batch_size, observations)
         log_prob = self.log_prob(target_latents)
         return {
-            PRIOR_LATENT_KEY: z,
-            PRIOR_LOG_PROB_KEY: log_prob,
+            LatentKey.PRIOR_LATENT.value: z,
+            LatentKey.PRIOR_LOG_PROB.value: log_prob,
         }
 
     def log_prob(self, z: torch.Tensor) -> torch.Tensor:

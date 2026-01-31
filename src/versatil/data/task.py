@@ -388,7 +388,7 @@ class TaskSpace:
             if key not in zarr_keys:
                 raise ValueError(f"Observation '{key}' not found in dataset schema.")
             schema_obs = self.dataset_schema.metadata.observations.get(key)
-            
+
             if schema_obs is not None and task_obs != schema_obs:
                 raise ValueError(f"Observation '{key}' metadata mismatch with schema")
         for cam_key in self.observation_space.cameras.keys():

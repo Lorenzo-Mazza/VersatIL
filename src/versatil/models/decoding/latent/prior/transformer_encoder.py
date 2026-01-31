@@ -2,12 +2,7 @@
 import torch
 from torch import nn
 
-from versatil.models.decoding.constants import (
-    CLASS_TOKEN_KEY,
-    PRIOR_MU_KEY,
-    PRIOR_LOGVAR_KEY,
-    PRIOR_LATENT_KEY,
-)
+from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 from versatil.models.decoding.latent import PriorLatentEncoder
 from versatil.models.decoding.latent.reparametrize import reparametrize
 from versatil.models.layers.activation import ActivationFunction
@@ -106,7 +101,9 @@ class PriorTransformerEncoder(PriorLatentEncoder):
             ),
         )
         self.cls_token = nn.Embedding(1, self.embedding_dimension)  # CLS input token
-        output_dim = self.latent_dimension * 2 if self.learn_variance else self.latent_dimension
+        output_dim = (
+            self.latent_dimension * 2 if self.learn_variance else self.latent_dimension
+        )
         self.latent_stats_projection = nn.Linear(
             self.embedding_dimension,
             output_dim,
@@ -135,7 +132,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(
             batch_size, 1, 1
         )  # (B, 1, emb_dim)
-        input_observations[CLASS_TOKEN_KEY] = cls_embedding
+        input_observations[DecoderOutputKey.CLASS_TOKEN.value] = cls_embedding
         input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(
             input_observations
         )  # (B, seq_len, embedding_dimension)
@@ -159,9 +156,9 @@ class PriorTransformerEncoder(PriorLatentEncoder):
             mu, logvar
         )  # Sample using reparametrization trick (B, latent_dim)
         return {
-            PRIOR_MU_KEY: mu,
-            PRIOR_LOGVAR_KEY: logvar,
-            PRIOR_LATENT_KEY: z,
+            LatentKey.PRIOR_MU.value: mu,
+            LatentKey.PRIOR_LOGVAR.value: logvar,
+            LatentKey.PRIOR_LATENT.value: z,
         }
 
     def sample_prior(
@@ -171,5 +168,5 @@ class PriorTransformerEncoder(PriorLatentEncoder):
     ) -> torch.Tensor:
         """Sample latent variable from learned prior p(z|s)."""
         return self.forward(target_latents=None, observations=observations,)[
-            PRIOR_LATENT_KEY
+            LatentKey.PRIOR_LATENT.value
         ]  # Return only z

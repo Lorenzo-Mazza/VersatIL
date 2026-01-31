@@ -12,6 +12,7 @@ class LatentKey(str, enum.Enum):
     PRIOR_LATENT = "prior_latent"
     PRIOR_PREDICTION = "prior_prediction"
     PRIOR_TARGET = "prior_target"
+    PRIOR_LOG_PROB = "prior_log_prob"
 
 
 class MoERoutingType(str, enum.Enum):
@@ -64,45 +65,27 @@ class DenoisingAlgorithm(str, enum.Enum):
 
 class DiTType(str, enum.Enum):
     """Types of Diffusion Transformer architectures."""
-    CROSS_ATTENTION = "cross_attention" # PixArt style Cross-Attention DiT
-    MMDIT = "mmdit" # Multimodal Diffusion Transformer (Stable Diffusion 3 style)
-    DIT_BLOCK = "dit_block" # DiT-Block (DiT Policy style)
 
-# Feature keys for time/timestep conditioning
-TIMESTEP_KEY = (
-    "timestep"  # For diffusion or flow processes (discrete or continuous timestep)
-)
-TARGET_DIFFUSION_KEY = "target_diffusion"  # Target sample (noisy action) for diffusion
-NOISE_KEY = "noise"
-TARGET_VELOCITY_KEY = "target_velocity"  # Target velocity for flow matching
+    CROSS_ATTENTION = "cross_attention"  # PixArt style Cross-Attention DiT
+    MMDIT = "mmdit"  # Multimodal Diffusion Transformer (Stable Diffusion 3 style)
+    DIT_BLOCK = "dit_block"  # DiT-Block (DiT Policy style)
 
-#: Mixture of Experts keys
-EXPERT_USAGE = "expert_usage"
-ROUTING_ENTROPY = "routing_entropy"
-TOP_EXPERT_CONFIDENCE = "top_expert_confidence"
-ROUTING_WEIGHT = "routing_weights"
-EXPERT_OUTPUTS = "expert_outputs"
 
-#: Phase keys
-PHASE_LOGITS_KEY = "phase_logits"
-LATENT_KEY = "latent"  # Latent embedding (z)
+class DecoderOutputKey(str, enum.Enum):
+    """Keys for decoder outputs and intermediate features."""
 
-# Latent posteriors and priors keys
-MU_KEY = "mu"  # VAE latent mean
-LOGVAR_KEY = "logvar"  # VAE latent log variance
-PRIOR_PREDICTION_KEY = "prior_prediction"  # Prior network prediction
-PRIOR_TARGET_KEY = "prior_target"  # Prior network target
-PRIOR_MU_KEY = "prior_mu"  # Prior latent mean
-PRIOR_LOGVAR_KEY = "prior_logvar"  # Prior latent log variance
-PRIOR_LATENT_KEY = "prior_latent"  # Prior latent embedding (z)
-PRIOR_LOG_PROB_KEY = "prior_log_prob"  # Prior log probability (for mixture priors)
-
-# Free Transformer keys
-BINARY_LOGITS_KEY = "binary_logits"  # Binary mapper logits for KL divergence
-LATENT_CODES = "latent_codes"  # Sampled latent z
-
-# Action logits and predicted action tokens keys
-ACTION_LOGITS_KEY = "action_logits"
-PREDICTED_ACTION_TOKENS_KEY = "pred_action_tokens"
-
-CLASS_TOKEN_KEY = "cls_token"
+    TIMESTEP = "timestep"
+    TARGET_DIFFUSION = "target_diffusion"
+    NOISE = "noise"
+    TARGET_VELOCITY = "target_velocity"
+    EXPERT_USAGE = "expert_usage"
+    ROUTING_ENTROPY = "routing_entropy"
+    TOP_EXPERT_CONFIDENCE = "top_expert_confidence"
+    ROUTING_WEIGHTS = "routing_weights"
+    EXPERT_OUTPUTS = "expert_outputs"
+    PHASE_LOGITS = "phase_logits"
+    BINARY_LOGITS = "binary_logits"
+    LATENT_CODES = "latent_codes"
+    ACTION_LOGITS = "action_logits"
+    PREDICTED_ACTION_TOKENS = "pred_action_tokens"
+    CLASS_TOKEN = "cls_token"

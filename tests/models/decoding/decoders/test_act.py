@@ -8,15 +8,13 @@ from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_heads.blocks import MLPBlock
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import (
-    POSITION_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    IS_PAD_ACTION_KEY,
     Cameras,
-    OrientationRepresentation,
     GripperType,
+    OrientationRepresentation,
+    ProprioceptiveType,
+    SampleKey,
 )
-from versatil.models.decoding.constants import MU_KEY, LOGVAR_KEY, LATENT_KEY
+from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.action_heads import AttentionBlock, ResidualBlock
 
 
@@ -87,7 +85,7 @@ def action_heads(action_space, embedding_dimension):
     heads = {}
 
     if action_space.has_position:
-        heads[POSITION_ACTION_KEY] = ActionHead(
+        heads[ProprioceptiveType.POSITION.value] = ActionHead(
             input_dim=embedding_dimension,
             output_dim=action_space.position_dim,
             blocks=[
@@ -102,7 +100,7 @@ def action_heads(action_space, embedding_dimension):
             ]
         )
     if action_space.has_orientation:
-        heads[ORIENTATION_ACTION_KEY] = ActionHead(
+        heads[ProprioceptiveType.ORIENTATION.value] = ActionHead(
             input_dim=embedding_dimension,
             output_dim=action_space.orientation_dim,
             blocks=[
@@ -117,7 +115,7 @@ def action_heads(action_space, embedding_dimension):
             ]
         )
     if action_space.has_gripper:
-        heads[GRIPPER_ACTION_KEY] = ActionHead(
+        heads[ProprioceptiveType.GRIPPER.value] = ActionHead(
             input_dim=embedding_dimension,
             output_dim=action_space.gripper_dim,
             blocks=[]
@@ -176,21 +174,21 @@ def actions_dict(batch_size, prediction_horizon, action_space, device):
     actions = {}
 
     if action_space.has_position:
-        actions[POSITION_ACTION_KEY] = torch.randn(
+        actions[ProprioceptiveType.POSITION.value] = torch.randn(
             batch_size, prediction_horizon, action_space.position_dim, device=device
         )
 
     if action_space.has_orientation:
-        actions[ORIENTATION_ACTION_KEY] = torch.randn(
+        actions[ProprioceptiveType.ORIENTATION.value] = torch.randn(
             batch_size, prediction_horizon, action_space.orientation_dim, device=device
         )
 
     if action_space.has_gripper:
-        actions[GRIPPER_ACTION_KEY] = torch.randint(
+        actions[ProprioceptiveType.GRIPPER.value] = torch.randint(
             0, 2, (batch_size, prediction_horizon, action_space.gripper_dim), device=device
         ).float()
 
-    actions[IS_PAD_ACTION_KEY] = torch.zeros(
+    actions[SampleKey.IS_PAD_ACTION.value] = torch.zeros(
         batch_size, prediction_horizon, dtype=torch.bool, device=device
     )
 
@@ -557,22 +555,22 @@ class TestACTForwardPass:
         batch_size = spatial_features_single["rgb_left_features"].shape[0]
 
         # Check all action predictions exist
-        assert POSITION_ACTION_KEY in predictions
-        assert ORIENTATION_ACTION_KEY in predictions
-        assert GRIPPER_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert ProprioceptiveType.ORIENTATION.value in predictions
+        assert ProprioceptiveType.GRIPPER.value in predictions
 
         # Check shapes
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             batch_size, prediction_horizon, action_space.position_dim
         )
-        assert predictions[ORIENTATION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.ORIENTATION.value].shape == (
             batch_size, prediction_horizon, action_space.orientation_dim
         )
-        assert predictions[GRIPPER_ACTION_KEY].shape == (batch_size, prediction_horizon, action_space.gripper_dim)
+        assert predictions[ProprioceptiveType.GRIPPER.value].shape == (batch_size, prediction_horizon, action_space.gripper_dim)
 
         # VAE statistics should NOT be in decoder output (handled at algorithm level)
-        assert MU_KEY not in predictions
-        assert LOGVAR_KEY not in predictions
+        assert LatentKey.POSTERIOR_MU.value not in predictions
+        assert LatentKey.POSTERIOR_LOGVAR.value not in predictions
 
     def test_forward_inference_without_actions(
         self,
@@ -604,13 +602,13 @@ class TestACTForwardPass:
         batch_size = spatial_features_single["rgb_left_features"].shape[0]
 
         # Check all action predictions exist
-        assert POSITION_ACTION_KEY in predictions
-        assert ORIENTATION_ACTION_KEY in predictions
-        assert GRIPPER_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert ProprioceptiveType.ORIENTATION.value in predictions
+        assert ProprioceptiveType.GRIPPER.value in predictions
 
         # Decoder should not include VAE statistics (handled at algorithm level)
-        assert MU_KEY not in predictions
-        assert LOGVAR_KEY not in predictions
+        assert LatentKey.POSTERIOR_MU.value not in predictions
+        assert LatentKey.POSTERIOR_LOGVAR.value not in predictions
 
     def test_forward_with_latent_from_algorithm(
         self,
@@ -641,9 +639,9 @@ class TestACTForwardPass:
         # Simulate algorithm providing latent embedding
         features_with_latent = {
             **spatial_features_single,
-            LATENT_KEY: torch.randn(batch_size, embedding_dimension, device=device),
-            MU_KEY: torch.randn(batch_size, 32, device=device),
-            LOGVAR_KEY: torch.randn(batch_size, 32, device=device),
+            LatentKey.POSTERIOR_LATENT.value: torch.randn(batch_size, embedding_dimension, device=device),
+            LatentKey.POSTERIOR_MU.value: torch.randn(batch_size, 32, device=device),
+            LatentKey.POSTERIOR_LOGVAR.value: torch.randn(batch_size, 32, device=device),
         }
 
         with warnings.catch_warnings():
@@ -651,8 +649,8 @@ class TestACTForwardPass:
             predictions = decoder(features_with_latent, actions=actions_dict)
 
         # Decoder should preserve latent-related keys from algorithm
-        assert MU_KEY in predictions
-        assert LOGVAR_KEY in predictions
+        assert LatentKey.POSTERIOR_MU.value in predictions
+        assert LatentKey.POSTERIOR_LOGVAR.value in predictions
 
     def test_forward_with_flat_and_spatial_features(
         self,
@@ -689,9 +687,9 @@ class TestACTForwardPass:
             predictions = decoder(features, actions=None)
 
         # Should successfully process both feature types
-        assert POSITION_ACTION_KEY in predictions
-        assert ORIENTATION_ACTION_KEY in predictions
-        assert GRIPPER_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert ProprioceptiveType.ORIENTATION.value in predictions
+        assert ProprioceptiveType.GRIPPER.value in predictions
 
     def test_forward_multi_camera_dimension_mismatch(
         self,
@@ -721,7 +719,7 @@ class TestACTForwardPass:
             predictions = decoder(spatial_features_mismatched, actions=None)
 
         # Should successfully handle dimension mismatches
-        assert POSITION_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
 
         # Should have warnings about projection
         assert len(warning_list) > 0
@@ -765,18 +763,18 @@ class TestACTActionHeads:
         predictions = decoder._apply_action_heads(action_embeddings)
 
         # Check all heads were applied
-        assert POSITION_ACTION_KEY in predictions
-        assert ORIENTATION_ACTION_KEY in predictions
-        assert GRIPPER_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert ProprioceptiveType.ORIENTATION.value in predictions
+        assert ProprioceptiveType.GRIPPER.value in predictions
 
         # Check output shapes match action space
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             batch_size, prediction_horizon, action_space.position_dim
         )
-        assert predictions[ORIENTATION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.ORIENTATION.value].shape == (
             batch_size, prediction_horizon, action_space.orientation_dim
         )
-        assert predictions[GRIPPER_ACTION_KEY].shape == (batch_size, prediction_horizon, action_space.gripper_dim)
+        assert predictions[ProprioceptiveType.GRIPPER.value].shape == (batch_size, prediction_horizon, action_space.gripper_dim)
 
 
 @pytest.mark.unit
@@ -955,13 +953,13 @@ class TestACTEdgeCases:
             predictions = decoder(features, actions=None)
 
         # Should successfully process both temporal feature types
-        assert POSITION_ACTION_KEY in predictions
-        assert ORIENTATION_ACTION_KEY in predictions
-        assert GRIPPER_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert ProprioceptiveType.ORIENTATION.value in predictions
+        assert ProprioceptiveType.GRIPPER.value in predictions
 
         # Check output shapes - ACT only uses most recent timestep (batch size unchanged)
         expected_batch = batch_size
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             expected_batch, prediction_horizon, action_space.position_dim
         )
 
@@ -1017,17 +1015,17 @@ class TestACTWithDifferentActionHeads:
         """Test ACT with simple linear projection heads (no blocks)."""
         # Create simple action heads with no processing blocks
         action_heads = {
-            POSITION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.POSITION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.position_dim,
                 blocks=[],  # Empty - just linear projection
             ),
-            ORIENTATION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.ORIENTATION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.orientation_dim,
                 blocks=[],
             ),
-            GRIPPER_ACTION_KEY: ActionHead(
+            ProprioceptiveType.GRIPPER.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.gripper_dim,
                 blocks=[],
@@ -1054,9 +1052,9 @@ class TestACTWithDifferentActionHeads:
             predictions = decoder(features, actions=None)
 
         # Check outputs
-        assert POSITION_ACTION_KEY in predictions
-        assert ORIENTATION_ACTION_KEY in predictions
-        assert GRIPPER_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert ProprioceptiveType.ORIENTATION.value in predictions
+        assert ProprioceptiveType.GRIPPER.value in predictions
 
     def test_act_with_mlp_heads(
         self,
@@ -1071,7 +1069,7 @@ class TestACTWithDifferentActionHeads:
         """Test ACT with MLP processing in action heads."""
         # Create action heads with MLP blocks
         action_heads = {
-            POSITION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.POSITION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.position_dim,
                 blocks=[
@@ -1085,7 +1083,7 @@ class TestACTWithDifferentActionHeads:
                     )
                 ],
             ),
-            ORIENTATION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.ORIENTATION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.orientation_dim,
                 blocks=[
@@ -1099,7 +1097,7 @@ class TestACTWithDifferentActionHeads:
                     )
                 ],
             ),
-            GRIPPER_ACTION_KEY: ActionHead(
+            ProprioceptiveType.GRIPPER.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.gripper_dim,
                 blocks=[
@@ -1135,13 +1133,13 @@ class TestACTWithDifferentActionHeads:
             predictions = decoder(features, actions=None)
 
         # Check outputs have correct shapes
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             batch_size, prediction_horizon, action_space.position_dim
         )
-        assert predictions[ORIENTATION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.ORIENTATION.value].shape == (
             batch_size, prediction_horizon, action_space.orientation_dim
         )
-        assert predictions[GRIPPER_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.GRIPPER.value].shape == (
             batch_size, prediction_horizon, action_space.gripper_dim
         )
 
@@ -1159,7 +1157,7 @@ class TestACTWithDifferentActionHeads:
         """Test ACT with self-attention in action heads."""
         # Create action heads with attention blocks
         action_heads = {
-            POSITION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.POSITION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.position_dim,
                 blocks=[
@@ -1176,7 +1174,7 @@ class TestACTWithDifferentActionHeads:
                     ),
                 ],
             ),
-            ORIENTATION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.ORIENTATION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.orientation_dim,
                 blocks=[
@@ -1187,7 +1185,7 @@ class TestACTWithDifferentActionHeads:
                     ),
                 ],
             ),
-            GRIPPER_ACTION_KEY: ActionHead(
+            ProprioceptiveType.GRIPPER.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.gripper_dim,
                 blocks=[],  # Simple head for binary gripper
@@ -1216,12 +1214,12 @@ class TestACTWithDifferentActionHeads:
             predictions = decoder(features, actions=actions_dict)
 
         # Check all outputs exist
-        assert POSITION_ACTION_KEY in predictions
-        assert ORIENTATION_ACTION_KEY in predictions
-        assert GRIPPER_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert ProprioceptiveType.ORIENTATION.value in predictions
+        assert ProprioceptiveType.GRIPPER.value in predictions
         # VAE statistics NOT expected from decoder (handled at algorithm level)
-        assert MU_KEY not in predictions
-        assert LOGVAR_KEY not in predictions
+        assert LatentKey.POSTERIOR_MU.value not in predictions
+        assert LatentKey.POSTERIOR_LOGVAR.value not in predictions
 
     def test_act_with_residual_heads(
         self,
@@ -1236,7 +1234,7 @@ class TestACTWithDifferentActionHeads:
         """Test ACT with residual connections in action heads."""
         # Create action heads with residual blocks
         action_heads = {
-            POSITION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.POSITION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.position_dim,
                 blocks=[
@@ -1260,7 +1258,7 @@ class TestACTWithDifferentActionHeads:
                     ),
                 ],
             ),
-            ORIENTATION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.ORIENTATION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.orientation_dim,
                 blocks=[
@@ -1274,7 +1272,7 @@ class TestACTWithDifferentActionHeads:
                     ),
                 ],
             ),
-            GRIPPER_ACTION_KEY: ActionHead(
+            ProprioceptiveType.GRIPPER.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.gripper_dim,
                 blocks=[],
@@ -1301,7 +1299,7 @@ class TestACTWithDifferentActionHeads:
             predictions = decoder(features, actions=None)
 
         # Check outputs
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             batch_size, prediction_horizon, action_space.position_dim
         )
 
@@ -1321,7 +1319,7 @@ class TestACTWithDifferentActionHeads:
         # Each action modality gets a different head architecture
         action_heads = {
             # Position: Complex head with attention + residual MLP
-            POSITION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.POSITION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.position_dim,
                 blocks=[
@@ -1342,7 +1340,7 @@ class TestACTWithDifferentActionHeads:
                 ],
             ),
             # Orientation: Simple MLP
-            ORIENTATION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.ORIENTATION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.orientation_dim,
                 blocks=[
@@ -1355,7 +1353,7 @@ class TestACTWithDifferentActionHeads:
                 ],
             ),
             # Gripper: Direct linear projection (no blocks)
-            GRIPPER_ACTION_KEY: ActionHead(
+            ProprioceptiveType.GRIPPER.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.gripper_dim,
                 blocks=[],
@@ -1385,17 +1383,17 @@ class TestACTWithDifferentActionHeads:
             inference_predictions = decoder(features, actions=None)
 
         # Check training predictions
-        assert POSITION_ACTION_KEY in train_predictions
-        assert ORIENTATION_ACTION_KEY in train_predictions
-        assert GRIPPER_ACTION_KEY in train_predictions
+        assert ProprioceptiveType.POSITION.value in train_predictions
+        assert ProprioceptiveType.ORIENTATION.value in train_predictions
+        assert ProprioceptiveType.GRIPPER.value in train_predictions
 
         # Check inference predictions
-        assert POSITION_ACTION_KEY in inference_predictions
-        assert ORIENTATION_ACTION_KEY in inference_predictions
-        assert GRIPPER_ACTION_KEY in inference_predictions
+        assert ProprioceptiveType.POSITION.value in inference_predictions
+        assert ProprioceptiveType.ORIENTATION.value in inference_predictions
+        assert ProprioceptiveType.GRIPPER.value in inference_predictions
 
         # Check shapes match
-        assert train_predictions[POSITION_ACTION_KEY].shape == inference_predictions[POSITION_ACTION_KEY].shape
+        assert train_predictions[ProprioceptiveType.POSITION.value].shape == inference_predictions[ProprioceptiveType.POSITION.value].shape
 
 
 @pytest.mark.unit
@@ -1653,18 +1651,18 @@ class TestACTEncoderInputPrepending:
             predictions = decoder(features, actions=actions_dict)
 
         # Check all action predictions exist
-        assert POSITION_ACTION_KEY in predictions
-        assert ORIENTATION_ACTION_KEY in predictions
-        assert GRIPPER_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert ProprioceptiveType.ORIENTATION.value in predictions
+        assert ProprioceptiveType.GRIPPER.value in predictions
 
         # Check shapes
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             batch_size, prediction_horizon, action_space.position_dim
         )
-        assert predictions[ORIENTATION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.ORIENTATION.value].shape == (
             batch_size, prediction_horizon, action_space.orientation_dim
         )
-        assert predictions[GRIPPER_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.GRIPPER.value].shape == (
             batch_size, prediction_horizon, action_space.gripper_dim
         )
 
@@ -1689,9 +1687,9 @@ class TestACTEncoderInputPrepending:
         features = {
             "rgb_left_features": torch.randn(batch_size, 2048, 7, 7, device=device),
             "proprioceptive_features": torch.randn(batch_size, 128, device=device),
-            LATENT_KEY: torch.randn(batch_size, embedding_dimension, device=device),
-            MU_KEY: torch.randn(batch_size, 32, device=device),
-            LOGVAR_KEY: torch.randn(batch_size, 32, device=device),
+            LatentKey.POSTERIOR_LATENT.value: torch.randn(batch_size, embedding_dimension, device=device),
+            LatentKey.POSTERIOR_MU.value: torch.randn(batch_size, 32, device=device),
+            LatentKey.POSTERIOR_LOGVAR.value: torch.randn(batch_size, 32, device=device),
         }
 
         decoder = ACT(
@@ -1711,16 +1709,16 @@ class TestACTEncoderInputPrepending:
             predictions = decoder(features, actions=actions_dict)
 
         # Check all action predictions exist
-        assert POSITION_ACTION_KEY in predictions
-        assert ORIENTATION_ACTION_KEY in predictions
-        assert GRIPPER_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert ProprioceptiveType.ORIENTATION.value in predictions
+        assert ProprioceptiveType.GRIPPER.value in predictions
 
         # Decoder should preserve latent-related keys from algorithm
-        assert MU_KEY in predictions
-        assert LOGVAR_KEY in predictions
+        assert LatentKey.POSTERIOR_MU.value in predictions
+        assert LatentKey.POSTERIOR_LOGVAR.value in predictions
 
         # Check shapes
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             batch_size, prediction_horizon, action_space.position_dim
         )
 
@@ -1744,17 +1742,17 @@ class TestACTParametrized:
 
         # Create simple action heads
         action_heads = {
-            POSITION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.POSITION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.position_dim,
                 blocks=[],
             ),
-            ORIENTATION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.ORIENTATION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.orientation_dim,
                 blocks=[],
             ),
-            GRIPPER_ACTION_KEY: ActionHead(
+            ProprioceptiveType.GRIPPER.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.gripper_dim,
                 blocks=[],
@@ -1782,13 +1780,13 @@ class TestACTParametrized:
             predictions = decoder(features, actions=None)
 
         # Check output shapes
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             batch_size, prediction_horizon, action_space.position_dim
         )
-        assert predictions[ORIENTATION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.ORIENTATION.value].shape == (
             batch_size, prediction_horizon, action_space.orientation_dim
         )
-        assert predictions[GRIPPER_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.GRIPPER.value].shape == (
             batch_size, prediction_horizon, action_space.gripper_dim
         )
 
@@ -1807,7 +1805,7 @@ class TestACTParametrized:
 
         # Create action heads with matching input dimension
         action_heads = {
-            POSITION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.POSITION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.position_dim,
                 blocks=[
@@ -1818,12 +1816,12 @@ class TestACTParametrized:
                     )
                 ],
             ),
-            ORIENTATION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.ORIENTATION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.orientation_dim,
                 blocks=[],
             ),
-            GRIPPER_ACTION_KEY: ActionHead(
+            ProprioceptiveType.GRIPPER.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.gripper_dim,
                 blocks=[],
@@ -1850,7 +1848,7 @@ class TestACTParametrized:
             predictions = decoder(features, actions=None)
 
         # Check output shapes are correct
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             batch_size, prediction_horizon, action_space.position_dim
         )
 
@@ -1868,17 +1866,17 @@ class TestACTParametrized:
         embedding_dimension = 256
 
         action_heads = {
-            POSITION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.POSITION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.position_dim,
                 blocks=[],
             ),
-            ORIENTATION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.ORIENTATION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.orientation_dim,
                 blocks=[],
             ),
-            GRIPPER_ACTION_KEY: ActionHead(
+            ProprioceptiveType.GRIPPER.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.gripper_dim,
                 blocks=[],
@@ -1905,9 +1903,9 @@ class TestACTParametrized:
             predictions = decoder(features, actions=None)
 
         # Check batch dimension
-        assert predictions[POSITION_ACTION_KEY].shape[0] == batch_size
-        assert predictions[ORIENTATION_ACTION_KEY].shape[0] == batch_size
-        assert predictions[GRIPPER_ACTION_KEY].shape[0] == batch_size
+        assert predictions[ProprioceptiveType.POSITION.value].shape[0] == batch_size
+        assert predictions[ProprioceptiveType.ORIENTATION.value].shape[0] == batch_size
+        assert predictions[ProprioceptiveType.GRIPPER.value].shape[0] == batch_size
 
     @pytest.mark.parametrize("prediction_horizon,embedding_dimension", [
         (10, 256),
@@ -1927,7 +1925,7 @@ class TestACTParametrized:
         observation_horizon = 1
 
         action_heads = {
-            POSITION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.POSITION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.position_dim,
                 blocks=[
@@ -1939,12 +1937,12 @@ class TestACTParametrized:
                     )
                 ],
             ),
-            ORIENTATION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.ORIENTATION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.orientation_dim,
                 blocks=[],
             ),
-            GRIPPER_ACTION_KEY: ActionHead(
+            ProprioceptiveType.GRIPPER.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.gripper_dim,
                 blocks=[],
@@ -1971,15 +1969,15 @@ class TestACTParametrized:
             predictions = decoder(features, actions=None)
 
         # Verify all outputs
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             batch_size, prediction_horizon, action_space.position_dim
         )
-        assert predictions[ORIENTATION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.ORIENTATION.value].shape == (
             batch_size, prediction_horizon, action_space.orientation_dim
         )
-        assert predictions[GRIPPER_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.GRIPPER.value].shape == (
             batch_size, prediction_horizon, action_space.gripper_dim
         )
-        assert not torch.isnan(predictions[POSITION_ACTION_KEY]).any()
-        assert not torch.isnan(predictions[ORIENTATION_ACTION_KEY]).any()
-        assert not torch.isnan(predictions[GRIPPER_ACTION_KEY]).any()
+        assert not torch.isnan(predictions[ProprioceptiveType.POSITION.value]).any()
+        assert not torch.isnan(predictions[ProprioceptiveType.ORIENTATION.value]).any()
+        assert not torch.isnan(predictions[ProprioceptiveType.GRIPPER.value]).any()

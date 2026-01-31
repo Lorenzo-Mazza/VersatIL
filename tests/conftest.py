@@ -28,8 +28,10 @@ from omegaconf import OmegaConf
 
 from versatil.data.constants import (
     Cameras,
-    PROPRIO_OBS_CAMERA_FRAME_KEY,
+    ObsKey,
+    ProprioceptiveType,
     ProprioKey,
+    SampleKey,
 )
 from versatil.configs.main import MainConfig
 from versatil.configs.experiment import ExperimentConfig
@@ -38,14 +40,7 @@ from versatil.configs.data.dataloader import DataLoaderConfig
 from versatil.configs.training import TrainingConfig, AdamWConfig
 from versatil.configs.policy import PolicyConfig
 from versatil.configs.inference import InferenceConfig
-from versatil.data.constants import (
-    OBSERVATION_KEY,
-    ACTION_KEY,
-    POSITION_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    PROPRIO_OBS_ROBOT_FRAME_KEY,
-)
+from versatil.data.constants import ObsKey
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import OrientationRepresentation, GripperType
 from versatil.models.encoding.encoders.base import EncoderOutput, EncoderInput
@@ -243,19 +238,19 @@ class MockActionDecoder(ActionDecoder):
 
         action_heads = {}
         if action_space.has_position:
-            action_heads[POSITION_ACTION_KEY] = ActionHead(
+            action_heads[ProprioceptiveType.POSITION.value] = ActionHead(
                 input_dim=feature_dim,
                 output_dim=action_space.position_dim,
                 blocks=[],
             )
         if action_space.has_orientation:
-            action_heads[ORIENTATION_ACTION_KEY] = ActionHead(
+            action_heads[ProprioceptiveType.ORIENTATION.value] = ActionHead(
                 input_dim=feature_dim,
                 output_dim=action_space.orientation_dim,
                 blocks=[],
             )
         if action_space.has_gripper:
-            action_heads[GRIPPER_ACTION_KEY] = ActionHead(
+            action_heads[ProprioceptiveType.GRIPPER.value] = ActionHead(
                 input_dim=feature_dim,
                 output_dim=action_space.gripper_dim,
                 blocks=[],
@@ -282,11 +277,11 @@ class MockActionDecoder(ActionDecoder):
 
         predictions = {}
         if self.use_position_actions:
-            predictions[POSITION_ACTION_KEY] = self.action_heads[POSITION_ACTION_KEY](projected).unsqueeze(1).repeat(1, self.prediction_horizon, 1)
+            predictions[ProprioceptiveType.POSITION.value] = self.action_heads[ProprioceptiveType.POSITION.value](projected).unsqueeze(1).repeat(1, self.prediction_horizon, 1)
         if self.use_orientation_actions:
-            predictions[ORIENTATION_ACTION_KEY] = self.action_heads[ORIENTATION_ACTION_KEY](projected).unsqueeze(1).repeat(1, self.prediction_horizon, 1)
+            predictions[ProprioceptiveType.ORIENTATION.value] = self.action_heads[ProprioceptiveType.ORIENTATION.value](projected).unsqueeze(1).repeat(1, self.prediction_horizon, 1)
         if self.use_gripper_actions:
-            predictions[GRIPPER_ACTION_KEY] = self.action_heads[GRIPPER_ACTION_KEY](projected).unsqueeze(1).repeat(1, self.prediction_horizon, 1)
+            predictions[ProprioceptiveType.GRIPPER.value] = self.action_heads[ProprioceptiveType.GRIPPER.value](projected).unsqueeze(1).repeat(1, self.prediction_horizon, 1)
 
         return predictions
 
@@ -470,12 +465,12 @@ def generate_synthetic_episode(
 
     # Combine position and orientation
     proprio = np.concatenate([positions, orientations], axis=1)
-    episode[PROPRIO_OBS_ROBOT_FRAME_KEY] = proprio
-    episode[PROPRIO_OBS_CAMERA_FRAME_KEY] = proprio.copy()  # Same for simplicity
+    episode[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value] = proprio
+    episode[ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value] = proprio.copy()  # Same for simplicity
 
     # Generate gripper states
     if has_gripper:
-        episode[GRIPPER_STATE_OBS_KEY] = generate_synthetic_gripper_states(
+        episode[ProprioKey.GRIPPER_STATE.value] = generate_synthetic_gripper_states(
             num_timesteps, gripper_type="binary", seed=seed
         )
 
@@ -541,14 +536,14 @@ def create_synthetic_replay_buffer(
 
     # Create arrays
     data_group.create_array(
-        PROPRIO_OBS_ROBOT_FRAME_KEY,
+        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
         shape=(total_timesteps, proprio_dim),
         chunks=(100, proprio_dim),
         dtype=np.float32,
     )
 
     data_group.create_array(
-        PROPRIO_OBS_CAMERA_FRAME_KEY,
+        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value,
         shape=(total_timesteps, proprio_dim),
         chunks=(100, proprio_dim),
         dtype=np.float32,
@@ -556,7 +551,7 @@ def create_synthetic_replay_buffer(
 
     if has_gripper:
         data_group.create_array(
-            GRIPPER_STATE_OBS_KEY,
+            ProprioKey.GRIPPER_STATE.value,
             shape=(total_timesteps, 1),
             chunks=(100, 1),
             dtype=np.float32,
@@ -596,11 +591,11 @@ def create_synthetic_replay_buffer(
 
         # Append to arrays
         end_idx = current_idx + num_timesteps_per_episode
-        data_group[PROPRIO_OBS_ROBOT_FRAME_KEY][current_idx:end_idx] = episode[PROPRIO_OBS_ROBOT_FRAME_KEY]
-        data_group[PROPRIO_OBS_CAMERA_FRAME_KEY][current_idx:end_idx] = episode[PROPRIO_OBS_CAMERA_FRAME_KEY]
+        data_group[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value][current_idx:end_idx] = episode[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value]
+        data_group[ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value][current_idx:end_idx] = episode[ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value]
 
         if has_gripper:
-            data_group[GRIPPER_STATE_OBS_KEY][current_idx:end_idx] = episode[GRIPPER_STATE_OBS_KEY]
+            data_group[ProprioKey.GRIPPER_STATE.value][current_idx:end_idx] = episode[ProprioKey.GRIPPER_STATE.value]
 
         for cam in cameras:
             data_group[cam][current_idx:end_idx] = episode[cam]
@@ -876,14 +871,14 @@ def synthetic_training_batch(batch_size, device):
     pred_horizon = 4
 
     batch = {
-        OBSERVATION_KEY: {
+        SampleKey.OBSERVATION.value: {
             "rgb": torch.randn(batch_size, obs_horizon, 3, 64, 64, device=device),
             "proprio": torch.randn(batch_size, obs_horizon, 7, device=device),
         },
-        ACTION_KEY: {
-            POSITION_ACTION_KEY: torch.randn(batch_size, pred_horizon, 3, device=device),
-            ORIENTATION_ACTION_KEY: torch.randn(batch_size, pred_horizon, 4, device=device),
-            GRIPPER_ACTION_KEY: torch.randint(0, 2, (batch_size, pred_horizon, 1), device=device, dtype=torch.float32),
+        SampleKey.ACTION.value: {
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, pred_horizon, 3, device=device),
+            ProprioceptiveType.ORIENTATION.value: torch.randn(batch_size, pred_horizon, 4, device=device),
+            ProprioceptiveType.GRIPPER.value: torch.randint(0, 2, (batch_size, pred_horizon, 1), device=device, dtype=torch.float32),
         },
     }
 
@@ -941,7 +936,7 @@ def simple_policy(simple_observation_space, simple_action_space, device):
     )
 
     loss = ActionReconstructionLoss(
-        action_keys=[POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY, GRIPPER_ACTION_KEY],
+        action_keys=[ProprioceptiveType.POSITION.value, ProprioceptiveType.ORIENTATION.value],
         mse_weight=1.0,
         gripper_bce_weight=1.0,
         use_vae=False,
@@ -1102,13 +1097,13 @@ def minimal_yaml_config_factory():
                     "observation_space": "${task.observation_space}",
                     "device": "${experiment.device}",
                     "action_heads": {
-                        "position_action": {
+                        "position": {
                             "_target_": "versatil.models.decoding.action_heads.ActionHead",
                             "input_dim": "${policy.decoder.embedding_dimension}",
                             "output_dim": "${task.action_space.position_dim}",
                             "blocks": None,
                         },
-                        "gripper_action": {
+                        "gripper": {
                             "_target_": "versatil.models.decoding.action_heads.ActionHead",
                             "input_dim": "${policy.decoder.embedding_dimension}",
                             "output_dim": "${task.action_space.gripper_dim}",

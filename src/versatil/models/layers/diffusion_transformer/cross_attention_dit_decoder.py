@@ -160,7 +160,11 @@ class CrossConditioningDecoder(nn.Module):
         Returns:
             Attention mask (B, 1, query_length, key_length) where True means masked.
         """
-        return padding_mask.unsqueeze(1).unsqueeze(2).expand(-1, -1, query_length, key_length)
+        return (
+            padding_mask.unsqueeze(1)
+            .unsqueeze(2)
+            .expand(-1, -1, query_length, key_length)
+        )
 
     def forward(
         self,

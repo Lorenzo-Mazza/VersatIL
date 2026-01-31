@@ -13,7 +13,7 @@ pytest.importorskip("geomloss")
 
 import torch
 
-from versatil.data.constants import POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY
+from versatil.data.constants import ProprioceptiveType
 from versatil.metrics.constants import MetricKey
 
 
@@ -64,7 +64,7 @@ class TestOptimalTransportLossInitialization:
     def test_initialization_single_action_key(self, OptimalTransportLoss):
         """Test initialization with single action key."""
         loss_fn = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             weight=0.1,
             epsilon=0.01,
             lambda_state=1.0,
@@ -72,26 +72,26 @@ class TestOptimalTransportLossInitialization:
 
         assert loss_fn.weight == 0.1
         assert loss_fn.lambda_state == 1.0
-        assert loss_fn.action_keys == [POSITION_ACTION_KEY]
+        assert loss_fn.action_keys == [ProprioceptiveType.POSITION.value]
         assert hasattr(loss_fn, "ot")
 
     def test_initialization_multiple_action_keys(self, OptimalTransportLoss):
         """Test initialization with multiple action keys."""
         loss_fn = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             weight=0.2,
             epsilon=0.02,
             lambda_state=0.5,
         )
 
-        assert loss_fn.action_keys == [POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY]
+        assert loss_fn.action_keys == [ProprioceptiveType.POSITION.value]
         assert loss_fn.weight == 0.2
         assert loss_fn.lambda_state == 0.5
 
     def test_initialization_zero_lambda_state(self, OptimalTransportLoss):
         """Test initialization with lambda_state=0 (no state augmentation)."""
         loss_fn = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             lambda_state=0.0,
         )
 
@@ -100,13 +100,13 @@ class TestOptimalTransportLossInitialization:
     def test_get_required_keys(self, OptimalTransportLoss):
         """Test get_required_keys returns action keys."""
         loss_fn = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
         )
 
         required_keys = loss_fn.get_required_keys()
 
-        assert POSITION_ACTION_KEY in required_keys
-        assert ORIENTATION_ACTION_KEY in required_keys
+        assert ProprioceptiveType.POSITION.value in required_keys
+        assert ProprioceptiveType.ORIENTATION.value in required_keys
         assert len(required_keys) == 2
 
 
@@ -117,16 +117,16 @@ class TestOptimalTransportLossForward:
     def test_forward_single_action(self, OptimalTransportLoss, device, batch_size, horizon, position_dim):
         """Test forward pass with single action key."""
         loss_fn = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             weight=0.1,
             lambda_state=0.0,  # No state augmentation
         )
 
         predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device)
         }
         targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device)
         }
 
         loss_output = loss_fn(predictions, targets)
@@ -147,18 +147,18 @@ class TestOptimalTransportLossForward:
     def test_forward_multiple_actions(self, OptimalTransportLoss, device, batch_size, horizon, position_dim, orientation_dim):
         """Test forward pass with multiple action keys."""
         loss_fn = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             weight=0.2,
             lambda_state=0.0,
         )
 
         predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            ORIENTATION_ACTION_KEY: torch.randn(batch_size, horizon, orientation_dim, device=device),
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device),
+            ProprioceptiveType.ORIENTATION.value: torch.randn(batch_size, horizon, orientation_dim, device=device),
         }
         targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            ORIENTATION_ACTION_KEY: torch.randn(batch_size, horizon, orientation_dim, device=device),
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device),
+            ProprioceptiveType.ORIENTATION.value: torch.randn(batch_size, horizon, orientation_dim, device=device),
         }
 
         loss_output = loss_fn(predictions, targets)
@@ -169,16 +169,16 @@ class TestOptimalTransportLossForward:
     def test_forward_with_padding_mask(self, OptimalTransportLoss, device, batch_size, horizon, position_dim):
         """Test forward pass with padding mask."""
         loss_fn = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             weight=0.1,
             lambda_state=0.0,
         )
 
         predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device)
         }
         targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device)
         }
 
         # Create padding mask: last 3 timesteps are padded
@@ -193,14 +193,14 @@ class TestOptimalTransportLossForward:
     def test_forward_identical_predictions_targets(self, OptimalTransportLoss, device, batch_size, horizon, position_dim):
         """Test that identical predictions and targets give near-zero loss."""
         loss_fn = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             weight=1.0,
             lambda_state=0.0,
         )
 
         actions = torch.randn(batch_size, horizon, position_dim, device=device)
-        predictions = {POSITION_ACTION_KEY: actions}
-        targets = {POSITION_ACTION_KEY: actions.clone()}
+        predictions = {ProprioceptiveType.POSITION.value: actions}
+        targets = {ProprioceptiveType.POSITION.value: actions.clone()}
 
         loss_output = loss_fn(predictions, targets)
 
@@ -211,23 +211,23 @@ class TestOptimalTransportLossForward:
         """Test that weight parameter correctly scales the total loss."""
         # Loss with weight=1.0
         loss_fn_1 = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             weight=1.0,
             lambda_state=0.0,
         )
 
         # Loss with weight=0.5
         loss_fn_05 = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             weight=0.5,
             lambda_state=0.0,
         )
 
         predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device)
         }
         targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device)
         }
 
         loss_output_1 = loss_fn_1(predictions, targets)
@@ -249,16 +249,16 @@ class TestOptimalTransportLossErrorHandling:
     def test_missing_action_key_in_predictions(self, OptimalTransportLoss, device, batch_size, horizon, position_dim):
         """Test ValueError when action key missing in predictions."""
         loss_fn = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
         )
 
-        # Missing ORIENTATION_ACTION_KEY in predictions
+        # Missing ProprioceptiveType.ORIENTATION.value in predictions
         predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device)
         }
         targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            ORIENTATION_ACTION_KEY: torch.randn(batch_size, horizon, 4, device=device),
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device),
+            ProprioceptiveType.ORIENTATION.value: torch.randn(batch_size, horizon, 4, device=device),
         }
 
         with pytest.raises(ValueError, match="must contain key"):
@@ -267,16 +267,16 @@ class TestOptimalTransportLossErrorHandling:
     def test_missing_action_key_in_targets(self, OptimalTransportLoss, device, batch_size, horizon, position_dim):
         """Test ValueError when action key missing in targets."""
         loss_fn = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
         )
 
-        # Missing ORIENTATION_ACTION_KEY in targets
+        # Missing ProprioceptiveType.ORIENTATION.value in targets
         predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
-            ORIENTATION_ACTION_KEY: torch.randn(batch_size, horizon, 4, device=device),
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device),
+            ProprioceptiveType.ORIENTATION.value: torch.randn(batch_size, horizon, 4, device=device),
         }
         targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device),
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device),
         }
 
         with pytest.raises(ValueError, match="must contain key"):
@@ -291,22 +291,22 @@ class TestOptimalTransportLossGradients:
     def test_gradients_flow_through_loss(self, OptimalTransportLoss, device, batch_size, horizon, position_dim):
         """Test that gradients flow through the OT loss."""
         loss_fn = OptimalTransportLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             weight=1.0,
             lambda_state=0.0,
         )
 
         predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device, requires_grad=True)
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device, requires_grad=True)
         }
         targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device)
         }
 
         loss_output = loss_fn(predictions, targets)
         loss_output.total_loss.backward()
 
         # Check gradients exist and are non-zero
-        assert predictions[POSITION_ACTION_KEY].grad is not None
-        assert not torch.allclose(predictions[POSITION_ACTION_KEY].grad, torch.zeros_like(predictions[POSITION_ACTION_KEY].grad))
+        assert predictions[ProprioceptiveType.POSITION.value].grad is not None
+        assert not torch.allclose(predictions[ProprioceptiveType.POSITION.value].grad, torch.zeros_like(predictions[ProprioceptiveType.POSITION.value].grad))
 

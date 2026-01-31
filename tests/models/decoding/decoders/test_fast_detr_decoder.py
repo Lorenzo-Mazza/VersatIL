@@ -5,17 +5,14 @@ import torch
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import (
-    ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    IS_PAD_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    POSITION_ACTION_KEY,
     Cameras,
     GripperType,
     OrientationRepresentation,
+    ProprioceptiveType,
+    SampleKey,
 )
 from versatil.data.tokenization.tokenizer import Tokenizer
-from versatil.models.decoding.constants import PREDICTED_ACTION_TOKENS_KEY
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.factory.fast_detr_decoder import FASTDETRDecoder
 
 
@@ -114,21 +111,21 @@ def actions_dict(batch_size, prediction_horizon, action_space, device):
     actions = {}
 
     if action_space.has_position:
-        actions[POSITION_ACTION_KEY] = torch.randn(
+        actions[ProprioceptiveType.POSITION.value] = torch.randn(
             batch_size, prediction_horizon, action_space.position_dim, device=device
         )
 
     if action_space.has_orientation:
-        actions[ORIENTATION_ACTION_KEY] = torch.randn(
+        actions[ProprioceptiveType.ORIENTATION.value] = torch.randn(
             batch_size, prediction_horizon, action_space.orientation_dim, device=device
         )
 
     if action_space.has_gripper:
-        actions[GRIPPER_ACTION_KEY] = torch.randint(
+        actions[ProprioceptiveType.GRIPPER.value] = torch.randint(
             0, 2, (batch_size, prediction_horizon, action_space.gripper_dim), device=device
         ).float()
 
-    actions[IS_PAD_ACTION_KEY] = torch.zeros(
+    actions[SampleKey.IS_PAD_ACTION.value] = torch.zeros(
         batch_size, prediction_horizon, 1, dtype=torch.bool, device=device
     )
 
@@ -146,7 +143,7 @@ def tokenizer(action_space, prediction_horizon, device, use_pretrained_weights):
         use_pretrained_weights=use_pretrained_weights,
     )
     sample_actions = torch.randn(1, prediction_horizon, total_action_dim, device=device)
-    tokenizer_obj.tokenize({ACTION_KEY: sample_actions})
+    tokenizer_obj.tokenize({SampleKey.ACTION.value: sample_actions})
     return tokenizer_obj
 
 
@@ -389,11 +386,11 @@ class TestFASTDETRDecoderForwardPass:
 
         predictions = decoder(spatial_features, actions=actions_dict)
 
-        # Training returns PREDICTED_ACTION_TOKENS_KEY (logits) and target tokens
-        assert PREDICTED_ACTION_TOKENS_KEY in predictions
-        assert f"{PREDICTED_ACTION_TOKENS_KEY}_target" in predictions
-        assert predictions[PREDICTED_ACTION_TOKENS_KEY].shape[0] == batch_size
-        assert predictions[PREDICTED_ACTION_TOKENS_KEY].shape[2] == vocab_size
+        # Training returns DecoderOutputKey.PREDICTED_ACTION_TOKENS.value (logits) and target tokens
+        assert DecoderOutputKey.PREDICTED_ACTION_TOKENS.value in predictions
+        assert f"{DecoderOutputKey.PREDICTED_ACTION_TOKENS.value}_target" in predictions
+        assert predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value].shape[0] == batch_size
+        assert predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value].shape[2] == vocab_size
 
     def test_forward_inference_without_actions(
         self,
@@ -429,17 +426,17 @@ class TestFASTDETRDecoderForwardPass:
         predictions = decoder(spatial_features, actions=None)
 
         # Inference returns continuous actions
-        assert POSITION_ACTION_KEY in predictions
-        assert ORIENTATION_ACTION_KEY in predictions
-        assert GRIPPER_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert ProprioceptiveType.ORIENTATION.value in predictions
+        assert ProprioceptiveType.GRIPPER.value in predictions
 
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             batch_size, prediction_horizon, action_space.position_dim
         )
-        assert predictions[ORIENTATION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.ORIENTATION.value].shape == (
             batch_size, prediction_horizon, action_space.orientation_dim
         )
-        assert predictions[GRIPPER_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.GRIPPER.value].shape == (
             batch_size, prediction_horizon, action_space.gripper_dim
         )
 
@@ -475,18 +472,18 @@ class TestFASTDETRDecoderForwardPass:
         decoder.set_tokenizer(tokenizer)
 
         actions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 3, device=device),
-            ORIENTATION_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 4, device=device),
-            GRIPPER_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 1, device=device),
-            IS_PAD_ACTION_KEY: torch.zeros(batch_size, prediction_horizon, 1, dtype=torch.bool, device=device),
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, prediction_horizon, 3, device=device),
+            ProprioceptiveType.ORIENTATION.value: torch.randn(batch_size, prediction_horizon, 4, device=device),
+            ProprioceptiveType.GRIPPER.value: torch.randn(batch_size, prediction_horizon, 1, device=device),
+            SampleKey.IS_PAD_ACTION.value: torch.zeros(batch_size, prediction_horizon, 1, dtype=torch.bool, device=device),
         }
 
         # Mark last 5 timesteps as padding for first sample
-        actions[IS_PAD_ACTION_KEY][0, 5:] = True
+        actions[SampleKey.IS_PAD_ACTION.value][0, 5:] = True
 
         predictions = decoder(spatial_features, actions=actions)
 
-        assert PREDICTED_ACTION_TOKENS_KEY in predictions
+        assert DecoderOutputKey.PREDICTED_ACTION_TOKENS.value in predictions
 
 
 @pytest.mark.unit
@@ -505,7 +502,7 @@ class TestFASTDETRDecoderTokenizationDetokenization:
         batch_size,
         tokenizer,
     ):
-        """Test _tokenize_actions creates PREDICTED_ACTION_TOKENS_KEY with EOS (no BOS in FAST)."""
+        """Test _tokenize_actions creates DecoderOutputKey.PREDICTED_ACTION_TOKENS.value with EOS (no BOS in FAST)."""
         decoder = FASTDETRDecoder(
             input_keys=["rgb_features"],
             action_space=action_space,
@@ -524,20 +521,20 @@ class TestFASTDETRDecoderTokenizationDetokenization:
         decoder.set_tokenizer(tokenizer)
 
         actions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 3, device=device),
-            ORIENTATION_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 4, device=device),
-            GRIPPER_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 1, device=device),
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, prediction_horizon, 3, device=device),
+            ProprioceptiveType.ORIENTATION.value: torch.randn(batch_size, prediction_horizon, 4, device=device),
+            ProprioceptiveType.GRIPPER.value: torch.randn(batch_size, prediction_horizon, 1, device=device),
         }
 
         tokenized = decoder._tokenize_actions(actions)
 
-        assert PREDICTED_ACTION_TOKENS_KEY in tokenized
-        assert IS_PAD_ACTION_KEY in tokenized
-        assert tokenized[PREDICTED_ACTION_TOKENS_KEY].dtype == torch.long
+        assert DecoderOutputKey.PREDICTED_ACTION_TOKENS.value in tokenized
+        assert SampleKey.IS_PAD_ACTION.value in tokenized
+        assert tokenized[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value].dtype == torch.long
 
         # FAST doesn't use BOS - check that last non-pad token is EOS
-        token_ids = tokenized[PREDICTED_ACTION_TOKENS_KEY]
-        is_pad = tokenized[IS_PAD_ACTION_KEY]
+        token_ids = tokenized[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
+        is_pad = tokenized[SampleKey.IS_PAD_ACTION.value]
         # Find last non-pad token for first sample
         non_pad_mask = ~is_pad[0]
         non_pad_indices = torch.where(non_pad_mask)[0]
@@ -583,12 +580,12 @@ class TestFASTDETRDecoderTokenizationDetokenization:
 
         detokenized = decoder._detokenize_predictions(token_ids)
 
-        assert POSITION_ACTION_KEY in detokenized
-        assert ORIENTATION_ACTION_KEY in detokenized
-        assert GRIPPER_ACTION_KEY in detokenized
-        assert detokenized[POSITION_ACTION_KEY].shape[-1] == action_space.position_dim
-        assert detokenized[ORIENTATION_ACTION_KEY].shape[-1] == action_space.orientation_dim
-        assert detokenized[GRIPPER_ACTION_KEY].shape[-1] == action_space.gripper_dim
+        assert ProprioceptiveType.POSITION.value in detokenized
+        assert ProprioceptiveType.ORIENTATION.value in detokenized
+        assert ProprioceptiveType.GRIPPER.value in detokenized
+        assert detokenized[ProprioceptiveType.POSITION.value].shape[-1] == action_space.position_dim
+        assert detokenized[ProprioceptiveType.ORIENTATION.value].shape[-1] == action_space.orientation_dim
+        assert detokenized[ProprioceptiveType.GRIPPER.value].shape[-1] == action_space.gripper_dim
 
 
 @pytest.mark.unit
@@ -617,7 +614,7 @@ class TestFASTDETRDecoderParametrized:
             use_pretrained_weights=False,
         )
         sample_actions = torch.randn(1, prediction_horizon, total_action_dim, device=device)
-        tokenizer_obj.tokenize({ACTION_KEY: sample_actions})
+        tokenizer_obj.tokenize({SampleKey.ACTION.value: sample_actions})
 
         decoder = FASTDETRDecoder(
             input_keys=["rgb_left_features"],
@@ -642,7 +639,7 @@ class TestFASTDETRDecoderParametrized:
 
         predictions = decoder(spatial_features, actions=None)
 
-        assert predictions[POSITION_ACTION_KEY].shape[1] == prediction_horizon
+        assert predictions[ProprioceptiveType.POSITION.value].shape[1] == prediction_horizon
 
     @pytest.mark.parametrize("batch_size", [1, 4])
     def test_different_batch_sizes(
@@ -681,4 +678,4 @@ class TestFASTDETRDecoderParametrized:
 
         predictions = decoder(features, actions=None)
 
-        assert predictions[POSITION_ACTION_KEY].shape[0] == batch_size
+        assert predictions[ProprioceptiveType.POSITION.value].shape[0] == batch_size

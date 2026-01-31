@@ -7,10 +7,8 @@ import torch.nn as nn
 from versatil.common.tensor_ops import to_device
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import (
-    ACTION_KEY,
-    IS_PAD_ACTION_KEY,
-    OBSERVATION_KEY,
     Cameras,
+    SampleKey,
 )
 from versatil.data.tokenization import Tokenizer
 from versatil.data.transform import (
@@ -20,18 +18,7 @@ from versatil.data.transform import (
     tokenize_observation,
 )
 from versatil.models.decoding.action_heads import MoEHead
-from versatil.models.decoding.constants import (
-    BINARY_LOGITS_KEY,
-    LATENT_KEY,
-    LOGVAR_KEY,
-    MU_KEY,
-    PRIOR_LATENT_KEY,
-    PRIOR_MU_KEY,
-    PRIOR_LOGVAR_KEY,
-    PRIOR_PREDICTION_KEY,
-    PRIOR_TARGET_KEY,
-    ROUTING_WEIGHT,
-)
+from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 
 from versatil.common.dict_of_tensor_mixin import DictOfTensorMixin
 from versatil.data.normalization.normalizer import LinearNormalizer
@@ -42,7 +29,6 @@ from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
 from versatil.models.decoding.decoders import MoEDecoder
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.encoding.pipeline import EncodingPipeline
-from versatil.data.constants import TOKENIZED_ACTIONS_KEY
 
 
 class Policy(nn.Module):
@@ -142,13 +128,13 @@ class Policy(nn.Module):
         # Check if gating key is provided by variational algorithm
         if (
             isinstance(self.algorithm, VariationalAlgorithm)
-            and gating_key == LATENT_KEY
+            and gating_key == LatentKey.POSTERIOR_LATENT.value
         ):
             return
         raise ValueError(
             f"MoE decoder gating feature key '{gating_key}' not found. "
             f"Available features from encoding pipeline: {available_features}. "
-            f"Algorithm provides LATENT_KEY: {'Yes' if isinstance(self.algorithm, VariationalAlgorithm) else 'No'}."
+            f"Algorithm provides latent: {'Yes' if isinstance(self.algorithm, VariationalAlgorithm) else 'No'}."
         )
 
     def validate_loss_keys(self):
@@ -168,25 +154,25 @@ class Policy(nn.Module):
         if isinstance(self.algorithm, VariationalAlgorithm):
             valid_loss_keys.update(
                 {
-                    LATENT_KEY,
-                    MU_KEY,
-                    LOGVAR_KEY,
-                    PRIOR_LATENT_KEY,
-                    PRIOR_MU_KEY,
-                    PRIOR_LOGVAR_KEY,
-                    PRIOR_PREDICTION_KEY,
-                    PRIOR_TARGET_KEY,
+                    LatentKey.POSTERIOR_LATENT.value,
+                    LatentKey.POSTERIOR_MU.value,
+                    LatentKey.POSTERIOR_LOGVAR.value,
+                    LatentKey.PRIOR_LATENT.value,
+                    LatentKey.PRIOR_MU.value,
+                    LatentKey.PRIOR_LOGVAR.value,
+                    LatentKey.PRIOR_PREDICTION.value,
+                    LatentKey.PRIOR_TARGET.value,
                 }
             )
         if isinstance(self.decoder, MoEDecoder) or any(
             isinstance(h, MoEHead) for h in self.decoder.action_heads.values()
         ):
-            valid_loss_keys.add(ROUTING_WEIGHT)
+            valid_loss_keys.add(DecoderOutputKey.ROUTING_WEIGHTS.value)
         if self.decoder.__class__.__name__ == "FreeTransformerDecoder":
-            valid_loss_keys.add(BINARY_LOGITS_KEY)
+            valid_loss_keys.add(DecoderOutputKey.BINARY_LOGITS.value)
         required_keys = self.loss_module.get_required_keys()
         if self.decoder.supports_tokenized_actions:
-            valid_loss_keys.add(TOKENIZED_ACTIONS_KEY)
+            valid_loss_keys.add(SampleKey.TOKENIZED_ACTIONS.value)
         invalid_keys = required_keys - valid_loss_keys
         if invalid_keys:
             raise ValueError(
@@ -244,8 +230,8 @@ class Policy(nn.Module):
         Returns:
             Decoder output dictionary containing action predictions and any architecture-specific outputs.
         """
-        obs = batch[OBSERVATION_KEY]
-        actions = batch.get(ACTION_KEY, None)
+        obs = batch[SampleKey.OBSERVATION.value]
+        actions = batch.get(SampleKey.ACTION.value, None)
         features = self.encoding_pipeline(obs)
         return self.algorithm.forward(
             features=features, actions=actions, network=self.decoder
@@ -266,8 +252,10 @@ class Policy(nn.Module):
         output = self.forward(batch)
         return self.loss_module(
             predictions=output,
-            targets=batch[ACTION_KEY],
-            is_pad=batch[ACTION_KEY].get(IS_PAD_ACTION_KEY, None),
+            targets=batch[SampleKey.ACTION.value],
+            is_pad=batch[SampleKey.ACTION.value].get(
+                SampleKey.IS_PAD_ACTION.value, None
+            ),
         )  # type: ignore[no-any-return]
 
     def predict_action(
@@ -300,8 +288,8 @@ class Policy(nn.Module):
             )
         features = self.encoding_pipeline(normalized_obs)
         predictions = self.algorithm.predict(features=features, network=self.decoder)
-        if TOKENIZED_ACTIONS_KEY in predictions:
-            action_tokens = predictions[TOKENIZED_ACTIONS_KEY]
+        if SampleKey.TOKENIZED_ACTIONS.value in predictions:
+            action_tokens = predictions[SampleKey.TOKENIZED_ACTIONS.value]
             if self.tokenizer is None or self.tokenizer.action_tokenizer is None:
                 raise RuntimeError(
                     "Action tokenizer not set. Cannot detokenize actions."

@@ -18,11 +18,21 @@ import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.diffusion_transformer.dit_decoder import DiffusionTransformerDecoder
-from versatil.models.layers.diffusion_transformer.final_prediction_layer import FinalPredictionLayer
+from versatil.models.layers.diffusion_transformer.dit_decoder import (
+    DiffusionTransformerDecoder,
+)
+from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
+    FinalPredictionLayer,
+)
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.positional_encoding.base import DenominatorMode, OrderingMode, PositionSource
-from versatil.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
+from versatil.models.layers.positional_encoding.base import (
+    DenominatorMode,
+    OrderingMode,
+    PositionSource,
+)
+from versatil.models.layers.positional_encoding.sinusoidal import (
+    SinusoidalPositionalEncoding1D,
+)
 from versatil.models.layers.transformer.encoder import TransformerEncoder
 
 
@@ -101,7 +111,7 @@ class DiTBlock(nn.Module):
             temperature=10000.0,
             learnable_frequencies=False,
             mlp_activation=nn.SiLU,
-            mlp_hidden_dimensions=[embedding_dimension, embedding_dimension]
+            mlp_hidden_dimensions=[embedding_dimension, embedding_dimension],
         )
         self.encoder = TransformerEncoder(
             number_of_layers=number_of_encoder_layers,
@@ -140,7 +150,9 @@ class DiTBlock(nn.Module):
             initializer_range=initializer_range,
         )
         self.output_dimension = output_dimension or embedding_dimension
-        self.epsilon_network = FinalPredictionLayer(self.embedding_dimension, self.output_dimension)
+        self.epsilon_network = FinalPredictionLayer(
+            self.embedding_dimension, self.output_dimension
+        )
 
     def forward(
         self,
@@ -199,7 +211,9 @@ class DiTBlock(nn.Module):
             hidden_states=hidden_states,
             padding_mask=padding_mask,
         )
-        encoder_output_mean = encoder_output.mean(dim=1) # Mean over sequence length, shape (B, D)
+        encoder_output_mean = encoder_output.mean(
+            dim=1
+        )  # Mean over sequence length, shape (B, D)
         return encoder_output_mean
 
     def forward_decoder(
@@ -220,7 +234,7 @@ class DiTBlock(nn.Module):
         Returns:
             Decoder output tokens (B, T, self.output_dimension).
         """
-        timestep_embedding = self.timestep_embedding_network(timesteps) # (B, D)
+        timestep_embedding = self.timestep_embedding_network(timesteps)  # (B, D)
         combined_conditioning = timestep_embedding + encoder_output_mean
         decoder_output = self.decoder(
             hidden_states=hidden_states,

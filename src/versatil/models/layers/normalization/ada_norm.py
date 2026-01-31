@@ -30,7 +30,9 @@ class AdaNorm(nn.Module):
             init_strategy="zero" if use_gate else "identity",
         )
 
-    def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x: torch.Tensor, condition: torch.Tensor
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """Forward pass with optional conditioning
 
         Returns:

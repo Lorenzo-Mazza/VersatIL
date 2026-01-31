@@ -11,7 +11,7 @@ from torch import nn
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.constants import FeatureType
-from versatil.models.decoding.constants import TIMESTEP_KEY
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import DecoderInput
 from versatil.models.layers.conditional_unet import ConditionalUnet1D
 from versatil.models.decoding.decoders.base import ActionDecoder
@@ -29,7 +29,7 @@ class ConditionalUNetDecoder(ActionDecoder):
 
     The decoder expects:
     - Noisy actions as input (via actions parameter during forward)
-    - Timesteps injected by the algorithm (via features[TIMESTEP_KEY])
+    - Timesteps injected by the algorithm (via features["timestep"])
     - Observation features for global conditioning (via features dict)
 
     Note: This decoder is specifically designed for diffusion/flow matching algorithms
@@ -202,13 +202,13 @@ class ConditionalUNetDecoder(ActionDecoder):
                 "The algorithm should provide noisy actions during forward pass."
             )
 
-        if TIMESTEP_KEY not in features:
+        if DecoderOutputKey.TIMESTEP.value not in features:
             raise ValueError(
-                f"Missing '{TIMESTEP_KEY}' in features dict. "
+                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
                 "The algorithm should inject timesteps into features."
             )
 
-        timesteps = features.pop(TIMESTEP_KEY)  # (B,) or (B, 1)
+        timesteps = features.pop(DecoderOutputKey.TIMESTEP.value)  # (B,) or (B, 1)
         if len(timesteps.shape) == 2:
             timesteps = timesteps.squeeze(-1)
 

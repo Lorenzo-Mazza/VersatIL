@@ -190,7 +190,9 @@ class LiberoClient(SocketClient):
         dataset_schema = self.config.task.dataset_schema
         if isinstance(dataset_schema, LeRobotDatasetSchemaV30):
             self.use_lerobot_preprocessing = True
-            logging.info("Detected LeRobot dataset schema - enabling 180-degree image rotation")
+            logging.info(
+                "Detected LeRobot dataset schema - enabling 180-degree image rotation"
+            )
         elif isinstance(dataset_schema, Hdf5DatasetSchema):
             self.use_lerobot_preprocessing = False
             logging.info("Detected HDF5 dataset schema - using standard preprocessing")

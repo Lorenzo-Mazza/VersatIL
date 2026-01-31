@@ -10,9 +10,8 @@ import torch
 from transformers import AutoProcessor, AutoTokenizer, PreTrainedTokenizerFast
 
 from versatil.data.constants import (
+    SampleKey,
     TokenizerType,
-    TOKENIZED_ACTIONS_KEY,
-    IS_PAD_ACTION_KEY,
 )
 
 # Disable tokenizers parallelism to avoid fork warnings with DataLoader workers
@@ -218,8 +217,8 @@ class ActionTokenizer:
 
         Returns:
             Dict with:
-                - TOKENIZED_ACTIONS_KEY: Token IDs (max_token_len,) padded to fixed length
-                - IS_PAD_ACTION_KEY: Padding mask (max_token_len,) indicating which tokens are padding
+                - SampleKey.TOKENIZED_ACTIONS.value: Token IDs (max_token_len,) padded to fixed length
+                - SampleKey.IS_PAD_ACTION.value: Padding mask (max_token_len,) indicating which tokens are padding
 
         Raises:
             RuntimeError: If tokenizer has not been initialized.
@@ -269,10 +268,10 @@ class ActionTokenizer:
                 is_pad = [False] * self.max_token_len
 
             return {
-                TOKENIZED_ACTIONS_KEY: torch.tensor(
+                SampleKey.TOKENIZED_ACTIONS.value: torch.tensor(
                     tokens, dtype=torch.long, device=self.device
                 ),
-                IS_PAD_ACTION_KEY: torch.tensor(
+                SampleKey.IS_PAD_ACTION.value: torch.tensor(
                     is_pad, dtype=torch.bool, device=self.device
                 ),
             }
@@ -293,12 +292,12 @@ class ActionTokenizer:
         for i in range(batch_size):
             chunk_pad_mask = is_pad_mask[i] if is_pad_mask is not None else None
             result = self.encode_chunk(action_chunks[i], is_pad_mask=chunk_pad_mask)
-            all_tokens.append(result[TOKENIZED_ACTIONS_KEY])
-            all_is_pad.append(result[IS_PAD_ACTION_KEY])
+            all_tokens.append(result[SampleKey.TOKENIZED_ACTIONS.value])
+            all_is_pad.append(result[SampleKey.IS_PAD_ACTION.value])
 
         return {
-            TOKENIZED_ACTIONS_KEY: torch.stack(all_tokens),
-            IS_PAD_ACTION_KEY: torch.stack(all_is_pad),
+            SampleKey.TOKENIZED_ACTIONS.value: torch.stack(all_tokens),
+            SampleKey.IS_PAD_ACTION.value: torch.stack(all_is_pad),
         }
 
     def encode(

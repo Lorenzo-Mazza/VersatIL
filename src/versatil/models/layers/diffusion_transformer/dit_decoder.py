@@ -12,10 +12,16 @@ from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.normalization.rms_norm import RMSNorm
-from versatil.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
+from versatil.models.layers.positional_encoding.learned import (
+    LearnedPositionalEncoding1D,
+)
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
-from versatil.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
-from versatil.models.layers.transformer.positional_encoding import create_positional_encoding
+from versatil.models.layers.positional_encoding.sinusoidal import (
+    SinusoidalPositionalEncoding1D,
+)
+from versatil.models.layers.transformer.positional_encoding import (
+    create_positional_encoding,
+)
 
 
 class DiffusionTransformerDecoder(nn.Module):
@@ -151,7 +157,9 @@ class DiffusionTransformerDecoder(nn.Module):
         Returns:
             Attention mask (B, 1, seq_length, seq_length) where True means masked.
         """
-        return padding_mask.unsqueeze(1).unsqueeze(2).expand(-1, -1, sequence_length, -1)
+        return (
+            padding_mask.unsqueeze(1).unsqueeze(2).expand(-1, -1, sequence_length, -1)
+        )
 
     def forward(
         self,
@@ -178,7 +186,7 @@ class DiffusionTransformerDecoder(nn.Module):
             (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D),
         ):
             hidden_states = hidden_states + self.positional_encoding(hidden_states)
-            
+
         rotary_positional_encoding = (
             self.positional_encoding
             if isinstance(self.positional_encoding, RotaryPositionalEncoding)

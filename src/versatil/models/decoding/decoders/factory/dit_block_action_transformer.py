@@ -13,14 +13,16 @@ from torch import nn
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.constants import FeatureType
-from versatil.models.decoding.constants import TIMESTEP_KEY
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import DecoderInput, ActionDecoder
 from versatil.models.layers import MLP
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.diffusion_transformer import DiTBlock
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
-from versatil.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
+from versatil.models.layers.positional_encoding.learned import (
+    LearnedPositionalEncoding1D,
+)
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
@@ -174,7 +176,9 @@ class DiTBlockActionTransformer(ActionDecoder):
             input_dim=self.action_space.get_total_action_dim(),
             output_dim=self.embedding_dimension,
             hidden_dims=[self.embedding_dimension, self.embedding_dimension],
-            activation_function=ActivationFunction(self.activation).to_torch_activation(),
+            activation_function=ActivationFunction(
+                self.activation
+            ).to_torch_activation(),
             dropout=self.dropout_rate,
         )
         self._encoder_cache: Optional[torch.Tensor] = None
@@ -194,9 +198,15 @@ class DiTBlockActionTransformer(ActionDecoder):
         Raises:
             ValueError: If no valid observation features are provided.
         """
-        observation_tokens, positional_encodings, observation_padding_mask = self.input_builder(features)
+        (
+            observation_tokens,
+            positional_encodings,
+            observation_padding_mask,
+        ) = self.input_builder(features)
         if observation_tokens is None:
-            raise ValueError("No valid observation features provided to DiTBlockActionTransformer")
+            raise ValueError(
+                "No valid observation features provided to DiTBlockActionTransformer"
+            )
         return observation_tokens, positional_encodings, observation_padding_mask
 
     def reset_encoder_cache(self):
@@ -225,24 +235,26 @@ class DiTBlockActionTransformer(ActionDecoder):
                 "DiTBlockActionTransformer requires 'actions' parameter. "
                 "The algorithm should provide noisy actions during forward pass."
             )
-        if TIMESTEP_KEY not in features:
+        if DecoderOutputKey.TIMESTEP.value not in features:
             raise ValueError(
-                f"Missing '{TIMESTEP_KEY}' in features dict. "
+                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
                 "The algorithm should inject timesteps into features."
             )
-        timesteps = features.pop(TIMESTEP_KEY)
+        timesteps = features.pop(DecoderOutputKey.TIMESTEP.value)
         if len(timesteps.shape) == 2:
-            timesteps = timesteps.squeeze(-1) # (B, 1) -> (B,)
-        observation_tokens, observation_positional_encodings, observation_padding_mask = self._prepare_observation_tokens(
-            features
-        )
+            timesteps = timesteps.squeeze(-1)  # (B, 1) -> (B,)
+        (
+            observation_tokens,
+            observation_positional_encodings,
+            observation_padding_mask,
+        ) = self._prepare_observation_tokens(features)
         if observation_positional_encodings is not None:
             observation_tokens = observation_tokens + observation_positional_encodings
         action_tensors = []
         for action_key in sorted(actions.keys()):
             action_tensors.append(actions[action_key])
-        noisy_actions = torch.cat(action_tensors, dim=-1) # (B, T, D_action)
-        noisy_embedding = self.noisy_input_projection(noisy_actions) # (B, T, D)
+        noisy_actions = torch.cat(action_tensors, dim=-1)  # (B, T, D_action)
+        noisy_embedding = self.noisy_input_projection(noisy_actions)  # (B, T, D)
         if self.training:
             self._encoder_cache = None
 
@@ -253,7 +265,7 @@ class DiTBlockActionTransformer(ActionDecoder):
             encoder_padding_mask=observation_padding_mask,
             decoder_padding_mask=None,
             encoder_cache=self._encoder_cache if not self.training else None,
-        ) # (B, S, D), (B, T, D)
+        )  # (B, S, D), (B, T, D)
         if not self.training:
             self._encoder_cache = encoder_cache
         outputs = {}

@@ -9,11 +9,19 @@ import torch
 import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.diffusion_transformer.final_prediction_layer import FinalPredictionLayer
+from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
+    FinalPredictionLayer,
+)
 from versatil.models.layers.diffusion_transformer.mmdit_decoder import MMDiTDecoder
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.positional_encoding.base import DenominatorMode, OrderingMode, PositionSource
-from versatil.models.layers.positional_encoding.sinusoidal import SinusoidalPositionalEncoding1D
+from versatil.models.layers.positional_encoding.base import (
+    DenominatorMode,
+    OrderingMode,
+    PositionSource,
+)
+from versatil.models.layers.positional_encoding.sinusoidal import (
+    SinusoidalPositionalEncoding1D,
+)
 
 
 class MMDiTTransformer(nn.Module):
@@ -89,7 +97,7 @@ class MMDiTTransformer(nn.Module):
             temperature=10000.0,
             learnable_frequencies=False,
             mlp_activation=nn.SiLU,
-            mlp_hidden_dimensions=[embedding_dimension, embedding_dimension]
+            mlp_hidden_dimensions=[embedding_dimension, embedding_dimension],
         )
         self.decoder = MMDiTDecoder(
             number_of_layers=number_of_layers,
@@ -111,7 +119,9 @@ class MMDiTTransformer(nn.Module):
             initializer_range=initializer_range,
         )
         self.output_dimension = output_dimension or embedding_dimension
-        self.prediction_layer = FinalPredictionLayer(embedding_dimension, self.output_dimension)
+        self.prediction_layer = FinalPredictionLayer(
+            embedding_dimension, self.output_dimension
+        )
 
     def forward(
         self,

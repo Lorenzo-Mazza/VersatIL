@@ -4,11 +4,9 @@ from unittest.mock import MagicMock
 
 from versatil.data.action_processor import ActionProcessor
 from versatil.data.constants import (
-    POSITION_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    OrientationRepresentation,
     GripperType,
+    OrientationRepresentation,
+    ProprioceptiveType,
 )
 
 
@@ -213,13 +211,13 @@ class TestComputeActionsFromObservations:
 
         actions = processor.compute_actions_from_observations(curr_obs, next_obs)
 
-        assert POSITION_ACTION_KEY in actions
-        assert actions[POSITION_ACTION_KEY].shape == (4, 3)
+        assert ProprioceptiveType.POSITION.value in actions
+        assert actions[ProprioceptiveType.POSITION.value].shape == (4, 3)
 
         # Verify first delta: [1,0,0] - [0,0,0] = [1,0,0]
-        np.testing.assert_allclose(actions[POSITION_ACTION_KEY][0], [1.0, 0.0, 0.0])
+        np.testing.assert_allclose(actions[ProprioceptiveType.POSITION.value][0], [1.0, 0.0, 0.0])
         # Verify second delta: [1,1,0] - [1,0,0] = [0,1,0]
-        np.testing.assert_allclose(actions[POSITION_ACTION_KEY][1], [0.0, 1.0, 0.0])
+        np.testing.assert_allclose(actions[ProprioceptiveType.POSITION.value][1], [0.0, 1.0, 0.0])
 
     def test_compute_position_absolute(self, basic_action_config, positions):
         """Test absolute position computation."""
@@ -235,7 +233,7 @@ class TestComputeActionsFromObservations:
         actions = processor.compute_actions_from_observations(curr_obs, next_obs)
 
         # Should return next positions directly
-        np.testing.assert_allclose(actions[POSITION_ACTION_KEY], next_obs)
+        np.testing.assert_allclose(actions[ProprioceptiveType.POSITION.value], next_obs)
 
     def test_compute_with_quaternion(self, basic_action_config):
         """Test with quaternion orientation."""
@@ -255,10 +253,10 @@ class TestComputeActionsFromObservations:
 
         actions = processor.compute_actions_from_observations(curr_obs, next_obs)
 
-        assert POSITION_ACTION_KEY in actions
-        assert ORIENTATION_ACTION_KEY in actions
-        assert actions[POSITION_ACTION_KEY].shape == (2, 3)
-        assert actions[ORIENTATION_ACTION_KEY].shape == (2, 4)
+        assert ProprioceptiveType.POSITION.value in actions
+        assert ProprioceptiveType.ORIENTATION.value in actions
+        assert actions[ProprioceptiveType.POSITION.value].shape == (2, 3)
+        assert actions[ProprioceptiveType.ORIENTATION.value].shape == (2, 4)
 
     def test_compute_with_gripper(self, basic_action_config, binary_gripper):
         """Test with gripper states."""
@@ -273,8 +271,8 @@ class TestComputeActionsFromObservations:
             curr_obs, next_obs, curr_gripper, next_gripper
         )
 
-        assert GRIPPER_ACTION_KEY in actions
-        assert actions[GRIPPER_ACTION_KEY].shape == (1, 1)
+        assert ProprioceptiveType.GRIPPER.value in actions
+        assert actions[ProprioceptiveType.GRIPPER.value].shape == (1, 1)
 
 
 class TestComputeGripperActions:
@@ -511,29 +509,29 @@ class TestRotateActions:
         processor = ActionProcessor(basic_action_config)
 
         action_dict = {
-            POSITION_ACTION_KEY: np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+            ProprioceptiveType.POSITION.value: np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
         }
 
         rotated = processor.rotate_actions(action_dict, rotation_90_z)
 
         # (1,0,0) rotated 90° → (0,1,0)
         expected = np.array([[0.0, 1.0, 0.0]], dtype=np.float32)
-        np.testing.assert_allclose(rotated[POSITION_ACTION_KEY], expected, atol=1e-6)
+        np.testing.assert_allclose(rotated[ProprioceptiveType.POSITION.value], expected, atol=1e-6)
 
     def test_rotate_gripper_unchanged(self, basic_action_config, rotation_90_z):
         """Gripper actions are not rotated."""
         processor = ActionProcessor(basic_action_config)
 
         action_dict = {
-            POSITION_ACTION_KEY: np.array([[1.0, 0.0, 0.0]], dtype=np.float32),
-            GRIPPER_ACTION_KEY: np.array([[1.0]], dtype=np.float32)
+            ProprioceptiveType.POSITION.value: np.array([[1.0, 0.0, 0.0]], dtype=np.float32),
+            ProprioceptiveType.GRIPPER.value: np.array([[1.0]], dtype=np.float32)
         }
 
         rotated = processor.rotate_actions(action_dict, rotation_90_z)
 
         np.testing.assert_array_equal(
-            rotated[GRIPPER_ACTION_KEY],
-            action_dict[GRIPPER_ACTION_KEY]
+            rotated[ProprioceptiveType.GRIPPER.value],
+            action_dict[ProprioceptiveType.GRIPPER.value]
         )
 
     def test_rotate_position_identity(self, basic_action_config, identity_rotation):
@@ -542,14 +540,14 @@ class TestRotateActions:
         processor = ActionProcessor(basic_action_config)
 
         action_dict = {
-            POSITION_ACTION_KEY: np.array([[1.0, 2.0, 3.0]], dtype=np.float32)
+            ProprioceptiveType.POSITION.value: np.array([[1.0, 2.0, 3.0]], dtype=np.float32)
         }
 
         rotated = processor.rotate_actions(action_dict, identity_rotation)
 
         np.testing.assert_allclose(
-            rotated[POSITION_ACTION_KEY],
-            action_dict[POSITION_ACTION_KEY]
+            rotated[ProprioceptiveType.POSITION.value],
+            action_dict[ProprioceptiveType.POSITION.value]
         )
 
 
@@ -578,9 +576,9 @@ class TestIntegration:
             curr_obs, next_obs, curr_gripper, next_gripper
         )
 
-        assert POSITION_ACTION_KEY in actions
-        assert ORIENTATION_ACTION_KEY in actions
-        assert GRIPPER_ACTION_KEY in actions
+        assert ProprioceptiveType.POSITION.value in actions
+        assert ProprioceptiveType.ORIENTATION.value in actions
+        assert ProprioceptiveType.GRIPPER.value in actions
 
     @pytest.mark.parametrize("ori_repr,ori_dim", [
         (OrientationRepresentation.QUATERNION.value, 4),
@@ -604,6 +602,6 @@ class TestIntegration:
 
         actions = processor.compute_actions_from_observations(obs[:1], obs[1:])
 
-        assert POSITION_ACTION_KEY in actions
-        assert ORIENTATION_ACTION_KEY in actions
-        assert actions[ORIENTATION_ACTION_KEY].shape == (1, ori_dim)
+        assert ProprioceptiveType.POSITION.value in actions
+        assert ProprioceptiveType.ORIENTATION.value in actions
+        assert actions[ProprioceptiveType.ORIENTATION.value].shape == (1, ori_dim)

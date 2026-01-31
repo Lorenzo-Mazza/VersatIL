@@ -2,14 +2,11 @@
 import pytest
 from unittest.mock import MagicMock
 from versatil.data.constants import (
-    OrientationRepresentation,
-    GripperType,
-    PROPRIO_OBS_CAMERA_FRAME_KEY,
-    PROPRIO_OBS_ROBOT_FRAME_KEY,
-    GRIPPER_STATE_OBS_KEY,
-    PHASE_LABEL_KEY,
-    LANGUAGE_KEY,
     Cameras,
+    GripperType,
+    ObsKey,
+    OrientationRepresentation,
+    ProprioKey,
 )
 from versatil.data.task import ActionSpace, ObservationSpace, TaskSpace
 
@@ -147,9 +144,9 @@ class TestActionSpace:
 
         keys = action_space.get_required_zarr_keys()
 
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY in keys
-        assert GRIPPER_STATE_OBS_KEY in keys
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY not in keys
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in keys
+        assert ProprioKey.GRIPPER_STATE.value in keys
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value not in keys
 
     def test_get_required_zarr_keys_robot_frame(self, action_space_factory):
         """Test required zarr keys for robot frame prediction."""
@@ -161,9 +158,9 @@ class TestActionSpace:
 
         keys = action_space.get_required_zarr_keys()
 
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY in keys
-        assert GRIPPER_STATE_OBS_KEY in keys
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY not in keys
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in keys
+        assert ProprioKey.GRIPPER_STATE.value in keys
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value not in keys
 
     def test_get_required_zarr_keys_with_phases(self, action_space_factory):
         """Test required zarr keys include phase labels."""
@@ -174,7 +171,7 @@ class TestActionSpace:
 
         keys = action_space.get_required_zarr_keys()
 
-        assert PHASE_LABEL_KEY in keys
+        assert ObsKey.PHASE_LABEL.value in keys
 
     def test_get_required_zarr_keys_no_position_no_gripper(self, action_space_factory):
         """Test required zarr keys when no position or gripper."""
@@ -241,8 +238,8 @@ class TestObservationSpace:
 
         keys = obs_space.get_required_zarr_keys()
 
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY in keys
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY not in keys
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in keys
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value not in keys
 
     def test_get_required_zarr_keys_proprio_camera_frame(self, observation_space_factory):
         """Test required zarr keys with proprioception in camera frame."""
@@ -253,8 +250,8 @@ class TestObservationSpace:
 
         keys = obs_space.get_required_zarr_keys()
 
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY in keys
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY not in keys
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in keys
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value not in keys
 
     def test_get_required_zarr_keys_with_language(self, observation_space_factory):
         """Test required zarr keys include language."""
@@ -262,7 +259,7 @@ class TestObservationSpace:
 
         keys = obs_space.get_required_zarr_keys()
 
-        assert LANGUAGE_KEY in keys
+        assert ObsKey.LANGUAGE.value in keys
 
     def test_get_required_zarr_keys_with_gripper_state(self, observation_space_factory):
         """Test required zarr keys include gripper state."""
@@ -270,7 +267,7 @@ class TestObservationSpace:
 
         keys = obs_space.get_required_zarr_keys()
 
-        assert GRIPPER_STATE_OBS_KEY in keys
+        assert ProprioKey.GRIPPER_STATE.value in keys
 
     def test_get_required_zarr_keys_with_custom_obs(self, observation_space_factory):
         """Test required zarr keys include custom observations."""
@@ -296,9 +293,9 @@ class TestObservationSpace:
         keys = obs_space.get_required_zarr_keys()
 
         assert Cameras.LEFT.value in keys
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY in keys
-        assert GRIPPER_STATE_OBS_KEY in keys
-        assert LANGUAGE_KEY in keys
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in keys
+        assert ProprioKey.GRIPPER_STATE.value in keys
+        assert ObsKey.LANGUAGE.value in keys
         assert 'force' in keys
         assert len(keys) == 5
 
@@ -422,7 +419,7 @@ class TestActionSpaceIntegration:
 
         assert action_space.get_total_action_dim() == 3
         keys = action_space.get_required_zarr_keys()
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY in keys
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in keys
 
     def test_full_action_space_with_phases(self, action_space_factory):
         """Test action space with all components including phases."""
@@ -439,9 +436,9 @@ class TestActionSpaceIntegration:
 
         assert action_space.get_total_action_dim() == 11
         keys = action_space.get_required_zarr_keys()
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY in keys
-        assert GRIPPER_STATE_OBS_KEY in keys
-        assert PHASE_LABEL_KEY in keys
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in keys
+        assert ProprioKey.GRIPPER_STATE.value in keys
+        assert ObsKey.PHASE_LABEL.value in keys
 
 
 @pytest.mark.unit
@@ -469,7 +466,7 @@ class TestObservationSpaceIntegration:
         assert Cameras.LEFT.value in keys
         assert Cameras.RIGHT.value in keys
         assert Cameras.DEPTH.value in keys
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY in keys
-        assert GRIPPER_STATE_OBS_KEY in keys
-        assert LANGUAGE_KEY in keys
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in keys
+        assert ProprioKey.GRIPPER_STATE.value in keys
+        assert ObsKey.LANGUAGE.value in keys
         assert len(keys) == 6

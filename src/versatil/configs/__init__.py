@@ -1,3 +1,4 @@
+"""Configuration and resolver centralized store for OmegaConf."""
 import os
 from pathlib import Path
 
@@ -85,14 +86,13 @@ from versatil.configs.encoding.fusion import (
 from versatil.configs.encoding.image import (
     ImageEncoderConfig,
     CNNEncoderConfig,
-    ViTEncoderConfig, ConditionalCNNEncoderConfig,
+    ViTEncoderConfig,
+    ConditionalCNNEncoderConfig,
 )
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.inference import InferenceConfig
 from versatil.configs.loss import (
     CompositeLossConfig,
-    PhaseActionLossConfig,
-    ActionReconstructionLossConfig,
     RegressionLossConfig,
     BaseLossConfig,
     GaussianEntropyLossConfig,
@@ -102,7 +102,6 @@ from versatil.configs.loss import (
     TrajectoryLengthLossConfig,
     TrajectorySmoothnessConfig,
     PhaseClassificationLossConfig,
-    ActionTokenLossConfig,
     MoELossConfig,
     MaximumMeanDiscrepancyLossConfig,
     BinaryMaximumMeanDiscrepancyLossConfig,
@@ -131,18 +130,15 @@ from versatil.data.constants import (
     CoordinateSystem,
     DatasetType,
     GripperType,
-    GRIPPER_ACTION_KEY,
     ObsKey,
     OrientationRepresentation,
-    ORIENTATION_ACTION_KEY,
-    POSITION_ACTION_KEY,
     ProprioKey,
     TokenizerType,
     KinematicsNormalizationType,
     ImageNormalizationType,
 )
 from versatil.models.decoding.constants import (
-    ACTION_LOGITS_KEY,
+    DecoderOutputKey,
     LatentKey,
     MoERoutingType,
     DenoisingAlgorithm,
@@ -152,10 +148,14 @@ from versatil.models.encoding.encoders.constants import (
     RGBBackboneType,
     PoolingMethod,
     LanguageEncoderType,
-    BatchNormHandling
+    BatchNormHandling,
 )
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.constants import AttentionType, ConditioningType, PositionalEncodingType
+from versatil.models.layers.constants import (
+    AttentionType,
+    ConditioningType,
+    PositionalEncodingType,
+)
 from versatil.metrics.constants import MetadataKey
 from versatil.models.layers.denoising.diffusion_process import SchedulerType
 from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
@@ -208,8 +208,6 @@ __all__ = [
     "MLPFusionConfig",
     "SpatialFusionConfig",
     "CompositeLossConfig",
-    "PhaseActionLossConfig",
-    "ActionReconstructionLossConfig",
     "RegressionLossConfig",
     "BaseLossConfig",
     "GripperLossConfig",
@@ -286,14 +284,6 @@ def register_resolvers():
         OmegaConf.register_new_resolver(
             "image_norm_type", lambda name: ImageNormalizationType[name].value
         )
-    if not OmegaConf.has_resolver("action_key"):
-        action_key_map = {
-            "POSITION": POSITION_ACTION_KEY,
-            "ORIENTATION": ORIENTATION_ACTION_KEY,
-            "GRIPPER": GRIPPER_ACTION_KEY,
-            "ACTION_TOKENS": ACTION_LOGITS_KEY,
-        }
-        OmegaConf.register_new_resolver("action_key", lambda name: action_key_map[name])
     if not OmegaConf.has_resolver("obs_key"):
         OmegaConf.register_new_resolver("obs_key", lambda name: ObsKey[name].value)
     if not OmegaConf.has_resolver("moe_routing_type"):
@@ -333,9 +323,7 @@ def register_resolvers():
             "metadata_key", lambda name: MetadataKey[name].value
         )
     if not OmegaConf.has_resolver("dit_type"):
-        OmegaConf.register_new_resolver(
-            "dit_type", lambda name: DiTType[name].value
-        )
+        OmegaConf.register_new_resolver("dit_type", lambda name: DiTType[name].value)
     if not OmegaConf.has_resolver("timestep_sampler"):
         OmegaConf.register_new_resolver(
             "timestep_sampler", lambda name: TimestepSampler[name].value
@@ -352,43 +340,60 @@ def register_resolvers():
     if not OmegaConf.has_resolver("checkpoint_dir"):
         OmegaConf.register_new_resolver(
             "checkpoint_dir",
-            lambda subpath="": str(Path(os.environ.get("VERSATIL_CHECKPOINT_DIR", ".")) / subpath),
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_CHECKPOINT_DIR", ".")) / subpath
+            ),
         )
     if not OmegaConf.has_resolver("zarr_dir"):
         OmegaConf.register_new_resolver(
             "zarr_dir",
-            lambda subpath="": str(Path(os.environ.get("VERSATIL_ZARR_DIR", ".")) / subpath),
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_ZARR_DIR", ".")) / subpath
+            ),
         )
     if not OmegaConf.has_resolver("cache_dir"):
         OmegaConf.register_new_resolver(
             "cache_dir",
-            lambda: os.environ.get("VERSATIL_CACHE_DIR", str(Path.home() / ".cache" / "versatil")),
+            lambda: os.environ.get(
+                "VERSATIL_CACHE_DIR", str(Path.home() / ".cache" / "versatil")
+            ),
         )
     if not OmegaConf.has_resolver("pretrained_dir"):
         OmegaConf.register_new_resolver(
             "pretrained_dir",
-            lambda subpath="": str(Path(os.environ.get("VERSATIL_PRETRAINED_DIR", ".")) / subpath),
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_PRETRAINED_DIR", ".")) / subpath
+            ),
         )
     if not OmegaConf.has_resolver("bowel_retraction_dir"):
         OmegaConf.register_new_resolver(
             "bowel_retraction_dir",
-            lambda subpath="": str(Path(os.environ.get("VERSATIL_BOWEL_RETRACTION_DIR", ".")) / subpath),
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_BOWEL_RETRACTION_DIR", ".")) / subpath
+            ),
         )
     if not OmegaConf.has_resolver("libero_hdf5_dir"):
         OmegaConf.register_new_resolver(
             "libero_hdf5_dir",
-            lambda subpath="": str(Path(os.environ.get("VERSATIL_LIBERO_HDF5_DIR", ".")) / subpath),
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_LIBERO_HDF5_DIR", ".")) / subpath
+            ),
         )
     if not OmegaConf.has_resolver("libero_lerobot_dir"):
         OmegaConf.register_new_resolver(
             "libero_lerobot_dir",
-            lambda subpath="": str(Path(os.environ.get("VERSATIL_LIBERO_LEROBOT_DIR", ".")) / subpath),
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_LIBERO_LEROBOT_DIR", ".")) / subpath
+            ),
         )
     if not OmegaConf.has_resolver("metaworld_lerobot_dir"):
         OmegaConf.register_new_resolver(
             "metaworld_lerobot_dir",
-            lambda subpath="": str(Path(os.environ.get("VERSATIL_METAWORLD_LEROBOT_DIR", ".")) / subpath),
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_METAWORLD_LEROBOT_DIR", ".")) / subpath
+            ),
         )
+
 
 def register_configs():
     cs = ConfigStore.instance()
@@ -446,7 +451,9 @@ def register_configs():
         name="gripper",
         node=GripperActionMetadataConfig,
     )
-    cs.store(group="task/dataset_schema", name="lerobot", node=LeRobotDatasetSchemaConfig)
+    cs.store(
+        group="task/dataset_schema", name="lerobot", node=LeRobotDatasetSchemaConfig
+    )
     cs.store(group="task/dataset_schema", name="base", node=DatasetSchemaConfig)
     cs.store(group="task/dataset_schema", name="hdf5", node=Hdf5DatasetSchemaConfig)
     cs.store(group="task/dataset_schema", name="csv", node=CsvDatasetSchemaConfig)
@@ -513,12 +520,6 @@ def register_configs():
     )
 
     cs.store(group="policy/loss", name="composite", node=CompositeLossConfig)
-    cs.store(group="policy/loss", name="phase_action", node=PhaseActionLossConfig)
-    cs.store(
-        group="policy/loss",
-        name="action_reconstruction",
-        node=ActionReconstructionLossConfig,
-    )
     cs.store(group="policy/loss", name="regression", node=RegressionLossConfig)
     cs.store(group="policy/loss", name="base", node=BaseLossConfig)
     cs.store(group="policy/loss", name="gripper", node=GripperLossConfig)
@@ -538,7 +539,6 @@ def register_configs():
         name="phase_classification",
         node=PhaseClassificationLossConfig,
     )
-    cs.store(group="policy/loss", name="token_loss", node=ActionTokenLossConfig)
     cs.store(group="policy/loss", name="moe_loss", node=MoELossConfig)
     cs.store(
         group="policy/loss",
@@ -638,8 +638,14 @@ def register_configs():
     )
     cs.store(group="policy/decoder", name="moe", node=MixtureOfExpertsDecoderConfig)
     cs.store(group="policy/decoder", name="lact_decoder", node=LACTConfig)
-    cs.store(group="policy/decoder", name="dit_block", node=DiTBlockActionTransformerConfig)
-    cs.store(group="policy/decoder", name="diffusion_act", node=DiffusionActionTransformerConfig)
+    cs.store(
+        group="policy/decoder", name="dit_block", node=DiTBlockActionTransformerConfig
+    )
+    cs.store(
+        group="policy/decoder",
+        name="diffusion_act",
+        node=DiffusionActionTransformerConfig,
+    )
     cs.store(group="policy/decoder", name="unet", node=ConditionalUNetDecoderConfig)
     cs.store(group="policy/decoder/action_head", name="base", node=ActionHeadConfig)
     cs.store(

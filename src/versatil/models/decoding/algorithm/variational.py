@@ -16,12 +16,7 @@ import logging
 import torch
 
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
-from versatil.models.decoding.constants import (
-    LATENT_KEY,
-    LOGVAR_KEY,
-    MU_KEY,
-    PRIOR_LATENT_KEY,
-)
+from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.latent import PosteriorLatentEncoder
 from versatil.models.decoding.latent import PriorLatentEncoder
@@ -101,7 +96,9 @@ class VariationalAlgorithm(DecodingAlgorithm):
         posterior_output = self.posterior_encoder.encode(
             actions=actions, observations=features
         )
-        z = posterior_output[LATENT_KEY]  # (B, posterior.latent_dim)
+        z = posterior_output[
+            LatentKey.POSTERIOR_LATENT.value
+        ]  # (B, posterior.latent_dim)
         prior_output = self.prior.forward(
             target_latents=z.detach(),  # Detach z to prevent gradients flowing to posterior encoder
             observations=features,
@@ -166,20 +163,25 @@ class VariationalAlgorithm(DecodingAlgorithm):
             features=features,
             actions=actions,
         )
-        if PRIOR_LATENT_KEY not in prior_output:
+        if LatentKey.PRIOR_LATENT.value not in prior_output:
             # Sample from prior if not already done in prior forward, e.g. for denoising-based priors
             batch_size = next(iter(features.values())).shape[0]
-            z_sampled = self.prior.sample_prior(batch_size=batch_size, observations=features)
-            prior_output[PRIOR_LATENT_KEY] = z_sampled
+            z_sampled = self.prior.sample_prior(
+                batch_size=batch_size, observations=features
+            )
+            prior_output[LatentKey.PRIOR_LATENT.value] = z_sampled
         if self.training:
             sample_from_prior = torch.rand(1).item() < self.p_prior
             if sample_from_prior:
-                latent = prior_output[PRIOR_LATENT_KEY]
+                latent = prior_output[LatentKey.PRIOR_LATENT.value]
             else:
-                latent = posterior_output[LATENT_KEY]
+                latent = posterior_output[LatentKey.POSTERIOR_LATENT.value]
         else:
-            latent = prior_output[PRIOR_LATENT_KEY]
-        features_with_latent = {**features, LATENT_KEY: latent}  # (B, latent_dimension)
+            latent = prior_output[LatentKey.PRIOR_LATENT.value]
+        features_with_latent = {
+            **features,
+            LatentKey.POSTERIOR_LATENT.value: latent,
+        }  # (B, latent_dimension)
         predictions = self.base_algorithm.forward(
             network=network,
             features=features_with_latent,
@@ -207,7 +209,7 @@ class VariationalAlgorithm(DecodingAlgorithm):
         latent_embedding = self._sample_prior(features=features, batch_size=batch_size)
         features_with_latent = {
             **features,
-            LATENT_KEY: latent_embedding,
+            LatentKey.POSTERIOR_LATENT.value: latent_embedding,
         }  # (B, latent_dimension)
         return self.base_algorithm.forward(
             network=network,

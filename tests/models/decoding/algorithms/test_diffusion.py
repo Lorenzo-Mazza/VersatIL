@@ -7,12 +7,10 @@ from versatil.models.decoding.algorithm.diffusion import Diffusion
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import (
-    POSITION_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    OrientationRepresentation,
-    GripperType,
     Cameras,
+    GripperType,
+    OrientationRepresentation,
+    ProprioceptiveType,
 )
 from versatil.models.decoding.constants import (
     PredictionType,
@@ -42,19 +40,19 @@ class MockActionDecoder(ActionDecoder):
 
         action_heads = {}
         if action_space.has_position:
-            action_heads[POSITION_ACTION_KEY] = ActionHead(
+            action_heads[ProprioceptiveType.POSITION.value] = ActionHead(
                 input_dim=feature_dim,
                 output_dim=action_space.position_dim,
                 blocks=[],
             )
         if action_space.has_orientation:
-            action_heads[ORIENTATION_ACTION_KEY] = ActionHead(
+            action_heads[ProprioceptiveType.ORIENTATION.value] = ActionHead(
                 input_dim=feature_dim,
                 output_dim=action_space.orientation_dim,
                 blocks=[],
             )
         if action_space.has_gripper:
-            action_heads[GRIPPER_ACTION_KEY] = ActionHead(
+            action_heads[ProprioceptiveType.GRIPPER.value] = ActionHead(
                 input_dim=feature_dim,
                 output_dim=action_space.gripper_dim,
                 blocks=[],
@@ -95,7 +93,7 @@ class MockActionDecoder(ActionDecoder):
         predictions = {}
 
         if self.use_position_actions:
-            predictions[POSITION_ACTION_KEY] = torch.randn(
+            predictions[ProprioceptiveType.POSITION.value] = torch.randn(
                 batch_size,
                 self.prediction_horizon,
                 self.position_dim,
@@ -103,7 +101,7 @@ class MockActionDecoder(ActionDecoder):
             )
 
         if self.use_orientation_actions:
-            predictions[ORIENTATION_ACTION_KEY] = torch.randn(
+            predictions[ProprioceptiveType.ORIENTATION.value] = torch.randn(
                 batch_size,
                 self.prediction_horizon,
                 self.orientation_dim,
@@ -111,7 +109,7 @@ class MockActionDecoder(ActionDecoder):
             )
 
         if self.use_gripper_actions:
-            predictions[GRIPPER_ACTION_KEY] = torch.randn(
+            predictions[ProprioceptiveType.GRIPPER.value] = torch.randn(
                 batch_size,
                 self.prediction_horizon,
                 self.gripper_dim,
@@ -202,17 +200,17 @@ def actions(batch_size, prediction_horizon, action_space, device):
     actions_dict = {}
 
     if action_space.has_position:
-        actions_dict[POSITION_ACTION_KEY] = torch.randn(
+        actions_dict[ProprioceptiveType.POSITION.value] = torch.randn(
             batch_size, prediction_horizon, action_space.position_dim, device=device
         )
 
     if action_space.has_orientation:
-        actions_dict[ORIENTATION_ACTION_KEY] = torch.randn(
+        actions_dict[ProprioceptiveType.ORIENTATION.value] = torch.randn(
             batch_size, prediction_horizon, action_space.orientation_dim, device=device
         )
 
     if action_space.has_gripper:
-        actions_dict[GRIPPER_ACTION_KEY] = torch.randn(
+        actions_dict[ProprioceptiveType.GRIPPER.value] = torch.randn(
             batch_size, prediction_horizon, action_space.gripper_dim, device=device
         )
 
@@ -245,7 +243,7 @@ class TestDiffusion:
     ])
     def test_prediction_types(self, mock_decoder, features, actions, prediction_type):
         """Test all prediction types."""
-        from versatil.models.decoding.constants import TIMESTEP_KEY, NOISE_KEY, TARGET_DIFFUSION_KEY
+        from versatil.models.decoding.constants import DecoderOutputKey
 
         algo = Diffusion(
             num_train_timesteps=50,
@@ -254,9 +252,9 @@ class TestDiffusion:
         outputs = algo.forward(mock_decoder, features, actions)
 
         # Check that outputs contain required keys
-        assert NOISE_KEY in outputs
-        assert TIMESTEP_KEY in outputs
-        assert TARGET_DIFFUSION_KEY in outputs
+        assert DecoderOutputKey.NOISE.value in outputs
+        assert DecoderOutputKey.TIMESTEP.value in outputs
+        assert DecoderOutputKey.TARGET_DIFFUSION.value in outputs
 
     @pytest.mark.parametrize("beta_schedule", [
         BetaSchedule.LINEAR.value,
@@ -298,18 +296,18 @@ class TestDiffusion:
 
     def test_forward_pass(self, mock_decoder, features, actions):
         """Test forward pass during training."""
-        from versatil.models.decoding.constants import TIMESTEP_KEY, NOISE_KEY, TARGET_DIFFUSION_KEY
+        from versatil.models.decoding.constants import DecoderOutputKey
 
         algo = Diffusion(num_train_timesteps=100)
         outputs = algo.forward(mock_decoder, features, actions)
 
         # Check that outputs contain noise and timesteps
-        assert NOISE_KEY in outputs
-        assert TIMESTEP_KEY in outputs
-        assert TARGET_DIFFUSION_KEY in outputs
+        assert DecoderOutputKey.NOISE.value in outputs
+        assert DecoderOutputKey.TIMESTEP.value in outputs
+        assert DecoderOutputKey.TARGET_DIFFUSION.value in outputs
 
         # Check that timesteps are in valid range
-        timesteps = outputs[TIMESTEP_KEY]
+        timesteps = outputs[DecoderOutputKey.TIMESTEP.value]
         assert torch.all(timesteps >= 0)
         assert torch.all(timesteps < 100)
 
@@ -332,15 +330,15 @@ class TestDiffusion:
         outputs = algo.predict(mock_decoder, features)
 
         # Check that outputs contain expected action keys
-        assert POSITION_ACTION_KEY in outputs
-        assert ORIENTATION_ACTION_KEY in outputs
-        assert GRIPPER_ACTION_KEY in outputs
+        assert ProprioceptiveType.POSITION.value in outputs
+        assert ProprioceptiveType.ORIENTATION.value in outputs
+        assert ProprioceptiveType.GRIPPER.value in outputs
 
         # Check output shapes
         batch_size = features["features"].shape[0]
         prediction_horizon = mock_decoder.prediction_horizon
 
-        assert outputs[POSITION_ACTION_KEY].shape == (
+        assert outputs[ProprioceptiveType.POSITION.value].shape == (
             batch_size,
             prediction_horizon,
             mock_decoder.position_dim,

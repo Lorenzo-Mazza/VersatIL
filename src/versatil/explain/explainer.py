@@ -12,7 +12,7 @@ import torch.nn.functional as F
 import torchvision.transforms.functional as tvf
 from torch import nn
 
-from versatil.data.constants import POSITION_ACTION_KEY
+from versatil.data.constants import ProprioKey
 from versatil.data.transform import normalize_observation
 from versatil.explain.constants import ExplanationType
 from versatil.models.policy import Policy
@@ -459,8 +459,8 @@ def compute_gradcam_for_policy(
             predictions: dict[str, torch.Tensor]
         ) -> torch.Tensor:
             # Use position actions if available, otherwise use first available action type
-            if POSITION_ACTION_KEY in predictions:
-                return predictions[POSITION_ACTION_KEY]
+            if ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in predictions:
+                return predictions[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value]
             else:
                 # Use first available action
                 first_key = list(predictions.keys())[0]

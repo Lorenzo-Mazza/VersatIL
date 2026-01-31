@@ -3,15 +3,13 @@ import torch
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import (
-    GRIPPER_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    POSITION_ACTION_KEY,
     GripperType,
     OrientationRepresentation,
+    ProprioceptiveType,
 )
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.constants import FeatureType
-from versatil.models.decoding.constants import TIMESTEP_KEY
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.factory.conditional_unet_decoder import (
     ConditionalUNetDecoder,
 )
@@ -61,21 +59,21 @@ def action_heads(action_space):
     action_heads = {}
 
     if action_space.has_position:
-        action_heads[POSITION_ACTION_KEY] = ActionHead(
+        action_heads[ProprioceptiveType.POSITION.value] = ActionHead(
             input_dim=action_space.position_dim,
             output_dim=action_space.position_dim,
             blocks=[],
         )
 
     if action_space.has_orientation:
-        action_heads[ORIENTATION_ACTION_KEY] = ActionHead(
+        action_heads[ProprioceptiveType.ORIENTATION.value] = ActionHead(
             input_dim=action_space.orientation_dim,
             output_dim=action_space.orientation_dim,
             blocks=[],
         )
 
     if action_space.has_gripper:
-        action_heads[GRIPPER_ACTION_KEY] = ActionHead(
+        action_heads[ProprioceptiveType.GRIPPER.value] = ActionHead(
             input_dim=action_space.gripper_dim,
             output_dim=action_space.gripper_dim,
             blocks=[],
@@ -176,17 +174,17 @@ def noisy_actions(batch_size, prediction_horizon, action_space, device):
     actions = {}
 
     if action_space.has_position:
-        actions[POSITION_ACTION_KEY] = torch.randn(
+        actions[ProprioceptiveType.POSITION.value] = torch.randn(
             batch_size, prediction_horizon, action_space.position_dim, device=device
         )
 
     if action_space.has_orientation:
-        actions[ORIENTATION_ACTION_KEY] = torch.randn(
+        actions[ProprioceptiveType.ORIENTATION.value] = torch.randn(
             batch_size, prediction_horizon, action_space.orientation_dim, device=device
         )
 
     if action_space.has_gripper:
-        actions[GRIPPER_ACTION_KEY] = torch.randn(
+        actions[ProprioceptiveType.GRIPPER.value] = torch.randn(
             batch_size, prediction_horizon, action_space.gripper_dim, device=device
         )
 
@@ -515,24 +513,24 @@ class TestConditionalUNetForwardPass:
             device=device,
         )
 
-        features = {**flat_features_single, TIMESTEP_KEY: timesteps}
+        features = {**flat_features_single, DecoderOutputKey.TIMESTEP.value: timesteps}
         outputs = decoder.forward(features=features, actions=noisy_actions)
 
-        assert POSITION_ACTION_KEY in outputs
-        assert ORIENTATION_ACTION_KEY in outputs
-        assert GRIPPER_ACTION_KEY in outputs
+        assert ProprioceptiveType.POSITION.value in outputs
+        assert ProprioceptiveType.ORIENTATION.value in outputs
+        assert ProprioceptiveType.GRIPPER.value in outputs
 
-        assert outputs[POSITION_ACTION_KEY].shape == (
+        assert outputs[ProprioceptiveType.POSITION.value].shape == (
             batch_size,
             prediction_horizon,
             action_space.position_dim,
         )
-        assert outputs[ORIENTATION_ACTION_KEY].shape == (
+        assert outputs[ProprioceptiveType.ORIENTATION.value].shape == (
             batch_size,
             prediction_horizon,
             action_space.orientation_dim,
         )
-        assert outputs[GRIPPER_ACTION_KEY].shape == (
+        assert outputs[ProprioceptiveType.GRIPPER.value].shape == (
             batch_size,
             prediction_horizon,
             action_space.gripper_dim,
@@ -562,12 +560,12 @@ class TestConditionalUNetForwardPass:
             device=device,
         )
 
-        features = {**sequential_features_single, TIMESTEP_KEY: timesteps}
+        features = {**sequential_features_single, DecoderOutputKey.TIMESTEP.value: timesteps}
         outputs = decoder.forward(features=features, actions=noisy_actions)
 
-        assert POSITION_ACTION_KEY in outputs
-        assert outputs[POSITION_ACTION_KEY].shape[0] == batch_size
-        assert outputs[POSITION_ACTION_KEY].shape[1] == prediction_horizon
+        assert ProprioceptiveType.POSITION.value in outputs
+        assert outputs[ProprioceptiveType.POSITION.value].shape[0] == batch_size
+        assert outputs[ProprioceptiveType.POSITION.value].shape[1] == prediction_horizon
 
     def test_forward_missing_timesteps_raises_error(
         self,
@@ -616,7 +614,7 @@ class TestConditionalUNetForwardPass:
             device=device,
         )
 
-        features = {**flat_features_single, TIMESTEP_KEY: timesteps}
+        features = {**flat_features_single, DecoderOutputKey.TIMESTEP.value: timesteps}
 
         with pytest.raises(ValueError, match="ConditionalUNetDecoder requires 'actions' parameter"):
             decoder.forward(features=features, actions=None)
@@ -645,12 +643,12 @@ class TestConditionalUNetForwardPass:
         )
 
         timesteps_2d = torch.randint(0, 100, (batch_size, 1), device=device, dtype=torch.long)
-        features = {**flat_features_single, TIMESTEP_KEY: timesteps_2d}
+        features = {**flat_features_single, DecoderOutputKey.TIMESTEP.value: timesteps_2d}
 
         outputs = decoder.forward(features=features, actions=noisy_actions)
 
-        assert POSITION_ACTION_KEY in outputs
-        assert outputs[POSITION_ACTION_KEY].shape[0] == batch_size
+        assert ProprioceptiveType.POSITION.value in outputs
+        assert outputs[ProprioceptiveType.POSITION.value].shape[0] == batch_size
 
 
 @pytest.mark.unit
@@ -682,7 +680,7 @@ class TestConditionalUNetEdgeCases:
         assert decoder._unet is None
         assert decoder._global_conditioning_dimension is None
 
-        features = {**flat_features_single, TIMESTEP_KEY: timesteps}
+        features = {**flat_features_single, DecoderOutputKey.TIMESTEP.value: timesteps}
         decoder.forward(features=features, actions=noisy_actions)
 
         assert decoder._unet is not None
@@ -719,7 +717,7 @@ class TestConditionalUNetEdgeCases:
         for param in decoder.parameters():
             param.requires_grad = True
 
-        features = {**flat_features_single, TIMESTEP_KEY: timesteps}
+        features = {**flat_features_single, DecoderOutputKey.TIMESTEP.value: timesteps}
         for key in features:
             if features[key].dtype == torch.float32:
                 features[key].requires_grad = True
@@ -771,19 +769,19 @@ class TestConditionalUNetParametrized:
             "features": torch.randn(batch_size, observation_horizon, 256, device=device)
         }
         timesteps = torch.randint(0, 100, (batch_size,), device=device, dtype=torch.long)
-        features = {**sequential_features, TIMESTEP_KEY: timesteps}
+        features = {**sequential_features, DecoderOutputKey.TIMESTEP.value: timesteps}
 
         noisy_actions = {}
         if action_space.has_position:
-            noisy_actions[POSITION_ACTION_KEY] = torch.randn(
+            noisy_actions[ProprioceptiveType.POSITION.value] = torch.randn(
                 batch_size, prediction_horizon, action_space.position_dim, device=device
             )
         if action_space.has_orientation:
-            noisy_actions[ORIENTATION_ACTION_KEY] = torch.randn(
+            noisy_actions[ProprioceptiveType.ORIENTATION.value] = torch.randn(
                 batch_size, prediction_horizon, action_space.orientation_dim, device=device
             )
         if action_space.has_gripper:
-            noisy_actions[GRIPPER_ACTION_KEY] = torch.randn(
+            noisy_actions[ProprioceptiveType.GRIPPER.value] = torch.randn(
                 batch_size, prediction_horizon, action_space.gripper_dim, device=device
             )
 
@@ -822,19 +820,19 @@ class TestConditionalUNetBatchSizes:
 
         flat_features = {"features": torch.randn(batch_size, 256, device=device)}
         timesteps = torch.randint(0, 100, (batch_size,), device=device, dtype=torch.long)
-        features = {**flat_features, TIMESTEP_KEY: timesteps}
+        features = {**flat_features, DecoderOutputKey.TIMESTEP.value: timesteps}
 
         noisy_actions = {}
         if action_space.has_position:
-            noisy_actions[POSITION_ACTION_KEY] = torch.randn(
+            noisy_actions[ProprioceptiveType.POSITION.value] = torch.randn(
                 batch_size, prediction_horizon, action_space.position_dim, device=device
             )
         if action_space.has_orientation:
-            noisy_actions[ORIENTATION_ACTION_KEY] = torch.randn(
+            noisy_actions[ProprioceptiveType.ORIENTATION.value] = torch.randn(
                 batch_size, prediction_horizon, action_space.orientation_dim, device=device
             )
         if action_space.has_gripper:
-            noisy_actions[GRIPPER_ACTION_KEY] = torch.randn(
+            noisy_actions[ProprioceptiveType.GRIPPER.value] = torch.randn(
                 batch_size, prediction_horizon, action_space.gripper_dim, device=device
             )
 

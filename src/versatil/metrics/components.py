@@ -8,7 +8,7 @@ from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.data.constants import (
     BinaryGripperRange,
     GripperType,
-    TOKENIZED_ACTIONS_KEY,
+    SampleKey,
 )
 from versatil.data.metadata import (
     ActionMetadata,
@@ -21,22 +21,7 @@ from versatil.metrics.constants import (
     MetadataKey,
     MetricKey,
 )
-from versatil.models.decoding.constants import (
-    PRIOR_PREDICTION_KEY,
-    PRIOR_TARGET_KEY,
-    BINARY_LOGITS_KEY,
-    MU_KEY,
-    LOGVAR_KEY,
-    ACTION_LOGITS_KEY,
-    LATENT_CODES,
-    ROUTING_WEIGHT,
-    LATENT_KEY,
-    EXPERT_OUTPUTS,
-    PRIOR_MU_KEY,
-    PRIOR_LOGVAR_KEY,
-    PRIOR_LATENT_KEY,
-    PRIOR_LOG_PROB_KEY,
-)
+from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 
 
 class RegressionLoss(BaseLoss):
@@ -240,8 +225,6 @@ class GripperLoss(BaseLoss):
             )
 
 
-
-
 class GaussianEntropyLoss(BaseLoss):
     """Entropy regularization for Gaussian distributions.
 
@@ -253,7 +236,7 @@ class GaussianEntropyLoss(BaseLoss):
 
     def __init__(
         self,
-        key: str = PRIOR_LOGVAR_KEY,
+        key: str = LatentKey.PRIOR_LOGVAR.value,
         weight: float = 0.01,
         logvar_min: float = -4.0,  # σ² ≈ 0.018
         logvar_max: float = 2.0,  # σ² ≈ 7.4
@@ -269,10 +252,8 @@ class GaussianEntropyLoss(BaseLoss):
             bound_weight: Weight for the bound entropy loss.
         """
         super().__init__()
-        if 'logvar' not in key:
-            raise ValueError(
-                f"GaussianEntropyLoss expects a logvar key, got '{key}'."
-            )
+        if "logvar" not in key:
+            raise ValueError(f"GaussianEntropyLoss expects a logvar key, got '{key}'.")
         self.key = key
         self.weight = weight
         self.logvar_min = logvar_min
@@ -296,7 +277,6 @@ class GaussianEntropyLoss(BaseLoss):
             Entropy summed over latent dimensions, shape (...).
         """
         return 0.5 * (1 + math.log(2 * math.pi) + logvar).sum(dim=-1)
-
 
     def forward(
         self,
@@ -331,7 +311,6 @@ class GaussianEntropyLoss(BaseLoss):
         )
 
 
-
 class KLDivergenceLoss(BaseLoss):
     """KL divergence loss for VAE latent distributions."""
 
@@ -358,10 +337,10 @@ class KLDivergenceLoss(BaseLoss):
     def get_required_keys(self) -> set[str]:
         """Get required keys for KL divergence loss."""
         return {
-            LATENT_KEY,
-            PRIOR_LATENT_KEY,
-            MU_KEY,
-            LOGVAR_KEY,
+            LatentKey.POSTERIOR_LATENT.value,
+            LatentKey.PRIOR_LATENT.value,
+            LatentKey.POSTERIOR_MU.value,
+            LatentKey.POSTERIOR_LOGVAR.value,
         }
 
     def forward(
@@ -380,12 +359,12 @@ class KLDivergenceLoss(BaseLoss):
         Returns:
             LossOutput with KL divergence loss
         """
-        if PRIOR_LOG_PROB_KEY in predictions:
-            mu_q = predictions[MU_KEY].float()
-            logvar_q = predictions[LOGVAR_KEY].float()
+        if LatentKey.PRIOR_LOG_PROB.value in predictions:
+            mu_q = predictions[LatentKey.POSTERIOR_MU.value].float()
+            logvar_q = predictions[LatentKey.POSTERIOR_LOGVAR.value].float()
             std_q = (0.5 * logvar_q).exp()
-            z = predictions[LATENT_KEY]
-            log_p_z = predictions[PRIOR_LOG_PROB_KEY]  # (B,)
+            z = predictions[LatentKey.POSTERIOR_LATENT.value]
+            log_p_z = predictions[LatentKey.PRIOR_LOG_PROB.value]  # (B,)
             posterior = torch.distributions.Normal(mu_q, std_q)
             log_q_z = posterior.log_prob(z).sum(dim=-1)  # (B,)
             # KL(q || p) = E_q[log q - log p] ≈ log q(z) - log p(z)
@@ -399,7 +378,9 @@ class KLDivergenceLoss(BaseLoss):
                 MetadataKey.POSTERIOR_Z.value: z,
                 MetadataKey.POSTERIOR_MU.value: mu_q,
                 MetadataKey.POSTERIOR_LOGVAR.value: logvar_q,
-                MetadataKey.PRIOR_Z.value: predictions.get(PRIOR_LATENT_KEY),
+                MetadataKey.PRIOR_Z.value: predictions.get(
+                    LatentKey.PRIOR_LATENT.value
+                ),
             }
 
             return LossOutput(
@@ -410,15 +391,17 @@ class KLDivergenceLoss(BaseLoss):
 
         # Standard Gaussian prior - uses closed-form KL
         required_keys = self.get_required_keys()
-        required_keys.update({PRIOR_MU_KEY, PRIOR_LOGVAR_KEY})
+        required_keys.update({LatentKey.PRIOR_MU.value, LatentKey.PRIOR_LOGVAR.value})
         if not all(k in predictions for k in required_keys):
             raise ValueError(
                 f"Predictions must contain '{required_keys}' for KLDivergenceLoss."
             )
-        mu_posterior = predictions[MU_KEY].float()  # Using fp32 float for stability
-        logvar_posterior = predictions[LOGVAR_KEY].float()
-        mu_prior = predictions[PRIOR_MU_KEY].float()
-        logvar_prior = predictions[PRIOR_LOGVAR_KEY].float()
+        mu_posterior = predictions[
+            LatentKey.POSTERIOR_MU.value
+        ].float()  # Using fp32 float for stability
+        logvar_posterior = predictions[LatentKey.POSTERIOR_LOGVAR.value].float()
+        mu_prior = predictions[LatentKey.PRIOR_MU.value].float()
+        logvar_prior = predictions[LatentKey.PRIOR_LOGVAR.value].float()
         std_posterior = (0.5 * logvar_posterior).exp()
         std_prior = (0.5 * logvar_prior).exp()
         posterior = torch.distributions.Normal(mu_posterior, std_posterior)
@@ -438,14 +421,18 @@ class KLDivergenceLoss(BaseLoss):
                 mu_prior.pow(2) + logvar_prior.exp() - logvar_prior - 1
             ).sum(dim=-1)
             prior_kl_mean = prior_kl.mean()
-            component_losses[MetricKey.HYPERPRIOR_KL_REGULARIZATION.value] = prior_kl_mean
+            component_losses[
+                MetricKey.HYPERPRIOR_KL_REGULARIZATION.value
+            ] = prior_kl_mean
             total_loss = total_loss + self.prior_regularization_weight * prior_kl_mean
 
         metadata = {
-            MetadataKey.POSTERIOR_Z.value: predictions[LATENT_KEY],
+            MetadataKey.POSTERIOR_Z.value: predictions[
+                LatentKey.POSTERIOR_LATENT.value
+            ],
             MetadataKey.POSTERIOR_MU.value: mu_posterior,
             MetadataKey.POSTERIOR_LOGVAR.value: logvar_posterior,
-            MetadataKey.PRIOR_Z.value: predictions[PRIOR_LATENT_KEY],
+            MetadataKey.PRIOR_Z.value: predictions[LatentKey.PRIOR_LATENT.value],
             MetadataKey.PRIOR_MU.value: mu_prior,
             MetadataKey.PRIOR_LOGVAR.value: logvar_prior,
         }
@@ -493,7 +480,7 @@ class BinaryKLDivergenceLoss(BaseLoss):
         Returns:
             Set containing binary_logits key from Free Transformer
         """
-        return {BINARY_LOGITS_KEY}
+        return {DecoderOutputKey.BINARY_LOGITS.value}
 
     def forward(
         self,
@@ -511,13 +498,15 @@ class BinaryKLDivergenceLoss(BaseLoss):
         Returns:
             LossOutput with KL divergence loss
         """
-        if BINARY_LOGITS_KEY not in predictions:
+        if DecoderOutputKey.BINARY_LOGITS.value not in predictions:
             raise ValueError(
-                f"Predictions must contain key '{BINARY_LOGITS_KEY}' for BinaryKLDivergenceLoss."
+                f"Predictions must contain key '{DecoderOutputKey.BINARY_LOGITS.value}' for BinaryKLDivergenceLoss."
             )
         all_component_losses = {}
-        if LATENT_CODES in predictions:
-            latent_codes = predictions[LATENT_CODES]  # (B, token_len, 2^H)
+        if DecoderOutputKey.LATENT_CODES.value in predictions:
+            latent_codes = predictions[
+                DecoderOutputKey.LATENT_CODES.value
+            ]  # (B, token_len, 2^H)
             code_indices = torch.argmax(
                 latent_codes, dim=-1
             ).flatten()  # (B*token_len,)
@@ -526,7 +515,9 @@ class BinaryKLDivergenceLoss(BaseLoss):
             usage_pct = unique_codes / total_codes
             all_component_losses[MetricKey.LATENT_CODE_USAGE.value] = usage_pct
 
-        logits = predictions[BINARY_LOGITS_KEY]  # (B, T, H) or (B, H)
+        logits = predictions[
+            DecoderOutputKey.BINARY_LOGITS.value
+        ]  # (B, T, H) or (B, H)
         if logits is None:  # Inference, zero loss
             return LossOutput(
                 total_loss=torch.tensor(
@@ -585,6 +576,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
          Uses RBF kernel for robust distribution matching, to encourage q(z|x) ≈ p(z)
          where p(z) = N(0, I).
     """
+
     def __init__(
         self,
         weight: float = 1.0,
@@ -616,9 +608,13 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         device = points.device
         n, _ = points.shape
         norms = (points ** 2).sum(-1)
-        dist_sq = norms.unsqueeze(0) + norms.unsqueeze(1) - 2 * torch.mm(points, points.t())
+        dist_sq = (
+            norms.unsqueeze(0) + norms.unsqueeze(1) - 2 * torch.mm(points, points.t())
+        )
         dist_sq = torch.clamp(dist_sq, min=0.0)
-        triu_i, triu_j = torch.triu_indices(points.shape[0], points.shape[0], offset=1, device=device)
+        triu_i, triu_j = torch.triu_indices(
+            points.shape[0], points.shape[0], offset=1, device=device
+        )
         pairwise_dist_sq = dist_sq[triu_i, triu_j]
         if pairwise_dist_sq.numel() == 0:
             return 1.0
@@ -662,12 +658,12 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
     def get_required_keys(self) -> set[str]:
         """Get required keys for MMD loss."""
         keys = {
-            LATENT_KEY,
-            MU_KEY,
-            LOGVAR_KEY,
+            LatentKey.POSTERIOR_LATENT.value,
+            LatentKey.POSTERIOR_MU.value,
+            LatentKey.POSTERIOR_LOGVAR.value,
         }
         if not self.use_fixed_gaussian_as_prior:
-            keys.add(PRIOR_LATENT_KEY)
+            keys.add(LatentKey.PRIOR_LATENT.value)
         return keys
 
     def forward(
@@ -678,26 +674,35 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
     ) -> LossOutput:
         """Compute MMD between latent samples and standard Gaussian prior.
         Args:
-            predictions: Must contain LATENT_KEY with shape (B, latent_dim).
+            predictions: Must contain LatentKey.POSTERIOR_LATENT.value with shape (B, latent_dim).
             targets: Unused (prior is implicit).
             is_pad: Unused.
         Returns:
             LossOutput with MMD loss.
         """
-        is_mixture_prior = PRIOR_LOG_PROB_KEY in predictions
+        is_mixture_prior = LatentKey.PRIOR_LOG_PROB.value in predictions
         required_keys = self.get_required_keys()
         if not is_mixture_prior and not self.use_fixed_gaussian_as_prior:
-            required_keys.update({PRIOR_MU_KEY, PRIOR_LOGVAR_KEY})
+            required_keys.update(
+                {
+                    LatentKey.PRIOR_MU.value,
+                    LatentKey.PRIOR_LOGVAR.value,
+                }
+            )
         if not all(k in predictions for k in required_keys):
-            raise ValueError(f"Predictions must contain '{required_keys}' for MaximumMeanDiscrepancyLoss.")
+            raise ValueError(
+                f"Predictions must contain '{required_keys}' for MaximumMeanDiscrepancyLoss."
+            )
 
-        z_posterior = predictions[LATENT_KEY]   # (B, latent_dim)
-        original_z_prior = predictions.get(PRIOR_LATENT_KEY, None) # (B, latent_dim) or None
+        z_posterior = predictions[LatentKey.POSTERIOR_LATENT.value]  # (B, latent_dim)
+        original_z_prior = predictions.get(
+            LatentKey.PRIOR_LATENT.value, None
+        )  # (B, latent_dim) or None
         if self.use_fixed_gaussian_as_prior:
             z_prior = torch.randn_like(z_posterior)  # (B, latent_dim)
         else:
             assert original_z_prior is not None
-            z_prior = original_z_prior # (B, latent_dim)
+            z_prior = original_z_prior  # (B, latent_dim)
 
         combined = torch.cat([z_posterior, z_prior], dim=0)  # (2B, latent_dim)
         median_dist_sq = self._get_median_squared_distance(combined)
@@ -726,21 +731,27 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             prior_mmd_sq = k_pp_reg.mean() + k_ss.mean() - 2 * k_ps.mean()
             prior_mmd_sq = torch.clamp(prior_mmd_sq, min=0.0)
 
-            component_losses[MetricKey.HYPERPRIOR_MMD_REGULARIZATION.value] = prior_mmd_sq
+            component_losses[
+                MetricKey.HYPERPRIOR_MMD_REGULARIZATION.value
+            ] = prior_mmd_sq
             total_loss = total_loss + self.prior_regularization_weight * prior_mmd_sq
 
         metadata = {
             MetadataKey.POSTERIOR_Z.value: z_posterior,
-            MetadataKey.POSTERIOR_MU.value: predictions[MU_KEY],
-            MetadataKey.POSTERIOR_LOGVAR.value: predictions[LOGVAR_KEY],
+            MetadataKey.POSTERIOR_MU.value: predictions[LatentKey.POSTERIOR_MU.value],
+            MetadataKey.POSTERIOR_LOGVAR.value: predictions[
+                LatentKey.POSTERIOR_LOGVAR.value
+            ],
         }
         if self.use_fixed_gaussian_as_prior:
             metadata[MetadataKey.HYPERPRIOR_Z.value] = z_prior
         if original_z_prior is not None:
             metadata[MetadataKey.PRIOR_Z.value] = original_z_prior
         if not is_mixture_prior and not self.use_fixed_gaussian_as_prior:
-            metadata[MetadataKey.PRIOR_MU.value] = predictions[PRIOR_MU_KEY]
-            metadata[MetadataKey.PRIOR_LOGVAR.value] = predictions[PRIOR_LOGVAR_KEY]
+            metadata[MetadataKey.PRIOR_MU.value] = predictions[LatentKey.PRIOR_MU.value]
+            metadata[MetadataKey.PRIOR_LOGVAR.value] = predictions[
+                LatentKey.PRIOR_LOGVAR.value
+            ]
 
         return LossOutput(
             total_loss=total_loss,
@@ -769,8 +780,8 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
         self.weight = weight
 
     def get_required_keys(self) -> set[str]:
-        """Returns required prediction keys: {BINARY_LOGITS_KEY}."""
-        return {BINARY_LOGITS_KEY}
+        """Returns required prediction keys: {DecoderOutputKey.BINARY_LOGITS.value}."""
+        return {DecoderOutputKey.BINARY_LOGITS.value}
 
     def _compute_kernel(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Compute Multi-Scale RBF kernel with Median Heuristic.
@@ -791,9 +802,9 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
             y = y.reshape(-1, y.size(-1))
         x_size = x.shape[0]
         y_size = y.shape[0]
-        tiled_x = x.unsqueeze(1).repeat(1, y_size, 1) # (x_size, y_size, dim)
+        tiled_x = x.unsqueeze(1).repeat(1, y_size, 1)  # (x_size, y_size, dim)
         tiled_y = y.unsqueeze(0).repeat(x_size, 1, 1)  # (x_size, y_size, dim)
-        dist_sq = ((tiled_x - tiled_y) ** 2).mean(dim=2) # ||x-y||² / dim
+        dist_sq = ((tiled_x - tiled_y) ** 2).mean(dim=2)  # ||x-y||² / dim
         kernel = torch.exp(-dist_sq)
         return kernel
 
@@ -806,19 +817,19 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
         """Compute MMD between binary latent samples and uniform Bernoulli prior.
 
         Args:
-            predictions: Must contain BINARY_LOGITS_KEY with shape (B, H).
+            predictions: Must contain DecoderOutputKey.BINARY_LOGITS.value with shape (B, H).
             targets: Unused (prior is implicit).
             is_pad: Unused.
 
         Returns:
             LossOutput with MMD loss.
         """
-        if BINARY_LOGITS_KEY not in predictions:
+        if DecoderOutputKey.BINARY_LOGITS.value not in predictions:
             raise ValueError(
-                f"Predictions must contain '{BINARY_LOGITS_KEY}'for BinaryMaximumMeanDiscrepancyLoss."
+                f"Predictions must contain '{DecoderOutputKey.BINARY_LOGITS.value}'for BinaryMaximumMeanDiscrepancyLoss."
             )
 
-        logits = predictions[BINARY_LOGITS_KEY]  # (B, T, H)
+        logits = predictions[DecoderOutputKey.BINARY_LOGITS.value]  # (B, T, H)
         probs = torch.sigmoid(logits.float())  # Cast to fp32 for stability
         z_hard = torch.bernoulli(probs)
         z = (
@@ -1106,7 +1117,7 @@ class ActionTokenLoss(BaseLoss):
         Returns:
             Empty set since target ground-truth tokens are in predictions
         """
-        return {ACTION_LOGITS_KEY}
+        return {DecoderOutputKey.ACTION_LOGITS.value}
 
     def forward(
         self,
@@ -1118,8 +1129,8 @@ class ActionTokenLoss(BaseLoss):
 
         Args:
             predictions: Dictionary containing:
-                - '{ACTION_LOGITS_KEY}': logits (B, horizon, vocab_size)
-                - '{TOKENIZED_ACTIONS_KEY}': ground truth token IDs (B, horizon)
+                - '{DecoderOutputKey.ACTION_LOGITS.value}': logits (B, horizon, vocab_size)
+                - '{SampleKey.TOKENIZED_ACTIONS.value}': ground truth token IDs (B, horizon)
                 - 'is_pad': optional padding mask (B, horizon)
             targets: Dictionary containing ground truth tokens
             is_pad: Optional padding mask
@@ -1127,12 +1138,14 @@ class ActionTokenLoss(BaseLoss):
         Returns:
             LossOutput with per-key cross-entropy losses
         """
-        if ACTION_LOGITS_KEY not in predictions:
+        if DecoderOutputKey.ACTION_LOGITS.value not in predictions:
             raise ValueError(
-                f"Predictions must contain keys '{ACTION_LOGITS_KEY}' for ActionTokenLoss."
+                f"Predictions must contain keys '{DecoderOutputKey.ACTION_LOGITS.value}' for ActionTokenLoss."
             )
-        pred_logits = predictions[ACTION_LOGITS_KEY]  # (B, num_tokens, vocab_size)
-        target_tokens = targets[TOKENIZED_ACTIONS_KEY]  # (B, num_tokens)
+        pred_logits = predictions[
+            DecoderOutputKey.ACTION_LOGITS.value
+        ]  # (B, num_tokens, vocab_size)
+        target_tokens = targets[SampleKey.TOKENIZED_ACTIONS.value]  # (B, num_tokens)
         vocab_size = pred_logits.shape[-1]
         num_tokens = pred_logits.shape[1]
         logits = pred_logits.view(
@@ -1182,7 +1195,7 @@ class PriorDenoisingLoss(BaseLoss):
 
     def get_required_keys(self) -> set[str]:
         """Return required prediction keys."""
-        return {PRIOR_PREDICTION_KEY, PRIOR_TARGET_KEY}
+        return {LatentKey.PRIOR_PREDICTION.value, LatentKey.PRIOR_TARGET.value}
 
     def forward(
         self,
@@ -1193,7 +1206,7 @@ class PriorDenoisingLoss(BaseLoss):
         """Compute prior denoising loss.
 
         Args:
-            predictions: Dictionary containing PRIOR_PREDICTION_KEY and PRIOR_TARGET_KEY
+            predictions: Dictionary containing LatentKey.PRIOR_PREDICTION.value and LatentKey.PRIOR_TARGET.value
             targets: Not used (targets are in predictions dict)
             is_pad: Not used (prior loss doesn't need padding)
 
@@ -1203,31 +1216,41 @@ class PriorDenoisingLoss(BaseLoss):
         Raises:
             ValueError: If required keys are missing from predictions
         """
-        if PRIOR_PREDICTION_KEY not in predictions:
+        if LatentKey.PRIOR_PREDICTION.value not in predictions:
             raise ValueError(
-                f"Predictions must contain '{PRIOR_PREDICTION_KEY}' for PriorDenoisingLoss."
+                f"Predictions must contain '{LatentKey.PRIOR_PREDICTION.value}' for PriorDenoisingLoss."
             )
-        if PRIOR_TARGET_KEY not in predictions:
+        if LatentKey.PRIOR_TARGET.value not in predictions:
             raise ValueError(
-                f"Predictions must contain '{PRIOR_TARGET_KEY}' for PriorDenoisingLoss."
+                f"Predictions must contain '{LatentKey.PRIOR_TARGET.value}' for PriorDenoisingLoss."
             )
         prior_loss = F.mse_loss(
-            predictions[PRIOR_PREDICTION_KEY],
-            predictions[PRIOR_TARGET_KEY],
+            predictions[LatentKey.PRIOR_PREDICTION.value],
+            predictions[LatentKey.PRIOR_TARGET.value],
         )
         metadata: dict[str, torch.Tensor] = {}
-        if LATENT_KEY in predictions:
-            metadata[MetadataKey.POSTERIOR_Z.value] = predictions[LATENT_KEY]
-        if MU_KEY in predictions:
-            metadata[MetadataKey.POSTERIOR_MU.value] = predictions[MU_KEY]
-        if LOGVAR_KEY in predictions:
-            metadata[MetadataKey.POSTERIOR_LOGVAR.value] = predictions[LOGVAR_KEY]
-        if PRIOR_LATENT_KEY in predictions:
-            metadata[MetadataKey.PRIOR_Z.value] = predictions[PRIOR_LATENT_KEY]
-        if PRIOR_MU_KEY in predictions:
-            metadata[MetadataKey.PRIOR_MU.value] = predictions[PRIOR_MU_KEY]
-        if PRIOR_LOGVAR_KEY in predictions:
-            metadata[MetadataKey.PRIOR_LOGVAR.value] = predictions[PRIOR_LOGVAR_KEY]
+        if LatentKey.POSTERIOR_LATENT.value in predictions:
+            metadata[MetadataKey.POSTERIOR_Z.value] = predictions[
+                LatentKey.POSTERIOR_LATENT.value
+            ]
+        if LatentKey.POSTERIOR_MU.value in predictions:
+            metadata[MetadataKey.POSTERIOR_MU.value] = predictions[
+                LatentKey.POSTERIOR_MU.value
+            ]
+        if LatentKey.POSTERIOR_LOGVAR.value in predictions:
+            metadata[MetadataKey.POSTERIOR_LOGVAR.value] = predictions[
+                LatentKey.POSTERIOR_LOGVAR.value
+            ]
+        if LatentKey.PRIOR_LATENT.value in predictions:
+            metadata[MetadataKey.PRIOR_Z.value] = predictions[
+                LatentKey.PRIOR_LATENT.value
+            ]
+        if LatentKey.PRIOR_MU.value in predictions:
+            metadata[MetadataKey.PRIOR_MU.value] = predictions[LatentKey.PRIOR_MU.value]
+        if LatentKey.PRIOR_LOGVAR.value in predictions:
+            metadata[MetadataKey.PRIOR_LOGVAR.value] = predictions[
+                LatentKey.PRIOR_LOGVAR.value
+            ]
 
         return LossOutput(
             total_loss=self.weight * prior_loss,
@@ -1312,10 +1335,10 @@ class FixedVarianceGaussianNLLoss(BaseLoss):
 
         Args:
             predictions: Dictionary containing for each action_key:
-                - '{action_key}_{ROUTING_WEIGHT}': Mixing probabilities π_k from softmax
+                - '{action_key}_{DecoderOutputKey.ROUTING_WEIGHTS.value}': Mixing probabilities π_k from softmax
                   Shape: (batch, chunk_size, num_experts)
                   Must sum to 1 along last dimension
-                - '{action_key}_{EXPERT_OUTPUTS}': Expert mean predictions μ_k
+                - '{action_key}_{DecoderOutputKey.EXPERT_OUTPUTS.value}': Expert mean predictions μ_k
                   Shape: (batch, chunk_size, num_experts, action_dim)
             targets: Dictionary containing for each action_key:
                 - '{action_key}': Ground truth actions
@@ -1332,8 +1355,8 @@ class FixedVarianceGaussianNLLoss(BaseLoss):
         component_losses = {}
         total_loss = 0.0
         for action_key in self.action_keys:
-            routing_key = f"{action_key}_{ROUTING_WEIGHT}"
-            expert_key = f"{action_key}_{EXPERT_OUTPUTS}"
+            routing_key = f"{action_key}_{DecoderOutputKey.ROUTING_WEIGHTS.value}"
+            expert_key = f"{action_key}_{DecoderOutputKey.EXPERT_OUTPUTS.value}"
             if routing_key not in predictions or expert_key not in predictions:
                 raise ValueError(
                     f"Predictions must contain '{routing_key}' and '{expert_key}' "
@@ -1352,10 +1375,10 @@ class FixedVarianceGaussianNLLoss(BaseLoss):
                 2
             )  # (B, T, 1, action_dim) -- broadcasts with (B, T, num_experts, action_dim)
             mixing_probs = predictions[
-                f"{action_key}_{ROUTING_WEIGHT}"
+                f"{action_key}_{DecoderOutputKey.ROUTING_WEIGHTS.value}"
             ]  # (B, T, num_experts)
             expert_outs = predictions[
-                f"{action_key}_{EXPERT_OUTPUTS}"
+                f"{action_key}_{DecoderOutputKey.EXPERT_OUTPUTS.value}"
             ]  # (B, T, num_experts, action_dim)
 
             log_pi = torch.log(mixing_probs + 1e-8)  # (B, T, num_experts)
@@ -1444,11 +1467,11 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
 
         Args:
             predictions: Dictionary containing:
-                - '{GRIPPER_ACTION_KEY}_{ROUTING_WEIGHT}': Mixing probs π_k, shape (B, T, K)
-                - '{GRIPPER_ACTION_KEY}_{EXPERT_OUTPUTS}': Expert predictions
+                - '{ProprioceptiveType.GRIPPER.value}_{DecoderOutputKey.ROUTING_WEIGHTS.value}': Mixing probs π_k, shape (B, T, K)
+                - '{ProprioceptiveType.GRIPPER.value}_{DecoderOutputKey.EXPERT_OUTPUTS.value}': Expert predictions
                   Binary: (B, T, K) logits
                   Continuous: (B, T, K, D) means
-            targets: Dictionary with '{GRIPPER_ACTION_KEY}'
+            targets: Dictionary with '{ProprioceptiveType.GRIPPER.value}'
                 Binary: (B, T) or (B, T, 1)
                 Continuous: (B, T, D)
             is_pad: Optional padding mask (B, T)
@@ -1456,8 +1479,8 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
         Returns:
             LossOutput with gripper NLL
         """
-        routing_key = f"{self.key}_{ROUTING_WEIGHT}"
-        expert_key = f"{self.key}_{EXPERT_OUTPUTS}"
+        routing_key = f"{self.key}_{DecoderOutputKey.ROUTING_WEIGHTS.value}"
+        expert_key = f"{self.key}_{DecoderOutputKey.EXPERT_OUTPUTS.value}"
         if routing_key not in predictions or expert_key not in predictions:
             raise ValueError(
                 f"Predictions must contain '{routing_key}' and '{expert_key}' for GripperMixtureNLLoss."
@@ -1530,7 +1553,9 @@ class MoELoss(BaseLoss):
 
     def get_required_keys(self) -> set[str]:
         """Union of base loss keys plus routing weight."""
-        return self.base_loss.get_required_keys() | {ROUTING_WEIGHT}
+        return self.base_loss.get_required_keys() | {
+            DecoderOutputKey.ROUTING_WEIGHTS.value
+        }
 
     def forward(
         self,
@@ -1543,7 +1568,7 @@ class MoELoss(BaseLoss):
         metadata = base_output.metadata if base_output.metadata is not None else {}
         component_losses = dict(base_output.component_losses)
         entropy_loss = 0.0
-        pi = predictions[ROUTING_WEIGHT]  # (B, T, num_experts)
+        pi = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]  # (B, T, num_experts)
         if self.entropy_weight != 0.0:
             entropy = -(pi * torch.log(pi + 1e-8)).sum(dim=-1)  # (B, T)
             if entropy.dim() == 2:

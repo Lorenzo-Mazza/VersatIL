@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from versatil.models.decoding.constants import LATENT_KEY, LOGVAR_KEY, MU_KEY
+from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.latent import VAETransformerEncoder
 
 
@@ -126,19 +126,19 @@ class TestVAETransformerEncoderEncode:
         output = encoder.encode(actions=actions_dict, observations=None)
 
         # Check all required keys are present
-        assert LATENT_KEY in output
-        assert MU_KEY in output
-        assert LOGVAR_KEY in output
+        assert LatentKey.POSTERIOR_LATENT.value in output
+        assert LatentKey.POSTERIOR_MU.value in output
+        assert LatentKey.POSTERIOR_LOGVAR.value in output
 
         # Check shapes
-        assert output[LATENT_KEY].shape == (batch_size, embedding_dimension)
-        assert output[MU_KEY].shape == (batch_size, vae_latent_dimension)
-        assert output[LOGVAR_KEY].shape == (batch_size, vae_latent_dimension)
+        assert output[LatentKey.POSTERIOR_LATENT.value].shape == (batch_size, embedding_dimension)
+        assert output[LatentKey.POSTERIOR_MU.value].shape == (batch_size, vae_latent_dimension)
+        assert output[LatentKey.POSTERIOR_LOGVAR.value].shape == (batch_size, vae_latent_dimension)
 
         # Check values are valid
-        assert not torch.isnan(output[LATENT_KEY]).any()
-        assert not torch.isnan(output[MU_KEY]).any()
-        assert not torch.isnan(output[LOGVAR_KEY]).any()
+        assert not torch.isnan(output[LatentKey.POSTERIOR_LATENT.value]).any()
+        assert not torch.isnan(output[LatentKey.POSTERIOR_MU.value]).any()
+        assert not torch.isnan(output[LatentKey.POSTERIOR_LOGVAR.value]).any()
 
     def test_encode_with_observations(
         self,
@@ -162,14 +162,14 @@ class TestVAETransformerEncoderEncode:
         output = encoder.encode(actions=actions_dict, observations=observations_dict)
 
         # Check all required keys are present
-        assert LATENT_KEY in output
-        assert MU_KEY in output
-        assert LOGVAR_KEY in output
+        assert LatentKey.POSTERIOR_LATENT.value in output
+        assert LatentKey.POSTERIOR_MU.value in output
+        assert LatentKey.POSTERIOR_LOGVAR.value in output
 
         # Check shapes
-        assert output[LATENT_KEY].shape == (batch_size, embedding_dimension)
-        assert output[MU_KEY].shape == (batch_size, vae_latent_dimension)
-        assert output[LOGVAR_KEY].shape == (batch_size, vae_latent_dimension)
+        assert output[LatentKey.POSTERIOR_LATENT.value].shape == (batch_size, embedding_dimension)
+        assert output[LatentKey.POSTERIOR_MU.value].shape == (batch_size, vae_latent_dimension)
+        assert output[LatentKey.POSTERIOR_LOGVAR.value].shape == (batch_size, vae_latent_dimension)
 
     def test_encode_different_batch_sizes(
         self, embedding_dimension, vae_latent_dimension, prediction_horizon, device
@@ -188,9 +188,9 @@ class TestVAETransformerEncoderEncode:
             }
             output = encoder.encode(actions=actions, observations=None)
 
-            assert output[LATENT_KEY].shape[0] == batch_size
-            assert output[MU_KEY].shape[0] == batch_size
-            assert output[LOGVAR_KEY].shape[0] == batch_size
+            assert output[LatentKey.POSTERIOR_LATENT.value].shape[0] == batch_size
+            assert output[LatentKey.POSTERIOR_MU.value].shape[0] == batch_size
+            assert output[LatentKey.POSTERIOR_LOGVAR.value].shape[0] == batch_size
 
 
 @pytest.mark.unit
@@ -211,10 +211,10 @@ class TestVAETransformerEncoderForward:
         output = encoder.forward(actions=actions_dict, observations=None)
 
         # Should call encode() internally
-        assert LATENT_KEY in output
-        assert MU_KEY in output
-        assert LOGVAR_KEY in output
-        assert output[LATENT_KEY].shape == (batch_size, embedding_dimension)
+        assert LatentKey.POSTERIOR_LATENT.value in output
+        assert LatentKey.POSTERIOR_MU.value in output
+        assert LatentKey.POSTERIOR_LOGVAR.value in output
+        assert output[LatentKey.POSTERIOR_LATENT.value].shape == (batch_size, embedding_dimension)
 
 
 @pytest.mark.unit
@@ -238,7 +238,7 @@ class TestVAETransformerEncoderGradients:
         output = encoder.encode(actions=actions_grad, observations=None)
 
         # Compute loss and backprop
-        loss = output[LATENT_KEY].sum() + output[MU_KEY].sum() + output[LOGVAR_KEY].sum()
+        loss = output[LatentKey.POSTERIOR_LATENT.value].sum() + output[LatentKey.POSTERIOR_MU.value].sum() + output[LatentKey.POSTERIOR_LOGVAR.value].sum()
         loss.backward()
 
         # Check gradients exist

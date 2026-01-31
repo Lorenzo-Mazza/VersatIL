@@ -8,12 +8,8 @@ import pytest
 import torch
 from unittest.mock import MagicMock
 
-from versatil.data.constants import (
-    GRIPPER_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    POSITION_ACTION_KEY,
-)
-from versatil.models.decoding.constants import LATENT_KEY, LOGVAR_KEY, MU_KEY
+from versatil.data.constants import ProprioceptiveType
+from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
 
 
@@ -54,9 +50,9 @@ def features_dict(batch_size, embedding_dimension, device):
 def actions_dict(batch_size, prediction_horizon, device):
     """Sample action dictionary."""
     return {
-        POSITION_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 3, device=device),
-        ORIENTATION_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 4, device=device),
-        GRIPPER_ACTION_KEY: torch.randint(0, 2, (batch_size, prediction_horizon, 1), device=device).float(),
+        ProprioceptiveType.POSITION.value: torch.randn(batch_size, prediction_horizon, 3, device=device),
+        ProprioceptiveType.ORIENTATION.value: torch.randn(batch_size, prediction_horizon, 4, device=device),
+        ProprioceptiveType.GRIPPER.value: torch.randint(0, 2, (batch_size, prediction_horizon, 1), device=device).float(),
     }
 
 
@@ -68,9 +64,9 @@ def mock_decoder(batch_size, prediction_horizon):
     def decoder_forward(features, actions):
         batch_size = list(features.values())[0].shape[0]
         return {
-            POSITION_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 3),
-            ORIENTATION_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 4),
-            GRIPPER_ACTION_KEY: torch.randint(0, 2, (batch_size, prediction_horizon, 1)).float(),
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, prediction_horizon, 3),
+            ProprioceptiveType.ORIENTATION.value: torch.randn(batch_size, prediction_horizon, 4),
+            ProprioceptiveType.GRIPPER.value: torch.randint(0, 2, (batch_size, prediction_horizon, 1)).float(),
         }
 
     decoder.side_effect = decoder_forward
@@ -103,14 +99,14 @@ class TestBehavioralCloningForward:
         mock_decoder.assert_called_once()
 
         # Check predictions
-        assert POSITION_ACTION_KEY in predictions
-        assert ORIENTATION_ACTION_KEY in predictions
-        assert GRIPPER_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert ProprioceptiveType.ORIENTATION.value in predictions
+        assert ProprioceptiveType.GRIPPER.value in predictions
 
         # Should NOT have latent keys (pure BC)
-        assert LATENT_KEY not in predictions
-        assert MU_KEY not in predictions
-        assert LOGVAR_KEY not in predictions
+        assert LatentKey.POSTERIOR_LATENT.value not in predictions
+        assert LatentKey.POSTERIOR_MU.value not in predictions
+        assert LatentKey.POSTERIOR_LOGVAR.value not in predictions
 
     def test_forward_passes_features_unchanged(self, mock_decoder, features_dict, actions_dict):
         """Test that forward passes features unchanged to decoder."""
@@ -144,9 +140,9 @@ class TestBehavioralCloningPredict:
         assert call_args[1]["actions"] is None
 
         # Check predictions
-        assert POSITION_ACTION_KEY in predictions
-        assert ORIENTATION_ACTION_KEY in predictions
-        assert GRIPPER_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert ProprioceptiveType.ORIENTATION.value in predictions
+        assert ProprioceptiveType.GRIPPER.value in predictions
 
     def test_predict_passes_features_unchanged(self, mock_decoder, features_dict):
         """Test that predict passes features unchanged to decoder."""
@@ -174,7 +170,7 @@ class TestBehavioralCloningDeterminism:
 
         decoder = MagicMock()
         decoder.return_value = {
-            POSITION_ACTION_KEY: torch.randn(4, prediction_horizon, 3),
+            ProprioceptiveType.POSITION.value: torch.randn(4, prediction_horizon, 3),
         }
 
         # Run twice with same seed

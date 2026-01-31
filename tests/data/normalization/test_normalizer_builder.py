@@ -9,16 +9,12 @@ from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.configs.data.tokenizer import ObservationTokenizationConfig, ActionTokenizationConfig, TokenizationConfig
 from versatil.data.constants import (
     Cameras,
-    POSITION_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    PROPRIO_OBS_ROBOT_FRAME_KEY,
-    PROPRIO_OBS_CAMERA_FRAME_KEY,
-    GRIPPER_STATE_OBS_KEY,
-    LANGUAGE_KEY,
     GripperType,
-    KinematicsNormalizationType,
     ImageNormalizationType,
+    KinematicsNormalizationType,
+    ObsKey,
+    ProprioceptiveType,
+    ProprioKey,
     TokenizerType,
 )
 
@@ -33,9 +29,9 @@ def mock_replay_buffer():
 
     # Proprioceptive data
     buffer.__getitem__ = MagicMock(side_effect=lambda key: {
-        PROPRIO_OBS_ROBOT_FRAME_KEY: np.random.randn(100, 7).astype(np.float32),
-        PROPRIO_OBS_CAMERA_FRAME_KEY: np.random.randn(100, 7).astype(np.float32),
-        GRIPPER_STATE_OBS_KEY: np.random.randint(0, 2, (100, 1)).astype(np.float32),
+        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(100, 7).astype(np.float32),
+        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(100, 7).astype(np.float32),
+        ProprioKey.GRIPPER_STATE.value: np.random.randint(0, 2, (100, 1)).astype(np.float32),
         Cameras.LEFT.value: np.random.randint(0, 255, (100, 224, 224, 3), dtype=np.uint8),
         Cameras.RIGHT.value: np.random.randint(0, 255, (100, 224, 224, 3), dtype=np.uint8),
         Cameras.DEPTH.value: np.random.uniform(0.5, 5.0, (100, 224, 224)).astype(np.float32),
@@ -43,9 +39,9 @@ def mock_replay_buffer():
     }[key])
 
     buffer.keys.return_value = [
-        PROPRIO_OBS_ROBOT_FRAME_KEY,
-        PROPRIO_OBS_CAMERA_FRAME_KEY,
-        GRIPPER_STATE_OBS_KEY,
+        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
+        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value,
+        ProprioKey.GRIPPER_STATE.value,
         Cameras.LEFT.value,
         'custom_obs',
     ]
@@ -64,8 +60,8 @@ def mock_action_processor():
     processor.action_space.gripper_type = GripperType.BINARY
 
     processor.compute_actions_from_observations.return_value = {
-        POSITION_ACTION_KEY: np.random.randn(99, 3).astype(np.float32),
-        ORIENTATION_ACTION_KEY: np.random.randn(99, 4).astype(np.float32),
+        ProprioceptiveType.POSITION.value: np.random.randn(99, 3).astype(np.float32),
+        ProprioceptiveType.ORIENTATION.value: np.random.randn(99, 4).astype(np.float32),
     }
 
     processor.compute_gripper_actions.return_value = np.random.randint(0, 2, (99, 1)).astype(np.float32)
@@ -134,8 +130,8 @@ class TestReadProprioDataFromBuffer:
         """Test reading position actions."""
         proprio_data = normalizer_builder._read_proprio_data_from_buffer()
 
-        assert POSITION_ACTION_KEY in proprio_data
-        assert proprio_data[POSITION_ACTION_KEY].shape == (99, 3)
+        assert ProprioceptiveType.POSITION.value in proprio_data
+        assert proprio_data[ProprioceptiveType.POSITION.value].shape == (99, 3)
         mock_action_processor.compute_actions_from_observations.assert_called_once()
 
 
@@ -143,8 +139,8 @@ class TestReadProprioDataFromBuffer:
         """Test reading orientation actions."""
         proprio_data = normalizer_builder._read_proprio_data_from_buffer()
 
-        assert ORIENTATION_ACTION_KEY in proprio_data
-        assert proprio_data[ORIENTATION_ACTION_KEY].shape == (99, 4)
+        assert ProprioceptiveType.ORIENTATION.value in proprio_data
+        assert proprio_data[ProprioceptiveType.ORIENTATION.value].shape == (99, 4)
 
 
     def test_reads_continuous_gripper_actions(self, normalizer_builder, mock_action_processor):
@@ -153,7 +149,7 @@ class TestReadProprioDataFromBuffer:
 
         proprio_data = normalizer_builder._read_proprio_data_from_buffer()
 
-        assert GRIPPER_ACTION_KEY in proprio_data
+        assert ProprioceptiveType.GRIPPER.value in proprio_data
         mock_action_processor.compute_gripper_actions.assert_called_once()
 
 
@@ -163,7 +159,7 @@ class TestReadProprioDataFromBuffer:
 
         proprio_data = normalizer_builder._read_proprio_data_from_buffer()
 
-        assert GRIPPER_ACTION_KEY in proprio_data
+        assert ProprioceptiveType.GRIPPER.value in proprio_data
 
 
     def test_reads_continuous_gripper_observations(self, normalizer_builder):
@@ -173,7 +169,7 @@ class TestReadProprioDataFromBuffer:
 
         proprio_data = normalizer_builder._read_proprio_data_from_buffer()
 
-        assert GRIPPER_STATE_OBS_KEY in proprio_data
+        assert ProprioKey.GRIPPER_STATE.value in proprio_data
 
 
     def test_reads_binary_gripper_observations(self, normalizer_builder):
@@ -183,15 +179,15 @@ class TestReadProprioDataFromBuffer:
 
         proprio_data = normalizer_builder._read_proprio_data_from_buffer()
 
-        assert GRIPPER_STATE_OBS_KEY in proprio_data
+        assert ProprioKey.GRIPPER_STATE.value in proprio_data
 
 
     def test_reads_robot_frame_observations(self, normalizer_builder):
         """Test reading robot frame proprioceptive observations."""
         proprio_data = normalizer_builder._read_proprio_data_from_buffer()
 
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY in proprio_data
-        assert proprio_data[PROPRIO_OBS_ROBOT_FRAME_KEY].shape == (100, 7)
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in proprio_data
+        assert proprio_data[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value].shape == (100, 7)
 
 
     def test_reads_camera_frame_observations(self, normalizer_builder):
@@ -200,7 +196,7 @@ class TestReadProprioDataFromBuffer:
 
         proprio_data = normalizer_builder._read_proprio_data_from_buffer()
 
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY in proprio_data
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in proprio_data
 
 
     def test_reads_both_frame_observations(self, normalizer_builder):
@@ -209,8 +205,8 @@ class TestReadProprioDataFromBuffer:
 
         proprio_data = normalizer_builder._read_proprio_data_from_buffer()
 
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY in proprio_data
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY in proprio_data
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in proprio_data
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in proprio_data
 
 
     def test_reads_custom_observation_keys(self, normalizer_builder):
@@ -243,7 +239,7 @@ class TestReadProprioDataFromBuffer:
         normalizer_builder._read_proprio_data_from_buffer()
 
         # Should read from camera frame key
-        mock_replay_buffer.__getitem__.assert_any_call(PROPRIO_OBS_CAMERA_FRAME_KEY)
+        mock_replay_buffer.__getitem__.assert_any_call(ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value)
 
 
     def test_raises_error_on_empty_buffer(self, normalizer_builder, mock_replay_buffer):
@@ -316,8 +312,8 @@ class TestCreateNormalizer:
         normalizer = normalizer_builder.create_normalizer(device=None, winsorize_depth=True)
 
         assert isinstance(normalizer, LinearNormalizer)
-        assert POSITION_ACTION_KEY in normalizer.params_dict
-        assert ORIENTATION_ACTION_KEY in normalizer.params_dict
+        assert ProprioceptiveType.POSITION.value in normalizer.params_dict
+        assert ProprioceptiveType.ORIENTATION.value in normalizer.params_dict
 
 
     def test_binary_gripper_not_normalized(self, normalizer_builder, mock_action_processor):
@@ -327,7 +323,7 @@ class TestCreateNormalizer:
         normalizer = normalizer_builder.create_normalizer(device=None, winsorize_depth=True)
 
         # Binary gripper should NOT be in normalizer
-        assert GRIPPER_ACTION_KEY not in normalizer.params_dict
+        assert ProprioceptiveType.GRIPPER.value not in normalizer.params_dict
 
 
     def test_binary_gripper_obs_not_normalized(self, normalizer_builder, mock_action_processor):
@@ -339,7 +335,7 @@ class TestCreateNormalizer:
         normalizer = normalizer_builder.create_normalizer(device=None, winsorize_depth=True)
 
         # Binary gripper state should NOT be in normalizer
-        assert GRIPPER_STATE_OBS_KEY not in normalizer.params_dict
+        assert ProprioKey.GRIPPER_STATE.value not in normalizer.params_dict
 
 
     def test_continuous_gripper_is_normalized(self, normalizer_builder, mock_action_processor):
@@ -349,7 +345,7 @@ class TestCreateNormalizer:
         normalizer = normalizer_builder.create_normalizer(device=None, winsorize_depth=True)
 
         # Continuous gripper SHOULD be in normalizer
-        assert GRIPPER_ACTION_KEY in normalizer.params_dict
+        assert ProprioceptiveType.GRIPPER.value in normalizer.params_dict
 
 
     def test_language_not_in_normalizer(self, mock_replay_buffer, mock_action_processor):
@@ -366,7 +362,7 @@ class TestCreateNormalizer:
         # Add language to replay buffer
         original_getitem = mock_replay_buffer.__getitem__
         def getitem_with_language(key):
-            if key == LANGUAGE_KEY:
+            if key == ObsKey.LANGUAGE.value:
                 return np.array(["instruction 1", "instruction 2"] * 50, dtype=object)
             return original_getitem(key)
         mock_replay_buffer.__getitem__ = MagicMock(side_effect=getitem_with_language)
@@ -383,14 +379,14 @@ class TestCreateNormalizer:
         )
 
         normalizer = builder.create_normalizer(device=None, winsorize_depth=True)
-        assert LANGUAGE_KEY not in normalizer.params_dict
+        assert ObsKey.LANGUAGE.value not in normalizer.params_dict
 
 
     def test_create_normalizer_with_device(self, normalizer_builder):
         """Test normalizer creation with specific device."""
         device = torch.device('cpu')
         normalizer = normalizer_builder.create_normalizer(device=device, winsorize_depth=True)
-        assert normalizer[POSITION_ACTION_KEY].params_dict['scale'].device.type == 'cpu'
+        assert normalizer[ProprioceptiveType.POSITION.value].params_dict['scale'].device.type == 'cpu'
 
 
     def test_create_normalizer_min_max_mode(self, normalizer_builder):
@@ -398,14 +394,14 @@ class TestCreateNormalizer:
         normalizer_builder.kinematics_norm_type = KinematicsNormalizationType.MIN_MAX.value
 
         normalizer = normalizer_builder.create_normalizer(device=None, winsorize_depth=True)
-        assert POSITION_ACTION_KEY in normalizer.params_dict
+        assert ProprioceptiveType.POSITION.value in normalizer.params_dict
 
 
     def test_create_normalizer_gaussian_mode(self, normalizer_builder):
         """Test normalizer with Gaussian normalization."""
         normalizer_builder.kinematics_norm_type = KinematicsNormalizationType.GAUSSIAN.value
         normalizer = normalizer_builder.create_normalizer(device=None, winsorize_depth=True)
-        assert POSITION_ACTION_KEY in normalizer.params_dict
+        assert ProprioceptiveType.POSITION.value in normalizer.params_dict
 
 
     def test_normalizer_includes_all_proprio_keys(self, normalizer_builder):
@@ -415,10 +411,10 @@ class TestCreateNormalizer:
 
         normalizer = normalizer_builder.create_normalizer(device=None, winsorize_depth=True)
 
-        assert POSITION_ACTION_KEY in normalizer.params_dict
-        assert ORIENTATION_ACTION_KEY in normalizer.params_dict
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY in normalizer.params_dict
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY in normalizer.params_dict
+        assert ProprioceptiveType.POSITION.value in normalizer.params_dict
+        assert ProprioceptiveType.ORIENTATION.value in normalizer.params_dict
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in normalizer.params_dict
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in normalizer.params_dict
         assert 'custom_obs' in normalizer.params_dict
 
 
@@ -440,7 +436,7 @@ class TestIntegration:
 
         # Test normalization
         test_position = np.random.randn(10, 3).astype(np.float32)
-        normalized = normalizer[POSITION_ACTION_KEY].normalize(test_position)
+        normalized = normalizer[ProprioceptiveType.POSITION.value].normalize(test_position)
 
         assert isinstance(normalized, torch.Tensor)
         assert normalized.shape == (10, 3)
@@ -472,12 +468,12 @@ class TestIntegration:
         normalizer = builder.create_normalizer(device=None, winsorize_depth=True)
 
         # Verify all keys present
-        assert POSITION_ACTION_KEY in normalizer.params_dict
-        assert ORIENTATION_ACTION_KEY in normalizer.params_dict
-        assert GRIPPER_ACTION_KEY in normalizer.params_dict
-        assert GRIPPER_STATE_OBS_KEY in normalizer.params_dict
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY in normalizer.params_dict
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY in normalizer.params_dict
+        assert ProprioceptiveType.POSITION.value in normalizer.params_dict
+        assert ProprioceptiveType.ORIENTATION.value in normalizer.params_dict
+        assert ProprioceptiveType.GRIPPER.value in normalizer.params_dict
+        assert ProprioKey.GRIPPER_STATE.value in normalizer.params_dict
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in normalizer.params_dict
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in normalizer.params_dict
         assert Cameras.DEPTH.value in normalizer.params_dict
         assert 'custom_obs' in normalizer.params_dict
 
@@ -486,7 +482,7 @@ class TestIntegration:
         """Test that normalizer provides output statistics."""
         normalizer = normalizer_builder.create_normalizer(device=None, winsorize_depth=True)
 
-        stats = normalizer[POSITION_ACTION_KEY].get_input_stats()
+        stats = normalizer[ProprioceptiveType.POSITION.value].get_input_stats()
 
         assert 'min' in stats
         assert 'max' in stats
@@ -499,8 +495,8 @@ class TestIntegration:
         normalizer = normalizer_builder.create_normalizer(device=None, winsorize_depth=True)
 
         original = np.random.randn(10, 3).astype(np.float32)
-        normalized = normalizer[POSITION_ACTION_KEY].normalize(original)
-        unnormalized = normalizer[POSITION_ACTION_KEY].unnormalize(normalized)
+        normalized = normalizer[ProprioceptiveType.POSITION.value].normalize(original)
+        unnormalized = normalizer[ProprioceptiveType.POSITION.value].unnormalize(normalized)
 
         np.testing.assert_allclose(unnormalized.numpy(), original, rtol=1e-5, atol=1e-6)
 
@@ -512,8 +508,8 @@ class TestCreateActionChunks:
         """Test basic action chunk creation."""
         # Episode ends at [30, 70, 100] -> 97 actions total (each episode loses 1)
         action_dict = {
-            POSITION_ACTION_KEY: np.random.randn(97, 3).astype(np.float32),
-            ORIENTATION_ACTION_KEY: np.random.randn(97, 4).astype(np.float32),
+            ProprioceptiveType.POSITION.value: np.random.randn(97, 3).astype(np.float32),
+            ProprioceptiveType.ORIENTATION.value: np.random.randn(97, 4).astype(np.float32),
         }
         prediction_horizon = 5
 
@@ -531,7 +527,7 @@ class TestCreateActionChunks:
         # Episode ends at [30, 70, 100] -> actions at [29, 69, 99]
         # Adjusted ends: [29, 68, 97] (each episode loses 1 action)
         action_dict = {
-            POSITION_ACTION_KEY: np.random.randn(97, 3).astype(np.float32),
+            ProprioceptiveType.POSITION.value: np.random.randn(97, 3).astype(np.float32),
         }
         prediction_horizon = 10
 
@@ -550,9 +546,9 @@ class TestCreateActionChunks:
         """Test that action components are concatenated in sorted key order."""
         # Episode ends at [30, 70, 100] -> 97 actions total
         action_dict = {
-            POSITION_ACTION_KEY: np.ones((97, 3), dtype=np.float32),
-            ORIENTATION_ACTION_KEY: np.ones((97, 4), dtype=np.float32) * 2,
-            GRIPPER_ACTION_KEY: np.ones((97, 1), dtype=np.float32) * 3,
+            ProprioceptiveType.POSITION.value: np.ones((97, 3), dtype=np.float32),
+            ProprioceptiveType.ORIENTATION.value: np.ones((97, 4), dtype=np.float32) * 2,
+            ProprioceptiveType.GRIPPER.value: np.ones((97, 1), dtype=np.float32) * 3,
         }
         prediction_horizon = 5
 
@@ -570,7 +566,7 @@ class TestCreateActionChunks:
     def test_create_action_chunks_raises_error_when_episodes_too_short(self, normalizer_builder):
         """Test error when no episodes are long enough for prediction horizon."""
         action_dict = {
-            POSITION_ACTION_KEY: np.random.randn(97, 3).astype(np.float32),
+            ProprioceptiveType.POSITION.value: np.random.randn(97, 3).astype(np.float32),
         }
         # Prediction horizon longer than any episode
         prediction_horizon = 100
@@ -585,7 +581,7 @@ class TestCreateActionChunks:
         # Create simple episode structure
         normalizer_builder.episode_ends = np.array([20])  # Single episode
         action_dict = {
-            POSITION_ACTION_KEY: np.arange(19 * 3).reshape(19, 3).astype(np.float32),
+            ProprioceptiveType.POSITION.value: np.arange(19 * 3).reshape(19, 3).astype(np.float32),
         }
         prediction_horizon = 3
 
@@ -644,17 +640,17 @@ class TestApplyWinsorization:
     def test_winsorization_handles_multiple_keys(self, normalizer_builder):
         """Test winsorization on multiple keys."""
         data_dict = {
-            POSITION_ACTION_KEY: np.random.randn(100, 3).astype(np.float32),
-            ORIENTATION_ACTION_KEY: np.random.randn(100, 4).astype(np.float32),
+            ProprioceptiveType.POSITION.value: np.random.randn(100, 3).astype(np.float32),
+            ProprioceptiveType.ORIENTATION.value: np.random.randn(100, 4).astype(np.float32),
         }
         quantiles = (0.05, 0.95)
 
         winsorized = normalizer_builder._apply_winsorization(data_dict, quantiles)
 
-        assert POSITION_ACTION_KEY in winsorized
-        assert ORIENTATION_ACTION_KEY in winsorized
-        assert winsorized[POSITION_ACTION_KEY].shape == (100, 3)
-        assert winsorized[ORIENTATION_ACTION_KEY].shape == (100, 4)
+        assert ProprioceptiveType.POSITION.value in winsorized
+        assert ProprioceptiveType.ORIENTATION.value in winsorized
+        assert winsorized[ProprioceptiveType.POSITION.value].shape == (100, 3)
+        assert winsorized[ProprioceptiveType.ORIENTATION.value].shape == (100, 4)
 
     def test_winsorization_per_dimension(self, normalizer_builder):
         """Test that winsorization is applied per dimension."""
@@ -723,7 +719,7 @@ class TestTokenizerCreation:
         """Test creating observation tokenizer."""
         obs_tokenizer_config = ObservationTokenizationConfig(
             tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=True,
             num_bins=128,
             max_token_len=256,
@@ -769,7 +765,7 @@ class TestTokenizerCreation:
         """Test creating both observation and action tokenizers."""
         obs_tokenizer_config = ObservationTokenizationConfig(
             tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=False,
             num_bins=128,
             max_token_len=256,

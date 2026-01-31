@@ -20,12 +20,9 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
 from versatil.data.constants import (
-    ACTION_KEY,
     Cameras,
-    POSITION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    OBSERVATION_KEY,
-    IS_PAD_ACTION_KEY,
+    ProprioceptiveType,
+    SampleKey,
 )
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.tokenization.tokenizer import Tokenizer
@@ -74,10 +71,10 @@ def create_dummy_normalizer(config: DictConfig) -> LinearNormalizer:
         normalizer['proprio_camera_frame'] = SingleFieldLinearNormalizer.create_identity()
 
     if action_space.has_position:
-        normalizer[POSITION_ACTION_KEY] = SingleFieldLinearNormalizer.create_identity()
+        normalizer[ProprioceptiveType.POSITION.value] = SingleFieldLinearNormalizer.create_identity()
 
     if action_space.has_gripper and action_space.gripper_type != 'binary':
-        normalizer[GRIPPER_ACTION_KEY] = SingleFieldLinearNormalizer.create_identity()
+        normalizer[ProprioceptiveType.GRIPPER.value] = SingleFieldLinearNormalizer.create_identity()
 
     return normalizer
 
@@ -110,7 +107,7 @@ def create_dummy_tokenizer(config: DictConfig, device: str = 'cpu') -> Tokenizer
         use_pretrained_weights=tokenization_config.use_pretrained_action_tokenizer,
     )
     sample_actions = torch.randn(1, prediction_horizon, total_action_dim, device=device)
-    tokenizer_obj.tokenize({ACTION_KEY: sample_actions})
+    tokenizer_obj.tokenize({SampleKey.ACTION.value: sample_actions})
 
     # Also fit proprio tokenizer if observation space uses proprioception
     observation_space = instantiate(config.task.observation_space)
@@ -160,7 +157,7 @@ def create_dummy_batch(config: DictConfig, batch_size: int = 2) -> Dict[str, tor
     image_h = config.task.dataloader.image_height
     image_w = config.task.dataloader.image_width
 
-    batch = {OBSERVATION_KEY: {}, "action": {}}
+    batch = {SampleKey.OBSERVATION.value: {}, "action": {}}
 
     if hasattr(obs_space, 'camera_keys') and obs_space.camera_keys:
         for camera_key in obs_space.camera_keys:
@@ -168,43 +165,43 @@ def create_dummy_batch(config: DictConfig, batch_size: int = 2) -> Dict[str, tor
                 channels = 1
             else:
                 channels = 3
-            batch[OBSERVATION_KEY][camera_key] = torch.randn(
+            batch[SampleKey.OBSERVATION.value][camera_key] = torch.randn(
                 batch_size, observation_horizon, channels, image_h, image_w
             )
 
     if hasattr(obs_space, 'use_depth') and obs_space.use_depth:
-        if Cameras.DEPTH.value not in batch[OBSERVATION_KEY]:
-            batch[OBSERVATION_KEY][Cameras.DEPTH.value] = torch.randn(
+        if Cameras.DEPTH.value not in batch[SampleKey.OBSERVATION.value]:
+            batch[SampleKey.OBSERVATION.value][Cameras.DEPTH.value] = torch.randn(
                 batch_size, observation_horizon, 1, image_h, image_w
             )
 
     if hasattr(obs_space, 'use_proprio_base_frame') and obs_space.use_proprio_base_frame:
-        batch[OBSERVATION_KEY]['proprio_robot_frame'] = torch.randn(
+        batch[SampleKey.OBSERVATION.value]['proprio_robot_frame'] = torch.randn(
             batch_size, observation_horizon, action_space.position_dim
         )
 
     if hasattr(obs_space, 'use_proprio_camera_frame') and obs_space.use_proprio_camera_frame:
-        batch[OBSERVATION_KEY]['proprio_camera_frame'] = torch.randn(
+        batch[SampleKey.OBSERVATION.value]['proprio_camera_frame'] = torch.randn(
             batch_size, observation_horizon, action_space.position_dim
         )
 
     if hasattr(obs_space, 'use_gripper_state') and obs_space.use_gripper_state:
-        batch[OBSERVATION_KEY]['gripper_state'] = torch.randn(
+        batch[SampleKey.OBSERVATION.value]['gripper_state'] = torch.randn(
             batch_size, observation_horizon, 1
         )
 
     if action_space.has_position:
-        batch["action"][POSITION_ACTION_KEY] = torch.randn(
+        batch["action"][ProprioceptiveType.POSITION.value] = torch.randn(
             batch_size, prediction_horizon, action_space.position_dim
         )
 
     if action_space.has_gripper:
         if action_space.gripper_type == 'binary':
-            batch["action"][GRIPPER_ACTION_KEY] = torch.randint(
+            batch["action"][ProprioceptiveType.GRIPPER.value] = torch.randint(
                 0, 2, (batch_size, prediction_horizon, 1), dtype=torch.float32
             )
         else:
-            batch["action"][GRIPPER_ACTION_KEY] = torch.randn(
+            batch["action"][ProprioceptiveType.GRIPPER.value] = torch.randn(
                 batch_size, prediction_horizon, 1
             )
 
@@ -214,7 +211,7 @@ def create_dummy_batch(config: DictConfig, batch_size: int = 2) -> Dict[str, tor
             0, num_phases, (batch_size, prediction_horizon, 1), dtype=torch.long
         )
 
-    batch[IS_PAD_ACTION_KEY] = torch.zeros(batch_size, prediction_horizon, dtype=torch.bool)
+    batch[SampleKey.IS_PAD_ACTION.value] = torch.zeros(batch_size, prediction_horizon, dtype=torch.bool)
 
     return batch
 
@@ -462,7 +459,7 @@ class TestPolicyForwardPass:
                 assert output is not None
                 # For tokenized decoders, check for action_tokens; otherwise check for position
                 has_tokenized_output = 'action_tokens' in output
-                has_continuous_output = POSITION_ACTION_KEY in output or 'position' in output
+                has_continuous_output = ProprioceptiveType.POSITION.value in output or 'position' in output
                 assert has_tokenized_output or has_continuous_output, f"Output keys: {output.keys()}"
             except Exception as e:
                 pytest.fail(f"Forward pass failed for {experiment_name}: {e}")
@@ -492,7 +489,7 @@ class TestPolicyForwardPass:
 
             with torch.no_grad():
                 try:
-                    actions = policy.predict_action(batch[OBSERVATION_KEY])
+                    actions = policy.predict_action(batch[SampleKey.OBSERVATION.value])
                     assert actions is not None
                     assert isinstance(actions, dict)
                 except Exception as e:

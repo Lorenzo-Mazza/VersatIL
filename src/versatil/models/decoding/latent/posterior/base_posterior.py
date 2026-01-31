@@ -16,7 +16,7 @@ class PosteriorLatentEncoder(nn.Module, abc.ABC):
 
     Design:
         - Supports both action-only and action+observation conditioning
-        - Returns dictionary with LATENT_KEY + algorithm-specific auxiliary outputs
+        - Returns dictionary with LatentKey.POSTERIOR_LATENT + algorithm-specific auxiliary outputs
         - Provides sample_prior() for inference (when actions unavailable)
 
     """
@@ -43,7 +43,7 @@ class PosteriorLatentEncoder(nn.Module, abc.ABC):
 
         Returns:
             Dictionary containing at minimum:
-                - LATENT_KEY: Latent embedding (B, latent_dim)
+                - LatentKey.POSTERIOR_LATENT: Latent embedding (B, latent_dim)
                 Plus algorithm-specific outputs (e.g., mu, logvar for VAE)
         """
         raise NotImplementedError("encode() must be implemented by subclasses.")

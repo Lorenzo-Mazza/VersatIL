@@ -4,11 +4,7 @@ import copy
 import torch
 import torch.nn as nn
 
-from versatil.models.decoding.constants import (
-    EXPERT_OUTPUTS,
-    ROUTING_WEIGHT,
-    MoERoutingType,
-)
+from versatil.models.decoding.constants import DecoderOutputKey, MoERoutingType
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.mixture_of_experts import BaseMixtureOfExperts
 from versatil.models.layers.activation import ActivationFunction
@@ -134,8 +130,8 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
         combined_outputs = self._combine_expert_outputs(
             expert_outputs, mixing_probabilities
         )
-        combined_outputs[ROUTING_WEIGHT] = mixing_probabilities
-        combined_outputs[EXPERT_OUTPUTS] = expert_outputs
+        combined_outputs[DecoderOutputKey.ROUTING_WEIGHTS.value] = mixing_probabilities
+        combined_outputs[DecoderOutputKey.EXPERT_OUTPUTS.value] = expert_outputs
         return combined_outputs
 
     def _combine_expert_outputs(

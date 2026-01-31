@@ -58,6 +58,7 @@ class BatchNormHandling(str, enum.Enum):
     batch statistics mix frames across time, leaking future information into each frame's
     representation. This causes train/test mismatch since the signal vanishes at inference.
     """
+
     DEFAULT = "default"  # Keep BatchNorm as-is.
     FROZEN = "frozen"  # Freeze BN: preserves pretrained stats, no batch dependency
     CONVERT_TO_GROUPNORM = "groupnorm"  # Replace with GroupNorm (per-sample stats, but loses pretrained weights benefits)
