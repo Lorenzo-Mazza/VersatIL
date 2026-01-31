@@ -347,22 +347,22 @@ They can be easily extended by either:
 
 ### Decoders
 
-- `ActionTransformer` - Action Transformer Decoder, using modern components s.a. Rotary Positional Embeddings and RMSNorm.
+- `ActionTransformer` - **Novel** Action Transformer Decoder, using modern components s.a. Rotary Positional Embeddings and RMSNorm.
 - `ACT` - Action Chunking Transformer ([paper](https://arxiv.org/abs/2304.13705))
-- `LACT` - Latent ACtion Transformer
+- `LACT` - **Novel** Latent ACtion Transformer
 - `PhaseACT` - Phase-aware ACT with surgical phase prediction ([paper](https://arxiv.org/abs/2601.21971))
-- `FreeTransformer` - Free Transformer adapted as action decoder ([paper](https://arxiv.org/pdf/2510.17558))
+- `FreeTransformer` - **Novel** Free Transformer action decoder inspired by ([paper](https://arxiv.org/pdf/2510.17558))
 - `MoEFreeTransformer` - Mixture of Experts on top of Free Transformer
-- `FASTGPTDecoder` - Autoregressive GPT-style decoder with tokenized actions in the style of ([pi0-FAST](https://www.physicalintelligence.company/blog/pi0-fast))
+- `FASTGPTDecoder` - **Novel** autoregressive GPT-style decoder with tokenized actions in the style of ([pi0-FAST](https://www.physicalintelligence.company/blog/pi0-fast))
 - `FASTDETRDecoder` - DETR-style decoder (https://arxiv.org/abs/2005.12872) with tokenized actions
 - `ConditionalUNet` - U-Net for Diffusion Policy ([paper](https://arxiv.org/abs/2303.04137))
 - `DiTBlockActionTransformer` - DiT-Block Action Transformer (from [paper](https://arxiv.org/html/2410.10088v1))
-- `DiffusionActionTransformer` - Diffusion Action Transformer supporting two different architectures:
+- `DiffusionActionTransformer` - **Novel** Diffusion Action Transformer supporting two different architectures:
     - With cross-attention to encoder tokens, using an architecture inspired by PixArt ([paper](https://arxiv.org/abs/2310.00426))
     - With a dual-attention stream, using the MultiModal DiT architecture from SD3   ([paper](https://arxiv.org/abs/2403.03206))
 - `MoEDecoderWrapper` - Mixture of Experts wrapper to use on top of any decoder
 
-
+You can easily extend the available decoders by implementing new classes that subclass `versatil.models.decoding.decoders.base.ActionDecoder`.
 
 ---
 
