@@ -1,13 +1,9 @@
 """Fusion modules for combining multi-modal features."""
-from abc import abstractmethod
+import abc
 from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
-
-from versatil.models.encoding.fusion.constants import FeatureType
-
-"""Structured specifications for fusion modules."""
 
 
 @dataclass
@@ -19,7 +15,6 @@ class FusionInput:
     max_count: int | None = (
         None  # Maximum number of features allowed (None = unlimited)
     )
-    feature_type: str = FeatureType.ANY.value  # Type of features expected
 
 
 @dataclass
@@ -28,23 +23,6 @@ class FusionOutput:
 
     output_name: str
     output_dim: int | tuple[int, ...]
-
-    @property
-    def is_spatial(self) -> bool:
-        """Check if output has spatial dimensions."""
-        return isinstance(self.output_dim, tuple) and len(self.output_dim) == 3
-
-    @property
-    def is_sequence(self) -> bool:
-        """Check if output has sequence dimensions."""
-        return isinstance(self.output_dim, tuple) and len(self.output_dim) == 2
-
-    @property
-    def is_flat(self) -> bool:
-        """Check if output is flat (no spatial or sequence dimensions)."""
-        if isinstance(self.output_dim, int):
-            return True
-        return len(self.output_dim) == 1
 
 
 class FusionModule(nn.Module):
@@ -70,7 +48,7 @@ class FusionModule(nn.Module):
         """Set input features (used by pipeline during resolution)."""
         self.input_specification.input_features = features
 
-    @abstractmethod
+    @abc.abstractmethod
     def get_output_specification(self) -> FusionOutput:
         """Get structured output specification."""
         raise NotImplementedError
@@ -91,46 +69,56 @@ class FusionModule(nn.Module):
         """
         if self._initialized:
             return
-        self._validate_feature_types(feature_keys_to_dims)
         self._setup_layers(feature_keys_to_dims)
         self._initialized = True
 
-    def _validate_feature_types(self, feature_keys_to_dims: dict[str, int | tuple]):
-        """Validate that input features match expected type.
-
-        Args:
-            feature_keys_to_dims: Dict mapping feature names to their dimensions
-
-        Raises:
-            ValueError: If feature types don't match constraints
-        """
-        if self.input_specification.feature_type == FeatureType.ANY.value:
-            return
-        for feat_name in self.input_features:
-            dim = feature_keys_to_dims[feat_name]
-            is_spatial = isinstance(dim, tuple) and len(dim) == 3
-            if (
-                self.input_specification.feature_type == FeatureType.SPATIAL.value
-                and not is_spatial
-            ):
-                raise ValueError(
-                    f"Feature '{feat_name}' has dimension {dim}, "
-                    f"but {self.feature_type.value} fusion requires spatial features (C, H, W)"
-                )
-            elif (
-                self.input_specification.feature_type == FeatureType.SEQUENTIAL.value
-                and is_spatial
-            ):
-                raise ValueError(
-                    f"Feature '{feat_name}' has spatial dimension {dim}, "
-                    f"but {self.input_specification.feature_type} fusion requires sequential/flat features"
-                )
-
-    @abstractmethod
+    @abc.abstractmethod
     def _setup_layers(self, feature_keys_to_dims: dict[str, int | tuple]):
         """Build layers once input feature dimensions are known."""
         raise NotImplementedError("Must implement _setup_layers in subclass.")
 
-    @abstractmethod
+    @abc.abstractmethod
     def forward(self, features: list[torch.Tensor]) -> torch.Tensor:
         raise NotImplementedError
+
+
+class SequentialFusion(FusionModule, abc.ABC):
+    """Base class for fusion modules that project features to a shared dimension"""
+
+    def __init__(
+        self,
+        input_features: list[str],
+        output_name: str,
+        hidden_dim: int,
+    ):
+        """
+        Args:
+            input_features: List of feature names to fuse.
+            output_name: Name of the output fused feature.
+            hidden_dim: Dimension to project each input feature to before fusion.
+        """
+        input_specification = FusionInput(input_features=input_features)
+        super().__init__(
+            input_specification=input_specification, output_name=output_name
+        )
+        self.projections: nn.ModuleList | None = None
+        self.hidden_dim = hidden_dim
+
+    def _setup_layers(self, feature_keys_to_dims: dict[str, int | tuple]):
+        """Build projection layers for each input feature."""
+        input_dims_raw = [feature_keys_to_dims[feat] for feat in self.input_features]
+        input_dims: list[int] = []
+        for feat_name, dim in zip(self.input_features, input_dims_raw):
+            if isinstance(dim, tuple):
+                if len(dim) > 2:
+                    raise ValueError(
+                        f"SequentialFusion requires flat or sequential dimensions, but '{feat_name}' has dimension {dim}. "
+                        f"Use SpatialFusion for spatial features."
+                    )
+                proj_dim = dim[-1]
+            else:
+                proj_dim = dim
+            input_dims.append(proj_dim)
+        self.projections = nn.ModuleList(
+            [nn.Linear(dim, self.hidden_dim) for dim in input_dims]
+        )

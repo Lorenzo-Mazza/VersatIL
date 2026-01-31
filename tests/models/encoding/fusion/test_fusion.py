@@ -2,12 +2,7 @@
 import pytest
 import torch
 
-from versatil.models.encoding.fusion.constants import FeatureType
-from versatil.models.encoding.fusion.base import (
-    FusionInput,
-    FusionOutput,
-    FusionModule,
-)
+from versatil.models.encoding.fusion.base import FusionInput, FusionOutput, FusionModule
 from versatil.models.encoding.fusion.concat import ConcatFusion
 from versatil.models.encoding.fusion.mlp import MLPFusion
 from versatil.models.encoding.fusion.attention import AttentionFusion
@@ -89,54 +84,6 @@ def sequence_features_3d(batch_size, temporal_length):
         torch.randn(batch_size, temporal_length, 512),
         torch.randn(batch_size, temporal_length, 128),
     ]
-
-
-class TestFusionInput:
-    """Tests for FusionInput validation."""
-    @pytest.mark.parametrize("feature_type", [
-        FeatureType.SPATIAL,
-        FeatureType.SEQUENTIAL,
-        FeatureType.ANY,
-    ])
-    def test_feature_type_enum(self, feature_type):
-        """Test that feature type enums are valid."""
-        fusion_input = FusionInput(
-            input_features=[RGB_FEATURES],
-            feature_type=feature_type.value,
-        )
-        assert fusion_input.feature_type == feature_type.value
-
-
-class TestFusionOutput:
-    """Tests for FusionOutput properties."""
-
-    def test_is_spatial(self):
-        """Test spatial dimension detection (C, H, W)."""
-        output = FusionOutput(output_name="fused", output_dim=(128, 32, 32))
-        assert output.is_spatial
-        assert not output.is_sequence
-        assert not output.is_flat
-
-    def test_is_sequence(self):
-        """Test sequence dimension detection (T, D)."""
-        output = FusionOutput(output_name="fused", output_dim=(512, 256))
-        assert output.is_sequence
-        assert not output.is_spatial
-        assert not output.is_flat
-
-    def test_is_flat(self):
-        """Test flat dimension detection (D,)."""
-        output = FusionOutput(output_name="fused", output_dim=(256,))
-        assert output.is_flat
-        assert not output.is_spatial
-        assert not output.is_sequence
-
-    def test_is_flat_with_int(self):
-        """Test flat dimension detection with int instead of tuple."""
-        output = FusionOutput(output_name="fused", output_dim=256)
-        assert output.is_flat
-        assert not output.is_spatial
-        assert not output.is_sequence
 
 
 class TestConcatFusionInitialization:
@@ -221,7 +168,6 @@ class TestConcatFusionForward:
         spec = fusion.get_output_specification()
         assert spec.output_name == FUSED_FEATURES
         assert spec.output_dim == 512  # 256 * 2
-        assert spec.is_flat
 
 
 class TestMLPFusionInitialization:

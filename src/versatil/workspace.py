@@ -24,8 +24,7 @@ from pytorch_lightning.tuner import Tuner
 from torch.utils import data
 
 from versatil.common.tensor_ops import to_device
-from versatil.configs import TaskSpaceConfig, MainConfig
-from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.configs import MainConfig
 from versatil.data.dataloader import get_dataloaders
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.tokenization import Tokenizer

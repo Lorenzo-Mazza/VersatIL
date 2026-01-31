@@ -8,7 +8,8 @@ from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import FeatureType, LATENT_KEY
+from versatil.models.constants import FeatureType
+from versatil.models.decoding.constants import LATENT_KEY
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, ConditioningType

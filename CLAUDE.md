@@ -200,12 +200,14 @@ src/versatil/
 
 **Validation** happens at Policy instantiation:
 ```python
-# src/versatil/models/policy.py:41-55
+# src/versatil/models/policy.py:97-119
 def validate_decoder(self):
-    available_features_to_dims = self.encoding_pipeline.get_features_to_dimensions()
-    decoder_feature_specifications = self.decoder.architecture.input_specification.feature_keys_to_types
+    available_features_to_dims = self.encoding_pipeline.get_final_features_to_dimensions()
     # Check all required features are available
-    # Check feature types match (spatial vs flat vs sequential)
+    # Validate feature types (spatial, flat, sequential)
+    self.decoder.decoder_input.validate_feature_types(
+        available_features_to_dims=available_features_to_dims
+    )
 ```
 
 This ensures configuration errors are caught early, not during training.
@@ -474,12 +476,20 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 5. **Config references**: Use `"${task.observation_space}"` not direct assignment for Hydra interpolation
 
 ## TODOs
-- The explainer looks buggy and hardcoded. It will probably need a huge refactor to fit into the new architecture.
-- Integrate SMOL-VLA somewhere in the pipeline (e.g. add smol_vlm as subclass of vlm )
-- Introduce the diffusion transformer and the conditional-unet decoders in the decoders package, based on the old models.diffusion_policy code.
-- Introduce the DiT action decoder.
-- Add tests for all the layers package.
-- Verify compliance of tests to ruff
+Fixes:
+- Verify integrity of Feature Types (SPATIAL/SEQUENTIAL/FLAT) across all encoders and decoders. Right now there seems to be duplicated code and classes.
+- Uniformize the decoder keys in constants module, probably with an Enum.
+- Remove Legacy Constants in data/constants.py
+- Move the validation of the task-encoders matching from validator module to the validation of the Policy. Create standalone module for policy validation.
+- Move configs/encoding/image.py to configs/encoding/encoder.py
+- Verify integrity of Fusion Layers and remove superfluous Concat-Sequential division.
+- Update the tests, at the moment they are all legacy and broken.
+Extensions:
+- The explainer is buggy and hardcoded. It needs a refactoring to fit into the new architecture as modular component:
+The explain endpoint should be agnostic of the data format (right now it assumes CSV Schema).
+- Distributed training needs to be re-integrated with the new workspace (currently broken).
+- Quantize package needs to be developed.
+- Verify compliance to ruff and introduce mypy and ruff in the ReadMe and in the codebase.
 - Introduce pre-commit hooks
 - Write proper changelog, etc.
 
@@ -491,7 +501,6 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
   - Add LoRA config to all encoder configs (optional, enabled=False by default)
   - Benefits: Fine-tune large frozen models with <1% of original parameters
 - Create a synthetic dataset schema for 1D and 2D vanilla tasks. 
-- Create a dataset schema for simulation?
 - Introduce support for Pointcloud data and 3D encoders-decoders like RVT
 - Implement memory based encoders like V-JEPA and Masked Autoencoders.
 - Implement two-stage training somehow?

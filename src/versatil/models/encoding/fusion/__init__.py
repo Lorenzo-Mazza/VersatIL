@@ -1,8 +1,7 @@
 from .attention import AttentionFusion
-from .base import FusionModule
+from .base import FusionModule, SequentialFusion
 from .concat import ConcatFusion
 from .mlp import MLPFusion
-from .sequential import SequentialFusion
 
 __all__ = [
     "FusionModule",

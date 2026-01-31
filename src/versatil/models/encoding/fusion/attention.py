@@ -1,8 +1,7 @@
 import torch
 from torch import nn
 
-from versatil.models.encoding.fusion.base import FusionOutput
-from versatil.models.encoding.fusion.sequential import SequentialFusion
+from versatil.models.encoding.fusion.base import FusionOutput, SequentialFusion
 
 
 class AttentionFusion(SequentialFusion):

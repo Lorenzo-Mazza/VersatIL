@@ -4,7 +4,8 @@ import torch
 
 from versatil.models.decoding.decoders import MoEDecoder, DecoderInput
 from versatil.models.decoding.decoders.base import ActionDecoder
-from versatil.models.decoding.constants import MoERoutingType, FeatureType
+from versatil.models.constants import FeatureType
+from versatil.models.decoding.constants import MoERoutingType
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import (

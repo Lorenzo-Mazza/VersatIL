@@ -14,7 +14,7 @@ from torch import nn
 
 from versatil.data.constants import POSITION_ACTION_KEY
 from versatil.data.transform import normalize_observation
-from versatil.models.constants import ExplanationType
+from versatil.explain.constants import ExplanationType
 from versatil.models.policy import Policy
 
 

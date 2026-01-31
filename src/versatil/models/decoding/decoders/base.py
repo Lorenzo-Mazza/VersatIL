@@ -7,7 +7,7 @@ import torch.nn as nn
 from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.data.task import ObservationSpace, ActionSpace
 from versatil.data.tokenization import Tokenizer, ActionTokenizer
-from versatil.models.decoding.constants import FeatureType
+from versatil.models.constants import FeatureType
 
 
 @dataclass

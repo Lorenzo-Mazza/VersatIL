@@ -77,7 +77,7 @@ class TrainingConfig:
     lr_schedule: str | None = None  # "cosine", "linear", None
     lr_warmup_steps: int = 5000
 
-    # EMA
+    # Exponential Moving Average (EMA) of model parameters
     use_ema: bool = True
     ema_power: float = 0.75
 

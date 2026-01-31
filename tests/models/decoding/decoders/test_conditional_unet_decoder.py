@@ -10,7 +10,8 @@ from versatil.data.constants import (
     OrientationRepresentation,
 )
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import TIMESTEP_KEY, FeatureType
+from versatil.models.constants import FeatureType
+from versatil.models.decoding.constants import TIMESTEP_KEY
 from versatil.models.decoding.decoders.factory.conditional_unet_decoder import (
     ConditionalUNetDecoder,
 )

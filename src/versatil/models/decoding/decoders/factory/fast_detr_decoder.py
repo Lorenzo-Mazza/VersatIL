@@ -9,11 +9,8 @@ from versatil.models.decoding.constants import (
     ACTION_LOGITS_KEY,
     PREDICTED_ACTION_TOKENS_KEY,
 )
-from versatil.models.decoding.decoders.base import (
-    ActionDecoder,
-    DecoderInput,
-    FeatureType,
-)
+from versatil.models.constants import FeatureType
+from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer import Transformer
 from versatil.models.layers.positional_encoding.learned import (

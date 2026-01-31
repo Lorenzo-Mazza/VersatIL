@@ -1,7 +1,6 @@
 import torch
 
-from versatil.models.encoding.fusion.base import FusionOutput
-from versatil.models.encoding.fusion.sequential import SequentialFusion
+from versatil.models.encoding.fusion.base import FusionOutput, SequentialFusion
 from versatil.models.layers import MLP
 from versatil.models.layers.activation import ActivationFunction
 
