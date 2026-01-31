@@ -23,7 +23,7 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
 from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
     ConditionalBidirectionalDecoder,
 )
-from versatil.models.layers.transformer_input_builder import TransformerInputBuilder
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
 
 class LACT(ActionDecoder):

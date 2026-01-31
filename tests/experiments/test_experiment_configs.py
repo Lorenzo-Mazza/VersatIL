@@ -32,7 +32,7 @@ from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.policy import Policy
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-EXPERIMENTS_DIR = PROJECT_ROOT / "experiments"
+EXPERIMENTS_DIR = PROJECT_ROOT / "hydra_configs"
 
 
 def get_all_experiment_configs():

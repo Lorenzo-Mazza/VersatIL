@@ -81,7 +81,6 @@ class EncoderOutputKeys(str, enum.Enum):
     LANGUAGE = "language"
     DEPTH = "depth"
     PROPRIOCEPTIVE = "proprio"
-    TOKEN_EMBEDDING = "token_embedding"
     PADDING_MASK = "padding_mask"
 
 

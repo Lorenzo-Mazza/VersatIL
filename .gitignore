@@ -2,6 +2,7 @@ bin
 logs
 wandb
 outputs
+.env
 
 data_local
 .vscode
@@ -142,7 +143,7 @@ dmypy.json
 .pyre/
 
 /src/endpoints/custom_configs/*
-/experiments/custom_configs/*
+a/yaml_configs/custom_configs/*
 
 uv.lock
 .venv*

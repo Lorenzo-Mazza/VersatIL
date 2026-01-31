@@ -117,7 +117,7 @@ class TestFASTDETRDecoderConfig:
     def test_yaml_config_loads(self):
         """Test that fast_detr_decoder_default.yaml loads correctly via Hydra."""
         project_root = Path(__file__).parent.parent.parent
-        decoder_config_dir = project_root / "experiments" / "policy" / "decoder"
+        decoder_config_dir = project_root / "hydra_configs" / "policy" / "decoder"
 
         with initialize_config_dir(config_dir=str(decoder_config_dir), version_base=None):
             cfg = compose(config_name="fast_detr_decoder_default")
@@ -198,7 +198,7 @@ class TestFASTGPTDecoderConfig:
     def test_yaml_config_loads(self):
         """Test that fast_gpt_decoder_default.yaml loads correctly via Hydra."""
         project_root = Path(__file__).parent.parent.parent
-        decoder_config_dir = project_root / "experiments" / "policy" / "decoder"
+        decoder_config_dir = project_root / "hydra_configs" / "policy" / "decoder"
 
         with initialize_config_dir(config_dir=str(decoder_config_dir), version_base=None):
             cfg = compose(config_name="fast_gpt_decoder_default")

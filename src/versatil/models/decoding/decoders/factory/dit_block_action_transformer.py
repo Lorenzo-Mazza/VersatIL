@@ -24,7 +24,7 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
-from versatil.models.layers.transformer_input_builder import TransformerInputBuilder
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
 
 class DiTBlockActionTransformer(ActionDecoder):

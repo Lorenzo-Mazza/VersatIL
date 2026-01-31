@@ -1,0 +1,65 @@
+# @package _global_
+# Configuration for training a Cross-Attention Conditioning Diffusion Transformer with flow matching on Libero dataset
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: default
+  - /task/dataset_schema: libero_10
+  - /task/dataloader: libero
+  - /task/action_space: libero_precomputed
+  - /task/observation_space: libero_rgb
+  - /training: ema_cosine_schedule
+  - /policy/encoding_pipeline: stereo_rgb_language_encoder
+  - /policy/decoder: dit_multimodal
+  - /policy/algorithm: flow_matching
+  - /policy/loss: regressionMSE_gripper
+  - /inference: default
+  - override /policy/decoder/heads@policy.decoder.action_heads: libero
+  - _self_
+
+task:
+  observation_horizon: 1
+  prediction_horizon: 10
+
+
+experiment:
+  checkpoint_folder: ${checkpoint_dir:libero}
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: true
+  loss:
+    loss_modules:
+      regression_loss:
+        action_keys:
+          - ${proprio_key:EE_POS_ACTION}
+          - ${proprio_key:EE_ORI_ACTION}
+      gripper_loss:
+        key: ${proprio_key:GRIPPER_STATE_ACTION}
+      trajectory_length:
+        action_key: ${proprio_key:EE_POS_ACTION}
+  encoding_pipeline:
+    encoders:
+        left:
+            input_keys:
+              - ${cameras:AGENTVIEW}
+        right:
+            input_keys:
+              - ${cameras:EYE_IN_HAND}
+  decoder:
+      input_keys:
+        - left_rgb
+        - right_rgb
+
+# Override specific parameters from defaults/command line if needed
+# For example, to use different batch size:
+# task.dataloader.batch_size: 64
+# To override specific config components from command line, you can do for example
+# ```policy/loss=mmd_l1_pos_gripper_bce``` to use MMD instead of KL in your loss

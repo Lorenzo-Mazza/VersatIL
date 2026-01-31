@@ -283,7 +283,7 @@ VariationalAlgorithm(
 )
 ```
 
-**Configs** (`experiments/policy/algorithm/`):
+**Configs** (`hydra_configs/policy/algorithm/`):
 - `bc_with_vae_gaussian.yaml`: BC + VAE + Gaussian prior
 - `bc_with_learned_prior.yaml`: BC + VAE + Diffusion prior
 - `variational_diffusion.yaml`: Diffusion + VAE + Diffusion prior

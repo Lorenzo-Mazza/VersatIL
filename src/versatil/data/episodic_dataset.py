@@ -16,7 +16,7 @@ from versatil.data.constants import (
 )
 from versatil.configs.data.tokenizer import TokenizationConfig
 from versatil.data.normalization.normalizer import LinearNormalizer
-from versatil.data.preprocessor_builder import PreprocessorBuilder
+from versatil.data.transform_builder import TransformBuilder
 from versatil.data.preprocessing.replay_buffer import ReplayBuffer
 from versatil.data.preprocessing.sampler import (
     SequenceSampler,
@@ -277,7 +277,7 @@ class EpisodicDataset(data.Dataset):
         Returns:
             Tuple of (normalizer, tokenizer) where tokenizer is None if not configured
         """
-        normalizer_builder = PreprocessorBuilder(
+        normalizer_builder = TransformBuilder(
             replay_buffer=self.replay_buffer,
             action_processor=self.action_processor,
             observation_space=self.observation_space,

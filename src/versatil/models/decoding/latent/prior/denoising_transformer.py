@@ -27,7 +27,7 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding2D,
 )
 from versatil.models.layers.swiglu import SwiGLU
-from versatil.models.layers.transformer_input_builder import TransformerInputBuilder
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.decoding.constants import (
     BetaSchedule,
     DenoisingAlgorithm,

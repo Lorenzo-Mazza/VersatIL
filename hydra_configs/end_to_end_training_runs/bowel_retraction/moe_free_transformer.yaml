@@ -1,0 +1,38 @@
+# @package _global_
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: default
+  - /task/dataset_schema: bowel_retraction_v2
+  - /task/dataloader: bowel_retraction_tokenized_actions
+  - /task/action_space: deltas_cf_pos_gripper
+  - /task/observation_space: stereo_rgb_proprio
+  - /training: gpt_decoder_default
+  - /policy/encoding_pipeline: stereo_rgb_language_encoder
+  - /policy/decoder: moe_free_transformer_decoder
+  - /policy/algorithm: behavioral_cloning
+  - /policy/loss: moe_tokenCE_binary_KL
+  - /inference: default
+  - _self_
+
+experiment:
+  checkpoint_folder: ${checkpoint_dir:bowel_retraction}
+
+task:
+  observation_horizon: 2
+  prediction_horizon: 10
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: false
+
+# Override specific parameters from defaults/command line if needed
+# For example, to use different batch size:
+# task.dataloader.batch_size: 64

@@ -1,0 +1,18 @@
+defaults:
+  - hdf5
+  - zarr_meta/libero@metadata
+
+_target_: versatil.data.raw.schemas.custom.libero.LiberoSchema
+dataset_type: ${dataset_type:LIBERO}
+zarr_path: ${zarr_dir:libero_single_datasets_hdf5/libero_object.zarr}
+hdf5_paths:
+  - ${libero_hdf5_dir:libero_object/pick_up_the_alphabet_soup_and_place_it_in_the_basket_demo.hdf5}
+  - ${libero_hdf5_dir:libero_object/pick_up_the_bbq_sauce_and_place_it_in_the_basket_demo.hdf5}
+  - ${libero_hdf5_dir:libero_object/pick_up_the_butter_and_place_it_in_the_basket_demo.hdf5}
+  - ${libero_hdf5_dir:libero_object/pick_up_the_chocolate_pudding_and_place_it_in_the_basket_demo.hdf5}
+  - ${libero_hdf5_dir:libero_object/pick_up_the_cream_cheese_and_place_it_in_the_basket_demo.hdf5}
+  - ${libero_hdf5_dir:libero_object/pick_up_the_ketchup_and_place_it_in_the_basket_demo.hdf5}
+  - ${libero_hdf5_dir:libero_object/pick_up_the_milk_and_place_it_in_the_basket_demo.hdf5}
+  - ${libero_hdf5_dir:libero_object/pick_up_the_orange_juice_and_place_it_in_the_basket_demo.hdf5}
+  - ${libero_hdf5_dir:libero_object/pick_up_the_salad_dressing_and_place_it_in_the_basket_demo.hdf5}
+  - ${libero_hdf5_dir:libero_object/pick_up_the_tomato_sauce_and_place_it_in_the_basket_demo.hdf5}
