@@ -359,7 +359,7 @@ The `VariationalAlgorithm` wraps any base algorithm with a VAE-style latent spac
 **Prior Network types:**
 - `GaussianPrior` - Fixed Gaussian N(0,I) (standard VAE prior)
 - `PriorTransformerEncoder` - Learned conditional gaussian prior using a transformer encoder
-- `DenoisingTransformerPrior` - Multimodal prior trained via diffusion/flow matching
+- `DiTPrior` - Multimodal prior trained via diffusion/flow matching
 - `VampPrior` - Mixture of posteriors ([paper](https://arxiv.org/abs/1705.07120))
 
 Each decoder can customize how it integrates the latent `z` token into its architecture (e.g., prepended token, cross-attention, FiLM).
@@ -488,6 +488,8 @@ pytest -m "not slow"       # Skip slow tests
 - **Error handling**: Use `raise`, avoid assertions and try/catch blocks
 - **Strings**: Use double quotes (`"foo"` not `'foo'`)
 - **Constants**: Avoid hardcoded strings, use `Enum.MY_ENUM.value`
+- **No wildcard imports**: Avoid `from module import *`
+- Avoid **kwargs and *args: Explicit is better than implicit
 
 ```bash
 # Format code

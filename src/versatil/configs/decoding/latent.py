@@ -104,14 +104,14 @@ class VampPriorConfig(PriorLatentEncoderConfig):
 
 
 @dataclass
-class DenoisingTransformerPriorConfig(PriorLatentEncoderConfig):
+class DiTPriorConfig(PriorLatentEncoderConfig):
     """DiT-style transformer prior for denoising score matching.
 
-    Uses a non-autoregressive transformer where noisy latent z is treated
+    Uses a non-autoregressive diffusion transformer where noisy latent z is treated
     as a CLS token appended to observation tokens.
     """
 
-    _target_: str = "versatil.models.decoding.latent.prior.denoising_transformer.DenoisingTransformerPrior"
+    _target_: str = "versatil.models.decoding.latent.prior.dit_prior.DiTPrior"
     latent_dimension: int = 32
     embedding_dimension: int = 256
     number_of_heads: int = 8

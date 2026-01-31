@@ -65,7 +65,7 @@ from versatil.configs.decoding.latent import (
     PriorLatentEncoderConfig,
     VAETransformerEncoderConfig,
     GaussianPriorConfig,
-    DenoisingTransformerPriorConfig,
+    DiTPriorConfig,
     PriorTransformerEncoderConfig,
     VampPriorConfig,
 )
@@ -192,7 +192,7 @@ __all__ = [
     "PriorLatentEncoderConfig",
     "VAETransformerEncoderConfig",
     "GaussianPriorConfig",
-    "DenoisingTransformerPriorConfig",
+    "DiTPriorConfig",
     "VampPriorConfig",
     "ActionHeadConfig",
     "MixtureOfExpertsHeadConfig",
@@ -514,7 +514,7 @@ def register_configs():
     cs.store(
         group="policy/algorithm/prior",
         name="dit",
-        node=DenoisingTransformerPriorConfig,
+        node=DiTPriorConfig,
     )
 
     cs.store(group="policy/loss", name="composite", node=CompositeLossConfig)

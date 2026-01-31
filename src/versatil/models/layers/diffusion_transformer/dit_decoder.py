@@ -49,6 +49,7 @@ class DiffusionTransformerDecoder(nn.Module):
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
         use_gating: bool = True,
+        use_final_normalization: bool = True,
         initializer_range: float = 0.02,
     ):
         """Initialize the diffusion decoder.
@@ -70,6 +71,7 @@ class DiffusionTransformerDecoder(nn.Module):
             bias: Whether to use bias in linear layers.
             normalization_epsilon: Epsilon for normalization layers.
             use_gating: Whether to use gating in AdaNorm (often referred to as AdaLNZeroNorm).
+            use_final_normalization: Whether to apply final normalization after decoder layers.
             initializer_range: Standard deviation for weight initialization.
         """
         super().__init__()
@@ -116,11 +118,13 @@ class DiffusionTransformerDecoder(nn.Module):
                 for _ in range(number_of_layers)
             ]
         )
-        self.final_normalization = create_normalization_layer(
-            normalization_type=normalization_type,
-            dimension=embedding_dimension,
-            epsilon=normalization_epsilon,
-        )
+        self.final_normalization = None
+        if use_final_normalization:
+            self.final_normalization = create_normalization_layer(
+                normalization_type=normalization_type,
+                dimension=embedding_dimension,
+                epsilon=normalization_epsilon,
+            )
         self.apply(self._init_weights)
 
     def _init_weights(self, module: nn.Module) -> None:
@@ -199,5 +203,6 @@ class DiffusionTransformerDecoder(nn.Module):
                 attention_mask=attention_mask,
                 positional_encoding=rotary_positional_encoding,
             )
-        hidden_states = self.final_normalization(hidden_states)
+        if self.final_normalization is not None:
+            hidden_states = self.final_normalization(hidden_states)
         return hidden_states
