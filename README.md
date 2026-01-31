@@ -2,24 +2,158 @@
 
 ![VersatIL Logo](media/VersatIL_logo.png)
 
-A modular, composable framework for training vision-based imitation learning policies on robotic manipulation tasks. Built with PyTorch Lightning
-and Hydra for reproducible research.
+### 🤯 The Paradox of Research Code
+Have you ever found yourself wondering: *"How would this Robot Policy perform if I simply swapped that ResNet18 for an EfficientNet, or just changed one term in the loss function?"*
 
-## Overview
+So you clone the repo to try it out. You wrestle with a `requirements.txt` from 2018 that demands CUDA 9.0 and a version of PyTorch that seemingly only exists on a floppy disk in a basement. You finally get the environment running, only to discover that the loss function implementation is tightly coupled to a string variable named `"dataset_v2_final_final"` deep in the training loop.
 
-VersatIL provides a flexible architecture where policies are composed from modular components:
 
-```
-Policy = Encoding Pipeline + Algorithm + Decoder + Loss
-```
+Or perhaps you have wandered through State-Of-The-Art codebases, staring blankly at lines like:
+`b = d.unsqueeze(-1).view(b, -1, h//16, w//16).permute(0, 3, 1, 2).contiguous()`
+...wondering what unholy things are happening to those poor tensors?
 
-- **DatasetSchema**: Flexible schema system supporting multiple data formats (CSV, HDF5) and dataset structures. Easily extend to new datasets without modifying core code.
-- **EncodingPipeline**: Multi-modal observation encoding (RGB, depth, proprioception, language) with hierarchical fusion that turns raw data into features.
-- **Algorithm**: Learning paradigm (Behavioral Cloning, Diffusion, Flow Matching, Variational) that specifies how to train a policy.
-- **Decoder**: Neural architecture (Diffusion Transformer, DETR, GPT, UNet) that is used to decode features into robot actions.
-- **Loss**: Composable loss modules (MSE, Cross-Entropy, KL, etc.).
+### This ends with VersatIL. ⚡
 
-The VersatIL library enables rapid experimentation with different combinations of components across diverse datasets without code duplication.
+VersatIL is a modular, composable framework built with PyTorch fully decouples the three pillars of imitation learning: 
+**Data**,
+ **Algorithm**, and **Architecture** into clean, reusable components.
+
+
+Swap Behavioral Cloning for Diffusion or Flow Matching, replace a ResNet with a ViT or VLM backbone, or run your policy on a completely new dataset format — all with just config changes, no code rewrites.
+
+Rapid experimentation, cleaner code, and true reusability across projects.
+
+### Core Principles
+- 🧑‍🔬 **Research-First Flexibility** — Unlike frameworks that focus on reimplementing and distributing specific SOTA policies, VersatIL gives you the modular building blocks to **create and benchmark your own novel architectures and algorithms** on any dataset.
+- 🔄 **Mix & Match** You are free to swap any robot policy component for easy benchmarking.
+- 🧱 **Modularity** Each component is self-contained and reusable.
+- ⚡ **Modern Dependency Management** – Dependencies managed with [uv](https://github.com/astral-sh/uv) and `pyproject.toml` for modern and fast installation.
+- ♻️ **Don't Reinvent the Wheel** We rely on industry-standard libraries:
+    * **Timm** for vision backbones.
+    * **HuggingFace Transformers** for Language encoders and VLMs.
+    * **HuggingFace Diffusers** for diffusion schedulers.
+    * **TorchCFM** for Flow Matching schedulers.
+- 💡 **Invent What Matters** For performance-critical components, we wrote a custom `models/layers` package. This includes optimized implementations of:
+    * Attention (FlashAttention).
+    * Positional Encodings (Sinusoidal, Learned, Rotary).
+    * Transformer variants (DETR, GPT, BERT, Free Transformer).
+    * Modular Deep Neural Networks layers such as normalization, modulation, convolution, etc
+    * *Note: These are policy-agnostic and reusable in other projects.*
+- 🔒 **Explainability & Safety** – Strict interfaces, full type hints, Google-style docstrings, and runtime config validation.
+- 🧪 **Testing** – Comprehensive unit and integration tests for every module.
+
+
+---
+
+## ⏳ Workflow
+
+### 📋 Before Training
+
+ 
+#### ⚙️ Configuration Management
+VersatIL uses **[Hydra](https://hydra.cc/)** and **[OmegaConf](https://omegaconf.readthedocs.io/)** for the management of experiment configurations.
+
+Hydra provides:
+- **Hierarchical composition** — Combine reusable config groups via `defaults:` without constant YAML editing.
+- **CLI overrides & sweeps** — Change parameters or run hyperparameter searches directly from the command line.
+
+OmegaConf provides:
+- **Config Safety:** All configs are typed Dataclasses. If you pass a string where an int is expected, or forget a mandatory field, the run fails immediately at startup—not 2 hours into training.
+- **Smart merging** — Config classes define defaults that automatically fill missing values when merging multiple files.
+
+Together, this means you can create new experiments by overriding only the parameters that change — no need to write complete YAML files for every run.
+
+---
+#### 🗄️ Dataset Schema (Ingestion)
+Raw data formats vary wildly (Rosbags, CSVs, HDF5). We don't force you to convert your raw files manually. \
+Instead, VersatIL handles this with a two-stage approach:
+1. **DatasetSchema (how your raw data is structured)**  
+   A pluggable class that maps any raw format to a standardized **Zarr** store.  
+   Built-in support for:
+   - HuggingFace LeRobot datasets
+   - LIBERO-style HDF5
+   - Custom CSV + image folders (TSO Lab format)  
+   Extend by subclassing `DatasetSchema` for new formats.
+   
+2. **Zarr Store Creation**  
+   Zarr [https://zarr.readthedocs.io/en/stable/]  provides fast, compressed, chunked storage with NumPy-like access.  
+   - Created **automatically** on first training run if missing — no separate preprocessing script needed.
+   - Decouples raw storage from training-optimized layout.
+
+---
+
+
+### 🏋️‍♂️ During Training
+#### 🎯 Task Definition
+
+The **TaskConfig** selects what subset of the Zarr data to use, allowing multiple tasks from a single dataset without duplication:
+
+- **Observation space** — Choose which observations will be given to the robot policy as state, e.g. which cameras, proprioception, depth, language instructions, etc.
+- **Action space** — Choose which ground-truth actions will be given to your robot policy and in which format, e.g. deltas or absolute positions, gripper states, end-effector orientation, etc.
+- **Temporal horizons** — Observation and prediction temporal windows.
+
+*Example:* The same Zarr store can power a pure-vision task, a state-only task, and a vision-language task simultaneously.
+
+---
+#### 🚚 Data Loading Pipeline
+Uniform across all Zarr datasets:
+- Fast episodic loading from Zarr
+- Temporal chunking (observation windows + action sequences + masks)
+- Preprocessing (normalization, augmentation, tokenization)
+- Batching via PyTorch DataLoader
+
+Actions can be **precomputed** (stored in Zarr) or computed **on-the-fly** during batching(e.g., deltas from consecutive states).
+
+---
+
+
+
+#### 🧠 Policy Composition
+A robot policy is built from four decoupled components, orchestrated by the `Policy` class:
+1.  👁️ **Encoding Pipeline:** A pipeline of multi-modal encoders that extract features from raw observations plus an optional fusion module that combines the features
+into a unified representation.
+2.  🧮 **Algorithm:** The learning paradigm that defines how to train the policy. This can be:
+- Standard Behavioral Cloning (supervised learning of actions given observations)
+- Generative approaches through Denoising Score Matching such as Diffusion and Flow Matching. 
+- Variational approaches that add a learned latent variables to any base algorithm. The latent variable can be learned through different kinds of prior-posterior schemes,
+ which will determine the nature of the latent space. 
+3) 🕹️ **Action Decoder:** The neural architecture that decodes the features into robot actions. This can be a Transformer-based architecture or a UNet-based architecture.
+We provide a set of standard decoders such as the Action Chunking Transformer (ACT) or the DiT-Block Policy from the literature. More information on the available decoders can be found below.
+We additionally support a Mixture-Of-Experts (MoE) wrapper, which can be used on top of any decoder to copy the architecture across multiple experts and learn a gating network to select which expert to use at inference time.
+4.  📉 **Loss Module:** A composable loss module that defines the objective function to optimize during training. This can be a simple regression loss (MSE) or a more complex loss that combines multiple terms (e.g. action regression + KL divergence for variational algorithms).
+
+---
+
+
+#### ⚡ Training Engine
+Powered by **PyTorch Lightning**:
+* Automatic handling of loops, distributed training, and checkpointing.
+* **WandB Integration:** Tracks metrics, gradients, EMA decay, and latent visualizations.
+* **Callbacks:** EMA weights, gradient norm logging, t-SNE plots.
+
+---
+### 🚀 Post-Training
+
+#### 🔌 Inference (ZMQ)
+
+We provide ZMQ-based inference clients for TSO Lab Robot Testbed server, LIBERO simulation server and Metaworlds simulation server. 
+The clients handle 
+communication with the server through sockets, requesting for observations and sending back actions predicted by the trained policy. This design allows us to 
+decouple the policy training environment from the robot/simulation server implementation, enabling easy integration with different robot platforms or simulation
+environments.
+
+---
+
+#### 🔍 Explainability
+We provide tools for model interpretability, such as visualization of the feature maps from the trained policy vision encoders.
+We currently support Grad-CAM, Grad-CAM++, Ablation-CAM and Integrated Gradients for visual explanations of the model's predictions.
+
+---
+
+
+#### 📦 Quantization
+We plan to add support for post-training quantization of the trained policies, to enable deployment on edge devices with limited computational resources.
+
 
 ---
 
@@ -51,38 +185,69 @@ mamba activate versatil
 UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
 ```
 
-NB: If you are installing from the cluster, make sure to do the installation from inside an interactive job with 1 GPU and 1 CPU available.
-This is needed to install flash-attn properly, because it needs the paths to CUDA libraries.
-To request such a job, run `srun --gres=gpu:1 --cpus-per-task=1 --pty bash` on g27vmsteffi.
+NB: The above installation requires a machine with a GPU with CUDA installed.
+This is needed so that flash-attn can find the CUDA runtime libraries.
+To install VersatIL from our computing cluster, you need to run:
 ```bash
 srun --gres=gpu:1 --cpus-per-task=1 --pty bash
 # Then run installation commands above
 ```
 
+### Environment Configuration
+
+VersatIL uses a `.env` file to configure machine-specific paths. Copy the example and customize:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your paths:
+
+```bash
+# Storage paths
+VERSATIL_CHECKPOINT_DIR=/path/to/checkpoints      # Where model checkpoints are saved
+VERSATIL_ZARR_DIR=/path/to/zarr                   # Preprocessed Zarr datasets
+VERSATIL_CACHE_DIR=/path/to/cache                 # HuggingFace/torch model cache
+
+# Dataset paths (set only the ones you use)
+VERSATIL_BOWEL_RETRACTION_DIR=/path/to/bowel_retraction
+VERSATIL_LIBERO_HDF5_DIR=/path/to/libero/datasets
+VERSATIL_LIBERO_LEROBOT_DIR=/path/to/libero_lerobot
+VERSATIL_METAWORLD_LEROBOT_DIR=/path/to/metaworld_lerobot
+
+# Weights & Biases (optional)
+WANDB_PROJECT=versatil
+WANDB_ENTITY=your-team
+```
+
+These variables are referenced in Hydra configs via OmegaConf resolvers (e.g., `${checkpoint_dir:bowel_retraction}`).
+
 ### Training Your First Model
 
 **1. Default Training:**
 ```bash
-# Train Action Chunking Transformer on bowel retraction dataset
-python -m versatil.endpoints.train --config-name act_bowel_retraction
+# Train ACT on bowel retraction dataset
+python -m versatil.endpoints.train --config-name end_to_end_training_runs/bowel_retraction/act
 
+# Train ACT on LIBERO dataset
+python -m versatil.endpoints.train --config-name end_to_end_training_runs/libero_hdf5/act
 ```
 
 **2. Override Configuration:**
 ```bash
 # Change batch size
 python -m versatil.endpoints.train \
-    --config-name act_bowel_retraction \
+    --config-name end_to_end_training_runs/bowel_retraction/act \
     task.dataloader.batch_size=64
 
 # Disable EMA
 python -m versatil.endpoints.train \
-    --config-name act_bowel_retraction \
+    --config-name end_to_end_training_runs/bowel_retraction/act \
     training.use_ema=false
 
 # Change learning rate
 python -m versatil.endpoints.train \
-    --config-name act_bowel_retraction \
+    --config-name end_to_end_training_runs/bowel_retraction/act \
     training.optimizer.lr=1e-4
 ```
 
@@ -111,325 +276,122 @@ predictions = algorithm.forward(
 loss = loss_module(predictions, targets)
 ```
 
+
 ### Feature Naming Contract
 
-Feature names follow a strict naming convention using the `EncoderOutputKeys` enum.
+VersatIL relies on strict naming conventions to wire encoders to decoders automatically. Instead of manually passing tensors, we match strings.
 
-**Rule**: `feature_name = "{encoder_name}_{EncoderOutputKeys.value}"`
+**The Rule:** `feature_name = "{encoder_name}_{type}"`
 
-**EncoderOutputKeys enum** (`src/versatil/models/encoding/encoders/constants.py`):
+If you define an RGB encoder named `left_eye`, it produces:
+* `left_eye_image` (The spatial features)
+
+If you define a proprioception encoder named `robot_state`, it produces:
+* `robot_state_proprio` (The flat features)
+
+For multimodal encoders that produce multiple features, such as Vision-Language models, we use a dot separator to select the feature.
+If you define a VLM encoder named `vlm_model`, it produces:
+* `vlm_model.image` (Image features)
+* `vlm_model.language` (Text features)
+
+**Why strict naming?**
+It prevents shape mismatches silently propagating. The `Policy` class validates shapes at initialization. If your Decoder expects a **FLAT** feature (1D)
+but you feed it **SPATIAL** (3D) features from a ResNet, the code raises a `ValueError` immediately—before training starts.
+
+
+**Fusion outputs** specify `output_name` directly, due to their multi-input nature.
 ```python
-class EncoderOutputKeys(str, enum.Enum):
-    RGB = "image"            # For RGB features
-    RGBD = "rgbd"           # For RGB-D features
-    LANGUAGE = "language"   # For language features
-    DEPTH = "depth"         # For depth features
-    PROPRIOCEPTIVE = "proprio"  # For proprioceptive features
-    DEFAULT = "default"     # For generic features
-```
-
-**Concrete examples**:
-```python
-# Encoder config name (from YAML) + EncoderOutputKeys.value = feature name
-"left_rgb"      + "image"    = "left_rgb_image"      # RGB encoder
-"right_rgb"     + "image"    = "right_rgb_image"     # RGB encoder
-"depth_encoder" + "depth"    = "depth_encoder_depth" # Depth encoder
-"proprio"       + "proprio"  = "proprio_proprio"     # Proprioceptive encoder
-"tokenizer"     + "language" = "tokenizer_language"  # Language/tokenizer encoder
-```
-
-**Fusion outputs** do NOT use this convention (they specify `output_name` directly):
-```python
-# Fusion example
 fusion = AttentionFusion(
-    input_features=["left_rgb_image", "right_rgb_image"],  # Use encoder feature names
+    input_features=["left_eye_image", "right_eye_image"],  # Use encoder feature names
     output_name="fused_visual"  # Direct name (no prefix)
 )
 ```
 
-**Complete pipeline example**:
-```python
-# 1. Encoders produce: {encoder_name}_{EncoderOutputKeys.value}
-encoders = {
-    "left_rgb": CNNEncoder(...)    → produces "left_rgb_image"
-    "robot_state": ProprioEncoder(...) → produces "robot_state_proprio"
-}
 
-# 2. Fusion consumes encoder outputs, produces new feature
-fusion = ConcatFusion(
-    input_features=["left_rgb_image", "robot_state_proprio"],
-    output_name="fused_features"  # New feature, not prefixed
-)
-# Available features after fusion: {"fused_features"}
-# Note: left_rgb_image and proprio_proprio are consumed!
+**Decoder inputs** require `input_keys` from the encoders or fusion outputs.
 
-# 3. Decoder requests features by exact name
-decoder_input = DecoderInput(
-    keys=["fused_features"]  # Must match exactly
-)
-```
-
-### Feature Types & Validation
-
-Features are classified by tensor shape for validation:
-
-| FeatureType | Shape | Example | Generated By |
-|-------------|-------|---------|--------------|
-| **FLAT** | `(D,)` or `int` | `(512,)` | Pooled CNN, MLP, fused features |
-| **SPATIAL** | `(C, H, W)` | `(256, 16, 16)` | CNN feature maps (before pooling) |
-| **SEQUENTIAL** | `(T, D)` | `(10, 512)` | Temporal sequences, transformer outputs |
-
-**Validation** catches errors at instantiation:
-```python
-# Decoder can require specific feature types
-decoder_input = DecoderInput(
-    keys=["fused_visual"],
-    required_types=[FeatureType.FLAT.value]  # Must have ≥1 FLAT feature
-)
-
-# Policy validation will raise:
-# ValueError: Decoder requires FLAT features but only SPATIAL provided
-# (Caught when Policy() is instantiated, NOT during training!)
-```
-
-### Feature Consumption Pattern
-
-Fusion modules consume input features to prevent duplication:
-
-```python
-# Encoders produce: A, B, C, D
-# Fusion 1: B + C → E  (consumes B and C)
-# Fusion 2: E + D → F  (consumes E and D)
-# Final output: {A, F}  ← Only these go to decoder
-```
-
----
 
 ## 🧩 Available Components
 
+### Encoders
+
+- **RGB** via [timm](https://github.com/huggingface/pytorch-image-models) 
+  - CNNEncoder: ResNet, EfficientNet, EdgeNeXt
+  - ConditionalCNNEncoder: CNN with FiLM conditioning
+  - ViTEncoder: ViT Base, DINOv2, DINOv3
+- **Depth**
+  - DepthCNNEncoder: timm backbones adapted for single-channel depth
+  - DFormerV2: RGB-D encoder with Geometric Attention ([paper](https://arxiv.org/abs/2504.04701))
+  - LightGeometric: Custom lightweight geometric depth encoder
+- **Language** via [transformers](https://github.com/huggingface/transformers): BERT Base, DistilBERT Base, MiniLM-L6, Gemma 2B, Qwen2-1.5B
+- **Proprioceptive**: ProprioEncoder - MLP for robot state
+- **VLM** via [transformers](https://github.com/huggingface/transformers): CLIP, SigLIP
+
+Available backbones are listed in `src/versatil/models/encoding/encoders/constants.py` (`RGBBackboneType`, `LanguageEncoderType`, `ImageTextModelType`).
+They can be easily extended by either:
+- adding new Enum values that map to timm or transformers model names. 
+- Implementing custom encoder classes that subclass `EncoderBase`.
+
+### Fusion
+
+- `ConcatFusion` - Concatenation
+- `MLPFusion` - MLP projection after concat
+- `AttentionFusion` - Cross-attention
+
 ### Algorithms
 
-Located in `src/versatil/models/decoding/algorithm/`:
-
-| Algorithm | Description | Use Case |
-|-----------|-------------|----------|
-| **BehavioralCloning** | Direct supervised learning |
-| **ActionDiffusion** | DDPM-based action generation |
-| **FlowMatching** | Continuous normalizing flows |
-| **VariationalAlgorithm** | VAE wrapper for any algorithm | Adds latent variables to any base algorithm |
-
-**Variational Pattern** :
-```python
-# Wrap any algorithm with variational inference
-VariationalAlgorithm(
-    base_algorithm=BehavioralCloning(),
-    posterior_encoder=VAETransformerEncoder(...),  # q(z|a,s)
-    prior=DiffusionPrior(...)  # p(z|s) - can be Gaussian or learned
-)
-```
+- `BehavioralCloning` - Optimizes likelihood of expert actions via supervised learning
+- `Diffusion` - Generative modeling via Denoising Score Matching through Diffusion ([paper](https://arxiv.org/abs/2011.13456))
+- `FlowMatching` - Flow-Based Generative Modeling via Continuous Normalizing Flows ([paper](https://arxiv.org/abs/2209.03003))
+- `VariationalAlgorithm` - Variational Inference wrapper to learn a latent space to use for any base algorithm
 
 ### Decoders
 
-Located in `src/versatil/models/decoding/decoders/factory/`:
+- `ActionTransformer` - Action Transformer Decoder, using modern components s.a. Rotary Positional Embeddings and RMSNorm.
+- `ACT` - Action Chunking Transformer ([paper](https://arxiv.org/abs/2304.13705))
+- `LACT` - Latent ACtion Transformer
+- `PhaseACT` - Phase-aware ACT with surgical phase prediction ([paper](https://arxiv.org/abs/2601.21971))
+- `FreeTransformer` - Free Transformer adapted as action decoder ([paper](https://arxiv.org/pdf/2510.17558))
+- `MoEFreeTransformer` - Mixture of Experts on top of Free Transformer
+- `FASTGPTDecoder` - Autoregressive GPT-style decoder with tokenized actions in the style of ([pi0-FAST](https://www.physicalintelligence.company/blog/pi0-fast))
+- `FASTDETRDecoder` - DETR-style decoder (https://arxiv.org/abs/2005.12872) with tokenized actions
+- `ConditionalUNet` - U-Net for Diffusion Policy ([paper](https://arxiv.org/abs/2303.04137))
+- `DiTBlockActionTransformer` - DiT-Block Action Transformer (from [paper](https://arxiv.org/html/2410.10088v1))
+- `DiffusionActionTransformer` - Diffusion Action Transformer supporting two different architectures:
+    - With cross-attention to encoder tokens, using an architecture inspired by PixArt ([paper](https://arxiv.org/abs/2310.00426))
+    - With a dual-attention stream, using the MultiModal DiT architecture from SD3   ([paper](https://arxiv.org/abs/2403.03206))
+- `MoEDecoderWrapper` - Mixture of Experts wrapper to use on top of any decoder
 
-| Decoder               |  Architecture                | Best For                                           |
-|-----------------------|------------------------------|----------------------------------------------------|
-| **ActionTransformer** | Vanilla transformer          | General-purpose baseline                           |
-| **ACT**               | Action Chunking Transformer  | Long-horizon tasks (from ACT paper)                |
-| **PhaseACT**          | ACT + phase prediction       | Multi-phase procedures                             |
-| **FASTGPTDecoder**    | Autoregressive GPT           | Discrete action tokenization (FAST)                |
-| **FASTDETRDecoder**   | DETR with FAST               | (Experimental)
-| **DPTransformer**     | Diffusion Policy transformer | From Diffusion Policy paper (not implemented yet ) |
-| **ConditionalUNet**   | UNet with FiLM               | From Diffusion Policy paper (not implemented yet ) |
-| **DiTTransformer**    | Diffusion Transformer        | From DiT Policy paper (not implemented yet )       |
 
-### Encoders
-
-Located in `src/versatil/models/encoding/encoders/`:
-
-**RGB Encoders** (`rgb/`):
-- `CNNEncoder`: ResNet/EfficientNet backbones
-- `ViTEncoder`: Vision Transformers
-- `ConditionalCNN`: FiLM-conditioned CNN
-
-**Depth Encoders** (`depth/`):
-- `DepthCNN`: Depth-specific CNN
-
-**Proprioceptive Encoders** (`proprioceptive/`):
-- `ProprioceptiveEncoder`: MLP for robot state
-
-**Language Encoders** (`language/`):
-- `LanguageEncoder`: CLIP/T5 text encoders
-- `TokenizerEncoder`: For discrete tokenization and embedding (no full encoding)
-
-#### Encoder Input Keys ⚠️
-
-Encoder `input_keys` must use appropriate constants from `src/versatil/data/constants.py`:
-
-| Encoder Type | Constants to Use | Example Values |
-|--------------|------------------|----------------|
-| **RGB/Depth** | `Cameras` enum | `Cameras.LEFT.value` → `"left"`<br>`Cameras.RIGHT.value` → `"right"`<br>`Cameras.DEPTH.value` → `"depth"` |
-| **Proprioceptive** | Observation key constants | `PROPRIO_OBS_ROBOT_FRAME_KEY` → `"proprio_robot_frame"`<br>`PROPRIO_OBS_CAMERA_FRAME_KEY` → `"proprio_camera_frame"`<br>`GRIPPER_STATE_OBS_KEY` → `"gripper_state_obs"` |
-| **Language** | Language key constant | `LANGUAGE_KEY` → `"language_instruction"` |
-| **Custom** | Custom observation keys | Any string matching your Zarr dataset keys |
-
-**Note on custom observation keys**:
-- Custom keys are defined in your **DatasetSchema** when creating the Zarr dataset
-- They must match keys in your **ObservationSpace** configuration
-- Use string literals directly in encoder config: `input_keys: ["robot_ee_force"]`
-
-**Example YAML configs:**
-```yaml
-# RGB encoder (using Hydra resolver)
-left_rgb:
-  _target_: versatil.models.encoding.encoders.rgb.cnn.CNNEncoder
-  input_keys: ${cameras:LEFT}  # Resolves to "left"
-
-# Proprioceptive encoder
-proprio:
-  _target_: versatil.models.encoding.encoders.proprioceptive.ProprioceptiveEncoder
-  input_keys:
-    - ${obs_key:PROPRIO_CAMERA_FRAME}  # Resolves to "proprio_camera_frame"
-```
-
-These keys match the observation dictionary keys from the dataset and ensure type safety across the pipeline.
-
-### Fusion Modules
-
-Located in `src/versatil/models/encoding/fusion/`:
-
-| Fusion | Method |
-|--------|--------|
-| **ConcatFusion** | Concatenate + MLP |
-| **MLPFusion** | Learned projection |
-| **AttentionFusion** | Cross-attention |
-| **SequentialFusion** | Chain multiple fusions |
-
----
-
-## 📁 Project Structure
-
-```
-src/versatil/
-├── configs/                 # Hydra configuration dataclasses
-│   ├── main.py             # MainConfig (composes all configs)
-│   ├── experiment.py       # Experiment tracking, WandB, checkpointing
-│   ├── training.py         # Optimizer, LR schedule, EMA, gradient clipping
-│   ├── policy.py           # Policy composition config
-│   ├── data/               # Data-related configs
-│   │   ├── task.py         # ActionSpace, ObservationSpace, TaskConfig
-│   │   ├── dataloader.py   # DataLoader settings
-│   │   ├── metadata.py     # Metadata config dataclasses
-│   │   └── raw/            # Raw data schema configs
-│   │       ├── schema.py   # Schema config base classes
-│   │       └── zarr_meta.py # Zarr metadata configs
-│   ├── encoding/           # Encoder and fusion configs
-│   ├── decoding/           # Decoder and algorithm configs
-│   └── loss.py             # Loss module configs
-│
-├── models/                  # Neural network implementations
-│   ├── policy.py           # Policy orchestrates encoding → decoding → loss
-│   ├── encoding/
-│   │   ├── pipeline.py     # EncodingPipeline: multi-encoder + fusion
-│   │   ├── encoders/       # RGB, depth, proprio, language encoders
-│   │   └── fusion/         # Fusion modules (attention, MLP, concat)
-│   ├── decoding/
-│   │   ├── algorithm/      # Training algorithms (BC, diffusion, flow matching)
-│   │   ├── decoders/       # Architecture implementations
-│   │   └── latent/         # VAE components (priors, posteriors)
-│   └── layers/             # Reusable torch components (transformers, attention, etc.)
-│
-├── data/                    # Data loading and preprocessing
-│   ├── episodic_dataset.py # Loads temporal windows from Zarr
-│   ├── dataloader.py       # DataLoader factory
-│   ├── sample_builder.py   # Constructs training samples
-│   ├── action_processor.py # Computes actions from proprioceptive data
-│   ├── metadata.py         # Typed metadata classes for observations/actions
-│   ├── task.py             # ActionSpace, ObservationSpace definitions
-│   ├── preprocessor_builder.py  # Normalizer/tokenizer builder from Zarr
-│   ├── normalization/      # Data normalization
-│   ├── tokenization/       # Action/observation tokenization
-│   ├── preprocessing/      # Zarr dataset creation
-│   │   ├── create_zarr_from_csv.py   # CSV → Zarr conversion
-│   │   ├── create_zarr_from_hdf5.py  # HDF5 → Zarr conversion (LIBERO)
-│   │   └── replay_buffer.py          # Episode replay buffer
-│   └── raw/                 # Raw data schema definitions
-│       ├── schemas/         # Format-specific base schemas
-│       │   ├── base.py      # Abstract base schema
-│       │   ├── csv.py       # CSV dataset base class
-│       │   ├── hdf5.py      # HDF5 dataset base class
-│       │   └── custom/      # Dataset-specific implementations
-│       │       ├── bowel_retraction.py
-│       │       └── libero.py
-│       └── zarr_meta.py     # Zarr metadata definitions
-│
-├── training/                # Training infrastructure
-│   ├── lightning_policy.py # PyTorch Lightning wrapper
-│   ├── callbacks.py        # EMA, gradient norms, confusion matrices
-│   └── workspace.py        # Training orchestration
-│
-├── metrics/                 # Loss functions and metrics
-│   ├── base.py             # BaseLoss interface
-│   ├── composite.py        # Composite loss (multiple losses)
-│   └── accumulators.py     # Metric accumulation across batches
-│
-├── inference/               # Inference clients
-│   ├── tso_client.py       # TSO inference client
-│   └── libero_client.py    # LIBERO simulation client (ZMQ-based)
-│
-└── endpoints/               # Training/inference entry points
-    ├── train.py            # Main training script (Hydra-based)
-    ├── test.py             # Evaluation script
-    └── explain.py          # Model interpretation
-```
 
 ---
 
 ## Configuration System
 
-### Hydra Composition
-
-Configs use Hydra's composition pattern:
+**The Composition Pattern:**
+Instead of massive monolithic config files, we mix and match small, reusable blocks, which are located in `hydra_configs/`.
+An end-to-end training config just points to the blocks it wants to use:
 
 ```yaml
-# hydra_configs/act_bowel_retraction.yaml
+# hydra_configs/end_to_end_training_runs/bowel_retraction/act.yaml
 defaults:
-  - experiment: bowel_retraction_fast_decoder
-  - task/dataset_schema: bowel_retraction_v2
-  - task/dataloader: act_default
-  - task/action_space: br_position_gripper_deltas_cf
-  - task/observation_space: br_rgb_proprio_cf
-  - training: act_default
-  - policy/encoding_pipeline: rgb_language_proprio
-  - policy/decoder: act
-  - policy/algorithm: behavioral_cloning
-  - policy/loss: act_default
+  - /dataset_schema: bowel_retraction    # Loads raw dataset schema
+  - /task: bowel_retraction     # Loads task definition
+  - /policy: act                # Loads ACT architecture
+  - ...
   - _self_
-
-# Override specific values
-task:
-  observation_horizon: 1
-  prediction_horizon: 10
 ```
 
-### Key Config Groups
+### Config Validation
 
-| Config Group | Location | Purpose |
-|--------------|----------|---------|
-| `experiment` | `hydra_configs/experiment/` | Name, checkpointing, WandB |
-| `task/dataset_schema` | `hydra_configs/task/dataset/` | Dataset schema (observation/action keys) |
-| `task/dataloader` | `hydra_configs/task/dataloader/` | Batch size, workers, augmentation |
-| `task/action_space` | `hydra_configs/task/action_space/` | Action dimensions, gripper, orientation |
-| `task/observation_space` | `hydra_configs/task/observation_space/` | Cameras, proprio, language |
-| `training` | `hydra_configs/training/` | Optimizer, LR, EMA, gradient clipping |
-| `policy/encoding_pipeline` | `hydra_configs/policy/encoding_pipeline/` | Encoder + fusion composition |
-| `policy/decoder` | `hydra_configs/policy/decoder/` | Decoder architecture |
-| `policy/algorithm` | `hydra_configs/policy/algorithm/` | BC, diffusion, flow matching, variational |
-| `policy/loss` | `hydra_configs/policy/loss/` | Loss function configuration |
+This is enforced at runtime using OmegaConf's typed Dataclasses.
+The OmegaConf store is defined in `src/versatil/configs/__init__.py`.
+Whenever you create a new config file, define a matching Dataclass in `src/versatil/configs/` to enforce types and defaults, and register it in the store.
+This prevents silent errors from typos, wrong or missing parameters.
 
 ### Interpolation
 
-Reference other config values using `${}`:
+You can reference other config values using `${}`:
 
 ```yaml
 policy:
@@ -437,362 +399,7 @@ policy:
   observation_space: ${task.observation_space}
   device: ${experiment.device}
 ```
-
----
-
-## 📦 Data Pipeline
-
-### Dataset Schema vs Task Config
-
-**Key Distinction**: Schemas define what's **in the dataset**, Tasks define what's **used at runtime**.
-
-| Concept | Purpose | Example                                                                     |
-|---------|---------|-----------------------------------------------------------------------------|
-| **DatasetSchema** | Defines raw data structure | "Dataset has RGB images, depth, 3D position, gripper state"                 |
-| **TaskConfig** | Defines what to use for training | "Use left RGB only, predict as actions the position deltas in camera frame" |
-
-**Why separate?** A single dataset can support multiple tasks:
-- Task A: RGB-only, predict absolute positions
-- Task B: RGB+depth, predict position deltas
-- Task C: RGB+proprio, multi-phase prediction
-
-### Data Flow
-
-```
-Raw Episode Dataset
-  ↓
-[DatasetSchema] ← Defines how to read raw data (CSV or HDF5), locate images/depth maps
-  ↓                 - CSVDatasetSchema: for CSV + image files
-                    - HDF5DatasetSchema: for HDF5 files (e.g., LIBERO benchmark)
-  ↓
-Zarr Dataset (.zarr file) ← Compressed, chunked storage. Created ONCE with all relevant keys
-  ↓
-[TaskConfig] ← Defines what observations/actions to use
-  ↓
-EpisodicDataset ← Loads temporal windows from Zarr
-  ↓
-SampleBuilder ← Constructs training samples, i.e. chunks (obs, actions, masks)
-  ↓
-DataLoader ← Batching, normalization, augmentation
-  ↓
-Policy ← Training
-```
-
-### Dataset Schema
-
-**Location**: `src/versatil/data/raw/schemas/`
-
-**Purpose**: Defines how to extract data from raw sources and create Zarr arrays.
-
-```python
-# Base class: src/versatil/data/raw/schemas/base.py
-class DatasetSchema(abc.ABC):
-    """Abstract base class for dataset schemas.
-
-    Defines:
-    - What observations are available (via DatasetMetadata)
-    - What precomputed actions exist (via DatasetMetadata)
-    - How to extract episode data (via extract_episode)
-    """
-
-    def __init__(self, zarr_path: str, metadata: DatasetMetadata):
-        self.zarr_path = zarr_path
-        self.metadata = metadata
-
-    @abc.abstractmethod
-    def extract_episode(self, episode_source, resizer, depth_resizer) -> dict[str, np.ndarray]:
-        """Extract all data from an episode source into zarr-ready arrays."""
-        ...
-```
-
-**DatasetMetadata** (`src/versatil/data/raw/zarr_meta.py`) aggregates all observation and action metadata:
-
-```python
-@dataclass
-class DatasetMetadata:
-    observations: dict[str, ObservationMetadata | CameraMetadata]  # By zarr key
-    precomputed_actions: dict[str, PrecomputedActionMetadata]       # By zarr key
-```
-
-### Precomputed vs On-The-Fly Actions
-
-The framework supports two action computation strategies:
-
-| Type | Storage | Computation | Use Case |
-|------|---------|-------------|----------|
-| **Precomputed** | Stored in Zarr | Extracted directly at runtime | Actions already in dataset (e.g., LIBERO delta actions) |
-| **On-The-Fly** | Not stored | Computed from observations at runtime | Actions derived from consecutive states (e.g., position deltas) |
-
-**Precomputed Actions** (`PrecomputedActionMetadata`):
-- Actions stored directly in the Zarr dataset during preprocessing
-- Example: LIBERO stores 7D delta actions (pos_delta + ori_delta + gripper)
-- Extracted directly from Zarr during training
-
-**On-The-Fly Actions** (`OnTheFlyActionMetadata`):
-- Actions computed at runtime from stored observations
-- Example: Position deltas computed as `pos[t+1] - pos[t]`
-- Supports denoising based on dataset statistics
-
-```python
-# ActionSpace (src/versatil/data/task.py) defines what actions to use at runtime
-class ActionSpace:
-    actions_metadata: dict[str, ActionMetadata]  # Both precomputed and on-the-fly
-
-    @property
-    def precomputed_actions(self) -> dict[str, PrecomputedActionMetadata]: ...
-
-    @property
-    def on_the_fly_actions(self) -> dict[str, OnTheFlyActionMetadata]: ...
-```
-
-**Existing schema implementations** in `src/versatil/data/raw/schemas/custom/`:
-- `BowelRetractionSchema` (CSV): Stores observations, computes actions on-the-fly
-- `LiberoSchema` (HDF5): Stores both observations and precomputed actions
-
-### Creating a Zarr Dataset
-
-Use the preprocessing functions based on your data format:
-
-**For CSV-based datasets:**
-
-```python
-from hydra.utils import instantiate
-from omegaconf import OmegaConf
-from versatil.data.preprocessing.create_zarr_from_csv import create_replay_buffer
-
-# Load schema config
-cfg = OmegaConf.load("hydra_configs/task/dataset_schema/bowel_retraction_v4.yaml")
-schema = instantiate(cfg)
-
-# Get list of episode CSV paths
-episode_paths = ["/data/episode_001/data.csv", "/data/episode_002/data.csv", ...]
-
-# Create Zarr dataset
-create_replay_buffer(schema, episode_paths)
-```
-
-**For HDF5-based datasets:**
-
-```python
-from hydra.utils import instantiate
-from omegaconf import OmegaConf
-from versatil.data.preprocessing.create_zarr_from_hdf5 import create_replay_buffer_from_hdf5
-
-# Load schema config (hdf5_paths are defined in the YAML)
-cfg = OmegaConf.load("hydra_configs/task/dataset_schema/libero_10.yaml")
-schema = instantiate(cfg)
-
-# Create Zarr dataset
-create_replay_buffer_from_hdf5(schema)
-```
-
-**Output Zarr structure**:
-```
-dataset.zarr/
-├── data/
-│   ├── <camera_key>/            # RGB images (T, H, W, 3) uint8
-│   ├── <proprio_key>/           # (T, dim) float32
-│   ├── <gripper_key>/           # (T, 1) float32
-│   ├── <precomputed_action>/    # (T, dim) float32 (if applicable)
-│   └── ...
-└── meta/
-    └── episode_ends/            # (num_episodes,) cumulative timestep counts
-```
-
-### Task Configuration
-
-**Location**: `hydra_configs/task/`
-
-**Purpose**: Defines what data to **use at runtime** from the Zarr dataset.
-
-**Components**:
-
-1. **ActionSpace** (`action_space/`): What actions to predict
-```yaml
-# hydra_configs/task/action_space/position_gripper_deltas_cf.yaml
-has_position: true
-position_dim: 3
-has_orientation: false
-has_gripper: true
-gripper_type: binary
-predict_in_camera_frame: true  # Use camera frame proprio
-deltas_as_actions: true        # Predict deltas, not absolute
-```
-
-2. **ObservationSpace** (`observation_space/`): What observations to use
-```yaml
-# hydra_configs/task/observation_space/rgb_proprio_cf.yaml
-camera_keys:
-  - left   # ← Must match schema's camera_keys
-  - right
-use_proprioceptive_data: true
-use_proprio_camera_frame: true
-use_language: false
-```
-
-**Validation**: At dataset loading, checks that `ObservationSpace` and `ActionSpace` only request keys that exist in the schema:
-
-```python
-# In EpisodicDataset.__init__()
-required_zarr_keys = (
-    observation_space.get_required_zarr_keys() +  # e.g., ["left", "right", "proprio_camera_frame"]
-    action_space.get_required_zarr_keys()         # e.g., ["proprio_camera_frame", "gripper_state"]
-)
-
-schema_keys = schema.get_required_zarr_keys()  # What's actually in Zarr
-
-missing = set(required_zarr_keys) - set(schema_keys)
-if missing:
-    raise ValueError(f"TaskSpace requests {missing} but schema doesn't provide them")
-```
-
-### Adding a New Dataset Schema
-
-**Step 1**: Define CSV structure constants
-```python
-# src/versatil/data/schemas/my_dataset.py
-MY_DATASET_ROBOT_FRAME_COLS = ["ee_pos_x", "ee_pos_y", "ee_pos_z", "ee_roll"]
-MY_DATASET_GRIPPER_COL = "gripper_width"
-MY_DATASET_LEFT_IMAGE_KEY = "left_camera_path"
-MY_DATASET_LANGUAGE_KEY = "instruction"
-```
-
-**Step 2**: Implement schema class
-```python
-class MyDatasetSchema(DatasetSchema):
-    def __init__(self, dataset_folders, zarr_path, ...):
-        raw_obs_config = DatasetMetadataConfig(
-            robot_frame_proprio_keys=MY_DATASET_ROBOT_FRAME_COLS,
-            camera_frame_proprio_keys=None,  # This dataset has no camera frame
-            gripper_state_keys=[MY_DATASET_GRIPPER_COL],
-            camera_keys=["left", "depth"],
-            language_key=MY_DATASET_LANGUAGE_KEY,
-            image_width=640,
-            image_height=480,
-            has_orientation=True,
-            orientation_dim=1  # Roll only
-        )
-
-        image_path_config = ImagePathConfig(
-            left_image_key=MY_DATASET_LEFT_IMAGE_KEY,
-            depth_dir_pattern="depth_maps",
-            depth_file_pattern=r'depth_\1.png'
-        )
-
-        super().__init__(dataset_folders, zarr_path, raw_obs_config, image_path_config, ...)
-
-    def get_image_path_column(self, camera: str) -> str:
-        if camera == "left":
-            return MY_DATASET_LEFT_IMAGE_KEY
-        # ...
-
-    def compute_depth_path(self, base_image_path: str) -> str:
-        # /path/to/rgb/frame_0001.png → /path/to/depth_maps/depth_0001.png
-        return re.sub(r'/rgb/frame_(\d+).png',
-                      r'/depth_maps/depth_\1.png', base_image_path)
-```
-
-**Step 3**: Create Hydra config
-```yaml
-# hydra_configs/task/dataset/my_dataset.yaml
-_target_: versatil.data.schemas.my_dataset.MyDatasetSchema
-dataset_folders:
-  - /data/my_dataset/train
-zarr_path: /data/my_dataset/train.zarr
-has_phase_labels: false
-```
-
-**Step 4**: Use in experiment config:
-```yaml
-defaults:
-  - task/dataset_schema: my_dataset
-  - task/action_space: my_action_space
-  - task/observation_space: my_obs_space
-```
-
----
-
-## 🎓 Common Patterns
-
-### Adding a New Encoder
-
-**1. Define config** (`src/versatil/configs/encoding/encoder.py`):
-```python
-@dataclass
-class MyEncoderConfig(EncoderConfig):
-    _target_: str = "models.encoding.encoders.my_encoder.MyEncoder"
-    feature_dim: int = 256
-```
-
-**2. Implement encoder** (`src/versatil/models/encoding/encoders/my_encoder.py`):
-
-```python
-from versatil.models.encoding.encoders.base import Encoder, EncoderOutput
-
-
-class MyEncoder(Encoder):
-
-    def get_output_specification(self) -> EncoderOutput:
-        return EncoderOutput(
-            features=["embedding"],
-            dimensions={"embedding": self.feature_dim}
-        )
-
-
-    def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
-        return {"embedding": self.encode(x)}
-```
-
-**3. Create YAML config** (`hydra_configs/policy/encoding/my_encoder.yaml`):
-```yaml
-_target_: versatil.models.encoding.encoders.my_encoder.MyEncoder
-feature_dim: 512
-```
-
-### Adding a New Algorithm
-
-**1. Inherit from `DecodingAlgorithm`** (`src/versatil/models/decoding/algorithm/base.py`):
-```python
-class MyAlgorithm(DecodingAlgorithm):
-    def forward(self, decoder_output, actions, **kwargs) -> dict:
-        """Training forward pass with ground truth actions."""
-        ...
-        return {"my_loss": loss}
-
-    def predict(self, decoder_output, **kwargs) -> dict:
-        """Inference pass (no actions provided)."""
-        ...
-        return {"action": predicted_actions}
-```
-
-**2. Create config and YAML** following encoder pattern above.
-
-### Composing a New Policy
-
-Create a new experiment YAML that composes existing components:
-
-```yaml
-# hydra_configs/my_experiment.yaml
-defaults:
-  - experiment: bowel_retraction_fast_decoder
-  - task/dataset_schema: bowel_retraction_v2
-  - task/dataloader: act_default
-  - task/action_space: br_position_gripper_deltas_cf
-  - task/observation_space: br_rgb_proprio_cf
-  - training: act_default
-  - policy/encoding_pipeline: rgb_language_proprio   # Reuse existing
-  - policy/decoder: act                              # Reuse existing
-  - policy/algorithm: flow_matching                  # Try different algorithm
-  - policy/loss: act_default                         # Reuse existing
-  - _self_
-
-# Override specific parameters
-training:
-  optimizer:
-    lr: 5e-5
-task:
-  prediction_horizon: 20
-```
+You can also define custom interpolation resolvers in `src/versatil/configs/__init__.py`, to interpolate e.g. Enum.values.
 
 ---
 
@@ -806,11 +413,6 @@ export WANDB_API_KEY=your_key_here
 ```
 Or add it to your `.bashrc` profile, for persistent settings.
 
-Logged metrics:
-- **Per epoch**: `train_loss`, `val_loss`, `train/<metric>`, `val/<metric>`
-- **Per step** (every 50 steps): `grad_norm`, `grad_norm_group_<idx>`
-- **EMA**: `ema_decay` (every 100 steps)
-- **Phase models**: Confusion matrices (every validation epoch)
 
 ### Checkpointing
 
@@ -828,7 +430,7 @@ checkpoints/experiment_name/last.ckpt
 **Resume training:**
 ```bash
 python -m versatil.endpoints.train \
-    --config-name act_bowel_retraction \
+    --config-name end_to_end_training_runs/bowel_retraction/act \
     experiment.resume_from=/path/to/checkpoint.ckpt
 ```
 
@@ -877,7 +479,6 @@ black --check src/ tests/
 ### CUDA Issues
 - Verify CUDA 12.4 with `nvidia-smi`
 - Check `torch.cuda.is_available()` returns `True`
-- For cluster: Request GPU in interactive job before installing
 
 ### SLURM/NCCL Errors
 - Set `export NCCL_P2P_DISABLE=1` in SLURM script
@@ -889,10 +490,3 @@ black --check src/ tests/
 - Ensure sufficient disk space for Zarr cache
 
 
-### Feature Mismatch Errors
-```
-ValueError: Action decoding network expects input feature 'fused_visual'
-but it's not produced by any encoder
-```
-**Solution**: Ensure decoder's `input_keys` match encoding pipeline's output features.
-Check `encoding_pipeline.get_final_features_to_dimensions()`.
