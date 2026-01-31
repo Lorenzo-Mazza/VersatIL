@@ -26,6 +26,7 @@ from imitation_learning_toolkit.sockets.compression import (
 from omegaconf import OmegaConf
 
 from versatil.configs import MainConfig
+from versatil.validation import validate_experiment
 from versatil.data.constants import (
     Cameras,
     GripperType,
@@ -273,6 +274,7 @@ class LiberoClient(SocketClient):
             raise FileNotFoundError(f"Config file not found at {config_path}.")
         logging.info(f"Loading config from {config_path}")
         config = hydra.utils.instantiate(OmegaConf.load(config_path))
+        validate_experiment(config)
         self.config: MainConfig = config
         checkpoint_file = os.path.join(self.checkpoint_path, self.checkpoint_name)
         if not os.path.exists(checkpoint_file):

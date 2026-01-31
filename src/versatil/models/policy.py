@@ -1,32 +1,23 @@
 """Policy module that handles the sequence of input encoding, output decoding, and loss computation."""
 
-
 import torch
 import torch.nn as nn
 
+from versatil.common.dict_of_tensor_mixin import DictOfTensorMixin
 from versatil.common.tensor_ops import to_device
+from versatil.data.constants import Cameras, SampleKey
+from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.data.constants import (
-    Cameras,
-    SampleKey,
-)
 from versatil.data.tokenization import Tokenizer
 from versatil.data.transform import (
-    unnormalize_actions,
     detokenize_actions,
     normalize_observation,
     tokenize_observation,
+    unnormalize_actions,
 )
-from versatil.models.decoding.action_heads import MoEHead
-from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
-
-from versatil.common.dict_of_tensor_mixin import DictOfTensorMixin
-from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.metrics.base import BaseLoss, LossOutput
 from versatil.metrics.components import GripperLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
-from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
-from versatil.models.decoding.decoders import MoEDecoder
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.encoding.pipeline import EncodingPipeline
 
@@ -50,16 +41,16 @@ class Policy(nn.Module):
         """Initialize policy.
 
         Args:
-            encoding_pipeline: Observation encoding pipeline
-            algorithm: Decoding algorithm (diffusion, flow matching, etc.)
-            decoder: Action decoder architecture
-            observation_space: Observation space configuration
-            action_space: Action space configuration
-            prediction_horizon: Number of future actions to predict
-            observation_horizon: Number of past observations to condition on
-            loss: Loss module for training
-            device: Device to run on
-            validate_loss_keys: Whether to validate loss keys against action space
+            encoding_pipeline: Observation encoding pipeline.
+            algorithm: Decoding algorithm (diffusion, flow matching, etc.).
+            decoder: Action decoder architecture.
+            observation_space: Observation space configuration.
+            action_space: Action space configuration.
+            prediction_horizon: Number of future actions to predict.
+            observation_horizon: Number of past observations to condition on.
+            loss: Loss module for training.
+            device: Device to run on.
+            validate_loss_keys: Deprecated, kept for backwards compatibility.
         """
         super().__init__()
         self.encoding_pipeline = encoding_pipeline
@@ -76,111 +67,6 @@ class Policy(nn.Module):
         self.denoising_thresholds = (
             DictOfTensorMixin()
         )  # Set later via set_denoising_thresholds()
-        self.validate_decoder()
-        if validate_loss_keys:
-            self.validate_loss_keys()
-
-    def validate_decoder(self):
-        """Validate that the decoder's input specification matches the encoding pipeline's output.
-
-        Note:
-            Uses final features (after fusion consumption) since that's what the decoder actually receives.
-        """
-        # Get final features - excludes features consumed by fusion modules
-        available_features_to_dims = (
-            self.encoding_pipeline.get_final_features_to_dimensions()
-        )
-        available_features = list(available_features_to_dims.keys())
-        decoder_input_keys = self.decoder.decoder_input.keys
-        for expected_feature in decoder_input_keys:
-            if expected_feature not in available_features:
-                raise ValueError(
-                    f"Action decoding network expects input feature '{expected_feature}' "
-                    f"but it's not produced by any encoder or fusion layer (or it was consumed by fusion). "
-                    f"Available final features: {available_features}"
-                )
-        # Validate feature types expected by the decoder architecture (spatial, flat, etc.)
-        self.decoder.decoder_input.validate_feature_types(
-            available_features_to_dims=available_features_to_dims
-        )
-        # Note: Action head validation is done in ActionDecoder.__init__
-
-        # Validate MoE gating feature key if using MoE decoder with gating network
-        if isinstance(self.decoder, MoEDecoder):
-            self._validate_moe_gating_feature(available_features)
-
-    def _validate_moe_gating_feature(self, available_features: list[str]):
-        """Validate that MoE gating feature key exists in available features or latent encoder.
-
-        Args:
-            available_features: List of features available from encoding pipeline
-
-        Raises:
-            ValueError: If gating feature key is not available
-        """
-        has_gating = bool(self.decoder.has_gating_network)
-        if not has_gating:
-            return  # No gating network, using external routing
-        gating_key = self.decoder.gating_feature_key
-        # Check if gating key is in encoding pipeline features
-        if gating_key in available_features:
-            return
-        # Check if gating key is provided by variational algorithm
-        if (
-            isinstance(self.algorithm, VariationalAlgorithm)
-            and gating_key == LatentKey.POSTERIOR_LATENT.value
-        ):
-            return
-        raise ValueError(
-            f"MoE decoder gating feature key '{gating_key}' not found. "
-            f"Available features from encoding pipeline: {available_features}. "
-            f"Algorithm provides latent: {'Yes' if isinstance(self.algorithm, VariationalAlgorithm) else 'No'}."
-        )
-
-    def validate_loss_keys(self):
-        """Validate that all loss keys are defined in the decoder heads or in the algorithm.
-        This ensures that the loss module doesn't try to compute losses for
-        actions or auxiliary keys that aren't part of the configuration.
-
-        Raises:
-            ValueError: If loss keys are invalid
-        """
-        valid_loss_keys: set[str] = set()
-        valid_loss_keys.update(self.decoder.action_heads.keys())
-        # Add auxiliary action keys (requires_prediction_head=False) for metadata passthrough
-        for key, meta in self.action_space.actions_metadata.items():
-            if not meta.requires_prediction_head:
-                valid_loss_keys.add(key)
-        if isinstance(self.algorithm, VariationalAlgorithm):
-            valid_loss_keys.update(
-                {
-                    LatentKey.POSTERIOR_LATENT.value,
-                    LatentKey.POSTERIOR_MU.value,
-                    LatentKey.POSTERIOR_LOGVAR.value,
-                    LatentKey.PRIOR_LATENT.value,
-                    LatentKey.PRIOR_MU.value,
-                    LatentKey.PRIOR_LOGVAR.value,
-                    LatentKey.PRIOR_PREDICTION.value,
-                    LatentKey.PRIOR_TARGET.value,
-                }
-            )
-        if isinstance(self.decoder, MoEDecoder) or any(
-            isinstance(h, MoEHead) for h in self.decoder.action_heads.values()
-        ):
-            valid_loss_keys.add(DecoderOutputKey.ROUTING_WEIGHTS.value)
-        if self.decoder.__class__.__name__ == "FreeTransformerDecoder":
-            valid_loss_keys.add(DecoderOutputKey.BINARY_LOGITS.value)
-        required_keys = self.loss_module.get_required_keys()
-        if self.decoder.supports_tokenized_actions:
-            valid_loss_keys.add(SampleKey.TOKENIZED_ACTIONS.value)
-        invalid_keys = required_keys - valid_loss_keys
-        if invalid_keys:
-            raise ValueError(
-                f"Loss module references keys {invalid_keys} that are not "
-                f"defined in the action space or auxiliary keys. "
-                f"Valid loss keys: {valid_loss_keys}. "
-                f"Please update your loss configuration or decoder."
-            )
 
     def set_normalizer(self, normalizer: LinearNormalizer):
         """Set normalizer for observations and actions."""

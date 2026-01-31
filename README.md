@@ -478,10 +478,16 @@ pytest -m "not slow"       # Skip slow tests
 
 ## 📝 Code Style
 
-- **Docstrings**: Google-style
-- **Type hints**: Required for all functions
+- **Docstrings**: Google-style, concise (avoid LLM patterns like numbered lists or excessive words)
+- **Type hints**: Required for all function signatures
 - **Formatter**: Black (line length 88, Python 3.11)
 - **No inline imports**: All imports at module top
+- **Minimal comments**: Only for tensor shapes or non-obvious logic
+- **Variables**: Use English words, avoid abbreviations
+- **Function calls**: Use kwargs
+- **Error handling**: Use `raise`, avoid assertions and try/catch blocks
+- **Strings**: Use double quotes (`"foo"` not `'foo'`)
+- **Constants**: Avoid hardcoded strings, use `Enum.MY_ENUM.value`
 
 ```bash
 # Format code

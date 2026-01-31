@@ -19,6 +19,7 @@ defaults:
 
 experiment:
   checkpoint_folder: ${checkpoint_dir:bowel_retraction}
+  validate_loss_keys: false
 
 task:
   observation_horizon: 2
@@ -31,7 +32,6 @@ policy:
   prediction_horizon: ${task.prediction_horizon}
   observation_horizon: ${task.observation_horizon}
   device: ${experiment.device}
-  validate_loss_keys: false
 
 # Override specific parameters from defaults/command line if needed
 # For example, to use different batch size:
