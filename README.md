@@ -345,6 +345,24 @@ They can be easily extended by either:
 - `FlowMatching` - Flow-Based Generative Modeling via Continuous Normalizing Flows ([paper](https://arxiv.org/abs/2209.03003))
 - `VariationalAlgorithm` - Variational Inference wrapper to learn a latent space to use for any base algorithm
 
+### Variational Framework
+
+The `VariationalAlgorithm` wraps any base algorithm with a VAE-style latent space:
+
+- **Posterio Networkr** q(z|a,s): Encodes actions into latent z during training
+- **Prior Network** p(z|s): Samples latent z during inference (no access to actions)
+
+**Posterior Network types:**
+- `VAETransformerEncoder` - Transformer encoder that maps actions to latent distribution
+
+**Prior Network types:**
+- `GaussianPrior` - Fixed Gaussian N(0,I), no learning required
+- `PriorTransformerEncoder` - Learned conditional prior using a transformer encoder
+- `DenoisingTransformerPrior` - Multimodal prior trained via diffusion/flow matching
+- `VampPrior` - Mixture of posteriors ([paper](https://arxiv.org/abs/1705.07120))
+
+Each decoder can customize how it integrates the latent `z` token into its architecture (e.g., prepended token, cross-attention, FiLM).
+
 ### Decoders
 
 - `ActionTransformer` - **Novel** Action Transformer Decoder, using modern components s.a. Rotary Positional Embeddings and RMSNorm.
