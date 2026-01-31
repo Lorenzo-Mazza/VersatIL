@@ -10,6 +10,7 @@ import numpy as np
 import torch
 from torch import nn
 
+
 def dict_apply(
     x: Dict[str, torch.Tensor], func: Callable[[torch.Tensor], torch.Tensor]
 ) -> Dict[str, torch.Tensor]:

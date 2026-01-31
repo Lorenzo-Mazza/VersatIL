@@ -20,7 +20,9 @@ from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.normalization.rms_norm import RMSNorm
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
-from versatil.models.layers.transformer.positional_encoding import create_positional_encoding
+from versatil.models.layers.transformer.positional_encoding import (
+    create_positional_encoding,
+)
 
 
 class MMDiTDecoder(nn.Module):
@@ -96,23 +98,25 @@ class MMDiTDecoder(nn.Module):
                 maximum_length=maximum_sequence_length_action,
                 num_heads=number_of_heads,
             )
-        self.layers = nn.ModuleList([
-            MMDiTLayer(
-                embedding_dimension=embedding_dimension,
-                conditioning_dimension=conditioning_dimension,
-                number_of_heads=number_of_heads,
-                feedforward_dimension=feedforward_dimension,
-                dropout=dropout,
-                attention_dropout=attention_dropout,
-                activation=activation,
-                normalization_type=normalization_type,
-                normalization_epsilon=normalization_epsilon,
-                use_query_key_norm=use_query_key_norm,
-                use_gating=use_gating,
-                bias=bias,
-            )
-            for _ in range(number_of_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [
+                MMDiTLayer(
+                    embedding_dimension=embedding_dimension,
+                    conditioning_dimension=conditioning_dimension,
+                    number_of_heads=number_of_heads,
+                    feedforward_dimension=feedforward_dimension,
+                    dropout=dropout,
+                    attention_dropout=attention_dropout,
+                    activation=activation,
+                    normalization_type=normalization_type,
+                    normalization_epsilon=normalization_epsilon,
+                    use_query_key_norm=use_query_key_norm,
+                    use_gating=use_gating,
+                    bias=bias,
+                )
+                for _ in range(number_of_layers)
+            ]
+        )
         self.final_normalization_observation = create_normalization_layer(
             normalization_type=normalization_type,
             dimension=embedding_dimension,
@@ -169,15 +173,23 @@ class MMDiTDecoder(nn.Module):
         rope_observation = None
         rope_action = None
         if self.positional_encoding_observation is not None:
-            if isinstance(self.positional_encoding_observation, RotaryPositionalEncoding):
+            if isinstance(
+                self.positional_encoding_observation, RotaryPositionalEncoding
+            ):
                 rope_observation = self.positional_encoding_observation
             else:
-                hidden_states_observation = hidden_states_observation + self.positional_encoding_observation(hidden_states_observation)
+                hidden_states_observation = (
+                    hidden_states_observation
+                    + self.positional_encoding_observation(hidden_states_observation)
+                )
         if self.positional_encoding_action is not None:
             if isinstance(self.positional_encoding_action, RotaryPositionalEncoding):
                 rope_action = self.positional_encoding_action
             else:
-                hidden_states_action = hidden_states_action + self.positional_encoding_action(hidden_states_action)
+                hidden_states_action = (
+                    hidden_states_action
+                    + self.positional_encoding_action(hidden_states_action)
+                )
         for layer in self.layers:
             hidden_states_observation, hidden_states_action = layer(
                 hidden_states_observation=hidden_states_observation,
@@ -188,6 +200,8 @@ class MMDiTDecoder(nn.Module):
                 positional_encoding_observation=rope_observation,
                 positional_encoding_action=rope_action,
             )
-        hidden_states_observation = self.final_normalization_observation(hidden_states_observation)
+        hidden_states_observation = self.final_normalization_observation(
+            hidden_states_observation
+        )
         hidden_states_action = self.final_normalization_action(hidden_states_action)
         return hidden_states_observation, hidden_states_action

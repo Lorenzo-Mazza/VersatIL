@@ -13,20 +13,12 @@ from versatil.data.transform import (
     detokenize_actions,
 )
 from versatil.data.constants import (
-    OBSERVATION_KEY,
-    ACTION_KEY,
-    LANGUAGE_KEY,
-    GRIPPER_STATE_OBS_KEY,
-    POSITION_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    PROPRIO_OBS_ROBOT_FRAME_KEY,
-    TOKENIZED_OBSERVATIONS_KEY,
-    TOKENIZED_ACTIONS_KEY,
-    IS_PAD_OBSERVATION_KEY,
-    IS_PAD_ACTION_KEY,
-    GripperType,
     Cameras,
+    GripperType,
+    ObsKey,
+    ProprioceptiveType,
+    ProprioKey,
+    SampleKey,
 )
 from versatil.data.normalization.normalizer import LinearNormalizer
 
@@ -97,10 +89,10 @@ def mock_tokenizer():
 
         if has_obs_tokenizer:
             obs_tokenizer = MagicMock()
-            obs_tokenizer.observation_keys = [PROPRIO_OBS_ROBOT_FRAME_KEY]
+            obs_tokenizer.observation_keys = [ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value]
             obs_tokenizer.tokenize = MagicMock(return_value={
-                TOKENIZED_OBSERVATIONS_KEY: torch.randn(10, 128),
-                IS_PAD_OBSERVATION_KEY: torch.zeros(10, dtype=torch.bool),
+                SampleKey.TOKENIZED_OBSERVATIONS.value: torch.randn(10, 128),
+                SampleKey.IS_PAD_OBSERVATION.value: torch.zeros(10, dtype=torch.bool),
             })
             tokenizer.observation_tokenizer = obs_tokenizer
         else:
@@ -109,8 +101,8 @@ def mock_tokenizer():
         if has_action_tokenizer:
             action_tokenizer = MagicMock()
             action_tokenizer.encode = MagicMock(return_value={
-                TOKENIZED_ACTIONS_KEY: torch.randint(0, 256, (16,)),
-                IS_PAD_ACTION_KEY: torch.zeros(16, dtype=torch.bool),
+                SampleKey.TOKENIZED_ACTIONS.value: torch.randint(0, 256, (16,)),
+                SampleKey.IS_PAD_ACTION.value: torch.zeros(16, dtype=torch.bool),
             })
             action_tokenizer.decode = MagicMock(return_value=torch.randn(16, 7).numpy())
             tokenizer.action_tokenizer = action_tokenizer
@@ -132,24 +124,24 @@ def sample_factory():
     ):
         observation = {
             Cameras.LEFT.value: torch.randn(obs_horizon, 3, 64, 64),
-            PROPRIO_OBS_ROBOT_FRAME_KEY: torch.randn(obs_horizon, 7),
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: torch.randn(obs_horizon, 7),
         }
 
         if include_language:
-            observation[LANGUAGE_KEY] = torch.randint(0, 1000, (obs_horizon, 77))
+            observation[ObsKey.LANGUAGE.value] = torch.randint(0, 1000, (obs_horizon, 77))
 
         if include_gripper_obs:
-            observation[GRIPPER_STATE_OBS_KEY] = torch.randint(0, 2, (obs_horizon, 1)).float()
+            observation[ProprioKey.GRIPPER_STATE.value] = torch.randint(0, 2, (obs_horizon, 1)).float()
 
         actions = {
-            POSITION_ACTION_KEY: torch.randn(pred_horizon, 3),
-            ORIENTATION_ACTION_KEY: torch.randn(pred_horizon, 4),
-            GRIPPER_ACTION_KEY: torch.randint(0, 2, (pred_horizon, 1)).float(),
+            ProprioceptiveType.POSITION.value: torch.randn(pred_horizon, 3),
+            ProprioceptiveType.ORIENTATION.value: torch.randn(pred_horizon, 4),
+            ProprioceptiveType.GRIPPER.value: torch.randint(0, 2, (pred_horizon, 1)).float(),
         }
 
         return {
-            OBSERVATION_KEY: observation,
-            ACTION_KEY: actions,
+            SampleKey.OBSERVATION.value: observation,
+            SampleKey.ACTION.value: actions,
         }
     return factory
 
@@ -170,13 +162,13 @@ class TestNormalizeObservation:
 
         observation = {
             Cameras.LEFT.value: torch.randn(1, 3, 64, 64),
-            PROPRIO_OBS_ROBOT_FRAME_KEY: torch.randn(1, 7),
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: torch.randn(1, 7),
         }
 
         result = normalize_observation(observation, normalizer, obs_space)
 
         assert Cameras.LEFT.value in result
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY in result
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in result
         normalizer.normalize.assert_called_once()
 
     def test_normalize_preserves_language(self, mock_normalizer, mock_observation_space):
@@ -190,13 +182,13 @@ class TestNormalizeObservation:
         language_tensor = torch.randint(0, 1000, (1, 77))
         observation = {
             Cameras.LEFT.value: torch.randn(1, 3, 64, 64),
-            LANGUAGE_KEY: language_tensor,
+            ObsKey.LANGUAGE.value: language_tensor,
         }
 
         result = normalize_observation(observation, normalizer, obs_space)
 
-        assert LANGUAGE_KEY in result
-        assert torch.equal(result[LANGUAGE_KEY], language_tensor)
+        assert ObsKey.LANGUAGE.value in result
+        assert torch.equal(result[ObsKey.LANGUAGE.value], language_tensor)
 
     def test_normalize_preserves_binary_gripper(self, mock_normalizer, mock_observation_space):
         """Test that binary gripper states are not normalized."""
@@ -210,13 +202,13 @@ class TestNormalizeObservation:
         gripper_tensor = torch.randint(0, 2, (1, 1)).float()
         observation = {
             Cameras.LEFT.value: torch.randn(1, 3, 64, 64),
-            GRIPPER_STATE_OBS_KEY: gripper_tensor,
+            ProprioKey.GRIPPER_STATE.value: gripper_tensor,
         }
 
         result = normalize_observation(observation, normalizer, obs_space)
 
-        assert GRIPPER_STATE_OBS_KEY in result
-        assert torch.equal(result[GRIPPER_STATE_OBS_KEY], gripper_tensor)
+        assert ProprioKey.GRIPPER_STATE.value in result
+        assert torch.equal(result[ProprioKey.GRIPPER_STATE.value], gripper_tensor)
 
     def test_normalize_continuous_gripper(self, mock_normalizer, mock_observation_space):
         """Test that continuous gripper states are normalized."""
@@ -229,12 +221,12 @@ class TestNormalizeObservation:
 
         observation = {
             Cameras.LEFT.value: torch.randn(1, 3, 64, 64),
-            GRIPPER_STATE_OBS_KEY: torch.rand(1, 1),
+            ProprioKey.GRIPPER_STATE.value: torch.rand(1, 1),
         }
 
         result = normalize_observation(observation, normalizer, obs_space)
 
-        assert GRIPPER_STATE_OBS_KEY in result
+        assert ProprioKey.GRIPPER_STATE.value in result
         normalizer.normalize.assert_called_once()
 
 
@@ -261,11 +253,11 @@ class TestNormalizeActions:
 
         actions = {}
         if has_pos:
-            actions[POSITION_ACTION_KEY] = torch.randn(16, 3)
+            actions[ProprioceptiveType.POSITION.value] = torch.randn(16, 3)
         if has_ori:
-            actions[ORIENTATION_ACTION_KEY] = torch.randn(16, 4)
+            actions[ProprioceptiveType.ORIENTATION.value] = torch.randn(16, 4)
         if has_grip:
-            actions[GRIPPER_ACTION_KEY] = torch.rand(16, 1)
+            actions[ProprioceptiveType.GRIPPER.value] = torch.rand(16, 1)
 
         result = normalize_actions(actions, normalizer, action_space)
 
@@ -284,11 +276,11 @@ class TestNormalizeActions:
         )
 
         gripper_tensor = torch.randint(0, 2, (16, 1)).float()
-        actions = {GRIPPER_ACTION_KEY: gripper_tensor}
+        actions = {ProprioceptiveType.GRIPPER.value: gripper_tensor}
 
         result = normalize_actions(actions, normalizer, action_space)
 
-        assert torch.equal(result[GRIPPER_ACTION_KEY], gripper_tensor)
+        assert torch.equal(result[ProprioceptiveType.GRIPPER.value], gripper_tensor)
 
 
 @pytest.mark.unit
@@ -304,11 +296,11 @@ class TestUnnormalizeActions:
             has_gripper=False,
         )
 
-        normalized_actions = {POSITION_ACTION_KEY: torch.randn(16, 3)}
+        normalized_actions = {ProprioceptiveType.POSITION.value: torch.randn(16, 3)}
 
         result = unnormalize_actions(normalized_actions, normalizer, action_space)
 
-        assert POSITION_ACTION_KEY in result
+        assert ProprioceptiveType.POSITION.value in result
 
     def test_unnormalize_full_actions(self, mock_normalizer, mock_action_space):
         """Test unnormalizing all action types."""
@@ -321,16 +313,16 @@ class TestUnnormalizeActions:
         )
 
         normalized_actions = {
-            POSITION_ACTION_KEY: torch.randn(16, 3),
-            ORIENTATION_ACTION_KEY: torch.randn(16, 4),
-            GRIPPER_ACTION_KEY: torch.rand(16, 1),
+            ProprioceptiveType.POSITION.value: torch.randn(16, 3),
+            ProprioceptiveType.ORIENTATION.value: torch.randn(16, 4),
+            ProprioceptiveType.GRIPPER.value: torch.rand(16, 1),
         }
 
         result = unnormalize_actions(normalized_actions, normalizer, action_space)
 
-        assert POSITION_ACTION_KEY in result
-        assert ORIENTATION_ACTION_KEY in result
-        assert GRIPPER_ACTION_KEY in result
+        assert ProprioceptiveType.POSITION.value in result
+        assert ProprioceptiveType.ORIENTATION.value in result
+        assert ProprioceptiveType.GRIPPER.value in result
 
     def test_unnormalize_binary_gripper_unchanged(self, mock_normalizer, mock_action_space):
         """Test that binary gripper actions are not unnormalized."""
@@ -343,11 +335,11 @@ class TestUnnormalizeActions:
         )
 
         gripper_tensor = torch.randint(0, 2, (16, 1)).float()
-        normalized_actions = {GRIPPER_ACTION_KEY: gripper_tensor}
+        normalized_actions = {ProprioceptiveType.GRIPPER.value: gripper_tensor}
 
         result = unnormalize_actions(normalized_actions, normalizer, action_space)
 
-        assert torch.equal(result[GRIPPER_ACTION_KEY], gripper_tensor)
+        assert torch.equal(result[ProprioceptiveType.GRIPPER.value], gripper_tensor)
 
 
 @pytest.mark.unit
@@ -371,17 +363,17 @@ class TestNormalizeSample:
 
         result = normalize_sample(sample, normalizer, obs_space, action_space)
 
-        assert OBSERVATION_KEY in result
-        assert ACTION_KEY in result
-        assert Cameras.LEFT.value in result[OBSERVATION_KEY]
-        assert POSITION_ACTION_KEY in result[ACTION_KEY]
+        assert SampleKey.OBSERVATION.value in result
+        assert SampleKey.ACTION.value in result
+        assert Cameras.LEFT.value in result[SampleKey.OBSERVATION.value]
+        assert ProprioceptiveType.POSITION.value in result[SampleKey.ACTION.value]
 
     def test_normalize_sample_does_not_modify_original(self, mock_normalizer, sample_factory, mock_observation_space, mock_action_space):
         """Test that normalize_sample doesn't modify the original sample."""
         normalizer = mock_normalizer()
         sample = sample_factory()
-        original_obs_keys = set(sample[OBSERVATION_KEY].keys())
-        original_action_keys = set(sample[ACTION_KEY].keys())
+        original_obs_keys = set(sample[SampleKey.OBSERVATION.value].keys())
+        original_action_keys = set(sample[SampleKey.ACTION.value].keys())
 
         obs_space = mock_observation_space(
             camera_keys=[Cameras.LEFT.value],
@@ -395,8 +387,8 @@ class TestNormalizeSample:
 
         normalize_sample(sample, normalizer, obs_space, action_space)
 
-        assert set(sample[OBSERVATION_KEY].keys()) == original_obs_keys
-        assert set(sample[ACTION_KEY].keys()) == original_action_keys
+        assert set(sample[SampleKey.OBSERVATION.value].keys()) == original_obs_keys
+        assert set(sample[SampleKey.ACTION.value].keys()) == original_action_keys
 
 
 @pytest.mark.unit
@@ -410,13 +402,13 @@ class TestTokenizeObservation:
 
         observation = {
             Cameras.LEFT.value: torch.randn(1, 3, 64, 64),
-            PROPRIO_OBS_ROBOT_FRAME_KEY: torch.randn(1, 7),
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: torch.randn(1, 7),
         }
 
         result = tokenize_observation(observation, obs_tokenizer)
 
-        assert TOKENIZED_OBSERVATIONS_KEY in result
-        assert IS_PAD_OBSERVATION_KEY in result
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value in result
+        assert SampleKey.IS_PAD_OBSERVATION.value in result
         assert Cameras.LEFT.value in result
 
     def test_tokenize_observation_missing_key_raises(self, mock_tokenizer):
@@ -443,15 +435,15 @@ class TestTokenizeActions:
         action_tokenizer = tokenizer_obj.action_tokenizer
 
         actions = {
-            POSITION_ACTION_KEY: torch.randn(16, 3),
-            ORIENTATION_ACTION_KEY: torch.randn(16, 4),
-            GRIPPER_ACTION_KEY: torch.randint(0, 2, (16, 1)).float(),
+            ProprioceptiveType.POSITION.value: torch.randn(16, 3),
+            ProprioceptiveType.ORIENTATION.value: torch.randn(16, 4),
+            ProprioceptiveType.GRIPPER.value: torch.randint(0, 2, (16, 1)).float(),
         }
 
         result = tokenize_actions(actions, action_tokenizer)
 
-        assert TOKENIZED_ACTIONS_KEY in result
-        assert IS_PAD_ACTION_KEY in result
+        assert SampleKey.TOKENIZED_ACTIONS.value in result
+        assert SampleKey.IS_PAD_ACTION.value in result
         action_tokenizer.encode.assert_called_once()
 
     def test_tokenize_actions_with_padding_mask(self, mock_tokenizer):
@@ -463,13 +455,13 @@ class TestTokenizeActions:
         pad_mask[-5:] = True
 
         actions = {
-            POSITION_ACTION_KEY: torch.randn(16, 3),
-            IS_PAD_ACTION_KEY: pad_mask,
+            ProprioceptiveType.POSITION.value: torch.randn(16, 3),
+            SampleKey.IS_PAD_ACTION.value: pad_mask,
         }
 
         result = tokenize_actions(actions, action_tokenizer)
 
-        assert IS_PAD_ACTION_KEY in result
+        assert SampleKey.IS_PAD_ACTION.value in result
         action_tokenizer.encode.assert_called_once()
 
     def test_tokenize_actions_handles_1d_tensors(self, mock_tokenizer):
@@ -478,12 +470,12 @@ class TestTokenizeActions:
         action_tokenizer = tokenizer_obj.action_tokenizer
 
         actions = {
-            GRIPPER_ACTION_KEY: torch.randint(0, 2, (16,)).float(),
+            ProprioceptiveType.GRIPPER.value: torch.randint(0, 2, (16,)).float(),
         }
 
         result = tokenize_actions(actions, action_tokenizer)
 
-        assert TOKENIZED_ACTIONS_KEY in result
+        assert SampleKey.TOKENIZED_ACTIONS.value in result
         action_tokenizer.encode.assert_called_once()
 
 
@@ -508,10 +500,10 @@ class TestDetokenizeActions:
 
         result = detokenize_actions(action_tokens, action_tokenizer, action_space)
 
-        assert POSITION_ACTION_KEY in result
-        assert ORIENTATION_ACTION_KEY in result
-        assert result[POSITION_ACTION_KEY].shape[-1] == 3
-        assert result[ORIENTATION_ACTION_KEY].shape[-1] == 4
+        assert ProprioceptiveType.POSITION.value in result
+        assert ProprioceptiveType.ORIENTATION.value in result
+        assert result[ProprioceptiveType.POSITION.value].shape[-1] == 3
+        assert result[ProprioceptiveType.ORIENTATION.value].shape[-1] == 4
 
     def test_detokenize_actions_with_binary_gripper(self, mock_tokenizer, mock_action_space):
         """Test detokenizing actions with binary gripper."""
@@ -530,8 +522,8 @@ class TestDetokenizeActions:
 
         result = detokenize_actions(action_tokens, action_tokenizer, action_space)
 
-        assert GRIPPER_ACTION_KEY in result
-        assert result[GRIPPER_ACTION_KEY].dtype == torch.long
+        assert ProprioceptiveType.GRIPPER.value in result
+        assert result[ProprioceptiveType.GRIPPER.value].dtype == torch.long
 
     def test_detokenize_actions_with_continuous_gripper(self, mock_tokenizer, mock_action_space):
         """Test detokenizing actions with continuous gripper."""
@@ -550,8 +542,8 @@ class TestDetokenizeActions:
 
         result = detokenize_actions(action_tokens, action_tokenizer, action_space)
 
-        assert GRIPPER_ACTION_KEY in result
-        assert result[GRIPPER_ACTION_KEY].dtype == torch.float32
+        assert ProprioceptiveType.GRIPPER.value in result
+        assert result[ProprioceptiveType.GRIPPER.value].dtype == torch.float32
 
     def test_detokenize_handles_3d_tokens(self, mock_tokenizer, mock_action_space):
         """Test that 3D action tokens (B, H, 1) are squeezed."""
@@ -569,7 +561,7 @@ class TestDetokenizeActions:
 
         result = detokenize_actions(action_tokens, action_tokenizer, action_space)
 
-        assert POSITION_ACTION_KEY in result
+        assert ProprioceptiveType.POSITION.value in result
 
 
 @pytest.mark.unit
@@ -583,8 +575,8 @@ class TestTokenizeSample:
 
         result = tokenize_sample(sample, tokenizer)
 
-        assert TOKENIZED_OBSERVATIONS_KEY in result[OBSERVATION_KEY]
-        assert TOKENIZED_ACTIONS_KEY in result[ACTION_KEY]
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value in result[SampleKey.OBSERVATION.value]
+        assert SampleKey.TOKENIZED_ACTIONS.value in result[SampleKey.ACTION.value]
 
     def test_tokenize_sample_obs_only(self, mock_tokenizer, sample_factory):
         """Test tokenizing sample with only observation tokenizer."""
@@ -593,8 +585,8 @@ class TestTokenizeSample:
 
         result = tokenize_sample(sample, tokenizer)
 
-        assert TOKENIZED_OBSERVATIONS_KEY in result[OBSERVATION_KEY]
-        assert TOKENIZED_ACTIONS_KEY not in result[ACTION_KEY]
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value in result[SampleKey.OBSERVATION.value]
+        assert SampleKey.TOKENIZED_ACTIONS.value not in result[SampleKey.ACTION.value]
 
     def test_tokenize_sample_action_only(self, mock_tokenizer, sample_factory):
         """Test tokenizing sample with only action tokenizer."""
@@ -603,8 +595,8 @@ class TestTokenizeSample:
 
         result = tokenize_sample(sample, tokenizer)
 
-        assert TOKENIZED_OBSERVATIONS_KEY not in result[OBSERVATION_KEY]
-        assert TOKENIZED_ACTIONS_KEY in result[ACTION_KEY]
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value not in result[SampleKey.OBSERVATION.value]
+        assert SampleKey.TOKENIZED_ACTIONS.value in result[SampleKey.ACTION.value]
 
     def test_tokenize_sample_no_tokenizers(self, mock_tokenizer, sample_factory):
         """Test tokenizing sample with no tokenizers."""
@@ -613,8 +605,8 @@ class TestTokenizeSample:
 
         result = tokenize_sample(sample, tokenizer)
 
-        assert TOKENIZED_OBSERVATIONS_KEY not in result[OBSERVATION_KEY]
-        assert TOKENIZED_ACTIONS_KEY not in result[ACTION_KEY]
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value not in result[SampleKey.OBSERVATION.value]
+        assert SampleKey.TOKENIZED_ACTIONS.value not in result[SampleKey.ACTION.value]
 
 
 @pytest.mark.unit
@@ -642,9 +634,9 @@ class TestIntegration:
 
         result = normalize_sample(sample, normalizer, obs_space, action_space)
 
-        assert LANGUAGE_KEY in result[OBSERVATION_KEY]
-        assert GRIPPER_STATE_OBS_KEY in result[OBSERVATION_KEY]
-        assert GRIPPER_ACTION_KEY in result[ACTION_KEY]
+        assert ObsKey.LANGUAGE.value in result[SampleKey.OBSERVATION.value]
+        assert ProprioKey.GRIPPER_STATE.value in result[SampleKey.OBSERVATION.value]
+        assert ProprioceptiveType.GRIPPER.value in result[SampleKey.ACTION.value]
 
     def test_normalize_unnormalize_round_trip(self, mock_normalizer, mock_action_space):
         """Test that normalize and unnormalize are inverse operations."""
@@ -657,9 +649,9 @@ class TestIntegration:
         )
 
         original_actions = {
-            POSITION_ACTION_KEY: torch.randn(16, 3),
-            ORIENTATION_ACTION_KEY: torch.randn(16, 4),
-            GRIPPER_ACTION_KEY: torch.rand(16, 1),
+            ProprioceptiveType.POSITION.value: torch.randn(16, 3),
+            ProprioceptiveType.ORIENTATION.value: torch.randn(16, 4),
+            ProprioceptiveType.GRIPPER.value: torch.rand(16, 1),
         }
 
         normalized = normalize_actions(original_actions, normalizer, action_space)

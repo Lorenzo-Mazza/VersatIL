@@ -7,7 +7,7 @@ import numpy as np
 from hydra.utils import instantiate
 
 from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.data.constants import Cameras, POSITION_ACTION_KEY
+from versatil.data.constants import Cameras
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
 from versatil.models.decoding.decoders.factory.act import ACT
@@ -108,7 +108,7 @@ def test_policy_explainer_with_vision_encoder_types(encoder_type, encoder_params
 
     embedding_dim = 256
     action_heads = {
-        POSITION_ACTION_KEY: ActionHead(
+        ProprioceptiveType.POSITION.value: ActionHead(
             input_dim=embedding_dim,
             output_dim=3,
             blocks=[],
@@ -132,7 +132,7 @@ def test_policy_explainer_with_vision_encoder_types(encoder_type, encoder_params
     )
 
     algorithm = BehavioralCloning()
-    loss = RegressionLoss(action_keys=[POSITION_ACTION_KEY])
+    loss = RegressionLoss(action_keys=[ProprioceptiveType.POSITION.value])
 
     policy = Policy(
         encoding_pipeline=encoding_pipeline,
@@ -206,7 +206,7 @@ def test_explainer_with_mixed_encoders(action_space, device):
 
     embedding_dim = 256
     action_heads = {
-        POSITION_ACTION_KEY: ActionHead(
+        ProprioceptiveType.POSITION.value: ActionHead(
             input_dim=embedding_dim,
             output_dim=3,
             blocks=[],
@@ -230,7 +230,7 @@ def test_explainer_with_mixed_encoders(action_space, device):
     )
 
     algorithm = BehavioralCloning()
-    loss = RegressionLoss(action_keys=[POSITION_ACTION_KEY])
+    loss = RegressionLoss(action_keys=[ProprioceptiveType.POSITION.value])
 
     policy = Policy(
         encoding_pipeline=encoding_pipeline,
@@ -309,7 +309,7 @@ def test_explainer_with_conditional_encoder(action_space, device):
     )
 
     action_heads = {
-        POSITION_ACTION_KEY: ActionHead(
+        ProprioceptiveType.POSITION.value: ActionHead(
             input_dim=256,
             output_dim=3,
             blocks=[],
@@ -333,7 +333,7 @@ def test_explainer_with_conditional_encoder(action_space, device):
     )
 
     algorithm = BehavioralCloning()
-    loss = RegressionLoss(action_keys=[POSITION_ACTION_KEY])
+    loss = RegressionLoss(action_keys=[ProprioceptiveType.POSITION.value])
 
     policy = Policy(
         encoding_pipeline=encoding_pipeline,
@@ -391,7 +391,7 @@ def test_wrapper_forward_with_real_policy(action_space, device):
     obs_space = ObservationSpace(camera_keys=[Cameras.LEFT.value])
 
     action_heads = {
-        POSITION_ACTION_KEY: ActionHead(
+        ProprioceptiveType.POSITION.value: ActionHead(
             input_dim=256,
             output_dim=3,
             blocks=[],
@@ -415,7 +415,7 @@ def test_wrapper_forward_with_real_policy(action_space, device):
     )
 
     algorithm = BehavioralCloning()
-    loss = RegressionLoss(action_keys=[POSITION_ACTION_KEY])
+    loss = RegressionLoss(action_keys=[ProprioceptiveType.POSITION.value])
 
     policy = Policy(
         encoding_pipeline=encoding_pipeline,
@@ -452,7 +452,7 @@ def test_wrapper_forward_with_real_policy(action_space, device):
     assert isinstance(result, tuple)
     assert len(result) == 1
     assert isinstance(result[0], dict)
-    assert POSITION_ACTION_KEY in result[0]
+    assert ProprioceptiveType.POSITION.value in result[0]
 
 
 @pytest.mark.unit
@@ -473,7 +473,7 @@ def test_target_layers_getter_creation(action_space, device):
     obs_space = ObservationSpace(camera_keys=[Cameras.LEFT.value])
 
     action_heads = {
-        POSITION_ACTION_KEY: ActionHead(
+        ProprioceptiveType.POSITION.value: ActionHead(
             input_dim=256,
             output_dim=3,
             blocks=[],
@@ -497,7 +497,7 @@ def test_target_layers_getter_creation(action_space, device):
     )
 
     algorithm = BehavioralCloning()
-    loss = RegressionLoss(action_keys=[POSITION_ACTION_KEY])
+    loss = RegressionLoss(action_keys=[ProprioceptiveType.POSITION.value])
 
     policy = Policy(
         encoding_pipeline=encoding_pipeline,
@@ -543,7 +543,7 @@ def test_saliency_maps_with_real_policy(action_space, device):
     obs_space = ObservationSpace(camera_keys=[Cameras.LEFT.value])
 
     action_heads = {
-        POSITION_ACTION_KEY: ActionHead(
+        ProprioceptiveType.POSITION.value: ActionHead(
             input_dim=256,
             output_dim=3,
             blocks=[],
@@ -567,7 +567,7 @@ def test_saliency_maps_with_real_policy(action_space, device):
     )
 
     algorithm = BehavioralCloning()
-    loss = RegressionLoss(action_keys=[POSITION_ACTION_KEY])
+    loss = RegressionLoss(action_keys=[ProprioceptiveType.POSITION.value])
 
     policy = Policy(
         encoding_pipeline=encoding_pipeline,
@@ -600,7 +600,7 @@ def test_saliency_maps_with_real_policy(action_space, device):
     wrapper = PolicyExplainerWrapper(policy)
 
     def output_selector(predictions):
-        return predictions[POSITION_ACTION_KEY].sum()
+        return predictions[ProprioceptiveType.POSITION.value].sum()
 
     saliency_maps = compute_saliency_maps(
         model=wrapper,

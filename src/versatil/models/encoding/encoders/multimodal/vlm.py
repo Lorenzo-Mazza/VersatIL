@@ -5,10 +5,9 @@ from transformers import AutoModel, AutoConfig, AutoImageProcessor
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 from versatil.data.constants import (
-    TOKENIZED_OBSERVATIONS_KEY,
     Cameras,
-    IS_PAD_OBSERVATION_KEY,
     RGB_CAMERAS,
+    SampleKey,
 )
 from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from versatil.models.encoding.encoders.constants import (
@@ -36,7 +35,7 @@ class VLMEncoder(Encoder):
         specification = EncoderInput(
             keys=input_keys,
             one_of_groups=[[RGB_CAMERAS]],
-            required=[TOKENIZED_OBSERVATIONS_KEY],
+            required=[SampleKey.TOKENIZED_OBSERVATIONS.value],
             requires_tokenized=True,
         )
         super().__init__(
@@ -221,7 +220,7 @@ class VLMEncoder(Encoder):
         if not isinstance(text_input_ids, torch.Tensor):
             raise ValueError("tokenized_observations must be a tensor")
 
-        language_mask = inputs.get(IS_PAD_OBSERVATION_KEY, None)
+        language_mask = inputs.get(SampleKey.IS_PAD_OBSERVATION.value, None)
 
         T = None
         if images.dim() == 5:

@@ -17,7 +17,9 @@ from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.diffusion_transformer.cross_attention_dit_decoder import (
     CrossConditioningDecoder,
 )
-from versatil.models.layers.diffusion_transformer.final_prediction_layer import FinalPredictionLayer
+from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
+    FinalPredictionLayer,
+)
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.base import (
     DenominatorMode,

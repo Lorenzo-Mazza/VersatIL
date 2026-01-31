@@ -30,12 +30,11 @@ from versatil.models.layers.swiglu import SwiGLU
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.decoding.constants import (
     BetaSchedule,
+    DecoderOutputKey,
     DenoisingAlgorithm,
+    LatentKey,
     ODESolver,
     PredictionType,
-    PRIOR_PREDICTION_KEY,
-    PRIOR_TARGET_KEY,
-    CLASS_TOKEN_KEY,
 )
 from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 
@@ -77,13 +76,13 @@ class DiTBlock(nn.Module):
             base_norm=nn.LayerNorm(embedding_dimension),
             condition_dim=timestep_dimension,
             feature_dim=embedding_dimension,
-            use_gate=use_gating
+            use_gate=use_gating,
         )
         self.norm2 = AdaNorm(
             base_norm=nn.LayerNorm(embedding_dimension),
             condition_dim=timestep_dimension,
             feature_dim=embedding_dimension,
-            use_gate=use_gating
+            use_gate=use_gating,
         )
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
@@ -215,6 +214,7 @@ class DenoisingTransformerPrior(PriorLatentEncoder):
 
         if algorithm_type == DenoisingAlgorithm.FLOW_MATCHING.value:
             from torchcfm.conditional_flow_matching import ConditionalFlowMatcher
+
             self.flow_matcher = ConditionalFlowMatcher(sigma=sigma)
             self.ode_solver = ode_solver
             self.noise_scheduler = None
@@ -268,18 +268,20 @@ class DenoisingTransformerPrior(PriorLatentEncoder):
             ),
             temporal_positional_encoding_layer=temporal_positional_encoding,
         )
-        self.layers = nn.ModuleList([
-            DiTBlock(
-                embedding_dimension=embedding_dimension,
-                number_of_heads=number_of_heads,
-                feedforward_dimension=feedforward_dimension,
-                timestep_dimension=embedding_dimension,
-                dropout=dropout,
-                activation=activation,
-                use_gating=use_gating
-            )
-            for _ in range(number_of_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [
+                DiTBlock(
+                    embedding_dimension=embedding_dimension,
+                    number_of_heads=number_of_heads,
+                    feedforward_dimension=feedforward_dimension,
+                    timestep_dimension=embedding_dimension,
+                    dropout=dropout,
+                    activation=activation,
+                    use_gating=use_gating,
+                )
+                for _ in range(number_of_layers)
+            ]
+        )
         self.final_norm = nn.LayerNorm(embedding_dimension)
         self.to(torch.device(device))
 
@@ -302,7 +304,9 @@ class DenoisingTransformerPrior(PriorLatentEncoder):
         timestep_embedding = timestep_embedding.squeeze(1)  # (B, D)
         return self.timestep_mlp(timestep_embedding)  # (B, D)
 
-    def _get_timestep_embedding_continuous(self, continuous_time: torch.Tensor) -> torch.Tensor:
+    def _get_timestep_embedding_continuous(
+        self, continuous_time: torch.Tensor
+    ) -> torch.Tensor:
         """Compute timestep embedding for continuous time.
 
         Args:
@@ -311,7 +315,9 @@ class DenoisingTransformerPrior(PriorLatentEncoder):
         Returns:
             Timestep embeddings (B, D).
         """
-        scaled_timesteps = (continuous_time * (self.num_train_timesteps - 1)).long()  # (B,)
+        scaled_timesteps = (
+            continuous_time * (self.num_train_timesteps - 1)
+        ).long()  # (B,)
         return self._get_timestep_embedding(scaled_timesteps)  # (B, D)
 
     def _predict_from_tokens(
@@ -332,8 +338,10 @@ class DenoisingTransformerPrior(PriorLatentEncoder):
         """
         latent_token = self.latent_input_proj(noisy_latent)  # (B, D)
         input_obs = observations.copy()
-        input_obs[CLASS_TOKEN_KEY] = latent_token
-        tokens, positional_encoding, padding_mask = self.input_builder(input_obs)  # (B, T+1, D)
+        input_obs[DecoderOutputKey.CLASS_TOKEN.value] = latent_token
+        tokens, positional_encoding, padding_mask = self.input_builder(
+            input_obs
+        )  # (B, T+1, D)
         for layer in self.layers:
             tokens = layer(
                 tokens,
@@ -357,7 +365,7 @@ class DenoisingTransformerPrior(PriorLatentEncoder):
             observations: Dictionary of conditioning features.
 
         Returns:
-            Dictionary with PRIOR_PREDICTION_KEY and PRIOR_TARGET_KEY.
+            Dictionary with LatentKey.PRIOR_PREDICTION.value and LatentKey.PRIOR_TARGET.value.
         """
         batch_size = target_latents.shape[0]
         device = target_latents.device
@@ -365,7 +373,11 @@ class DenoisingTransformerPrior(PriorLatentEncoder):
 
         if self.algorithm_type == DenoisingAlgorithm.FLOW_MATCHING.value:
             noise = torch.randn_like(target_latents)  # (B, latent_dim)
-            time, interpolated_latent, target_velocity = self.flow_matcher.sample_location_and_conditional_flow(
+            (
+                time,
+                interpolated_latent,
+                target_velocity,
+            ) = self.flow_matcher.sample_location_and_conditional_flow(
                 x0=noise, x1=target_latents
             )  # time: (B,), interpolated_latent: (B, latent_dim), target_velocity: (B, latent_dim)
             timestep_embedding = self._get_timestep_embedding_continuous(time)  # (B, D)
@@ -374,7 +386,10 @@ class DenoisingTransformerPrior(PriorLatentEncoder):
                 observations=filtered_obs,
                 timestep_embedding=timestep_embedding,
             )  # (B, latent_dim)
-            return {PRIOR_PREDICTION_KEY: predicted_velocity, PRIOR_TARGET_KEY: target_velocity}
+            return {
+                LatentKey.PRIOR_PREDICTION.value: predicted_velocity,
+                LatentKey.PRIOR_TARGET.value: target_velocity,
+            }
 
         timesteps = sample_random_timesteps(
             batch_size=batch_size,
@@ -392,7 +407,10 @@ class DenoisingTransformerPrior(PriorLatentEncoder):
             observations=filtered_obs,
             timestep_embedding=timestep_embedding,
         )  # (B, latent_dim)
-        return {PRIOR_PREDICTION_KEY: model_output, PRIOR_TARGET_KEY: noise}
+        return {
+            LatentKey.PRIOR_PREDICTION.value: model_output,
+            LatentKey.PRIOR_TARGET.value: noise,
+        }
 
     def sample_prior(
         self,
@@ -412,13 +430,18 @@ class DenoisingTransformerPrior(PriorLatentEncoder):
         if observations is None:
             observations = {}
         filtered_obs = self._filter_observations(observations)
-        z = torch.randn(batch_size, self.latent_dimension, device=device)  # (B, latent_dim)
+        z = torch.randn(
+            batch_size, self.latent_dimension, device=device
+        )  # (B, latent_dim)
 
         if self.algorithm_type == DenoisingAlgorithm.FLOW_MATCHING.value:
+
             def velocity_fn(
                 current_latent: torch.Tensor, current_time: torch.Tensor
             ) -> torch.Tensor:
-                timestep_embedding = self._get_timestep_embedding_continuous(current_time)  # (B, D)
+                timestep_embedding = self._get_timestep_embedding_continuous(
+                    current_time
+                )  # (B, D)
                 return self._predict_from_tokens(
                     noisy_latent=current_latent,
                     observations=filtered_obs,
@@ -434,12 +457,16 @@ class DenoisingTransformerPrior(PriorLatentEncoder):
 
         setup_inference_timesteps(self.noise_scheduler, self.num_inference_steps)
         for t in self.noise_scheduler.timesteps:
-            timesteps = torch.full((batch_size,), t, device=device, dtype=torch.long)  # (B,)
+            timesteps = torch.full(
+                (batch_size,), t, device=device, dtype=torch.long
+            )  # (B,)
             timestep_embedding = self._get_timestep_embedding(timesteps)  # (B, D)
             model_output = self._predict_from_tokens(
                 noisy_latent=z,
                 observations=filtered_obs,
                 timestep_embedding=timestep_embedding,
             )  # (B, latent_dim)
-            z = self.noise_scheduler.step(model_output, t, z).prev_sample  # (B, latent_dim)
+            z = self.noise_scheduler.step(
+                model_output, t, z
+            ).prev_sample  # (B, latent_dim)
         return z

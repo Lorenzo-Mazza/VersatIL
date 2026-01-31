@@ -113,7 +113,5 @@ class VariationalAlgorithmConfig(DecodingAlgorithmConfig):
     )
     base_algorithm: DecodingAlgorithmConfig = MISSING  # type: ignore[assignment]
     posterior_encoder: PosteriorLatentEncoderConfig = MISSING  # type: ignore[assignment]
-    prior: PriorLatentEncoderConfig  = MISSING
+    prior: PriorLatentEncoderConfig = MISSING
     sampling_from_prior_probability: float = 0.25
-
-

@@ -9,8 +9,7 @@ from omegaconf import DictConfig
 from versatil.data.constants import (
     ImageNormalizationType,
     ObsKey,
-    TOKENIZED_OBSERVATIONS_KEY,
-    IS_PAD_OBSERVATION_KEY,
+    SampleKey,
 )
 from versatil.data.metadata import CameraMetadata
 from versatil.data.task import ObservationSpace
@@ -97,8 +96,8 @@ class ConfigValidator:
                     f"observation_tokenizer.observation_keys: {token_obs_keys}"
                 )
             if tokenized_any:
-                available_keys.add(TOKENIZED_OBSERVATIONS_KEY)
-                available_keys.add(IS_PAD_OBSERVATION_KEY)
+                available_keys.add(SampleKey.TOKENIZED_OBSERVATIONS.value)
+                available_keys.add(SampleKey.IS_PAD_OBSERVATION.value)
         else:
             for obs_key, obs_meta in obs_space.observations_metadata.items():
                 available_keys.add(obs_key)
@@ -135,7 +134,10 @@ class ConfigValidator:
                 )
 
         uncovered_keys = available_keys - configured_encoder_inputs
-        uncovered_keys -= {TOKENIZED_OBSERVATIONS_KEY, IS_PAD_OBSERVATION_KEY}
+        uncovered_keys -= {
+            SampleKey.TOKENIZED_OBSERVATIONS.value,
+            SampleKey.IS_PAD_OBSERVATION.value,
+        }
         if uncovered_keys:
             self.warnings.append(
                 f"Observation space contains keys {uncovered_keys} "

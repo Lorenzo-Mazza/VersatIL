@@ -5,10 +5,7 @@ from torch import nn
 from transformers import AutoModel, AutoConfig
 from transformers.modeling_outputs import BaseModelOutput
 
-from versatil.data.constants import (
-    TOKENIZED_OBSERVATIONS_KEY,
-    IS_PAD_OBSERVATION_KEY,
-)
+from versatil.data.constants import SampleKey
 from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from versatil.models.encoding.encoders.constants import (
     AttentionImplementation,
@@ -44,14 +41,17 @@ class LanguageEncoder(Encoder):
             use_embeddings_only: If True, use only the pretrained token embedding layer
         """
         specification = EncoderInput(
-            keys=[TOKENIZED_OBSERVATIONS_KEY, IS_PAD_OBSERVATION_KEY],
-            required=[TOKENIZED_OBSERVATIONS_KEY],
+            keys=[
+                SampleKey.TOKENIZED_OBSERVATIONS.value,
+                SampleKey.IS_PAD_OBSERVATION.value,
+            ],
+            required=[SampleKey.TOKENIZED_OBSERVATIONS.value],
             requires_tokenized=True,
         )
         super().__init__(
             input_specification=specification, pretrained=pretrained, frozen=frozen
         )
-        self.language_key = TOKENIZED_OBSERVATIONS_KEY
+        self.language_key = SampleKey.TOKENIZED_OBSERVATIONS.value
         self.pooling_method = pooling_method
         self.attention_type = attention_type
         self.model_name = model_name
@@ -179,7 +179,7 @@ class LanguageEncoder(Encoder):
 
         Args:
             inputs: Dict with pre-tokenized text input (token IDs as tensors).
-                Expected key: TOKENIZED_OBSERVATIONS_KEY
+                Expected key: SampleKey.TOKENIZED_OBSERVATIONS.value
 
         Returns:
             Encoded text features, wrapped in a dictionary indexed by the `LANGUAGE_FEATURES` constant.
@@ -195,7 +195,7 @@ class LanguageEncoder(Encoder):
         if not isinstance(text_input_ids, torch.Tensor):
             raise ValueError("tokenized_observations must be a tensor")
 
-        language_mask = inputs.get(IS_PAD_OBSERVATION_KEY, None)
+        language_mask = inputs.get(SampleKey.IS_PAD_OBSERVATION.value, None)
         T = None
         has_time = False
         device = next(self.encoder.parameters()).device

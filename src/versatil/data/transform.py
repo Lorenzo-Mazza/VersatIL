@@ -3,15 +3,10 @@ import logging
 import torch
 
 from versatil.data.constants import (
-    ACTION_KEY,
     BinaryGripperRange,
     GripperType,
-    IS_PAD_ACTION_KEY,
-    IS_PAD_OBSERVATION_KEY,
-    OBSERVATION_KEY,
-    TOKENIZED_ACTIONS_KEY,
-    TOKENIZED_OBSERVATIONS_KEY,
     ProprioceptiveType,
+    SampleKey,
 )
 from versatil.data.metadata import (
     GripperActionMetadata,
@@ -45,14 +40,14 @@ def normalize_sample(
         Normalized and tokenized sample.
     """
     sample_copy = sample.copy()  # Avoid modifying in-place
-    observation = sample_copy[OBSERVATION_KEY]
-    sample_copy[OBSERVATION_KEY] = normalize_observation(
+    observation = sample_copy[SampleKey.OBSERVATION.value]
+    sample_copy[SampleKey.OBSERVATION.value] = normalize_observation(
         observation=observation,
         normalizer=normalizer,
         observation_space=observation_space,
     )
-    actions = sample_copy[ACTION_KEY]
-    sample_copy[ACTION_KEY] = normalize_actions(
+    actions = sample_copy[SampleKey.ACTION.value]
+    sample_copy[SampleKey.ACTION.value] = normalize_actions(
         actions=actions, normalizer=normalizer, action_space=action_space
     )
     return sample_copy
@@ -122,13 +117,13 @@ def tokenize_sample(
 ) -> dict[str, dict[str, torch.Tensor]]:
     """Tokenize observations and actins according to the action space configuration."""
     if tokenizer.observation_tokenizer is not None:
-        observation = sample[OBSERVATION_KEY]
-        sample[OBSERVATION_KEY] = tokenize_observation(
+        observation = sample[SampleKey.OBSERVATION.value]
+        sample[SampleKey.OBSERVATION.value] = tokenize_observation(
             observation=observation, obs_tokenizer=tokenizer.observation_tokenizer
         )
     if tokenizer.action_tokenizer is not None:
-        actions = sample[ACTION_KEY]
-        sample[ACTION_KEY] = tokenize_actions(
+        actions = sample[SampleKey.ACTION.value]
+        sample[SampleKey.ACTION.value] = tokenize_actions(
             actions=actions,
             action_space=action_space,
             action_tokenizer=tokenizer.action_tokenizer,
@@ -150,8 +145,12 @@ def tokenize_observation(
                 f"Observation key '{key}' not found in sample for tokenization."
             )
     tokenized = obs_tokenizer.tokenize(obs_to_tokenize)
-    obs_copy[TOKENIZED_OBSERVATIONS_KEY] = tokenized[TOKENIZED_OBSERVATIONS_KEY]
-    obs_copy[IS_PAD_OBSERVATION_KEY] = tokenized[IS_PAD_OBSERVATION_KEY]
+    obs_copy[SampleKey.TOKENIZED_OBSERVATIONS.value] = tokenized[
+        SampleKey.TOKENIZED_OBSERVATIONS.value
+    ]
+    obs_copy[SampleKey.IS_PAD_OBSERVATION.value] = tokenized[
+        SampleKey.IS_PAD_OBSERVATION.value
+    ]
     return obs_copy
 
 
@@ -173,11 +172,13 @@ def tokenize_actions(
 
     # Concatenate along last dimension: (pred_horizon, action_dim)
     action_tensor = torch.cat(action_components, dim=-1)
-    is_pad_mask = actions_to_tokenize.get(IS_PAD_ACTION_KEY, None)
+    is_pad_mask = actions_to_tokenize.get(SampleKey.IS_PAD_ACTION.value, None)
     tokenized = action_tokenizer.encode(action_tensor, is_pad_mask=is_pad_mask)
-    actions_to_tokenize[TOKENIZED_ACTIONS_KEY] = tokenized[TOKENIZED_ACTIONS_KEY]
-    actions_to_tokenize[IS_PAD_ACTION_KEY] = tokenized[
-        IS_PAD_ACTION_KEY
+    actions_to_tokenize[SampleKey.TOKENIZED_ACTIONS.value] = tokenized[
+        SampleKey.TOKENIZED_ACTIONS.value
+    ]
+    actions_to_tokenize[SampleKey.IS_PAD_ACTION.value] = tokenized[
+        SampleKey.IS_PAD_ACTION.value
     ]  # Replace padding mask with tokenizer mask
     return actions_to_tokenize
 

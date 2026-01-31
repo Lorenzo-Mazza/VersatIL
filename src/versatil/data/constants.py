@@ -13,11 +13,11 @@ class Cameras(enum.Enum):
     AGENTVIEW = "agentview_rgb"
     EYE_IN_HAND = "eye_in_hand_rgb"
 
-    #LIBERO LEROBOT
-    IMAGE = 'observation.images.image'
-    IMAGE_2 = 'observation.images.image2'
+    # LIBERO LEROBOT
+    IMAGE = "observation.images.image"
+    IMAGE_2 = "observation.images.image2"
 
-    IMAGE_METAWORLD_LEROBOT = 'observation.image'
+    IMAGE_METAWORLD_LEROBOT = "observation.image"
 
 
 class CoordinateSystem(str, enum.Enum):
@@ -123,6 +123,7 @@ class TokenizerType(str, enum.Enum):
 
 class DatasetType(str, enum.Enum):
     """Enum for dataset types, independent of storage format."""
+
     LIBERO = "libero"
     TSO = "tso"
     METAWORLD = "metaworld"
@@ -141,29 +142,23 @@ class LeRobotPathsV30(str, enum.Enum):
     DEFAULT_EPISODES_PATH = EPISODES_DIR + "/" + CHUNK_FILE_PATTERN + ".parquet"
     DEFAULT_DATA_PATH = DATA_DIR + "/" + CHUNK_FILE_PATTERN + ".parquet"
     DEFAULT_VIDEO_PATH = VIDEO_DIR + "/{video_key}/" + CHUNK_FILE_PATTERN + ".mp4"
-    DEFAULT_IMAGE_PATH = "images/{image_key}/episode-{episode_index:06d}/frame-{frame_index:06d}.png"
+    DEFAULT_IMAGE_PATH = (
+        "images/{image_key}/episode-{episode_index:06d}/frame-{frame_index:06d}.png"
+    )
 
     def __str__(self):
         return self.value
 
-#: Observation keys
-OBSERVATION_KEY = "observation"
-#: Action keys
-ACTION_KEY = "action"
-IS_PAD_ACTION_KEY = "is_pad"
-IS_PAD_OBSERVATION_KEY = "is_pad_observation"
-TOKENIZED_OBSERVATIONS_KEY = "tokenized_observations"
-TOKENIZED_ACTIONS_KEY = "tokenized_actions"
 
+class SampleKey(str, enum.Enum):
+    """Keys for sample dictionary structure in data pipeline."""
 
-PROPRIO_OBS_ROBOT_FRAME_KEY = "proprio_robot_frame" # Legacy
-PROPRIO_OBS_CAMERA_FRAME_KEY = "proprio_camera_frame" # Legacy
-LANGUAGE_KEY = "language_instruction" # Legacy
-POSITION_ACTION_KEY = "position_action" # Legacy
-ORIENTATION_ACTION_KEY = "orientation_action" # Legacy
-GRIPPER_ACTION_KEY = "gripper_action" # Legacy
-
-
+    OBSERVATION = "observation"
+    ACTION = "action"
+    IS_PAD_ACTION = "is_pad"
+    IS_PAD_OBSERVATION = "is_pad_observation"
+    TOKENIZED_OBSERVATIONS = "tokenized_observations"
+    TOKENIZED_ACTIONS = "tokenized_actions"
 
 
 VALID_CAMERAS = [cam.value for cam in Cameras]

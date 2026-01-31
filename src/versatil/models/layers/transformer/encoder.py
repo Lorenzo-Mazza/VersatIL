@@ -147,7 +147,9 @@ class TransformerEncoder(nn.Module):
         Returns:
             Attention mask (B, 1, seq_length, seq_length) where True means masked
         """
-        return padding_mask.unsqueeze(1).unsqueeze(2).expand(-1, -1, sequence_length, -1)
+        return (
+            padding_mask.unsqueeze(1).unsqueeze(2).expand(-1, -1, sequence_length, -1)
+        )
 
     def forward(
         self,

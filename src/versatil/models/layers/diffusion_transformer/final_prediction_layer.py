@@ -14,10 +14,10 @@ class FinalPredictionLayer(nn.Module):
     """
 
     def __init__(
-            self,
-            hidden_dimension: int,
-            output_dimension: int,
-            activation: str = ActivationFunction.SILU.value,
+        self,
+        hidden_dimension: int,
+        output_dimension: int,
+        activation: str = ActivationFunction.SILU.value,
     ) -> None:
         """Initialize the final prediction layer of the transformer.
 
@@ -28,13 +28,15 @@ class FinalPredictionLayer(nn.Module):
         """
         super().__init__()
         base_norm = nn.LayerNorm(
-            hidden_dimension, elementwise_affine=False, eps=1e-6  # Layer norm without learnable affine parameters
+            hidden_dimension,
+            elementwise_affine=False,
+            eps=1e-6,  # Layer norm without learnable affine parameters
         )
         self.ada_norm = AdaNorm(
             base_norm=base_norm,
             condition_dim=hidden_dimension,
             feature_dim=hidden_dimension,
-            use_gate=False, # no gate needed at the end
+            use_gate=False,  # no gate needed at the end
             activation=activation,
         )
         self.output_linear = nn.Linear(hidden_dimension, output_dimension, bias=True)
@@ -54,9 +56,10 @@ class FinalPredictionLayer(nn.Module):
         Returns:
             Predicted tensor (batch_size, sequence_length, output_dim).
         """
-        modulated_states = self.ada_norm(hidden_states, conditioning_embedding) # (B, S, D)
-        return self.output_linear(modulated_states) # (B, S, output_dim)
-
+        modulated_states = self.ada_norm(
+            hidden_states, conditioning_embedding
+        )  # (B, S, D)
+        return self.output_linear(modulated_states)  # (B, S, output_dim)
 
     def reset_parameters(self) -> None:
         """Reset parameters to zeros (DiT initialization)."""

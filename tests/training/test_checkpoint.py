@@ -20,7 +20,7 @@ from versatil.configs.inference import InferenceConfig
 from versatil.workspace import Workspace
 from versatil.training.lightning_policy import LightningPolicy
 from versatil.training.callbacks import EMACallback
-from versatil.data.constants import Cameras, GripperType, OrientationRepresentation, ACTION_KEY
+from versatil.data.constants import Cameras, GripperType, OrientationRepresentation
 from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 from versatil.data.tokenization.binning_tokenizer import BinningTokenizer
@@ -618,7 +618,7 @@ class TestWorkspaceLoadCheckpoint:
         """Create Tokenizer with pretrained action tokenizer."""
         device = torch.device("cpu")
         tokenizer = Tokenizer(device=device)
-        tokenizer.tokenizers[ACTION_KEY] = action_tokenizer_pretrained
+        tokenizer.tokenizers[SampleKey.ACTION.value] = action_tokenizer_pretrained
         return tokenizer
 
     @pytest.fixture
@@ -626,7 +626,7 @@ class TestWorkspaceLoadCheckpoint:
         """Create Tokenizer with custom-fitted action tokenizer."""
         device = torch.device("cpu")
         tokenizer = Tokenizer(device=device)
-        tokenizer.tokenizers[ACTION_KEY] = action_tokenizer_custom
+        tokenizer.tokenizers[SampleKey.ACTION.value] = action_tokenizer_custom
         return tokenizer
 
     @pytest.fixture
@@ -634,7 +634,7 @@ class TestWorkspaceLoadCheckpoint:
         """Create Tokenizer with both action and binning tokenizers."""
         device = torch.device("cpu")
         tokenizer = Tokenizer(device=device)
-        tokenizer.tokenizers[ACTION_KEY] = action_tokenizer_custom
+        tokenizer.tokenizers[SampleKey.ACTION.value] = action_tokenizer_custom
         tokenizer.tokenizers["proprio_robot_frame"] = binning_tokenizer
         return tokenizer
 
@@ -645,7 +645,7 @@ class TestWorkspaceLoadCheckpoint:
         tokenizer = Tokenizer(device=device)
         action_tok = ActionTokenizer(use_pretrained_weights=False, device=device)
         action_tok.fit(action_chunks)
-        tokenizer.tokenizers[ACTION_KEY] = action_tok
+        tokenizer.tokenizers[SampleKey.ACTION.value] = action_tok
         return tokenizer
 
     # Tokenizer tests
@@ -802,9 +802,9 @@ class TestWorkspaceLoadCheckpoint:
         workspace_with_policy.tokenizer.save_pretrained(tokenizer_path)
 
         # Verify action tokenizer files
-        assert (tokenizer_path / ACTION_KEY).exists()
+        assert (tokenizer_path / SampleKey.ACTION.value).exists()
         # HuggingFace saves multiple files
-        assert len(list((tokenizer_path / ACTION_KEY).iterdir())) > 0
+        assert len(list((tokenizer_path / SampleKey.ACTION.value).iterdir())) > 0
 
     def test_binning_tokenizer_roundtrip(self, tokenizer_with_binning, workspace_with_policy, simple_policy, normalized_proprio):
         """Test save/load preserves binning tokenizer functionality."""
@@ -844,7 +844,7 @@ class TestWorkspaceLoadCheckpoint:
         workspace_with_policy.tokenizer = tokenizer_with_action
 
         # Test data
-        test_data = {ACTION_KEY: action_chunks[:3]}
+        test_data = {SampleKey.ACTION.value: action_chunks[:3]}
         original_tokenized = workspace_with_policy.tokenizer.tokenize(test_data)
 
         # Save tokenizer
@@ -868,7 +868,7 @@ class TestWorkspaceLoadCheckpoint:
         loaded_tokenized = workspace_with_policy.tokenizer.tokenize(test_data)
 
         # Verify tokenization produces same type
-        assert type(original_tokenized[ACTION_KEY]) == type(loaded_tokenized[ACTION_KEY])
+        assert type(original_tokenized[SampleKey.ACTION.value]) == type(loaded_tokenized[SampleKey.ACTION.value])
 
     @pytest.mark.integration
     def test_mixed_tokenizers_roundtrip(self, tokenizer_with_binning, workspace_with_policy, simple_policy, normalized_proprio, action_chunks):
@@ -877,14 +877,14 @@ class TestWorkspaceLoadCheckpoint:
         device = torch.device("cpu")
         action_tok = ActionTokenizer(use_pretrained_weights=False, device=device)
         action_tok.fit(action_chunks)
-        tokenizer_with_binning.tokenizers[ACTION_KEY] = action_tok
+        tokenizer_with_binning.tokenizers[SampleKey.ACTION.value] = action_tok
 
         workspace_with_policy.tokenizer = tokenizer_with_binning
 
         # Test data
         test_data = {
             "proprio_robot_frame": normalized_proprio[:10],
-            ACTION_KEY: action_chunks[:3],
+            SampleKey.ACTION.value: action_chunks[:3],
         }
         original_tokenized = workspace_with_policy.tokenizer.tokenize(test_data)
 
@@ -910,7 +910,7 @@ class TestWorkspaceLoadCheckpoint:
 
         # Verify both tokenizers work
         assert "proprio_robot_frame" in loaded_tokenized
-        assert ACTION_KEY in loaded_tokenized
+        assert SampleKey.ACTION.value in loaded_tokenized
         assert torch.equal(original_tokenized["proprio_robot_frame"], loaded_tokenized["proprio_robot_frame"])
 
 @pytest.mark.unit

@@ -7,7 +7,7 @@ from versatil.models.encoding.encoders.constants import (
     PoolingMethod,
     EncoderOutputKeys,
 )
-from versatil.data.constants import TOKENIZED_OBSERVATIONS_KEY
+from versatil.data.constants import SampleKey
 
 
 LANGUAGE_MODELS = [
@@ -41,11 +41,11 @@ def token_inputs_factory():
     def factory(batch_size=2, temporal_length=None, seq_len=100, vocab_size=30522):
         if temporal_length is None:
             return {
-                TOKENIZED_OBSERVATIONS_KEY: torch.randint(0, vocab_size, (batch_size, seq_len))
+                SampleKey.TOKENIZED_OBSERVATIONS.value: torch.randint(0, vocab_size, (batch_size, seq_len))
             }
         else:
             return {
-                TOKENIZED_OBSERVATIONS_KEY: torch.randint(0, vocab_size, (batch_size, temporal_length, seq_len))
+                SampleKey.TOKENIZED_OBSERVATIONS.value: torch.randint(0, vocab_size, (batch_size, temporal_length, seq_len))
             }
     return factory
 

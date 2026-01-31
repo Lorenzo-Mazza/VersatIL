@@ -3,8 +3,8 @@
 import torch
 from torch import nn as nn
 
-from versatil.data.constants import IS_PAD_ACTION_KEY
-from versatil.models.decoding.constants import CLASS_TOKEN_KEY
+from versatil.data.constants import SampleKey
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.layers.feature_projection import FeatureProjection
 
@@ -61,7 +61,8 @@ class UNetInputBuilder(nn.Module):
         clean_features = {
             k: v
             for k, v in features.items()
-            if not EncoderOutputKeys.PADDING_MASK.value in k and k != IS_PAD_ACTION_KEY
+            if not EncoderOutputKeys.PADDING_MASK.value in k
+            and k != SampleKey.IS_PAD_ACTION.value
         }
         projected = self.projection(
             clean_features
@@ -92,7 +93,7 @@ class UNetInputBuilder(nn.Module):
             else:
                 raise ValueError(f"Feature '{name}' has unsupported shape {x.shape}")
 
-            if CLASS_TOKEN_KEY in name:
+            if DecoderOutputKey.CLASS_TOKEN.value in name:
                 cls_token = feature_embedding
             else:
                 flat_features_list.append(feature_embedding)

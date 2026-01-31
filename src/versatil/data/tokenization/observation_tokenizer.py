@@ -16,9 +16,8 @@ import torch
 from transformers import AutoTokenizer
 
 from versatil.data.constants import (
-    TOKENIZED_OBSERVATIONS_KEY,
-    IS_PAD_OBSERVATION_KEY,
     ObsKey,
+    SampleKey,
 )
 from versatil.data.tokenization.binning_tokenizer import BinningTokenizer
 
@@ -143,8 +142,8 @@ class ObservationTokenizer:
             is_pad = is_pad.reshape(batch_size, time_steps, -1)
 
         return {
-            TOKENIZED_OBSERVATIONS_KEY: tokens.to(self.device),
-            IS_PAD_OBSERVATION_KEY: is_pad.to(self.device),
+            SampleKey.TOKENIZED_OBSERVATIONS.value: tokens.to(self.device),
+            SampleKey.IS_PAD_OBSERVATION.value: is_pad.to(self.device),
         }
 
     def _build_prompts(self, observations: dict[str, Any]) -> list[str]:

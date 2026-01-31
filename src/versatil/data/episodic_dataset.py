@@ -6,7 +6,11 @@ import torch.utils.data as data
 from threadpoolctl import threadpool_limits
 
 from versatil.configs.data.dataloader import DataLoaderConfig
-from versatil.data.metadata import GripperActionMetadata, OnTheFlyActionMetadata, GripperObservationMetadata
+from versatil.data.metadata import (
+    GripperActionMetadata,
+    OnTheFlyActionMetadata,
+    GripperObservationMetadata,
+)
 from versatil.data.task import ObservationSpace, ActionSpace
 from versatil.data.action_processor import ActionProcessor
 from versatil.data.augmentation.augmentation_pipeline import AugmentationPipeline
@@ -90,7 +94,9 @@ class EpisodicDataset(data.Dataset):
             )
         )  # Remove duplicates
         if self.preload_data_in_memory:
-            self.replay_buffer = ReplayBuffer.copy_from_path(zarr_path=zarr_path, keys=all_keys)
+            self.replay_buffer = ReplayBuffer.copy_from_path(
+                zarr_path=zarr_path, keys=all_keys
+            )
         else:
             self.replay_buffer = ReplayBuffer.create_from_path(zarr_path=zarr_path)
         missing_keys = set(all_keys) - set(self.replay_buffer.keys())
@@ -343,9 +349,7 @@ class EpisodicDataset(data.Dataset):
             assert isinstance(meta.source_metadata, GripperObservationMetadata)
             gripper_type = meta.source_metadata.gripper_type
         else:
-            raise ValueError(
-                f"Unsupported gripper action metadata type: {type(meta)}"
-            )
+            raise ValueError(f"Unsupported gripper action metadata type: {type(meta)}")
         if gripper_type != GripperType.BINARY.value:
             raise ValueError(
                 f"Class imbalance weights only supported for binary grippers, "

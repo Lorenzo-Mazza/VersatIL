@@ -166,7 +166,10 @@ class MMDiTLayer(nn.Module):
         residual_observation = hidden_states_observation
         residual_action = hidden_states_action
         if self.use_gating:
-            normed_observation, gate_attention_observation = self.attention_normalization_observation(
+            (
+                normed_observation,
+                gate_attention_observation,
+            ) = self.attention_normalization_observation(
                 x=hidden_states_observation, condition=conditioning
             )
             normed_action, gate_attention_action = self.attention_normalization_action(
@@ -190,15 +193,29 @@ class MMDiTLayer(nn.Module):
             positional_encoding_observation=positional_encoding_observation,
             positional_encoding_action=positional_encoding_action,
         )
-        hidden_states_observation = residual_observation + gate_attention_observation * self.attention_dropout_observation(attention_output_observation)
-        hidden_states_action = residual_action + gate_attention_action * self.attention_dropout_action(attention_output_action)
+        hidden_states_observation = (
+            residual_observation
+            + gate_attention_observation
+            * self.attention_dropout_observation(attention_output_observation)
+        )
+        hidden_states_action = (
+            residual_action
+            + gate_attention_action
+            * self.attention_dropout_action(attention_output_action)
+        )
         residual_observation = hidden_states_observation
         residual_action = hidden_states_action
         if self.use_gating:
-            normed_observation, gate_feedforward_observation = self.feedforward_normalization_observation(
+            (
+                normed_observation,
+                gate_feedforward_observation,
+            ) = self.feedforward_normalization_observation(
                 x=hidden_states_observation, condition=conditioning
             )
-            normed_action, gate_feedforward_action = self.feedforward_normalization_action(
+            (
+                normed_action,
+                gate_feedforward_action,
+            ) = self.feedforward_normalization_action(
                 x=hidden_states_action, condition=conditioning
             )
         else:
@@ -211,8 +228,18 @@ class MMDiTLayer(nn.Module):
             gate_feedforward_observation = 1.0
             gate_feedforward_action = 1.0
 
-        feedforward_output_observation = self.feedforward_observation(normed_observation)
+        feedforward_output_observation = self.feedforward_observation(
+            normed_observation
+        )
         feedforward_output_action = self.feedforward_action(normed_action)
-        hidden_states_observation = residual_observation + gate_feedforward_observation * self.feedforward_dropout_observation(feedforward_output_observation)
-        hidden_states_action = residual_action + gate_feedforward_action * self.feedforward_dropout_action(feedforward_output_action)
+        hidden_states_observation = (
+            residual_observation
+            + gate_feedforward_observation
+            * self.feedforward_dropout_observation(feedforward_output_observation)
+        )
+        hidden_states_action = (
+            residual_action
+            + gate_feedforward_action
+            * self.feedforward_dropout_action(feedforward_output_action)
+        )
         return hidden_states_observation, hidden_states_action

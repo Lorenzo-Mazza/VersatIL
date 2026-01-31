@@ -220,7 +220,9 @@ class TransformBuilder:
                 depth_stats = self._compute_depth_stats_streaming(
                     camera_key, winsorize_depth
                 )
-                self._setup_depth_normalizer(normalizer, camera_key, depth_stats, device)
+                self._setup_depth_normalizer(
+                    normalizer, camera_key, depth_stats, device
+                )
             else:
                 self._setup_rgb_normalizer(normalizer, camera_key, device)
             self._log_camera_stats_sampled(camera_key, normalizer)
@@ -259,7 +261,9 @@ class TransformBuilder:
             else:
                 # Large array - sample using multi-dimensional indexing
                 # (zarr v3 doesn't support flat indexing on arrays)
-                flat_indices = np.random.choice(total_pixels, reservoir_size, replace=False)
+                flat_indices = np.random.choice(
+                    total_pixels, reservoir_size, replace=False
+                )
                 multi_indices = np.unravel_index(flat_indices, depth_array.shape)
                 reservoir = depth_array[multi_indices]
             if reservoir.size > 0:
@@ -298,7 +302,7 @@ class TransformBuilder:
                 delta = chunk_mean - global_mean
                 new_count = global_count + n
                 global_mean += delta * n / new_count
-                global_m2 += chunk_m2 + delta**2 * global_count * n / new_count
+                global_m2 += chunk_m2 + delta ** 2 * global_count * n / new_count
                 global_count = new_count
         if global_count == 0:
             return {"min": float("nan"), "max": float("nan"), "mean": 0.0, "std": 0.0}

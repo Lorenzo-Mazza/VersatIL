@@ -8,18 +8,11 @@ import torch
 import torch.nn as nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.data.constants import (
-    TOKENIZED_ACTIONS_KEY,
-)
+from versatil.data.constants import SampleKey
 from versatil.data.tokenization import Tokenizer
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_masking import make_attention_mask
-from versatil.models.decoding.constants import (
-    ACTION_LOGITS_KEY,
-    PREDICTED_ACTION_TOKENS_KEY,
-    LOGVAR_KEY,
-    MU_KEY,
-)
+from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
@@ -74,7 +67,7 @@ class FASTGPTDecoder(ActionDecoder):
         """Initialize FAST GPT decoder.
 
         Args:
-            action_heads: Action heads for different action components (only ACTION_LOGITS_KEY used here).
+            action_heads: Action heads for different action components (only DecoderOutputKey.ACTION_LOGITS.value used here).
             input_keys: Feature keys expected from encoder pipeline
             action_space: Action space configuration
             observation_space: Observation space configuration
@@ -117,9 +110,9 @@ class FASTGPTDecoder(ActionDecoder):
         self.temperature = temperature
         self.learnable_temperature = learnable_temperature
         self.deterministic = deterministic
-        if action_heads.keys() != {ACTION_LOGITS_KEY}:
+        if action_heads.keys() != {DecoderOutputKey.ACTION_LOGITS.value}:
             raise ValueError(
-                f"FASTGPTDecoder only supports ACTION_LOGITS_KEY in action_heads. Make sure to use key {ACTION_LOGITS_KEY}"
+                f"FASTGPTDecoder only supports DecoderOutputKey.ACTION_LOGITS.value in action_heads. Make sure to use key {DecoderOutputKey.ACTION_LOGITS.value}"
                 " in your hydra config."
             )
         self.action_heads = action_heads
@@ -191,7 +184,7 @@ class FASTGPTDecoder(ActionDecoder):
         device = self.temperature.device
         self.vocab_size = tokenizer.action_tokenizer.vocab_size
         output_block_in_features = self.action_heads[
-            ACTION_LOGITS_KEY
+            DecoderOutputKey.ACTION_LOGITS.value
         ].output_proj.in_features
         if output_block_in_features != self.embedding_dimension:
             token_input_embedding = nn.Embedding(
@@ -229,9 +222,11 @@ class FASTGPTDecoder(ActionDecoder):
         lm_head.weight = (
             token_input_embedding.weight
         )  # tie output weights to input embedding weights, like in GPT-2
-        self.action_heads[ACTION_LOGITS_KEY].output_dim = self.vocab_size
         self.action_heads[
-            ACTION_LOGITS_KEY
+            DecoderOutputKey.ACTION_LOGITS.value
+        ].output_dim = self.vocab_size
+        self.action_heads[
+            DecoderOutputKey.ACTION_LOGITS.value
         ].output_proj = lm_head  # Replace final projection with tied head
         super().set_tokenizer(tokenizer)
 
@@ -250,7 +245,7 @@ class FASTGPTDecoder(ActionDecoder):
             actions: Ground truth tokenized actions (training) or None (inference)
 
         Returns:
-            Dict with ACTION_LOGITS_KEY (training) or PREDICTED_ACTION_TOKENS_KEY (inference)
+            Dict with DecoderOutputKey.ACTION_LOGITS.value (training) or DecoderOutputKey.PREDICTED_ACTION_TOKENS.value (inference)
         """
         feature_tokens, pos_encodings, feature_token_mask = self.input_sequence_builder(
             features
@@ -271,7 +266,7 @@ class FASTGPTDecoder(ActionDecoder):
                 feature_tokens=feature_tokens, feature_token_mask=feature_token_mask
             )
 
-        for key in [MU_KEY, LOGVAR_KEY]:
+        for key in [LatentKey.POSTERIOR_MU.value, LatentKey.POSTERIOR_LOGVAR.value]:
             if key in features:
                 predictions[key] = features[key]
 
@@ -291,10 +286,12 @@ class FASTGPTDecoder(ActionDecoder):
             actions: Ground truth actions
 
         Returns:
-            Dict with ACTION_LOGITS_KEY and tokenized targets
+            Dict with DecoderOutputKey.ACTION_LOGITS.value and tokenized targets
         """
         prefix_len = feature_tokens.shape[1]
-        target_token_ids = actions[TOKENIZED_ACTIONS_KEY]  # (B, action_token_len)
+        target_token_ids = actions[
+            SampleKey.TOKENIZED_ACTIONS.value
+        ]  # (B, action_token_len)
         action_token_embeddings = self.token_embedding(
             target_token_ids
         )  # (B, action_token_len, emb_dim)
@@ -323,11 +320,11 @@ class FASTGPTDecoder(ActionDecoder):
             self_attention_mask=full_attention_mask,
         )  # (B, query_len, D)
         action_outputs = decoder_output[:, prefix_len:, :]  # (B, action_token_len, D)
-        logits = self.action_heads[ACTION_LOGITS_KEY](
+        logits = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value](
             action_outputs
         )  # (B, action_token_len, vocab_size)
         return {
-            ACTION_LOGITS_KEY: logits,
+            DecoderOutputKey.ACTION_LOGITS.value: logits,
         }
 
     def _forward_inference(
@@ -370,7 +367,7 @@ class FASTGPTDecoder(ActionDecoder):
                     use_cache=True,
                 )
             last_output = decoder_output[:, -1:, :]  # (B, 1, embedding_dimension)
-            head = self.action_heads[ACTION_LOGITS_KEY]
+            head = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value]
             logits = head(last_output)  # (B, 1, vocab_size)
             logits_scaled = logits / self.temperature.clamp(min=0.01)
             if self.deterministic:
@@ -386,7 +383,7 @@ class FASTGPTDecoder(ActionDecoder):
             generated_tokens.append(next_token)
 
         return {
-            PREDICTED_ACTION_TOKENS_KEY: torch.cat(
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.cat(
                 generated_tokens, dim=1
             )  # (B, max_seq_len)
         }

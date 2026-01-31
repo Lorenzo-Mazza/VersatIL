@@ -13,8 +13,8 @@ Across the module, the following abbreviations are used:
 import torch
 from torch import nn as nn
 
-from versatil.data.constants import IS_PAD_ACTION_KEY, ACTION_KEY
-from versatil.models.decoding.constants import CLASS_TOKEN_KEY
+from versatil.data.constants import SampleKey
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.layers.dynamic_feature_embedding import DynamicFeatureEmbedding
 from versatil.models.layers.feature_projection import FeatureProjection
@@ -132,11 +132,11 @@ class TransformerInputBuilder(nn.Module):
             - optional positional encodings (B, Total_Seq, Emb)
             - optional is-padding mask (B, Total_Seq), where True indicates padded tokens
         """
-        action_padding_mask = features.get(IS_PAD_ACTION_KEY, None)
+        action_padding_mask = features.get(SampleKey.IS_PAD_ACTION.value, None)
         clean_features = {
             k: v for k, v in features.items()
             if not EncoderOutputKeys.PADDING_MASK.value in k
-            and k != IS_PAD_ACTION_KEY
+            and k != SampleKey.IS_PAD_ACTION.value
             and k not in self.exclude_keys
         }
         projected = self.projection(clean_features) # Project all features to common embedding dim
@@ -183,7 +183,7 @@ class TransformerInputBuilder(nn.Module):
                 raise ValueError(f"Feature '{name}' has unsupported shape {x.shape}")
 
             padding_mask = features.get(f"{name}_padding_mask", None)
-            if padding_mask is None and ACTION_KEY in name and action_padding_mask is not None:
+            if padding_mask is None and SampleKey.ACTION.value in name and action_padding_mask is not None:
                 padding_mask = action_padding_mask.clone()
             if padding_mask is not None:
                 padding_mask = padding_mask.to(torch.bool)
@@ -221,7 +221,7 @@ class TransformerInputBuilder(nn.Module):
                 spatial_tokens_list.append(token_embeddings)
                 spatial_mask_list.append(reshaped_mask)
             else:
-                if CLASS_TOKEN_KEY in name:
+                if DecoderOutputKey.CLASS_TOKEN.value in name:
                     cls_token = token_embeddings
                     cls_token_padding_mask = reshaped_mask
                 else:

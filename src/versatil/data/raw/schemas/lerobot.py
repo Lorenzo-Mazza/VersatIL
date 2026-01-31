@@ -77,7 +77,7 @@ def decode_video_frames(
                 f"Timestamp tolerance exceeded: requested={timestamp:.4f}, "
                 f"got={actual_timestamp_s:.4f}, video={video_path}"
             )
-        
+
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         loaded_frames.append(frame_rgb)
 
@@ -256,6 +256,7 @@ class LeRobotDatasetMetadataV30:
     def get_total_episodes(self) -> int:
         return self.info["total_episodes"]
 
+
 class LeRobotDatasetSchemaV30(DatasetSchema):
     """Dataset schema for converting LeRobot V3.0 datasets to Zarr format.
 
@@ -279,9 +280,17 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         dataset_type: String with the dataset type used by the schema (e.g. libero, metaworld, etc.)
     """
 
-    def __init__(self, dataset_path: str, zarr_path: str, metadata: DatasetMetadata, dataset_type: str):
+    def __init__(
+        self,
+        dataset_path: str,
+        zarr_path: str,
+        metadata: DatasetMetadata,
+        dataset_type: str,
+    ):
         self.dataset_path = Path(dataset_path)
-        super().__init__(zarr_path=zarr_path, metadata=metadata, dataset_type=dataset_type)
+        super().__init__(
+            zarr_path=zarr_path, metadata=metadata, dataset_type=dataset_type
+        )
 
         self.lerobot_metadata = LeRobotDatasetMetadataV30(dataset_path=dataset_path)
 
@@ -532,9 +541,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
             col_key = action.raw_data_column_keys[0]
 
             if col_key not in episode_table.column_names:
-                raise ValueError(
-                    f"The column {col_key} does not exist in the dataset."
-                )
+                raise ValueError(f"The column {col_key} does not exist in the dataset.")
 
             action_array = np.stack(episode_table[col_key].to_pylist())
             # Apply optional slicing to extract specific action dimensions

@@ -11,7 +11,7 @@ from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import TIMESTEP_KEY, DiTType
+from versatil.models.decoding.constants import DecoderOutputKey, DiTType
 from versatil.models.decoding.decoders.base import DecoderInput, ActionDecoder
 from versatil.models.layers import MLP
 from versatil.models.layers.activation import ActivationFunction
@@ -239,12 +239,12 @@ class DiffusionActionTransformer(ActionDecoder):
                 "DiffusionActionTransformer requires 'actions' parameter. "
                 "The algorithm should provide noisy actions during forward pass."
             )
-        if TIMESTEP_KEY not in features:
+        if DecoderOutputKey.TIMESTEP.value not in features:
             raise ValueError(
-                f"Missing '{TIMESTEP_KEY}' in features dict. "
+                f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
                 "The algorithm should inject timesteps into features."
             )
-        timesteps = features.pop(TIMESTEP_KEY)
+        timesteps = features.pop(DecoderOutputKey.TIMESTEP.value)
         if len(timesteps.shape) == 2:
             timesteps = timesteps.squeeze(-1)
         observation_tokens, observation_positional_encodings, observation_padding_mask = self._prepare_observation_tokens(

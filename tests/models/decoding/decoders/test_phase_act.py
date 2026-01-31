@@ -6,20 +6,13 @@ from versatil.models.decoding.decoders.factory.phase_act import PhaseACT
 from versatil.models.decoding.action_heads import ActionHead, MLPBlock, MoEHead
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import (
-    POSITION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    PHASE_LABEL_KEY,
-    IS_PAD_ACTION_KEY,
     Cameras,
     GripperType,
+    ObsKey,
+    ProprioceptiveType,
+    SampleKey,
 )
-from versatil.models.decoding.constants import (
-    MoERoutingType,
-    ROUTING_WEIGHT,
-    EXPERT_OUTPUTS,
-    MU_KEY,
-    LOGVAR_KEY,
-)
+from versatil.models.decoding.constants import DecoderOutputKey, LatentKey, MoERoutingType
 
 
 @pytest.fixture
@@ -177,28 +170,28 @@ def gripper_moe_head(embedding_dimension, num_phases, device):
 @pytest.fixture
 def action_heads_phase(phase_head, position_moe_head, gripper_moe_head):
     return {
-        PHASE_LABEL_KEY: phase_head,
-        POSITION_ACTION_KEY: position_moe_head,
-        GRIPPER_ACTION_KEY: gripper_moe_head,
+        ObsKey.PHASE_LABEL.value: phase_head,
+        ProprioceptiveType.POSITION.value: position_moe_head,
+        ProprioceptiveType.GRIPPER.value: gripper_moe_head,
     }
 
 
 @pytest.fixture
 def action_heads_no_phase(position_moe_head, gripper_moe_head):
     return {
-        POSITION_ACTION_KEY: position_moe_head,
-        GRIPPER_ACTION_KEY: gripper_moe_head,
+        ProprioceptiveType.POSITION.value: position_moe_head,
+        ProprioceptiveType.GRIPPER.value: gripper_moe_head,
     }
 
 
 @pytest.fixture
 def action_heads_no_moe(phase_head, embedding_dimension, device):
     return {
-        PHASE_LABEL_KEY: phase_head,
-        POSITION_ACTION_KEY: ActionHead(
+        ObsKey.PHASE_LABEL.value: phase_head,
+        ProprioceptiveType.POSITION.value: ActionHead(
             input_dim=embedding_dimension, output_dim=3, blocks=[]
         ).to(device),
-        GRIPPER_ACTION_KEY: ActionHead(
+        ProprioceptiveType.GRIPPER.value: ActionHead(
             input_dim=embedding_dimension, output_dim=1, blocks=[]
         ).to(device),
     }
@@ -214,10 +207,10 @@ def spatial_features(batch_size, device):
 @pytest.fixture
 def actions_dict(batch_size, prediction_horizon, num_phases, device):
     return {
-        POSITION_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 3, device=device),
-        GRIPPER_ACTION_KEY: torch.randint(0, 2, (batch_size, prediction_horizon, 1), device=device).float(),
-        PHASE_LABEL_KEY: torch.randint(0, num_phases, (batch_size, prediction_horizon, 1), device=device).long(),
-        IS_PAD_ACTION_KEY: torch.zeros(batch_size, prediction_horizon, dtype=torch.bool, device=device),
+        ProprioceptiveType.POSITION.value: torch.randn(batch_size, prediction_horizon, 3, device=device),
+        ProprioceptiveType.GRIPPER.value: torch.randint(0, 2, (batch_size, prediction_horizon, 1), device=device).float(),
+        ObsKey.PHASE_LABEL.value: torch.randint(0, num_phases, (batch_size, prediction_horizon, 1), device=device).long(),
+        SampleKey.IS_PAD_ACTION.value: torch.zeros(batch_size, prediction_horizon, dtype=torch.bool, device=device),
     }
 
 
@@ -263,10 +256,10 @@ class TestPhaseACTInstantiation:
         )
 
         assert decoder is not None
-        assert decoder.phase_routing_key == PHASE_LABEL_KEY
-        assert PHASE_LABEL_KEY in decoder.action_heads
-        assert POSITION_ACTION_KEY in decoder.action_heads
-        assert GRIPPER_ACTION_KEY in decoder.action_heads
+        assert decoder.phase_routing_key == ObsKey.PHASE_LABEL.value
+        assert ObsKey.PHASE_LABEL.value in decoder.action_heads
+        assert ProprioceptiveType.POSITION.value in decoder.action_heads
+        assert ProprioceptiveType.GRIPPER.value in decoder.action_heads
 
     def test_missing_phase_head_raises_error(
         self, action_space, observation_space, action_heads_no_phase,
@@ -319,9 +312,9 @@ class TestPhaseACTInstantiation:
         )
 
         action_heads = {
-            PHASE_LABEL_KEY: phase_head,
-            POSITION_ACTION_KEY: position_moe,
-            GRIPPER_ACTION_KEY: gripper_moe_head,
+            ObsKey.PHASE_LABEL.value: phase_head,
+            ProprioceptiveType.POSITION.value: position_moe,
+            ProprioceptiveType.GRIPPER.value: gripper_moe_head,
         }
 
         decoder = create_phase_act(
@@ -335,7 +328,7 @@ class TestPhaseACTInstantiation:
             device=device,
         )
 
-        assert decoder.action_heads[POSITION_ACTION_KEY].num_experts == num_experts
+        assert decoder.action_heads[ProprioceptiveType.POSITION.value].num_experts == num_experts
 
 
 class TestPhaseACTForward:
@@ -358,12 +351,12 @@ class TestPhaseACTForward:
 
         outputs = decoder(spatial_features, actions_dict)
 
-        assert PHASE_LABEL_KEY in outputs
-        assert POSITION_ACTION_KEY in outputs
-        assert GRIPPER_ACTION_KEY in outputs
-        assert outputs[PHASE_LABEL_KEY].shape == (batch_size, prediction_horizon, 5)
-        assert outputs[POSITION_ACTION_KEY].shape == (batch_size, prediction_horizon, 3)
-        assert outputs[GRIPPER_ACTION_KEY].shape == (batch_size, prediction_horizon, 1)
+        assert ObsKey.PHASE_LABEL.value in outputs
+        assert ProprioceptiveType.POSITION.value in outputs
+        assert ProprioceptiveType.GRIPPER.value in outputs
+        assert outputs[ObsKey.PHASE_LABEL.value].shape == (batch_size, prediction_horizon, 5)
+        assert outputs[ProprioceptiveType.POSITION.value].shape == (batch_size, prediction_horizon, 3)
+        assert outputs[ProprioceptiveType.GRIPPER.value].shape == (batch_size, prediction_horizon, 1)
 
     def test_forward_pass_inference(
         self, action_space, observation_space, action_heads_phase,
@@ -383,10 +376,10 @@ class TestPhaseACTForward:
 
         outputs = decoder(spatial_features, actions=None)
 
-        assert PHASE_LABEL_KEY in outputs
-        assert POSITION_ACTION_KEY in outputs
-        assert GRIPPER_ACTION_KEY in outputs
-        assert outputs[PHASE_LABEL_KEY].shape == (batch_size, prediction_horizon, 5)
+        assert ObsKey.PHASE_LABEL.value in outputs
+        assert ProprioceptiveType.POSITION.value in outputs
+        assert ProprioceptiveType.GRIPPER.value in outputs
+        assert outputs[ObsKey.PHASE_LABEL.value].shape == (batch_size, prediction_horizon, 5)
 
     def test_no_vae_in_decoder(
         self, action_space, observation_space, action_heads_phase,
@@ -408,8 +401,8 @@ class TestPhaseACTForward:
         outputs = decoder(spatial_features, actions_dict)
 
         # VAE keys should NOT be in decoder output (handled at algorithm level)
-        assert MU_KEY not in outputs
-        assert LOGVAR_KEY not in outputs
+        assert LatentKey.POSTERIOR_MU.value not in outputs
+        assert LatentKey.POSTERIOR_LOGVAR.value not in outputs
 
     @pytest.mark.parametrize("batch_size", [1, 2, 4, 8])
     def test_different_batch_sizes(
@@ -433,8 +426,8 @@ class TestPhaseACTForward:
 
         outputs = decoder(features, actions=None)
 
-        assert outputs[PHASE_LABEL_KEY].shape[0] == batch_size
-        assert outputs[POSITION_ACTION_KEY].shape[0] == batch_size
+        assert outputs[ObsKey.PHASE_LABEL.value].shape[0] == batch_size
+        assert outputs[ProprioceptiveType.POSITION.value].shape[0] == batch_size
 
 
 class TestPhaseACTRouting:
@@ -457,10 +450,10 @@ class TestPhaseACTRouting:
 
         outputs = decoder(spatial_features, actions_dict)
 
-        assert f'{POSITION_ACTION_KEY}_{ROUTING_WEIGHT}' in outputs
-        assert f'{GRIPPER_ACTION_KEY}_{ROUTING_WEIGHT}' in outputs
+        assert f'{ProprioceptiveType.POSITION.value}_{DecoderOutputKey.ROUTING_WEIGHTS.value}' in outputs
+        assert f'{ProprioceptiveType.GRIPPER.value}_{DecoderOutputKey.ROUTING_WEIGHTS.value}' in outputs
 
-        position_routing = outputs[f'{POSITION_ACTION_KEY}_{ROUTING_WEIGHT}']
+        position_routing = outputs[f'{ProprioceptiveType.POSITION.value}_{DecoderOutputKey.ROUTING_WEIGHTS.value}']
         assert position_routing.shape == (batch_size, prediction_horizon, num_phases)
 
         assert torch.allclose(position_routing.sum(dim=-1), torch.ones_like(position_routing.sum(dim=-1)), atol=1e-5)
@@ -483,10 +476,10 @@ class TestPhaseACTRouting:
 
         outputs = decoder(spatial_features, actions_dict)
 
-        assert f'{POSITION_ACTION_KEY}_{EXPERT_OUTPUTS}' in outputs
-        assert f'{GRIPPER_ACTION_KEY}_{EXPERT_OUTPUTS}' in outputs
+        assert f'{ProprioceptiveType.POSITION.value}_{DecoderOutputKey.EXPERT_OUTPUTS.value}' in outputs
+        assert f'{ProprioceptiveType.GRIPPER.value}_{DecoderOutputKey.EXPERT_OUTPUTS.value}' in outputs
 
-        position_experts = outputs[f'{POSITION_ACTION_KEY}_{EXPERT_OUTPUTS}']
+        position_experts = outputs[f'{ProprioceptiveType.POSITION.value}_{DecoderOutputKey.EXPERT_OUTPUTS.value}']
         assert position_experts.shape == (batch_size, prediction_horizon, num_phases, 3)
 
     def test_phase_logits_used_for_routing(
@@ -507,8 +500,8 @@ class TestPhaseACTRouting:
 
         outputs = decoder(spatial_features, actions_dict)
 
-        phase_logits = outputs[PHASE_LABEL_KEY]
-        position_routing = outputs[f'{POSITION_ACTION_KEY}_{ROUTING_WEIGHT}']
+        phase_logits = outputs[ObsKey.PHASE_LABEL.value]
+        position_routing = outputs[f'{ProprioceptiveType.POSITION.value}_{DecoderOutputKey.ROUTING_WEIGHTS.value}']
 
         phase_probs = torch.softmax(phase_logits / 100.0, dim=-1)
 
@@ -536,14 +529,14 @@ class TestPhaseACTOutputStructure:
         outputs = decoder(spatial_features, actions_dict)
 
         expected_keys = {
-            PHASE_LABEL_KEY,
-            POSITION_ACTION_KEY,
-            GRIPPER_ACTION_KEY,
-            f'{POSITION_ACTION_KEY}_{ROUTING_WEIGHT}',
-            f'{POSITION_ACTION_KEY}_{EXPERT_OUTPUTS}',
-            f'{GRIPPER_ACTION_KEY}_{ROUTING_WEIGHT}',
-            f'{GRIPPER_ACTION_KEY}_{EXPERT_OUTPUTS}',
-            # VAE keys (MU_KEY, LOGVAR_KEY) removed - handled at algorithm level
+            ObsKey.PHASE_LABEL.value,
+            ProprioceptiveType.POSITION.value,
+            ProprioceptiveType.GRIPPER.value,
+            f'{ProprioceptiveType.POSITION.value}_{DecoderOutputKey.ROUTING_WEIGHTS.value}',
+            f'{ProprioceptiveType.POSITION.value}_{DecoderOutputKey.EXPERT_OUTPUTS.value}',
+            f'{ProprioceptiveType.GRIPPER.value}_{DecoderOutputKey.ROUTING_WEIGHTS.value}',
+            f'{ProprioceptiveType.GRIPPER.value}_{DecoderOutputKey.EXPERT_OUTPUTS.value}',
+            # VAE keys (LatentKey) removed - handled at algorithm level
         }
 
         assert set(outputs.keys()) == expected_keys
@@ -591,12 +584,12 @@ class TestPhaseACTGradients:
 
         outputs = decoder(spatial_features, actions_dict)
 
-        loss = outputs[PHASE_LABEL_KEY].sum()
+        loss = outputs[ObsKey.PHASE_LABEL.value].sum()
         loss.backward()
 
         phase_head_has_grad = any(
             p.grad is not None and p.grad.abs().sum() > 0
-            for p in decoder.action_heads[PHASE_LABEL_KEY].parameters()
+            for p in decoder.action_heads[ObsKey.PHASE_LABEL.value].parameters()
         )
         assert phase_head_has_grad
 
@@ -618,10 +611,10 @@ class TestPhaseACTGradients:
 
         outputs = decoder(spatial_features, actions_dict)
 
-        loss = outputs[POSITION_ACTION_KEY].sum()
+        loss = outputs[ProprioceptiveType.POSITION.value].sum()
         loss.backward()
 
-        moe_head = decoder.action_heads[POSITION_ACTION_KEY]
+        moe_head = decoder.action_heads[ProprioceptiveType.POSITION.value]
         expert_has_grad = any(
             p.grad is not None and p.grad.abs().sum() > 0
             for expert in moe_head.experts

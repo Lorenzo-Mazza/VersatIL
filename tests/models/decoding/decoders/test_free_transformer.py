@@ -7,15 +7,13 @@ from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_heads.blocks import MLPBlock
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import (
-    POSITION_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    IS_PAD_ACTION_KEY,
     Cameras,
-    OrientationRepresentation,
     GripperType,
+    OrientationRepresentation,
+    ProprioceptiveType,
+    SampleKey,
 )
-from versatil.models.decoding.constants import LATENT_KEY, BINARY_LOGITS_KEY
+from versatil.models.decoding.constants import LatentKey
 
 
 @pytest.fixture
@@ -85,7 +83,7 @@ def action_heads(action_space, embedding_dimension, device):
     heads = {}
 
     if action_space.has_position:
-        heads[POSITION_ACTION_KEY] = ActionHead(
+        heads[ProprioceptiveType.POSITION.value] = ActionHead(
             input_dim=embedding_dimension,
             output_dim=action_space.position_dim,
             blocks=[
@@ -100,7 +98,7 @@ def action_heads(action_space, embedding_dimension, device):
             ]
         ).to(device)
     if action_space.has_orientation:
-        heads[ORIENTATION_ACTION_KEY] = ActionHead(
+        heads[ProprioceptiveType.ORIENTATION.value] = ActionHead(
             input_dim=embedding_dimension,
             output_dim=action_space.orientation_dim,
             blocks=[
@@ -115,7 +113,7 @@ def action_heads(action_space, embedding_dimension, device):
             ]
         ).to(device)
     if action_space.has_gripper:
-        heads[GRIPPER_ACTION_KEY] = ActionHead(
+        heads[ProprioceptiveType.GRIPPER.value] = ActionHead(
             input_dim=embedding_dimension,
             output_dim=action_space.gripper_dim,
             blocks=[]
@@ -155,21 +153,21 @@ def actions_dict(batch_size, prediction_horizon, action_space, device):
     actions = {}
 
     if action_space.has_position:
-        actions[POSITION_ACTION_KEY] = torch.randn(
+        actions[ProprioceptiveType.POSITION.value] = torch.randn(
             batch_size, prediction_horizon, action_space.position_dim, device=device
         )
 
     if action_space.has_orientation:
-        actions[ORIENTATION_ACTION_KEY] = torch.randn(
+        actions[ProprioceptiveType.ORIENTATION.value] = torch.randn(
             batch_size, prediction_horizon, action_space.orientation_dim, device=device
         )
 
     if action_space.has_gripper:
-        actions[GRIPPER_ACTION_KEY] = torch.randint(
+        actions[ProprioceptiveType.GRIPPER.value] = torch.randint(
             0, 2, (batch_size, prediction_horizon, action_space.gripper_dim), device=device
         ).float()
 
-    actions[IS_PAD_ACTION_KEY] = torch.zeros(
+    actions[SampleKey.IS_PAD_ACTION.value] = torch.zeros(
         batch_size, prediction_horizon, dtype=torch.bool, device=device
     )
 
@@ -397,25 +395,25 @@ class TestFreeTransformerForwardPass:
 
         batch_size = flat_features_single["proprioceptive_features"].shape[0]
 
-        assert POSITION_ACTION_KEY in predictions
-        assert ORIENTATION_ACTION_KEY in predictions
-        assert GRIPPER_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert ProprioceptiveType.ORIENTATION.value in predictions
+        assert ProprioceptiveType.GRIPPER.value in predictions
 
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             batch_size, prediction_horizon, action_space.position_dim
         )
-        assert predictions[ORIENTATION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.ORIENTATION.value].shape == (
             batch_size, prediction_horizon, action_space.orientation_dim
         )
-        assert predictions[GRIPPER_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.GRIPPER.value].shape == (
             batch_size, prediction_horizon, action_space.gripper_dim
         )
 
-        assert LATENT_KEY in predictions
-        assert BINARY_LOGITS_KEY in predictions
+        assert LatentKey.POSTERIOR_LATENT.value in predictions
+        assert DecoderOutputKey.BINARY_LOGITS.value in predictions
 
-        assert predictions[LATENT_KEY].shape == (batch_size, prediction_horizon, decoder.latent_dim)
-        assert predictions[BINARY_LOGITS_KEY].shape == (batch_size, prediction_horizon, decoder.latent_bits)
+        assert predictions[LatentKey.POSTERIOR_LATENT.value].shape == (batch_size, prediction_horizon, decoder.latent_dim)
+        assert predictions[DecoderOutputKey.BINARY_LOGITS.value].shape == (batch_size, prediction_horizon, decoder.latent_bits)
 
     def test_forward_inference_without_actions(
         self,
@@ -446,14 +444,14 @@ class TestFreeTransformerForwardPass:
 
         batch_size = flat_features_single["proprioceptive_features"].shape[0]
 
-        assert POSITION_ACTION_KEY in predictions
-        assert ORIENTATION_ACTION_KEY in predictions
-        assert GRIPPER_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert ProprioceptiveType.ORIENTATION.value in predictions
+        assert ProprioceptiveType.GRIPPER.value in predictions
 
-        assert LATENT_KEY in predictions
-        assert BINARY_LOGITS_KEY not in predictions
+        assert LatentKey.POSTERIOR_LATENT.value in predictions
+        assert DecoderOutputKey.BINARY_LOGITS.value not in predictions
 
-        assert predictions[LATENT_KEY].shape == (batch_size, prediction_horizon, decoder.latent_dim)
+        assert predictions[LatentKey.POSTERIOR_LATENT.value].shape == (batch_size, prediction_horizon, decoder.latent_dim)
 
 
     def test_forward_with_temporal_features(
@@ -487,8 +485,8 @@ class TestFreeTransformerForwardPass:
         decoder.train()
         predictions = decoder(temporal_features, actions=actions_dict)
 
-        assert POSITION_ACTION_KEY in predictions
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             batch_size, prediction_horizon, action_space.position_dim
         )
 
@@ -523,7 +521,7 @@ class TestFreeTransformerLatentEncoding:
 
         latent_codes, binary_logits = decoder._encode_latent(actions_dict)
 
-        batch_size = actions_dict[POSITION_ACTION_KEY].shape[0]
+        batch_size = actions_dict[ProprioceptiveType.POSITION.value].shape[0]
 
         assert latent_codes.shape == (batch_size, prediction_horizon, decoder.latent_dim)
         assert binary_logits.shape == (batch_size, prediction_horizon, decoder.latent_bits)
@@ -595,17 +593,17 @@ class TestFreeTransformerActionHeads:
 
         predictions = decoder._apply_action_heads(action_embeddings)
 
-        assert POSITION_ACTION_KEY in predictions
-        assert ORIENTATION_ACTION_KEY in predictions
-        assert GRIPPER_ACTION_KEY in predictions
+        assert ProprioceptiveType.POSITION.value in predictions
+        assert ProprioceptiveType.ORIENTATION.value in predictions
+        assert ProprioceptiveType.GRIPPER.value in predictions
 
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             batch_size, prediction_horizon, action_space.position_dim
         )
-        assert predictions[ORIENTATION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.ORIENTATION.value].shape == (
             batch_size, prediction_horizon, action_space.orientation_dim
         )
-        assert predictions[GRIPPER_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.GRIPPER.value].shape == (
             batch_size, prediction_horizon, action_space.gripper_dim
         )
 
@@ -630,17 +628,17 @@ class TestFreeTransformerParametrized:
         prediction_horizon = 10
 
         action_heads = {
-            POSITION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.POSITION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.position_dim,
                 blocks=[],
             ),
-            ORIENTATION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.ORIENTATION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.orientation_dim,
                 blocks=[],
             ),
-            GRIPPER_ACTION_KEY: ActionHead(
+            ProprioceptiveType.GRIPPER.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.gripper_dim,
                 blocks=[],
@@ -662,8 +660,8 @@ class TestFreeTransformerParametrized:
         decoder.train()
         predictions = decoder(flat_features_single, actions=actions_dict)
 
-        assert predictions[LATENT_KEY].shape[-1] == 2**latent_bits
-        assert predictions[BINARY_LOGITS_KEY].shape[-1] == latent_bits
+        assert predictions[LatentKey.POSTERIOR_LATENT.value].shape[-1] == 2**latent_bits
+        assert predictions[DecoderOutputKey.BINARY_LOGITS.value].shape[-1] == latent_bits
 
     @pytest.mark.parametrize("prediction_horizon", [1, 10, 50])
     def test_different_prediction_horizons(
@@ -679,17 +677,17 @@ class TestFreeTransformerParametrized:
         observation_horizon = 1
 
         action_heads = {
-            POSITION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.POSITION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.position_dim,
                 blocks=[],
             ),
-            ORIENTATION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.ORIENTATION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.orientation_dim,
                 blocks=[],
             ),
-            GRIPPER_ACTION_KEY: ActionHead(
+            ProprioceptiveType.GRIPPER.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.gripper_dim,
                 blocks=[],
@@ -714,7 +712,7 @@ class TestFreeTransformerParametrized:
         decoder.eval()
         predictions = decoder(features, actions=None)
 
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             batch_size, prediction_horizon, action_space.position_dim
         )
 
@@ -732,17 +730,17 @@ class TestFreeTransformerParametrized:
         prediction_horizon = 10
 
         action_heads = {
-            POSITION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.POSITION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.position_dim,
                 blocks=[],
             ),
-            ORIENTATION_ACTION_KEY: ActionHead(
+            ProprioceptiveType.ORIENTATION.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.orientation_dim,
                 blocks=[],
             ),
-            GRIPPER_ACTION_KEY: ActionHead(
+            ProprioceptiveType.GRIPPER.value: ActionHead(
                 input_dim=embedding_dimension,
                 output_dim=action_space.gripper_dim,
                 blocks=[],
@@ -767,6 +765,6 @@ class TestFreeTransformerParametrized:
         decoder.eval()
         predictions = decoder(features, actions=None)
 
-        assert predictions[POSITION_ACTION_KEY].shape == (
+        assert predictions[ProprioceptiveType.POSITION.value].shape == (
             batch_size, prediction_horizon, action_space.position_dim
         )

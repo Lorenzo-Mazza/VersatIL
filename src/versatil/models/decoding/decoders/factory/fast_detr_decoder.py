@@ -5,10 +5,7 @@ import torch.nn as nn
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import (
-    ACTION_LOGITS_KEY,
-    PREDICTED_ACTION_TOKENS_KEY,
-)
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.constants import FeatureType
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.layers.activation import ActivationFunction
@@ -56,7 +53,7 @@ class FASTDETRDecoder(ActionDecoder):
         """Initialize FAST decoder.
 
         Args:
-            action_heads: Action heads for different action components (only ACTION_LOGITS_KEY used here).
+            action_heads: Action heads for different action components (only DecoderOutputKey.ACTION_LOGITS.value used here).
             input_keys: Feature keys expected from encoder pipeline
             action_space: Action space configuration
             observation_space: Observation space configuration
@@ -81,9 +78,9 @@ class FASTDETRDecoder(ActionDecoder):
         self.embedding_dimension = embedding_dimension
         self.deterministic = deterministic
 
-        if action_heads.keys() != {ACTION_LOGITS_KEY}:
+        if action_heads.keys() != {DecoderOutputKey.ACTION_LOGITS.value}:
             raise ValueError(
-                f"FASTDETRDecoder only supports ACTION_LOGITS_KEY in action_heads. Make sure to use key {ACTION_LOGITS_KEY}"
+                f"FASTDETRDecoder only supports DecoderOutputKey.ACTION_LOGITS.value in action_heads. Make sure to use key {DecoderOutputKey.ACTION_LOGITS.value}"
                 " in your hydra config."
             )
         self.action_heads = action_heads
@@ -165,7 +162,7 @@ class FASTDETRDecoder(ActionDecoder):
         device = self.temperature.device
         self.vocab_size = tokenizer.action_tokenizer.vocab_size
         output_block_in_features = self.action_heads[
-            ACTION_LOGITS_KEY
+            DecoderOutputKey.ACTION_LOGITS.value
         ].output_proj.in_features
         if output_block_in_features != self.embedding_dimension:
             token_input_embedding = nn.Embedding(
@@ -192,9 +189,11 @@ class FASTDETRDecoder(ActionDecoder):
         lm_head.weight = (
             token_input_embedding.weight
         )  # tie output weights to input embedding weights, like in GPT-2
-        self.action_heads[ACTION_LOGITS_KEY].output_dim = self.vocab_size
         self.action_heads[
-            ACTION_LOGITS_KEY
+            DecoderOutputKey.ACTION_LOGITS.value
+        ].output_dim = self.vocab_size
+        self.action_heads[
+            DecoderOutputKey.ACTION_LOGITS.value
         ].output_proj = lm_head  # Replace final projection with tied head
         super().set_tokenizer(tokenizer)
 
@@ -221,13 +220,13 @@ class FASTDETRDecoder(ActionDecoder):
             padding_mask=padding_mask,
         )
         if self.train():
-            head = self.action_heads[ACTION_LOGITS_KEY]
+            head = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value]
             logits = head(action_embeddings)  # (B, max_seq_len, vocab_size)
             return {
-                ACTION_LOGITS_KEY: logits,
+                DecoderOutputKey.ACTION_LOGITS.value: logits,
             }
         else:
-            head = self.action_heads[ACTION_LOGITS_KEY]
+            head = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value]
             logits = head(action_embeddings)  # (B, max_seq_len, vocab_size)
             logits_scaled = logits / self.temperature.clamp(
                 min=0.01
@@ -241,7 +240,9 @@ class FASTDETRDecoder(ActionDecoder):
                 pred_tokens = torch.distributions.Categorical(
                     probs
                 ).sample()  # (B, max_seq_len) - stochastic sampling
-            return {PREDICTED_ACTION_TOKENS_KEY: pred_tokens}  # (B, max_seq_len)
+            return {
+                DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: pred_tokens
+            }  # (B, max_seq_len)
 
     def _decode_actions(
         self,

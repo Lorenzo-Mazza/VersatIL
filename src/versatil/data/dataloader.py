@@ -14,7 +14,9 @@ from versatil.data.preprocessing.create_zarr_from_csv import create_replay_buffe
 from versatil.data.preprocessing.create_zarr_from_hdf5 import (
     create_replay_buffer_from_hdf5,
 )
-from versatil.data.preprocessing.create_zarr_from_lerobot import create_replay_buffer_from_lerobot
+from versatil.data.preprocessing.create_zarr_from_lerobot import (
+    create_replay_buffer_from_lerobot,
+)
 from versatil.data.preprocessing.replay_buffer import ReplayBuffer
 from versatil.data.raw.schemas import CsvDatasetSchema
 from versatil.data.raw.schemas.base import DatasetSchema
@@ -50,7 +52,9 @@ def get_dataloaders(
     validate_tokenizer_config(tokenization_config)
 
     logging.info(f"Using dataset schema: {schema.__class__.__name__}")
-    _ensure_zarr_exists(schema=schema, preload_in_memory=dataloader_config.preload_data_in_memory)
+    _ensure_zarr_exists(
+        schema=schema, preload_in_memory=dataloader_config.preload_data_in_memory
+    )
 
     train_dataset = EpisodicDataset(
         zarr_path=schema.zarr_path,

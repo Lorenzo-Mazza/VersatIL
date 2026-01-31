@@ -3,10 +3,7 @@ from dataclasses import dataclass
 from omegaconf import MISSING
 
 from versatil.configs import EncoderConfig
-from versatil.models.encoding.encoders.constants import (
-    PoolingMethod,
-    BatchNormHandling
-)
+from versatil.models.encoding.encoders.constants import PoolingMethod, BatchNormHandling
 
 
 @dataclass
@@ -35,6 +32,7 @@ class ConditionalCNNEncoderConfig(CNNEncoderConfig):
     condition_dim: int = MISSING
     pooling_method: str = PoolingMethod.NONE.value
     batch_norm_handling: str = BatchNormHandling.FROZEN.value
+
 
 @dataclass
 class ViTEncoderConfig(ImageEncoderConfig):

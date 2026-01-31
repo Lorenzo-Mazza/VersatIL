@@ -9,11 +9,13 @@ from torch import nn
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.constants import FeatureType
-from versatil.models.decoding.constants import LATENT_KEY
+from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, ConditioningType
-from versatil.models.layers.modulation.conditional_modulation import ConditionalModulation
+from versatil.models.layers.modulation.conditional_modulation import (
+    ConditionalModulation,
+)
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
@@ -90,8 +92,8 @@ class LACT(ActionDecoder):
             keys=input_keys,
             required_types=[FeatureType.SPATIAL.value],
             requires_actions=False,
-            conditioning_key=LATENT_KEY,
-            conditioning_required=[LATENT_KEY],
+            conditioning_key=LatentKey.POSTERIOR_LATENT.value,
+            conditioning_required=[LatentKey.POSTERIOR_LATENT.value],
         )
         super().__init__(
             decoder_input=decoder_input,
@@ -137,7 +139,9 @@ class LACT(ActionDecoder):
                 embedding_dimension=self.embedding_dimension,
             ),
             temporal_positional_encoding_layer=temporal_positional_encoding,
-            exclude_keys=[LATENT_KEY],  # Don't include latent as observation token
+            exclude_keys=[
+                LatentKey.POSTERIOR_LATENT.value
+            ],  # Don't include latent as observation token
         )
         self.learnable_query = nn.Embedding(
             self.prediction_horizon, self.embedding_dimension
@@ -193,22 +197,22 @@ class LACT(ActionDecoder):
 
         Args:
             features: Dictionary of encoded features from EncodingPipeline.
-                Must contain LATENT_KEY with shape (B, latent_dimension).
+                Must contain LatentKey.POSTERIOR_LATENT.value with shape (B, latent_dimension).
             actions: Not used, present for API compatibility.
 
         Returns:
             Dictionary containing action head predictions (e.g. position, orientation, gripper)
 
         Raises:
-            ValueError: If LATENT_KEY is not present in features
+            ValueError: If LatentKey.POSTERIOR_LATENT.value is not present in features
         """
-        if LATENT_KEY not in features:
+        if LatentKey.POSTERIOR_LATENT.value not in features:
             raise ValueError(
-                f"LACT requires '{LATENT_KEY}' in features. "
+                f"LACT requires '{LatentKey.POSTERIOR_LATENT.value}' in features. "
                 f"Make sure to use a variational algorithm that provides latent embeddings. "
                 f"Available features: {list(features.keys())}"
             )
-        latent = features[LATENT_KEY]  # (B, latent_dim)
+        latent = features[LatentKey.POSTERIOR_LATENT.value]  # (B, latent_dim)
         obs_tokens, obs_pos_encodings, obs_padding_mask = self.input_sequence_builder(
             features
         )

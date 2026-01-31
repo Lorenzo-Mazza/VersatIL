@@ -5,16 +5,12 @@ import torch
 import math
 
 from versatil.data.constants import (
-    POSITION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    PHASE_LABEL_KEY,
-    GripperType, TOKENIZED_ACTIONS_KEY, IS_PAD_ACTION_KEY,
+    GripperType,
+    ObsKey,
+    ProprioceptiveType,
+    SampleKey,
 )
-from versatil.models.decoding.constants import (
-    PRIOR_PREDICTION_KEY,
-    PRIOR_TARGET_KEY,
-    PREDICTED_ACTION_TOKENS_KEY, ACTION_LOGITS_KEY,
-)
+from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 from versatil.metrics.components import (
     RegressionLoss,
     GripperLoss,
@@ -50,46 +46,46 @@ def position_dim():
 class TestRegressionLoss:
     def test_mse_loss_computation(self, device, batch_size, horizon, position_dim):
         loss_fn = RegressionLoss(
-            action_keys=[POSITION_ACTION_KEY], mse_weight=1.0, l1_weight=0.0
+            action_keys=[ProprioceptiveType.POSITION.value], mse_weight=1.0, l1_weight=0.0
         )
 
         predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device)
         }
         targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device)
         }
 
         loss_output = loss_fn(predictions, targets)
 
         assert loss_output.total_loss.item() >= 0
-        assert f"{POSITION_ACTION_KEY}_{MetricKey.MSE_LOSS.value}" in loss_output.component_losses
+        assert f"{ProprioceptiveType.POSITION.value}_{MetricKey.MSE_LOSS.value}" in loss_output.component_losses
 
     def test_l1_loss_computation(self, device, batch_size, horizon, position_dim):
         loss_fn = RegressionLoss(
-            action_keys=[POSITION_ACTION_KEY], mse_weight=0.0, l1_weight=1.0
+            action_keys=[ProprioceptiveType.POSITION.value], mse_weight=0.0, l1_weight=1.0
         )
 
         predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device)
         }
         targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device)
         }
 
         loss_output = loss_fn(predictions, targets)
 
         assert loss_output.total_loss.item() >= 0
-        assert f"{POSITION_ACTION_KEY}_{MetricKey.L1_LOSS.value}" in loss_output.component_losses
+        assert f"{ProprioceptiveType.POSITION.value}_{MetricKey.L1_LOSS.value}" in loss_output.component_losses
 
     def test_padding_mask_computation(self, device, batch_size, horizon, position_dim):
-        loss_fn = RegressionLoss(action_keys=[POSITION_ACTION_KEY], mse_weight=1.0)
+        loss_fn = RegressionLoss(action_keys=[ProprioceptiveType.POSITION.value], mse_weight=1.0)
 
         predictions = {
-            POSITION_ACTION_KEY: torch.ones(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.ones(batch_size, horizon, position_dim, device=device)
         }
         targets = {
-            POSITION_ACTION_KEY: torch.zeros(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.zeros(batch_size, horizon, position_dim, device=device)
         }
 
         loss_no_pad = loss_fn(predictions, targets, is_pad=None)
@@ -106,9 +102,9 @@ class TestGripperLoss:
     def test_binary_gripper_loss(self, device, batch_size, horizon):
         loss_fn = GripperLoss(gripper_type=GripperType.BINARY.value, bce_weight=1.0)
 
-        predictions = {GRIPPER_ACTION_KEY: torch.randn(batch_size, horizon, 1, device=device)}
+        predictions = {ProprioceptiveType.GRIPPER.value: torch.randn(batch_size, horizon, 1, device=device)}
         targets = {
-            GRIPPER_ACTION_KEY: torch.randint(0, 2, (batch_size, horizon, 1), device=device).float()
+            ProprioceptiveType.GRIPPER.value: torch.randint(0, 2, (batch_size, horizon, 1), device=device).float()
         }
 
         loss_output = loss_fn(predictions, targets)
@@ -119,8 +115,8 @@ class TestGripperLoss:
     def test_continuous_gripper_loss(self, device, batch_size, horizon):
         loss_fn = GripperLoss(gripper_type=GripperType.CONTINUOUS.value, mse_weight=1.0)
 
-        predictions = {GRIPPER_ACTION_KEY: torch.randn(batch_size, horizon, 1, device=device)}
-        targets = {GRIPPER_ACTION_KEY: torch.randn(batch_size, horizon, 1, device=device)}
+        predictions = {ProprioceptiveType.GRIPPER.value: torch.randn(batch_size, horizon, 1, device=device)}
+        targets = {ProprioceptiveType.GRIPPER.value: torch.randn(batch_size, horizon, 1, device=device)}
 
         loss_output = loss_fn(predictions, targets)
 
@@ -147,13 +143,13 @@ class TestKLDivergenceLoss:
 
 class TestTrajectoryLengthLoss:
     def test_length_loss_computation(self, device, batch_size, horizon, position_dim):
-        loss_fn = TrajectoryLengthLoss(weight=0.1, action_key=POSITION_ACTION_KEY)
+        loss_fn = TrajectoryLengthLoss(weight=0.1, action_key=ProprioceptiveType.POSITION.value)
 
         predictions = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device)
         }
         targets = {
-            POSITION_ACTION_KEY: torch.randn(batch_size, horizon, position_dim, device=device)
+            ProprioceptiveType.POSITION.value: torch.randn(batch_size, horizon, position_dim, device=device)
         }
 
         loss_output = loss_fn(predictions, targets)
@@ -167,9 +163,9 @@ class TestPhaseClassificationLoss:
         n_phases = 5
         loss_fn = PhaseClassificationLoss(cross_entropy_weight=1.0, entropy_weight=0.0)
 
-        predictions = {PHASE_LABEL_KEY: torch.randn(batch_size, horizon, n_phases, device=device)}
+        predictions = {ObsKey.PHASE_LABEL.value: torch.randn(batch_size, horizon, n_phases, device=device)}
         targets = {
-            PHASE_LABEL_KEY: torch.randint(0, n_phases, (batch_size, horizon), device=device)
+            ObsKey.PHASE_LABEL.value: torch.randint(0, n_phases, (batch_size, horizon), device=device)
         }
 
         loss_output = loss_fn(predictions, targets)
@@ -183,9 +179,9 @@ class TestPhaseClassificationLoss:
         n_phases = 5
         loss_fn = PhaseClassificationLoss(cross_entropy_weight=1.0, entropy_weight=0.1)
 
-        predictions = {PHASE_LABEL_KEY: torch.randn(batch_size, horizon, n_phases, device=device)}
+        predictions = {ObsKey.PHASE_LABEL.value: torch.randn(batch_size, horizon, n_phases, device=device)}
         targets = {
-            PHASE_LABEL_KEY: torch.randint(0, n_phases, (batch_size, horizon), device=device)
+            ObsKey.PHASE_LABEL.value: torch.randint(0, n_phases, (batch_size, horizon), device=device)
         }
 
         loss_output = loss_fn(predictions, targets)
@@ -200,8 +196,8 @@ class TestPriorDenoisingLoss:
         loss_fn = PriorDenoisingLoss(weight=1.0)
 
         predictions = {
-            PRIOR_PREDICTION_KEY: torch.randn(batch_size, latent_dim, device=device),
-            PRIOR_TARGET_KEY: torch.randn(batch_size, latent_dim, device=device),
+            LatentKey.PRIOR_PREDICTION.value: torch.randn(batch_size, latent_dim, device=device),
+            LatentKey.PRIOR_TARGET.value: torch.randn(batch_size, latent_dim, device=device),
         }
         targets = {}
 
@@ -218,8 +214,8 @@ class TestPriorDenoisingLoss:
         loss_fn = PriorDenoisingLoss(weight=weight)
 
         predictions = {
-            PRIOR_PREDICTION_KEY: torch.randn(batch_size, latent_dim, device=device),
-            PRIOR_TARGET_KEY: torch.randn(batch_size, latent_dim, device=device),
+            LatentKey.PRIOR_PREDICTION.value: torch.randn(batch_size, latent_dim, device=device),
+            LatentKey.PRIOR_TARGET.value: torch.randn(batch_size, latent_dim, device=device),
         }
         targets = {}
 
@@ -232,12 +228,12 @@ class TestPriorDenoisingLoss:
         )
 
     def test_prior_denoising_loss_missing_prediction_key(self, device, batch_size):
-        """Test that error is raised when PRIOR_PREDICTION_KEY is missing."""
+        """Test that error is raised when LatentKey.PRIOR_PREDICTION.value is missing."""
         latent_dim = 32
         loss_fn = PriorDenoisingLoss(weight=1.0)
 
         predictions = {
-            PRIOR_TARGET_KEY: torch.randn(batch_size, latent_dim, device=device),
+            LatentKey.PRIOR_TARGET.value: torch.randn(batch_size, latent_dim, device=device),
         }
         targets = {}
 
@@ -245,12 +241,12 @@ class TestPriorDenoisingLoss:
             loss_fn(predictions, targets)
 
     def test_prior_denoising_loss_missing_target_key(self, device, batch_size):
-        """Test that error is raised when PRIOR_TARGET_KEY is missing."""
+        """Test that error is raised when LatentKey.PRIOR_TARGET.value is missing."""
         latent_dim = 32
         loss_fn = PriorDenoisingLoss(weight=1.0)
 
         predictions = {
-            PRIOR_PREDICTION_KEY: torch.randn(batch_size, latent_dim, device=device),
+            LatentKey.PRIOR_PREDICTION.value: torch.randn(batch_size, latent_dim, device=device),
         }
         targets = {}
 
@@ -264,8 +260,8 @@ class TestPriorDenoisingLoss:
 
         latent_values = torch.randn(batch_size, latent_dim, device=device)
         predictions = {
-            PRIOR_PREDICTION_KEY: latent_values.clone(),
-            PRIOR_TARGET_KEY: latent_values.clone(),
+            LatentKey.PRIOR_PREDICTION.value: latent_values.clone(),
+            LatentKey.PRIOR_TARGET.value: latent_values.clone(),
         }
         targets = {}
 
@@ -284,8 +280,8 @@ class TestActionTokenLoss:
         loss_fn = ActionTokenLoss()
 
         predictions = {
-            ACTION_LOGITS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
-            TOKENIZED_ACTIONS_KEY: torch.randint(0, vocab_size, (batch_size, horizon), device=device),
+            DecoderOutputKey.ACTION_LOGITS.value: torch.randn(batch_size, horizon, vocab_size, device=device),
+            SampleKey.TOKENIZED_ACTIONS.value: torch.randint(0, vocab_size, (batch_size, horizon), device=device),
         }
         targets = {}
 
@@ -303,9 +299,9 @@ class TestActionTokenLoss:
         is_pad[:, :] = True
 
         predictions = {
-            ACTION_LOGITS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
-            TOKENIZED_ACTIONS_KEY: target_tokens,
-            IS_PAD_ACTION_KEY: is_pad,
+            DecoderOutputKey.ACTION_LOGITS.value: torch.randn(batch_size, horizon, vocab_size, device=device),
+            SampleKey.TOKENIZED_ACTIONS.value: target_tokens,
+            SampleKey.IS_PAD_ACTION.value: is_pad,
         }
         targets = {}
 
@@ -317,11 +313,11 @@ class TestActionTokenLoss:
         vocab_size = 1024
         loss_fn = ActionTokenLoss()
         predictions = {
-            ACTION_LOGITS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
-            TOKENIZED_ACTIONS_KEY: torch.randint(0, vocab_size, (batch_size, horizon), device=device),
+            DecoderOutputKey.ACTION_LOGITS.value: torch.randn(batch_size, horizon, vocab_size, device=device),
+            SampleKey.TOKENIZED_ACTIONS.value: torch.randint(0, vocab_size, (batch_size, horizon), device=device),
         }
         dummy_targets = {
-            TOKENIZED_ACTIONS_KEY: torch.randint(0, vocab_size, (batch_size, horizon), device=device)
+            SampleKey.TOKENIZED_ACTIONS.value: torch.randint(0, vocab_size, (batch_size, horizon), device=device)
         }
 
         loss_output = loss_fn(predictions, dummy_targets, is_pad=None)
@@ -337,8 +333,8 @@ class TestActionTokenLoss:
         is_pad_in_predictions[:, horizon // 2:] = True
 
         predictions = {
-            PREDICTED_ACTION_TOKENS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
-            f"{PREDICTED_ACTION_TOKENS_KEY}_target": torch.randint(0, vocab_size, (batch_size, horizon), device=device),
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.randn(batch_size, horizon, vocab_size, device=device),
+            f"{DecoderOutputKey.PREDICTED_ACTION_TOKENS.value}_target": torch.randint(0, vocab_size, (batch_size, horizon), device=device),
             "is_pad": is_pad_in_predictions,
         }
 
@@ -354,7 +350,7 @@ class TestActionTokenLoss:
         loss_fn = ActionTokenLoss(ignore_index=-100)
 
         predictions = {
-            f"{PREDICTED_ACTION_TOKENS_KEY}_target": torch.randint(0, vocab_size, (batch_size, horizon), device=device),
+            f"{DecoderOutputKey.PREDICTED_ACTION_TOKENS.value}_target": torch.randint(0, vocab_size, (batch_size, horizon), device=device),
         }
         targets = {}
 
@@ -367,7 +363,7 @@ class TestActionTokenLoss:
         loss_fn = ActionTokenLoss(ignore_index=-100)
 
         predictions = {
-            PREDICTED_ACTION_TOKENS_KEY: torch.randn(batch_size, horizon, vocab_size, device=device),
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.randn(batch_size, horizon, vocab_size, device=device),
         }
         targets = {}
 
@@ -383,8 +379,8 @@ class TestActionTokenLoss:
         target_tokens = torch.randint(0, vocab_size, (batch_size, horizon), device=device)
 
         predictions_no_pad = {
-            PREDICTED_ACTION_TOKENS_KEY: logits.clone(),
-            f"{PREDICTED_ACTION_TOKENS_KEY}_target": target_tokens.clone(),
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: logits.clone(),
+            f"{DecoderOutputKey.PREDICTED_ACTION_TOKENS.value}_target": target_tokens.clone(),
         }
         loss_no_pad = loss_fn(predictions_no_pad, {}, is_pad=None)
 
@@ -392,8 +388,8 @@ class TestActionTokenLoss:
         is_pad[:, horizon // 2:] = True
 
         predictions_with_pad = {
-            PREDICTED_ACTION_TOKENS_KEY: logits.clone(),
-            f"{PREDICTED_ACTION_TOKENS_KEY}_target": target_tokens.clone(),
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: logits.clone(),
+            f"{DecoderOutputKey.PREDICTED_ACTION_TOKENS.value}_target": target_tokens.clone(),
             "is_pad": is_pad,
         }
         loss_with_pad = loss_fn(predictions_with_pad, {}, is_pad=None)
@@ -401,9 +397,9 @@ class TestActionTokenLoss:
         assert loss_with_pad.total_loss.item() < loss_no_pad.total_loss.item()
 
     def test_get_required_keys_returns_action_tokens(self):
-        """Test that get_required_keys returns PREDICTED_ACTION_TOKENS_KEY."""
+        """Test that get_required_keys returns DecoderOutputKey.PREDICTED_ACTION_TOKENS.value."""
         loss_fn = ActionTokenLoss()
 
         required_keys = loss_fn.get_required_keys()
 
-        assert required_keys == {ACTION_LOGITS_KEY}
+        assert required_keys == {DecoderOutputKey.ACTION_LOGITS.value}

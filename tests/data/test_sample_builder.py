@@ -9,20 +9,11 @@ from versatil.data.tokenization.observation_tokenizer import ObservationTokenize
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 from versatil.data.constants import (
     Cameras,
-    OBSERVATION_KEY,
-    PHASE_LABEL_KEY,
-    IS_PAD_ACTION_KEY,
-    IS_PAD_OBSERVATION_KEY,
-    PROPRIO_OBS_ROBOT_FRAME_KEY,
-    PROPRIO_OBS_CAMERA_FRAME_KEY,
-    POSITION_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    TOKENIZED_ACTIONS_KEY,
-    TOKENIZED_OBSERVATIONS_KEY,
     GripperType,
-    LANGUAGE_KEY,
-    ACTION_KEY,
+    ObsKey,
+    ProprioceptiveType,
+    ProprioKey,
+    SampleKey,
     TokenizerType,
 )
 
@@ -89,8 +80,8 @@ def padded_data():
     return {
         Cameras.LEFT.value: np.ones((10, 32, 32, 3), dtype=np.uint8) * 128,
         Cameras.RIGHT.value: np.ones((10, 32, 32, 3), dtype=np.uint8) * 64,
-        PROPRIO_OBS_ROBOT_FRAME_KEY: np.arange(70, dtype=np.float32).reshape(10, 7),
-        PROPRIO_OBS_CAMERA_FRAME_KEY: np.arange(70, dtype=np.float32).reshape(10, 7),
+        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.arange(70, dtype=np.float32).reshape(10, 7),
+        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.arange(70, dtype=np.float32).reshape(10, 7),
     }
 
 
@@ -98,9 +89,9 @@ def padded_data():
 def action_dict():
     """Action dictionary."""
     return {
-        POSITION_ACTION_KEY: np.ones((4, 3), dtype=np.float32) * 0.1,
-        ORIENTATION_ACTION_KEY: np.ones((4, 4), dtype=np.float32) * 0.2,
-        GRIPPER_ACTION_KEY: np.array([[1], [0], [1], [0]], dtype=np.float32),
+        ProprioceptiveType.POSITION.value: np.ones((4, 3), dtype=np.float32) * 0.1,
+        ProprioceptiveType.ORIENTATION.value: np.ones((4, 4), dtype=np.float32) * 0.2,
+        ProprioceptiveType.GRIPPER.value: np.array([[1], [0], [1], [0]], dtype=np.float32),
     }
 
 
@@ -179,12 +170,12 @@ class TestBuildSample:
             sampler_indices=sampler_indices,
         )
 
-        assert OBSERVATION_KEY in sample
-        assert ACTION_KEY in sample
-        assert POSITION_ACTION_KEY in sample[ACTION_KEY]
-        assert ORIENTATION_ACTION_KEY in sample[ACTION_KEY]
-        assert GRIPPER_ACTION_KEY in sample[ACTION_KEY]
-        assert IS_PAD_ACTION_KEY in sample[ACTION_KEY]
+        assert SampleKey.OBSERVATION.value in sample
+        assert SampleKey.ACTION.value in sample
+        assert ProprioceptiveType.POSITION.value in sample[SampleKey.ACTION.value]
+        assert ProprioceptiveType.ORIENTATION.value in sample[SampleKey.ACTION.value]
+        assert ProprioceptiveType.GRIPPER.value in sample[SampleKey.ACTION.value]
+        assert SampleKey.IS_PAD_ACTION.value in sample[SampleKey.ACTION.value]
 
 
     def test_build_sample_with_rotation(self, sample_builder, padded_data, action_dict, sampler_indices):
@@ -222,7 +213,7 @@ class TestBuildSample:
     def test_build_sample_with_phases(self, sample_builder, padded_data, action_dict, sampler_indices):
         """Test sample building with phase labels."""
         sample_builder.action_space.predict_task_phases = True
-        padded_data[PHASE_LABEL_KEY] = np.array([[0], [1], [1], [2], [2], [3], [3], [4], [4], [0]], dtype=np.int64)
+        padded_data[ObsKey.PHASE_LABEL.value] = np.array([[0], [1], [1], [2], [2], [3], [3], [4], [4], [0]], dtype=np.int64)
 
         sample = sample_builder.build_sample(
             padded_data=padded_data,
@@ -231,8 +222,8 @@ class TestBuildSample:
             sampler_indices=sampler_indices,
         )
 
-        assert PHASE_LABEL_KEY in sample[ACTION_KEY]
-        assert sample[ACTION_KEY][PHASE_LABEL_KEY].dtype == torch.long
+        assert ObsKey.PHASE_LABEL.value in sample[SampleKey.ACTION.value]
+        assert sample[SampleKey.ACTION.value][ObsKey.PHASE_LABEL.value].dtype == torch.long
 
 
     def test_build_sample_without_proprio(self, sample_builder, padded_data, action_dict, sampler_indices):
@@ -246,8 +237,8 @@ class TestBuildSample:
             sampler_indices=sampler_indices,
         )
 
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY not in sample[OBSERVATION_KEY]
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY not in sample[OBSERVATION_KEY]
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value not in sample[SampleKey.OBSERVATION.value]
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value not in sample[SampleKey.OBSERVATION.value]
 
 
 class TestAddImages:
@@ -256,14 +247,14 @@ class TestAddImages:
 
     def test_add_rgb_images(self, sample_builder, padded_data):
         """Test RGB image processing."""
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         sample_builder._get_sample_images(sample, padded_data, angle=0)
 
-        assert Cameras.LEFT.value in sample[OBSERVATION_KEY]
-        assert Cameras.RIGHT.value in sample[OBSERVATION_KEY]
+        assert Cameras.LEFT.value in sample[SampleKey.OBSERVATION.value]
+        assert Cameras.RIGHT.value in sample[SampleKey.OBSERVATION.value]
 
         # Check shape: (T, C, H, W)
-        left_img = sample[OBSERVATION_KEY][Cameras.LEFT.value]
+        left_img = sample[SampleKey.OBSERVATION.value][Cameras.LEFT.value]
         assert left_img.shape == (3, 3, 32, 32)  # obs_horizon=3
 
         # Check normalization [0, 255] -> [0, 1]
@@ -277,20 +268,20 @@ class TestAddImages:
         sample_builder.observation_space.camera_keys = [Cameras.DEPTH.value]
         padded_data[Cameras.DEPTH.value] = np.ones((10, 32, 32), dtype=np.float32) * 2.5
 
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         sample_builder._get_sample_images(sample, padded_data, angle=0)
 
-        assert Cameras.DEPTH.value in sample[OBSERVATION_KEY]
+        assert Cameras.DEPTH.value in sample[SampleKey.OBSERVATION.value]
 
         # Check shape: (T, 1, H, W)
-        depth_img = sample[OBSERVATION_KEY][Cameras.DEPTH.value]
+        depth_img = sample[SampleKey.OBSERVATION.value][Cameras.DEPTH.value]
         assert depth_img.shape == (3, 1, 32, 32)
         assert depth_img.dtype == torch.float32
 
 
     def test_add_images_with_rotation(self, sample_builder, padded_data):
         """Test image processing with rotation."""
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         sample_builder._get_sample_images(sample, padded_data, angle=45.0)
 
         # Should call augmentation pipeline with angle
@@ -301,10 +292,10 @@ class TestAddImages:
         """Test that only obs_horizon frames are included."""
         sample_builder.obs_horizon = 2
 
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         sample_builder._get_sample_images(sample, padded_data, angle=0)
 
-        left_img = sample[OBSERVATION_KEY][Cameras.LEFT.value]
+        left_img = sample[SampleKey.OBSERVATION.value][Cameras.LEFT.value]
         assert left_img.shape[0] == 2  # Only 2 timesteps
 
 
@@ -314,14 +305,14 @@ class TestAddProprioceptive:
 
     def test_add_proprio_robot_frame(self, sample_builder, padded_data):
         """Test adding robot frame proprioceptive data."""
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         sample_builder._add_proprioceptive(sample, padded_data, angle=0, rotation_matrix=None)
 
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY in sample[OBSERVATION_KEY]
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in sample[SampleKey.OBSERVATION.value]
         # Camera frame should NOT be present since use_proprio_camera_frame=False in fixture
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY not in sample[OBSERVATION_KEY]
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value not in sample[SampleKey.OBSERVATION.value]
 
-        proprio = sample[OBSERVATION_KEY][PROPRIO_OBS_ROBOT_FRAME_KEY]
+        proprio = sample[SampleKey.OBSERVATION.value][ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value]
         assert proprio.shape == (3, 7)  # obs_horizon=3, dim=7
         assert proprio.dtype == torch.float32
 
@@ -330,9 +321,9 @@ class TestAddProprioceptive:
         """Test adding camera frame proprioceptive data."""
         sample_builder.observation_space.use_proprio_camera_frame = True
 
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         sample_builder._add_proprioceptive(sample, padded_data, angle=0, rotation_matrix=None)
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY in sample[OBSERVATION_KEY]
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in sample[SampleKey.OBSERVATION.value]
 
 
     def test_add_proprio_camera_frame_with_rotation(self, sample_builder, padded_data):
@@ -340,7 +331,7 @@ class TestAddProprioceptive:
         sample_builder.observation_space.use_proprio_camera_frame = True
         rotation_matrix = np.eye(3, dtype=np.float32)
 
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         sample_builder._add_proprioceptive(sample, padded_data, angle=45.0, rotation_matrix=rotation_matrix)
 
         # Should call rotate_proprio_data
@@ -351,7 +342,7 @@ class TestAddProprioceptive:
         """Test that camera frame is not rotated when angle is zero."""
         sample_builder.observation_space.use_proprio_camera_frame = True
 
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         sample_builder._add_proprioceptive(sample, padded_data, angle=0, rotation_matrix=None)
 
         # Should NOT call rotate_proprio_data when angle=0
@@ -362,10 +353,10 @@ class TestAddProprioceptive:
         """Test adding both robot and camera frames."""
         sample_builder.observation_space.use_proprio_camera_frame = True
 
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         sample_builder._add_proprioceptive(sample, padded_data, angle=0, rotation_matrix=None)
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY in sample[OBSERVATION_KEY]
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY in sample[OBSERVATION_KEY]
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in sample[SampleKey.OBSERVATION.value]
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in sample[SampleKey.OBSERVATION.value]
 
 
 class TestAddPhaseLabels:
@@ -374,24 +365,24 @@ class TestAddPhaseLabels:
 
     def test_add_phase_labels(self, sample_builder, padded_data):
         """Test adding phase labels."""
-        padded_data[PHASE_LABEL_KEY] = np.array([[0], [1], [1], [2], [2], [3], [3], [4], [4], [0]], dtype=np.int64)
+        padded_data[ObsKey.PHASE_LABEL.value] = np.array([[0], [1], [1], [2], [2], [3], [3], [4], [4], [0]], dtype=np.int64)
 
-        sample = {ACTION_KEY:{}}
+        sample = {SampleKey.ACTION.value:{}}
         sample_builder._add_phase_labels(sample, padded_data)
 
-        assert PHASE_LABEL_KEY in sample[ACTION_KEY]
-        assert sample[ACTION_KEY][PHASE_LABEL_KEY].dtype == torch.long
+        assert ObsKey.PHASE_LABEL.value in sample[SampleKey.ACTION.value]
+        assert sample[SampleKey.ACTION.value][ObsKey.PHASE_LABEL.value].dtype == torch.long
 
 
     def test_phase_labels_with_backward_shift(self, sample_builder, padded_data):
         """Test phase labels with action backward shift."""
         sample_builder.action_backward_shift = 1
-        padded_data[PHASE_LABEL_KEY] = np.array([[0], [1], [1], [2], [2], [3], [3], [4], [4], [0]], dtype=np.int64)
+        padded_data[ObsKey.PHASE_LABEL.value] = np.array([[0], [1], [1], [2], [2], [3], [3], [4], [4], [0]], dtype=np.int64)
 
-        sample = {ACTION_KEY:{}}
+        sample = {SampleKey.ACTION.value:{}}
         sample_builder._add_phase_labels(sample, padded_data)
 
-        assert sample[ACTION_KEY][PHASE_LABEL_KEY].shape == torch.Size([4, 1])
+        assert sample[SampleKey.ACTION.value][ObsKey.PHASE_LABEL.value].shape == torch.Size([4, 1])
 
 
 class TestAddPaddingMask:
@@ -403,14 +394,14 @@ class TestAddPaddingMask:
         indices = np.array([[0, 10, 2, 5]], dtype=np.int64)  # valid range [2, 5)
         sample_builder.pred_horizon = 6
 
-        sample = {ACTION_KEY:{}}
+        sample = {SampleKey.ACTION.value:{}}
         sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=indices)
 
         # action_slice_start = 2
         # action_positions = [2, 3, 4, 5, 6, 7]
         # For deltas: need both position AND next position valid
         # Valid range is [2, 5), so positions 2,3,4 are valid
-        is_pad = sample[ACTION_KEY][IS_PAD_ACTION_KEY].numpy()
+        is_pad = sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].numpy()
         assert not is_pad[0]  # Position 2 valid, next (3) valid
         assert not is_pad[1]  # Position 3 valid, next (4) valid
         assert is_pad[2]  # Position 4 valid, but next (5) >= 5 (invalid)
@@ -428,15 +419,15 @@ class TestAddPaddingMask:
 
         # Delta actions: need both current AND next
         sample_builder.action_space.deltas_as_actions = True
-        sample = {ACTION_KEY:{}}
+        sample = {SampleKey.ACTION.value:{}}
         sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=indices)
-        delta_pad = sample[ACTION_KEY][IS_PAD_ACTION_KEY].numpy().copy()
+        delta_pad = sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].numpy().copy()
 
         # Absolute actions: only need next
         sample_builder.action_space.deltas_as_actions = False
-        sample = {ACTION_KEY:{}}
+        sample = {SampleKey.ACTION.value:{}}
         sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=indices)
-        absolute_pad = sample[ACTION_KEY][IS_PAD_ACTION_KEY].numpy()
+        absolute_pad = sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].numpy()
 
         # Position 0: action_position=2 (invalid), next=3 (valid at boundary)
         assert delta_pad[0] == True  # Delta: 2 < 3, so padded
@@ -457,15 +448,15 @@ class TestAddPaddingMask:
 
         # Test with deltas
         sample_builder.action_space.deltas_as_actions = True
-        sample = {ACTION_KEY:{}}
+        sample = {SampleKey.ACTION.value:{}}
         sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=indices)
-        delta_result = sample[ACTION_KEY][IS_PAD_ACTION_KEY].numpy()
+        delta_result = sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].numpy()
 
         # Test with absolute
         sample_builder.action_space.deltas_as_actions = False
-        sample = {ACTION_KEY:{}}
+        sample = {SampleKey.ACTION.value:{}}
         sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=indices)
-        absolute_result = sample[ACTION_KEY][IS_PAD_ACTION_KEY].numpy()
+        absolute_result = sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].numpy()
 
         # action_positions = [2, 3, 4, 5]
         # Position 2 < 3 (start), so current is invalid but next (3) is valid
@@ -475,15 +466,15 @@ class TestAddPaddingMask:
 
     def test_padding_mask_deltas_no_padding(self, sample_builder, sampler_indices):
         """Test padding mask for deltas with no padding needed."""
-        sample = {ACTION_KEY:{}}
+        sample = {SampleKey.ACTION.value:{}}
         sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=sampler_indices)
 
-        assert IS_PAD_ACTION_KEY in sample[ACTION_KEY]
-        assert sample[ACTION_KEY][IS_PAD_ACTION_KEY].dtype == torch.bool
-        assert sample[ACTION_KEY][IS_PAD_ACTION_KEY].shape == torch.Size([4])  # pred_horizon=4
+        assert SampleKey.IS_PAD_ACTION.value in sample[SampleKey.ACTION.value]
+        assert sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].dtype == torch.bool
+        assert sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].shape == torch.Size([4])  # pred_horizon=4
 
         # Check specific values
-        is_pad = sample[ACTION_KEY][IS_PAD_ACTION_KEY].numpy()
+        is_pad = sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].numpy()
         # action_slice_start = 2, action_positions = [2, 3, 4, 5]
         # sample_start_idx=2, sample_end_idx=5 (valid range is [2, 5))
         # For deltas: both current and next positions must be valid
@@ -495,7 +486,7 @@ class TestAddPaddingMask:
         """Test padding mask for absolute actions with no padding needed."""
         sample_builder.action_space.deltas_as_actions = False
 
-        sample = {ACTION_KEY:{}}
+        sample = {SampleKey.ACTION.value:{}}
         sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=sampler_indices)
 
         # With absolute actions, only next position needs to be valid
@@ -503,19 +494,19 @@ class TestAddPaddingMask:
         # next positions = [3, 4, 5, 6]
         # sample_end_idx=5, so positions 3,4 are valid, 5,6 are padding
         expected = np.array([False, False, True, True])
-        np.testing.assert_array_equal(sample[ACTION_KEY][IS_PAD_ACTION_KEY].numpy(), expected)
+        np.testing.assert_array_equal(sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].numpy(), expected)
 
 
     def test_padding_mask_with_backward_shift(self, sample_builder, sampler_indices):
         """Test padding mask with action backward shift."""
         sample_builder.action_backward_shift = 1
 
-        sample = {ACTION_KEY:{}}
+        sample = {SampleKey.ACTION.value:{}}
         sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=sampler_indices)
 
         # action_slice_start = 3 - 1 - 1 = 1
         # action_positions = [1, 2, 3, 4]
-        assert sample[ACTION_KEY][IS_PAD_ACTION_KEY].shape == torch.Size([4])  # pred_horizon=4
+        assert sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].shape == torch.Size([4])  # pred_horizon=4
 
 
 class TestGetActionSliceStart:
@@ -550,8 +541,8 @@ class TestActionConversion:
     def test_binary_gripper_converted_to_long(self, sample_builder, padded_data, sampler_indices):
         """Test binary gripper actions are converted to long."""
         action_dict = {
-            POSITION_ACTION_KEY: np.ones((4, 3), dtype=np.float32),
-            GRIPPER_ACTION_KEY: np.array([[1], [0], [1], [0]], dtype=np.float32),
+            ProprioceptiveType.POSITION.value: np.ones((4, 3), dtype=np.float32),
+            ProprioceptiveType.GRIPPER.value: np.array([[1], [0], [1], [0]], dtype=np.float32),
         }
 
         sample = sample_builder.build_sample(
@@ -561,7 +552,7 @@ class TestActionConversion:
             sampler_indices=sampler_indices,
         )
 
-        assert sample[ACTION_KEY][GRIPPER_ACTION_KEY].dtype == torch.long
+        assert sample[SampleKey.ACTION.value][ProprioceptiveType.GRIPPER.value].dtype == torch.long
 
 
     def test_continuous_gripper_converted_to_float(self, sample_builder, padded_data, sampler_indices):
@@ -569,8 +560,8 @@ class TestActionConversion:
         sample_builder.action_space.gripper_type = GripperType.CONTINUOUS.value
 
         action_dict = {
-            POSITION_ACTION_KEY: np.ones((4, 3), dtype=np.float32),
-            GRIPPER_ACTION_KEY: np.array([[0.5], [0.3], [0.8], [0.1]], dtype=np.float32),
+            ProprioceptiveType.POSITION.value: np.ones((4, 3), dtype=np.float32),
+            ProprioceptiveType.GRIPPER.value: np.array([[0.5], [0.3], [0.8], [0.1]], dtype=np.float32),
         }
 
         sample = sample_builder.build_sample(
@@ -580,7 +571,7 @@ class TestActionConversion:
             sampler_indices=sampler_indices,
         )
 
-        assert sample[ACTION_KEY][GRIPPER_ACTION_KEY].dtype == torch.float32
+        assert sample[SampleKey.ACTION.value][ProprioceptiveType.GRIPPER.value].dtype == torch.float32
 
 
     def test_position_actions_converted_to_float(self, sample_builder, padded_data, action_dict, sampler_indices):
@@ -592,8 +583,8 @@ class TestActionConversion:
             sampler_indices=sampler_indices,
         )
 
-        assert sample[ACTION_KEY][POSITION_ACTION_KEY].dtype == torch.float32
-        assert sample[ACTION_KEY][ORIENTATION_ACTION_KEY].dtype == torch.float32
+        assert sample[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].dtype == torch.float32
+        assert sample[SampleKey.ACTION.value][ProprioceptiveType.ORIENTATION.value].dtype == torch.float32
 
 
 class TestIntegration:
@@ -610,24 +601,24 @@ class TestIntegration:
         )
 
         # Check top-level keys
-        assert OBSERVATION_KEY in sample
-        assert ACTION_KEY in sample
-        assert POSITION_ACTION_KEY in sample[ACTION_KEY]
-        assert ORIENTATION_ACTION_KEY in sample[ACTION_KEY]
-        assert GRIPPER_ACTION_KEY in sample[ACTION_KEY]
-        assert IS_PAD_ACTION_KEY in sample[ACTION_KEY]
+        assert SampleKey.OBSERVATION.value in sample
+        assert SampleKey.ACTION.value in sample
+        assert ProprioceptiveType.POSITION.value in sample[SampleKey.ACTION.value]
+        assert ProprioceptiveType.ORIENTATION.value in sample[SampleKey.ACTION.value]
+        assert ProprioceptiveType.GRIPPER.value in sample[SampleKey.ACTION.value]
+        assert SampleKey.IS_PAD_ACTION.value in sample[SampleKey.ACTION.value]
 
         # Check observation structure
-        assert isinstance(sample[OBSERVATION_KEY], dict)
-        assert Cameras.LEFT.value in sample[OBSERVATION_KEY]
-        assert Cameras.RIGHT.value in sample[OBSERVATION_KEY]
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY in sample[OBSERVATION_KEY]
+        assert isinstance(sample[SampleKey.OBSERVATION.value], dict)
+        assert Cameras.LEFT.value in sample[SampleKey.OBSERVATION.value]
+        assert Cameras.RIGHT.value in sample[SampleKey.OBSERVATION.value]
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in sample[SampleKey.OBSERVATION.value]
         # Camera frame should NOT be present since use_proprio_camera_frame=False in fixture
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY not in sample[OBSERVATION_KEY]
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value not in sample[SampleKey.OBSERVATION.value]
 
         # Check all tensors
-        for key in [POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY, IS_PAD_ACTION_KEY]:
-            assert isinstance(sample[ACTION_KEY][key], torch.Tensor)
+        for key in [ProprioceptiveType.POSITION.value, ProprioceptiveType.ORIENTATION.value]:
+            assert isinstance(sample[SampleKey.ACTION.value][key], torch.Tensor)
 
 
     def test_different_obs_pred_horizons(self, action_config, observation_config,
@@ -646,9 +637,9 @@ class TestIntegration:
 
         # Need to adjust action_dict and padded_data for new horizons
         action_dict_large = {
-            POSITION_ACTION_KEY: np.ones((8, 3), dtype=np.float32),
-            ORIENTATION_ACTION_KEY: np.ones((8, 4), dtype=np.float32),
-            GRIPPER_ACTION_KEY: np.ones((8, 1), dtype=np.float32),
+            ProprioceptiveType.POSITION.value: np.ones((8, 3), dtype=np.float32),
+            ProprioceptiveType.ORIENTATION.value: np.ones((8, 4), dtype=np.float32),
+            ProprioceptiveType.GRIPPER.value: np.ones((8, 1), dtype=np.float32),
         }
 
         sample = builder.build_sample(
@@ -659,9 +650,9 @@ class TestIntegration:
         )
 
         # Check horizons
-        assert sample[OBSERVATION_KEY][Cameras.LEFT.value].shape[0] == 5  # obs_horizon
-        assert sample[ACTION_KEY][POSITION_ACTION_KEY].shape[0] == 8  # pred_horizon
-        assert sample[ACTION_KEY][IS_PAD_ACTION_KEY].shape[0] == 8
+        assert sample[SampleKey.OBSERVATION.value][Cameras.LEFT.value].shape[0] == 5  # obs_horizon
+        assert sample[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape[0] == 8  # pred_horizon
+        assert sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].shape[0] == 8
 
 
     def test_sample_with_all_features(self, action_config, observation_config,
@@ -672,7 +663,7 @@ class TestIntegration:
         observation_config.camera_keys = [Cameras.LEFT.value, Cameras.RIGHT.value, Cameras.DEPTH.value]
 
         padded_data[Cameras.DEPTH.value] = np.ones((10, 32, 32), dtype=np.float32)
-        padded_data[PHASE_LABEL_KEY] = np.array([[0], [1], [1], [2], [2], [3], [3], [4], [4], [0]], dtype=np.int64)
+        padded_data[ObsKey.PHASE_LABEL.value] = np.array([[0], [1], [1], [2], [2], [3], [3], [4], [4], [0]], dtype=np.int64)
 
         mock_augmentation_pipeline.setup_rotation.return_value = (30.0, np.eye(3))
         action_config.predict_in_camera_frame = True
@@ -696,9 +687,9 @@ class TestIntegration:
         )
 
         # Check all features present
-        assert Cameras.DEPTH.value in sample[OBSERVATION_KEY]
-        assert PROPRIO_OBS_CAMERA_FRAME_KEY in sample[OBSERVATION_KEY]
-        assert PHASE_LABEL_KEY in sample[ACTION_KEY]
+        assert Cameras.DEPTH.value in sample[SampleKey.OBSERVATION.value]
+        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in sample[SampleKey.OBSERVATION.value]
+        assert ObsKey.PHASE_LABEL.value in sample[SampleKey.ACTION.value]
 
         # Verify rotation was called
         mock_action_processor.rotate_actions.assert_called_once()
@@ -711,7 +702,7 @@ class TestLanguageInSampleBuilder:
     def test_add_language_converts_to_list(self, sample_builder, padded_data):
         """Test that language is converted from numpy array to list."""
         sample_builder.observation_space.use_language = True
-        padded_data[LANGUAGE_KEY] = np.array([
+        padded_data[ObsKey.LANGUAGE.value] = np.array([
             'pick up the red cube',
             'place it on the table',
             'return to home position',
@@ -724,14 +715,14 @@ class TestLanguageInSampleBuilder:
             'complete the task'
         ], dtype=object)
 
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         sample_builder._add_additional_observation_keys(sample, padded_data)
 
         # Should be in observations
-        assert LANGUAGE_KEY in sample[OBSERVATION_KEY]
+        assert ObsKey.LANGUAGE.value in sample[SampleKey.OBSERVATION.value]
 
         # Should be a list, not numpy array
-        lang_data = sample[OBSERVATION_KEY][LANGUAGE_KEY]
+        lang_data = sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]
         assert isinstance(lang_data, list)
 
         # Should have obs_horizon elements
@@ -749,7 +740,7 @@ class TestLanguageInSampleBuilder:
     def test_language_with_variable_lengths(self, sample_builder, padded_data):
         """Test language instructions of varying lengths."""
         sample_builder.observation_space.use_language = True
-        padded_data[LANGUAGE_KEY] = np.array([
+        padded_data[ObsKey.LANGUAGE.value] = np.array([
             'short',
             'this is a very long instruction with many many words that describes a complex task in detail',
             'medium instruction',
@@ -762,10 +753,10 @@ class TestLanguageInSampleBuilder:
             'final'
         ], dtype=object)
 
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         sample_builder._add_additional_observation_keys(sample, padded_data)
 
-        lang_data = sample[OBSERVATION_KEY][LANGUAGE_KEY]
+        lang_data = sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]
 
         # All should be strings
         assert all(isinstance(s, str) for s in lang_data)
@@ -779,7 +770,7 @@ class TestLanguageInSampleBuilder:
     def test_language_with_special_characters(self, sample_builder, padded_data):
         """Test language with special characters and punctuation."""
         sample_builder.observation_space.use_language = True
-        padded_data[LANGUAGE_KEY] = np.array([
+        padded_data[ObsKey.LANGUAGE.value] = np.array([
             "pick up the cube & place it (carefully!)",
             "move 5.5cm to the left, then stop",
             "grasp object #3 from the bin",
@@ -792,10 +783,10 @@ class TestLanguageInSampleBuilder:
             "success criteria: δ < 0.1mm"
         ], dtype=object)
 
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         sample_builder._add_additional_observation_keys(sample, padded_data)
 
-        lang_data = sample[OBSERVATION_KEY][LANGUAGE_KEY]
+        lang_data = sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]
 
         # Special characters should be preserved
         assert '&' in lang_data[0]
@@ -807,17 +798,17 @@ class TestLanguageInSampleBuilder:
         """Test that language is not added when use_language=False."""
         sample_builder.observation_space.use_language = False
 
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         sample_builder._add_additional_observation_keys(sample, padded_data)
 
         # Language should not be present
-        assert LANGUAGE_KEY not in sample[OBSERVATION_KEY]
+        assert ObsKey.LANGUAGE.value not in sample[SampleKey.OBSERVATION.value]
 
 
     def test_build_sample_with_language(self, sample_builder, padded_data, action_dict, sampler_indices):
         """Test complete sample building with language."""
         sample_builder.observation_space.use_language = True
-        padded_data[LANGUAGE_KEY] = np.array([
+        padded_data[ObsKey.LANGUAGE.value] = np.array([
             f'instruction_{i}' for i in range(10)
         ], dtype=object)
 
@@ -829,10 +820,10 @@ class TestLanguageInSampleBuilder:
         )
 
         # Check complete structure
-        assert OBSERVATION_KEY in sample
-        assert LANGUAGE_KEY in sample[OBSERVATION_KEY]
-        assert isinstance(sample[OBSERVATION_KEY][LANGUAGE_KEY], list)
-        assert len(sample[OBSERVATION_KEY][LANGUAGE_KEY]) == 3
+        assert SampleKey.OBSERVATION.value in sample
+        assert ObsKey.LANGUAGE.value in sample[SampleKey.OBSERVATION.value]
+        assert isinstance(sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value], list)
+        assert len(sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]) == 3
 
 
     def test_language_with_different_obs_horizons(self, action_config, observation_config,
@@ -852,27 +843,27 @@ class TestLanguageInSampleBuilder:
             action_processor=mock_action_processor,
         )
 
-        padded_data[LANGUAGE_KEY] = np.array([f'inst_{i}' for i in range(10)], dtype=object)
+        padded_data[ObsKey.LANGUAGE.value] = np.array([f'inst_{i}' for i in range(10)], dtype=object)
 
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         builder._add_additional_observation_keys(sample, padded_data)
 
         # Should have only 1 instruction
-        assert len(sample[OBSERVATION_KEY][LANGUAGE_KEY]) == 1
+        assert len(sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]) == 1
 
         # Test with obs_horizon=5
         builder.obs_horizon = 5
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         builder._add_additional_observation_keys(sample, padded_data)
 
         # Should have 5 instructions
-        assert len(sample[OBSERVATION_KEY][LANGUAGE_KEY]) == 5
+        assert len(sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]) == 5
 
 
     def test_language_empty_strings_handled(self, sample_builder, padded_data):
         """Test that empty language strings are handled."""
         sample_builder.observation_space.use_language = True
-        padded_data[LANGUAGE_KEY] = np.array([
+        padded_data[ObsKey.LANGUAGE.value] = np.array([
             'valid instruction',
             '',  # Empty string
             'another valid one',
@@ -885,10 +876,10 @@ class TestLanguageInSampleBuilder:
             ''
         ], dtype=object)
 
-        sample = {OBSERVATION_KEY: {}}
+        sample = {SampleKey.OBSERVATION.value: {}}
         sample_builder._add_additional_observation_keys(sample, padded_data)
 
-        lang_data = sample[OBSERVATION_KEY][LANGUAGE_KEY]
+        lang_data = sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]
 
         # Should handle empty strings gracefully
         assert lang_data[0] == 'valid instruction'
@@ -926,10 +917,10 @@ class TestNormalizationInSampleBuilder:
         )
 
         # Verify data is present
-        assert OBSERVATION_KEY in sample
-        assert ACTION_KEY in sample
-        assert isinstance(sample[ACTION_KEY][POSITION_ACTION_KEY], torch.Tensor)
-        assert isinstance(sample[OBSERVATION_KEY][PROPRIO_OBS_ROBOT_FRAME_KEY], torch.Tensor)
+        assert SampleKey.OBSERVATION.value in sample
+        assert SampleKey.ACTION.value in sample
+        assert isinstance(sample[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value], torch.Tensor)
+        assert isinstance(sample[SampleKey.OBSERVATION.value][ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value], torch.Tensor)
 
     def test_normalization_preserves_shapes(
         self, action_config, observation_config, mock_augmentation_pipeline, mock_action_processor,
@@ -957,8 +948,8 @@ class TestNormalizationInSampleBuilder:
         )
 
         # Shapes should be the same with or without normalization
-        assert sample[ACTION_KEY][POSITION_ACTION_KEY].shape == (4, 3)
-        assert sample[ACTION_KEY][ORIENTATION_ACTION_KEY].shape == (4, 4)
+        assert sample[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape == (4, 3)
+        assert sample[SampleKey.ACTION.value][ProprioceptiveType.ORIENTATION.value].shape == (4, 4)
 
 
 @pytest.mark.integration
@@ -971,11 +962,11 @@ class TestTokenizationInSampleBuilder:
     ):
         """Test sample building with observation tokenization."""
         observation_config.use_language = True
-        padded_data[LANGUAGE_KEY] = np.array([f'instruction_{i}' for i in range(10)], dtype=object)
+        padded_data[ObsKey.LANGUAGE.value] = np.array([f'instruction_{i}' for i in range(10)], dtype=object)
 
         obs_tokenizer = ObservationTokenizer(
             tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=False,
             device=torch.device("cpu"),
         )
@@ -1002,10 +993,10 @@ class TestTokenizationInSampleBuilder:
         )
 
         # Verify tokenized observations are added
-        assert TOKENIZED_OBSERVATIONS_KEY in sample[OBSERVATION_KEY]
-        assert IS_PAD_OBSERVATION_KEY in sample[OBSERVATION_KEY]
-        assert sample[OBSERVATION_KEY][TOKENIZED_OBSERVATIONS_KEY].dtype == torch.long
-        assert sample[OBSERVATION_KEY][IS_PAD_OBSERVATION_KEY].dtype == torch.bool
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value in sample[SampleKey.OBSERVATION.value]
+        assert SampleKey.IS_PAD_OBSERVATION.value in sample[SampleKey.OBSERVATION.value]
+        assert sample[SampleKey.OBSERVATION.value][SampleKey.TOKENIZED_OBSERVATIONS.value].dtype == torch.long
+        assert sample[SampleKey.OBSERVATION.value][SampleKey.IS_PAD_OBSERVATION.value].dtype == torch.bool
 
     def test_build_sample_with_action_tokenizer(
         self, action_config, observation_config, mock_augmentation_pipeline, mock_action_processor,
@@ -1039,11 +1030,11 @@ class TestTokenizationInSampleBuilder:
         )
 
         # Verify tokenized actions are added
-        assert TOKENIZED_ACTIONS_KEY in sample[ACTION_KEY]
-        assert sample[ACTION_KEY][TOKENIZED_ACTIONS_KEY].dtype == torch.long
-        # IS_PAD_ACTION_KEY should be replaced with tokenizer's padding mask
-        assert IS_PAD_ACTION_KEY in sample[ACTION_KEY]
-        assert sample[ACTION_KEY][IS_PAD_ACTION_KEY].dtype == torch.bool
+        assert SampleKey.TOKENIZED_ACTIONS.value in sample[SampleKey.ACTION.value]
+        assert sample[SampleKey.ACTION.value][SampleKey.TOKENIZED_ACTIONS.value].dtype == torch.long
+        # SampleKey.IS_PAD_ACTION.value should be replaced with tokenizer's padding mask
+        assert SampleKey.IS_PAD_ACTION.value in sample[SampleKey.ACTION.value]
+        assert sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].dtype == torch.bool
 
     def test_build_sample_with_both_tokenizers(
         self, action_config, observation_config, mock_augmentation_pipeline, mock_action_processor,
@@ -1051,11 +1042,11 @@ class TestTokenizationInSampleBuilder:
     ):
         """Test sample building with both observation and action tokenization."""
         observation_config.use_language = True
-        padded_data[LANGUAGE_KEY] = np.array([f'instruction_{i}' for i in range(10)], dtype=object)
+        padded_data[ObsKey.LANGUAGE.value] = np.array([f'instruction_{i}' for i in range(10)], dtype=object)
 
         obs_tokenizer = ObservationTokenizer(
             tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=False,
             device=torch.device("cpu"),
         )
@@ -1091,9 +1082,9 @@ class TestTokenizationInSampleBuilder:
         )
 
         # Verify both tokenized observations and actions are added
-        assert TOKENIZED_OBSERVATIONS_KEY in sample[OBSERVATION_KEY]
-        assert IS_PAD_OBSERVATION_KEY in sample[OBSERVATION_KEY]
-        assert TOKENIZED_ACTIONS_KEY in sample[ACTION_KEY]
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value in sample[SampleKey.OBSERVATION.value]
+        assert SampleKey.IS_PAD_OBSERVATION.value in sample[SampleKey.OBSERVATION.value]
+        assert SampleKey.TOKENIZED_ACTIONS.value in sample[SampleKey.ACTION.value]
 
     def test_observation_tokenization_raises_on_missing_key(
         self, action_config, observation_config, mock_augmentation_pipeline, mock_action_processor,
@@ -1103,7 +1094,7 @@ class TestTokenizationInSampleBuilder:
         # Don't add language to padded_data
         obs_tokenizer = ObservationTokenizer(
             tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[LANGUAGE_KEY],  # Require language but don't add it to padded_data
+            observation_keys=[ObsKey.LANGUAGE.value],  # Require language but don't add it to padded_data
             bin_continuous_data=False,
             device=torch.device("cpu"),
         )
@@ -1141,14 +1132,14 @@ class TestNormalizationAndTokenizationTogether:
     ):
         """Test sample building with both normalization and tokenization."""
         observation_config.use_language = True
-        padded_data[LANGUAGE_KEY] = np.array([f'instruction_{i}' for i in range(10)], dtype=object)
+        padded_data[ObsKey.LANGUAGE.value] = np.array([f'instruction_{i}' for i in range(10)], dtype=object)
 
         # Use dummy normalizer that passes through all data
 
         # Create tokenizers
         obs_tokenizer = ObservationTokenizer(
             tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=False,
             device=torch.device("cpu"),
         )
@@ -1185,8 +1176,8 @@ class TestNormalizationAndTokenizationTogether:
         )
 
         # Verify both normalization and tokenization happened
-        assert TOKENIZED_OBSERVATIONS_KEY in sample[OBSERVATION_KEY]
-        assert TOKENIZED_ACTIONS_KEY in sample[ACTION_KEY]
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value in sample[SampleKey.OBSERVATION.value]
+        assert SampleKey.TOKENIZED_ACTIONS.value in sample[SampleKey.ACTION.value]
         # Original data should still be present (normalized)
-        assert POSITION_ACTION_KEY in sample[ACTION_KEY]
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY in sample[OBSERVATION_KEY]
+        assert ProprioceptiveType.POSITION.value in sample[SampleKey.ACTION.value]
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in sample[SampleKey.OBSERVATION.value]

@@ -9,9 +9,9 @@ position and gripper predictions through phase-specific expert networks.
 import torch
 
 from versatil.common.omegaconf_ops import resolve_dict_keys
-from versatil.data.constants import ACTION_KEY, ObsKey
+from versatil.data.constants import ObsKey, SampleKey
 from versatil.models.decoding.action_heads.moe import MoEHead
-from versatil.models.decoding.constants import EXPERT_OUTPUTS, ROUTING_WEIGHT
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.factory.act import ACT
 
 
@@ -102,11 +102,13 @@ class PhaseACT(ACT):
                     action_embeddings,
                     gating_feature=phase_logits,  # Phase-based routing
                 )
-                predictions[action_key] = output[ACTION_KEY]
-                predictions[ROUTING_WEIGHT] = output[
-                    ROUTING_WEIGHT
+                predictions[action_key] = output[SampleKey.ACTION.value]
+                predictions[DecoderOutputKey.ROUTING_WEIGHTS.value] = output[
+                    DecoderOutputKey.ROUTING_WEIGHTS.value
                 ]  # This will be overwritten but is the same for all MoE heads
-                predictions[f"{action_key}_{EXPERT_OUTPUTS}"] = output[EXPERT_OUTPUTS]
+                predictions[
+                    f"{action_key}_{DecoderOutputKey.EXPERT_OUTPUTS.value}"
+                ] = output[DecoderOutputKey.EXPERT_OUTPUTS.value]
             else:
                 predictions[action_key] = head(action_embeddings)
         return predictions

@@ -13,9 +13,7 @@ from versatil.models.layers.transformer.attention import CachedAttention
 
 
 class TransformerEncoderLayer(nn.Module):
-    """Single transformer encoder layer with self-attention and feed-forward network.
-
-    """
+    """Single transformer encoder layer with self-attention and feed-forward network."""
 
     def __init__(
         self,

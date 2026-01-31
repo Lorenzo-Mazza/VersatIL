@@ -5,13 +5,9 @@ import copy
 import torch
 import torch.nn as nn
 
-from versatil.data.constants import ACTION_KEY
+from versatil.data.constants import SampleKey
 from versatil.models.decoding.action_heads.head import ActionHead
-from versatil.models.decoding.constants import (
-    EXPERT_OUTPUTS,
-    ROUTING_WEIGHT,
-    MoERoutingType,
-)
+from versatil.models.decoding.constants import DecoderOutputKey, MoERoutingType
 from versatil.models.decoding.mixture_of_experts import BaseMixtureOfExperts
 from versatil.models.layers.activation import ActivationFunction
 
@@ -263,7 +259,7 @@ class MoEHead(BaseMixtureOfExperts):
         expert_outputs_stacked = torch.stack(expert_outputs, dim=-2)
         final_output = self._apply_routing(expert_outputs, weights)
         return {
-            ACTION_KEY: final_output,
-            ROUTING_WEIGHT: weights,
-            EXPERT_OUTPUTS: expert_outputs_stacked,
+            SampleKey.ACTION.value: final_output,
+            DecoderOutputKey.ROUTING_WEIGHTS.value: weights,
+            DecoderOutputKey.EXPERT_OUTPUTS.value: expert_outputs_stacked,
         }

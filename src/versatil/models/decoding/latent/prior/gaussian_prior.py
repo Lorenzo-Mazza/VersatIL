@@ -10,11 +10,7 @@ the traditional approach for imposing a gaussian distribution for the inference 
 
 import torch
 
-from versatil.models.decoding.constants import (
-    PRIOR_MU_KEY,
-    PRIOR_LOGVAR_KEY,
-    PRIOR_LATENT_KEY,
-)
+from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.latent import PriorLatentEncoder
 
 
@@ -69,7 +65,7 @@ class GaussianPrior(PriorLatentEncoder):
         logvar = torch.zeros_like(target_latents, device=self.device)
         z = torch.randn(mu.size(0), self.latent_dimension, device=self.device)
         return {
-            PRIOR_MU_KEY: mu,
-            PRIOR_LOGVAR_KEY: logvar,
-            PRIOR_LATENT_KEY: z,
+            LatentKey.PRIOR_MU.value: mu,
+            LatentKey.PRIOR_LOGVAR.value: logvar,
+            LatentKey.PRIOR_LATENT.value: z,
         }

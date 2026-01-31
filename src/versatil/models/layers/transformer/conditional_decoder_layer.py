@@ -6,7 +6,9 @@ import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, ConditioningType
-from versatil.models.layers.modulation.conditional_modulation import ConditionalModulation
+from versatil.models.layers.modulation.conditional_modulation import (
+    ConditionalModulation,
+)
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
@@ -42,7 +44,7 @@ class ConditionalTransformerDecoderLayer(nn.Module):
         use_cross_attention: bool = True,
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
-        modulation_init_strategy: Literal["identity",  "xavier", "zero"] = "identity",
+        modulation_init_strategy: Literal["identity", "xavier", "zero"] = "identity",
     ):
         """Initialize conditional transformer decoder layer.
 
@@ -206,7 +208,7 @@ class ConditionalTransformerDecoderLayer(nn.Module):
                 use_cross_attention_cache=False,
             )
             hidden_states = residual + self.dropout(cross_attention_output)
-            
+
         residual = hidden_states
         hidden_states = self.feedforward_normalization(hidden_states)
         hidden_states = self.feedforward_modulation(hidden_states, condition)

@@ -20,4 +20,6 @@ class PolicyConfig:
     observation_horizon: int = "${task.observation_horizon}"  # type: ignore[assignment]
     device: str = "${experiment.device}"
     loss: CompositeLossConfig = MISSING
-    validate_loss_keys: bool = True  # Whether to validate loss keys against action space
+    validate_loss_keys: bool = (
+        True  # Whether to validate loss keys against action space
+    )

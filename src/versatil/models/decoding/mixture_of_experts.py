@@ -4,12 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from versatil.models.decoding.constants import (
-    EXPERT_USAGE,
-    ROUTING_ENTROPY,
-    TOP_EXPERT_CONFIDENCE,
-    MoERoutingType,
-)
+from versatil.models.decoding.constants import DecoderOutputKey, MoERoutingType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.mlp import MLP
 
@@ -163,9 +158,9 @@ class BaseMixtureOfExperts(nn.Module):
             entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=-1).mean()
             top_expert_confidence = weights.max(dim=-1)[0].mean()
         return {
-            EXPERT_USAGE: expert_usage,
-            ROUTING_ENTROPY: entropy,
-            TOP_EXPERT_CONFIDENCE: top_expert_confidence,
+            DecoderOutputKey.EXPERT_USAGE.value: expert_usage,
+            DecoderOutputKey.ROUTING_ENTROPY.value: entropy,
+            DecoderOutputKey.TOP_EXPERT_CONFIDENCE.value: top_expert_confidence,
         }
 
     def _apply_routing(

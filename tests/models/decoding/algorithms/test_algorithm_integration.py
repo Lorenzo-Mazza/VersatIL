@@ -10,20 +10,14 @@ This file demonstrates that:
 import pytest
 import torch
 
-from versatil.data.constants import POSITION_ACTION_KEY, GRIPPER_ACTION_KEY
+from versatil.data.constants import ProprioceptiveType
 from versatil.models.decoding.algorithm import (
     BehavioralCloning,
     Diffusion,
     FlowMatching,
     VariationalAlgorithm,
 )
-from versatil.models.decoding.constants import (
-    LATENT_KEY,
-    MU_KEY,
-    LOGVAR_KEY,
-    PRIOR_PREDICTION_KEY,
-    PRIOR_TARGET_KEY,
-)
+from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.latent import (
     VAETransformerEncoder,
     GaussianPrior,
@@ -57,8 +51,8 @@ def embedding_dimension():
 def sample_actions(device):
     """Create sample actions."""
     return {
-        POSITION_ACTION_KEY: torch.randn(2, 10, 3, device=device),
-        GRIPPER_ACTION_KEY: torch.randn(2, 10, 1, device=device),
+        ProprioceptiveType.POSITION.value: torch.randn(2, 10, 3, device=device),
+        ProprioceptiveType.GRIPPER.value: torch.randn(2, 10, 1, device=device),
     }
 
 
@@ -107,10 +101,10 @@ class MockNetwork:
         """Mock forward pass."""
         batch_size = next(iter(features.values())).shape[0]
         return {
-            POSITION_ACTION_KEY: torch.randn(
+            ProprioceptiveType.POSITION.value: torch.randn(
                 batch_size, self.prediction_horizon, 3, device=self.device
             ),
-            GRIPPER_ACTION_KEY: torch.randn(
+            ProprioceptiveType.GRIPPER.value: torch.randn(
                 batch_size, self.prediction_horizon, 1, device=self.device
             ),
         }
@@ -134,13 +128,13 @@ class TestPureAlgorithms:
         output = algorithm.forward(mock_network, sample_features, sample_actions)
 
         # Should have action predictions
-        assert POSITION_ACTION_KEY in output
-        assert GRIPPER_ACTION_KEY in output
+        assert ProprioceptiveType.POSITION.value in output
+        assert ProprioceptiveType.GRIPPER.value in output
 
         # Should NOT have variational outputs
-        assert MU_KEY not in output
-        assert LOGVAR_KEY not in output
-        assert PRIOR_PREDICTION_KEY not in output
+        assert LatentKey.POSTERIOR_MU.value not in output
+        assert LatentKey.POSTERIOR_LOGVAR.value not in output
+        assert LatentKey.PRIOR_PREDICTION.value not in output
 
     @pytest.mark.parametrize("algorithm_class", [BehavioralCloning, FlowMatching])
     def test_pure_algorithm_predict(self, algorithm_class, sample_features, device):
@@ -154,8 +148,8 @@ class TestPureAlgorithms:
         output = algorithm.predict(mock_network, sample_features)
 
         # Should have action predictions only
-        assert POSITION_ACTION_KEY in output
-        assert GRIPPER_ACTION_KEY in output
+        assert ProprioceptiveType.POSITION.value in output
+        assert ProprioceptiveType.GRIPPER.value in output
 
 
 @pytest.mark.unit
@@ -187,14 +181,14 @@ class TestVariationalAlgorithms:
         output = algorithm.forward(mock_network, sample_features, sample_actions)
 
         # Should have action predictions
-        assert POSITION_ACTION_KEY in output
+        assert ProprioceptiveType.POSITION.value in output
 
         # Should have VAE outputs
-        assert MU_KEY in output
-        assert LOGVAR_KEY in output
+        assert LatentKey.POSTERIOR_MU.value in output
+        assert LatentKey.POSTERIOR_LOGVAR.value in output
 
         # Should NOT have prior outputs (Gaussian prior has no training)
-        assert PRIOR_PREDICTION_KEY not in output
+        assert LatentKey.PRIOR_PREDICTION.value not in output
 
     @pytest.mark.parametrize(
         "base_algorithm",
@@ -225,15 +219,15 @@ class TestVariationalAlgorithms:
         output = algorithm.forward(mock_network, sample_features, sample_actions)
 
         # Should have action predictions
-        assert POSITION_ACTION_KEY in output
+        assert ProprioceptiveType.POSITION.value in output
 
         # Should have VAE outputs
-        assert MU_KEY in output
-        assert LOGVAR_KEY in output
+        assert LatentKey.POSTERIOR_MU.value in output
+        assert LatentKey.POSTERIOR_LOGVAR.value in output
 
         # Should have prior outputs (for training learned prior)
-        assert PRIOR_PREDICTION_KEY in output
-        assert PRIOR_TARGET_KEY in output
+        assert LatentKey.PRIOR_PREDICTION.value in output
+        assert LatentKey.PRIOR_TARGET.value in output
 
 
 @pytest.mark.unit
@@ -253,8 +247,8 @@ class TestMetricsIntegration:
         predictions = algorithm.forward(mock_network, sample_features, sample_actions)
 
         # Verify predictions contain required keys
-        assert MU_KEY in predictions
-        assert LOGVAR_KEY in predictions
+        assert LatentKey.POSTERIOR_MU.value in predictions
+        assert LatentKey.POSTERIOR_LOGVAR.value in predictions
 
         # Test KL divergence loss
         kl_loss = KLDivergenceLoss(weight=0.0001)
@@ -278,8 +272,8 @@ class TestMetricsIntegration:
         predictions = algorithm.forward(mock_network, sample_features, sample_actions)
 
         # Verify predictions contain required keys
-        assert PRIOR_PREDICTION_KEY in predictions
-        assert PRIOR_TARGET_KEY in predictions
+        assert LatentKey.PRIOR_PREDICTION.value in predictions
+        assert LatentKey.PRIOR_TARGET.value in predictions
 
         # Test prior denoising loss
         prior_loss = PriorDenoisingLoss(weight=1.0)

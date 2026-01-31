@@ -9,11 +9,9 @@ from versatil.models.decoding.constants import MoERoutingType
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import (
-    POSITION_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    OrientationRepresentation,
     GripperType,
+    OrientationRepresentation,
+    ProprioceptiveType,
 )
 
 
@@ -148,21 +146,21 @@ def create_action_heads(action_space, embedding_dim, device):
     heads = {}
 
     if action_space.has_position:
-        heads[POSITION_ACTION_KEY] = ActionHead(
+        heads[ProprioceptiveType.POSITION.value] = ActionHead(
             input_dim=embedding_dim,
             output_dim=action_space.position_dim,
             blocks=[],
         ).to(device)
 
     if action_space.has_orientation:
-        heads[ORIENTATION_ACTION_KEY] = ActionHead(
+        heads[ProprioceptiveType.ORIENTATION.value] = ActionHead(
             input_dim=embedding_dim,
             output_dim=action_space.orientation_dim,
             blocks=[],
         ).to(device)
 
     if action_space.has_gripper:
-        heads[GRIPPER_ACTION_KEY] = ActionHead(
+        heads[ProprioceptiveType.GRIPPER.value] = ActionHead(
             input_dim=embedding_dim,
             output_dim=action_space.gripper_dim,
             blocks=[],
@@ -402,24 +400,24 @@ class TestMoEDecoderForwardWithGating:
         outputs = moe(flat_features)
 
         # Check all action predictions exist
-        assert POSITION_ACTION_KEY in outputs
-        assert ORIENTATION_ACTION_KEY in outputs
-        assert GRIPPER_ACTION_KEY in outputs
+        assert ProprioceptiveType.POSITION.value in outputs
+        assert ProprioceptiveType.ORIENTATION.value in outputs
+        assert ProprioceptiveType.GRIPPER.value in outputs
         assert "routing_weights" in outputs
         assert "expert_outputs" in outputs
 
         # Check shapes
-        assert outputs[POSITION_ACTION_KEY].shape == (
+        assert outputs[ProprioceptiveType.POSITION.value].shape == (
             batch_size,
             prediction_horizon,
             action_space.position_dim,
         )
-        assert outputs[ORIENTATION_ACTION_KEY].shape == (
+        assert outputs[ProprioceptiveType.ORIENTATION.value].shape == (
             batch_size,
             prediction_horizon,
             action_space.orientation_dim,
         )
-        assert outputs[GRIPPER_ACTION_KEY].shape == (
+        assert outputs[ProprioceptiveType.GRIPPER.value].shape == (
             batch_size,
             prediction_horizon,
             action_space.gripper_dim,
@@ -465,13 +463,13 @@ class TestMoEDecoderForwardWithGating:
         outputs = moe(flat_features)
 
         # Check all action predictions exist
-        assert POSITION_ACTION_KEY in outputs
-        assert ORIENTATION_ACTION_KEY in outputs
-        assert GRIPPER_ACTION_KEY in outputs
+        assert ProprioceptiveType.POSITION.value in outputs
+        assert ProprioceptiveType.ORIENTATION.value in outputs
+        assert ProprioceptiveType.GRIPPER.value in outputs
 
         # Top-k routing should still produce valid outputs
-        assert not torch.isnan(outputs[POSITION_ACTION_KEY]).any()
-        assert not torch.isinf(outputs[POSITION_ACTION_KEY]).any()
+        assert not torch.isnan(outputs[ProprioceptiveType.POSITION.value]).any()
+        assert not torch.isinf(outputs[ProprioceptiveType.POSITION.value]).any()
 
 
 @pytest.mark.unit
@@ -509,9 +507,9 @@ class TestMoEDecoderForwardWithExternalRouting:
         outputs = moe(flat_features, routing_weights=routing_weights_2d)
 
         # Check all action predictions exist
-        assert POSITION_ACTION_KEY in outputs
-        assert ORIENTATION_ACTION_KEY in outputs
-        assert GRIPPER_ACTION_KEY in outputs
+        assert ProprioceptiveType.POSITION.value in outputs
+        assert ProprioceptiveType.ORIENTATION.value in outputs
+        assert ProprioceptiveType.GRIPPER.value in outputs
 
         # Routing weights should be the provided ones (after temperature scaling and softmax)
         assert outputs["routing_weights"].shape == routing_weights_2d.shape
@@ -550,7 +548,7 @@ class TestMoEDecoderForwardWithExternalRouting:
         outputs = moe(flat_features, routing_weights=logits)
 
         # Should still produce valid outputs
-        assert POSITION_ACTION_KEY in outputs
+        assert ProprioceptiveType.POSITION.value in outputs
 
         # Routing weights should be normalized
         assert torch.allclose(
@@ -820,7 +818,7 @@ class TestMoEDecoderEdgeCases:
         outputs = moe(flat_features)
 
         # Should still work
-        assert POSITION_ACTION_KEY in outputs
+        assert ProprioceptiveType.POSITION.value in outputs
 
         # Routing weights should be 1.0 for the single expert
         assert torch.allclose(
@@ -893,7 +891,7 @@ class TestMoEDecoderEdgeCases:
         outputs = moe(features)
 
         # Compute loss and backprop
-        loss = outputs[POSITION_ACTION_KEY].sum()
+        loss = outputs[ProprioceptiveType.POSITION.value].sum()
         loss.backward()
 
         # Check that gradients exist
@@ -970,7 +968,7 @@ class TestMoEDecoderParametrized:
         outputs = moe(flat_features)
 
         # Check outputs are valid
-        assert POSITION_ACTION_KEY in outputs
+        assert ProprioceptiveType.POSITION.value in outputs
         assert outputs["routing_weights"].shape[-1] == num_experts_param
 
     @pytest.mark.parametrize("prediction_horizon_param", [1, 10, 50])
@@ -1022,7 +1020,7 @@ class TestMoEDecoderParametrized:
         outputs = moe(features)
 
         # Check output shapes
-        assert outputs[POSITION_ACTION_KEY].shape == (
+        assert outputs[ProprioceptiveType.POSITION.value].shape == (
             batch_size,
             prediction_horizon_param,
             action_space.position_dim,
@@ -1070,7 +1068,7 @@ class TestMoEDecoderGatingFeatureKey:
         outputs = moe(features)
 
         # Should successfully use the latent feature
-        assert POSITION_ACTION_KEY in outputs
+        assert ProprioceptiveType.POSITION.value in outputs
         assert "routing_weights" in outputs
 
     def test_gating_feature_key_raises_if_not_found(
@@ -1142,5 +1140,5 @@ class TestMoEDecoderGatingFeatureKey:
         outputs = moe(features)
 
         # Should work using first available feature
-        assert POSITION_ACTION_KEY in outputs
+        assert ProprioceptiveType.POSITION.value in outputs
         assert "routing_weights" in outputs

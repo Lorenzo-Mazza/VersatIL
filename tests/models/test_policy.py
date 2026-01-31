@@ -7,13 +7,11 @@ from unittest.mock import MagicMock, Mock
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import (
-    POSITION_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    ACTION_KEY,
-    LANGUAGE_KEY,
     Cameras,
     GripperType,
+    ObsKey,
+    ProprioceptiveType,
+    SampleKey,
 )
 from versatil.metrics import (
     ActionReconstructionLoss,
@@ -30,7 +28,7 @@ from versatil.models.policy import Policy
 from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
 from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
 from versatil.models.decoding.latent import VAETransformerEncoder, DiffusionPrior
-from versatil.models.decoding.constants import LATENT_KEY
+from versatil.models.decoding.constants import LatentKey
 from versatil.metrics.components import PriorDenoisingLoss
 from tests.conftest import DummyNormalizer
 
@@ -59,7 +57,7 @@ class TestPolicyLossValidation:
         )
 
         loss = ActionReconstructionLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             gripper_bce_weight=1.0,
         )
 
@@ -111,7 +109,7 @@ class TestPolicyLossValidation:
         )
 
         loss = PhaseActionLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             phase_ce_weight=1.0,
         )
 
@@ -163,7 +161,7 @@ class TestPolicyLossValidation:
         )
 
         loss = PhaseActionLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             phase_ce_weight=1.0,
         )
 
@@ -215,7 +213,7 @@ class TestPolicyLossValidation:
         )
 
         loss = PhaseActionLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             phase_ce_weight=1.0,
         )
 
@@ -266,7 +264,7 @@ class TestPolicyLossValidation:
         )
 
         loss = ActionReconstructionLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             gripper_bce_weight=1.0,
             use_vae=True,  # This will add KL divergence loss which uses mu and logvar
         )
@@ -335,7 +333,7 @@ class TestPolicyLossValidation:
         )
 
         loss = ActionReconstructionLoss(
-            action_keys=[POSITION_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value],
             gripper_bce_weight=1.0,
             use_vae=True,  # This will add KL divergence loss which uses mu and logvar
         )
@@ -568,9 +566,9 @@ class TestPolicyForwardMethod:
         output = simple_policy.forward(synthetic_training_batch)
 
         assert isinstance(output, dict)
-        assert POSITION_ACTION_KEY in output
-        assert ORIENTATION_ACTION_KEY in output
-        assert GRIPPER_ACTION_KEY in output
+        assert ProprioceptiveType.POSITION.value in output
+        assert ProprioceptiveType.ORIENTATION.value in output
+        assert ProprioceptiveType.GRIPPER.value in output
 
     def test_forward_output_shapes(self, simple_policy, synthetic_training_batch):
         """Test forward output has correct shapes."""
@@ -578,11 +576,11 @@ class TestPolicyForwardMethod:
 
         output = simple_policy.forward(synthetic_training_batch)
 
-        batch_size = synthetic_training_batch[ACTION_KEY][POSITION_ACTION_KEY].shape[0]
-        pred_horizon = synthetic_training_batch[ACTION_KEY][POSITION_ACTION_KEY].shape[1]
+        batch_size = synthetic_training_batch[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape[0]
+        pred_horizon = synthetic_training_batch[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape[1]
 
-        assert output[POSITION_ACTION_KEY].shape[0] == batch_size
-        assert output[POSITION_ACTION_KEY].shape[1] == pred_horizon
+        assert output[ProprioceptiveType.POSITION.value].shape[0] == batch_size
+        assert output[ProprioceptiveType.POSITION.value].shape[1] == pred_horizon
 
 
 @pytest.mark.unit

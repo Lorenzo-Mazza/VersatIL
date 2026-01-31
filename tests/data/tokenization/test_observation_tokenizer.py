@@ -5,12 +5,9 @@ import pytest
 import torch
 
 from versatil.data.constants import (
-    LANGUAGE_KEY,
-    PROPRIO_OBS_ROBOT_FRAME_KEY,
-    PROPRIO_OBS_CAMERA_FRAME_KEY,
-    GRIPPER_STATE_OBS_KEY,
-    TOKENIZED_OBSERVATIONS_KEY,
-    IS_PAD_OBSERVATION_KEY,
+    ObsKey,
+    ProprioKey,
+    SampleKey,
 )
 from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
 
@@ -23,12 +20,12 @@ class TestObservationTokenizerBasic:
         """Test initialization with default parameters."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             device=device,
         )
 
         assert tokenizer.tokenizer_model == simple_language_tokenizer_model
-        assert tokenizer.observation_keys == [LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY]
+        assert tokenizer.observation_keys == [ObsKey.LANGUAGE.value]
         assert tokenizer.bin_continuous_data is True
         assert tokenizer.num_bins == 256
         assert tokenizer.max_token_len == 256
@@ -40,7 +37,7 @@ class TestObservationTokenizerBasic:
         """Test initialization without binning."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=False,
             device=device,
         )
@@ -59,7 +56,7 @@ class TestObservationTokenizerFitting:
         """Test fitting with binning enabled."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=True,
             num_bins=128,
             device=device,
@@ -68,8 +65,8 @@ class TestObservationTokenizerFitting:
         tokenizer.fit(normalized_proprio_data)
 
         assert tokenizer._is_fitted is True
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY in tokenizer.binning_tokenizers
-        assert LANGUAGE_KEY not in tokenizer.binning_tokenizers  # Language not binned
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in tokenizer.binning_tokenizers
+        assert ObsKey.LANGUAGE.value not in tokenizer.binning_tokenizers  # Language not binned
 
     def test_fit_without_binning(
         self, device, simple_language_tokenizer_model, normalized_proprio_data
@@ -77,7 +74,7 @@ class TestObservationTokenizerFitting:
         """Test fitting without binning."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=False,
             device=device,
         )
@@ -93,17 +90,17 @@ class TestObservationTokenizerFitting:
         """Test fitting with missing observation keys."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY, GRIPPER_STATE_OBS_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value, ProprioKey, ProprioKey.GRIPPER_STATE.value],
             bin_continuous_data=True,
             device=device,
         )
 
-        # normalized_proprio_data doesn't have GRIPPER_STATE_OBS_KEY
+        # normalized_proprio_data doesn't have ProprioKey.GRIPPER_STATE.value
         tokenizer.fit(normalized_proprio_data)
 
         assert tokenizer._is_fitted is True
-        assert PROPRIO_OBS_ROBOT_FRAME_KEY in tokenizer.binning_tokenizers
-        assert GRIPPER_STATE_OBS_KEY not in tokenizer.binning_tokenizers
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in tokenizer.binning_tokenizers
+        assert ProprioKey.GRIPPER_STATE.value not in tokenizer.binning_tokenizers
 
 
 @pytest.mark.integration
@@ -116,21 +113,21 @@ class TestObservationTokenizerTokenization:
         """Test tokenizing language observations only."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=False,
             device=device,
         )
         tokenizer.fit({})
 
-        observations = {LANGUAGE_KEY: language_instructions}
+        observations = {ObsKey.LANGUAGE.value: language_instructions}
         result = tokenizer.tokenize(observations)
 
-        assert TOKENIZED_OBSERVATIONS_KEY in result
-        assert IS_PAD_OBSERVATION_KEY in result
-        assert result[TOKENIZED_OBSERVATIONS_KEY].device == device
-        assert result[IS_PAD_OBSERVATION_KEY].device == device
-        assert result[TOKENIZED_OBSERVATIONS_KEY].shape[0] == len(language_instructions)
-        assert result[TOKENIZED_OBSERVATIONS_KEY].shape[1] == tokenizer.max_token_len
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value in result
+        assert SampleKey.IS_PAD_OBSERVATION.value in result
+        assert result[SampleKey.TOKENIZED_OBSERVATIONS.value].device == device
+        assert result[SampleKey.IS_PAD_OBSERVATION.value].device == device
+        assert result[SampleKey.TOKENIZED_OBSERVATIONS.value].shape[0] == len(language_instructions)
+        assert result[SampleKey.TOKENIZED_OBSERVATIONS.value].shape[1] == tokenizer.max_token_len
 
     def test_tokenize_with_proprio(
         self,
@@ -142,7 +139,7 @@ class TestObservationTokenizerTokenization:
         """Test tokenizing with language and proprioceptive data."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=True,
             num_bins=128,
             device=device,
@@ -151,17 +148,17 @@ class TestObservationTokenizerTokenization:
 
         batch_size = 5
         observations = {
-            LANGUAGE_KEY: language_instructions[:batch_size],
-            PROPRIO_OBS_ROBOT_FRAME_KEY: torch.from_numpy(
-                normalized_proprio_data[PROPRIO_OBS_ROBOT_FRAME_KEY][:batch_size]
+            ObsKey.LANGUAGE.value: language_instructions[:batch_size],
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: torch.from_numpy(
+                normalized_proprio_data[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value][:batch_size]
             ),
         }
         result = tokenizer.tokenize(observations)
 
-        assert TOKENIZED_OBSERVATIONS_KEY in result
-        assert IS_PAD_OBSERVATION_KEY in result
-        assert result[TOKENIZED_OBSERVATIONS_KEY].shape == (batch_size, tokenizer.max_token_len)
-        assert result[IS_PAD_OBSERVATION_KEY].shape == (batch_size, tokenizer.max_token_len)
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value in result
+        assert SampleKey.IS_PAD_OBSERVATION.value in result
+        assert result[SampleKey.TOKENIZED_OBSERVATIONS.value].shape == (batch_size, tokenizer.max_token_len)
+        assert result[SampleKey.IS_PAD_OBSERVATION.value].shape == (batch_size, tokenizer.max_token_len)
 
     def test_tokenize_without_binning(
         self,
@@ -173,7 +170,7 @@ class TestObservationTokenizerTokenization:
         """Test tokenizing without binning (raw float values)."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=False,
             device=device,
         )
@@ -181,16 +178,16 @@ class TestObservationTokenizerTokenization:
 
         batch_size = 3
         observations = {
-            LANGUAGE_KEY: language_instructions[:batch_size],
-            PROPRIO_OBS_ROBOT_FRAME_KEY: torch.from_numpy(
-                normalized_proprio_data[PROPRIO_OBS_ROBOT_FRAME_KEY][:batch_size]
+            ObsKey.LANGUAGE.value: language_instructions[:batch_size],
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: torch.from_numpy(
+                normalized_proprio_data[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value][:batch_size]
             ),
         }
         result = tokenizer.tokenize(observations)
 
-        assert TOKENIZED_OBSERVATIONS_KEY in result
-        assert IS_PAD_OBSERVATION_KEY in result
-        assert result[TOKENIZED_OBSERVATIONS_KEY].shape == (batch_size, tokenizer.max_token_len)
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value in result
+        assert SampleKey.IS_PAD_OBSERVATION.value in result
+        assert result[SampleKey.TOKENIZED_OBSERVATIONS.value].shape == (batch_size, tokenizer.max_token_len)
 
     def test_tokenize_before_fit_raises_error(
         self, device, simple_language_tokenizer_model, language_instructions
@@ -198,11 +195,11 @@ class TestObservationTokenizerTokenization:
         """Test that tokenizing before fitting raises error."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             device=device,
         )
 
-        observations = {LANGUAGE_KEY: language_instructions}
+        observations = {ObsKey.LANGUAGE.value: language_instructions}
         with pytest.raises(RuntimeError, match="Tokenizer must be fitted"):
             tokenizer.tokenize(observations)
 
@@ -217,13 +214,13 @@ class TestObservationTokenizerPromptBuilding:
         """Test prompt building with language only."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=False,
             device=device,
         )
         tokenizer.fit({})
 
-        observations = {LANGUAGE_KEY: language_instructions[:2]}
+        observations = {ObsKey.LANGUAGE.value: language_instructions[:2]}
         prompts = tokenizer._build_prompts(observations)
 
         assert len(prompts) == 2
@@ -240,7 +237,7 @@ class TestObservationTokenizerPromptBuilding:
         """Test prompt building with language and proprio."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=True,
             num_bins=64,
             device=device,
@@ -249,9 +246,9 @@ class TestObservationTokenizerPromptBuilding:
 
         batch_size = 2
         observations = {
-            LANGUAGE_KEY: language_instructions[:batch_size],
-            PROPRIO_OBS_ROBOT_FRAME_KEY: normalized_proprio_data[
-                PROPRIO_OBS_ROBOT_FRAME_KEY
+            ObsKey.LANGUAGE.value: language_instructions[:batch_size],
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: normalized_proprio_data[
+                ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
             ][:batch_size],
         }
         prompts = tokenizer._build_prompts(observations)
@@ -272,9 +269,9 @@ class TestObservationTokenizerPromptBuilding:
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
             observation_keys=[
-                LANGUAGE_KEY,
-                PROPRIO_OBS_ROBOT_FRAME_KEY,
-                PROPRIO_OBS_CAMERA_FRAME_KEY,
+                ObsKey.LANGUAGE.value,
+                ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
+                ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value,
             ],
             bin_continuous_data=True,
             device=device,
@@ -282,12 +279,12 @@ class TestObservationTokenizerPromptBuilding:
         tokenizer.fit(normalized_proprio_data)
 
         observations = {
-            LANGUAGE_KEY: [language_instructions[0]],
-            PROPRIO_OBS_ROBOT_FRAME_KEY: normalized_proprio_data[
-                PROPRIO_OBS_ROBOT_FRAME_KEY
+            ObsKey.LANGUAGE.value: [language_instructions[0]],
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: normalized_proprio_data[
+                ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
             ][:1],
-            PROPRIO_OBS_CAMERA_FRAME_KEY: normalized_proprio_data[
-                PROPRIO_OBS_CAMERA_FRAME_KEY
+            ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: normalized_proprio_data[
+                ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value
             ][:1],
         }
         prompts = tokenizer._build_prompts(observations)
@@ -313,7 +310,7 @@ class TestObservationTokenizerSerialization:
         """Test saving and loading tokenizer."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=True,
             num_bins=128,
             max_token_len=512,
@@ -346,7 +343,7 @@ class TestObservationTokenizerSerialization:
         """Test state_dict returns expected keys."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=True,
             device=device,
         )
@@ -373,7 +370,7 @@ class TestObservationTokenizerDeviceHandling:
         """Test moving tokenizer to device."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             device=torch.device("cpu"),
         )
 
@@ -393,22 +390,22 @@ class TestObservationTokenizerDeviceHandling:
         """Test that tokenized outputs are on correct device."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=True,
             device=device,
         )
         tokenizer.fit(normalized_proprio_data)
 
         observations = {
-            LANGUAGE_KEY: [language_instructions[0]],
-            PROPRIO_OBS_ROBOT_FRAME_KEY: normalized_proprio_data[
-                PROPRIO_OBS_ROBOT_FRAME_KEY
+            ObsKey.LANGUAGE.value: [language_instructions[0]],
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: normalized_proprio_data[
+                ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
             ][:1],
         }
         result = tokenizer.tokenize(observations)
 
-        assert result[TOKENIZED_OBSERVATIONS_KEY].device == device
-        assert result[IS_PAD_OBSERVATION_KEY].device == device
+        assert result[SampleKey.TOKENIZED_OBSERVATIONS.value].device == device
+        assert result[SampleKey.IS_PAD_OBSERVATION.value].device == device
 
 
 @pytest.mark.integration
@@ -425,22 +422,22 @@ class TestObservationTokenizerEdgeCases:
         """Test tokenizing a single sample (not batched)."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=True,
             device=device,
         )
         tokenizer.fit(normalized_proprio_data)
 
         observations = {
-            LANGUAGE_KEY: [language_instructions[0]],
-            PROPRIO_OBS_ROBOT_FRAME_KEY: normalized_proprio_data[
-                PROPRIO_OBS_ROBOT_FRAME_KEY
+            ObsKey.LANGUAGE.value: [language_instructions[0]],
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: normalized_proprio_data[
+                ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
             ][0:1],
         }
         result = tokenizer.tokenize(observations)
 
-        assert result[TOKENIZED_OBSERVATIONS_KEY].shape[0] == 1
-        assert result[TOKENIZED_OBSERVATIONS_KEY].shape[1] == tokenizer.max_token_len
+        assert result[SampleKey.TOKENIZED_OBSERVATIONS.value].shape[0] == 1
+        assert result[SampleKey.TOKENIZED_OBSERVATIONS.value].shape[1] == tokenizer.max_token_len
 
     def test_tokenize_missing_observation_key(
         self, device, simple_language_tokenizer_model, language_instructions
@@ -448,18 +445,18 @@ class TestObservationTokenizerEdgeCases:
         """Test tokenizing when some observation keys are missing."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=False,
             device=device,
         )
         tokenizer.fit({})
 
         # Only provide language, not proprio
-        observations = {LANGUAGE_KEY: language_instructions[:2]}
+        observations = {ObsKey.LANGUAGE.value: language_instructions[:2]}
         result = tokenizer.tokenize(observations)
 
-        assert TOKENIZED_OBSERVATIONS_KEY in result
-        assert result[TOKENIZED_OBSERVATIONS_KEY].shape[0] == 2
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value in result
+        assert result[SampleKey.TOKENIZED_OBSERVATIONS.value].shape[0] == 2
 
     def test_tokenize_numpy_input(
         self,
@@ -471,22 +468,22 @@ class TestObservationTokenizerEdgeCases:
         """Test tokenizing with numpy array input."""
         tokenizer = ObservationTokenizer(
             tokenizer_model=simple_language_tokenizer_model,
-            observation_keys=[LANGUAGE_KEY, PROPRIO_OBS_ROBOT_FRAME_KEY],
+            observation_keys=[ObsKey.LANGUAGE.value],
             bin_continuous_data=True,
             device=device,
         )
         tokenizer.fit(normalized_proprio_data)
 
         observations = {
-            LANGUAGE_KEY: [language_instructions[0]],
-            PROPRIO_OBS_ROBOT_FRAME_KEY: normalized_proprio_data[
-                PROPRIO_OBS_ROBOT_FRAME_KEY
+            ObsKey.LANGUAGE.value: [language_instructions[0]],
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: normalized_proprio_data[
+                ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
             ][:1],  # NumPy array
         }
         result = tokenizer.tokenize(observations)
 
-        assert TOKENIZED_OBSERVATIONS_KEY in result
-        assert result[TOKENIZED_OBSERVATIONS_KEY].device == device
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value in result
+        assert result[SampleKey.TOKENIZED_OBSERVATIONS.value].device == device
 
     def test_load_nonexistent_path_raises_error(self, device):
         """Test loading from nonexistent path raises error."""

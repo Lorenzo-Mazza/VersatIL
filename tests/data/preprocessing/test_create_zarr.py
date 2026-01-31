@@ -8,7 +8,7 @@ import albumentations as A
 from versatil.data.raw.schemas.base import DatasetSchema
 from versatil.data.constants import (
     Cameras,
-    PROPRIO_OBS_ROBOT_FRAME_KEY,
+    ProprioKey,
 )
 from versatil.data.preprocessing.create_zarr_from_csv import create_replay_buffer, _create_zarr_arrays, _append_observations, _append_images
 
@@ -206,7 +206,7 @@ class TestAppendObservations:
         data_group = MagicMock()
         _append_observations(episode=sample_episode_df, data_group=data_group, schema=mock_schema)
 
-        calls = data_group[PROPRIO_OBS_ROBOT_FRAME_KEY].append.call_args_list
+        calls = data_group[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value].append.call_args_list
         assert len(calls) == 1
         appended = calls[0][0][0]
         expected = sample_episode_df[
@@ -224,7 +224,7 @@ class TestAppendObservations:
         )
 
         # Check robot frame observations
-        calls = mocked_data_group[PROPRIO_OBS_ROBOT_FRAME_KEY].append.call_args_list
+        calls = mocked_data_group[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value].append.call_args_list
         assert len(calls) == 1
 
         # Check language instructions

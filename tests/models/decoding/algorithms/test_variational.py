@@ -3,13 +3,13 @@
 import pytest
 import torch
 
-from versatil.data.constants import POSITION_ACTION_KEY, GRIPPER_ACTION_KEY
+from versatil.data.constants import ProprioceptiveType
 from versatil.models.decoding.algorithm import (
     VariationalAlgorithm,
     BehavioralCloning,
     FlowMatching,
 )
-from versatil.models.decoding.constants import LATENT_KEY, MU_KEY, LOGVAR_KEY
+from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.latent import (
     VAETransformerEncoder,
     GaussianPrior,
@@ -105,8 +105,8 @@ def sample_features(batch_size, device):
 def sample_actions(batch_size, prediction_horizon, device):
     """Create sample actions."""
     return {
-        POSITION_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 3, device=device),
-        GRIPPER_ACTION_KEY: torch.randn(batch_size, prediction_horizon, 1, device=device),
+        ProprioceptiveType.POSITION.value: torch.randn(batch_size, prediction_horizon, 3, device=device),
+        ProprioceptiveType.GRIPPER.value: torch.randn(batch_size, prediction_horizon, 1, device=device),
     }
 
 
@@ -157,21 +157,21 @@ class TestVariationalAlgorithmWithGaussianPrior:
 
             def __call__(self, features, actions=None):
                 # Check that latent was added to features
-                assert LATENT_KEY in features
-                assert features[LATENT_KEY].ndim == 2  # (B, embedding_dim)
+                assert LatentKey.POSTERIOR_LATENT.value in features
+                assert features[LatentKey.POSTERIOR_LATENT.value].ndim == 2  # (B, embedding_dim)
                 return {
-                    POSITION_ACTION_KEY: actions[POSITION_ACTION_KEY],
-                    GRIPPER_ACTION_KEY: actions[GRIPPER_ACTION_KEY],
+                    ProprioceptiveType.POSITION.value: actions[ProprioceptiveType.POSITION.value],
+                    ProprioceptiveType.GRIPPER.value: actions[ProprioceptiveType.GRIPPER.value],
                 }
 
         mock_network = MockNetwork()
         output = algorithm.forward(mock_network, sample_features, sample_actions)
 
         # Check outputs
-        assert POSITION_ACTION_KEY in output
-        assert GRIPPER_ACTION_KEY in output
-        assert MU_KEY in output  # VAE outputs
-        assert LOGVAR_KEY in output
+        assert ProprioceptiveType.POSITION.value in output
+        assert ProprioceptiveType.GRIPPER.value in output
+        assert LatentKey.POSTERIOR_MU.value in output  # VAE outputs
+        assert LatentKey.POSTERIOR_LOGVAR.value in output
 
     def test_predict_samples_from_prior(
         self,
@@ -185,19 +185,19 @@ class TestVariationalAlgorithmWithGaussianPrior:
                 self.prediction_horizon = 10
 
             def __call__(self, features, actions=None):
-                assert LATENT_KEY in features
+                assert LatentKey.POSTERIOR_LATENT.value in features
                 assert actions is None  # Inference mode
                 return {
-                    POSITION_ACTION_KEY: torch.randn(batch_size, 10, 3),
+                    ProprioceptiveType.POSITION.value: torch.randn(batch_size, 10, 3),
                 }
 
         mock_network = MockNetwork()
         output = algorithm.predict(mock_network, sample_features)
 
-        assert POSITION_ACTION_KEY in output
+        assert ProprioceptiveType.POSITION.value in output
         # Should not have VAE outputs during inference
-        assert MU_KEY not in output
-        assert LOGVAR_KEY not in output
+        assert LatentKey.POSTERIOR_MU.value not in output
+        assert LatentKey.POSTERIOR_LOGVAR.value not in output
 
 
 class TestVariationalAlgorithmWithDiffusionPrior:
@@ -219,10 +219,6 @@ class TestVariationalAlgorithmWithDiffusionPrior:
         sample_actions,
     ):
         """Test that forward pass includes prior predictions/targets during training."""
-        from versatil.models.decoding.constants import (
-            PRIOR_PREDICTION_KEY,
-            PRIOR_TARGET_KEY,
-        )
 
         class MockNetwork:
             def __init__(self):
@@ -236,15 +232,15 @@ class TestVariationalAlgorithmWithDiffusionPrior:
             def __call__(self, features, actions=None):
                 # Return dummy predictions
                 return {
-                    POSITION_ACTION_KEY: torch.randn(4, 10, 3),
-                    GRIPPER_ACTION_KEY: torch.randn(4, 10, 1),
+                    ProprioceptiveType.POSITION.value: torch.randn(4, 10, 3),
+                    ProprioceptiveType.GRIPPER.value: torch.randn(4, 10, 1),
                 }
 
         mock_network = MockNetwork()
         output = algorithm.forward(mock_network, sample_features, sample_actions)
 
         # Check that prior outputs are included
-        assert PRIOR_PREDICTION_KEY in output
-        assert PRIOR_TARGET_KEY in output
+        assert LatentKey.PRIOR_PREDICTION.value in output
+        assert LatentKey.PRIOR_TARGET.value in output
 
 

@@ -8,7 +8,11 @@ from versatil.configs.decoding.action_head import MixtureOfExpertsHeadConfig
 from versatil.configs.data.task import ActionSpaceConfig, ObservationSpaceConfig
 from versatil.models.decoding.constants import MoERoutingType, DiTType
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.constants import AttentionType, ConditioningType, PositionalEncodingType
+from versatil.models.layers.constants import (
+    AttentionType,
+    ConditioningType,
+    PositionalEncodingType,
+)
 from versatil.models.layers.normalization.constants import NormalizationType
 
 
@@ -140,7 +144,9 @@ class FASTGPTDecoderConfig(DecodingNetworkConfig):
 class ActionTransformerConfig(DecodingNetworkConfig):
     """Action Transformer architecture configuration."""
 
-    _target_: str = "versatil.models.decoding.decoders.factory.action_transformer.ActionTransformer"
+    _target_: str = (
+        "versatil.models.decoding.decoders.factory.action_transformer.ActionTransformer"
+    )
     embedding_dimension: int = 256
     number_of_heads: int = 8  # Number of query attention heads
     number_of_key_value_heads: int | None = (
@@ -170,7 +176,7 @@ class LACTConfig(DecodingNetworkConfig):
     transformer decoder layers.
 
     Must be used with a variational algorithm (e.g., VariationalAlgorithm)
-    that provides the LATENT_KEY in the features dictionary.
+    that provides the LatentKey.POSTERIOR_LATENT in the features dictionary.
     """
 
     _target_: str = "versatil.models.decoding.decoders.factory.lact.LACT"

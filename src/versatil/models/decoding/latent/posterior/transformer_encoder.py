@@ -8,13 +8,8 @@ import logging
 import torch
 from torch import nn
 
-from versatil.data.constants import IS_PAD_ACTION_KEY
-from versatil.models.decoding.constants import (
-    LOGVAR_KEY,
-    MU_KEY,
-    LATENT_KEY,
-    CLASS_TOKEN_KEY,
-)
+from versatil.data.constants import SampleKey
+from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 from versatil.models.decoding.latent.posterior.base_posterior import (
     PosteriorLatentEncoder,
 )
@@ -166,9 +161,9 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
 
         Returns:
             Dictionary containing:
-                - LATENT_KEY: Latent embedding z (B, vae_latent_dimension)
-                - MU_KEY: Latent distribution mean (B, vae_latent_dimension)
-                - LOGVAR_KEY: Latent distribution log variance (B, vae_latent_dimension)
+                - LatentKey.POSTERIOR_LATENT: Latent embedding z (B, vae_latent_dimension)
+                - LatentKey.POSTERIOR_MU: Latent distribution mean (B, vae_latent_dimension)
+                - LatentKey.POSTERIOR_LOGVAR: Latent distribution log variance (B, vae_latent_dimension)
                 - STATE_FEATURE_KEYS: Input observations used for encoding (dict or None)
         """
         if observations is not None:
@@ -184,7 +179,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             )
 
         batch_size = list(input_observations.values())[0].size(0)
-        is_pad = input_observations.get(IS_PAD_ACTION_KEY)
+        is_pad = input_observations.get(SampleKey.IS_PAD_ACTION.value)
         if is_pad is None:
             logging.warning("No padding key found in actions; assuming no padding.")
             is_pad = torch.zeros(
@@ -193,11 +188,11 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
                 dtype=torch.bool,
                 device=self.cls_token.weight.device,
             )
-            input_observations[IS_PAD_ACTION_KEY] = is_pad
+            input_observations[SampleKey.IS_PAD_ACTION.value] = is_pad
         cls_embedding = self.cls_token.weight.unsqueeze(0).repeat(
             batch_size, 1, 1
         )  # (B, 1, emb_dim)
-        input_observations[CLASS_TOKEN_KEY] = cls_embedding
+        input_observations[DecoderOutputKey.CLASS_TOKEN.value] = cls_embedding
         input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(
             input_observations
         )  # (B, seq_len, embedding_dimension), CLS token at the end
@@ -218,7 +213,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             mu, logvar
         )  # Sample using reparametrization trick (B, latent_dim)
         return {
-            LATENT_KEY: z,
-            MU_KEY: mu,
-            LOGVAR_KEY: logvar,
+            LatentKey.POSTERIOR_LATENT.value: z,
+            LatentKey.POSTERIOR_MU.value: mu,
+            LatentKey.POSTERIOR_LOGVAR.value: logvar,
         }

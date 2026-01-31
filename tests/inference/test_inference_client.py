@@ -7,9 +7,8 @@ from imitation_learning_toolkit.sockets.model_client import Action
 
 from versatil.data.constants import (
     Cameras,
-    POSITION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
     GripperType,
+    ProprioceptiveType,
 )
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.data.task import TaskSpaceConfig
@@ -173,8 +172,8 @@ def test_policy(test_config, device):
     ).to(device)
 
     action_heads = {
-        POSITION_ACTION_KEY: position_head,
-        GRIPPER_ACTION_KEY: gripper_head,
+        ProprioceptiveType.POSITION.value: position_head,
+        ProprioceptiveType.GRIPPER.value: gripper_head,
     }
 
 
@@ -194,11 +193,11 @@ def test_policy(test_config, device):
             hidden = self.fc(feat_flat)
 
             outputs = {}
-            outputs[POSITION_ACTION_KEY] = self.action_heads[POSITION_ACTION_KEY](
+            outputs[ProprioceptiveType.POSITION.value] = self.action_heads[ProprioceptiveType.POSITION.value](
                 hidden
             ).unsqueeze(1).expand(-1, self.prediction_horizon, -1)
-            outputs[GRIPPER_ACTION_KEY] = torch.sigmoid(
-                self.action_heads[GRIPPER_ACTION_KEY](hidden)
+            outputs[ProprioceptiveType.GRIPPER.value] = torch.sigmoid(
+                self.action_heads[ProprioceptiveType.GRIPPER.value](hidden)
             ).unsqueeze(1).expand(-1, self.prediction_horizon, -1)
 
             return outputs
@@ -222,7 +221,7 @@ def test_policy(test_config, device):
     algorithm = BehavioralCloning()
 
     loss_module = ActionReconstructionLoss(
-        action_keys=[POSITION_ACTION_KEY, GRIPPER_ACTION_KEY],
+        action_keys=[ProprioceptiveType.POSITION.value],
         mse_weight=1.0,
         l1_weight=0.0,
         gripper_bce_weight=1.0,

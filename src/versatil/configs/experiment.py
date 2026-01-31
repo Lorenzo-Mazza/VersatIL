@@ -20,7 +20,9 @@ class ExperimentConfig:
     device: str = "cuda"
     distributed: bool = False
     precision: str = PrecisionType.FP16_MIXED.value
-    float32_matmul_precision: str | None = Float32MatmulPrecision.MEDIUM.value  #: Float32 matmul precision for Tensor Cores (None to disable)
+    float32_matmul_precision: str | None = (
+        Float32MatmulPrecision.MEDIUM.value
+    )  #: Float32 matmul precision for Tensor Cores (None to disable)
     checkpoint_every: int = 100
     val_every: int = 1
     plot_every: int = 200

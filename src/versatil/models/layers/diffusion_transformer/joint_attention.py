@@ -58,20 +58,40 @@ class JointAttention(nn.Module):
         self.head_dimension = embedding_dimension // number_of_heads
         self.dropout = dropout
         self.use_query_key_norm = use_query_key_norm
-        self.query_projection_observation = nn.Linear(embedding_dimension, embedding_dimension, bias=bias)
-        self.key_projection_observation = nn.Linear(embedding_dimension, embedding_dimension, bias=bias)
-        self.value_projection_observation = nn.Linear(embedding_dimension, embedding_dimension, bias=bias)
-        self.output_projection_observation = nn.Linear(embedding_dimension, embedding_dimension, bias=bias)
-        self.query_projection_action = nn.Linear(embedding_dimension, embedding_dimension, bias=bias)
-        self.key_projection_action = nn.Linear(embedding_dimension, embedding_dimension, bias=bias)
-        self.value_projection_action = nn.Linear(embedding_dimension, embedding_dimension, bias=bias)
-        self.output_projection_action = nn.Linear(embedding_dimension, embedding_dimension, bias=bias)
+        self.query_projection_observation = nn.Linear(
+            embedding_dimension, embedding_dimension, bias=bias
+        )
+        self.key_projection_observation = nn.Linear(
+            embedding_dimension, embedding_dimension, bias=bias
+        )
+        self.value_projection_observation = nn.Linear(
+            embedding_dimension, embedding_dimension, bias=bias
+        )
+        self.output_projection_observation = nn.Linear(
+            embedding_dimension, embedding_dimension, bias=bias
+        )
+        self.query_projection_action = nn.Linear(
+            embedding_dimension, embedding_dimension, bias=bias
+        )
+        self.key_projection_action = nn.Linear(
+            embedding_dimension, embedding_dimension, bias=bias
+        )
+        self.value_projection_action = nn.Linear(
+            embedding_dimension, embedding_dimension, bias=bias
+        )
+        self.output_projection_action = nn.Linear(
+            embedding_dimension, embedding_dimension, bias=bias
+        )
         self.output_projection_observation.SQUARE_ROOT_WEIGHT = True
         self.output_projection_action.SQUARE_ROOT_WEIGHT = True
 
         if use_query_key_norm:
-            self.query_key_norm_observation = QueryKeyNorm(self.head_dimension, epsilon=normalization_epsilon)
-            self.query_key_norm_action = QueryKeyNorm(self.head_dimension, epsilon=normalization_epsilon)
+            self.query_key_norm_observation = QueryKeyNorm(
+                self.head_dimension, epsilon=normalization_epsilon
+            )
+            self.query_key_norm_action = QueryKeyNorm(
+                self.head_dimension, epsilon=normalization_epsilon
+            )
 
     def _reshape_for_attention(self, tensor: torch.Tensor) -> torch.Tensor:
         """Reshape tensor for multi-head attention.
@@ -83,7 +103,9 @@ class JointAttention(nn.Module):
             Reshaped tensor (B, num_heads, S, head_dimension).
         """
         batch_size, sequence_length, _ = tensor.shape
-        tensor = tensor.view(batch_size, sequence_length, self.number_of_heads, self.head_dimension)
+        tensor = tensor.view(
+            batch_size, sequence_length, self.number_of_heads, self.head_dimension
+        )
         return tensor.transpose(1, 2)
 
     def _reshape_from_attention(self, tensor: torch.Tensor) -> torch.Tensor:
@@ -121,12 +143,24 @@ class JointAttention(nn.Module):
         Returns:
             Tuple of (observation_output, action_output) with same shapes as inputs.
         """
-        query_observation = self._reshape_for_attention(self.query_projection_observation(hidden_states_observation)) # (B, num_heads, S, head_dimension)
-        key_observation = self._reshape_for_attention(self.key_projection_observation(hidden_states_observation)) # (B, num_heads, S, head_dimension)
-        value_observation = self._reshape_for_attention(self.value_projection_observation(hidden_states_observation)) # (B, num_heads, S, head_dimension)
-        query_action = self._reshape_for_attention(self.query_projection_action(hidden_states_action)) # (B, num_heads, T, head_dimension)
-        key_action = self._reshape_for_attention(self.key_projection_action(hidden_states_action)) # (B, num_heads, T, head_dimension)
-        value_action = self._reshape_for_attention(self.value_projection_action(hidden_states_action)) # (B, num_heads, T, head_dimension)
+        query_observation = self._reshape_for_attention(
+            self.query_projection_observation(hidden_states_observation)
+        )  # (B, num_heads, S, head_dimension)
+        key_observation = self._reshape_for_attention(
+            self.key_projection_observation(hidden_states_observation)
+        )  # (B, num_heads, S, head_dimension)
+        value_observation = self._reshape_for_attention(
+            self.value_projection_observation(hidden_states_observation)
+        )  # (B, num_heads, S, head_dimension)
+        query_action = self._reshape_for_attention(
+            self.query_projection_action(hidden_states_action)
+        )  # (B, num_heads, T, head_dimension)
+        key_action = self._reshape_for_attention(
+            self.key_projection_action(hidden_states_action)
+        )  # (B, num_heads, T, head_dimension)
+        value_action = self._reshape_for_attention(
+            self.value_projection_action(hidden_states_action)
+        )  # (B, num_heads, T, head_dimension)
 
         if positional_encoding_observation is not None:
             query_observation, key_observation = apply_rope_positional_encoding(
@@ -145,11 +179,19 @@ class JointAttention(nn.Module):
             )
 
         if self.use_query_key_norm:
-            query_observation, key_observation = self.query_key_norm_observation(query_observation, key_observation)
-            query_action, key_action = self.query_key_norm_action(query_action, key_action)
+            query_observation, key_observation = self.query_key_norm_observation(
+                query_observation, key_observation
+            )
+            query_action, key_action = self.query_key_norm_action(
+                query_action, key_action
+            )
 
-        key_joint = torch.cat([key_observation, key_action], dim=2)  # (B, num_heads, S+T, head_dimension)
-        value_joint = torch.cat([value_observation, value_action], dim=2)  # (B, num_heads, S+T, head_dimension)
+        key_joint = torch.cat(
+            [key_observation, key_action], dim=2
+        )  # (B, num_heads, S+T, head_dimension)
+        value_joint = torch.cat(
+            [value_observation, value_action], dim=2
+        )  # (B, num_heads, S+T, head_dimension)
         sequence_length_observation = hidden_states_observation.shape[1]
         sequence_length_action = hidden_states_action.shape[1]
         joint_attention_mask = self._build_joint_attention_mask(
@@ -163,19 +205,29 @@ class JointAttention(nn.Module):
             query=query_observation,
             key=key_joint,
             value=value_joint,
-            attn_mask=~joint_attention_mask if joint_attention_mask is not None else None,
+            attn_mask=~joint_attention_mask
+            if joint_attention_mask is not None
+            else None,
             dropout_p=self.dropout if self.training else 0.0,
-        ) # (B, num_heads, S, head_dimension)
+        )  # (B, num_heads, S, head_dimension)
         attention_output_action = F.scaled_dot_product_attention(
             query=query_action,
             key=key_joint,
             value=value_joint,
-            attn_mask=~joint_attention_mask if joint_attention_mask is not None else None,
+            attn_mask=~joint_attention_mask
+            if joint_attention_mask is not None
+            else None,
             dropout_p=self.dropout if self.training else 0.0,
-        ) # (B, num_heads, T, head_dimension)
-        attention_output_observation = self._reshape_from_attention(attention_output_observation) # (B, S, D)
-        attention_output_action = self._reshape_from_attention(attention_output_action) # (B, T, D)
-        output_observation = self.output_projection_observation(attention_output_observation)
+        )  # (B, num_heads, T, head_dimension)
+        attention_output_observation = self._reshape_from_attention(
+            attention_output_observation
+        )  # (B, S, D)
+        attention_output_action = self._reshape_from_attention(
+            attention_output_action
+        )  # (B, T, D)
+        output_observation = self.output_projection_observation(
+            attention_output_observation
+        )
         output_action = self.output_projection_action(attention_output_action)
         return output_observation, output_action
 
@@ -201,10 +253,18 @@ class JointAttention(nn.Module):
         """
         if mask_observation is None and mask_action is None:
             return None
-        batch_size = mask_observation.shape[0] if mask_observation is not None else mask_action.shape[0]
+        batch_size = (
+            mask_observation.shape[0]
+            if mask_observation is not None
+            else mask_action.shape[0]
+        )
         if mask_observation is None:
-            mask_observation = torch.zeros(batch_size, sequence_length_observation, dtype=torch.bool, device=device)
+            mask_observation = torch.zeros(
+                batch_size, sequence_length_observation, dtype=torch.bool, device=device
+            )
         if mask_action is None:
-            mask_action = torch.zeros(batch_size, sequence_length_action, dtype=torch.bool, device=device)
-        joint_mask = torch.cat([mask_observation, mask_action], dim=1) # (B, S+T)
-        return joint_mask.unsqueeze(1).unsqueeze(2) # (B, 1, 1, S+T)
+            mask_action = torch.zeros(
+                batch_size, sequence_length_action, dtype=torch.bool, device=device
+            )
+        joint_mask = torch.cat([mask_observation, mask_action], dim=1)  # (B, S+T)
+        return joint_mask.unsqueeze(1).unsqueeze(2)  # (B, 1, 1, S+T)

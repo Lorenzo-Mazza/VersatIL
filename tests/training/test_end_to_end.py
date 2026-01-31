@@ -10,15 +10,12 @@ from pytorch_lightning.callbacks import ModelCheckpoint, StochasticWeightAveragi
 from versatil.workspace import Workspace
 from versatil.training.callbacks import EMACallback, ConfusionMatrixCallback
 from versatil.data.constants import (
-    OBSERVATION_KEY,
-    ACTION_KEY,
-    POSITION_ACTION_KEY,
-    ORIENTATION_ACTION_KEY,
-    GRIPPER_ACTION_KEY,
-    PHASE_LABEL_KEY,
-    OrientationRepresentation,
-    GripperType,
     Cameras,
+    GripperType,
+    ObsKey,
+    OrientationRepresentation,
+    ProprioceptiveType,
+    SampleKey,
 )
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
@@ -32,7 +29,7 @@ from versatil.models.decoding.decoders.factory.phase_act import PhaseACT
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_heads.moe import MoEHead
 from versatil.models.decoding.latent.posterior.transformer_encoder import VAETransformerEncoder
-from versatil.models.decoding.constants import MU_KEY, LOGVAR_KEY
+from versatil.models.decoding.constants import LatentKey
 from versatil.metrics.composite import ActionReconstructionLoss, PhaseActionLoss
 from tests.conftest import DummyNormalizer
 
@@ -431,13 +428,13 @@ class TestACTPolicyEndToEnd:
         batch_size = 2
         prediction_horizon = 10
         actions = {
-            POSITION_ACTION_KEY: torch.randn(
+            ProprioceptiveType.POSITION.value: torch.randn(
                 batch_size, prediction_horizon, act_action_space.position_dim, device=device
             ),
-            ORIENTATION_ACTION_KEY: torch.randn(
+            ProprioceptiveType.ORIENTATION.value: torch.randn(
                 batch_size, prediction_horizon, act_action_space.orientation_dim, device=device
             ),
-            GRIPPER_ACTION_KEY: torch.randint(
+            ProprioceptiveType.GRIPPER.value: torch.randint(
                 0, 2, (batch_size, prediction_horizon, 1), device=device
             ).float(),
         }
@@ -458,19 +455,19 @@ class TestACTPolicyEndToEnd:
 
         action_heads = {}
         if act_action_space.has_position:
-            action_heads[POSITION_ACTION_KEY] = ActionHead(
+            action_heads[ProprioceptiveType.POSITION.value] = ActionHead(
                 input_dim=embedding_dim,
                 output_dim=act_action_space.position_dim,
                 blocks=[],
             ).to(device)
         if act_action_space.has_orientation:
-            action_heads[ORIENTATION_ACTION_KEY] = ActionHead(
+            action_heads[ProprioceptiveType.ORIENTATION.value] = ActionHead(
                 input_dim=embedding_dim,
                 output_dim=act_action_space.orientation_dim,
                 blocks=[],
             ).to(device)
         if act_action_space.has_gripper:
-            action_heads[GRIPPER_ACTION_KEY] = ActionHead(
+            action_heads[ProprioceptiveType.GRIPPER.value] = ActionHead(
                 input_dim=embedding_dim,
                 output_dim=act_action_space.gripper_dim,
                 blocks=[],
@@ -492,7 +489,7 @@ class TestACTPolicyEndToEnd:
         ).to(device)
 
         loss = ActionReconstructionLoss(
-            action_keys=[POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY, GRIPPER_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value, ProprioceptiveType.ORIENTATION.value],
             mse_weight=1.0,
             gripper_bce_weight=1.0,
             use_vae=False,
@@ -521,8 +518,8 @@ class TestACTPolicyEndToEnd:
     def act_training_batch(self, mock_observations_act, mock_actions_act):
         """Complete training batch for ACT."""
         return {
-            OBSERVATION_KEY: mock_observations_act,
-            ACTION_KEY: mock_actions_act,
+            SampleKey.OBSERVATION.value: mock_observations_act,
+            SampleKey.ACTION.value: mock_actions_act,
         }
 
     def test_act_policy_forward_pass(self, act_policy, act_training_batch, device):
@@ -531,13 +528,13 @@ class TestACTPolicyEndToEnd:
 
         output = act_policy.forward(act_training_batch)
 
-        assert POSITION_ACTION_KEY in output
-        assert ORIENTATION_ACTION_KEY in output
-        assert GRIPPER_ACTION_KEY in output
+        assert ProprioceptiveType.POSITION.value in output
+        assert ProprioceptiveType.ORIENTATION.value in output
+        assert ProprioceptiveType.GRIPPER.value in output
 
-        assert output[POSITION_ACTION_KEY].device.type == device.type
-        assert output[ORIENTATION_ACTION_KEY].device.type == device.type
-        assert output[GRIPPER_ACTION_KEY].device.type == device.type
+        assert output[ProprioceptiveType.POSITION.value].device.type == device.type
+        assert output[ProprioceptiveType.ORIENTATION.value].device.type == device.type
+        assert output[ProprioceptiveType.GRIPPER.value].device.type == device.type
 
     def test_act_policy_loss_computation(self, act_policy, act_training_batch):
         """Test ACT policy loss computation."""
@@ -569,11 +566,11 @@ class TestACTPolicyEndToEnd:
             actions = act_policy.predict_action(mock_observations_act)
 
         assert isinstance(actions, dict)
-        assert POSITION_ACTION_KEY in actions
-        assert ORIENTATION_ACTION_KEY in actions
-        assert GRIPPER_ACTION_KEY in actions
+        assert ProprioceptiveType.POSITION.value in actions
+        assert ProprioceptiveType.ORIENTATION.value in actions
+        assert ProprioceptiveType.GRIPPER.value in actions
 
-        assert actions[POSITION_ACTION_KEY].device.type == device.type
+        assert actions[ProprioceptiveType.POSITION.value].device.type == device.type
 
     def test_act_policy_device_consistency(self, act_policy, device):
         """Test all policy components are on correct device."""
@@ -592,12 +589,12 @@ class TestACTPolicyEndToEnd:
 
         output = act_policy.forward(act_training_batch)
 
-        batch_size = act_training_batch[ACTION_KEY][POSITION_ACTION_KEY].shape[0]
-        pred_horizon = act_training_batch[ACTION_KEY][POSITION_ACTION_KEY].shape[1]
+        batch_size = act_training_batch[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape[0]
+        pred_horizon = act_training_batch[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape[1]
 
-        assert output[POSITION_ACTION_KEY].shape == (batch_size, pred_horizon, 3)
-        assert output[ORIENTATION_ACTION_KEY].shape == (batch_size, pred_horizon, 4)
-        assert output[GRIPPER_ACTION_KEY].shape == (batch_size, pred_horizon, 1)
+        assert output[ProprioceptiveType.POSITION.value].shape == (batch_size, pred_horizon, 3)
+        assert output[ProprioceptiveType.ORIENTATION.value].shape == (batch_size, pred_horizon, 4)
+        assert output[ProprioceptiveType.GRIPPER.value].shape == (batch_size, pred_horizon, 1)
 
 
 
@@ -694,16 +691,16 @@ class TestPhaseACTEndToEnd:
         batch_size = 2
         prediction_horizon = 10
         actions = {
-            POSITION_ACTION_KEY: torch.randn(
+            ProprioceptiveType.POSITION.value: torch.randn(
                 batch_size, prediction_horizon, phase_act_action_space.position_dim, device=device
             ),
-            ORIENTATION_ACTION_KEY: torch.randn(
+            ProprioceptiveType.ORIENTATION.value: torch.randn(
                 batch_size, prediction_horizon, phase_act_action_space.orientation_dim, device=device
             ),
-            GRIPPER_ACTION_KEY: torch.randint(
+            ProprioceptiveType.GRIPPER.value: torch.randint(
                 0, 2, (batch_size, prediction_horizon, 1), device=device
             ).float(),
-            PHASE_LABEL_KEY: torch.randint(
+            ObsKey.PHASE_LABEL.value: torch.randint(
                 0, phase_act_action_space.number_of_phases,
                 (batch_size, prediction_horizon, 1),
                 device=device,
@@ -727,13 +724,13 @@ class TestPhaseACTEndToEnd:
 
         action_heads = {}
 
-        action_heads[PHASE_LABEL_KEY] = ActionHead(
+        action_heads[ObsKey.PHASE_LABEL.value] = ActionHead(
             input_dim=embedding_dim,
             output_dim=phase_act_action_space.number_of_phases,
             blocks=[],
         ).to(device)
 
-        action_heads[POSITION_ACTION_KEY] = MoEHead(
+        action_heads[ProprioceptiveType.POSITION.value] = MoEHead(
             base_expert_config={
                 "_target_": "versatil.models.decoding.action_heads.head.ActionHead",
                 "input_dim": embedding_dim,
@@ -746,13 +743,13 @@ class TestPhaseACTEndToEnd:
             device=str(device),
         )
 
-        action_heads[ORIENTATION_ACTION_KEY] = ActionHead(
+        action_heads[ProprioceptiveType.ORIENTATION.value] = ActionHead(
             input_dim=embedding_dim,
             output_dim=phase_act_action_space.orientation_dim,
             blocks=[],
         ).to(device)
 
-        action_heads[GRIPPER_ACTION_KEY] = MoEHead(
+        action_heads[ProprioceptiveType.GRIPPER.value] = MoEHead(
             base_expert_config={
                 "_target_": "versatil.models.decoding.action_heads.head.ActionHead",
                 "input_dim": embedding_dim,
@@ -778,11 +775,11 @@ class TestPhaseACTEndToEnd:
             feedforward_dimension=2048,
             number_of_encoder_layers=4,
             number_of_decoder_layers=6,
-            phase_routing_key=PHASE_LABEL_KEY,
+            phase_routing_key=ObsKey.PHASE_LABEL.value,
         ).to(device)
 
         loss = PhaseActionLoss(
-            action_keys=[POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY, GRIPPER_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value, ProprioceptiveType.ORIENTATION.value],
             mse_weight=1.0,
             gripper_bce_weight=1.0,
             phase_ce_weight=1.0,
@@ -812,8 +809,8 @@ class TestPhaseACTEndToEnd:
     def phase_act_training_batch(self, mock_observations_phase, mock_actions_phase):
         """Complete training batch for PhaseACT."""
         return {
-            OBSERVATION_KEY: mock_observations_phase,
-            ACTION_KEY: mock_actions_phase,
+            SampleKey.OBSERVATION.value: mock_observations_phase,
+            SampleKey.ACTION.value: mock_actions_phase,
         }
 
     def test_phase_act_forward_pass(self, phase_act_policy, phase_act_training_batch, device):
@@ -822,15 +819,15 @@ class TestPhaseACTEndToEnd:
 
         output = phase_act_policy.forward(phase_act_training_batch)
 
-        assert POSITION_ACTION_KEY in output
-        assert ORIENTATION_ACTION_KEY in output
-        assert GRIPPER_ACTION_KEY in output
-        assert PHASE_LABEL_KEY in output
-        assert f"{POSITION_ACTION_KEY}_routing_weights" in output
-        assert f"{GRIPPER_ACTION_KEY}_routing_weights" in output
+        assert ProprioceptiveType.POSITION.value in output
+        assert ProprioceptiveType.ORIENTATION.value in output
+        assert ProprioceptiveType.GRIPPER.value in output
+        assert ObsKey.PHASE_LABEL.value in output
+        assert f"{ProprioceptiveType.POSITION.value}_routing_weights" in output
+        assert f"{ProprioceptiveType.GRIPPER.value}_routing_weights" in output
 
-        assert output[POSITION_ACTION_KEY].device.type == device.type
-        assert output[PHASE_LABEL_KEY].device.type == device.type
+        assert output[ProprioceptiveType.POSITION.value].device.type == device.type
+        assert output[ObsKey.PHASE_LABEL.value].device.type == device.type
 
     def test_phase_act_loss_computation(self, phase_act_policy, phase_act_training_batch):
         """Test PhaseACT policy loss computation."""
@@ -862,12 +859,12 @@ class TestPhaseACTEndToEnd:
             actions = phase_act_policy.predict_action(mock_observations_phase)
 
         assert isinstance(actions, dict)
-        assert POSITION_ACTION_KEY in actions
-        assert ORIENTATION_ACTION_KEY in actions
-        assert GRIPPER_ACTION_KEY in actions
-        assert PHASE_LABEL_KEY in actions
+        assert ProprioceptiveType.POSITION.value in actions
+        assert ProprioceptiveType.ORIENTATION.value in actions
+        assert ProprioceptiveType.GRIPPER.value in actions
+        assert ObsKey.PHASE_LABEL.value in actions
 
-        assert actions[POSITION_ACTION_KEY].device.type == device.type
+        assert actions[ProprioceptiveType.POSITION.value].device.type == device.type
 
     def test_phase_act_moe_routing(self, phase_act_policy, phase_act_training_batch):
         """Test that MoE routing weights are produced correctly."""
@@ -875,11 +872,11 @@ class TestPhaseACTEndToEnd:
 
         output = phase_act_policy.forward(phase_act_training_batch)
 
-        position_routing = output[f"{POSITION_ACTION_KEY}_routing_weights"]
-        gripper_routing = output[f"{GRIPPER_ACTION_KEY}_routing_weights"]
+        position_routing = output[f"{ProprioceptiveType.POSITION.value}_routing_weights"]
+        gripper_routing = output[f"{ProprioceptiveType.GRIPPER.value}_routing_weights"]
 
-        batch_size = phase_act_training_batch[ACTION_KEY][POSITION_ACTION_KEY].shape[0]
-        pred_horizon = phase_act_training_batch[ACTION_KEY][POSITION_ACTION_KEY].shape[1]
+        batch_size = phase_act_training_batch[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape[0]
+        pred_horizon = phase_act_training_batch[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape[1]
         num_experts = 3
 
         assert position_routing.shape == (batch_size, pred_horizon, num_experts)
@@ -1001,13 +998,13 @@ class TestACTPolicyWithVAEEndToEnd:
         batch_size = 2
         prediction_horizon = 10
         actions = {
-            POSITION_ACTION_KEY: torch.randn(
+            ProprioceptiveType.POSITION.value: torch.randn(
                 batch_size, prediction_horizon, vae_action_space.position_dim, device=device
             ),
-            ORIENTATION_ACTION_KEY: torch.randn(
+            ProprioceptiveType.ORIENTATION.value: torch.randn(
                 batch_size, prediction_horizon, vae_action_space.orientation_dim, device=device
             ),
-            GRIPPER_ACTION_KEY: torch.randint(
+            ProprioceptiveType.GRIPPER.value: torch.randint(
                 0, 2, (batch_size, prediction_horizon, 1), device=device
             ).float(),
         }
@@ -1031,26 +1028,26 @@ class TestACTPolicyWithVAEEndToEnd:
         # Create action heads
         action_heads = {}
         if vae_action_space.has_position:
-            action_heads[POSITION_ACTION_KEY] = ActionHead(
+            action_heads[ProprioceptiveType.POSITION.value] = ActionHead(
                 input_dim=embedding_dim,
                 output_dim=vae_action_space.position_dim,
                 blocks=[],
             ).to(device)
         if vae_action_space.has_orientation:
-            action_heads[ORIENTATION_ACTION_KEY] = ActionHead(
+            action_heads[ProprioceptiveType.ORIENTATION.value] = ActionHead(
                 input_dim=embedding_dim,
                 output_dim=vae_action_space.orientation_dim,
                 blocks=[],
             ).to(device)
         if vae_action_space.has_gripper:
-            action_heads[GRIPPER_ACTION_KEY] = ActionHead(
+            action_heads[ProprioceptiveType.GRIPPER.value] = ActionHead(
                 input_dim=embedding_dim,
                 output_dim=vae_action_space.gripper_dim,
                 blocks=[],
             ).to(device)
 
         # Create ACT decoder (without VAE - VAE is now in algorithm)
-        # Note: LATENT_KEY is not in input_keys because it's provided by algorithm at runtime
+        # Note: LatentKey.POSTERIOR_LATENT.value is not in input_keys because it's provided by algorithm at runtime
         decoder = ACT(
             input_keys=["rgb_image"],
             action_space=vae_action_space,
@@ -1071,7 +1068,7 @@ class TestACTPolicyWithVAEEndToEnd:
 
         # Create loss that expects VAE outputs
         loss = ActionReconstructionLoss(
-            action_keys=[POSITION_ACTION_KEY, ORIENTATION_ACTION_KEY, GRIPPER_ACTION_KEY],
+            action_keys=[ProprioceptiveType.POSITION.value, ProprioceptiveType.ORIENTATION.value],
             mse_weight=1.0,
             gripper_bce_weight=1.0,
             use_vae=True,
@@ -1099,8 +1096,8 @@ class TestACTPolicyWithVAEEndToEnd:
     def vae_training_batch(self, mock_observations_vae, mock_actions_vae):
         """Complete training batch."""
         return {
-            OBSERVATION_KEY: mock_observations_vae,
-            ACTION_KEY: mock_actions_vae,
+            SampleKey.OBSERVATION.value: mock_observations_vae,
+            SampleKey.ACTION.value: mock_actions_vae,
         }
 
     def test_vae_policy_forward_pass(self, vae_act_policy, vae_training_batch, device):
@@ -1111,18 +1108,18 @@ class TestACTPolicyWithVAEEndToEnd:
         output = vae_act_policy.forward(vae_training_batch)
 
         # Check action predictions
-        assert POSITION_ACTION_KEY in output
-        assert ORIENTATION_ACTION_KEY in output
-        assert GRIPPER_ACTION_KEY in output
+        assert ProprioceptiveType.POSITION.value in output
+        assert ProprioceptiveType.ORIENTATION.value in output
+        assert ProprioceptiveType.GRIPPER.value in output
 
         # Check VAE latent variables are in output (for loss computation)
-        assert MU_KEY in output
-        assert LOGVAR_KEY in output
+        assert LatentKey.POSTERIOR_MU.value in output
+        assert LatentKey.POSTERIOR_LOGVAR.value in output
 
         # Check device consistency
-        assert output[POSITION_ACTION_KEY].device.type == device.type
-        assert output[MU_KEY].device.type == device.type
-        assert output[LOGVAR_KEY].device.type == device.type
+        assert output[ProprioceptiveType.POSITION.value].device.type == device.type
+        assert output[LatentKey.POSTERIOR_MU.value].device.type == device.type
+        assert output[LatentKey.POSTERIOR_LOGVAR.value].device.type == device.type
 
     def test_vae_policy_loss_computation(self, vae_act_policy, vae_training_batch):
         """Test that loss includes KL divergence term from VAE."""
@@ -1167,15 +1164,15 @@ class TestACTPolicyWithVAEEndToEnd:
 
         # Check action predictions
         assert isinstance(actions, dict)
-        assert POSITION_ACTION_KEY in actions
-        assert ORIENTATION_ACTION_KEY in actions
-        assert GRIPPER_ACTION_KEY in actions
+        assert ProprioceptiveType.POSITION.value in actions
+        assert ProprioceptiveType.ORIENTATION.value in actions
+        assert ProprioceptiveType.GRIPPER.value in actions
 
         # Should NOT have mu/logvar during inference (sampling from prior)
-        assert MU_KEY not in actions
-        assert LOGVAR_KEY not in actions
+        assert LatentKey.POSTERIOR_MU.value not in actions
+        assert LatentKey.POSTERIOR_LOGVAR.value not in actions
 
-        assert actions[POSITION_ACTION_KEY].device.type == device.type
+        assert actions[ProprioceptiveType.POSITION.value].device.type == device.type
 
     def test_vae_latent_shapes(self, vae_act_policy, vae_training_batch):
         """Test that VAE latent outputs have correct shapes."""
@@ -1184,14 +1181,14 @@ class TestACTPolicyWithVAEEndToEnd:
 
         output = vae_act_policy.forward(vae_training_batch)
 
-        batch_size = vae_training_batch[ACTION_KEY][POSITION_ACTION_KEY].shape[0]
+        batch_size = vae_training_batch[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape[0]
 
-        # Note: LATENT_KEY is consumed by decoder and not in output
+        # Note: LatentKey.POSTERIOR_LATENT.value is consumed by decoder and not in output
         # Only MU and LOGVAR are preserved for loss computation
 
         # VAE latent space shape (z dimension)
-        assert output[MU_KEY].shape == (batch_size, 32)
-        assert output[LOGVAR_KEY].shape == (batch_size, 32)
+        assert output[LatentKey.POSTERIOR_MU.value].shape == (batch_size, 32)
+        assert output[LatentKey.POSTERIOR_LOGVAR.value].shape == (batch_size, 32)
 
     def test_vae_deterministic_with_seed(self, vae_act_policy, mock_observations_vae):
         """Test that VAE sampling is deterministic with same seed."""
@@ -1207,9 +1204,9 @@ class TestACTPolicyWithVAEEndToEnd:
             actions2 = vae_act_policy.predict_action(mock_observations_vae)
 
         # Actions should be identical
-        assert torch.allclose(actions1[POSITION_ACTION_KEY], actions2[POSITION_ACTION_KEY])
-        assert torch.allclose(actions1[ORIENTATION_ACTION_KEY], actions2[ORIENTATION_ACTION_KEY])
-        assert torch.allclose(actions1[GRIPPER_ACTION_KEY], actions2[GRIPPER_ACTION_KEY])
+        assert torch.allclose(actions1[ProprioceptiveType.POSITION.value], actions2[ProprioceptiveType.POSITION.value])
+        assert torch.allclose(actions1[ProprioceptiveType.ORIENTATION.value], actions2[ProprioceptiveType.ORIENTATION.value])
+        assert torch.allclose(actions1[ProprioceptiveType.GRIPPER.value], actions2[ProprioceptiveType.GRIPPER.value])
 
 
 @pytest.mark.slow
