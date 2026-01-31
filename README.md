@@ -353,11 +353,11 @@ The `VariationalAlgorithm` wraps any base algorithm with a VAE-style latent spac
 - **Prior Network** p(z|s): Samples latent z during inference (no access to actions)
 
 **Posterior Network types:**
-- `VAETransformerEncoder` - Transformer encoder that maps actions to latent distribution
+- `VAETransformerEncoder` - Transformer encoder that learns a CLS token to predict latent mean and logvar of a conditional Gaussian posterior
 
 **Prior Network types:**
-- `GaussianPrior` - Fixed Gaussian N(0,I), no learning required
-- `PriorTransformerEncoder` - Learned conditional prior using a transformer encoder
+- `GaussianPrior` - Fixed Gaussian N(0,I) (standard VAE prior)
+- `PriorTransformerEncoder` - Learned conditional gaussian prior using a transformer encoder
 - `DenoisingTransformerPrior` - Multimodal prior trained via diffusion/flow matching
 - `VampPrior` - Mixture of posteriors ([paper](https://arxiv.org/abs/1705.07120))
 
