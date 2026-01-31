@@ -6,7 +6,7 @@ from pathlib import Path
 
 import hydra
 from omegaconf import OmegaConf, DictConfig
-from versatil.configs.validator import validate_config
+from versatil.validation import validate_experiment
 from versatil.workspace import Workspace
 
 logging.basicConfig(
@@ -44,7 +44,7 @@ def main(config: DictConfig) -> None:
         )
 
     instantiated_config = hydra.utils.instantiate(config)
-    validate_config(instantiated_config)
+    validate_experiment(instantiated_config)
     workspace = Workspace(instantiated_config, original_yaml_config=config)
     if instantiated_config.experiment.resume_from is not None:
         checkpoint_path = Path(instantiated_config.experiment.resume_from)

@@ -70,11 +70,15 @@ from versatil.configs.decoding.latent import (
     VampPriorConfig,
 )
 from versatil.configs.encoding.encoder import (
+    CNNEncoderConfig,
+    ConditionalCNNEncoderConfig,
     DepthCNNEncoderConfig,
+    DFormerEncoderConfig,
     EncoderConfig,
+    ImageEncoderConfig,
     LanguageEncoderConfig,
     ProprioEncoderConfig,
-    DFormerEncoderConfig,
+    ViTEncoderConfig,
 )
 from versatil.configs.encoding.fusion import (
     FusionConfig,
@@ -82,12 +86,6 @@ from versatil.configs.encoding.fusion import (
     AttentionFusionConfig,
     MLPFusionConfig,
     SpatialFusionConfig,
-)
-from versatil.configs.encoding.image import (
-    ImageEncoderConfig,
-    CNNEncoderConfig,
-    ViTEncoderConfig,
-    ConditionalCNNEncoderConfig,
 )
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.inference import InferenceConfig

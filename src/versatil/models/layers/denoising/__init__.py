@@ -1,1 +1,1 @@
-"""Layers and functions for denoising algorithms like Diffusion and Flow Matching."""
+"""Layers and functions for denoising score-matching algorithms like Diffusion and Flow Matching."""

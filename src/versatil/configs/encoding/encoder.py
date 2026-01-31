@@ -101,3 +101,42 @@ class LanguageEncoderConfig:
     frozen: bool = False
     max_token_len: int = 128
     use_embeddings_only: bool = False
+
+
+@dataclass
+class ImageEncoderConfig(EncoderConfig):
+    """Abstract base config for image encoders (CNN or ViT)."""
+
+    _target_: str = MISSING
+    backbone: str = MISSING
+
+
+@dataclass
+class CNNEncoderConfig(ImageEncoderConfig):
+    """CNN-based image encoder configuration."""
+
+    _target_: str = "versatil.models.encoding.encoders.rgb.cnn.CNNEncoder"
+    pooling_method: str = PoolingMethod.NONE.value
+    batch_norm_handling: str = BatchNormHandling.FROZEN.value
+
+
+@dataclass
+class ConditionalCNNEncoderConfig(CNNEncoderConfig):
+    """Language-conditioned CNN encoder configuration."""
+
+    _target_: str = (
+        "versatil.models.encoding.encoders.rgb.conditional_cnn.ConditionalCNNEncoder"
+    )
+    condition_key: str = MISSING
+    condition_dim: int = MISSING
+    pooling_method: str = PoolingMethod.NONE.value
+    batch_norm_handling: str = BatchNormHandling.FROZEN.value
+
+
+@dataclass
+class ViTEncoderConfig(ImageEncoderConfig):
+    """ViT-based image encoder configuration."""
+
+    _target_: str = MISSING
+    feature_method: str = PoolingMethod.AVERAGE.value
+    pooling_method: str = PoolingMethod.NONE.value

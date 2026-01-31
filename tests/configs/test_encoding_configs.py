@@ -14,7 +14,7 @@ from versatil.configs.encoding.fusion import (
     AttentionFusionConfig,
     ConcatFusionConfig,
 )
-from versatil.configs.encoding.image import CNNEncoderConfig
+from versatil.configs.encoding.encoder import CNNEncoderConfig
 from versatil.configs.encoding.pipeline import EncodingPipelineConfig
 from versatil.models.encoding.encoders.rgb.cnn import CNNEncoder
 from versatil.models.encoding.fusion.attention import AttentionFusion

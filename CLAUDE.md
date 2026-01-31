@@ -370,10 +370,17 @@ encoder = instantiate(encoder_config)
 ## Code Style Requirements
 
 From `.github/copilot-instructions.md`:
-- **Always use Google-style docstrings**
+- **Always use Google-style docstrings**: Keep concise, avoid LLM patterns (no numbered lists, no excessive words/examples)
 - **Add type hints to all function signatures**
 - **Never use inline imports** (all imports at module top)
 - **Examine whole codebase for context before changes**
+- **Minimal comments**: Only for tensor shapes or when logic is non-obvious.
+- Use English words as variables, avoid abbreviations.
+- Use kwargs in function calls.
+- Avoid Assertions and use Raise ... instead.
+- Avoid try catch blocks.
+- Use double quotes for strings: "foo" and not 'foo'.
+- Avoid plain hardcoded strings. Use constant string values through Enum.value
 
 Additional standards:
 - Black formatter (line length 88, Python 3.11 target)
@@ -477,12 +484,8 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 
 ## TODOs
 Fixes:
-- Verify integrity of Feature Types (SPATIAL/SEQUENTIAL/FLAT) across all encoders and decoders. Right now there seems to be duplicated code and classes.
-- Uniformize the decoder keys in constants module, probably with an Enum.
-- Remove Legacy Constants in data/constants.py
 - Move the validation of the task-encoders matching from validator module to the validation of the Policy. Create standalone module for policy validation.
 - Move configs/encoding/image.py to configs/encoding/encoder.py
-- Verify integrity of Fusion Layers and remove superfluous Concat-Sequential division.
 - Update the tests, at the moment they are all legacy and broken.
 Extensions:
 - The explainer is buggy and hardcoded. It needs a refactoring to fit into the new architecture as modular component:

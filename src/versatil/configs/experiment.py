@@ -26,3 +26,4 @@ class ExperimentConfig:
     checkpoint_every: int = 100
     val_every: int = 1
     plot_every: int = 200
+    validate_loss_keys: bool = True
