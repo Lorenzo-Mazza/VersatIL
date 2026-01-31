@@ -1,13 +1,17 @@
-"""Constants for model/policy components."""
+"""Constants for policy components."""
 
 import enum
 
 
-class ExplanationType(str, enum.Enum):
-    """Enum for model explanation/interpretability types."""
 
-    GRADCAM = "gradcam"
-    GRADCAM_PLUS_PLUS = "gradcam++"
-    ABLATION_CAM = "ablation_cam"
-    SALIENCY_MAP = "saliency_map"
-    INTEGRATED_GRADIENT = "integrated_gradient"
+class FeatureType(str, enum.Enum):
+    """Feature types for decoder validation.
+
+    - SPATIAL: (C, H, W) - image features from CNN/ViT
+    - SEQUENTIAL: (T, D) - sequence features from transformers
+    - FLAT: int or (D,) - pooled/embedded features
+    """
+    
+    SPATIAL = "spatial"
+    SEQUENTIAL = "sequential"
+    FLAT = "flat"

@@ -5,10 +5,6 @@ from typing import Any
 
 from omegaconf import MISSING
 
-from versatil.data.constants import (
-    GripperType,
-)
-
 
 @dataclass
 class BaseLossConfig:
@@ -44,7 +40,7 @@ class GripperLossConfig(BaseLossConfig):
 
 @dataclass
 class KLDivergenceLossConfig(BaseLossConfig):
-    """Configuration for KL divergence loss (VAE)."""
+    """Configuration for KL divergence loss."""
 
     _target_: str = "versatil.metrics.KLDivergenceLoss"
     weight: float = 0.0001
@@ -62,7 +58,7 @@ class GaussianEntropyLossConfig(BaseLossConfig):
 
 @dataclass
 class BinaryKLDivergenceLossConfig(BaseLossConfig):
-    """Configuration for binary KL divergence loss (Free Transformer)."""
+    """Configuration for binary KL divergence loss."""
 
     _target_: str = "versatil.metrics.BinaryKLDivergenceLoss"
     weight: float = 0.0001
@@ -117,49 +113,6 @@ class PhaseClassificationLossConfig(BaseLossConfig):
     cross_entropy_weight: float = 1.0
     entropy_weight: float = 0.0
     label_smoothing: float = 0.0
-
-
-@dataclass
-class ActionTokenLossConfig(BaseLossConfig):
-    """Configuration for action to token loss (TokenACT-style models)."""
-
-    _target_: str = "versatil.metrics.ActionTokenLoss"
-    label_smoothing: float = 0.0
-
-
-@dataclass
-class ActionReconstructionLossConfig(BaseLossConfig):
-    """Configuration for action reconstruction loss (ACT-style models)."""
-
-    _target_: str = "versatil.metrics.ActionReconstructionLoss"
-    action_keys: list[str] | None = None
-    mse_weight: float = 1.0
-    l1_weight: float = 0.0
-    gripper_bce_weight: float = 1.0
-    kl_weight: float = 0.0001
-    length_weight: float = 0.0
-    smoothness_weight: float = 0.0
-    gripper_type: str = GripperType.BINARY.value
-    use_vae: bool = False
-
-
-@dataclass
-class PhaseActionLossConfig(BaseLossConfig):
-    """Configuration for phase-conditioned action loss (PhaseACT models)."""
-
-    _target_: str = "versatil.metrics.PhaseActionLoss"
-    action_keys: list[str] | None = None
-    mse_weight: float = 1.0
-    l1_weight: float = 0.0
-    gripper_bce_weight: float = 1.0
-    kl_weight: float = 0.0001
-    length_weight: float = 0.0
-    smoothness_weight: float = 0.0
-    phase_ce_weight: float = 1.0
-    phase_entropy_weight: float = 0.0
-    label_smoothing: float = 0.0
-    gripper_type: str = GripperType.BINARY.value
-    use_vae: bool = False
 
 
 @dataclass

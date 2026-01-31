@@ -148,19 +148,22 @@ class LeRobotPathsV30(str, enum.Enum):
 
 #: Observation keys
 OBSERVATION_KEY = "observation"
-PROPRIO_OBS_ROBOT_FRAME_KEY = "proprio_robot_frame"
-PROPRIO_OBS_CAMERA_FRAME_KEY = "proprio_camera_frame"
-LANGUAGE_KEY = "language_instruction"
-
 #: Action keys
 ACTION_KEY = "action"
-POSITION_ACTION_KEY = "position_action"
-ORIENTATION_ACTION_KEY = "orientation_action"
-GRIPPER_ACTION_KEY = "gripper_action"
 IS_PAD_ACTION_KEY = "is_pad"
 IS_PAD_OBSERVATION_KEY = "is_pad_observation"
 TOKENIZED_OBSERVATIONS_KEY = "tokenized_observations"
 TOKENIZED_ACTIONS_KEY = "tokenized_actions"
+
+
+PROPRIO_OBS_ROBOT_FRAME_KEY = "proprio_robot_frame" # Legacy
+PROPRIO_OBS_CAMERA_FRAME_KEY = "proprio_camera_frame" # Legacy
+LANGUAGE_KEY = "language_instruction" # Legacy
+POSITION_ACTION_KEY = "position_action" # Legacy
+ORIENTATION_ACTION_KEY = "orientation_action" # Legacy
+GRIPPER_ACTION_KEY = "gripper_action" # Legacy
+
+
 
 
 VALID_CAMERAS = [cam.value for cam in Cameras]

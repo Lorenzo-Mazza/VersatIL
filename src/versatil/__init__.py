@@ -12,7 +12,7 @@ logging.getLogger("timm").setLevel(logging.ERROR)
 logging.getLogger("transformers").setLevel(logging.ERROR)
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 
-CACHE_DIR = Path(os.environ.get("VERSATIL_CACHE_DIR", Path.home() / ".cache" / "versatil"))
+CACHE_DIR = Path(os.environ["VERSATIL_CACHE_DIR"])
 
 
 def setup_cache_directories():
@@ -29,7 +29,6 @@ def setup_cache_directories():
 
 
 setup_cache_directories()
-
 warnings.filterwarnings(
     "ignore",
     category=UserWarning,

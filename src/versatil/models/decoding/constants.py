@@ -21,14 +21,6 @@ class MoERoutingType(str, enum.Enum):
     SOFT = "soft"  # Weighted combination of all experts based on gating scores
 
 
-class FeatureType(str, enum.Enum):
-    """Feature types that the decoder can optionally require."""
-
-    SPATIAL = "spatial"  # Features with (C, H, W) dimensions (besides batch/time)
-    SEQUENTIAL = "sequential"  # Features with (T, D) dimensions
-    FLAT = "flat"  # Flat features with single dimension
-
-
 class PredictionType(str, enum.Enum):
     """What the diffusion model predicts."""
 

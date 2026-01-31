@@ -12,7 +12,8 @@ from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import TIMESTEP_KEY, FeatureType
+from versatil.models.constants import FeatureType
+from versatil.models.decoding.constants import TIMESTEP_KEY
 from versatil.models.decoding.decoders.base import DecoderInput, ActionDecoder
 from versatil.models.layers import MLP
 from versatil.models.layers.activation import ActivationFunction

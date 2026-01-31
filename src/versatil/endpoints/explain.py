@@ -52,7 +52,6 @@ class ModelExplainer:
         self.device = device
         self.explanation_types = explanation_types
         self.frequency = explanation_frequency
-
         self._load_model()
         self._setup_paths()
         self._setup_transforms()
