@@ -59,10 +59,12 @@ class ConditionalModulation(nn.Module):
         ]
         if self.init_strategy == "identity" or self.init_strategy == "zero":
             for layer in linear_layers:
+                layer._is_modulation_layer = True
                 nn.init.constant_(layer.weight, 0)
                 nn.init.constant_(layer.bias, 0)
         elif self.init_strategy == "xavier":
             for layer in linear_layers:
+                layer._is_modulation_layer = True
                 nn.init.xavier_uniform_(layer.weight)
                 nn.init.zeros_(layer.bias)
         else:

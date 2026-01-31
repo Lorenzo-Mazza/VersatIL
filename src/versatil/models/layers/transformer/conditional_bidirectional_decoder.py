@@ -32,7 +32,7 @@ class ConditionalBidirectionalDecoder(nn.Module):
     """Bidirectional transformer decoder with conditional modulation.
 
     This decoder extends the standard bidirectional decoder to accept a conditioning
-    vector (e.g., latent from VAE) that modulates each transformer layer via AdaLN or FiLM.
+    vector that modulates each transformer layer via AdaLN or FiLM.
 
     The conditioning is applied at each layer after normalization, enabling the model
     to adapt its representations based on the conditioning signal throughout the network.
@@ -140,6 +140,8 @@ class ConditionalBidirectionalDecoder(nn.Module):
         else:
             std = self.initializer_range
         if isinstance(module, nn.Linear):
+            if hasattr(module, "_is_modulation_layer") and module._is_modulation_layer:
+                return
             module.weight.data.normal_(mean=0.0, std=std)
             if module.bias is not None:
                 module.bias.data.zero_()

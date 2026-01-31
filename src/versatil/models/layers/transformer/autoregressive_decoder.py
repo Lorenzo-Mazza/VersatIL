@@ -148,6 +148,8 @@ class GPTDecoder(nn.Module):
         else:
             std = self.initializer_range
         if isinstance(module, nn.Linear):
+            if hasattr(module, "_is_modulation_layer") and module._is_modulation_layer:
+                return
             module.weight.data.normal_(mean=0.0, std=std)
             if module.bias is not None:
                 module.bias.data.zero_()
