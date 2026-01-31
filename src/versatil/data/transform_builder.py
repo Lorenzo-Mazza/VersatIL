@@ -26,8 +26,8 @@ from versatil.data.tokenization.observation_tokenizer import ObservationTokenize
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 
 
-class PreprocessorBuilder:
-    """Preprocessor for creating and configuring normalizers and tokenizers."""
+class TransformBuilder:
+    """Builder for creating and configuring data normalizers and tokenizers."""
 
     def __init__(
         self,
@@ -46,7 +46,7 @@ class PreprocessorBuilder:
         min_kinematics_std: float = 2e-2,
         min_kinematics_range: float = 4e-2,
     ):
-        """Initialize preprocessor builder.
+        """Initialize transform builder.
 
         Args:
             replay_buffer: Data source

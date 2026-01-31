@@ -3,6 +3,7 @@ defaults:
   - zarr_meta/libero@metadata
 
 _target_: versatil.data.raw.schemas.custom.libero.LiberoSchema
+dataset_type: ${dataset_type:LIBERO}
 zarr_path: ${zarr_dir:libero_single_datasets_hdf5/libero_object.zarr}
 hdf5_paths:
   - ${libero_hdf5_dir:libero_object/pick_up_the_alphabet_soup_and_place_it_in_the_basket_demo.hdf5}

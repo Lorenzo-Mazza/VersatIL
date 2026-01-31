@@ -77,7 +77,6 @@ class ConfigValidator:
 
         # Build set of available observation keys from observations_metadata
         available_keys = set()
-
         if is_obs_tokenized and task.dataloader.tokenization.observation_tokenizer:
             token_obs_keys = set(
                 task.dataloader.tokenization.observation_tokenizer.observation_keys
@@ -97,17 +96,13 @@ class ConfigValidator:
                     f"Language observations are enabled but '{ObsKey.LANGUAGE.value}' is not in "
                     f"observation_tokenizer.observation_keys: {token_obs_keys}"
                 )
-
-            # Add tokenized observations key if any observations are tokenized
             if tokenized_any:
                 available_keys.add(TOKENIZED_OBSERVATIONS_KEY)
                 available_keys.add(IS_PAD_OBSERVATION_KEY)
         else:
-            # No tokenization - all observation keys are available as raw
             for obs_key, obs_meta in obs_space.observations_metadata.items():
                 available_keys.add(obs_key)
 
-        # Validate encoders
         configured_encoder_inputs = set()
         for encoder_name, encoder in pipeline.encoders.items():
             encoder: EncodingMixin
@@ -130,7 +125,6 @@ class ConfigValidator:
                 input_keys = [input_keys]
 
             configured_encoder_inputs.update(input_keys)
-
             missing = set(input_keys) - available_keys
             if missing:
                 self.errors.append(

@@ -34,7 +34,7 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding2D,
     SinusoidalPositionalEncoding1D,
 )
-from versatil.models.layers.transformer_input_builder import TransformerInputBuilder
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
 
 class FreeTransformerDecoder(ActionDecoder):

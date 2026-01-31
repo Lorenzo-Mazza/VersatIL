@@ -15,7 +15,7 @@ from versatil.models.layers.detr_transformer import Transformer
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
-from versatil.models.layers.transformer_input_builder import TransformerInputBuilder
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding2D,
 )

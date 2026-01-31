@@ -29,10 +29,11 @@ Rapid experimentation, cleaner code, and true reusability across projects.
 - 🧱 **Modularity** Each component is self-contained and reusable.
 - ⚡ **Modern Dependency Management** – Dependencies managed with [uv](https://github.com/astral-sh/uv) and `pyproject.toml` for modern and fast installation.
 - ♻️ **Don't Reinvent the Wheel** We rely on industry-standard libraries:
-    * **Timm** for vision backbones.
-    * **HuggingFace Transformers** for Language encoders and VLMs.
-    * **HuggingFace Diffusers** for diffusion schedulers.
-    * **TorchCFM** for Flow Matching schedulers.
+    * **[Timm](https://github.com/huggingface/pytorch-image-models)** for vision backbones.
+    * **[HuggingFace Transformers](https://github.com/huggingface/transformers)** for Language encoders, VLMs, and tokenizers.
+    * **[HuggingFace Diffusers](https://github.com/huggingface/diffusers)** for diffusion schedulers.
+    * **[TorchCFM](https://github.com/atong01/conditional-flow-matching)** for Flow Matching schedulers.
+    * **[Albumentations](https://albumentations.ai/)** for image augmentations.
 - 💡 **Invent What Matters** For performance-critical components, we wrote a custom `models/layers` package in pure PyTorch. This includes optimized implementations of:
     * Attention (FlashAttention).
     * Positional Encodings (Sinusoidal, Learned, Rotary).
