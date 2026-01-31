@@ -33,7 +33,7 @@ Rapid experimentation, cleaner code, and true reusability across projects.
     * **HuggingFace Transformers** for Language encoders and VLMs.
     * **HuggingFace Diffusers** for diffusion schedulers.
     * **TorchCFM** for Flow Matching schedulers.
-- 💡 **Invent What Matters** For performance-critical components, we wrote a custom `models/layers` package. This includes optimized implementations of:
+- 💡 **Invent What Matters** For performance-critical components, we wrote a custom `models/layers` package in pure Pytorch. This includes optimized implementations of:
     * Attention (FlashAttention).
     * Positional Encodings (Sinusoidal, Learned, Rotary).
     * Transformer variants (DETR, GPT, BERT, Free Transformer).
