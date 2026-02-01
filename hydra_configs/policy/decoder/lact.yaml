@@ -15,11 +15,10 @@ number_of_layers: 2
 activation: ${activation_function:SWIGLU}
 normalization_type: ${normalization:RMS_NORM}
 attention_type: ${attention:MULTI_HEAD}
-conditioning_type: ${conditioning_type:ADALN}
+positional_encoding_type: ${pos_encoding:ROPE}
 dropout_rate: 0.1
 attention_dropout: 0.0
-condition_queries: true
-modulation_init_strategy: identity
+use_gating: true
 
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}

@@ -12,10 +12,7 @@ from versatil.models.constants import FeatureType
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.constants import AttentionType, ConditioningType
-from versatil.models.layers.modulation.conditional_modulation import (
-    ConditionalModulation,
-)
+from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
@@ -23,8 +20,8 @@ from versatil.models.layers.positional_encoding.learned import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding2D,
 )
-from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
-    ConditionalBidirectionalDecoder,
+from versatil.models.layers.diffusion_transformer.cross_attention_dit_decoder import (
+    CrossConditioningDecoder,
 )
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
@@ -34,8 +31,8 @@ class LACT(ActionDecoder):
 
     Forward pass steps:
         Build observation tokens from spatial/flat features
-        Condition learnable queries with latent via AdaLN/FiLM
-        Decode actions using conditional transformer with latent modulation at each layer
+        Condition learnable queries with latent via AdaLN-Zero
+        Decode actions using Pix-Art style DiT (cross-attention to observation tokens) with latent modulation at each layer
         Apply action heads to produce predictions
     """
 
@@ -57,11 +54,10 @@ class LACT(ActionDecoder):
         activation: str = ActivationFunction.SWIGLU.value,
         normalization_type: str = NormalizationType.RMS_NORM.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
-        conditioning_type: str = ConditioningType.ADALN.value,
+        positional_encoding_type: str | None = PositionalEncodingType.ROPE.value,
         dropout_rate: float = 0.1,
         attention_dropout: float = 0.0,
-        condition_queries: bool = True,
-        modulation_init_strategy: str = "identity",
+        use_gating: bool = True,
     ):
         """Initialize LACT decoder.
 
@@ -81,12 +77,11 @@ class LACT(ActionDecoder):
             number_of_layers: Number of conditional transformer decoder layers
             activation: Activation function name
             normalization_type: Type of normalization layer
-            attention_type: Type of attention mechanism
-            conditioning_type: Type of conditioning - "adaln" or "film"
+            attention_type: Type of attention mechanism (multi-head, grouped query, etc.)
+            positional_encoding_type: Type of positional encoding.
             dropout_rate: Dropout probability for residual connections
             attention_dropout: Dropout probability for attention weights
-            condition_queries: Whether to condition learnable queries before transformer
-            modulation_init_strategy: Initialization for modulation layers
+            use_gating: Whether to use AdaLN-Zero gating on residual connections
         """
         decoder_input = DecoderInput(
             keys=input_keys,
@@ -114,10 +109,9 @@ class LACT(ActionDecoder):
         self.number_of_key_value_heads = number_of_key_value_heads
         self.normalization_type = normalization_type
         self.attention_type = attention_type
+        self.positional_encoding_type = positional_encoding_type
         self.attention_dropout = attention_dropout
-        self.conditioning_type = conditioning_type
-        self.condition_queries = condition_queries
-        self.modulation_init_strategy = modulation_init_strategy
+        self.use_gating = use_gating
         self._build_components()
         self.to(self.device)
 
@@ -146,20 +140,10 @@ class LACT(ActionDecoder):
         self.learnable_query = nn.Embedding(
             self.prediction_horizon, self.embedding_dimension
         )
-        if self.condition_queries:
-            self.query_modulation = ConditionalModulation(
-                condition_dim=self.latent_dimension,
-                feature_dim=self.embedding_dimension,
-                use_shift=True,
-                init_strategy=self.modulation_init_strategy,
-            )
-        else:
-            self.query_modulation = None
-
-        self.action_decoder = ConditionalBidirectionalDecoder(
+        self.action_decoder = CrossConditioningDecoder(
             number_of_layers=self.number_of_layers,
             embedding_dimension=self.embedding_dimension,
-            condition_dimension=self.latent_dimension,
+            timestep_dimension=self.latent_dimension,
             number_of_heads=self.number_of_heads,
             number_of_key_value_heads=self.number_of_key_value_heads,
             feedforward_dimension=self.feedforward_dimension,
@@ -168,8 +152,8 @@ class LACT(ActionDecoder):
             activation=self.activation,
             normalization_type=self.normalization_type,
             attention_type=self.attention_type,
-            conditioning_type=self.conditioning_type,
-            modulation_init_strategy=self.modulation_init_strategy,
+            positional_encoding_type=self.positional_encoding_type,
+            use_gating=self.use_gating,
         )
 
     def _apply_action_heads(
@@ -221,14 +205,12 @@ class LACT(ActionDecoder):
         query = self.learnable_query.weight.unsqueeze(0).repeat(
             batch_size, 1, 1
         )  # (B, pred_horizon, embedding_dim)
-        if self.query_modulation is not None:
-            query = self.query_modulation(query, latent)
         action_embeddings = self.action_decoder(
             hidden_states=query,
-            condition=latent,
-            encoded_features=obs_tokens,
-            query_padding_mask=None,
-            memory_padding_mask=obs_padding_mask,
+            conditioning_embedding=latent,
+            encoder_hidden_states=obs_tokens,
+            decoder_padding_mask=None,
+            encoder_padding_mask=obs_padding_mask,
         )
         predictions = self._apply_action_heads(action_embeddings)
         return predictions

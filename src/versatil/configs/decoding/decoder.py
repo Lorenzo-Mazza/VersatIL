@@ -10,7 +10,6 @@ from versatil.models.decoding.constants import MoERoutingType, DiTType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import (
     AttentionType,
-    ConditioningType,
     PositionalEncodingType,
 )
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -171,12 +170,11 @@ class LACTConfig(DecodingNetworkConfig):
     """Latent Action Transformer (LACT) architecture configuration.
 
     LACT extends a standard Action Transformer with latent-conditioned decoding.
-    It requires a latent embedding (from variational algorithm) and uses
-    AdaLN or FiLM conditioning on the learned queries and throughout the
-    transformer decoder layers.
+    It uses a Pix-Art style DiT with AdaLN-Zero modulation on the latent token instead of the timestep
+    and cross-attention to encoder features.
 
     Must be used with a variational algorithm (e.g., VariationalAlgorithm)
-    that provides the LatentKey.POSTERIOR_LATENT in the features dictionary.
+    that provides a latent embedding indexed by LatentKey.POSTERIOR_LATENT in the features dictionary.
     """
 
     _target_: str = "versatil.models.decoding.decoders.factory.lact.LACT"
@@ -189,11 +187,12 @@ class LACTConfig(DecodingNetworkConfig):
     activation: str = ActivationFunction.SWIGLU.value
     normalization_type: str = NormalizationType.RMS_NORM.value
     attention_type: str = AttentionType.MULTI_HEAD.value
-    conditioning_type: str = ConditioningType.ADALN.value
+    positional_encoding_type: str | None = (
+        PositionalEncodingType.ROPE.value
+    )  # Type of positional encoding
     dropout_rate: float = 0.1
     attention_dropout: float = 0.0
-    condition_queries: bool = True
-    modulation_init_strategy: str = "identity"
+    use_gating: bool = True
 
 
 @dataclass

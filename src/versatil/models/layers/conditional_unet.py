@@ -204,6 +204,8 @@ class ConditionalUnet1D(nn.Module):
 
     def _init_weights(self, module):
         if isinstance(module, (nn.Linear, nn.Conv1d)):
+            if hasattr(module, "_is_modulation_layer") and module._is_modulation_layer:
+                return
             nn.init.normal_(module.weight, mean=0.0, std=self.initializer_range)
             if module.bias is not None:
                 nn.init.zeros_(module.bias)

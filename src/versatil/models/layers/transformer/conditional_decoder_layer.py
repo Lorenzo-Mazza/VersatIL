@@ -19,7 +19,7 @@ from versatil.models.layers.transformer.attention import CachedAttention
 class ConditionalTransformerDecoderLayer(nn.Module):
     """Transformer decoder layer with conditional modulation support.
 
-    Extends TransformerDecoderLayer to add conditioning via AdaLN or FiLM
+    Extends TransformerDecoderLayer to add conditioning via AdaLN
     after each sub-layer's normalization.
 
     Architecture:
@@ -40,7 +40,6 @@ class ConditionalTransformerDecoderLayer(nn.Module):
         activation: str = ActivationFunction.SWIGLU.value,
         normalization_type: str = NormalizationType.RMS_NORM.value,
         attention_type: str = AttentionType.GROUPED_QUERY.value,
-        conditioning_type: str = ConditioningType.ADALN.value,
         use_cross_attention: bool = True,
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
@@ -59,7 +58,6 @@ class ConditionalTransformerDecoderLayer(nn.Module):
             activation: Activation function (use ActivationFunction enum values)
             normalization_type: Type of normalization (use NormalizationType enum values)
             attention_type: Type of attention (use AttentionType enum values)
-            conditioning_type: Type of conditioning - "adaln" or "film"
             use_cross_attention: Whether to use cross-attention
             bias: Whether to use bias in linear layers
             normalization_epsilon: Epsilon for normalization layers
@@ -70,7 +68,6 @@ class ConditionalTransformerDecoderLayer(nn.Module):
         self.condition_dimension = condition_dimension
         self.number_of_heads = number_of_heads
         self.use_cross_attention = use_cross_attention
-        self.conditioning_type = ConditioningType(conditioning_type)
         if feedforward_dimension is None:
             feedforward_dimension = 4 * embedding_dimension
         self.self_attention = CachedAttention(

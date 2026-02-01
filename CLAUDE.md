@@ -484,8 +484,6 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 
 ## TODOs
 Fixes:
-- Move the validation of the task-encoders matching from validator module to the validation of the Policy. Create standalone module for policy validation.
-- Move configs/encoding/image.py to configs/encoding/encoder.py
 - Update the tests, at the moment they are all legacy and broken.
 Extensions:
 - The explainer is buggy and hardcoded. It needs a refactoring to fit into the new architecture as modular component:

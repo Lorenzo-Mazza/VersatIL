@@ -58,7 +58,7 @@ class CrossConditioningDecoder(nn.Module):
         Args:
             number_of_layers: Number of decoder layers.
             embedding_dimension: Hidden dimension of the transformer.
-            timestep_dimension: Dimension of the timestep conditioning vector.
+            timestep_dimension: Dimension of the conditioning vector.
             number_of_heads: Number of attention heads.
             number_of_key_value_heads: Number of K/V heads (for GQA).
             feedforward_dimension: FFN hidden dimension.

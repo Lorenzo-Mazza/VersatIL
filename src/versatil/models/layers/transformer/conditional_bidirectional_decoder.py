@@ -32,7 +32,7 @@ class ConditionalBidirectionalDecoder(nn.Module):
     """Bidirectional transformer decoder with conditional modulation.
 
     This decoder extends the standard bidirectional decoder to accept a conditioning
-    vector that modulates each transformer layer via AdaLN or FiLM.
+    vector that modulates each transformer layer via AdaLN.
 
     The conditioning is applied at each layer after normalization, enabling the model
     to adapt its representations based on the conditioning signal throughout the network.
@@ -51,7 +51,6 @@ class ConditionalBidirectionalDecoder(nn.Module):
         activation: str = ActivationFunction.SWIGLU.value,
         normalization_type: str = NormalizationType.RMS_NORM.value,
         attention_type: str = AttentionType.GROUPED_QUERY.value,
-        conditioning_type: str = ConditioningType.ADALN.value,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 2048,
         bias: bool = True,
@@ -73,7 +72,6 @@ class ConditionalBidirectionalDecoder(nn.Module):
             activation: Activation function (use ActivationFunction enum values)
             normalization_type: Type of normalization (use NormalizationType enum values)
             attention_type: Type of attention (use AttentionType enum values)
-            conditioning_type: Type of conditioning - "adaln" or "film"
             positional_encoding_type: Type of positional encoding (or None)
             maximum_sequence_length: Maximum sequence length for positional encoding
             bias: Whether to use bias in linear layers
@@ -117,7 +115,6 @@ class ConditionalBidirectionalDecoder(nn.Module):
                     activation=activation,
                     normalization_type=normalization_type,
                     attention_type=attention_type,
-                    conditioning_type=conditioning_type,
                     use_cross_attention=True,
                     bias=bias,
                     normalization_epsilon=normalization_epsilon,

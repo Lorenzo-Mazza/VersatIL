@@ -50,7 +50,6 @@ from versatil.models.encoding.fusion.base import FusionModule, FusionInput, Fusi
 from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
 from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.models.policy import Policy
-from versatil.metrics.composite import ActionReconstructionLoss
 
 
 
