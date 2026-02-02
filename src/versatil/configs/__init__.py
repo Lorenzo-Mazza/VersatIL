@@ -32,6 +32,7 @@ from versatil.configs.data.tokenizer import (
 )
 from versatil.configs.decoding.action_head import (
     ActionHeadConfig,
+    GaussianHeadConfig,
     MixtureOfExpertsHeadConfig,
     ActionHeadBlockConfig,
     AttentionBlockConfig,
@@ -59,6 +60,7 @@ from versatil.configs.decoding.decoder import (
     MoEFreeTransformerConfig,
     PhaseACTConfig,
     ActionTransformerConfig,
+    MixtureOfDensitiesActionTransformerConfig,
 )
 from versatil.configs.decoding.latent import (
     PosteriorLatentEncoderConfig,
@@ -103,9 +105,9 @@ from versatil.configs.loss import (
     MoELossConfig,
     MaximumMeanDiscrepancyLossConfig,
     BinaryMaximumMeanDiscrepancyLossConfig,
-    FixedVarianceGaussianNLLossConfig,
-    FixedVarianceGripperMixtureNLLossConfig,
+    GripperMixtureNLLossConfig,
     PriorDenoisingLossConfig,
+    GaussianMixtureNLLossConfig,
 )
 from versatil.configs.main import MainConfig
 from versatil.configs.policy import PolicyConfig
@@ -540,20 +542,19 @@ def register_configs():
     cs.store(group="policy/loss", name="moe_loss", node=MoELossConfig)
     cs.store(
         group="policy/loss",
-        name="fv_gaussian_nll",
-        node=FixedVarianceGaussianNLLossConfig,
-    )
-    cs.store(
-        group="policy/loss",
-        name="fv_bernoulli_nll",
-        node=FixedVarianceGripperMixtureNLLossConfig,
+        name="gripper_mixture_nll",
+        node=GripperMixtureNLLossConfig,
     )
     cs.store(
         group="policy/loss",
         name="denoising_prior",
         node=PriorDenoisingLossConfig,
     )
-
+    cs.store(
+        group="policy/loss",
+        name="gaussian_mixture_nll",
+        node=GaussianMixtureNLLossConfig,
+    )
     cs.store(group="policy/encoding_pipeline", name="base", node=ImageEncoderConfig)
     cs.store(
         group="policy/encoding_pipeline/encoder", name="image", node=ImageEncoderConfig
@@ -647,7 +648,15 @@ def register_configs():
     cs.store(group="policy/decoder", name="unet", node=ConditionalUNetDecoderConfig)
     cs.store(group="policy/decoder/action_head", name="base", node=ActionHeadConfig)
     cs.store(
+        group="policy/decoder/action_head", name="gaussian", node=GaussianHeadConfig
+    )
+    cs.store(
         group="policy/decoder/action_head", name="moe", node=MixtureOfExpertsHeadConfig
+    )
+    cs.store(
+        group="policy/decoder",
+        name="mode_act",
+        node=MixtureOfDensitiesActionTransformerConfig,
     )
     cs.store(group="policy/decoder/head_block", name="base", node=ActionHeadBlockConfig)
     cs.store(group="policy/decoder/head_block", name="mlp", node=MLPBlockConfig)

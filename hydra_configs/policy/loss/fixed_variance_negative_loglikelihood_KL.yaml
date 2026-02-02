@@ -1,7 +1,7 @@
 # The syntax to validate against structured configs is always: `config_name in the configs.init.py`@`field path in the yaml file to validate`
 defaults:
-  - fv_gaussian_nll@loss_modules.moe_loss.base_loss.loss_modules.action_nll
-  - fv_bernoulli_nll@loss_modules.moe_loss.base_loss.loss_modules.gripper_nll
+  - gaussian_mixture_nll@loss_modules.moe_loss.base_loss.loss_modules.action_nll
+  - gripper_mixture_nll@loss_modules.moe_loss.base_loss.loss_modules.gripper_nll
   - traj_len@loss_modules.moe_loss.base_loss.loss_modules.trajectory_length
   - phase_classification@loss_modules.moe_loss.base_loss.loss_modules.phase_classification_loss
   - kl@loss_modules.moe_loss.base_loss.loss_modules.kl_divergence
@@ -18,6 +18,7 @@ loss_modules:
           action_keys:
             - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
           weight: 1.0
+          learned_variance: false
 
         gripper_nll:
           key: ${proprio_key:GRIPPER_STATE}

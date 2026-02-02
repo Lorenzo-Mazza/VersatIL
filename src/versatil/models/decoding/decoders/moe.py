@@ -112,10 +112,10 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
                 - routing_weights: Computed routing weights
                 - expert_outputs: Individual expert prediction dictionaries
         """
-        if actions is None:
-            gating_key = self.inference_gating_key
-        else:
+        if self.training:
             gating_key = self.gating_feature_key
+        else:
+            gating_key = self.inference_gating_key
         gating_feature = features[gating_key]  # (B, embedding dimension)
         mixing_probabilities = self.compute_routing_weights(
             gating_feature
@@ -128,7 +128,7 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
                 expert_outputs[i] = expert(features, actions)
         torch.cuda.synchronize()
         combined_outputs = self._combine_expert_outputs(
-            expert_outputs, mixing_probabilities
+            expert_outputs=expert_outputs, weights=mixing_probabilities
         )
         combined_outputs[DecoderOutputKey.ROUTING_WEIGHTS.value] = mixing_probabilities
         combined_outputs[DecoderOutputKey.EXPERT_OUTPUTS.value] = expert_outputs

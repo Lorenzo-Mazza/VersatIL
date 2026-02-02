@@ -1259,70 +1259,45 @@ class PriorDenoisingLoss(BaseLoss):
         )
 
 
-class FixedVarianceGaussianNLLoss(BaseLoss):
-    """Negative Log-Likelihood loss for Gaussian Mixture Model with fixed variance.
+class GaussianMixtureNLLoss(BaseLoss):
+    """Negative Log-Likelihood loss for Gaussian Mixture Model.
 
-    This loss assumes the action distribution is a mixture of Gaussians:
-        p(a | z) = Σ_k π_k(z) · N(a | μ_k(z), σ²I)
+    Supports both learned variance (from logvar predictions) and fixed variance (sigma parameter).
 
-    where:
-        - K is the number of mixture components (experts)
-        - π_k(z) are the mixing probabilities (must sum to 1), predicted by a gating network
-        - μ_k(z) are the component means, predicted by expert networks
-        - σ² is a fixed (not learned) isotropic variance, specified as a hyperparameter
-
-    The negative log-likelihood is:
-        NLL = -log p(a | z) = -log Σ_k π_k · N(a | μ_k, σ²I)
-
-    Unlike MSE on blended predictions, this loss rewards having at least one expert
-    close to the target, enabling true multimodal action distributions. Gradients are
-    weighted by posterior responsibility γ_k, causing experts to specialize naturally.
-
-    The fixed standard deviation σ controls the "softness" of expert assignment:
-        - Small σ: Sharp assignments, experts must be very close to claim a sample
-        - Large σ: Soft assignments, multiple experts can share responsibility
-
-    Typical values depend on your action scale. Start with σ ≈ 0.1 * action_range/ 0.5*action_std.
-
-    Note: The Gaussian normalization constant -0.5 * log(2πσ²) is omitted since
-    it's constant w.r.t. parameters and doesn't affect optimization.
+    The loss computes: NLL = -log Σ_k π_k · N(a | μ_k, σ_k²)
     """
 
     def __init__(
         self,
         action_keys: list[str],
-        sigmas: dict[str, float] | None = None,
         weight: float = 1.0,
         per_key_weights: dict[str, float] | None = None,
+        learned_variance: bool = True,
+        sigmas: dict[str, float] | None = None,
+        min_variance: float = 1e-4,
     ):
-        """Initialize NLL loss with fixed variance.
+        """Initialize Gaussian mixture NLL loss.
 
         Args:
-            action_keys: List of action keys this loss applies to
-            sigmas: Optional dict of fixed stddev per action key; if None, defaults to 1.0
-            weight: Weight for NLL loss
-            per_key_weights: Optional dict of per-key weights for loss components
+            action_keys: List of continuous action keys.
+            weight: Overall loss weight.
+            per_key_weights: Optional per-key weights.
+            learned_variance: If True, expects {action_key}_mean and {action_key}_logvar.
+                If False, expects {action_key} (stacked means) and uses sigmas.
+            sigmas: Fixed stddev per action key (only used when learned_variance=False).
+            min_variance: Minimum variance for numerical stability (learned_variance=True).
         """
         super().__init__()
         self.action_keys = action_keys
         self.weight = weight
-        self.per_key_weights = (
-            per_key_weights
-            if per_key_weights is not None
-            else {key: 1.0 for key in action_keys}
-        )
-        if sigmas is None:
-            self.sigmas = {key: 0.5 for key in action_keys}
-        else:
-            # Fill missing keys with default
-            self.sigmas = {key: sigmas.get(key, 0.5) for key in action_keys}
+        self.per_key_weights = per_key_weights or {k: 1.0 for k in action_keys}
+        self.learned_variance = learned_variance
+        self.min_variance = min_variance
+        if not learned_variance:
+            self.sigmas = sigmas or {k: 0.5 for k in action_keys}
 
     def get_required_keys(self) -> set[str]:
-        """Get required target keys for FV-NLL.
-
-        Returns:
-            Set of action keys this loss operates on
-        """
+        """Get required target keys."""
         return set(self.action_keys)
 
     def forward(
@@ -1331,84 +1306,86 @@ class FixedVarianceGaussianNLLoss(BaseLoss):
         targets: dict[str, torch.Tensor],
         is_pad: torch.Tensor | None = None,
     ) -> LossOutput:
-        """Compute NLL loss.
+        """Compute Gaussian mixture NLL loss.
 
         Args:
-            predictions: Dictionary containing for each action_key:
-                - '{action_key}_{DecoderOutputKey.ROUTING_WEIGHTS.value}': Mixing probabilities π_k from softmax
-                  Shape: (batch, chunk_size, num_experts)
-                  Must sum to 1 along last dimension
-                - '{action_key}_{DecoderOutputKey.EXPERT_OUTPUTS.value}': Expert mean predictions μ_k
-                  Shape: (batch, chunk_size, num_experts, action_dim)
-            targets: Dictionary containing for each action_key:
-                - '{action_key}': Ground truth actions
-                  Shape: (batch, chunk_size, action_dim)
-            is_pad: Optional boolean mask indicating padded timesteps
-                Shape: (batch, chunk_size)
-                True = padded (excluded from loss), False = valid
+            predictions: Dictionary containing:
+                - routing_weights: (B, K) or (B, T, K)
+                - If learned_variance: {action_key}_mean (B, T, K, D), {action_key}_logvar (B, T, K, D)
+                - If fixed variance: {action_key} (B, T, K, D) stacked expert means
+            targets: Dictionary with action_key targets (B, T, D).
+            is_pad: Optional padding mask (B, T).
 
         Returns:
-            LossOutput with:
-                - total_loss: Weighted sum of NLL across all action keys
-                - component_losses: Dict of per-key NLL values for logging
+            LossOutput with Gaussian mixture NLL.
         """
         component_losses = {}
         total_loss = 0.0
+        mixing_probs = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]
         for action_key in self.action_keys:
-            routing_key = f"{action_key}_{DecoderOutputKey.ROUTING_WEIGHTS.value}"
-            expert_key = f"{action_key}_{DecoderOutputKey.EXPERT_OUTPUTS.value}"
-            if routing_key not in predictions or expert_key not in predictions:
-                raise ValueError(
-                    f"Predictions must contain '{routing_key}' and '{expert_key}' "
-                    f"for FixedVarianceNLLoss. Got keys: {list(predictions.keys())}"
-                )
-            if action_key not in targets:
-                raise ValueError(
-                    f"Targets must contain '{action_key}' for FixedVarianceNLLoss. "
-                    f"Got keys: {list(targets.keys())}"
-                )
-
-            key_weight = self.per_key_weights.get(action_key, 1.0)
-            sigma = self.sigmas[action_key]
-
-            target = targets[action_key].unsqueeze(
-                2
-            )  # (B, T, 1, action_dim) -- broadcasts with (B, T, num_experts, action_dim)
-            mixing_probs = predictions[
-                f"{action_key}_{DecoderOutputKey.ROUTING_WEIGHTS.value}"
-            ]  # (B, T, num_experts)
-            expert_outs = predictions[
-                f"{action_key}_{DecoderOutputKey.EXPERT_OUTPUTS.value}"
-            ]  # (B, T, num_experts, action_dim)
-
-            log_pi = torch.log(mixing_probs + 1e-8)  # (B, T, num_experts)
-
-            # Log Gaussian component (up to constant): log N(a | μ_k, σ²) ∝ -||a - μ_k||² / (2σ²)
-            diff = target - expert_outs  # (B, T, 1, D) - (B, T, K, D) = (B, T, K, D)
-            log_component = (
-                -0.5 * (diff ** 2).sum(-1) / (sigma ** 2)
-            )  # (B, T, num_experts)
-            # Log mixture probability via logsumexp: log Σ_k π_k N(a | μ_k)
-            log_prob = torch.logsumexp(log_pi + log_component, dim=-1)  # (B, T)
-            nll = -log_prob  # (B, T)
+            target = targets[action_key]  # (B, T, D)
+            if self.learned_variance:
+                mean_key = f"{action_key}_{DecoderOutputKey.MEAN.value}"
+                logvar_key = f"{action_key}_{DecoderOutputKey.LOGVAR.value}"
+                means = predictions[mean_key]  # (B, T, K, D)
+                logvars = predictions[logvar_key]  # (B, T, K, D)
+                nll = self._compute_learned_variance_nll(target, mixing_probs, means, logvars)
+            else:
+                means = predictions[action_key]  # (B, T, K, D)
+                sigma = self.sigmas.get(action_key, 0.5)
+                nll = self._compute_fixed_variance_nll(target, mixing_probs, means, sigma)
             nll_reduced = reduce_loss_with_padding(nll, is_pad, reduction="mean")
-            component_losses[action_key] = nll_reduced
+            key_weight = self.per_key_weights.get(action_key, 1.0)
+            component_losses[f"{action_key}_{MetricKey.GAUSSIAN_MIXTURE_NLL.value}"] = nll_reduced
             total_loss = total_loss + key_weight * nll_reduced
+        return LossOutput(total_loss=self.weight * total_loss, component_losses=component_losses)
 
-        return LossOutput(
-            total_loss=self.weight * total_loss,
-            component_losses=component_losses,
-        )
+    def _compute_learned_variance_nll(
+        self,
+        target: torch.Tensor,
+        mixing_probs: torch.Tensor,
+        means: torch.Tensor,
+        logvars: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute NLL with learned variance from logvar predictions."""
+        action_dimension = target.shape[-1]
+        logvars = logvars.clamp(min=math.log(self.min_variance))
+        target = target.unsqueeze(2)  # (B, T, 1, D)
+        difference = target - means  # (B, T, K, D)
+        scaled_squared_error = (difference ** 2) * torch.exp(-logvars)  # (B, T, K, D)
+        log_normalization = -0.5 * action_dimension * math.log(2 * math.pi)
+        log_gaussian = log_normalization - 0.5 * (logvars + scaled_squared_error).sum(dim=-1)
+        if mixing_probs.dim() == 2:
+            mixing_probs = mixing_probs.unsqueeze(1)  # (B, 1, K)
+        log_mixing_weights = torch.log(mixing_probs + 1e-8)  # (B, T, K)
+        log_mixture_prob = torch.logsumexp(log_mixing_weights + log_gaussian, dim=-1)
+        return -log_mixture_prob
+
+    def _compute_fixed_variance_nll(
+        self,
+        target: torch.Tensor,
+        mixing_probs: torch.Tensor,
+        means: torch.Tensor,
+        sigma: float,
+    ) -> torch.Tensor:
+        """Compute NLL with fixed variance (sigma parameter)."""
+        target = target.unsqueeze(2)  # (B, T, 1, D)
+        difference = target - means  # (B, T, K, D)
+        log_gaussian = -0.5 * (difference ** 2).sum(-1) / (sigma ** 2)  # (B, T, K)
+        if mixing_probs.dim() == 2:
+            mixing_probs = mixing_probs.unsqueeze(1)  # (B, 1, K)
+        log_mixing_weights = torch.log(mixing_probs + 1e-8)  # (B, T, K)
+        log_mixture_prob = torch.logsumexp(log_mixing_weights + log_gaussian, dim=-1)
+        return -log_mixture_prob
 
 
-class FixedVarianceGripperMixtureNLLoss(BaseLoss):
-    """Negative Log-Likelihood loss for gripper with mixture distribution and shared expert routing.
+class GripperMixtureNLLoss(BaseLoss):
+    """Negative Log-Likelihood loss for gripper with mixture distribution.
 
     Binary gripper: p(a|z) = Σ_k π_k(z) · Bernoulli(a | p_k(z))
-    Continuous gripper: p(a|z) = Σ_k π_k(z) · N(a | μ_k(z), σ²I) with fixed variance
+    Continuous gripper: p(a|z) = Σ_k π_k(z) · N(a | μ_k(z), σ_k²)
 
-    Uses same routing weights as continuous action experts, ensuring gripper
-    behavior is coupled with the selected manipulation strategy.
+    Supports both fixed and learned variance for continuous gripper.
     """
 
     def __init__(
@@ -1416,20 +1393,27 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
         key: str,
         actions_metadata: dict[str, ActionMetadata],
         weight: float = 1.0,
+        learned_variance: bool = False,
         sigma: float = 0.5,
+        min_variance: float = 1e-4,
     ):
         """Initialize gripper mixture NLL loss.
 
         Args:
-            key: Key for gripper actions
-            actions_metadata: Dict of metadata of the action space
-            weight: Loss weight
-            sigma: Fixed std for continuous gripper (ignored for binary)
+            key: Key for gripper actions.
+            actions_metadata: Dict of metadata of the action space.
+            weight: Loss weight.
+            learned_variance: If True, expects {key}_mean and {key}_logvar for continuous.
+                If False, expects {key} (stacked means) and uses sigma.
+            sigma: Fixed std for continuous gripper (only used when learned_variance=False).
+            min_variance: Minimum variance for numerical stability (learned_variance=True).
         """
         super().__init__()
         self.key = key
         self.weight = weight
+        self.learned_variance = learned_variance
         self.sigma = sigma
+        self.min_variance = min_variance
         resolved_metadata = resolve_dict_keys(dict(actions_metadata))
         if key not in resolved_metadata.keys():
             raise ValueError(
@@ -1467,67 +1451,72 @@ class FixedVarianceGripperMixtureNLLoss(BaseLoss):
 
         Args:
             predictions: Dictionary containing:
-                - '{ProprioceptiveType.GRIPPER.value}_{DecoderOutputKey.ROUTING_WEIGHTS.value}': Mixing probs π_k, shape (B, T, K)
-                - '{ProprioceptiveType.GRIPPER.value}_{DecoderOutputKey.EXPERT_OUTPUTS.value}': Expert predictions
-                  Binary: (B, T, K) logits
-                  Continuous: (B, T, K, D) means
-            targets: Dictionary with '{ProprioceptiveType.GRIPPER.value}'
-                Binary: (B, T) or (B, T, 1)
-                Continuous: (B, T, D)
-            is_pad: Optional padding mask (B, T)
+                - routing_weights: (B, K) or (B, T, K) mixing probabilities
+                - For binary: {key} stacked logits (B, T, K) or (B, T, K, 1)
+                - For continuous with learned_variance: {key}_mean (B, T, K, D), {key}_logvar (B, T, K, D)
+                - For continuous with fixed variance: {key} stacked means (B, T, K, D)
+            targets: Dictionary with gripper targets.
+            is_pad: Optional padding mask (B, T).
 
         Returns:
-            LossOutput with gripper NLL
+            LossOutput with gripper NLL.
         """
-        routing_key = f"{self.key}_{DecoderOutputKey.ROUTING_WEIGHTS.value}"
-        expert_key = f"{self.key}_{DecoderOutputKey.EXPERT_OUTPUTS.value}"
-        if routing_key not in predictions or expert_key not in predictions:
-            raise ValueError(
-                f"Predictions must contain '{routing_key}' and '{expert_key}' for GripperMixtureNLLoss."
-            )
         if self.key not in targets:
-            raise ValueError(
-                f"Targets must contain '{self.key}' for GripperMixtureNLLoss."
-            )
-
+            raise ValueError(f"Targets must contain '{self.key}' for GripperMixtureNLLoss.")
         target = targets[self.key]
-        mixing_probs = predictions[routing_key]  # (B, T, K)
-        expert_outs = predictions[expert_key]
-        log_pi = torch.log(mixing_probs + 1e-8)  # (B, T, K)
+        mixing_probs = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]
+        if mixing_probs.dim() == 2:
+            mixing_probs = mixing_probs.unsqueeze(1)  # (B, 1, K)
+        log_mixing_weights = torch.log(mixing_probs + 1e-8)  # (B, T, K)
         if self.gripper_type == GripperType.BINARY.value:
-            # target: (B, T) or (B, T, 1) -> (B, T)
-            # expert_outs: (B, T, K) logits
-            if target.dim() == 3:
-                target = target.squeeze(-1)
-            if expert_outs.dim() == 4:
-                expert_outs = expert_outs.squeeze(-1)
-            if self.binary_gripper_range == BinaryGripperRange.MINUS_ONE_ONE.value:
-                target = (target.float() + 1.0) / 2.0
-
-            expert_probs = torch.sigmoid(expert_outs).clamp(1e-8, 1 - 1e-8)
-            target_expanded = target.unsqueeze(-1)  # (B, T, 1)
-            log_component = target_expanded * torch.log(expert_probs) + (
-                1 - target_expanded
-            ) * torch.log(
-                1 - expert_probs
-            )  # (B, T, K)
+            log_component = self._compute_binary_log_component(predictions, target)
         else:
-            # target: (B, T, D) -> (B, T, 1, D)
-            # expert_outs: (B, T, K, D)
-            target_expanded = target.unsqueeze(2)  # (B, T, 1, D)
-            diff = target_expanded - expert_outs  # (B, T, K, D)
-            log_component = (
-                -0.5 * (diff ** 2).sum(dim=-1) / (self.sigma ** 2)
-            )  # (B, T, K)
+            log_component = self._compute_continuous_log_component(predictions, target)
 
-        log_prob = torch.logsumexp(log_pi + log_component, dim=-1)  # (B, T)
-        nll = -log_prob
+        log_mixture_prob = torch.logsumexp(log_mixing_weights + log_component, dim=-1)
+        nll = -log_mixture_prob
         nll_reduced = reduce_loss_with_padding(nll, is_pad, reduction="mean")
-        metric_key = MetricKey.GRIPPER_NLL.value
         return LossOutput(
             total_loss=self.weight * nll_reduced,
-            component_losses={metric_key: nll_reduced},
+            component_losses={MetricKey.GRIPPER_NLL.value: nll_reduced},
         )
+
+    def _compute_binary_log_component(
+        self, predictions: dict[str, torch.Tensor], target: torch.Tensor
+    ) -> torch.Tensor:
+        """Compute log Bernoulli component for binary gripper."""
+        expert_logits = predictions[self.key]  # (B, T, K) or (B, T, K, 1)
+        if target.dim() == 3:
+            target = target.squeeze(-1)
+        if expert_logits.dim() == 4:
+            expert_logits = expert_logits.squeeze(-1)
+        if self.binary_gripper_range == BinaryGripperRange.MINUS_ONE_ONE.value:
+            target = (target.float() + 1.0) / 2.0
+        log_probability = F.logsigmoid(expert_logits)  # (B, T, K)
+        log_one_minus_probability = F.logsigmoid(-expert_logits)  # (B, T, K)
+        target_expanded = target.unsqueeze(-1)  # (B, T, 1)
+        log_bernoulli = target_expanded * log_probability + (1 - target_expanded) * log_one_minus_probability
+        return log_bernoulli  # (B, T, K)
+
+    def _compute_continuous_log_component(
+        self, predictions: dict[str, torch.Tensor], target: torch.Tensor
+    ) -> torch.Tensor:
+        """Compute log Gaussian component for continuous gripper."""
+        target_expanded = target.unsqueeze(2)  # (B, T, 1, D)
+        if self.learned_variance:
+            mean_key = f"{self.key}_{DecoderOutputKey.MEAN.value}"
+            logvar_key = f"{self.key}_{DecoderOutputKey.LOGVAR.value}"
+            means = predictions[mean_key]  # (B, T, K, D)
+            logvars = predictions[logvar_key].clamp(min=math.log(self.min_variance))
+            difference = target_expanded - means
+            scaled_squared_error = (difference ** 2) * torch.exp(-logvars)
+            action_dimension = target.shape[-1]
+            log_normalization = -0.5 * action_dimension * math.log(2 * math.pi)
+            return log_normalization - 0.5 * (logvars + scaled_squared_error).sum(dim=-1)
+        else:
+            means = predictions[self.key]  # (B, T, K, D)
+            difference = target_expanded - means
+            return -0.5 * (difference ** 2).sum(dim=-1) / (self.sigma ** 2)  # (B, T, K)
 
 
 class MoELoss(BaseLoss):
@@ -1557,6 +1546,34 @@ class MoELoss(BaseLoss):
             DecoderOutputKey.ROUTING_WEIGHTS.value
         }
 
+    def _add_weighted_mean_predictions(
+        self, predictions: dict[str, torch.Tensor]
+    ) -> dict[str, torch.Tensor]:
+        """Add weighted mean predictions for GMM outputs.
+
+        For each {key}_mean (B, T, K, D), computes weighted mean using routing_weights
+        and adds it as {key} (B, T, D). This allows base losses to use standard action keys.
+        """
+        routing_weights = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]
+        mean_suffix = f"_{DecoderOutputKey.MEAN.value}"
+        augmented = dict(predictions)
+
+        for key, value in predictions.items():
+            if not key.endswith(mean_suffix):
+                continue
+            base_key = key[: -len(mean_suffix)]
+            if base_key in predictions:
+                continue
+            # value: (B, T, K, D), routing_weights: (B, K) or (B, T, K)
+            weights = routing_weights
+            if weights.dim() == 2:
+                weights = weights.unsqueeze(1).unsqueeze(-1)  # (B, 1, K, 1)
+            elif weights.dim() == 3:
+                weights = weights.unsqueeze(-1)  # (B, T, K, 1)
+            weighted_mean = (value * weights).sum(dim=2)  # (B, T, D)
+            augmented[base_key] = weighted_mean
+        return augmented
+
     def forward(
         self,
         predictions: dict[str, torch.Tensor],
@@ -1564,11 +1581,12 @@ class MoELoss(BaseLoss):
         is_pad: torch.Tensor | None = None,
     ) -> LossOutput:
         """Passthrough base loss, then add expert_usage from routing weights and optionally add entropy term."""
+        predictions = self._add_weighted_mean_predictions(predictions)
         base_output: LossOutput = self.base_loss(predictions, targets, is_pad)
         metadata = base_output.metadata if base_output.metadata is not None else {}
         component_losses = dict(base_output.component_losses)
         entropy_loss = 0.0
-        pi = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]  # (B, T, num_experts)
+        pi = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]  # (B, K) or (B, T, K)
         if self.entropy_weight != 0.0:
             entropy = -(pi * torch.log(pi + 1e-8)).sum(dim=-1)  # (B, T)
             if entropy.dim() == 2:
@@ -1633,3 +1651,7 @@ class MetadataPassthrough(BaseLoss):
             component_losses={},
             metadata=metadata,
         )
+
+
+
+

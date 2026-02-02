@@ -72,6 +72,7 @@ class Policy(nn.Module):
         """Set normalizer for observations and actions."""
         self.normalizer.load_state_dict(normalizer.state_dict())
         self.normalizer.to(self.device)
+        self.decoder.set_normalizer(self.normalizer)
 
     def set_tokenizer(self, tokenizer: Tokenizer | None):
         """Set tokenizer and pass it to the decoder."""

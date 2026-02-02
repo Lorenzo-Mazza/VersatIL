@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 
 from versatil.data.constants import SampleKey
-from versatil.models.decoding.action_heads.head import ActionHead
+from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import DecoderOutputKey, MoERoutingType
 from versatil.models.decoding.mixture_of_experts import BaseMixtureOfExperts
 from versatil.models.layers.activation import ActivationFunction

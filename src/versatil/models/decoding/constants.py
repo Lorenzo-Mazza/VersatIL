@@ -18,8 +18,15 @@ class LatentKey(str, enum.Enum):
 class MoERoutingType(str, enum.Enum):
     """Enum for different Mixture of Experts (MoE) routing strategies."""
 
-    TOP_K = "top_k"  # Select the top-k experts based on gating scores
-    SOFT = "soft"  # Weighted combination of all experts based on gating scores
+    TOP_K = "top_k"
+    SOFT = "soft"
+
+
+class GMMInitStrategy(str, enum.Enum):
+    """Initialization strategies for GMM mixture components."""
+
+    KMEANS_PLUS_PLUS = "kmeans_plus_plus"  # K-means++ style spread for means
+    UNIFORM = "uniform"  # Simple uniform spread 
 
 
 class PredictionType(str, enum.Enum):
@@ -89,3 +96,5 @@ class DecoderOutputKey(str, enum.Enum):
     ACTION_LOGITS = "action_logits"
     PREDICTED_ACTION_TOKENS = "pred_action_tokens"
     CLASS_TOKEN = "cls_token"
+    MEAN = "mean"
+    LOGVAR = "logvar"

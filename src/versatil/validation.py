@@ -10,6 +10,7 @@ from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 from versatil.models.decoding.decoders import MoEDecoder
+from versatil.models.decoding.decoders.factory.mode_act import MixtureOfDensitiesActionTransformer
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.pipeline import EncodingPipeline
@@ -222,8 +223,9 @@ class ExperimentValidator:
                 }
             )
 
-        if isinstance(self.decoder, MoEDecoder) or any(
-            isinstance(h, MoEHead) for h in self.decoder.action_heads.values()
+        if (
+            isinstance(self.decoder, (MoEDecoder, MixtureOfDensitiesActionTransformer))
+            or any(isinstance(h, MoEHead) for h in self.decoder.action_heads.values())
         ):
             valid_loss_keys.add(DecoderOutputKey.ROUTING_WEIGHTS.value)
 
