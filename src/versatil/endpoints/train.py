@@ -46,15 +46,6 @@ def main(config: DictConfig) -> None:
     instantiated_config = hydra.utils.instantiate(config)
     validate_experiment(instantiated_config)
     workspace = Workspace(instantiated_config, original_yaml_config=config)
-    if instantiated_config.experiment.resume_from is not None:
-        checkpoint_path = Path(instantiated_config.experiment.resume_from)
-        if checkpoint_path.exists():
-            logger.info(f"Resuming from checkpoint: {checkpoint_path}")
-            workspace.load_checkpoint(str(checkpoint_path))
-        else:
-            logger.warning(
-                f"Checkpoint not found: {checkpoint_path}. Starting from scratch."
-            )
     workspace.run()
     logger.info("Training completed successfully!")
 

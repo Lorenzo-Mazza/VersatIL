@@ -119,11 +119,22 @@ class Workspace:
         self.lightning_policy._train_dataloader = self.train_loader
         self.lightning_policy._val_dataloader = self.val_loader
         self._setup_trainer()
+        resume_checkpoint_path = None
+        if self.config.experiment.resume_from is not None:
+            checkpoint_path = Path(self.config.experiment.resume_from)
+            if checkpoint_path.exists():
+                logging.info(f"Resuming from checkpoint: {checkpoint_path}")
+                resume_checkpoint_path = str(checkpoint_path)
+            else:
+                logging.warning(
+                    f"Checkpoint not found: {checkpoint_path}. Starting from scratch."
+                )
+
         self._tune_hyperparameters()
 
         logging.info("Starting training...")
         assert self.trainer is not None, "Trainer should be initialized"
-        self.trainer.fit(model=self.lightning_policy)
+        self.trainer.fit(model=self.lightning_policy, ckpt_path=resume_checkpoint_path)
         logging.info(f"Training completed. Best checkpoint saved to {self.output_dir}")
 
     def _set_seed(self):
