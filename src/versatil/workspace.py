@@ -125,6 +125,14 @@ class Workspace:
             if checkpoint_path.exists():
                 logging.info(f"Resuming from checkpoint: {checkpoint_path}")
                 resume_checkpoint_path = str(checkpoint_path)
+                for callback in self.trainer.callbacks:
+                    if isinstance(callback, EarlyStopping):
+                        callback.wait_count = 0
+                        callback.best_score = None
+                        callback.patience = self.config.training.early_stopping_patience
+                        logging.info(
+                            f"Reset EarlyStopping: patience={callback.patience}"
+                        )
             else:
                 logging.warning(
                     f"Checkpoint not found: {checkpoint_path}. Starting from scratch."
