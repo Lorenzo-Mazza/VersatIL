@@ -13,7 +13,6 @@ import wandb
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import OmegaConf, DictConfig
 from pytorch_lightning.callbacks import (
-    EarlyStopping,
     LearningRateMonitor,
     ModelCheckpoint,
     StochasticWeightAveraging,
@@ -42,6 +41,7 @@ from versatil.training.callbacks import (
     ReduceLROnPlateauCallback,
     ExpertUsageCallback,
     LatentVisualizationCallback,
+    ResumableEarlyStopping,
 )
 from versatil.training.lightning_policy import LightningPolicy
 
@@ -125,14 +125,6 @@ class Workspace:
             if checkpoint_path.exists():
                 logging.info(f"Resuming from checkpoint: {checkpoint_path}")
                 resume_checkpoint_path = str(checkpoint_path)
-                for callback in self.trainer.callbacks:
-                    if isinstance(callback, EarlyStopping):
-                        callback.wait_count = 0
-                        callback.best_score = None
-                        callback.patience = self.config.training.early_stopping_patience
-                        logging.info(
-                            f"Reset EarlyStopping: patience={callback.patience}"
-                        )
             else:
                 logging.warning(
                     f"Checkpoint not found: {checkpoint_path}. Starting from scratch."
@@ -292,8 +284,7 @@ class Workspace:
         logging.info(
             f"Added latest checkpoint callback (every {self.config.experiment.checkpoint_every} epochs)"
         )
-
-        early_stopping_callback = EarlyStopping(
+        early_stopping_callback = ResumableEarlyStopping(
             monitor="val_loss",
             mode="min",
             patience=self.config.training.early_stopping_patience,
@@ -489,17 +480,18 @@ class Workspace:
         """
         logging.info(f"Loading checkpoint from: {checkpoint_path}")
         checkpoint = torch.load(
-            checkpoint_path, map_location=self.config.experiment.device
+            checkpoint_path,
+            map_location=self.config.experiment.device,
+            weights_only=False,
         )
-        assert (
-            self.policy is not None
-        ), "Policy must be initialized before loading checkpoint"
-        assert self.lightning_policy is not None, "LightningPolicy must be initialized"
-        if "state_dict" in checkpoint:
-            # Lightning checkpoint format
-            self.lightning_policy.load_state_dict(checkpoint["state_dict"])
-        else:
+        if self.policy is None:
+            raise RuntimeError("Policy must be initialized before loading checkpoint")
+        if self.lightning_policy is None:
+            raise RuntimeError("LightningPolicy must be initialized before loading checkpoint")
+        if "state_dict" not in checkpoint:
             raise ValueError("Checkpoint format not recognized")
+
+        self.lightning_policy.load_state_dict(checkpoint["state_dict"])
         logging.info("Checkpoint loaded successfully")
 
         # We need to load explicitly the tokenizer because it's not a torch.nn.Module , differently from the normalizer.

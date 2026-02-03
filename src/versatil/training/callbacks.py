@@ -9,12 +9,22 @@ import seaborn as sns
 import torch
 import wandb
 from PIL import Image
-from pytorch_lightning.callbacks import Callback
+from pytorch_lightning.callbacks import Callback, EarlyStopping
 from sklearn.manifold import TSNE
 from torch.nn.modules.batchnorm import _BatchNorm
 from torch.optim.lr_scheduler import ReduceLROnPlateau as TorchReduceLROnPlateau
 
 plt.set_loglevel("warning")
+
+
+class ResumableEarlyStopping(EarlyStopping):
+    """EarlyStopping that ignores checkpoint state, always using config values.
+    
+    Note: this allows to resume training beyond an initial early stopping state, which is 
+     otherwise not possible to overwrite from Lightning.
+    """
+    def load_state_dict(self, state_dict):
+        pass
 
 
 class EMACallback(Callback):
