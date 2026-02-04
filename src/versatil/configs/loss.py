@@ -118,25 +118,16 @@ class PhaseClassificationLossConfig(BaseLossConfig):
 
 
 @dataclass
-class FixedVarianceGaussianNLLossConfig(BaseLossConfig):
-    """Configuration for fixed variance Gaussian Negative Log-Likelihood loss."""
-
-    _target_: str = "versatil.metrics.FixedVarianceGaussianNLLoss"
-    action_keys: list[str] = MISSING
-    sigmas: dict[str, float] | None = None
-    per_key_weights: dict[str, float] | None = None
-    weight: float = 1.0
-
-
-@dataclass
-class FixedVarianceGripperMixtureNLLossConfig(BaseLossConfig):
+class GripperMixtureNLLossConfig(BaseLossConfig):
     """Configuration for gripper Mixture Negative Log-Likelihood loss."""
 
-    _target_: str = "versatil.metrics.FixedVarianceGripperMixtureNLLoss"
+    _target_: str = "versatil.metrics.GripperMixtureNLLoss"
     key: str = MISSING
     actions_metadata: Any = "${task.action_space.actions_metadata}"
-    sigma: float = 0.5
     weight: float = 1.0
+    learned_variance: bool = False
+    sigma: float = 0.5
+    min_variance: float = 1e-4
 
 
 @dataclass
@@ -162,3 +153,30 @@ class MoELossConfig:
 
     _target_: str = "versatil.metrics.MoELoss"
     base_loss: BaseLossConfig = MISSING
+
+
+@dataclass
+class GaussianMixtureNLLossConfig(BaseLossConfig):
+    """Configuration for Gaussian Mixture Negative Log-Likelihood loss."""
+
+    _target_: str = "versatil.metrics.GaussianMixtureNLLoss"
+    action_keys: list[str] = MISSING
+    weight: float = 1.0
+    per_key_weights: dict[str, float] | None = None
+    learned_variance: bool = True
+    sigmas: dict[str, float] | None = None
+    min_variance: float = 1e-4
+
+
+@dataclass
+class OptimalTransportLossConfig(BaseLossConfig):
+    """Configuration for Optimal Transport loss using Sinkhorn divergence."""
+
+    _target_: str = "versatil.metrics.ot_loss.OptimalTransportLoss"
+    action_keys: list[str] = MISSING
+    weight: float = 1.0
+    p: int = 1
+    epsilon: float = 0.01
+    time_scale: float = 1.0
+
+

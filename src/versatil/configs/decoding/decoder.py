@@ -6,7 +6,7 @@ from omegaconf import MISSING
 
 from versatil.configs.decoding.action_head import MixtureOfExpertsHeadConfig
 from versatil.configs.data.task import ActionSpaceConfig, ObservationSpaceConfig
-from versatil.models.decoding.constants import MoERoutingType, DiTType
+from versatil.models.decoding.constants import MoERoutingType, DiTType, GMMInitStrategy
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import (
     AttentionType,
@@ -163,6 +163,41 @@ class ActionTransformerConfig(DecodingNetworkConfig):
     positional_encoding_type: str | None = (
         PositionalEncodingType.ROPE.value
     )  # Type of positional encoding
+
+
+@dataclass
+class MixtureOfDensitiesActionTransformerConfig(DecodingNetworkConfig):
+    """Mixture of Densities Action Transformer (MODE-ACT) configuration.
+
+    MODE-ACT extends ActionTransformer with mixture density network capabilities
+    for multi-modal action prediction. It uses K copies of each action head and
+    a gating network to predict mixture weights.
+    """
+
+    _target_: str = (
+        "versatil.models.decoding.decoders.factory.mode_act.MixtureOfDensitiesActionTransformer"
+    )
+    embedding_dimension: int = 256
+    number_of_heads: int = 8
+    number_of_key_value_heads: int | None = None
+    feedforward_dimension: int | None = None
+    number_of_layers: int = 6
+    activation: str = ActivationFunction.SWIGLU.value
+    normalization_type: str = NormalizationType.RMS_NORM.value
+    attention_type: str = AttentionType.MULTI_HEAD.value
+    dropout_rate: float = 0.1
+    attention_dropout: float = 0.0
+    positional_encoding_type: str | None = PositionalEncodingType.ROPE.value
+    num_mixture_components: int = 8
+    gating_hidden_dims: list[int] = field(default_factory=lambda: [256, 128])
+    gating_activation: str = ActivationFunction.SILU.value
+    gating_dropout: float = 0.1
+    gating_normalization: bool = True
+    temperature: float = 1.0
+    learnable_temperature: bool = False
+    gating_feature_key: str | None = None
+    gmm_init_strategy: str = GMMInitStrategy.KMEANS_PLUS_PLUS.value
+    deterministic_inference: bool = True
 
 
 @dataclass

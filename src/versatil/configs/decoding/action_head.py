@@ -61,6 +61,17 @@ class ActionHeadConfig:
 
 
 @dataclass
+class GaussianHeadConfig:
+    """Configuration for GaussianHead that outputs mean and logvar."""
+
+    _target_: str = "versatil.models.decoding.action_heads.GaussianHead"
+    input_dim: int = MISSING
+    blocks: list[Any] | None = None
+    min_logvar: float = -10.0
+    max_logvar: float = 4.0
+
+
+@dataclass
 class MixtureOfExpertsHeadConfig:
     """Configuration for Mixture of Experts action head.
 

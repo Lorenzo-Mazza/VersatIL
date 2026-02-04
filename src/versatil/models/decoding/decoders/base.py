@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 
 from versatil.common.omegaconf_ops import resolve_dict_keys
+from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ObservationSpace, ActionSpace
 from versatil.data.tokenization import Tokenizer, ActionTokenizer
 from versatil.models.constants import FeatureType
@@ -137,6 +138,7 @@ class ActionDecoder(nn.Module, ABC):
         self.device = torch.device(device)
         self._set_action_head_dimensions()
         self.validate_action_heads()
+        self.normalizer: LinearNormalizer = LinearNormalizer()
         self.tokenizer: ActionTokenizer | None = None
 
     def _set_action_head_dimensions(self) -> None:
@@ -186,6 +188,14 @@ class ActionDecoder(nn.Module, ABC):
                 "Tokenizer must be provided for tokenized action decoders."
             )
         self.tokenizer = tokenizer.action_tokenizer
+
+    def set_normalizer(self, normalizer: "LinearNormalizer") -> None:
+        """Set normalizer for data-dependent initialization.
+
+        Args:
+            normalizer: LinearNormalizer instance with loaded state.
+        """
+        self.normalizer = normalizer
 
     @abstractmethod
     def forward(

@@ -13,8 +13,12 @@ from versatil.models.decoding.action_heads.blocks import (
     MLPBlock,
     ResidualBlock,
 )
-from versatil.models.decoding.action_heads.head import (
+from versatil.models.decoding.action_heads.single_output import (
     ActionHead,
+)
+from versatil.models.decoding.action_heads.base import BaseActionHead
+from versatil.models.decoding.action_heads.gaussian import (
+    GaussianHead,
 )
 from versatil.models.decoding.action_heads.moe import MoEHead
 
@@ -23,6 +27,8 @@ __all__ = [
     "MLPBlock",
     "AttentionBlock",
     "ResidualBlock",
+    "BaseActionHead",
     "ActionHead",
+    "GaussianHead",
     "MoEHead",
 ]
