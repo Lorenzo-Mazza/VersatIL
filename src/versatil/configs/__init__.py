@@ -92,22 +92,23 @@ from versatil.configs.encoding.fusion import (
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.inference import InferenceConfig
 from versatil.configs.loss import (
-    CompositeLossConfig,
-    RegressionLossConfig,
     BaseLossConfig,
-    GaussianEntropyLossConfig,
-    GripperLossConfig,
-    KLDivergenceLossConfig,
     BinaryKLDivergenceLossConfig,
+    BinaryMaximumMeanDiscrepancyLossConfig,
+    CompositeLossConfig,
+    GaussianEntropyLossConfig,
+    GaussianMixtureNLLossConfig,
+    GripperLossConfig,
+    GripperMixtureNLLossConfig,
+    KLDivergenceLossConfig,
+    MaximumMeanDiscrepancyLossConfig,
+    MoELossConfig,
+    OptimalTransportLossConfig,
+    PhaseClassificationLossConfig,
+    PriorDenoisingLossConfig,
+    RegressionLossConfig,
     TrajectoryLengthLossConfig,
     TrajectorySmoothnessConfig,
-    PhaseClassificationLossConfig,
-    MoELossConfig,
-    MaximumMeanDiscrepancyLossConfig,
-    BinaryMaximumMeanDiscrepancyLossConfig,
-    GripperMixtureNLLossConfig,
-    PriorDenoisingLossConfig,
-    GaussianMixtureNLLossConfig,
 )
 from versatil.configs.main import MainConfig
 from versatil.configs.policy import PolicyConfig
@@ -554,6 +555,11 @@ def register_configs():
         group="policy/loss",
         name="gaussian_mixture_nll",
         node=GaussianMixtureNLLossConfig,
+    )
+    cs.store(
+        group="policy/loss",
+        name="optimal_transport",
+        node=OptimalTransportLossConfig,
     )
     cs.store(group="policy/encoding_pipeline", name="base", node=ImageEncoderConfig)
     cs.store(

@@ -490,6 +490,7 @@ Extensions:
 The explain endpoint should be agnostic of the data format (right now it assumes CSV Schema).
 - Distributed training needs to be re-integrated with the new workspace (currently broken).
 - Quantize package needs to be developed.
+- Integrate history buffer of proprioceptive observation only + uniform masking for causal confusion (https://arxiv.org/pdf/1905.11979)
 - Verify compliance to ruff and introduce mypy and ruff in the ReadMe and in the codebase.
 - Introduce pre-commit hooks
 - Write proper changelog, etc.

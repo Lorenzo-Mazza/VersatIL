@@ -168,3 +168,15 @@ class GaussianMixtureNLLossConfig(BaseLossConfig):
     min_variance: float = 1e-4
 
 
+@dataclass
+class OptimalTransportLossConfig(BaseLossConfig):
+    """Configuration for Optimal Transport loss using Sinkhorn divergence."""
+
+    _target_: str = "versatil.metrics.ot_loss.OptimalTransportLoss"
+    action_keys: list[str] = MISSING
+    weight: float = 1.0
+    p: int = 1
+    epsilon: float = 0.01
+    time_scale: float = 1.0
+
+

@@ -18,36 +18,43 @@ from versatil.metrics import BaseLoss, LossOutput, MetricKey
 
 
 class OptimalTransportLoss(BaseLoss):
-    """Computes Kantorovich Optimal Transport (K-OT) loss using Sinkhorn divergence.
-
-    This loss regularizes action distributions by computing a differentiable OT cost
-    between predicted and target actions.
+    """Computes an entropic-smoothed version of Kantorovich Optimal Transport (K-OT) loss
+    using Sinkhorn divergence.
 
     Note:
-        This loss requires the optional dependencies geomloss and pykeops.
-        Install with: pip install geomloss pykeops
+        This loss computes a differentiable OT cost between a predicted and a target probability
+        distribution, using the Sinkhorn divergence algorithm.
+        Entropic smoothing generates a family of losses interpolating between Wasserstein (OT)
+        and Maximum Mean Discrepancy (MMD), thus allowing to find a sweet spot leveraging the
+        geometry of OT and the favorable high-dimensional sample complexity of MMD which comes
+        with unbiased gradient estimates.
+        When the regularization parameter epsilon goes to zero, the loss converges to the
+        Wasserstein distance, while for epsilon going to infinity, it converges to MMD with a Gaussian kernel.
+        Ref. "Learning Generative Models with Sinkhorn Divergences" (Cuturi et al., 2019)
+        https://arxiv.org/abs/1706.00292
 
+        NB: It requires the optional dependencies geomloss and pykeops.
+        Install with: pip install geomloss pykeops
         The geomloss library is imported lazily during __init__ to avoid
         triggering PyKeOps JIT compilation unless this loss is actually used.
-
-    Limitations:
-        - For action spaces with mixed data types (e.g., continuous like position/orientation deltas alongside binary like gripper states),
-           the Euclidean metric may yield suboptimal results. Binary dimensions can be overshadowed by continuous ones, leading to under-penalized mismatches.
-           Consider removing binary action dimensions when using this loss.
     """
 
     def __init__(
         self,
         action_keys: list[str],
         weight: float = 0.1,
+        p: int = 2,
         epsilon: float = 0.01,
+        time_scale: float = 1.0,
     ):
         """Initializes the OptimalTransportLoss.
 
         Args:
             action_keys: List of keys for action tensors in predictions and targets.
             weight: Scaling factor for the total loss.
-            epsilon: Regularization parameter for Sinkhorn (blur = sqrt(epsilon)).
+            p: Exponent for the ground cost, 1 for ||a - a'||_2, 2 for 1/2(||a - a'||)^2_2.
+            epsilon: Regularization parameter for Sinkhorn (blur = epsilon^p).
+            time_scale: Scaling factor for time embedding to be concatenated to actions.
 
         Raises:
             ImportError: If geomloss is not installed.
@@ -55,6 +62,7 @@ class OptimalTransportLoss(BaseLoss):
         super().__init__()
         self.weight = weight
         self.action_keys = action_keys
+        self.time_scale = time_scale
         # Lazy import to avoid PyKeOps compilation overhead unless this loss is used
         try:
             from geomloss import SamplesLoss
@@ -65,8 +73,8 @@ class OptimalTransportLoss(BaseLoss):
             ) from e
 
         self.ot = SamplesLoss(
-            loss="sinkhorn", p=2, blur=epsilon ** 0.5
-        )  # Sinkhorn with p=2 (Euclid)
+            loss="sinkhorn", p=p, blur=epsilon ** 1/p
+        )
 
     def get_required_keys(self) -> set[str]:
         """Gets the required keys for predictions and targets.
@@ -102,20 +110,21 @@ class OptimalTransportLoss(BaseLoss):
                 raise ValueError(
                     f"Predictions and targets must contain key '{action_key}' for Optimal Transport Loss."
                 )
-
-        # Flat actions (B*horizon, sum_dims)
-        pred_a = torch.cat([predictions[k] for k in self.action_keys], dim=-1)
-        target_a = torch.cat([targets[k] for k in self.action_keys], dim=-1)
-        B, horizon, adim = pred_a.shape
-        pred_a = pred_a.view(-1, adim)
-        target_a = target_a.view(-1, adim)
-        if is_pad is not None:
-            flat_mask = ~is_pad.view(-1)
-            pred_a = pred_a[flat_mask]
-            target_a = target_a[flat_mask]
-
-        # Geomloss Sinkhorn (i.e. Optimal Transport cost in Euclidean space).
-        ot_loss = self.ot(pred_a, target_a)
+        total_predictions = torch.cat([predictions[k] for k in self.action_keys], dim=-1) # (B, horizon, action_total_dim)
+        total_targets = torch.cat([targets[k] for k in self.action_keys], dim=-1) # (B, horizon, action_total_dim)
+        batch_size, horizon, _ = total_predictions.shape
+        time_embeddings = torch.linspace(0, 1, steps=horizon, device=total_predictions.device)
+        time_embeddings = time_embeddings.view(1, horizon, 1).expand(batch_size, -1, -1)
+        time_embeddings = time_embeddings * self.time_scale
+        predictions_with_time = torch.cat([total_predictions, time_embeddings], dim=-1) # (B, horizon, action_total_dim + 1)
+        targets_with_time = torch.cat([total_targets, time_embeddings], dim=-1) # (B, horizon, action_total_dim + 1)
+        if is_pad is None:
+            is_pad = torch.zeros((batch_size, horizon), dtype=torch.bool, device=total_predictions.device)
+        weights = (~is_pad).float() # 1.0 for valid points, 0.0 for padded points
+        weight_sums = weights.sum(dim=1, keepdim=True).clamp(min=1e-6)
+        normalized_weights = weights / weight_sums
+        # We need to pass (Weights_X, Samples_X, Weights_Y, Samples_Y) as args here because of GeomLoss API
+        ot_loss = self.ot(normalized_weights, predictions_with_time, normalized_weights, targets_with_time)
         return LossOutput(
             total_loss=self.weight * ot_loss,
             component_losses={MetricKey.OPTIMAL_TRANSPORT_LOSS.value: ot_loss},
