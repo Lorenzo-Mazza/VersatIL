@@ -376,26 +376,17 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
             head.output_proj.bias.copy_(mean)
             head._logvar_proj.bias.copy_(logvar.clamp(min=head.min_logvar, max=head.max_logvar))
 
-    def forward(
+    def _forward_mixture(
         self,
         features: dict[str, torch.Tensor],
-        actions: dict[str, torch.Tensor] | None = None,
     ) -> dict[str, torch.Tensor]:
-        """Forward pass of MODE-ACT decoder.
-
-        Args:
-            features: Dictionary of encoded features from EncodingPipeline.
-            actions: None for inference (samples from mixture), ignored during training.
+        """Core forward pass returning mixture outputs.
 
         Returns:
-            During training (loss computation calls with actions):
+            Dictionary containing:
                 - {action_key}_{output_key}: Stacked outputs (B, T, K, D) for each head
                 - routing_weights: Mixture weights (B, K)
-            During inference (actions=None):
-                - {action_key}: Sampled actions (B, T, D) for each action key
         """
-        if actions is None:
-            return self.predict(features)
         obs_tokens, obs_pos_encodings, obs_padding_mask = self.input_sequence_builder(
             features
         )
@@ -441,7 +432,6 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
                 {action_key}: (B, T, K, D)
         """
         predictions: dict[str, torch.Tensor] = {}
-
         for action_key in self.action_keys:
             component_outputs: list[dict[str, torch.Tensor] | torch.Tensor] = []
             for head in self.mixture_heads[action_key]:
@@ -461,7 +451,29 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
 
         return predictions
 
-    def predict(
+    def forward(
+        self,
+        features: dict[str, torch.Tensor],
+        actions: dict[str, torch.Tensor] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        """Forward pass dispatching based on training vs inference mode.
+
+        During training (actions provided): returns raw mixture outputs for loss computation.
+        During inference (actions=None): returns sampled actions from mixture.
+
+        Args:
+            features: Dictionary of encoded features.
+            actions: Ground truth actions (used only to distinguish training from inference).
+
+        Returns:
+            During training: Dict with mixture outputs (mean, logvar, routing_weights).
+            During inference: Dict with sampled actions (B, T, D) for each action key.
+        """
+        if actions is None:
+            return self._sample_from_mixture_outputs(features)
+        return self._forward_mixture(features)
+
+    def _sample_from_mixture_outputs(
         self,
         features: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
@@ -474,7 +486,7 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
             Dictionary with sampled actions (B, T, D) for each action key.
         """
         with torch.no_grad():
-            output = self.forward(features)
+            output = self._forward_mixture(features)
             routing_weights = output[DecoderOutputKey.ROUTING_WEIGHTS.value]
             sampled_predictions: dict[str, torch.Tensor] = {}
 
