@@ -126,6 +126,6 @@ class OptimalTransportLoss(BaseLoss):
         # We need to pass (Weights_X, Samples_X, Weights_Y, Samples_Y) as args here because of GeomLoss API
         ot_loss = self.ot(normalized_weights, predictions_with_time, normalized_weights, targets_with_time)
         return LossOutput(
-            total_loss=self.weight * ot_loss,
+            total_loss=self.weight * ot_loss.mean(),
             component_losses={MetricKey.OPTIMAL_TRANSPORT_LOSS.value: ot_loss},
         )
