@@ -385,13 +385,17 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
 
         Args:
             features: Dictionary of encoded features from EncodingPipeline.
-            actions: Not used (kept for interface compatibility).
+            actions: None for inference (samples from mixture), ignored during training.
 
         Returns:
-            Dictionary containing:
+            During training (loss computation calls with actions):
                 - {action_key}_{output_key}: Stacked outputs (B, T, K, D) for each head
                 - routing_weights: Mixture weights (B, K)
+            During inference (actions=None):
+                - {action_key}: Sampled actions (B, T, D) for each action key
         """
+        if actions is None:
+            return self.predict(features)
         obs_tokens, obs_pos_encodings, obs_padding_mask = self.input_sequence_builder(
             features
         )
