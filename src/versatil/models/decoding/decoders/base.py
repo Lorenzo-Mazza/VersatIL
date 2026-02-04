@@ -138,7 +138,7 @@ class ActionDecoder(nn.Module, ABC):
         self.device = torch.device(device)
         self._set_action_head_dimensions()
         self.validate_action_heads()
-        self.normalizer: LinearNormalizer | None = None
+        self.normalizer: LinearNormalizer = LinearNormalizer()
         self.tokenizer: ActionTokenizer | None = None
 
     def _set_action_head_dimensions(self) -> None:
