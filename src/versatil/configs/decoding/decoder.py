@@ -197,6 +197,7 @@ class MixtureOfDensitiesActionTransformerConfig(DecodingNetworkConfig):
     learnable_temperature: bool = False
     gating_feature_key: str | None = None
     gmm_init_strategy: str = GMMInitStrategy.KMEANS_PLUS_PLUS.value
+    deterministic_inference: bool = True
 
 
 @dataclass

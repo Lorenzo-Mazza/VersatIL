@@ -69,6 +69,7 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         learnable_temperature: bool = False,
         gating_feature_key: str | None = None,
         gmm_init_strategy: str = GMMInitStrategy.KMEANS_PLUS_PLUS.value,
+        deterministic_inference: bool = True,
     ):
         """Initialize MODE-ACT decoder.
 
@@ -100,6 +101,9 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
             learnable_temperature: Whether temperature is learnable.
             gating_feature_key: If set, use this feature for gating instead of mode embedding.
             gmm_init_strategy: Strategy for initializing GMM component means.
+            deterministic_inference: If True, use argmax for component selection and return
+                mean without noise. If False, sample component via multinomial and add
+                Gaussian noise. Defaults to True for reproducible inference.
         """
         decoder_input = DecoderInput(
             keys=input_keys,
@@ -132,6 +136,7 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         self.num_mixture_components = num_mixture_components
         self.gating_feature_key = gating_feature_key
         self.gmm_init_strategy = gmm_init_strategy
+        self.deterministic_inference = deterministic_inference
         self.action_keys = list(self.action_heads.keys())
         self._build_transformer_components()
         self._build_mixture_heads()
@@ -496,12 +501,17 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
                     mean = output[f"{action_key}_{DecoderOutputKey.MEAN.value}"]
                     logvar = output[f"{action_key}_{DecoderOutputKey.LOGVAR.value}"]
                     sampled_predictions[action_key] = self._sample_from_gaussian_mixture(
-                        mean=mean, logvar=logvar, routing_weights=routing_weights
+                        mean=mean,
+                        logvar=logvar,
+                        routing_weights=routing_weights,
+                        deterministic=self.deterministic_inference,
                     )
                 else:
                     stacked = output[action_key]
                     sampled_predictions[action_key] = self._sample_from_mixture(
-                        stacked=stacked, routing_weights=routing_weights
+                        stacked=stacked,
+                        routing_weights=routing_weights,
+                        deterministic=self.deterministic_inference,
                     )
 
             return sampled_predictions
@@ -511,6 +521,7 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         mean: torch.Tensor,
         logvar: torch.Tensor,
         routing_weights: torch.Tensor,
+        deterministic: bool = True,
     ) -> torch.Tensor:
         """Sample from Gaussian mixture using routing weights.
 
@@ -518,14 +529,21 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
             mean: (B, T, K, D)
             logvar: (B, T, K, D)
             routing_weights: (B, K)
+            deterministic: If True, use argmax for component selection and return mean.
+                If False, sample component via multinomial and add Gaussian noise.
 
         Returns:
             Sampled actions (B, T, D)
         """
         batch_size = mean.shape[0]
-        component_indices = torch.multinomial(routing_weights, num_samples=1).squeeze(-1)
+        if deterministic:
+            component_indices = torch.argmax(routing_weights, dim=-1)
+        else:
+            component_indices = torch.multinomial(routing_weights, num_samples=1).squeeze(-1)
         batch_indices = torch.arange(batch_size, device=mean.device)
         selected_mean = mean[batch_indices, :, component_indices, :]
+        if deterministic:
+            return selected_mean
         selected_logvar = logvar[batch_indices, :, component_indices, :]
         std = torch.exp(0.5 * selected_logvar)
         eps = torch.randn_like(selected_mean)
@@ -535,17 +553,23 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
     def _sample_from_mixture(
         stacked: torch.Tensor,
         routing_weights: torch.Tensor,
+        deterministic: bool = True,
     ) -> torch.Tensor:
         """Sample from mixture using routing weights (Bernoulli heads).
 
         Args:
             stacked: (B, T, K, D)
             routing_weights: (B, K)
+            deterministic: If True, use argmax for component selection.
+                If False, sample component via multinomial.
 
         Returns:
             Selected outputs (B, T, D)
         """
         batch_size = stacked.shape[0]
-        component_indices = torch.multinomial(routing_weights, num_samples=1).squeeze(-1)
+        if deterministic:
+            component_indices = torch.argmax(routing_weights, dim=-1)
+        else:
+            component_indices = torch.multinomial(routing_weights, num_samples=1).squeeze(-1)
         batch_indices = torch.arange(batch_size, device=stacked.device)
         return stacked[batch_indices, :, component_indices, :]
