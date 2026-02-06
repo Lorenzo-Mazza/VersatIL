@@ -42,6 +42,12 @@ from versatil.metrics.constants import (
     PredictionKey,
     TargetKey,
 )
+from versatil.metrics.kernels import (
+    IMQKernel,
+    KernelType,
+    MMDKernel,
+    RBFKernel,
+)
 
 __all__ = [
     "ActionTokenLoss",
@@ -72,4 +78,8 @@ __all__ = [
     "TrajectoryLengthLoss",
     "TrajectorySmoothness",
     "VICLatentLoss",
+    "IMQKernel",
+    "KernelType",
+    "MMDKernel",
+    "RBFKernel",
 ]

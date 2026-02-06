@@ -159,6 +159,7 @@ from versatil.models.layers.constants import (
     PositionalEncodingType,
 )
 from versatil.metrics.constants import MetadataKey
+from versatil.metrics.kernels import KernelType
 from versatil.models.layers.denoising.diffusion_process import SchedulerType
 from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -279,11 +280,11 @@ def register_resolvers():
         OmegaConf.register_new_resolver(
             "tokenizer_type", lambda name: TokenizerType[name].value
         )
-    if not OmegaConf.has_resolver("normalization_type"):
+    if not OmegaConf.has_resolver("kinematics_norm_type"):
         OmegaConf.register_new_resolver(
             "kinematics_norm_type", lambda name: KinematicsNormalizationType[name].value
         )
-    if not OmegaConf.has_resolver("image_normalization_type"):
+    if not OmegaConf.has_resolver("image_norm_type"):
         OmegaConf.register_new_resolver(
             "image_norm_type", lambda name: ImageNormalizationType[name].value
         )
@@ -334,6 +335,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("dataset_type"):
         OmegaConf.register_new_resolver(
             "dataset_type", lambda name: DatasetType[name].value
+        )
+    if not OmegaConf.has_resolver("kernel_type"):
+        OmegaConf.register_new_resolver(
+            "kernel_type", lambda name: KernelType[name].value
         )
 
     if not OmegaConf.has_resolver("env"):
