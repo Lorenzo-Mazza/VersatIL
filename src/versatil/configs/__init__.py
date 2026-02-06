@@ -103,6 +103,7 @@ from versatil.configs.loss import (
     KLDivergenceLossConfig,
     MaximumMeanDiscrepancyLossConfig,
     MoELossConfig,
+    LatentOptimalTransportLossConfig,
     OptimalTransportLossConfig,
     PhaseClassificationLossConfig,
     PriorDenoisingLossConfig,
@@ -568,6 +569,11 @@ def register_configs():
         group="policy/loss",
         name="optimal_transport",
         node=OptimalTransportLossConfig,
+    )
+    cs.store(
+        group="policy/loss",
+        name="latent_optimal_transport",
+        node=LatentOptimalTransportLossConfig,
     )
     cs.store(group="policy/encoding_pipeline", name="base", node=ImageEncoderConfig)
     cs.store(

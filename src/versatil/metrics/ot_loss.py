@@ -1,20 +1,11 @@
-"""Module for add-on loss functions that use computationally intensive libraries.
+"""Loss functions using Sinkhorn Optimal Transport (geomloss + pykeops).
 
-IMPORTANT: This module uses geomloss+pykeops which trigger slow JIT compilation.
-To avoid this overhead, geomloss is imported lazily (only when OptimalTransportLoss
-is instantiated).
-
-Usage via Hydra config (recommended):
-    loss:
-        _target_: versatil.metrics.add-ons.OptimalTransportLoss
-        action_keys: [position_action]
-        weight: 0.1
-
-This ensures the import only happens when the loss is actually configured.
+IMPORTANT: geomloss is imported lazily to avoid PyKeOps JIT compilation overhead.
 """
 import torch
 
-from versatil.metrics import BaseLoss, LossOutput, MetricKey
+from versatil.metrics import BaseLoss, LossOutput, MetadataKey, MetricKey
+from versatil.models.decoding.constants import LatentKey
 
 
 class OptimalTransportLoss(BaseLoss):
@@ -128,4 +119,87 @@ class OptimalTransportLoss(BaseLoss):
         return LossOutput(
             total_loss=self.weight * ot_loss,
             component_losses={MetricKey.OPTIMAL_TRANSPORT_LOSS.value: ot_loss},
+        )
+
+
+class LatentOptimalTransportLoss(BaseLoss):
+    """Sinkhorn divergence for latent regularization between posterior and prior."""
+
+    def __init__(
+        self,
+        weight: float = 1.0,
+        p: int = 2,
+        epsilon: float = 0.01,
+    ):
+        """Initialize latent OT loss.
+
+        Args:
+            weight: Scaling factor for the total loss.
+            p: Exponent for the ground cost.
+            epsilon: Sinkhorn regularization parameter.
+
+        Raises:
+            ImportError: If geomloss is not installed.
+        """
+        super().__init__()
+        self.weight = weight
+        try:
+            from geomloss import SamplesLoss
+        except ImportError as e:
+            raise ImportError(
+                "LatentOptimalTransportLoss requires geomloss and pykeops. "
+                "Install with: pip install geomloss pykeops"
+            ) from e
+        self.ot = SamplesLoss(loss="sinkhorn", p=p, blur=epsilon ** (1 / p))
+
+    def get_required_keys(self) -> set[str]:
+        """Get required prediction keys."""
+        return {LatentKey.POSTERIOR_LATENT.value, LatentKey.PRIOR_LATENT.value}
+
+    def forward(
+        self,
+        predictions: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        is_pad: torch.Tensor | None = None,
+    ) -> LossOutput:
+        """Compute Sinkhorn divergence between posterior and prior latents.
+
+        Args:
+            predictions: Must contain posterior and prior latent tensors (B, latent_dim).
+            targets: Unused.
+            is_pad: Unused.
+
+        Returns:
+            LossOutput with Sinkhorn divergence loss.
+        """
+        required = self.get_required_keys()
+        if not all(k in predictions for k in required):
+            raise ValueError(
+                f"Predictions must contain {required} for LatentOptimalTransportLoss."
+            )
+        z_posterior = predictions[LatentKey.POSTERIOR_LATENT.value]  # (B, latent_dim)
+        z_prior = predictions[LatentKey.PRIOR_LATENT.value]  # (B, latent_dim)
+
+        ot_loss = self.ot(z_posterior, z_prior).mean()
+
+        metadata: dict[str, torch.Tensor] = {
+            MetadataKey.POSTERIOR_Z.value: z_posterior,
+            MetadataKey.PRIOR_Z.value: z_prior,
+        }
+        posterior_mu = predictions.get(LatentKey.POSTERIOR_MU.value)
+        if posterior_mu is not None:
+            metadata[MetadataKey.POSTERIOR_MU.value] = posterior_mu
+        prior_mu = predictions.get(LatentKey.PRIOR_MU.value)
+        if prior_mu is not None:
+            metadata[MetadataKey.PRIOR_MU.value] = prior_mu
+        posterior_logvar = predictions.get(LatentKey.POSTERIOR_LOGVAR.value)
+        if posterior_logvar is not None:
+            metadata[MetadataKey.POSTERIOR_LOGVAR.value] = posterior_logvar
+        prior_logvar = predictions.get(LatentKey.PRIOR_LOGVAR.value)
+        if prior_logvar is not None:
+            metadata[MetadataKey.PRIOR_LOGVAR.value] = prior_logvar
+        return LossOutput(
+            total_loss=self.weight * ot_loss,
+            component_losses={MetricKey.SINKHORN_LOSS.value: ot_loss},
+            metadata=metadata,
         )
