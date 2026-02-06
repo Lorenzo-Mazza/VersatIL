@@ -5,6 +5,8 @@ from typing import Any
 
 from omegaconf import MISSING
 
+from versatil.metrics.kernels import KernelType
+
 
 @dataclass
 class BaseLossConfig:
@@ -74,7 +76,8 @@ class MaximumMeanDiscrepancyLossConfig(BaseLossConfig):
     _target_: str = "versatil.metrics.MaximumMeanDiscrepancyLoss"
     weight: float = 1.0
     prior_regularization_weight: float = 0.0
-    kernel_bandwidths: list[float] | None = field(
+    kernel_type: str = KernelType.RBF.value
+    bandwidth_multipliers: list[float] | None = field(
         default_factory=lambda: [0.2, 0.5, 1.0, 2.0, 5.0]
     )
     use_fixed_gaussian_as_prior: bool = False

@@ -377,6 +377,7 @@ From `.github/copilot-instructions.md`:
 - **Minimal comments**: Only for tensor shapes or when logic is non-obvious.
 - Use English words as variables, avoid abbreviations.
 - Use kwargs in function calls.
+- **Never use `**kwargs` or `*args`** in function signatures. Always use explicit named parameters.
 - Avoid Assertions and use Raise ... instead.
 - Avoid try catch blocks.
 - Use double quotes for strings: "foo" and not 'foo'.

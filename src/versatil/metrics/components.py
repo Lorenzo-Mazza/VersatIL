@@ -21,6 +21,7 @@ from versatil.metrics.constants import (
     MetadataKey,
     MetricKey,
 )
+from versatil.metrics.kernels import KernelType
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 
 
@@ -571,89 +572,35 @@ class BinaryKLDivergenceLoss(BaseLoss):
 
 class MaximumMeanDiscrepancyLoss(BaseLoss):
     """MMD loss for regularizing latent distributions toward a prior.
-    Note:
-        From Info-VAE/MMD-VAE[](https://ermongroup.github.io/blog/a-tutorial-on-mmd-variational-autoencoders/)
-         Uses RBF kernel for robust distribution matching, to encourage q(z|x) ≈ p(z)
-         where p(z) = N(0, I).
+
+    Ref: [Info-VAE / MMD-VAE](https://ermongroup.github.io/blog/a-tutorial-on-mmd-variational-autoencoders/)
     """
 
     def __init__(
         self,
         weight: float = 1.0,
         prior_regularization_weight: float = 0.0,
-        kernel_bandwidths: list[float] | None = None,
+        kernel_type: str = KernelType.RBF.value,
+        bandwidth_multipliers: list[float] | None = None,
         use_fixed_gaussian_as_prior: bool = False,
     ):
         """Initialize MMD loss.
+
         Args:
             weight: Loss weight for MMD(posterior, prior).
             prior_regularization_weight: Weight for MMD(prior, N(0,I)) regularization.
-                Only meaningful for learned priors. Pushes the learned prior towards
-                a standard Gaussian.
-            kernel_bandwidths: Multipliers for the median heuristic (default: [0.2, 0.5, 1, 2, 5]).
-            use_fixed_gaussian_as_prior: If True, always use standard Gaussian as prior
+                Only meaningful for learned priors.
+            kernel_type: Kernel type for MMD computation (see KernelType enum).
+            bandwidth_multipliers: Scale factors for the median heuristic bandwidth.
+            use_fixed_gaussian_as_prior: If True, always use standard Gaussian as prior.
         """
         super().__init__()
         self.weight = weight
         self.prior_regularization_weight = prior_regularization_weight
-        if kernel_bandwidths is None:
-            kernel_bandwidths = [0.2, 0.5, 1.0, 2.0, 5.0]
-        self.kernel_bandwidths = kernel_bandwidths
+        self.kernel = KernelType(kernel_type).to_kernel(
+            bandwidth_multipliers=bandwidth_multipliers
+        )
         self.use_fixed_gaussian_as_prior = use_fixed_gaussian_as_prior
-
-    def _get_median_squared_distance(self, points: torch.Tensor) -> float:
-        """Compute median pairwise squared distance (shared heuristic)."""
-        # Ref https://torchdrift.org/notebooks/note_on_mmd.html
-        points = points.detach()
-        device = points.device
-        n, _ = points.shape
-        norms = (points ** 2).sum(-1)
-        dist_sq = (
-            norms.unsqueeze(0) + norms.unsqueeze(1) - 2 * torch.mm(points, points.t())
-        )
-        dist_sq = torch.clamp(dist_sq, min=0.0)
-        triu_i, triu_j = torch.triu_indices(
-            points.shape[0], points.shape[0], offset=1, device=device
-        )
-        pairwise_dist_sq = dist_sq[triu_i, triu_j]
-        if pairwise_dist_sq.numel() == 0:
-            return 1.0
-        median = torch.median(pairwise_dist_sq)
-        if median <= 1e-6:
-            median = torch.tensor(1.0, device=device)
-        return median.item()
-
-    def _compute_rbf_kernel(
-        self,
-        x: torch.Tensor,
-        y: torch.Tensor,
-        median_dist_sq: float,
-    ) -> torch.Tensor:
-        """Compute multi-scale RBF kernel with shared bandwidth.
-        Args:
-            x: Points (N, D)
-            y: Points (M, D)
-            median_dist_sq: Shared median squared distance
-        Returns:
-            Kernel matrix (N, M)
-        """
-        if x.dim() > 2:
-            x = x.view(-1, x.size(-1))
-        if y.dim() > 2:
-            y = y.view(-1, y.size(-1))
-
-        xx = (x ** 2).sum(-1, keepdim=True)  # (N, 1)
-        yy = (y ** 2).sum(-1, keepdim=True).t()  # (1, M)
-        xy = torch.mm(x, y.t())  # (N, M)
-        dist_sq = xx + yy - 2 * xy
-        dist_sq = torch.clamp(dist_sq, min=1e-10)
-
-        kernel = torch.zeros_like(dist_sq)
-        for mult in self.kernel_bandwidths:
-            bandwidth = 2.0 * mult * median_dist_sq
-            kernel += torch.exp(-dist_sq / bandwidth)
-        kernel /= len(self.kernel_bandwidths)
-        return kernel
 
     def get_required_keys(self) -> set[str]:
         """Get required keys for MMD loss."""
@@ -690,32 +637,28 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         if self.use_fixed_gaussian_as_prior:
             z_prior = torch.randn_like(z_posterior)  # (B, latent_dim)
         else:
-            assert original_z_prior is not None
+            if original_z_prior is None:
+                raise ValueError(
+                    "Prior latent is required when use_fixed_gaussian_as_prior=False."
+                )
             z_prior = original_z_prior  # (B, latent_dim)
 
-        combined = torch.cat([z_posterior, z_prior], dim=0)  # (2B, latent_dim)
-        median_dist_sq = self._get_median_squared_distance(combined)
-
-        k_zz = self._compute_rbf_kernel(z_posterior, z_posterior, median_dist_sq)
-        k_pp = self._compute_rbf_kernel(z_prior, z_prior, median_dist_sq)
-        k_zp = self._compute_rbf_kernel(z_posterior, z_prior, median_dist_sq)
+        k_zz = self.kernel(z_posterior, z_posterior)
+        k_pp = self.kernel(z_prior, z_prior)
+        k_zp = self.kernel(z_posterior, z_prior)
 
         mmd_sq = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
-        if mmd_sq < 0:
-            print(f"Warning: Negative MMD encountered: {mmd_sq.item():.6f}")
-            mmd_sq = torch.clamp(mmd_sq, min=0.0)
+        mmd_sq = torch.clamp(mmd_sq, min=0.0)
 
         component_losses = {MetricKey.MMD_LOSS.value: mmd_sq}
         total_loss = self.weight * mmd_sq
 
         if self.prior_regularization_weight > 0.0:
             z_standard = torch.randn_like(z_prior)  # (B, latent_dim)
-            combined_reg = torch.cat([z_prior, z_standard], dim=0)  # (2B, latent_dim)
-            median_reg = self._get_median_dist_sq(combined_reg)
 
-            k_pp_reg = self._compute_rbf_kernel(z_prior, z_prior, median_reg)
-            k_ss = self._compute_rbf_kernel(z_standard, z_standard, median_reg)
-            k_ps = self._compute_rbf_kernel(z_prior, z_standard, median_reg)
+            k_pp_reg = self.kernel(z_prior, z_prior)
+            k_ss = self.kernel(z_standard, z_standard)
+            k_ps = self.kernel(z_prior, z_standard)
 
             prior_mmd_sq = k_pp_reg.mean() + k_ss.mean() - 2 * k_ps.mean()
             prior_mmd_sq = torch.clamp(prior_mmd_sq, min=0.0)
@@ -753,50 +696,31 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
 class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
     """MMD loss for regularizing binary latent distributions toward a uniform prior.
 
-    Uses RBF kernel for robust distribution matching, to encourage q(b|x) ≈ p(b)
-    where p(b) = Bernoulli(0.5) independent for each bit.
+    Encourages q(b|x) ≈ p(b) where p(b) = Bernoulli(0.5) independent for each bit.
     """
 
     def __init__(
         self,
         weight: float = 1.0,
+        kernel_type: str = KernelType.RBF.value,
+        bandwidth_multipliers: list[float] | None = None,
     ):
         """Initialize binary MMD loss.
 
         Args:
             weight: Loss weight.
+            kernel_type: Kernel type for MMD computation (see KernelType enum).
+            bandwidth_multipliers: Scale factors for the median heuristic bandwidth.
         """
         super().__init__()
         self.weight = weight
+        self.kernel = KernelType(kernel_type).to_kernel(
+            bandwidth_multipliers=bandwidth_multipliers
+        )
 
     def get_required_keys(self) -> set[str]:
         """Returns required prediction keys: {DecoderOutputKey.BINARY_LOGITS.value}."""
         return {DecoderOutputKey.BINARY_LOGITS.value}
-
-    def _compute_kernel(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """Compute Multi-Scale RBF kernel with Median Heuristic.
-
-        Uses implicit bandwidth σ² ∝ dim for scale invariance across
-        different latent dimensionalities.
-
-        Args:
-            x: First set of points (N, D).
-            y: Second set of points (M, D).
-
-        Returns:
-            Kernel matrix (N, M).
-        """
-        if x.dim() > 2:
-            x = x.reshape(-1, x.size(-1))
-        if y.dim() > 2:
-            y = y.reshape(-1, y.size(-1))
-        x_size = x.shape[0]
-        y_size = y.shape[0]
-        tiled_x = x.unsqueeze(1).repeat(1, y_size, 1)  # (x_size, y_size, dim)
-        tiled_y = y.unsqueeze(0).repeat(x_size, 1, 1)  # (x_size, y_size, dim)
-        dist_sq = ((tiled_x - tiled_y) ** 2).mean(dim=2)  # ||x-y||² / dim
-        kernel = torch.exp(-dist_sq)
-        return kernel
 
     def forward(
         self,
@@ -828,9 +752,9 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
         z_prior = torch.bernoulli(
             0.5 * torch.ones_like(z)
         )  # samples from Bernoulli(0.5)
-        k_zz = self._compute_kernel(z, z)
-        k_pp = self._compute_kernel(z_prior, z_prior)
-        k_zp = self._compute_kernel(z, z_prior)
+        k_zz = self.kernel(z, z)
+        k_pp = self.kernel(z_prior, z_prior)
+        k_zp = self.kernel(z, z_prior)
         # MMD² = E[k(z,z')] + E[k(p,p')] - 2E[k(z,p)]
         mmd = k_zz.mean() + k_pp.mean() - 2 * k_zp.mean()
         metadata = {
