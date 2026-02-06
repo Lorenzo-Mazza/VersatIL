@@ -1,14 +1,10 @@
-"""Free Transformer architecture for action decoding with variational latent codes.
+"""Action GPT Decoder for tokenized action prediction.
 
-Based on "The Free Transformer" (Fleuret, 2025) - arXiv:2510.17558
-https://arxiv.org/abs/2510.17558
-
-The Free Transformer encodes trajectory style/mode in a discrete latent variable
-and generates action tokens in autoregressive manner.
+It uses a GPT-style autoregressive decoder (only self-attention) to generate sequences of tokenized actions.
 """
 
 import torch
-from torch import nn
+import torch.nn as nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import SampleKey
@@ -16,11 +12,11 @@ from versatil.data.tokenization import Tokenizer
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_masking import make_attention_mask
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
-from versatil.models.decoding.decoders import ActionDecoder, DecoderInput
+from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.constants import PositionalEncodingType, AttentionType
-from versatil.models.layers.free_transformer.free_transformer import FreeTransformer
+from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType
+from versatil.models.layers.transformer.autoregressive_decoder import GPTDecoder
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
@@ -31,8 +27,14 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
 
-class FreeTransformerDecoder(ActionDecoder):
-    """Free Transformer for action decoding with discrete latent codes."""
+class GPTActionTransformer(ActionDecoder):
+    """Autoregressive decoder for tokenized action prediction.
+
+    Uses pure GPT-style transformer with self-attention only (no cross-attention).
+    Observation features are concatenated as prefix tokens, followed by
+    action token embeddings for autoregressive generation.
+    This is similar to Pi0 FAST but adapted to work with any feature encoder.
+    """
 
     supports_tokenized_actions: bool = True
 
@@ -50,9 +52,7 @@ class FreeTransformerDecoder(ActionDecoder):
         number_of_heads: int = 8,
         number_of_key_value_heads: int | None = None,
         feedforward_dimension: int | None = None,
-        number_of_decoder_layers: int = 6,
-        number_of_encoder_layers: int = 1,
-        latent_bits: int = 16,
+        number_of_layers: int = 6,
         activation: str = ActivationFunction.SWIGLU.value,
         normalization_type: str = NormalizationType.RMS_NORM.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
@@ -62,29 +62,26 @@ class FreeTransformerDecoder(ActionDecoder):
         temperature: float = 1.0,
         learnable_temperature: bool = False,
         deterministic: bool = True,
-        use_global_latent: bool = True,
     ):
-        """Initialize Free Transformer Decoder.
+        """Initialize GPTActionTransformer decoder.
 
         Args:
             action_heads: Action heads for different action components (only DecoderOutputKey.ACTION_LOGITS.value used here).
-            input_keys: List of feature keys required from encoding pipeline
+            input_keys: Feature keys expected from encoder pipeline
             action_space: Action space configuration
             observation_space: Observation space configuration
             observation_horizon: Number of observation timesteps
-            prediction_horizon: Number of action timesteps to predict
-            device: Device for computation
-            max_seq_len: Maximum input token sequence length
-            embedding_dimension: Model embedding dimension
-            number_of_heads: Number of attention heads
+            prediction_horizon: Max action horizon for generation
+            device: Device to run model on
+            max_seq_len: Maximum sequence length for GPT (features + action tokens)
+            embedding_dimension: Common embedding dimension to bring input tokens to, also Transformer hidden size
+            number_of_heads: Number of query attention heads
             number_of_key_value_heads: Number of K/V heads for GQA (None = same as heads = MHA)
-            feedforward_dimension: FFN hidden dimension
-            number_of_decoder_layers: Total decoder layers (must be even for latent injection at midpoint)
-            number_of_encoder_layers: Number of latent encoder layers (training only)
-            latent_bits: Number of bits for latent codes (2^bits total codes, default 16 → 65536)
-            activation: Activation function name
-            normalization_type: Normalization type name
-            attention_type: Attention type name (gqa, mha)
+            feedforward_dimension: FFN hidden dimension (default: 4 * embedding_dimension)
+            number_of_layers: Number of transformer layers
+            activation: Activation function (swiglu, gelu, relu, silu)
+            normalization_type: Normalization type (rmsnorm, layernorm)
+            attention_type: Attention type (gqa, mha)
             dropout_rate: Dropout probability
             attention_dropout: Attention dropout probability
             positional_encoding_type: Type of positional encoding (sinusoidal, rope, None)
@@ -92,7 +89,6 @@ class FreeTransformerDecoder(ActionDecoder):
             learnable_temperature: If True, make temperature a learnable parameter
             deterministic: If True, use greedy decoding during inference
             action_heads: Not used, placeholder for compatibility
-            use_global_latent: If True, use a single latent code for the entire action sequence
         """
         self.action_space = action_space
         self.observation_space = observation_space
@@ -103,9 +99,7 @@ class FreeTransformerDecoder(ActionDecoder):
         self.number_of_heads = number_of_heads
         self.number_of_key_value_heads = number_of_key_value_heads or number_of_heads
         self.feedforward_dimension = feedforward_dimension or (4 * embedding_dimension)
-        self.number_of_decoder_layers = number_of_decoder_layers
-        self.number_of_encoder_layers = number_of_encoder_layers
-        self.latent_bits = latent_bits
+        self.number_of_layers = number_of_layers
         self.activation = activation
         self.normalization_type = normalization_type
         self.attention_type = attention_type
@@ -115,10 +109,9 @@ class FreeTransformerDecoder(ActionDecoder):
         self.temperature = temperature
         self.learnable_temperature = learnable_temperature
         self.deterministic = deterministic
-        self.use_global_latent = use_global_latent
         if action_heads.keys() != {DecoderOutputKey.ACTION_LOGITS.value}:
             raise ValueError(
-                f"FreeTransformerDecoder only supports DecoderOutputKey.ACTION_LOGITS.value in action_heads. Make sure to use key {DecoderOutputKey.ACTION_LOGITS.value}"
+                f"GPTActionTransformer only supports DecoderOutputKey.ACTION_LOGITS.value in action_heads. Make sure to use key {DecoderOutputKey.ACTION_LOGITS.value}"
                 " in your hydra config."
             )
         self.action_heads = action_heads
@@ -145,7 +138,7 @@ class FreeTransformerDecoder(ActionDecoder):
         self.to(self.device)
 
     def _build_transformer_components(self):
-        """Build core free transformer, input token sequence builder and positional encodings."""
+        """Build core transformer encoder-decoder and positional encodings."""
         image_positional_encoding = SinusoidalPositionalEncoding2D(
             embedding_dimension=self.embedding_dimension, normalize=True
         )
@@ -165,29 +158,27 @@ class FreeTransformerDecoder(ActionDecoder):
             ),
             temporal_positional_encoding_layer=temporal_positional_encoding,
         )
-        self.free_transformer = FreeTransformer(
-            latent_bits=self.latent_bits,
+        self.gpt_decoder = GPTDecoder(
+            number_of_layers=self.number_of_layers,
             embedding_dimension=self.embedding_dimension,
             number_of_heads=self.number_of_heads,
             number_of_key_value_heads=self.number_of_key_value_heads,
             feedforward_dimension=self.feedforward_dimension,
-            number_of_decoder_layers=self.number_of_decoder_layers,
-            number_of_encoder_layers=self.number_of_encoder_layers,
+            dropout=self.dropout_rate,
+            attention_dropout=self.attention_dropout,
             activation=self.activation,
             normalization_type=self.normalization_type,
             attention_type=self.attention_type,
-            dropout=self.dropout_rate,
-            attention_dropout=self.attention_dropout,
+            use_cross_attention=False,  # Pure GPT - no cross-attention
             positional_encoding_type=self.positional_encoding_type,
             maximum_sequence_length=self.max_seq_len,
-            use_global_latent=self.use_global_latent,
         )
 
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
         """Set tokenizer and adjust vocabulary size accordingly."""
         if tokenizer is None or tokenizer.action_tokenizer is None:
             raise ValueError(
-                "FreeTransformerDecoder requires a tokenizer for tokenized action prediction."
+                "GPTActionTransformer requires a tokenizer for tokenized action prediction."
             )
         device = self.temperature.device
         self.vocab_size = tokenizer.action_tokenizer.vocab_size
@@ -207,12 +198,12 @@ class FreeTransformerDecoder(ActionDecoder):
             nn.init.normal_(
                 token_input_embedding.weight,
                 mean=0.0,
-                std=self.free_transformer.initializer_range,
+                std=self.gpt_decoder.initializer_range,
             )
             nn.init.normal_(
                 token_projection.weight,
                 mean=0.0,
-                std=self.free_transformer.initializer_range,
+                std=self.gpt_decoder.initializer_range,
             )
         else:
             token_input_embedding = nn.Embedding(
@@ -222,9 +213,8 @@ class FreeTransformerDecoder(ActionDecoder):
             nn.init.normal_(
                 token_input_embedding.weight,
                 mean=0.0,
-                std=self.free_transformer.initializer_range,
+                std=self.gpt_decoder.initializer_range,
             )
-
         lm_head = nn.Linear(
             output_block_in_features, self.vocab_size, bias=False, device=device
         )
@@ -238,6 +228,48 @@ class FreeTransformerDecoder(ActionDecoder):
             DecoderOutputKey.ACTION_LOGITS.value
         ].output_proj = lm_head  # Replace final projection with tied head
         super().set_tokenizer(tokenizer)
+
+    def forward(
+        self,
+        features: dict[str, torch.Tensor],
+        actions: dict[str, torch.Tensor] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        """Forward pass.
+
+        Training: Teacher forcing with ground truth tokens
+        Inference: Autoregressive generation with KV caching
+
+        Args:
+            features: Encoded features from pipeline
+            actions: Ground truth tokenized actions (training) or None (inference)
+
+        Returns:
+            Dict with DecoderOutputKey.ACTION_LOGITS.value (training) or DecoderOutputKey.PREDICTED_ACTION_TOKENS.value (inference)
+        """
+        feature_tokens, pos_encodings, feature_token_mask = self.input_sequence_builder(
+            features
+        )  # (B, token_len, embedding_dimension)
+        feature_tokens = (
+            feature_tokens + pos_encodings
+            if pos_encodings is not None
+            else feature_tokens
+        )
+        if actions is not None:
+            predictions = self._forward_training(
+                feature_tokens=feature_tokens,
+                feature_token_mask=feature_token_mask,
+                actions=actions,
+            )
+        else:
+            predictions = self._forward_inference(
+                feature_tokens=feature_tokens, feature_token_mask=feature_token_mask
+            )
+
+        for key in [LatentKey.POSTERIOR_MU.value, LatentKey.POSTERIOR_LOGVAR.value]:
+            if key in features:
+                predictions[key] = features[key]
+
+        return predictions
 
     def _forward_training(
         self,
@@ -263,8 +295,7 @@ class FreeTransformerDecoder(ActionDecoder):
             target_token_ids
         )  # (B, action_token_len, emb_dim)
         # query_len = prefix_len + action_token_len
-
-        full_attention_mask, full_key_padding_mask = make_attention_mask(
+        full_attention_mask, _ = make_attention_mask(
             feature_tokens=feature_tokens,
             action_tokens=action_token_embeddings,
             feature_token_mask=feature_token_mask,
@@ -279,24 +310,20 @@ class FreeTransformerDecoder(ActionDecoder):
                 "Consider increasing max_seq_len or reducing feature token count."
             )
 
-        decoder_output, bit_logits, latent_codes, z, _ = self.free_transformer(
+        decoder_output, _ = self.gpt_decoder(
             hidden_states=full_token_sequence,
-            key_padding_mask=full_key_padding_mask,
+            encoded_features=None,
+            cross_attention_mask=None,
             decoder_cache=None,
             use_cache=False,
             self_attention_mask=full_attention_mask,
-            is_inference=False,
-            return_latent_embeddings=True,
-        )  # (B, query_len, D), (B, query_len, 2**latent_dim), None
+        )  # (B, query_len, D)
         action_outputs = decoder_output[:, prefix_len:, :]  # (B, action_token_len, D)
         logits = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value](
             action_outputs
         )  # (B, action_token_len, vocab_size)
         return {
             DecoderOutputKey.ACTION_LOGITS.value: logits,
-            DecoderOutputKey.BINARY_LOGITS.value: bit_logits,
-            DecoderOutputKey.LATENT_CODES.value: latent_codes,
-            LatentKey.POSTERIOR_LATENT.value: z,
         }
 
     def _forward_inference(
@@ -319,33 +346,24 @@ class FreeTransformerDecoder(ActionDecoder):
         prefix_self_mask = torch.zeros(
             batch_size, 1, prefix_len, prefix_len, dtype=torch.bool, device=self.device
         )
-        decoder_output, _, latent_codes, z, decoder_cache = self.free_transformer(
+        decoder_output, decoder_cache = self.gpt_decoder(
             hidden_states=current_sequence,
-            key_padding_mask=feature_token_mask,
-            self_attention_mask=prefix_self_mask,
+            encoded_features=None,
+            self_attention_mask=prefix_self_mask,  # First mask only to avoid a causal effect within prefix
+            key_padding_mask=feature_token_mask,  # (B, prefix_len) or None
+            cross_attention_mask=None,
             decoder_cache=None,
             use_cache=True,
-            is_inference=True,
-            return_latent_embeddings=True,
-        )  # (B, query_len, D), None, cache_dict
+        )
         generated_tokens = []
         next_token_embedding = None
         for step in range(self.max_seq_len - prefix_len):
             if step > 0:
-                (
-                    decoder_output,
-                    _,
-                    latent_codes,
-                    z,
-                    decoder_cache,
-                ) = self.free_transformer(
+                decoder_output, decoder_cache = self.gpt_decoder(
                     hidden_states=next_token_embedding,
-                    key_padding_mask=feature_token_mask,
                     self_attention_mask=None,  # Causal mask handled internally
                     decoder_cache=decoder_cache,
                     use_cache=True,
-                    is_inference=True,
-                    return_latent_embeddings=True,
                 )
             last_output = decoder_output[:, -1:, :]  # (B, 1, embedding_dimension)
             head = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value]
@@ -366,42 +384,5 @@ class FreeTransformerDecoder(ActionDecoder):
         return {
             DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.cat(
                 generated_tokens, dim=1
-            ),  # (B, max_seq_len)
-            DecoderOutputKey.LATENT_CODES.value: latent_codes,
-            LatentKey.POSTERIOR_LATENT.value: z,
+            )  # (B, max_seq_len)
         }
-
-    def forward(
-        self,
-        features: dict[str, torch.Tensor],
-        actions: dict[str, torch.Tensor] | None = None,
-    ) -> dict[str, torch.Tensor]:
-        """Forward pass of Free Transformer.
-
-        Args:
-            features: Dictionary of encoded features from EncodingPipeline
-            actions: Ground truth tokenized actions (training) or None (inference)
-
-        Returns:
-            Dict with DecoderOutputKey.ACTION_LOGITS.value and DecoderOutputKey.BINARY_LOGITS.value (training) or DecoderOutputKey.PREDICTED_ACTION_TOKENS.value (inference).
-        """
-        feature_tokens, pos_encodings, feature_token_mask = self.input_sequence_builder(
-            features
-        )  # (B, token_len, embedding_dimension)
-        feature_tokens = (
-            feature_tokens + pos_encodings
-            if pos_encodings is not None
-            else feature_tokens
-        )
-        if actions is not None:
-            predictions = self._forward_training(
-                feature_tokens=feature_tokens,
-                feature_token_mask=feature_token_mask,
-                actions=actions,
-            )
-        else:
-            predictions = self._forward_inference(
-                feature_tokens=feature_tokens, feature_token_mask=feature_token_mask
-            )
-
-        return predictions

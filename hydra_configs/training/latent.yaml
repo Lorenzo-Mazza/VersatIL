@@ -1,7 +1,7 @@
 defaults:
   - base
 
-num_epochs: 100
+num_epochs: 200
 gradient_accumulate_every: 1
 
 optimizer:
@@ -24,7 +24,7 @@ optimizer:
       weight_decay: 0.05
       params_pattern: "decoder.algorithm.posterior_encoder.*"
 
-clip_gradient_norm: false
+clip_gradient_norm: true
 clip_max_norm: 1.0
 
 lr_schedule: null
@@ -38,4 +38,4 @@ swa_annealing_epochs: 10  # Anneal LR over 10 epochs
 
 tune_lr: false  # Automatically find optimal learning rate
 
-early_stopping_patience: 20
+early_stopping_patience: 100

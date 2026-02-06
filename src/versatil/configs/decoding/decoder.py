@@ -67,7 +67,7 @@ class PhaseACTConfig(ACTConfig):
 
 
 @dataclass
-class FASTDETRDecoderConfig(DecodingNetworkConfig):
+class DiscreteDETRActionTransformerConfig(DecodingNetworkConfig):
     """FAST DETR Decoder for tokenized action prediction.
 
     DETR non-autoregressive transformer that predicts tokenized actions:
@@ -77,7 +77,7 @@ class FASTDETRDecoderConfig(DecodingNetworkConfig):
     """
 
     _target_: str = (
-        "versatil.models.decoding.decoders.factory.fast_detr_decoder.FASTDETRDecoder"
+        "versatil.models.decoding.decoders.factory.discrete_detr_action_transformer.DiscreteDETRActionTransformer"
     )
     max_seq_len: int = 512  # Maximum token sequence length to predict
     embedding_dimension: int = 256
@@ -96,7 +96,7 @@ class FASTDETRDecoderConfig(DecodingNetworkConfig):
 
 
 @dataclass
-class FASTGPTDecoderConfig(DecodingNetworkConfig):
+class GPTActionTransformerConfig(DecodingNetworkConfig):
     """GPT Decoder for tokenized action prediction.
 
     Reference: https://arxiv.org/abs/2501.09747
@@ -112,7 +112,7 @@ class FASTGPTDecoderConfig(DecodingNetworkConfig):
     """
 
     _target_: str = (
-        "versatil.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTDecoder"
+        "versatil.models.decoding.decoders.factory.gpt_action_transformer.GPTActionTransformer"
     )
     max_seq_len: int = 512  # Maximum sequence length for GPT (features + action tokens)
     embedding_dimension: int = 256
@@ -231,8 +231,8 @@ class LACTConfig(DecodingNetworkConfig):
 
 
 @dataclass
-class FreeTransformerConfig(DecodingNetworkConfig):
-    """Free Transformer architecture configuration.
+class FreeActionTransformerConfig(DecodingNetworkConfig):
+    """Free Action Transformer architecture configuration.
 
     Based on "The Free Transformer" (Fleuret, 2025) - arXiv:2510.17558
     https://arxiv.org/abs/2510.17558
@@ -245,7 +245,7 @@ class FreeTransformerConfig(DecodingNetworkConfig):
         During inference, latents are sampled from a uniform prior.
     """
 
-    _target_: str = "versatil.models.decoding.decoders.factory.free_transformer.FreeTransformerDecoder"
+    _target_: str = "versatil.models.decoding.decoders.factory.free_action_transformer.FreeActionTransformer"
     embedding_dimension: int = 256
     number_of_decoder_layers: int = (
         6  # Must be even (split at midpoint for latent injection)
@@ -281,10 +281,10 @@ class FreeTransformerConfig(DecodingNetworkConfig):
 
 
 @dataclass
-class MoEFreeTransformerConfig(FreeTransformerConfig):
+class MoEFreeActionTransformerConfig(FreeActionTransformerConfig):
     """Free Transformer with Mixture of Experts head  configuration."""
 
-    _target_: str = "versatil.models.decoding.decoders.factory.moe_free_transformer.MoEFreeTransformer"
+    _target_: str = "versatil.models.decoding.decoders.factory.moe_free_action_transformer.MoEFreeActionTransformer"
     action_heads: dict[str, MixtureOfExpertsHeadConfig] = MISSING
 
 
@@ -363,10 +363,10 @@ class DiffusionActionTransformerConfig(DecodingNetworkConfig):
 
 
 @dataclass
-class ConditionalUNetDecoderConfig(DecodingNetworkConfig):
+class ConditionalActionUNetConfig(DecodingNetworkConfig):
     """Conditional U-Net decoder configuration."""
 
-    _target_: str = "versatil.models.decoding.decoders.factory.conditional_unet_decoder.ConditionalUNetDecoder"
+    _target_: str = "versatil.models.decoding.decoders.factory.conditional_action_unet.ConditionalActionUNet"
     embedding_dimension: int = 256
     down_dimensions: list[int] = field(default_factory=lambda: [256, 512, 1024])
     kernel_size: int = 5

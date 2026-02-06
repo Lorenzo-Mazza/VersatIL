@@ -30,6 +30,7 @@ from versatil.metrics.components import (
     RegressionLoss,
     TrajectoryLengthLoss,
     TrajectorySmoothness,
+    VICLatentLoss,
 )
 from versatil.metrics.composite import (
     CompositeLoss,
@@ -70,4 +71,5 @@ __all__ = [
     "to_scalar",
     "TrajectoryLengthLoss",
     "TrajectorySmoothness",
+    "VICLatentLoss",
 ]

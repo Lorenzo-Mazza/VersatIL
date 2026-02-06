@@ -10,13 +10,13 @@ from versatil.models.decoding.action_heads.moe import MoEHead
 from versatil.models.decoding.action_masking import make_attention_mask
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders import ActionDecoder
-from versatil.models.decoding.decoders.factory.free_transformer import (
-    FreeTransformerDecoder,
+from versatil.models.decoding.decoders.factory.free_action_transformer import (
+    FreeActionTransformer,
 )
 from versatil.models.layers.swiglu import SwiGLU
 
 
-class MoEFreeTransformer(FreeTransformerDecoder):
+class MoEFreeActionTransformer(FreeActionTransformer):
     """A Mixture-of-Experts (MoE) action decoder utilizing the Free Transformer architecture.
 
     This decoder extends the Free Transformer by incorporating MoE action heads.
@@ -44,7 +44,7 @@ class MoEFreeTransformer(FreeTransformerDecoder):
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
         if tokenizer is None or tokenizer.action_tokenizer is None:
             raise ValueError(
-                "FreeTransformerDecoder requires a tokenizer for tokenized action prediction."
+                "FreeActionTransformer requires a tokenizer for tokenized action prediction."
             )
         device = self.temperature.device
         self.vocab_size = tokenizer.action_tokenizer.vocab_size

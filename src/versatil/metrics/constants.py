@@ -44,6 +44,8 @@ class MetricKey(str, Enum):
     EXPERTS_ENTROPY = "experts_entropy"
     HYPERPRIOR_KL_REGULARIZATION = "hyperprior_kl_regularization"
     HYPERPRIOR_MMD_REGULARIZATION = "hyperprior_mmd_regularization"
+    COVARIANCE_LOSS = "covariance_loss"
+    VARIANCE_LOSS = "variance_loss"
 
 
 class LossModuleName(str, Enum):

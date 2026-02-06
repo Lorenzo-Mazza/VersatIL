@@ -8,7 +8,7 @@ defaults:
   - /task/observation_space: stereo_rgb
   - /training: gpt_decoder_default
   - /policy/encoding_pipeline: stereo_rgb
-  - /policy/decoder: fast_detr_decoder_default
+  - /policy/decoder: discrete_detr_transformer
   - /policy/algorithm: behavioral_cloning
   - /policy/loss: tokenCE
   - /inference: default

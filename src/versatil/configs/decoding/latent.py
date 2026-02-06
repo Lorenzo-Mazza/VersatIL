@@ -54,6 +54,7 @@ class VAETransformerEncoderConfig(PosteriorLatentEncoderConfig):
     normalize_before: bool = False
     exclude_keys: list[str] | None = None
     min_logvar: float | None = None
+    deterministic: bool = False
 
 
 @dataclass
@@ -86,6 +87,7 @@ class PriorTransformerEncoderConfig(PriorLatentEncoderConfig):
     exclude_keys: list[str] | None = None
     learn_variance: bool = True
     min_logvar: float | None = None
+    deterministic: bool = False
 
 
 @dataclass

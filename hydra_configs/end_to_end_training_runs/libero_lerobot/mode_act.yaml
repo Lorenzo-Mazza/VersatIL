@@ -10,7 +10,7 @@ defaults:
   - /task/action_space: libero_precomputed_lerobot
   - /task/observation_space: libero_rgb_lerobot
   - /training: default
-  - /policy/encoding_pipeline: stereo_rgb
+  - /policy/encoding_pipeline: stereo_rgb_language_encoder
   - /policy/decoder: mixture_density_act
   - /policy/algorithm: bc
   - /policy/loss: negative_loglikelihood
@@ -21,6 +21,10 @@ defaults:
 task:
   observation_horizon: 1
   prediction_horizon: 10
+  dataloader:
+    tokenization:
+      observation_tokenizer:
+        tokenizer_model: ${language_model:BERT_BASE}
 
 experiment:
   precision: ${precision:FP32}
@@ -38,6 +42,7 @@ policy:
     input_keys:
       - left_rgb
       - right_rgb
+      - instruction_language
   encoding_pipeline:
     encoders:
       left:
@@ -46,6 +51,8 @@ policy:
       right:
         input_keys:
           - ${cameras:EYE_IN_HAND}
+      instruction:
+        model_name: ${language_model:BERT_BASE}
   loss:
     loss_modules:
       moe_loss:

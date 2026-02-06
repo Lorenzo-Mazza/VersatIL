@@ -229,7 +229,7 @@ class ExperimentValidator:
         ):
             valid_loss_keys.add(DecoderOutputKey.ROUTING_WEIGHTS.value)
 
-        if self.decoder.__class__.__name__ == "FreeTransformerDecoder":
+        if self.decoder.__class__.__name__ == "FreeActionTransformer":
             valid_loss_keys.add(DecoderOutputKey.BINARY_LOGITS.value)
 
         if self.decoder.supports_tokenized_actions:

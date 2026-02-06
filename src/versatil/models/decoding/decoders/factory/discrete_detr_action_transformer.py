@@ -19,8 +19,8 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
 
-class FASTDETRDecoder(ActionDecoder):
-    """FAST Detection-Transformer decoder for tokenized action prediction.
+class DiscreteDETRActionTransformer(ActionDecoder):
+    """Discrete Detection-Transformer decoder for tokenized action prediction.
 
     Uses ACT-style non-autoregressive transformer to generate
      sequences of discrete action tokens.
@@ -50,7 +50,7 @@ class FASTDETRDecoder(ActionDecoder):
         learnable_temperature: bool = False,
         deterministic: bool = True,
     ):
-        """Initialize FAST decoder.
+        """Initialize DiscreteDETRActionTransformer decoder.
 
         Args:
             action_heads: Action heads for different action components (only DecoderOutputKey.ACTION_LOGITS.value used here).
@@ -80,8 +80,8 @@ class FASTDETRDecoder(ActionDecoder):
 
         if action_heads.keys() != {DecoderOutputKey.ACTION_LOGITS.value}:
             raise ValueError(
-                f"FASTDETRDecoder only supports DecoderOutputKey.ACTION_LOGITS.value in action_heads. Make sure to use key {DecoderOutputKey.ACTION_LOGITS.value}"
-                " in your hydra config."
+                f"DiscreteDETRActionTransformer only supports DecoderOutputKey.ACTION_LOGITS.value in action_heads."
+                f" Make sure to use key {DecoderOutputKey.ACTION_LOGITS.value} in your hydra config."
             )
         self.action_heads = action_heads
         decoder_input = DecoderInput(
@@ -157,7 +157,7 @@ class FASTDETRDecoder(ActionDecoder):
         """Set tokenizer and adjust vocabulary size accordingly."""
         if tokenizer is None or tokenizer.action_tokenizer is None:
             raise ValueError(
-                "FASTDETR Decoder requires a tokenizer for tokenized action prediction."
+                "DiscreteDETRActionTransformer Decoder requires a tokenizer for tokenized action prediction."
             )
         device = self.temperature.device
         self.vocab_size = tokenizer.action_tokenizer.vocab_size

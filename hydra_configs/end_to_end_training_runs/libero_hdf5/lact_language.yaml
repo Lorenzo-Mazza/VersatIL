@@ -9,7 +9,7 @@ defaults:
   - /task/dataloader: libero
   - /task/action_space: libero_precomputed
   - /task/observation_space: libero_rgb
-  - /training: act_latent
+  - /training: latent
   - /policy/encoding_pipeline: stereo_rgb_language_encoder
   - /policy/decoder: lact
   - /policy/algorithm: bc_with_learned_prior

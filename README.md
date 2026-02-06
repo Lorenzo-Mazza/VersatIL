@@ -350,7 +350,7 @@ They can be easily extended by either:
 
 The `VariationalAlgorithm` wraps any base algorithm with a VAE-style latent space:
 
-- **Posterio Networkr** q(z|a,s): Encodes actions into latent z during training
+- **Posterior Network** q(z|a,s): Encodes actions into latent z during training
 - **Prior Network** p(z|s): Samples latent z during inference (no access to actions)
 
 **Posterior Network types:**
@@ -371,9 +371,9 @@ Each decoder can customize how it integrates the latent `z` token into its archi
 - `LACT` - **Novel** Latent ACtion Transformer
 - `PhaseACT` - Phase-aware ACT with surgical phase prediction ([paper](https://arxiv.org/abs/2601.21971))
 - `FreeTransformer` - **Novel** Free Transformer action decoder inspired by ([paper](https://arxiv.org/pdf/2510.17558))
-- `MoEFreeTransformer` - Mixture of Experts on top of Free Transformer
-- `FASTGPTDecoder` - **Novel** autoregressive GPT-style decoder with tokenized actions in the style of ([pi0-FAST](https://www.physicalintelligence.company/blog/pi0-fast))
-- `FASTDETRDecoder` - DETR-style decoder (https://arxiv.org/abs/2005.12872) with tokenized actions
+- `MoEFreeActionTransformer` - Mixture of Experts on top of Free Transformer
+- `GPTActionTransformer` - **Novel** autoregressive GPT-style decoder with tokenized actions in the style of ([pi0-FAST](https://www.physicalintelligence.company/blog/pi0-fast))
+- `DiscreteDETRActionTransformer` - DETR-style decoder (https://arxiv.org/abs/2005.12872) with tokenized actions
 - `ConditionalUNet` - U-Net for Diffusion Policy ([paper](https://arxiv.org/abs/2303.04137))
 - `DiTBlockActionTransformer` - DiT-Block Action Transformer (from [paper](https://arxiv.org/html/2410.10088v1))
 - `DiffusionActionTransformer` - **Novel** Diffusion Action Transformer supporting two different architectures:

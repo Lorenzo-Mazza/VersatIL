@@ -62,6 +62,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         use_proprioceptive: bool = False,
         exclude_keys: list[str] = None,
         min_logvar: float | None = None,
+        deterministic: bool = False,
     ):
         """Initialize VAE latent action encoder.
 
@@ -80,6 +81,8 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             use_proprioceptive: Whether to condition on proprioceptive observations
             exclude_keys: List of keys to exclude from encoding
             min_logvar: Minimum log variance for avoiding variance collapse
+            deterministic: If True, output deterministic embeddings without reparameterization.
+                Use with MMD or OT regularizers instead of KL divergence.
 
         """
         super().__init__(
@@ -88,6 +91,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         )
         self.exclude_keys = exclude_keys if exclude_keys is not None else []
         self.min_logvar = min_logvar
+        self.deterministic = deterministic
         self.embedding_dimension = embedding_dimension
         self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
@@ -137,10 +141,14 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             temporal_positional_encoding_layer=temporal_positional_encoding,
         )
         self.cls_token = nn.Embedding(1, self.embedding_dimension)  # CLS input token
-        self.latent_stats_projection = nn.Linear(
+        projection_dim = (
+            self.vae_latent_dimension # mu
+            if self.deterministic
+            else self.vae_latent_dimension * 2  # mu and logvar
+        )
+        self.latent_projection = nn.Linear(
             self.embedding_dimension,
-            self.vae_latent_dimension
-            * 2,  # Latent gaussian distribution parameters: mu and logvar
+            projection_dim,
         )
         self.to(device)
 
@@ -203,15 +211,17 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         )[
             :, -1, :
         ]  # (B, CLS_TOKEN only, embedding_dim)
-        latent_stats = self.latent_stats_projection(
-            encoder_output
-        )  # (B, latent_dim * 2)
+        latent_stats = self.latent_projection(encoder_output)
+        if self.deterministic:
+            z = latent_stats  # (B, latent_dim)
+            return {
+                LatentKey.POSTERIOR_LATENT.value: z,
+                LatentKey.POSTERIOR_MU.value: z,
+            }
         mu, logvar = latent_stats.chunk(2, dim=1)  # Each (B, latent_dim)
         if self.min_logvar is not None:
             logvar = torch.clamp(logvar, min=self.min_logvar)
-        z = reparametrize(
-            mu, logvar
-        )  # Sample using reparametrization trick (B, latent_dim)
+        z = reparametrize(mu, logvar)  # (B, latent_dim)
         return {
             LatentKey.POSTERIOR_LATENT.value: z,
             LatentKey.POSTERIOR_MU.value: mu,

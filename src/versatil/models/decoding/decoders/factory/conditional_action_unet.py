@@ -18,7 +18,7 @@ from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.unet_input_builder import UNetInputBuilder
 
 
-class ConditionalUNetDecoder(ActionDecoder):
+class ConditionalActionUNet(ActionDecoder):
     """Conditional U-Net decoder for generative action generation.
 
     This architecture:
@@ -80,7 +80,7 @@ class ConditionalUNetDecoder(ActionDecoder):
         for k, head in action_heads.items():
             if len(head.blocks) > 0:
                 logging.warning(
-                    f"Action heads are ignored by ConditionalUNetDecoder, but one was provided for action '{k}'. Skipping."
+                    f"Action heads are ignored by ConditionalActionUNet, but one was provided for action '{k}'. Skipping."
                 )
                 action_heads[
                     k
@@ -198,7 +198,7 @@ class ConditionalUNetDecoder(ActionDecoder):
         """
         if actions is None:
             raise ValueError(
-                "ConditionalUNetDecoder requires 'actions' parameter. "
+                "ConditionalActionUNet requires 'actions' parameter. "
                 "The algorithm should provide noisy actions during forward pass."
             )
 

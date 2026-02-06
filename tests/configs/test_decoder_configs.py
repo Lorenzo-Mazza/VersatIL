@@ -9,14 +9,14 @@ from omegaconf import OmegaConf
 from versatil.configs.decoding.action_head import ActionHeadConfig
 from versatil.configs.decoding.decoder import (
     ACTConfig,
-    FASTDETRDecoderConfig,
-    FASTGPTDecoderConfig,
+    DiscreteDETRActionTransformerConfig,
+    GPTActionTransformerConfig,
     MixtureOfExpertsDecoderConfig,
 )
 from versatil.models.decoding.constants import MoERoutingType
 from versatil.models.decoding.decoders.factory.act import ACT
-from versatil.models.decoding.decoders.factory.fast_detr_decoder import FASTDETRDecoder
-from versatil.models.decoding.decoders.factory.fast_gpt_decoder import FASTGPTDecoder
+from versatil.models.decoding.decoders.factory.discrete_detr_action_transformer import DiscreteDETRActionTransformer
+from versatil.models.decoding.decoders.factory.gpt_action_transformer import GPTActionTransformer
 from versatil.models.layers.activation import ActivationFunction
 
 
@@ -66,7 +66,7 @@ class TestACTConfig:
 @pytest.mark.unit
 class TestFASTDETRDecoderConfig:
     def test_config_has_correct_target(self):
-        config = FASTDETRDecoderConfig(
+        config = DiscreteDETRActionTransformerConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
             },
@@ -75,9 +75,9 @@ class TestFASTDETRDecoderConfig:
         assert config._target_ == "versatil.models.decoding.decoders.factory.fast_detr_decoder.FASTDETRDecoder"
 
     def test_config_params_match_class_signature(self):
-        sig = inspect.signature(FASTDETRDecoder.__init__)
+        sig = inspect.signature(DiscreteDETRActionTransformer.__init__)
         params = set(sig.parameters.keys()) - {"self"}
-        config = FASTDETRDecoderConfig(
+        config = DiscreteDETRActionTransformerConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
             },
@@ -88,7 +88,7 @@ class TestFASTDETRDecoderConfig:
         assert config_keys.issubset(params), f"Extra keys: {config_keys - params}"
 
     def test_default_activation_is_relu(self):
-        config = FASTDETRDecoderConfig(
+        config = DiscreteDETRActionTransformerConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
             },
@@ -97,7 +97,7 @@ class TestFASTDETRDecoderConfig:
         assert config.activation == ActivationFunction.RELU.value
 
     def test_default_embedding_dimension(self):
-        config = FASTDETRDecoderConfig(
+        config = DiscreteDETRActionTransformerConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
             },
@@ -106,7 +106,7 @@ class TestFASTDETRDecoderConfig:
         assert config.embedding_dimension == 256
 
     def test_default_vocab_size(self):
-        config = FASTDETRDecoderConfig(
+        config = DiscreteDETRActionTransformerConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
             },
@@ -115,7 +115,7 @@ class TestFASTDETRDecoderConfig:
         assert config.vocab_size == 2048
 
     def test_yaml_config_loads(self):
-        """Test that fast_detr_decoder_default.yaml loads correctly via Hydra."""
+        """Test that discrete_detr_transformer.yaml loads correctly via Hydra."""
         project_root = Path(__file__).parent.parent.parent
         decoder_config_dir = project_root / "hydra_configs" / "policy" / "decoder"
 
@@ -129,7 +129,7 @@ class TestFASTDETRDecoderConfig:
 @pytest.mark.unit
 class TestFASTGPTDecoderConfig:
     def test_config_has_correct_target(self):
-        config = FASTGPTDecoderConfig(
+        config = GPTActionTransformerConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=1024, blocks=[])
             },
@@ -138,9 +138,9 @@ class TestFASTGPTDecoderConfig:
         assert config._target_ == "versatil.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTDecoder"
 
     def test_config_params_match_class_signature(self):
-        sig = inspect.signature(FASTGPTDecoder.__init__)
+        sig = inspect.signature(GPTActionTransformer.__init__)
         params = set(sig.parameters.keys()) - {"self"}
-        config = FASTGPTDecoderConfig(
+        config = GPTActionTransformerConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=1024, blocks=[])
             },
@@ -151,7 +151,7 @@ class TestFASTGPTDecoderConfig:
         assert config_keys.issubset(params), f"Extra keys: {config_keys - params}"
 
     def test_default_activation_is_swiglu(self):
-        config = FASTGPTDecoderConfig(
+        config = GPTActionTransformerConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=1024, blocks=[])
             },
@@ -160,7 +160,7 @@ class TestFASTGPTDecoderConfig:
         assert config.activation == ActivationFunction.SWIGLU.value
 
     def test_default_normalization_is_rmsnorm(self):
-        config = FASTGPTDecoderConfig(
+        config = GPTActionTransformerConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=1024, blocks=[])
             },
@@ -169,7 +169,7 @@ class TestFASTGPTDecoderConfig:
         assert config.normalization_type == "rmsnorm"
 
     def test_default_attention_type_is_gqa(self):
-        config = FASTGPTDecoderConfig(
+        config = GPTActionTransformerConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=1024, blocks=[])
             },
@@ -178,7 +178,7 @@ class TestFASTGPTDecoderConfig:
         assert config.attention_type == "gqa"
 
     def test_default_embedding_dimension(self):
-        config = FASTGPTDecoderConfig(
+        config = GPTActionTransformerConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=1024, blocks=[])
             },
@@ -187,7 +187,7 @@ class TestFASTGPTDecoderConfig:
         assert config.embedding_dimension == 256
 
     def test_default_action_vocabulary_size(self):
-        config = FASTGPTDecoderConfig(
+        config = GPTActionTransformerConfig(
             action_heads={
                 "action_logits": ActionHeadConfig(input_dim=256, output_dim=2048, blocks=[])
             },
@@ -196,7 +196,7 @@ class TestFASTGPTDecoderConfig:
         assert config.action_vocabulary_size == 2048
 
     def test_yaml_config_loads(self):
-        """Test that fast_gpt_decoder_default.yaml loads correctly via Hydra."""
+        """Test that gpt_action_transformer.yaml loads correctly via Hydra."""
         project_root = Path(__file__).parent.parent.parent
         decoder_config_dir = project_root / "hydra_configs" / "policy" / "decoder"
 

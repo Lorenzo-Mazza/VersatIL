@@ -43,6 +43,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         exclude_keys: list[str] = None,
         learn_variance: bool = True,
         min_logvar: float | None = None,
+        deterministic: bool = False,
     ):
         super().__init__(
             latent_dimension=latent_dimension,
@@ -50,6 +51,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         )
         self.exclude_keys = exclude_keys if exclude_keys is not None else []
         self.min_logvar = min_logvar
+        self.deterministic = deterministic
         self.embedding_dimension = embedding_dimension
         self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
@@ -101,10 +103,13 @@ class PriorTransformerEncoder(PriorLatentEncoder):
             ),
         )
         self.cls_token = nn.Embedding(1, self.embedding_dimension)  # CLS input token
-        output_dim = (
-            self.latent_dimension * 2 if self.learn_variance else self.latent_dimension
-        )
-        self.latent_stats_projection = nn.Linear(
+        if self.deterministic:
+            output_dim = self.latent_dimension
+        elif self.learn_variance:
+            output_dim = self.latent_dimension * 2
+        else:
+            output_dim = self.latent_dimension
+        self.latent_projection = nn.Linear(
             self.embedding_dimension,
             output_dim,
         )
@@ -144,7 +149,13 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         )[
             :, -1, :
         ]  # (B, CLS_TOKEN only, embedding_dim)
-        latent_stats = self.latent_stats_projection(encoder_output)
+        latent_stats = self.latent_projection(encoder_output)
+        if self.deterministic:
+            z = latent_stats  # (B, latent_dim)
+            return {
+                LatentKey.PRIOR_LATENT.value: z,
+                LatentKey.PRIOR_MU.value: z,
+            }
         if self.learn_variance:
             mu, logvar = latent_stats.chunk(2, dim=1)  # Each (B, latent_dim)
         else:
@@ -152,9 +163,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
             logvar = torch.zeros_like(mu)  # Fixed logvar = 0.0 (std = 1.0)
         if self.min_logvar is not None:
             logvar = torch.clamp(logvar, min=self.min_logvar)
-        z = reparametrize(
-            mu, logvar
-        )  # Sample using reparametrization trick (B, latent_dim)
+        z = reparametrize(mu, logvar)  # (B, latent_dim)
         return {
             LatentKey.PRIOR_MU.value: mu,
             LatentKey.PRIOR_LOGVAR.value: logvar,

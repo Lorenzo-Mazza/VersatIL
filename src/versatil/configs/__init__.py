@@ -48,16 +48,16 @@ from versatil.configs.decoding.algorithm import (
 )
 from versatil.configs.decoding.decoder import (
     ACTConfig,
-    ConditionalUNetDecoderConfig,
+    ConditionalActionUNetConfig,
     DecodingNetworkConfig,
     DiffusionActionTransformerConfig,
     DiTBlockActionTransformerConfig,
-    FreeTransformerConfig,
+    FreeActionTransformerConfig,
     LACTConfig,
     MixtureOfExpertsDecoderConfig,
-    FASTGPTDecoderConfig,
-    FASTDETRDecoderConfig,
-    MoEFreeTransformerConfig,
+    GPTActionTransformerConfig,
+    DiscreteDETRActionTransformerConfig,
+    MoEFreeActionTransformerConfig,
     PhaseACTConfig,
     ActionTransformerConfig,
     MixtureOfDensitiesActionTransformerConfig,
@@ -109,6 +109,7 @@ from versatil.configs.loss import (
     RegressionLossConfig,
     TrajectoryLengthLossConfig,
     TrajectorySmoothnessConfig,
+    VICLatentLossConfig,
 )
 from versatil.configs.main import MainConfig
 from versatil.configs.policy import PolicyConfig
@@ -178,10 +179,10 @@ __all__ = [
     "LanguageEncoderConfig",
     "DecodingNetworkConfig",
     "ACTConfig",
-    "ConditionalUNetDecoderConfig",
+    "ConditionalActionUNetConfig",
     "DiTBlockActionTransformerConfig",
     "DiffusionActionTransformerConfig",
-    "FreeTransformerConfig",
+    "FreeActionTransformerConfig",
     "LACTConfig",
     "MixtureOfExpertsDecoderConfig",
     "InferenceConfig",
@@ -209,6 +210,7 @@ __all__ = [
     "MLPFusionConfig",
     "SpatialFusionConfig",
     "CompositeLossConfig",
+    "VICLatentLossConfig",
     "RegressionLossConfig",
     "BaseLossConfig",
     "GripperLossConfig",
@@ -526,6 +528,7 @@ def register_configs():
     cs.store(group="policy/loss", name="gripper", node=GripperLossConfig)
     cs.store(group="policy/loss", name="entropy", node=GaussianEntropyLossConfig)
     cs.store(group="policy/loss", name="kl", node=KLDivergenceLossConfig)
+    cs.store(group="policy/loss", name="vic_latent", node=VICLatentLossConfig)
     cs.store(group="policy/loss", name="mmd", node=MaximumMeanDiscrepancyLossConfig)
     cs.store(
         group="policy/loss",
@@ -631,15 +634,15 @@ def register_configs():
         node=ActionTransformerConfig,
     )
 
-    cs.store(group="policy/decoder", name="gpt", node=FASTGPTDecoderConfig)
-    cs.store(group="policy/decoder", name="fastdetr", node=FASTDETRDecoderConfig)
+    cs.store(group="policy/decoder", name="gpt", node=GPTActionTransformerConfig)
+    cs.store(group="policy/decoder", name="discrete_detr", node=DiscreteDETRActionTransformerConfig)
     cs.store(
-        group="policy/decoder", name="free_transformer", node=FreeTransformerConfig
+        group="policy/decoder", name="free_transformer", node=FreeActionTransformerConfig
     )
     cs.store(
         group="policy/decoder",
         name="moe_free_transformer",
-        node=MoEFreeTransformerConfig,
+        node=MoEFreeActionTransformerConfig,
     )
     cs.store(group="policy/decoder", name="moe", node=MixtureOfExpertsDecoderConfig)
     cs.store(group="policy/decoder", name="lact_decoder", node=LACTConfig)
@@ -651,7 +654,7 @@ def register_configs():
         name="diffusion_act",
         node=DiffusionActionTransformerConfig,
     )
-    cs.store(group="policy/decoder", name="unet", node=ConditionalUNetDecoderConfig)
+    cs.store(group="policy/decoder", name="unet", node=ConditionalActionUNetConfig)
     cs.store(group="policy/decoder/action_head", name="base", node=ActionHeadConfig)
     cs.store(
         group="policy/decoder/action_head", name="gaussian", node=GaussianHeadConfig
