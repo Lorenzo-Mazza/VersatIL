@@ -657,11 +657,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
 
     def get_required_keys(self) -> set[str]:
         """Get required keys for MMD loss."""
-        keys = {
-            LatentKey.POSTERIOR_LATENT.value,
-            LatentKey.POSTERIOR_MU.value,
-            LatentKey.POSTERIOR_LOGVAR.value,
-        }
+        keys = {LatentKey.POSTERIOR_LATENT.value}
         if not self.use_fixed_gaussian_as_prior:
             keys.add(LatentKey.PRIOR_LATENT.value)
         return keys
@@ -682,13 +678,6 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         """
         is_mixture_prior = LatentKey.PRIOR_LOG_PROB.value in predictions
         required_keys = self.get_required_keys()
-        if not is_mixture_prior and not self.use_fixed_gaussian_as_prior:
-            required_keys.update(
-                {
-                    LatentKey.PRIOR_MU.value,
-                    LatentKey.PRIOR_LOGVAR.value,
-                }
-            )
         if not all(k in predictions for k in required_keys):
             raise ValueError(
                 f"Predictions must contain '{required_keys}' for MaximumMeanDiscrepancyLoss."
@@ -736,22 +725,23 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             ] = prior_mmd_sq
             total_loss = total_loss + self.prior_regularization_weight * prior_mmd_sq
 
-        metadata = {
-            MetadataKey.POSTERIOR_Z.value: z_posterior,
-            MetadataKey.POSTERIOR_MU.value: predictions[LatentKey.POSTERIOR_MU.value],
-            MetadataKey.POSTERIOR_LOGVAR.value: predictions[
-                LatentKey.POSTERIOR_LOGVAR.value
-            ],
-        }
+        metadata = {MetadataKey.POSTERIOR_Z.value: z_posterior}
+        posterior_mu = predictions.get(LatentKey.POSTERIOR_MU.value)
+        if posterior_mu is not None:
+            metadata[MetadataKey.POSTERIOR_MU.value] = posterior_mu
+        posterior_logvar = predictions.get(LatentKey.POSTERIOR_LOGVAR.value)
+        if posterior_logvar is not None:
+            metadata[MetadataKey.POSTERIOR_LOGVAR.value] = posterior_logvar
         if self.use_fixed_gaussian_as_prior:
             metadata[MetadataKey.HYPERPRIOR_Z.value] = z_prior
         if original_z_prior is not None:
             metadata[MetadataKey.PRIOR_Z.value] = original_z_prior
-        if not is_mixture_prior and not self.use_fixed_gaussian_as_prior:
-            metadata[MetadataKey.PRIOR_MU.value] = predictions[LatentKey.PRIOR_MU.value]
-            metadata[MetadataKey.PRIOR_LOGVAR.value] = predictions[
-                LatentKey.PRIOR_LOGVAR.value
-            ]
+        prior_mu = predictions.get(LatentKey.PRIOR_MU.value)
+        if prior_mu is not None:
+            metadata[MetadataKey.PRIOR_MU.value] = prior_mu
+        prior_logvar = predictions.get(LatentKey.PRIOR_LOGVAR.value)
+        if prior_logvar is not None:
+            metadata[MetadataKey.PRIOR_LOGVAR.value] = prior_logvar
 
         return LossOutput(
             total_loss=total_loss,
@@ -1653,5 +1643,79 @@ class MetadataPassthrough(BaseLoss):
         )
 
 
+class VICLatentLoss(BaseLoss):
+    """VICReg-style covariance + variance loss for latent decorrelation and anti-collapse.
 
+    Note:
+        Combines two regularization terms:
+        - Covariance: Penalizes off-diagonal covariance to encourage independent dimensions
+        - Variance: Hinge loss forcing std >= gamma per dimension to prevent collapse
+        Ref. https://arxiv.org/pdf/2105.04906
+    """
+
+    def __init__(
+        self,
+        key: str = LatentKey.POSTERIOR_MU.value,
+        covariance_weight: float = 3.0,
+        variance_weight: float = 10.0,
+        gamma: float = 0.3,
+    ):
+        """Initialize VICReg latent loss.
+
+        Args:
+            key: Prediction key for latent mu tensor.
+            covariance_weight: Weight for off-diagonal covariance penalty.
+            variance_weight: Weight for variance hinge loss.
+            gamma: Hinge threshold for per-dimension standard deviation.
+        """
+        super().__init__()
+        self.key = key
+        self.covariance_weight = covariance_weight
+        self.variance_weight = variance_weight
+        self.gamma = gamma
+
+    def get_required_keys(self) -> set[str]:
+        """Get required prediction keys."""
+        return {self.key}
+
+    def forward(
+        self,
+        predictions: dict[str, torch.Tensor],
+        targets: dict[str, torch.Tensor],
+        is_pad: torch.Tensor | None = None,
+    ) -> LossOutput:
+        """Compute VICReg loss combining covariance and variance terms.
+
+        Args:
+            predictions: Must contain self.key with shape (B, latent_dim).
+            targets: Unused.
+            is_pad: Unused.
+
+        Returns:
+            LossOutput with weighted covariance and variance penalties.
+        """
+        if self.key not in predictions:
+            raise ValueError(
+                f"Predictions must contain '{self.key}' for VICLatentLoss."
+            )
+        latent_vectors = predictions[self.key].float()
+        batch_size, latent_dimension = latent_vectors.shape
+        centered = latent_vectors - latent_vectors.mean(dim=0)
+        standard_deviation = torch.sqrt(centered.var(dim=0) + 1e-6)
+        variance_loss = torch.mean(F.relu(self.gamma - standard_deviation))
+        covariance = (centered.T @ centered) / (batch_size - 1)
+        diagonal_mask = torch.eye(latent_dimension, device=latent_vectors.device)
+        off_diagonal_covariance = covariance * (1 - diagonal_mask)
+        covariance_loss = off_diagonal_covariance.pow(2).sum() / latent_dimension
+        total_loss = (
+            self.covariance_weight * covariance_loss
+            + self.variance_weight * variance_loss
+        )
+        return LossOutput(
+            total_loss=total_loss,
+            component_losses={
+                MetricKey.COVARIANCE_LOSS.value: self.covariance_weight * covariance_loss,
+                MetricKey.VARIANCE_LOSS.value: self.variance_weight * variance_loss,
+            },
+        )
 

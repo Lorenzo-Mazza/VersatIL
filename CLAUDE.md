@@ -481,6 +481,12 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 3. **Normalizer keys**: Binary gripper actions and language are NOT normalized
 4. **Zarr keys**: ObservationSpace and ActionSpace must specify correct keys via `get_required_zarr_keys()`
 5. **Config references**: Use `"${task.observation_space}"` not direct assignment for Hydra interpolation
+6. **Renaming classes/configs**: When renaming a class, config, or loss module, you MUST also update:
+   - The corresponding `*Config` dataclass in `src/versatil/configs/`
+   - The `__init__.py` exports in both `src/versatil/configs/` and relevant model packages
+   - The ConfigStore registration in `src/versatil/configs/__init__.py`
+   - **ALL YAML files** in `hydra_configs/` that reference the old name (use `grep -r "OldName" hydra_configs/`)
+   - Rename YAML files if the filename contains the old name
 
 ## TODOs
 Fixes:

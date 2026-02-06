@@ -1,23 +1,24 @@
-# Pure GPT-style autoregressive transformer for tokenized action prediction
 defaults:
-  - gpt
+  - free_transformer
   - heads@action_heads: tokenized
 
-_target_: versatil.models.decoding.decoders.factory.fast_gpt_decoder.FASTGPTDecoder
+_target_: versatil.models.decoding.decoders.factory.free_action_transformer.FreeActionTransformer
 
-# Key is always "{encoder_name}_{EncoderOutputType.value}" for each encoder in the encoding pipeline
+# Input features from encoding pipeline
 input_keys:
   - left_rgb
   - right_rgb
   - instruction_language
 
-max_seq_len: 512  # Maximum sequence length (features + action tokens)
-
 embedding_dimension: 512
 number_of_heads: 8
 number_of_key_value_heads: 2
 feedforward_dimension: 1024
-number_of_layers: 4
+number_of_encoder_layers: 1  # Encoder for latent prediction (training only)
+number_of_decoder_layers: 4  # Must be even (split at midpoint for latent injection)
+latent_bits: 8  # Number of bits for latent codes (2^16 = 65536 codes)
+max_seq_len: 1024
+
 activation: ${activation_function:SWIGLU}
 normalization_type: ${normalization:RMS_NORM}
 attention_type: ${attention:GROUPED_QUERY}

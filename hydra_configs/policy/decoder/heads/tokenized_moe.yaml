@@ -1,7 +1,7 @@
 action_logits:
   _target_: versatil.models.decoding.action_heads.MoEHead
   num_experts: 16
-  gating_input_dim: null  # External routing - MoEFreeTransformer provides routing weights
+  gating_input_dim: null
   learnable_temperature: true
   base_expert:
     _target_: versatil.models.decoding.action_heads.ActionHead

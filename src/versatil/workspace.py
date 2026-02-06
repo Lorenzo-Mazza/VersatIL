@@ -29,8 +29,8 @@ from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.tokenization import Tokenizer
 from versatil.metrics import MoELoss
 from versatil.models.decoding.algorithm import VariationalAlgorithm
-from versatil.models.decoding.decoders.factory.free_transformer import (
-    FreeTransformerDecoder,
+from versatil.models.decoding.decoders.factory.free_action_transformer import (
+    FreeActionTransformer,
 )
 from versatil.models.decoding.decoders.factory.phase_act import PhaseACT
 from versatil.models.policy import Policy
@@ -325,7 +325,7 @@ class Workspace:
             logging.info("Added ConfusionMatrix callback for phase classification")
 
         if isinstance(self.policy.algorithm, VariationalAlgorithm) or isinstance(
-            self.policy.decoder, FreeTransformerDecoder
+            self.policy.decoder, FreeActionTransformer
         ):
             latent_vis_callback = LatentVisualizationCallback(
                 log_every_n_epochs=self.config.experiment.val_every,

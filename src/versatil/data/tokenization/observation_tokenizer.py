@@ -93,7 +93,8 @@ class ObservationTokenizer:
 
         self._is_fitted = True
         logging.info(
-            f"Fitted observation tokenizer on {len(self.binning_tokenizers)} keys "
+            f"Fitted observation tokenizer on {len(self.observation_keys)} keys "
+            f"({len(self.binning_tokenizers)} with binning) "
             f"(model={self.tokenizer_model}, vocab_size={self.vocab_size})"
         )
 

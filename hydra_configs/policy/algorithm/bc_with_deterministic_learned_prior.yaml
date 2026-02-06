@@ -4,32 +4,31 @@ defaults:
   - variational
 
 _target_: versatil.models.decoding.algorithm.variational.VariationalAlgorithm
-
+sampling_from_prior_probability: 0.0
 base_algorithm:
   _target_: versatil.models.decoding.algorithm.behavior_cloning.BehavioralCloning
-sampling_from_prior_probability: 0.0
 
 posterior_encoder:
   _target_: versatil.models.decoding.latent.posterior.transformer_encoder.VAETransformerEncoder
   latent_dimension: 8
-  embedding_dimension: 64
+  embedding_dimension: 32
   prediction_horizon: ${policy.prediction_horizon}
   observation_horizon: ${policy.observation_horizon}
   number_of_heads: 8
-  feedforward_dimension: 256
+  feedforward_dimension: 128
   number_of_encoder_layers: 4
-  dropout_rate: 0.1
+  dropout_rate: 0.2
   device: ${policy.device}
-  min_logvar: -6.0
+  deterministic: true
 
 prior:
   latent_dimension: 8
-  embedding_dimension: 64
+  embedding_dimension: 32
   prediction_horizon: ${policy.prediction_horizon}
   observation_horizon: ${policy.observation_horizon}
   number_of_heads: 8
-  feedforward_dimension: 256
+  feedforward_dimension: 128
   number_of_encoder_layers: 4
-  dropout_rate: 0.1
+  dropout_rate: 0.2
   device: ${policy.device}
-  min_logvar: -6.0
+  deterministic: true

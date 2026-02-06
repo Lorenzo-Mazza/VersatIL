@@ -13,7 +13,7 @@ from versatil.data.constants import (
 )
 from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.decoding.constants import DecoderOutputKey
-from versatil.models.decoding.decoders.factory.fast_detr_decoder import FASTDETRDecoder
+from versatil.models.decoding.decoders.factory.discrete_detr_action_transformer import DiscreteDETRActionTransformer
 
 
 @pytest.fixture
@@ -162,7 +162,7 @@ class TestFASTDETRDecoderInitialization:
         vocab_size,
     ):
         """Test basic initialization."""
-        decoder = FASTDETRDecoder(
+        decoder = DiscreteDETRActionTransformer(
             input_keys=["rgb_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -196,7 +196,7 @@ class TestFASTDETRDecoderInitialization:
         vocab_size,
     ):
         """Test initialization with custom parameters."""
-        decoder = FASTDETRDecoder(
+        decoder = DiscreteDETRActionTransformer(
             input_keys=["rgb_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -228,7 +228,7 @@ class TestFASTDETRDecoderInitialization:
         custom_eos = 11
         custom_pad = 2
 
-        decoder = FASTDETRDecoder(
+        decoder = DiscreteDETRActionTransformer(
             input_keys=["rgb_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -266,7 +266,7 @@ class TestFASTDETRDecoderTokenizer:
         tokenizer,
     ):
         """Test setting valid tokenizer."""
-        decoder = FASTDETRDecoder(
+        decoder = DiscreteDETRActionTransformer(
             input_keys=["rgb_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -297,7 +297,7 @@ class TestFASTDETRDecoderTokenizer:
         tokenizer,
     ):
         """Test that mismatched vocab size raises ValueError."""
-        decoder = FASTDETRDecoder(
+        decoder = DiscreteDETRActionTransformer(
             input_keys=["rgb_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -328,7 +328,7 @@ class TestFASTDETRDecoderTokenizer:
         spatial_features,
     ):
         """Test that forward without tokenizer raises RuntimeError."""
-        decoder = FASTDETRDecoder(
+        decoder = DiscreteDETRActionTransformer(
             input_keys=["rgb_left_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -367,7 +367,7 @@ class TestFASTDETRDecoderForwardPass:
         batch_size,
     ):
         """Test forward pass during training with action tokenization."""
-        decoder = FASTDETRDecoder(
+        decoder = DiscreteDETRActionTransformer(
             input_keys=["rgb_left_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -406,7 +406,7 @@ class TestFASTDETRDecoderForwardPass:
         batch_size,
     ):
         """Test forward pass during inference with detokenization."""
-        decoder = FASTDETRDecoder(
+        decoder = DiscreteDETRActionTransformer(
             input_keys=["rgb_left_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -454,7 +454,7 @@ class TestFASTDETRDecoderForwardPass:
         tokenizer,
     ):
         """Test that padding timesteps are removed before tokenization."""
-        decoder = FASTDETRDecoder(
+        decoder = DiscreteDETRActionTransformer(
             input_keys=["rgb_left_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -503,7 +503,7 @@ class TestFASTDETRDecoderTokenizationDetokenization:
         tokenizer,
     ):
         """Test _tokenize_actions creates DecoderOutputKey.PREDICTED_ACTION_TOKENS.value with EOS (no BOS in FAST)."""
-        decoder = FASTDETRDecoder(
+        decoder = DiscreteDETRActionTransformer(
             input_keys=["rgb_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -555,7 +555,7 @@ class TestFASTDETRDecoderTokenizationDetokenization:
         tokenizer,
     ):
         """Test _detokenize_predictions splits actions correctly."""
-        decoder = FASTDETRDecoder(
+        decoder = DiscreteDETRActionTransformer(
             input_keys=["rgb_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -616,7 +616,7 @@ class TestFASTDETRDecoderParametrized:
         sample_actions = torch.randn(1, prediction_horizon, total_action_dim, device=device)
         tokenizer_obj.tokenize({SampleKey.ACTION.value: sample_actions})
 
-        decoder = FASTDETRDecoder(
+        decoder = DiscreteDETRActionTransformer(
             input_keys=["rgb_left_features"],
             action_space=action_space,
             observation_space=observation_space,
@@ -655,7 +655,7 @@ class TestFASTDETRDecoderParametrized:
         tokenizer,
     ):
         """Test FASTDETRDecoder with different batch sizes."""
-        decoder = FASTDETRDecoder(
+        decoder = DiscreteDETRActionTransformer(
             input_keys=["rgb_left_features"],
             action_space=action_space,
             observation_space=observation_space,

@@ -13,7 +13,7 @@ from versatil.data.constants import (
 )
 from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
-from versatil.models.decoding.decoders.factory.fast_gpt_decoder import FASTGPTDecoder
+from versatil.models.decoding.decoders.factory.gpt_action_transformer import GPTActionTransformer
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 
 
@@ -195,7 +195,7 @@ class TestFASTGPTDecoderInitialization:
         action_vocabulary_size,
     ):
         """Test basic initialization."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -237,7 +237,7 @@ class TestFASTGPTDecoderInitialization:
         number_of_heads,
     ):
         """Test initialization with custom parameters."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -275,7 +275,7 @@ class TestFASTGPTDecoderInitialization:
         number_of_key_value_heads,
     ):
         """Test initialization with different attention types."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -306,7 +306,7 @@ class TestFASTGPTDecoderInitialization:
         custom_eos = 11
         custom_pad = 2
 
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -337,7 +337,7 @@ class TestFASTGPTDecoderInitialization:
     ):
         """Test temperature initialization."""
         temperature = 0.7
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -375,7 +375,7 @@ class TestFASTGPTDecoderTokenizer:
         tokenizer,
     ):
         """Test setting valid tokenizer."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -404,7 +404,7 @@ class TestFASTGPTDecoderTokenizer:
         tokenizer,
     ):
         """Test that mismatched vocab size raises ValueError."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -433,7 +433,7 @@ class TestFASTGPTDecoderTokenizer:
         flat_features,
     ):
         """Test that forward without tokenizer raises RuntimeError."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -470,7 +470,7 @@ class TestFASTGPTDecoderForwardPass:
         batch_size,
     ):
         """Test forward pass during training with flat features."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -508,7 +508,7 @@ class TestFASTGPTDecoderForwardPass:
         batch_size,
     ):
         """Test forward pass during training with sequential features."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_tokens"],
             action_space=action_space,
             observation_space=observation_space,
@@ -542,7 +542,7 @@ class TestFASTGPTDecoderForwardPass:
         batch_size,
     ):
         """Test forward pass with mixed flat and sequential features."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding", "proprio_embedding", "visual_tokens"],
             action_space=action_space,
             observation_space=observation_space,
@@ -578,7 +578,7 @@ class TestFASTGPTDecoderForwardPass:
     ):
         """Test forward pass with language features and token mask."""
         input_keys = [EncoderOutputKeys.LANGUAGE.value + "_embeddings"]
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=input_keys,
             action_space=action_space,
             observation_space=observation_space,
@@ -612,7 +612,7 @@ class TestFASTGPTDecoderForwardPass:
         batch_size,
     ):
         """Test forward pass during inference with detokenization."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -655,7 +655,7 @@ class TestFASTGPTDecoderForwardPass:
             "spatial_feature": torch.randn(batch_size, 128, 8, 8, device=device)
         }
 
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["spatial_feature"],
             action_space=action_space,
             observation_space=observation_space,
@@ -697,7 +697,7 @@ class TestFASTGPTDecoderForwardPass:
             LatentKey.POSTERIOR_LOGVAR.value: torch.randn(batch_size, latent_dim, device=device),
         }
 
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -738,7 +738,7 @@ class TestFASTGPTDecoderTokenizationDetokenization:
         batch_size,
     ):
         """Test that EOS token is added during tokenization."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -774,7 +774,7 @@ class TestFASTGPTDecoderTokenizationDetokenization:
         tokenizer,
     ):
         """Test that padding timesteps are removed before tokenization."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -819,7 +819,7 @@ class TestFASTGPTDecoderTokenizationDetokenization:
         tokenizer,
     ):
         """Test detokenization of token predictions."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -869,7 +869,7 @@ class TestFASTGPTDecoderParametrized:
         prediction_horizon,
     ):
         """Test with different prediction horizons."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -915,7 +915,7 @@ class TestFASTGPTDecoderParametrized:
     ):
         """Test with different architecture sizes."""
         embedding_dimension = 64
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -958,7 +958,7 @@ class TestFASTGPTDecoderParametrized:
         activation,
     ):
         """Test with different normalization and activation functions."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -1002,7 +1002,7 @@ class TestFASTGPTDecoderParametrized:
         positional_encoding_type,
     ):
         """Test with different positional encoding types."""
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -1046,7 +1046,7 @@ class TestFASTGPTDecoderFeatureProjection:
             "proprio_embedding": torch.randn(batch_size, 32, device=device),  # Wrong dim
         }
 
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=["visual_embedding", "proprio_embedding"],
             action_space=action_space,
             observation_space=observation_space,
@@ -1081,7 +1081,7 @@ class TestFASTGPTDecoderFeatureProjection:
     ):
         """Test that language features are not added twice (bug fix test)."""
         input_keys = [EncoderOutputKeys.LANGUAGE.value + "_embeddings"]
-        decoder = FASTGPTDecoder(
+        decoder = GPTActionTransformer(
             input_keys=input_keys,
             action_space=action_space,
             observation_space=observation_space,

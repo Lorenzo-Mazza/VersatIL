@@ -10,8 +10,11 @@ import torch
 import wandb
 from PIL import Image
 from pytorch_lightning.callbacks import Callback, EarlyStopping
+from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from torch.nn.modules.batchnorm import _BatchNorm
+
+from versatil.metrics.constants import MetadataKey
 from torch.optim.lr_scheduler import ReduceLROnPlateau as TorchReduceLROnPlateau
 
 plt.set_loglevel("warning")
@@ -619,25 +622,41 @@ class LatentVisualizationCallback(Callback):
             return
 
         z, z_prior, phase_per_sample = latent_data
-        posterior_fig = self._create_latent_figure(
-            z, phase_per_sample, title="Posterior latent space"
-        )
-        prior_fig = self._create_latent_figure(
-            z_prior, phase_per_sample, title="Prior latent space"
+        figures = {
+            "posterior_latent_space_tsne": self._create_latent_figure(
+                z, phase_per_sample, title="Posterior latent space"
+            ),
+            "prior_latent_space_tsne": self._create_latent_figure(
+                z_prior, phase_per_sample, title="Prior latent space"
+            ),
+            "posterior_latent_space_pca": self._create_pca_figure(
+                z, phase_per_sample, title="Posterior latent space"
+            ),
+            "prior_latent_space_pca": self._create_pca_figure(
+                z_prior, phase_per_sample, title="Prior latent space"
+            ),
+            "posterior_pca_explained_variance": self._create_pca_variance_figure(
+                z, title="Posterior"
+            ),
+            "prior_pca_explained_variance": self._create_pca_variance_figure(
+                z_prior, title="Prior"
+            ),
+        }
+
+        latent_stats_table = self._create_latent_stats_table(
+            pl_module.val_metrics.metadata
         )
 
         if trainer.logger is not None:
-            wandb_posterior_image = _figure_to_wandb_image(posterior_fig)
-            wandb_prior_image = _figure_to_wandb_image(prior_fig)
-            trainer.logger.log_metrics(
-                {
-                    "posterior_latent_space_analysis": wandb_posterior_image,
-                    "prior_latent_space_analysis": wandb_prior_image,
-                },
-                step=trainer.current_epoch,
-            )
-        plt.close(posterior_fig)
-        plt.close(prior_fig)
+            metrics = {
+                key: _figure_to_wandb_image(fig) for key, fig in figures.items()
+            }
+            if latent_stats_table is not None:
+                metrics["latent_space_statistics"] = latent_stats_table
+            trainer.logger.log_metrics(metrics, step=trainer.current_epoch)
+
+        for fig in figures.values():
+            plt.close(fig)
 
     def _create_latent_figure(
         self, z: np.ndarray, phases: np.ndarray | None, title: str = ""
@@ -687,6 +706,128 @@ class LatentVisualizationCallback(Callback):
         ax.set_ylabel("t-SNE Dimension 2")
         plt.tight_layout()
         return fig
+
+    def _create_pca_figure(
+        self, z: np.ndarray, phases: np.ndarray | None, title: str = ""
+    ) -> plt.Figure:
+        """Create PCA 2D projection of latent space.
+
+        Args:
+            z: Latent samples (N, latent_dim).
+            phases: Dominant phase per sample (N,), or None.
+            title: Title for the plot.
+
+        Returns:
+            Matplotlib figure with PCA projection.
+        """
+        if z.shape[0] > self.max_samples:
+            idx = np.random.choice(z.shape[0], self.max_samples, replace=False)
+            z = z[idx]
+            if phases is not None:
+                phases = phases[idx]
+
+        pca = PCA(n_components=2)
+        projected = pca.fit_transform(z)
+        explained_variance = pca.explained_variance_ratio_
+        fig, axis = plt.subplots(figsize=(10, 8))
+        if phases is not None:
+            sns.scatterplot(
+                x=projected[:, 0],
+                y=projected[:, 1],
+                hue=phases.astype(int),
+                palette="tab10",
+                alpha=0.6,
+                s=10,
+                legend="full",
+                ax=axis,
+            )
+            axis.set_title(f"{title} PCA (colored by phase mode)")
+        else:
+            sns.scatterplot(
+                x=projected[:, 0],
+                y=projected[:, 1],
+                alpha=0.6,
+                s=10,
+                ax=axis,
+            )
+            axis.set_title(f"{title} PCA")
+        axis.set_xlabel(f"PC1 ({explained_variance[0]:.1%})")
+        axis.set_ylabel(f"PC2 ({explained_variance[1]:.1%})")
+        plt.tight_layout()
+        return fig
+
+    def _create_pca_variance_figure(
+        self, z: np.ndarray, title: str = ""
+    ) -> plt.Figure:
+        """Create PCA explained variance histogram per latent dimension.
+
+        Args:
+            z: Latent samples (N, latent_dim).
+            title: Title prefix for the plot.
+
+        Returns:
+            Matplotlib figure with per-component variance bar chart.
+        """
+        pca = PCA()
+        pca.fit(z)
+        n_components = len(pca.explained_variance_ratio_)
+        fig, axis = plt.subplots(figsize=(10, 5))
+        sns.barplot(
+            x=list(range(n_components)),
+            y=pca.explained_variance_ratio_.tolist(),
+            ax=axis,
+        )
+        axis.set_xlabel("Principal Component")
+        axis.set_ylabel("Explained Variance Ratio")
+        axis.set_title(f"{title} - Explained Variance Per Dimension")
+        plt.tight_layout()
+        return fig
+
+    def _create_latent_stats_table(
+        self, metadata: dict[str, list[torch.Tensor]]
+    ) -> wandb.Table | None:
+        """Create a WandB table with latent space statistics.
+
+        Args:
+            metadata: Accumulated metadata dict from the metrics accumulator.
+
+        Returns:
+            WandB Table with per-latent-type statistics, or None if no latent data.
+        """
+        key_mapping = [
+            ("mu_posterior", MetadataKey.POSTERIOR_MU.value),
+            ("z_posterior", MetadataKey.POSTERIOR_Z.value),
+            ("mu_prior", MetadataKey.PRIOR_MU.value),
+            ("z_prior", MetadataKey.PRIOR_Z.value),
+        ]
+        rows = []
+        for label, metadata_key in key_mapping:
+            if metadata_key not in metadata:
+                continue
+            concatenated = torch.cat(metadata[metadata_key], dim=0).float()
+            if concatenated.ndim == 3:
+                concatenated = concatenated.view(concatenated.shape[0], -1)
+            array = concatenated.numpy()
+            per_dim_std = array.std(axis=0)
+            collapsed_dims = int((per_dim_std < 0.01).sum())
+            rows.append([
+                label,
+                str(array.shape),
+                f"{array.mean():.4f}",
+                f"{array.mean(axis=0).std():.4f}",
+                f"{array.std():.4f}",
+                f"{per_dim_std.mean():.4f}",
+                f"{array.min():.3f}",
+                f"{array.max():.3f}",
+                collapsed_dims,
+            ])
+        if not rows:
+            return None
+        columns = [
+            "name", "shape", "mean", "per_dim_std_of_mean",
+            "std", "per_dim_mean_of_std", "min", "max", "collapsed_dims",
+        ]
+        return wandb.Table(columns=columns, data=rows)
 
 
 def _figure_to_wandb_image(fig: plt.Figure) -> wandb.Image:

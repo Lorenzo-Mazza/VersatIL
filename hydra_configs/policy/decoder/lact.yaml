@@ -7,16 +7,16 @@ input_keys:
   - right_rgb
 
 latent_dimension: ${policy.algorithm.posterior_encoder.latent_dimension}
-embedding_dimension: 256
+embedding_dimension: 128
 number_of_heads: 8
 number_of_key_value_heads: 2
 feedforward_dimension: 1024
-number_of_layers: 2
+number_of_layers: 3
 activation: ${activation_function:SWIGLU}
 normalization_type: ${normalization:RMS_NORM}
 attention_type: ${attention:MULTI_HEAD}
 positional_encoding_type: ${pos_encoding:ROPE}
-dropout_rate: 0.1
+dropout_rate: 0.2
 attention_dropout: 0.0
 use_gating: true
 

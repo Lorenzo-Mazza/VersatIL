@@ -246,7 +246,7 @@ class FreeTransformer(nn.Module):
     """Free Transformer model (Fleuret, 2025).
 
     Contains:
-    - FreeTransformerDecoder (main autoregressive decoder with latent injection at middle layer)
+    - FreeTransformer (main autoregressive decoder with latent injection at middle layer)
     - FreeTransformerLatentEncoder (training-only latent predictor)
     - BinaryMapper (converts latent embedding to discrete one-hot codes + logits for KL)
 

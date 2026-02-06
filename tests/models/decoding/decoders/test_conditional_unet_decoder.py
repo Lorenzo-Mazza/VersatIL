@@ -10,8 +10,8 @@ from versatil.data.constants import (
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.constants import FeatureType
 from versatil.models.decoding.constants import DecoderOutputKey
-from versatil.models.decoding.decoders.factory.conditional_unet_decoder import (
-    ConditionalUNetDecoder,
+from versatil.models.decoding.decoders.factory.conditional_action_unet import (
+    ConditionalActionUNet,
 )
 
 
@@ -101,11 +101,11 @@ def create_conditional_unet_decoder(
     num_groups: int = 8,
     use_local_conditioning: bool = False,
     condition_predict_scale: bool = False,
-) -> ConditionalUNetDecoder:
+) -> ConditionalActionUNet:
     if down_dimensions is None:
         down_dimensions = [256, 512, 1024]
 
-    decoder = ConditionalUNetDecoder(
+    decoder = ConditionalActionUNet(
         input_keys=input_keys,
         action_space=action_space,
         action_heads=action_heads,

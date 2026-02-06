@@ -182,6 +182,7 @@ class DiTBlockActionTransformer(ActionDecoder):
             dropout=self.dropout_rate,
         )
         self._encoder_cache: Optional[torch.Tensor] = None
+        self._caching_enabled: bool = False
         self.to(self.device)
 
     def _prepare_observation_tokens(
@@ -209,9 +210,19 @@ class DiTBlockActionTransformer(ActionDecoder):
             )
         return observation_tokens, positional_encodings, observation_padding_mask
 
-    def reset_encoder_cache(self):
-        """Reset the encoder cache used for inference optimization."""
+    def enable_encoder_cache(self):
+        """Enable encoder caching for multi-step inference loops.
+
+        Called by algorithms at the start of predict() to enable caching
+        across denoising steps within a single sample.
+        """
         self._encoder_cache = None
+        self._caching_enabled = True
+
+    def disable_encoder_cache(self):
+        """Disable encoder caching and clear cached values."""
+        self._encoder_cache = None
+        self._caching_enabled = False
 
     def forward(
         self,
@@ -255,18 +266,15 @@ class DiTBlockActionTransformer(ActionDecoder):
             action_tensors.append(actions[action_key])
         noisy_actions = torch.cat(action_tensors, dim=-1)  # (B, T, D_action)
         noisy_embedding = self.noisy_input_projection(noisy_actions)  # (B, T, D)
-        if self.training:
-            self._encoder_cache = None
-
         encoder_cache, noise_predictions = self.transformer(
             decoder_hidden_states=noisy_embedding,
             timesteps=timesteps,
             encoder_hidden_states=observation_tokens,
             encoder_padding_mask=observation_padding_mask,
             decoder_padding_mask=None,
-            encoder_cache=self._encoder_cache if not self.training else None,
+            encoder_cache=self._encoder_cache if self._caching_enabled else None,
         )  # (B, S, D), (B, T, D)
-        if not self.training:
+        if self._caching_enabled:
             self._encoder_cache = encoder_cache
         outputs = {}
         start_index = 0

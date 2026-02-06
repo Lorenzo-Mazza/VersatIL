@@ -159,7 +159,7 @@ class FlowMatching(DecodingAlgorithm):
         dtype = first_feature.dtype
 
         if isinstance(network, DiTBlockActionTransformer):
-            network.reset_encoder_cache()
+            network.enable_encoder_cache()
 
         trajectory: dict[str, torch.Tensor] = {}
         for key, meta in network.action_space.actions_metadata.items():
@@ -218,4 +218,8 @@ class FlowMatching(DecodingAlgorithm):
                 shapes[key]
             )  # (B, H, D_k)
             current_offset += flat_action_dimension
+
+        if isinstance(network, DiTBlockActionTransformer):
+            network.disable_encoder_cache()
+
         return result

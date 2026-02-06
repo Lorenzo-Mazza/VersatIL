@@ -213,7 +213,7 @@ class Diffusion(DecodingAlgorithm):
             )
         setup_inference_timesteps(self.noise_scheduler, self.num_inference_steps)
         if isinstance(network, DiTBlockActionTransformer):
-            network.reset_encoder_cache()  # Clear any cached encoder outputs before inference
+            network.enable_encoder_cache()
 
         # Iteratively denoise
         for t in self.noise_scheduler.timesteps:  # type: ignore[union-attr]
@@ -226,5 +226,8 @@ class Diffusion(DecodingAlgorithm):
                     noisy_actions[key] = self.noise_scheduler.step(  # type: ignore[union-attr]
                         model_output[key], t, noisy_actions[key]
                     ).prev_sample
+
+        if isinstance(network, DiTBlockActionTransformer):
+            network.disable_encoder_cache()
 
         return noisy_actions

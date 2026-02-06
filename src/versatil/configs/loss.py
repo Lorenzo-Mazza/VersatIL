@@ -169,6 +169,17 @@ class GaussianMixtureNLLossConfig(BaseLossConfig):
 
 
 @dataclass
+class VICLatentLossConfig(BaseLossConfig):
+    """Configuration for VICReg-style covariance + variance loss."""
+
+    _target_: str = "versatil.metrics.VICLatentLoss"
+    key: str = "${latent_key:POSTERIOR_MU}"
+    covariance_weight: float = 3.0
+    variance_weight: float = 10.0
+    gamma: float = 0.3
+
+
+@dataclass
 class OptimalTransportLossConfig(BaseLossConfig):
     """Configuration for Optimal Transport loss using Sinkhorn divergence."""
 

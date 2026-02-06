@@ -1,5 +1,5 @@
 defaults:
-  - fastdetr
+  - discrete_detr
   - heads@action_heads: tokenized
 
 input_keys:
