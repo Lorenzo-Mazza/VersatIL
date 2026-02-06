@@ -194,3 +194,13 @@ class OptimalTransportLossConfig(BaseLossConfig):
     time_scale: float = 1.0
 
 
+@dataclass
+class LatentOptimalTransportLossConfig(BaseLossConfig):
+    """Configuration for latent Sinkhorn divergence between posterior and prior."""
+
+    _target_: str = "versatil.metrics.ot_loss.LatentOptimalTransportLoss"
+    weight: float = 1.0
+    p: int = 2
+    epsilon: float = 0.01
+
+
