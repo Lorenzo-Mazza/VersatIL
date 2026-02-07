@@ -5,15 +5,15 @@ defaults:
 input_keys:
   - left_rgb
   - right_rgb
-embedding_dimension: 512
+embedding_dimension: 256
 number_of_heads: 8
 number_of_key_value_heads: 2
-feedforward_dimension: 3200
-number_of_layers: 8
+feedforward_dimension: 1024
+number_of_layers: 4
 activation: ${activation_function:SWIGLU}
 normalization_type: ${normalization:RMS_NORM}
 attention_type: ${attention:GROUPED_QUERY}
-dropout_rate: 0.1
+dropout_rate: 0.2
 attention_dropout: 0.05
 positional_encoding_type: ${pos_encoding:ROPE}
 
