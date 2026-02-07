@@ -58,6 +58,9 @@ class RawCameraKey(enum.StrEnum):
     # MetaWorld LeRobot
     IMAGE_METAWORLD = "observation.image"
 
+    # Synthetic benchmark
+    SYNTHETIC_TOP = "synthetic_top"
+
 
 RAW_TO_CAMERA_MAPPING: dict[str, str] = {
     # TSO (identity)
@@ -95,6 +98,10 @@ class ProprioKey(enum.StrEnum):
     EE_ORI_ACTION = "ee_ori_action"
     GRIPPER_STATE = "gripper_state_obs"
     GRIPPER_STATE_ACTION = "gripper_state_action"
+
+    # Synthetic data
+    SYNTHETIC_POSITION = "synthetic_position"
+    SYNTHETIC_POSITION_ACTION = "synthetic_position_action"
 
 
 class ImageNormalizationType(enum.StrEnum):
@@ -142,6 +149,7 @@ class DatasetType(enum.StrEnum):
     LIBERO = "libero"
     TSO = "tso"
     METAWORLD = "metaworld"
+    SYNTHETIC = "synthetic"
 
 
 class LeRobotPathsV30(enum.StrEnum):

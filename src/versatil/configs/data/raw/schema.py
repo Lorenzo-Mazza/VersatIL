@@ -35,6 +35,20 @@ class Hdf5DatasetSchemaConfig(DatasetSchemaConfig):
 
 
 @dataclass
+class SyntheticDatasetSchemaConfig(DatasetSchemaConfig):
+    """Configuration for synthetic multimodal benchmark schema."""
+
+    task_name: str = MISSING
+    num_episodes: int = 1000
+    seed: int = 42
+    image_size: int = 64
+    num_modes: int = 3
+    trajectory_length: int = 60
+    noise_std: float = 0.01
+    num_styles: int = 4
+
+
+@dataclass
 class LeRobotDatasetSchemaConfig(DatasetSchemaConfig):
     """Configuration for LeRobot dataset schema V30"""
 

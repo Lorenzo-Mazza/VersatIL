@@ -25,6 +25,8 @@ from versatil.configs.data.raw import (
     DatasetSchemaConfig,
     Hdf5DatasetSchemaConfig,
     LeRobotDatasetSchemaConfig,
+    SyntheticDatasetSchemaConfig,
+    DatasetMetadataConfig,
 )
 from versatil.configs.data.task import (
     ActionSpaceConfig,
@@ -168,6 +170,7 @@ from versatil.data.constants import (
     TokenizerType,
     TokenPaddingStrategy,
 )
+from versatil.data.synthetic.constants import SyntheticTaskName
 from versatil.metrics.constants import MetadataKey
 from versatil.metrics.kernels import KernelType
 from versatil.models.decoding.constants import (
@@ -273,6 +276,7 @@ __all__ = [
     "StructuredPrunerConfig",
     "UnstructuredPrunerConfig",
     "X86InductorBackendConfig",
+    "SyntheticDatasetSchemaConfig",
 ]
 
 
@@ -412,6 +416,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("token_padding"):
         OmegaConf.register_new_resolver(
             "token_padding", lambda name: TokenPaddingStrategy[name].value
+        )
+    if not OmegaConf.has_resolver("synthetic_task"):
+        OmegaConf.register_new_resolver(
+            "synthetic_task", lambda name: SyntheticTaskName[name].value
         )
 
     if not OmegaConf.has_resolver("compile_mode"):
@@ -558,6 +566,9 @@ def register_configs():
     cs.store(group="task/dataset_schema", name="base", node=DatasetSchemaConfig)
     cs.store(group="task/dataset_schema", name="hdf5", node=Hdf5DatasetSchemaConfig)
     cs.store(group="task/dataset_schema", name="csv", node=CsvDatasetSchemaConfig)
+    cs.store(
+        group="task/dataset_schema", name="synthetic", node=SyntheticDatasetSchemaConfig
+    )
     cs.store(group="task/dataloader", name="base", node=DataLoaderConfig)
     cs.store(
         group="task/dataloader/image_augmentations",
