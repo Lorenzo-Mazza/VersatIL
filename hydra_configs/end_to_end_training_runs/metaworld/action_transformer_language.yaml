@@ -45,6 +45,9 @@ policy:
   observation_horizon: ${task.observation_horizon}
   device: ${experiment.device}
   validate_loss_keys: true
+  decoder:
+    input_keys:
+      - left_rgb
   encoding_pipeline:
     encoders:
         left:
