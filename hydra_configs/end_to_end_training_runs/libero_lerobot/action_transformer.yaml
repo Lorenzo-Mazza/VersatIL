@@ -10,8 +10,8 @@ defaults:
   - /task/action_space: libero_precomputed_lerobot
   - /task/observation_space: libero_rgb_lerobot
   - /training: default
-  - /policy/encoding_pipeline: stereo_rgb_language_encoder
-  - /policy/decoder: action_transformer_language
+  - /policy/encoding_pipeline: stereo_rgb
+  - /policy/decoder: action_transformer
   - /policy/algorithm: behavioral_cloning
   - /policy/loss: regression_gripper
   - /inference: default
@@ -65,8 +65,6 @@ policy:
         right:
             input_keys:
               - ${cameras:EYE_IN_HAND}
-        instruction:
-          model_name: ${language_model:BERT_BASE}
 
 # Override specific parameters from defaults/command line if needed
 # For example, to use different batch size:
