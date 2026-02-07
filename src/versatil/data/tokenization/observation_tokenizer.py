@@ -156,7 +156,7 @@ class ObservationTokenizer:
         Example:
         "Task: grasp needle, proprio robot frame: 12 34 56, gripper state: 78 90;"
         """
-        first_val = next(iter(observations.items()))
+        first_val = next(iter(observations.values()))
         if isinstance(first_val, torch.Tensor):
             batch_size = first_val.shape[0]
         elif isinstance(first_val, np.ndarray):
