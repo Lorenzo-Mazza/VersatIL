@@ -37,6 +37,9 @@ class FlowMatching(DecodingAlgorithm):
         timestep_sampler: Timestep sampling strategy.
         logit_mean: Mean for logit-normal (shifts mode; 0 centers at t=0.5).
         logit_std: Std for logit-normal (smaller = more concentrated).
+        beta_alpha: First shape parameter for Beta distribution (pi0 uses 1.5).
+        beta_beta: Second shape parameter for Beta distribution (pi0 uses 1.0).
+        max_timestep: Upper bound s for Beta sampling (pi0 uses 0.999).
     """
 
     def __init__(
@@ -44,9 +47,12 @@ class FlowMatching(DecodingAlgorithm):
         sigma: float = 0.0,
         num_inference_steps: int = 10,
         ode_solver: str = ODESolver.EULER.value,
-        timestep_sampler: str = TimestepSampler.LOGIT_NORMAL.value,
+        timestep_sampler: str = TimestepSampler.BETA.value,
         logit_mean: float = 0.0,
         logit_std: float = 1.0,
+        beta_alpha: float = 1.5,
+        beta_beta: float = 1.0,
+        max_timestep: float = 0.999,
     ):
         """Initialize Flow Matching algorithm."""
         super().__init__()
@@ -57,6 +63,9 @@ class FlowMatching(DecodingAlgorithm):
         self.timestep_sampler = timestep_sampler
         self.logit_mean = logit_mean
         self.logit_std = logit_std
+        self.beta_alpha = beta_alpha
+        self.beta_beta = beta_beta
+        self.max_timestep = max_timestep
 
         valid_solvers = [e.value for e in ODESolver]
         if self.ode_solver not in valid_solvers:
@@ -115,6 +124,9 @@ class FlowMatching(DecodingAlgorithm):
                     sampler=self.timestep_sampler,
                     logit_mean=self.logit_mean,
                     logit_std=self.logit_std,
+                    beta_alpha=self.beta_alpha,
+                    beta_beta=self.beta_beta,
+                    max_timestep=self.max_timestep,
                 )
             epsilon = torch.randn_like(action.float())
             x_t = self.flow_matcher.sample_xt(
