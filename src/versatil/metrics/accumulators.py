@@ -186,7 +186,10 @@ class MetricsAccumulator:
         z, z_prior, phase_per_sample = None, None, None
         if MetadataKey.PHASE_LABEL.value in self.metadata:
             all_phases = torch.cat(self.metadata[MetadataKey.PHASE_LABEL.value], dim=0)
-            # Handle phase labels: reduce (B, prediction_horizon) -> (N,) using mode
+            # Squeeze trailing dim if present: (B, horizon, 1) -> (B, horizon)
+            if all_phases.ndim == 3 and all_phases.shape[-1] == 1:
+                all_phases = all_phases.squeeze(-1)
+            # Reduce (B, prediction_horizon) -> (N,) using mode
             phase_per_sample = torch.mode(all_phases, dim=1).values.numpy()
 
         if MetadataKey.POSTERIOR_Z.value in self.metadata:
