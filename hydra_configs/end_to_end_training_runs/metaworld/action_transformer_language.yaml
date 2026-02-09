@@ -48,6 +48,7 @@ policy:
   decoder:
     input_keys:
       - left_rgb
+      - instruction_language
   encoding_pipeline:
     encoders:
         left:
