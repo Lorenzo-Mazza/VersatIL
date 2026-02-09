@@ -10,8 +10,8 @@ defaults:
   - /task/action_space: metaworld_mt50_precomputed
   - /task/observation_space: metaworld_mt50_rgb
   - /training: default
-  - /policy/encoding_pipeline: mono_rgb_language_encoder
-  - /policy/decoder: action_transformer_language
+  - /policy/encoding_pipeline: mono_rgb
+  - /policy/decoder: action_transformer
   - /policy/algorithm: behavioral_cloning
   - /policy/loss: regression_continuous_gripper
   - /inference: default
@@ -37,6 +37,8 @@ training:
   clip_gradient_norm: true
   clip_max_norm: 1.0
 
+
+
 policy:
   _target_: versatil.models.policy.Policy
   observation_space: ${task.observation_space}
@@ -48,14 +50,11 @@ policy:
   decoder:
     input_keys:
       - left_rgb
-      - instruction_language
   encoding_pipeline:
     encoders:
         left:
             input_keys:
               - ${cameras:AGENTVIEW}
-        instruction:
-          model_name: ${language_model:BERT_BASE}
 
 # Override specific parameters from defaults/command line if needed
 # For example, to use different batch size:
