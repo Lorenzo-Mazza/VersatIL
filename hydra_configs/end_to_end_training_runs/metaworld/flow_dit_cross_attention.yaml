@@ -7,7 +7,7 @@ defaults:
   - /policy: base
   - /experiment: default
   - /task/dataset_schema: metaworld_mt50
-  - /task/dataloader: libero_lerobot
+  - /task/dataloader: metaworld
   - /task/action_space: metaworld_mt50_precomputed
   - /task/observation_space: metaworld_mt50_rgb
   - /training: ema_cosine_schedule
