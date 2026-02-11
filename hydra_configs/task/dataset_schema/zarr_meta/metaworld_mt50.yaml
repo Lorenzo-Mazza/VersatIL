@@ -29,8 +29,8 @@ observations:
     camera_key: ${cameras:IMAGE_METAWORLD_LEROBOT}
     dtype: uint8
     channels: 3
-    image_width: 256
-    image_height: 256
+    image_width: 480
+    image_height: 480
 
   ${obs_key:LANGUAGE}:
     _target_: versatil.data.metadata.ObservationMetadata
