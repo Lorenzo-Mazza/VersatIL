@@ -171,7 +171,10 @@ class Workspace:
             logging.info(f"Tokenizer saved to {tokenizer_path}")
 
         logging.info(f"Train dataset size: {len(self.train_loader.dataset)} samples")
-        logging.info(f"Val dataset size: {len(self.val_loader.dataset)} samples")
+        if self.val_loader is not None:
+            logging.info(f"Val dataset size: {len(self.val_loader.dataset)} samples")
+        else:
+            logging.info("Validation disabled (val_ratio=0)")
         action_processor = self.train_loader.dataset.action_processor
         fig = action_processor.plot_action_magnitude_distribution()
         if fig is not None:
@@ -224,6 +227,11 @@ class Workspace:
             logging.info(
                 f"Set float32 matmul precision to '{self.config.experiment.float32_matmul_precision}'"
             )
+        val_every = (
+            self.config.experiment.val_every if self.val_loader is not None else None
+        )
+        limit_val_batches = 1.0 if self.val_loader is not None else 0
+
         self.trainer = pl.Trainer(
             max_epochs=self.config.training.num_epochs,
             accelerator="gpu" if "cuda" in self.config.experiment.device else "cpu",
@@ -233,7 +241,8 @@ class Workspace:
             callbacks=callbacks,
             gradient_clip_val=gradient_clip_val,
             accumulate_grad_batches=self.config.training.gradient_accumulate_every,
-            check_val_every_n_epoch=self.config.experiment.val_every,
+            check_val_every_n_epoch=val_every,
+            limit_val_batches=limit_val_batches,
             log_every_n_steps=50,
             enable_progress_bar=True,
             enable_model_summary=True,
@@ -250,6 +259,7 @@ class Workspace:
             List of Lightning callbacks
         """
         callbacks = []
+        has_validation = self.val_loader is not None
 
         if self.config.training.use_ema:
             ema_callback = EMACallback(
@@ -258,18 +268,32 @@ class Workspace:
             callbacks.append(ema_callback)
             logging.info(f"Added EMA callback (power={self.config.training.ema_power})")
 
-        checkpoint_callback_best = ModelCheckpoint(
-            dirpath=self.output_dir,
-            filename="best-{epoch:02d}-{val_loss:.4f}",
-            monitor="val_loss",
-            mode="min",
-            save_top_k=3,  # Keep top 3 best models
-            save_last=False,
-            verbose=True,
-            auto_insert_metric_name=False,
-        )
+        if has_validation:
+            checkpoint_callback_best = ModelCheckpoint(
+                dirpath=self.output_dir,
+                filename="best-{epoch:02d}-{val_loss:.4f}",
+                monitor="val_loss",
+                mode="min",
+                save_top_k=3,
+                save_last=True,
+                verbose=True,
+                auto_insert_metric_name=False,
+            )
+        else:
+            checkpoint_callback_best = ModelCheckpoint(
+                dirpath=self.output_dir,
+                filename="best-{epoch:02d}-{train_loss:.4f}",
+                monitor="train_loss",
+                mode="min",
+                save_top_k=3,
+                save_last=True,
+                verbose=True,
+                auto_insert_metric_name=False,
+            )
         callbacks.append(checkpoint_callback_best)
-        logging.info(f"Added ModelCheckpoint callback (top-k=3)")
+        logging.info(
+            f"Added ModelCheckpoint callback (top-k=3, monitor={checkpoint_callback_best.monitor})"
+        )
 
         checkpoint_callback_latest = ModelCheckpoint(
             dirpath=self.output_dir,
@@ -284,14 +308,20 @@ class Workspace:
         logging.info(
             f"Added latest checkpoint callback (every {self.config.experiment.checkpoint_every} epochs)"
         )
-        early_stopping_callback = ResumableEarlyStopping(
-            monitor="val_loss",
-            mode="min",
-            patience=self.config.training.early_stopping_patience,
-            verbose=True,
-        )
-        callbacks.append(early_stopping_callback)
-        logging.info("Added EarlyStopping callback (patience=10)")
+
+        if has_validation:
+            early_stopping_callback = ResumableEarlyStopping(
+                monitor="val_loss",
+                mode="min",
+                patience=self.config.training.early_stopping_patience,
+                verbose=True,
+            )
+            callbacks.append(early_stopping_callback)
+            logging.info(
+                f"Added EarlyStopping callback (patience={self.config.training.early_stopping_patience})"
+            )
+        else:
+            logging.info("Skipping EarlyStopping callback (no validation data)")
 
         gradient_norm_callback = GradientNormCallback(log_every_n_steps=50)
         callbacks.append(gradient_norm_callback)
@@ -334,13 +364,15 @@ class Workspace:
             logging.info("Added LatentVisualization callback for variational algorithm")
 
         if self.config.training.reduce_lr_on_plateau:
+            monitor = "val_loss" if has_validation else "train_loss"
             reduce_lr_callback = ReduceLROnPlateauCallback(
+                monitor=monitor,
                 patience=self.config.training.reduce_lr_patience,
                 cooldown=self.config.training.reduce_lr_cooldown,
             )
             callbacks.append(reduce_lr_callback)
             logging.info(
-                f"Added ReduceLROnPlateau callback (patience={self.config.training.reduce_lr_patience})"
+                f"Added ReduceLROnPlateau callback (monitor={monitor}, patience={self.config.training.reduce_lr_patience})"
             )
 
         if any(
