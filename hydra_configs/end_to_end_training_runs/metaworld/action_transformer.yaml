@@ -50,6 +50,13 @@ policy:
   decoder:
     input_keys:
       - left_rgb
+    embedding_dimension: 128
+    feedforward_dimension: 512
+    number_of_layers: 3
+    activation: ${activation_function:SILU}
+    attention_type: ${attention:MULTI_HEAD}
+    number_of_key_value_heads: null
+
   encoding_pipeline:
     encoders:
         left:
