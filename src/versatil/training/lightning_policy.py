@@ -255,6 +255,6 @@ class LightningPolicy(pl.LightningModule):
         """Return training dataloader for Lightning."""
         return self._train_dataloader
 
-    def val_dataloader(self) -> torch.utils.data.DataLoader:
-        """Return validation dataloader for Lightning."""
+    def val_dataloader(self) -> torch.utils.data.DataLoader | None:
+        """Return validation dataloader for Lightning, or None if validation is disabled."""
         return self._val_dataloader

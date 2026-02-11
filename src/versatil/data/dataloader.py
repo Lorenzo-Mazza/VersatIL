@@ -29,7 +29,11 @@ from versatil.data.tokenization.tokenizer import Tokenizer, validate_tokenizer_c
 def get_dataloaders(
     config: DictConfig,
 ) -> tuple[
-    data.DataLoader, data.DataLoader, LinearNormalizer, Tokenizer | None, float | None
+    data.DataLoader,
+    data.DataLoader | None,
+    LinearNormalizer,
+    Tokenizer | None,
+    float | None,
 ]:
     """Create train and validation dataloaders with normalizer and optional tokenizer.
 
@@ -37,7 +41,8 @@ def get_dataloaders(
         config: Main configuration object instantiated by Hydra
 
     Returns:
-        Tuple of (train_loader, val_loader, normalizer, tokenizer, gripper_class_weights)
+        Tuple of (train_loader, val_loader, normalizer, tokenizer, gripper_class_weights).
+        val_loader is None when val_ratio is 0.
 
     Note: The type hint for `config` indicates `DictConfig`, but at runtime hydra instantiates a `MainConfig` with
       all target fields resolved into python objects.
@@ -55,6 +60,7 @@ def get_dataloaders(
     _ensure_zarr_exists(
         schema=schema, preload_in_memory=dataloader_config.preload_data_in_memory
     )
+    skip_validation = dataloader_config.val_ratio == 0
 
     train_dataset = EpisodicDataset(
         zarr_path=schema.zarr_path,
@@ -62,17 +68,6 @@ def get_dataloaders(
         obs_horizon=config.task.observation_horizon,
         dataloader_config=dataloader_config,
         train=True,
-        seed=config.experiment.seed,
-        action_space=action_space,
-        observation_space=observation_space,
-    )
-
-    val_dataset = EpisodicDataset(
-        zarr_path=schema.zarr_path,
-        pred_horizon=config.task.prediction_horizon,
-        obs_horizon=config.task.observation_horizon,
-        dataloader_config=dataloader_config,
-        train=False,
         seed=config.experiment.seed,
         action_space=action_space,
         observation_space=observation_space,
@@ -90,15 +85,7 @@ def get_dataloaders(
         device=torch.device("cpu"),  # Keep on CPU for DataLoader workers
     )
     train_dataset.set_normalizer(normalizer)
-    val_dataset.set_normalizer(normalizer)
     train_dataset.set_tokenizer(tokenizer)
-    val_dataset.set_tokenizer(tokenizer)
-
-    if action_space.denoise_actions:
-        val_dataset.action_processor.denoising_thresholds = (
-            train_dataset.action_processor.denoising_thresholds.copy()
-        )
-        val_dataset.action_processor._denoising_thresholds_computed = True
 
     train_loader = data.DataLoader(
         train_dataset,
@@ -110,15 +97,38 @@ def get_dataloaders(
         prefetch_factor=2,
     )
 
-    val_loader = data.DataLoader(
-        val_dataset,
-        batch_size=config.task.dataloader.batch_size,
-        shuffle=False,
-        num_workers=min(4, config.task.dataloader.num_workers),
-        pin_memory=True,
-        persistent_workers=True,
-        prefetch_factor=2,
-    )
+    val_loader: data.DataLoader | None = None
+    if not skip_validation:
+        val_dataset = EpisodicDataset(
+            zarr_path=schema.zarr_path,
+            pred_horizon=config.task.prediction_horizon,
+            obs_horizon=config.task.observation_horizon,
+            dataloader_config=dataloader_config,
+            train=False,
+            seed=config.experiment.seed,
+            action_space=action_space,
+            observation_space=observation_space,
+        )
+        val_dataset.set_normalizer(normalizer)
+        val_dataset.set_tokenizer(tokenizer)
+
+        if action_space.denoise_actions:
+            val_dataset.action_processor.denoising_thresholds = (
+                train_dataset.action_processor.denoising_thresholds.copy()
+            )
+            val_dataset.action_processor._denoising_thresholds_computed = True
+
+        val_loader = data.DataLoader(
+            val_dataset,
+            batch_size=config.task.dataloader.batch_size,
+            shuffle=False,
+            num_workers=min(4, config.task.dataloader.num_workers),
+            pin_memory=True,
+            persistent_workers=True,
+            prefetch_factor=2,
+        )
+    else:
+        logging.info("Validation disabled (val_ratio=0). Training without validation.")
 
     gripper_positive_class_weights = None
     if (
@@ -148,8 +158,8 @@ def validate_dataloader_config(config: DataLoaderConfig):
         raise ValueError(f"image_height must be positive, got {config.image_height}")
     if config.image_width <= 0:
         raise ValueError(f"image_width must be positive, got {config.image_width}")
-    if not 0 < config.val_ratio < 1:
-        raise ValueError(f"val_ratio must be in range (0, 1), got {config.val_ratio}")
+    if not 0 <= config.val_ratio < 1:
+        raise ValueError(f"val_ratio must be in range [0, 1), got {config.val_ratio}")
     if not 0 < config.total_ratio <= 1:
         raise ValueError(
             f"total_ratio must be in range (0, 1], got {config.total_ratio}"
