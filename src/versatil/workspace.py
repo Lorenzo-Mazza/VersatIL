@@ -282,8 +282,8 @@ class Workspace:
         else:
             checkpoint_callback_best = ModelCheckpoint(
                 dirpath=self.output_dir,
-                filename="best-{epoch:02d}-{train_loss:.4f}",
-                monitor="train_loss",
+                filename="best-{epoch:02d}-{train_loss_epoch:.4f}",
+                monitor="train_loss_epoch",
                 mode="min",
                 save_top_k=3,
                 save_last=True,
