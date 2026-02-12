@@ -1,0 +1,31 @@
+defaults:
+  - base
+  - image_augmentations@color_augmentation: color
+  - image_augmentations@spatial_augmentation: spatial
+  - tokenization@tokenization: obs_language
+
+batch_size: 64
+num_workers: 16
+shuffle: true
+
+image_height: 480
+image_width: 480
+
+image_norm_type:  ${image_norm_type:MINUS_ONE_TO_ONE}
+depth_norm_type:  ${image_norm_type:MINUS_ONE_TO_ONE}
+kinematics_norm_type: ${kinematics_norm_type:MIN_MAX}
+winsorize_depth: true
+depth_winsorize_quantiles: [0.01, 0.99]
+winsorize_kinematics: true
+kinematics_winsorize_quantiles: [0.01, 0.99]
+
+rotation_augmentation: null
+
+skip_initial_episode_steps: 0
+downsample_factor: 1
+
+
+action_backward_shift: 0
+
+val_ratio: 0.0
+total_ratio: 1.0

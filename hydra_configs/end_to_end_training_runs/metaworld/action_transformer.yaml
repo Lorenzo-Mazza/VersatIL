@@ -6,7 +6,7 @@ defaults:
   - /policy: base
   - /experiment: default
   - /task/dataset_schema: metaworld_mt50
-  - /task/dataloader: libero_lerobot
+  - /task/dataloader: metaworld
   - /task/action_space: metaworld_mt50_precomputed
   - /task/observation_space: metaworld_mt50_rgb
   - /training: default
@@ -50,6 +50,13 @@ policy:
   decoder:
     input_keys:
       - left_rgb
+    embedding_dimension: 128
+    feedforward_dimension: 512
+    number_of_layers: 3
+    activation: ${activation_function:SILU}
+    attention_type: ${attention:MULTI_HEAD}
+    number_of_key_value_heads: null
+
   encoding_pipeline:
     encoders:
         left:
