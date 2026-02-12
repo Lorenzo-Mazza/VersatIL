@@ -22,66 +22,60 @@ from versatil.data.constants import ObsKey, LeRobotPathsV30
 from versatil.data.metadata import CameraMetadata
 from versatil.data.raw.schemas.base import DatasetSchema
 from versatil.data.raw.zarr_meta import DatasetMetadata
+import av
 
 
 def decode_video_frames(
     video_path: Path,
     timestamps: list[float],
     tolerance_s: float = 0.01,
-) -> list[np.array]:
-    """Load frames from a video file at specified timestamps using OpenCV.
-
-    This function seeks to specific timestamps in a video file and extracts
-    the corresponding frames. It validates that the actual frame timestamps
-    are within a tolerance of the requested timestamps.
-
-    Args:
-        video_path: Path to the video file (typically MP4).
-        timestamps: List of timestamps in seconds to extract frames at.
-        tolerance_s: Maximum allowed deviation in seconds between requested
-            and actual frame timestamps. Defaults to 0.01 (10ms).
+) -> list[np.ndarray]:
+    """Load frames from a video file at specified timestamps using PyAV.
 
     Returns:
-        List of cv2 images (numpy arrays) corresponding to each requested timestamp.
-
-    Raises:
-        ValueError: If the video FPS cannot be read (invalid or corrupted video).
-        RuntimeError: If a frame cannot be read at a given timestamp, or if
-            the actual timestamp deviates from the requested by more than
-            the tolerance.
+        List of RGB numpy arrays (uint8) corresponding to each requested timestamp.
     """
-    cap = cv2.VideoCapture(str(video_path))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    if fps <= 0:
-        raise ValueError(f"Failed to read FPS from video: {video_path}")
+    container = av.open(str(video_path))
+    stream = container.streams.video[0]
 
-    loaded_frames = []
+    # Ensure timestamps are sorted for efficient seeking
+    sorted_indices = np.argsort(timestamps)
+    sorted_timestamps = [timestamps[i] for i in sorted_indices]
 
-    for timestamp in timestamps:
-        # Convert timestamp to frame index and seek
-        frame_idx = round(timestamp * fps)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+    loaded_frames = [None] * len(timestamps)
 
-        ret, frame = cap.read()
-        if not ret:
+    for sorted_pos, timestamp in enumerate(sorted_timestamps):
+        # Seek close to requested timestamp (in stream time_base units)
+        seek_ts = int(timestamp / stream.time_base)
+        container.seek(seek_ts, any_frame=False, backward=True, stream=stream)
+
+        frame_found = False
+
+        for frame in container.decode(stream):
+            actual_timestamp_s = float(frame.pts * stream.time_base)
+
+            if actual_timestamp_s + tolerance_s < timestamp:
+                continue
+
+            if abs(actual_timestamp_s - timestamp) > tolerance_s:
+                raise RuntimeError(
+                    f"Timestamp tolerance exceeded: requested={timestamp:.4f}, "
+                    f"got={actual_timestamp_s:.4f}, video={video_path}"
+                )
+
+            img_rgb = frame.to_ndarray(format="rgb24")
+            original_index = sorted_indices[sorted_pos]
+            loaded_frames[original_index] = img_rgb
+            frame_found = True
+            break
+
+        if not frame_found:
             raise RuntimeError(
                 f"Failed to read frame at timestamp={timestamp:.4f}s "
                 f"from video: {video_path}"
             )
 
-        # Validate the actual timestamp is within tolerance
-        actual_timestamp_s = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
-
-        if abs(actual_timestamp_s - timestamp) > tolerance_s:
-            raise RuntimeError(
-                f"Timestamp tolerance exceeded: requested={timestamp:.4f}, "
-                f"got={actual_timestamp_s:.4f}, video={video_path}"
-            )
-
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        loaded_frames.append(frame_rgb)
-
-    cap.release()
+    container.close()
 
     return loaded_frames
 

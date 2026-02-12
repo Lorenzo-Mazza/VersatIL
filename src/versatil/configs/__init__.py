@@ -395,6 +395,13 @@ def register_resolvers():
                 Path(os.environ.get("VERSATIL_LIBERO_LEROBOT_DIR", ".")) / subpath
             ),
         )
+    if not OmegaConf.has_resolver("libero_plus_lerobot_dir"):
+        OmegaConf.register_new_resolver(
+            "libero_plus_lerobot_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_LIBERO_PLUS_LEROBOT_DIR", ".")) / subpath
+            ),
+        )
     if not OmegaConf.has_resolver("metaworld_lerobot_dir"):
         OmegaConf.register_new_resolver(
             "metaworld_lerobot_dir",

@@ -17,6 +17,10 @@ class Cameras(enum.Enum):
     IMAGE = "observation.images.image"
     IMAGE_2 = "observation.images.image2"
 
+    # LIBERO PLUS LEROBOT
+    FRONT = "observation.images.front"
+    WRIST = "observation.images.wrist"
+
     IMAGE_METAWORLD_LEROBOT = "observation.image"
 
 
