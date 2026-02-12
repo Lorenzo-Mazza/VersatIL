@@ -207,5 +207,8 @@ module = "tests.*"
 disallow_untyped_defs = false
 ignore_errors = false
 
+[project.entry-points."zarr.codecs"]
+versatil_webp = "versatil.data.preprocessing.codecs:WebPCodec"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/versatil"]

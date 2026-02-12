@@ -9,6 +9,10 @@ import zarr
 from zarr.codecs import BloscCodec, BloscShuffle
 from zarr.storage import LocalStore, MemoryStore
 
+from versatil.data.preprocessing.codecs import WebPCodec
+
+WEBP_QUALITY = 99
+
 
 def check_chunks_compatible(chunks: tuple[int, ...], shape: tuple[int, ...]):
     """Checks if given chunks are compatible with the array shape.
@@ -30,30 +34,55 @@ def check_chunks_compatible(chunks: tuple[int, ...], shape: tuple[int, ...]):
 
 
 def rechunk_recompress_array(
-    group, name, chunks=None, chunk_length=None, compressor=None, tmp_key="_temp"
-):
+    group: zarr.Group,
+    name: str,
+    chunks: tuple | None = None,
+    chunk_length: int | None = None,
+    compressor: BloscCodec | WebPCodec | None = None,
+    tmp_key: str = "_temp",
+) -> zarr.Array:
+    """Rechunk and/or recompress an existing zarr array.
+
+    Preserves the original codec (BloscCodec or WebPCodec) if no explicit
+    compressor is provided. For WebPCodec arrays the codec is read from the
+    array's metadata codec pipeline since it is a serializer, not a compressor.
+
+    Args:
+        group: Zarr group containing the array.
+        name: Name of the array to rechunk/recompress.
+        chunks: New chunk sizes. Defaults to existing chunks.
+        chunk_length: Shorthand to override only the first chunk dimension.
+        compressor: New codec. Defaults to the array's existing codec.
+        tmp_key: Temporary key used during rechunking (unused, kept for API).
+    """
     old_arr = group[name]
     if chunks is None:
         if chunk_length is not None:
             chunks = (chunk_length,) + old_arr.chunks[1:]
         else:
             chunks = old_arr.chunks
-    check_chunks_compatible(chunks, old_arr.shape)
+    check_chunks_compatible(chunks=chunks, shape=old_arr.shape)
 
     if compressor is None:
-        compressor = old_arr.compressors[-1] if old_arr.compressors else None
+        if old_arr.compressors:
+            compressor = old_arr.compressors[-1]
+        else:
+            compressor = _get_serializer_codec(old_arr)
 
-    if (chunks == old_arr.chunks) and (
-        compressor == (old_arr.compressors[-1] if old_arr.compressors else None)
-    ):
+    old_codec = (
+        old_arr.compressors[-1]
+        if old_arr.compressors
+        else _get_serializer_codec(old_arr)
+    )
+    if (chunks == old_arr.chunks) and (compressor == old_codec):
         return old_arr
 
     # Manually rechunk/recompress instead of using zarr.copy
     # TODO: update when issue is closed on https://github.com/zarr-developers/zarr-python/issues/2407
     data = old_arr[:]
     del group[name]
-    arr = group.create_array(
-        name=name, data=data, chunks=chunks, compressors=compressor
+    arr = _create_zarr_data_array(
+        group=group, name=name, chunks=chunks, codec=compressor, data=data
     )
     return arr
 
@@ -98,6 +127,79 @@ def get_optimal_chunks(shape, dtype, target_chunk_bytes=2e6, max_chunk_length=No
     rchunks.extend([1] * len_diff)
     chunks = tuple(rchunks[::-1])
     return chunks
+
+
+def _is_uint8_image_array(array: np.ndarray | zarr.Array) -> bool:
+    """Check if an array is a uint8 image (4D with shape T, H, W, C)."""
+    return len(array.shape) >= 4 and array.dtype == np.uint8
+
+
+def _get_serializer_codec(array: zarr.Array) -> WebPCodec | None:
+    """Extract the WebPCodec serializer from a zarr array's metadata codecs.
+
+    WebPCodec is an ArrayBytesCodec (serializer), so it doesn't appear in
+    ``arr.compressors``. This helper inspects the metadata codec pipeline.
+
+    Args:
+        array: Zarr array to inspect.
+
+    Returns:
+        WebPCodec instance if found, None otherwise.
+    """
+    for codec in array.metadata.codecs:
+        if isinstance(codec, WebPCodec):
+            return codec
+    return None
+
+
+def _create_zarr_data_array(
+    group: zarr.Group,
+    name: str,
+    chunks: tuple,
+    codec: BloscCodec | WebPCodec | None,
+    data: np.ndarray | None = None,
+    shape: tuple | None = None,
+    dtype: np.dtype | type | None = None,
+    fill_value: int | None = None,
+) -> zarr.Array:
+    """Create a zarr array using the appropriate codec parameter.
+
+    WebPCodec is an ArrayBytesCodec and uses the ``serializer`` parameter.
+    BloscCodec is a BytesBytesCodec and uses the ``compressors`` parameter.
+
+    Args:
+        group: Zarr group to create the array in.
+        name: Array name.
+        chunks: Chunk sizes.
+        codec: WebPCodec, BloscCodec, or None.
+        data: Data to store. Mutually exclusive with shape/dtype.
+        shape: Shape for empty arrays.
+        dtype: Dtype for empty arrays.
+        fill_value: Optional fill value for empty arrays.
+    """
+    if isinstance(codec, WebPCodec):
+        array_shape = data.shape if data is not None else shape
+        webp_chunks = (1, *array_shape[1:])
+        return group.create_array(
+            name=name,
+            data=data,
+            shape=shape,
+            chunks=webp_chunks,
+            dtype=dtype,
+            fill_value=fill_value,
+            serializer=codec,
+            compressors=None,
+        )
+
+    return group.create_array(
+        name=name,
+        data=data,
+        shape=shape,
+        chunks=chunks,
+        dtype=dtype,
+        fill_value=fill_value,
+        compressors=codec,
+    )
 
 
 class ReplayBuffer:
@@ -313,11 +415,12 @@ class ReplayBuffer:
                 cpr = cls._resolve_array_compressor(
                     compressors=compressors, key=key, array=value
                 )
-                _ = data_group.create_array(
+                _ = _create_zarr_data_array(
+                    group=data_group,
                     name=key,
                     data=value[:],  # type: ignore[index]
                     chunks=cks,
-                    compressors=cpr,
+                    codec=cpr,
                 )
         buffer = cls(root=root)  # type: ignore[arg-type]
         return buffer
@@ -399,11 +502,12 @@ class ReplayBuffer:
                 compressors=compressors, key=key, array=value
             )
             data_to_save = value[:] if isinstance(value, zarr.Array) else value
-            _ = data_group.create_array(
+            _ = _create_zarr_data_array(
+                group=data_group,
                 name=key,
                 data=data_to_save,  # type: ignore[arg-type]
                 chunks=cks,
-                compressors=cpr,
+                codec=cpr,
             )
         return store
 
@@ -454,19 +558,23 @@ class ReplayBuffer:
 
     @classmethod
     def _resolve_array_compressor(
-        cls, compressors: dict | str | BloscCodec, key, array
-    ):
+        cls,
+        compressors: dict | str | BloscCodec | WebPCodec,
+        key: str,
+        array: zarr.Array | np.ndarray,
+    ) -> BloscCodec | WebPCodec:
         """Resolves compressor for a specific array key.
 
         From dict (key-specific), else global, fallback to array's or default.
+        For uint8 image arrays (4D), returns WebPCodec by default.
 
         Args:
-            compressors: Dict, str, or BloscCodec.
+            compressors: Dict, str, BloscCodec, or WebPCodec.
             key: Array key.
             array: Array (Zarr or NumPy) for fallback.
 
         Returns:
-            BloscCodec or None.
+            BloscCodec or WebPCodec.
         """
         cpr = None
         if isinstance(compressors, dict):
@@ -477,6 +585,8 @@ class ReplayBuffer:
         else:
             cpr = cls.resolve_compressor(compressors)
         if cpr is None:
+            if _is_uint8_image_array(array):
+                return WebPCodec(level=WEBP_QUALITY)
             cpr = cls.resolve_compressor("default")
         return cpr
 
@@ -709,12 +819,13 @@ class ReplayBuffer:
                         compressors=compressors, key=key, array=value
                     )
                     zarr_dtype = str if value.dtype == np.dtype("O") else value.dtype
-                    arr = self.data.create_array(
+                    arr = _create_zarr_data_array(
+                        group=self.data,
                         name=key,
-                        shape=new_shape,
                         chunks=cks,
+                        codec=cpr,
+                        shape=new_shape,
                         dtype=zarr_dtype,
-                        compressors=cpr,
                         fill_value=0,
                     )
                 else:
@@ -880,16 +991,22 @@ class ReplayBuffer:
                     rechunk_recompress_array(self.data, key, chunks=value)
 
     def get_compressors(self) -> dict:
-        """Gets current compressor per data key (Zarr only).
+        """Gets current codec per data key (Zarr only).
+
+        Returns BloscCodec for numerically compressed arrays, WebPCodec for
+        image arrays using WebP serialization, or None if uncompressed.
 
         Returns:
-            Dict of key to compressor or None.
+            Dict mapping key to BloscCodec, WebPCodec, or None.
         """
         assert self.backend == "zarr"
         compressors = {}
         for key in self.data:
-            value = self.data[key]
-            compressors[key] = value.compressors[-1] if value.compressors else None
+            array = self.data[key]
+            if array.compressors:
+                compressors[key] = array.compressors[-1]
+            else:
+                compressors[key] = _get_serializer_codec(array)
         return compressors
 
     def set_compressors(self, compressors: dict):
