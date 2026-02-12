@@ -13,6 +13,7 @@ from omegaconf import OmegaConf
 from versatil.data.constants import DatasetType
 from versatil.inference.tso_client import TSOPolicyClient
 from versatil.inference.libero_client import LiberoClient
+import logging
 
 
 class ClientType(enum.Enum):
@@ -123,13 +124,13 @@ def main():
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if device == torch.device("cpu"):
-        print(
-            "Warning: Running on CPU, this may be slow or go OOM. "
+        logging.warning(
+            msg="Warning: Running on CPU, this may be slow or go OOM. "
             "Consider using a GPU for better performance."
         )
 
     client_type = detect_client_type(args.checkpoint_path)
-    print(f"Detected client type: {client_type}")
+    logging.info(msg=f"Detected client type: {client_type}")
 
     if client_type == ClientType.LIBERO.value:
         client = LiberoClient(
@@ -157,10 +158,10 @@ def main():
     try:
         client.update_loop()
     except KeyboardInterrupt:
-        print("Shutting down client...")
+        logging.info(msg="Shutting down client...")
         client.shutdown()
     except Exception as e:
-        print(f"Error: {e}")
+        logging.info(msg=f"Error: {e}")
         client.shutdown()
         raise
 

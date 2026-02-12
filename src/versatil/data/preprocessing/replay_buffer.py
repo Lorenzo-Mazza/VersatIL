@@ -10,6 +10,7 @@ from zarr.codecs import BloscCodec, BloscShuffle
 from zarr.storage import LocalStore, MemoryStore
 
 from versatil.data.preprocessing.codecs import WebPCodec
+import logging
 
 WEBP_QUALITY = 99
 
@@ -452,7 +453,7 @@ class ReplayBuffer:
             ReplayBuffer instance.
         """
         if backend == "numpy":
-            print("backend argument is deprecated!")
+            logging.warning(msg="backend argument is deprecated!")
             store = None
         group = zarr.open_group(store=os.path.expanduser(zarr_path), mode="r")
         return cls.copy_from_store(

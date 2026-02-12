@@ -9,6 +9,7 @@ import numpy as np
 
 from versatil.data.preprocessing.create_zarr_arrays import create_zarr_replay_buffer
 from versatil.data.raw.schemas import Hdf5DatasetSchema
+import logging
 
 
 def _iter_hdf5_episodes(
@@ -18,7 +19,7 @@ def _iter_hdf5_episodes(
 ) -> Generator[dict[str, np.ndarray], None, None]:
     """Yield episode data dicts from HDF5 files."""
     for hdf5_path in schema.hdf5_paths:
-        print(f"  Processing: {hdf5_path}")
+        logging.info(msg=f"  Processing: {hdf5_path}")
         with h5py.File(hdf5_path, "r") as f:
             demo_names = schema.get_demo_names(hdf5_path)
             demo_names_sorted = sorted(

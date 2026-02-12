@@ -492,9 +492,9 @@ def plot_kmeans(z, languages, n_clusters, title, output_path):
     plt.close(fig)
     logging.info(f"Saved: {output_path}")
 
-    print(f"\n{'=' * 80}")
-    print(f"K-Means Cluster Composition ({title}, k={n_clusters})")
-    print(f"{'=' * 80}")
+    logging.info(msg=f"\n{'=' * 80}")
+    logging.info(msg=f"K-Means Cluster Composition ({title}, k={n_clusters})")
+    logging.info(msg=f"{'=' * 80}")
     for c in range(n_clusters):
         mask = cluster_labels == c
         count = mask.sum()
@@ -505,10 +505,10 @@ def plot_kmeans(z, languages, n_clusters, title, output_path):
         for lang in cluster_langs:
             lang_counts[lang] += 1
 
-        print(f"\nCluster {c} ({count} samples):")
+        logging.info(msg=f"\nCluster {c} ({count} samples):")
         for lang, cnt in sorted(lang_counts.items(), key=lambda x: -x[1])[:5]:
             pct = 100 * cnt / count
-            print(f"  {cnt:4d} ({pct:5.1f}%) {lang[:65]}")
+            logging.info(msg=f"  {cnt:4d} ({pct:5.1f}%) {lang[:65]}")
 
     return cluster_labels, kmeans
 
@@ -565,23 +565,23 @@ def plot_cluster_image_grid(images, cluster_labels, languages, title, output_pat
 
 def print_latent_statistics(data):
     """Print summary statistics of latent representations."""
-    print(f"\n{'=' * 60}")
-    print("Latent Space Statistics")
-    print(f"{'=' * 60}")
+    logging.info(msg=f"\n{'=' * 60}")
+    logging.info(msg="Latent Space Statistics")
+    logging.info(msg=f"{'=' * 60}")
 
     for key in ["mu_posterior", "z_posterior", "mu_prior", "z_prior"]:
         if key not in data:
             continue
         z = data[key]
-        print(f"\n{key}:")
-        print(f"  Shape:    {z.shape}")
-        print(f"  Mean:     {z.mean():.4f} (per-dim std: {z.mean(axis=0).std():.4f})")
-        print(f"  Std:      {z.std():.4f} (per-dim mean: {z.std(axis=0).mean():.4f})")
-        print(f"  Min/Max:  [{z.min():.3f}, {z.max():.3f}]")
+        logging.info(msg=f"\n{key}:")
+        logging.info(msg=f"  Shape:    {z.shape}")
+        logging.info(msg=f"  Mean:     {z.mean():.4f} (per-dim std: {z.mean(axis=0).std():.4f})")
+        logging.info(msg=f"  Std:      {z.std():.4f} (per-dim mean: {z.std(axis=0).mean():.4f})")
+        logging.info(msg=f"  Min/Max:  [{z.min():.3f}, {z.max():.3f}]")
         dim_std = z.std(axis=0)
         n_collapsed = (dim_std < 0.01).sum()
         if n_collapsed > 0:
-            print(f"  WARNING:  {n_collapsed}/{z.shape[1]} dims have std < 0.01 (possibly collapsed)")
+            logging.warning(msg=f"{n_collapsed}/{z.shape[1]} dims have std < 0.01 (possibly collapsed)")
 
 
 
@@ -596,8 +596,8 @@ def main():
     n = len(data["z_posterior"])
     languages = data["languages"]
 
-    print(f"\nCollected {n} samples with latent_dim={data['z_posterior'].shape[1]}")
-    print(f"Unique tasks: {len(set(languages))}")
+    logging.info(msg=f"\nCollected {n} samples with latent_dim={data['z_posterior'].shape[1]}")
+    logging.info(msg=f"Unique tasks: {len(set(languages))}")
 
     print_latent_statistics(data)
 
@@ -743,8 +743,8 @@ def main():
                 OUTPUT_DIR / "cluster_images_prior_mu.png",
             )
 
-    print(f"\nAll plots saved to {OUTPUT_DIR}/")
-    print("Done.")
+    logging.info(msg=f"\nAll plots saved to {OUTPUT_DIR}/")
+    logging.info(msg="Done.")
 
 
 if __name__ == "__main__":
