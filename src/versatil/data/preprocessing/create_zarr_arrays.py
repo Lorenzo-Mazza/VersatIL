@@ -14,6 +14,7 @@ from zarr.codecs import BloscCodec, BloscShuffle
 
 from versatil.data.preprocessing.codecs import WebPCodec
 from versatil.data.raw.schemas.base import DatasetSchema
+import logging
 
 WEBP_QUALITY = 99
 
@@ -81,8 +82,8 @@ def create_zarr_replay_buffer(
         episodes: Iterable yielding episode dicts mapping keys to arrays.
         total_episodes: Total number of episodes for progress reporting.
     """
-    print(
-        f"Creating Zarr dataset at {schema.zarr_path} "
+    logging.info(
+        msg=f"Creating Zarr dataset at {schema.zarr_path} "
         f"from schema {schema.__class__.__name__}"
     )
 
@@ -108,7 +109,7 @@ def create_zarr_replay_buffer(
     with threadpool_limits(limits=1):
         for i, episode_data in enumerate(episodes):
             if total_episodes is not None and i % 50 == 0:
-                print(f"  Processing episode {i + 1}/{total_episodes}...")
+                logging.info(msg=f"  Processing episode {i + 1}/{total_episodes}...")
             for key, array in episode_data.items():
                 data_group[key].append(array)
             cumulative_len += len(next(iter(episode_data.values())))
@@ -121,7 +122,7 @@ def create_zarr_replay_buffer(
         compressors=None,
     )
 
-    print(
-        f"Created Zarr dataset with {len(episode_ends)} episodes, "
+    logging.info(
+        msg=f"Created Zarr dataset with {len(episode_ends)} episodes, "
         f"{cumulative_len} total steps."
     )

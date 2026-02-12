@@ -10,6 +10,7 @@ Across the module, the following abbreviations are used:
 """
 import torch
 import torch.nn as nn
+import logging
 
 
 class FeatureProjection(nn.Module):
@@ -70,8 +71,8 @@ class FeatureProjection(nn.Module):
         This method creates projection layers on-the-fly from checkpoint weights,
         enabling proper loading even when layers don't exist yet due to lazy initialization.
         """
-        print(f"Feature Projection._load_from_state_dict called with prefix='{prefix}'")
-        print(f"  state_dict keys: {list(state_dict.keys())[:5]}...")
+        logging.info(msg=f"Feature Projection._load_from_state_dict called with prefix='{prefix}'")
+        logging.info(msg=f"  state_dict keys: {list(state_dict.keys())[:5]}...")
         linear_prefix = prefix + "linear_projections."
         spatial_prefix = prefix + "spatial_projections."
         linear_features: dict[str, dict[str, torch.Tensor]] = {}

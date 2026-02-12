@@ -15,6 +15,7 @@ import pandas as pd
 import torch
 from albumentations.pytorch import ToTensorV2
 from omegaconf import OmegaConf
+import logging
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import Cameras
@@ -68,7 +69,7 @@ class ModelExplainer:
             )
         config = hydra.utils.instantiate(OmegaConf.load(config_path))
         self.config = config
-        print(f"Loading config from {config_path}")
+        logging.info(msg=f"Loading config from {config_path}")
         checkpoint_file = os.path.join(self.checkpoint_path, "latest.ckpt")
         if not os.path.exists(checkpoint_file):
             checkpoint_file = os.path.join(self.checkpoint_path, "last.ckpt")
@@ -79,7 +80,7 @@ class ModelExplainer:
                 f"Expected 'latest.ckpt' or 'last.ckpt'"
             )
 
-        print(f"Loading model from {checkpoint_file}")
+        logging.info(msg=f"Loading model from {checkpoint_file}")
         self.lightning_model = LightningPolicy.load_from_checkpoint(
             checkpoint_file,
             map_location=self.device,
@@ -194,8 +195,8 @@ class ModelExplainer:
 
         heatmaps: dict[str, dict[str, torch.Tensor]] = {}
 
-        print(f"Generating explanations for timestep {self.timestep}")
-        print(f"Explanation types: {self.explanation_types}")
+        logging.info(msg=f"Generating explanations for timestep {self.timestep}")
+        logging.info(msg=f"Explanation types: {self.explanation_types}")
 
         return heatmaps, observation
 
@@ -210,10 +211,10 @@ class ModelExplainer:
             if p.is_dir() and (p / self.dataset_schema.dataset_filename).exists()
         ]
 
-        print(f"Found {len(episodes_paths)} episodes to explain")
+        logging.info(msg=f"Found {len(episodes_paths)} episodes to explain")
 
         for path in episodes_paths:
-            print(f"\nProcessing episode: {path.name}")
+            logging.info(msg=f"\nProcessing episode: {path.name}")
             self.dataset = pd.read_csv(path / self.dataset_schema.dataset_filename)
             self.timestep = 0
 
@@ -291,7 +292,7 @@ class ModelExplainer:
 
         save_path = os.path.join(folder_path, filename)
         cv2.imwrite(save_path, cam_img_bgr)
-        print(f"Saved heatmap: {save_path}")
+        logging.info(msg=f"Saved heatmap: {save_path}")
 
 
 def parse_args() -> argparse.Namespace:

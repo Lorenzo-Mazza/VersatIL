@@ -23,6 +23,7 @@ from versatil.metrics.constants import (
 )
 from versatil.metrics.kernels import KernelType
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
+import logging
 
 
 class RegressionLoss(BaseLoss):
@@ -409,10 +410,8 @@ class KLDivergenceLoss(BaseLoss):
         prior = torch.distributions.Normal(mu_prior, std_prior)
         kld = torch.distributions.kl_divergence(posterior, prior).sum(dim=-1)
         if kld.min() < 0:
-            print(
-                f"Warning: Negative KL divergence encountered: min={kld.min().item():.4f}"
-            )
-            print(f"per_dim_kl: min={kld.min().item():.4f}, max={kld.max().item():.4f}")
+            logging.warning(msg=f"Warning: Negative KL divergence encountered: min={kld.min().item():.4f}"
+                            f"per_dim_kl: min={kld.min().item():.4f}, max={kld.max().item():.4f}")
         kld_mean = kld.mean()
         component_losses = {MetricKey.KL_DIVERGENCE.value: kld_mean}
         total_loss = self.weight * kld_mean

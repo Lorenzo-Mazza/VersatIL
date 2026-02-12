@@ -703,7 +703,7 @@ class TSOPolicyClient(AbstractModelClient):
 
         if self.enable_logging:
             logging.log(level=logging.INFO, msg=f"{actions=}")
-        print(actions)
+        logging.info(msg=actions)
         return actions
 
     def get_exponential_averaged_actions(self) -> dict[str, torch.Tensor]:
