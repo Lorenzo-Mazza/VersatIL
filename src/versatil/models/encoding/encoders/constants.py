@@ -13,6 +13,7 @@ class RGBBackboneType(str, enum.Enum):
     EDGENEXT_X_SMALL = "timm/edgenext_x_small.in1k"  # https://huggingface.co/timm/edgenext_x_small.in1k
     EDGENEXT_SMALL = "timm/edgenext_small.usi_in1k"  # https://huggingface.co/timm/edgenext_small.usi_in1k
     EDGENEXT_BASE = "timm/edgenext_base.usi_in1k"  # https://huggingface.co/timm/edgenext_base.usi_in1k
+    MOBILENETV4_SMALL_050 = "timm/mobilenetv4_conv_small_050.e3000_r224_in1k"  # https://huggingface.co/timm/mobilenetv4_conv_small_050.e3000_r224_in1k
     # Vision Transformers (ViT)
     VIT_BASE = "timm/vit_base_patch16_clip_224.laion2b_ft_in12k_in1k"  # https://huggingface.co/timm/vit_base_patch16_clip_224.laion2b_ft_in12k_in1k
     DINOV2_VITS14 = "timm/vit_small_patch14_dinov2.lvd142m"  # https://huggingface.co/timm/vit_small_patch14_dinov2.lvd142m
@@ -67,12 +68,12 @@ class BatchNormHandling(str, enum.Enum):
 class LanguageEncoderType(str, enum.Enum):
     """Available language encoders."""
 
-    BERT_BASE = "bert-base-uncased"  # supports AttentionImplementation.SDPA
-    DISTILBERT_BASE = "distilbert-base-uncased"  # supports AttentionImplementation.SDPA
+    BERT_BASE = "bert-base-uncased"  
+    DISTILBERT_BASE = "distilbert-base-uncased" 
     MINI_LM_L6 = "sentence-transformers/all-MiniLM-L6-v2"
     GEMMA_2B = "google/gemma-2b"
     QWEN_2_1_5B = "Qwen/Qwen2-1.5B"
-
+    ALBERT_BASE = "albert-base-v2" 
 
 class EncoderOutputKeys(str, enum.Enum):
     """Types of encoder output keys to use for extracting an output feature from an encoder."""

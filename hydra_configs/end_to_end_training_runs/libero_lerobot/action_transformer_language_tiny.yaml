@@ -10,10 +10,10 @@ defaults:
   - /task/action_space: libero_precomputed_lerobot
   - /task/observation_space: libero_rgb_lerobot
   - /training: default
-  - /policy/encoding_pipeline: stereo_rgb_language_encoder
-  - /policy/decoder: lact
-  - /policy/algorithm: bc_with_learned_prior_smallsize
-  - /policy/loss: optimal_transport_binary_gripper_latent_MMD
+  - /policy/encoding_pipeline: stereo_rgb_language_encoder_tiny
+  - /policy/decoder: action_transformer_language
+  - /policy/algorithm: behavioral_cloning
+  - /policy/loss: regression_gripper
   - /inference: libero_lerobot
   - override /policy/decoder/heads@policy.decoder.action_heads: libero
   - _self_
@@ -24,11 +24,21 @@ task:
   dataloader:
     tokenization:
       observation_tokenizer:
-        tokenizer_model: ${language_model:BERT_BASE}
+        tokenizer_model: ${language_model:ALBERT_BASE}
 
 experiment:
   precision: ${precision:FP32}
   checkpoint_folder: ${checkpoint_dir:libero}
+  checkpoint_every: 5
+
+training:
+  num_epochs: 100
+  early_stopping_patience: 200
+  lr_schedule: null
+  clip_gradient_norm: true
+  clip_max_norm: 1.0
+
+
 
 policy:
   _target_: versatil.models.policy.Policy
@@ -40,7 +50,7 @@ policy:
   validate_loss_keys: true
   loss:
     loss_modules:
-      ot_loss:
+      regression_loss:
         action_keys:
           - ${proprio_key:EE_POS_ACTION}
           - ${proprio_key:EE_ORI_ACTION}
@@ -57,9 +67,10 @@ policy:
             input_keys:
               - ${cameras:EYE_IN_HAND}
         instruction:
-          model_name: ${language_model:BERT_BASE}
-  decoder:
-    input_keys:
-      - left_rgb
-      - right_rgb
-      - instruction_language
+          model_name: ${language_model:ALBERT_BASE}
+
+# Override specific parameters from defaults/command line if needed
+# For example, to use different batch size:
+# task.dataloader.batch_size: 64
+# To override specific config components from command line, you can do for example
+# ```policy/loss=mmd_l1_pos_gripper_bce``` to use MMD instead of KL in your loss

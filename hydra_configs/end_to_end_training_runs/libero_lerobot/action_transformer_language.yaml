@@ -14,7 +14,7 @@ defaults:
   - /policy/decoder: action_transformer_language
   - /policy/algorithm: behavioral_cloning
   - /policy/loss: regression_gripper
-  - /inference: default
+  - /inference: libero_lerobot
   - override /policy/decoder/heads@policy.decoder.action_heads: libero
   - _self_
 

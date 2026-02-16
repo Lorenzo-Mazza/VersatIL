@@ -15,7 +15,7 @@ defaults:
   - /policy/decoder: dit_cross_attention_transformer
   - /policy/algorithm: flow_matching
   - /policy/loss: regressionMSE_gripper
-  - /inference: default
+  - /inference: libero_lerobot
   - override /policy/decoder/heads@policy.decoder.action_heads: libero
   - _self_
 
