@@ -14,7 +14,7 @@ defaults:
   - /policy/decoder: mixture_density_act
   - /policy/algorithm: bc
   - /policy/loss: negative_loglikelihood
-  - /inference: default
+  - /inference: libero_lerobot
   - override /policy/decoder/heads@policy.decoder.action_heads: gaussian_libero
   - _self_
 

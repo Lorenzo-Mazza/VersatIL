@@ -62,7 +62,7 @@ class LanguageEncoder(Encoder):
                 "use_embeddings_only=True is only compatible with pooling_method=PoolingMethod.NONE"
             )
         self._build_encoder()
-        self.feature_dim = self.config.hidden_size
+        self.feature_dim = self.encoder.embedding_dim if self.use_embeddings_only else self.config.hidden_size
         self.pooling_head: LearnedAggregation | None = None
         self._setup_pooling()
         self.padding_mask_name = (
@@ -76,9 +76,20 @@ class LanguageEncoder(Encoder):
         """Build language encoder and tokenizer."""
         self.config = AutoConfig.from_pretrained(self.model_name)
         if self.use_embeddings_only:
+            # Models like ALBERT use factorized embeddings where
+            # embedding_size != hidden_size
+            if hasattr(self.config, "embedding_size"):
+                embedding_dim = self.config.embedding_size
+            elif hasattr(self.config, "hidden_size"):
+                embedding_dim = self.config.hidden_size
+            else:
+                raise ValueError(
+                    f"Config for {self.model_name} has neither "
+                    f"'embedding_size' nor 'hidden_size'"
+                )
             self.encoder = nn.Embedding(
                 num_embeddings=self.config.vocab_size,
-                embedding_dim=self.config.hidden_size,
+                embedding_dim=embedding_dim,
             )
             if self.pretrained:
                 temp_model = AutoModel.from_pretrained(

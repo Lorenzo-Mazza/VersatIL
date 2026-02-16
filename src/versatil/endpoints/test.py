@@ -9,11 +9,11 @@ import os
 
 import torch
 from omegaconf import OmegaConf
+import logging
 
 from versatil.data.constants import DatasetType
+from versatil.inference.simulation_client import SimulationClient
 from versatil.inference.tso_client import TSOPolicyClient
-from versatil.inference.libero_client import LiberoClient
-import logging
 
 
 class ClientType(enum.Enum):
@@ -21,6 +21,7 @@ class ClientType(enum.Enum):
 
     TSO = "tso"
     LIBERO = "libero"
+    METAWORLD = "metaworld"
 
 
 def parse_args() -> argparse.Namespace:
@@ -105,14 +106,18 @@ def detect_client_type(checkpoint_path: str) -> str:
         raise FileNotFoundError(f"Config file not found at {config_path}")
     config = OmegaConf.load(config_path)
     dataset_type = config.task.dataset_schema.dataset_type
-    if dataset_type == DatasetType.LIBERO.value:
-        return ClientType.LIBERO.value
-    elif dataset_type == DatasetType.TSO.value:
-        return ClientType.TSO.value
-    else:
-        raise ValueError(
-            f"Unknown dataset type: {dataset_type}. Cannot determine client type."
-        )
+    match dataset_type:
+        case DatasetType.LIBERO.value:
+            return ClientType.LIBERO.value
+        case DatasetType.TSO.value:
+            return ClientType.TSO.value
+        case DatasetType.METAWORLD.value:
+            return ClientType.METAWORLD.value
+        case _:
+            raise ValueError(
+                f"Unknown dataset type: {dataset_type}. "
+                f"Cannot determine client type."
+            )
 
 
 def main():
@@ -132,28 +137,31 @@ def main():
     client_type = detect_client_type(args.checkpoint_path)
     logging.info(msg=f"Detected client type: {client_type}")
 
-    if client_type == ClientType.LIBERO.value:
-        client = LiberoClient(
-            device=device,
-            checkpoint_path=args.checkpoint_path,
-            checkpoint_name=args.checkpoint_name,
-            model_server_address=args.model_server_address,
-            model_server_port=args.model_server_port,
-            temporal_agg=args.temporal_agg,
-            enable_logging=args.enable_logging,
-        )
-    elif client_type == ClientType.TSO.value:
-        client = TSOPolicyClient(
-            device=device,
-            checkpoint_path=args.checkpoint_path,
-            checkpoint_name=args.checkpoint_name,
-            model_server_address=args.model_server_address,
-            model_server_port=args.model_server_port,
-            temporal_agg=args.temporal_agg,
-            update_rate_hz=args.update_frequency,
-        )
-    else:
-        raise ValueError(f"Unrecognized client type : {client_type}")
+    match client_type:
+        case ClientType.LIBERO.value | ClientType.METAWORLD.value:
+            client = SimulationClient(
+                device=device,
+                checkpoint_path=args.checkpoint_path,
+                checkpoint_name=args.checkpoint_name,
+                server_address=args.model_server_address,
+                server_port=args.model_server_port,
+                temporal_agg=args.temporal_agg,
+                enable_logging=args.enable_logging,
+            )
+        case ClientType.TSO.value:
+            client = TSOPolicyClient(
+                device=device,
+                checkpoint_path=args.checkpoint_path,
+                checkpoint_name=args.checkpoint_name,
+                model_server_address=args.model_server_address,
+                model_server_port=args.model_server_port,
+                temporal_agg=args.temporal_agg,
+                update_rate_hz=args.update_frequency,
+            )
+        case _:
+            raise ValueError(
+                f"Unrecognized client type: {client_type}"
+            )
 
     try:
         client.update_loop()
