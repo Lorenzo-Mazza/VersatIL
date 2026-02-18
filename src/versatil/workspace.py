@@ -228,7 +228,7 @@ class Workspace:
                 f"Set float32 matmul precision to '{self.config.experiment.float32_matmul_precision}'"
             )
         val_every = (
-            self.config.experiment.val_every if self.val_loader is not None else None
+            self.config.experiment.val_every if self.val_loader is not None else 0
         )
         limit_val_batches = 1.0 if self.val_loader is not None else 0
 
@@ -298,11 +298,14 @@ class Workspace:
         checkpoint_callback_latest = ModelCheckpoint(
             dirpath=self.output_dir,
             filename="latest-{epoch:02d}",
-            save_top_k=1,  # Save only last
+            monitor="epoch",
+            mode="max",
+            save_top_k=-1,
             every_n_epochs=self.config.experiment.checkpoint_every,
             save_last=True,
             verbose=True,
             auto_insert_metric_name=False,
+            save_on_train_epoch_end=not has_validation,
         )
         callbacks.append(checkpoint_callback_latest)
         logging.info(
