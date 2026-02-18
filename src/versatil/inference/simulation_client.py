@@ -183,6 +183,7 @@ class SimulationClient(BaseInferenceClient):
                 prediction_horizon=self.prediction_horizon,
                 exponential_decay=self.exponential_decay,
                 favor_more_recent=self.favor_more_recent,
+                max_timesteps=800,  # large enough to not reset during typical episodes
             )
         return EnvironmentState(
             observation_buffer=observation_buffer,

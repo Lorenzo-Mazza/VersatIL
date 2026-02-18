@@ -14,7 +14,7 @@ Or perhaps you have wandered through State-Of-The-Art codebases, staring blankly
 
 ### This ends with VersatIL. ⚡
 
-VersatIL is a modular, composable framework built with PyTorch fully decouples the three pillars of imitation learning: 
+VersatIL is a modular, composable framework built with PyTorch that fully decouples the three pillars of imitation learning: 
 **Data**,
  **Algorithm**, and **Architecture** into clean, reusable components.
 
