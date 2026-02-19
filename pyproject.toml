@@ -11,13 +11,12 @@ authors = [
     { name = "Ariel Rodriguez", email = "ariel.rodriguezjimenez@nct-dresden.de" }
 ]
 license = {text = "MIT"}
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
   "accelerate",
   "albumentations",
   "av",
   "diffusers==0.34.0",
-  "flash-attn",
   "geomloss",
   "h5py",
   "huggingface_hub",
@@ -36,7 +35,7 @@ dependencies = [
   "pykeops",
   "pytest",
   "python-dotenv",
-  "lightning==2.5.5",
+  "lightning==2.6.1",
   "pyyaml",
   "ruff",
   "safetensors",
@@ -44,20 +43,21 @@ dependencies = [
   "seaborn",
   "termcolor",
   "timm",
-  "torch==2.4.0",
-  "torchaudio==2.4.0",
+  "torch==2.10.0",
+  "torchaudio==2.10.0",
   "torchcfm==1.0.7",
-  "torchvision==0.19.0",
+  "torchvision==0.25.0",
   "tqdm",
   "transformers==4.56.0",
-  "triton==3.0.0",
+  "triton==3.6.0",
+  "flash-attn",
   "wandb",
   "zarr",
 ]
 
 [[tool.uv.index]]
 name = "pytorch"
-url = "https://download.pytorch.org/whl/cu124"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
@@ -67,7 +67,7 @@ torchvision = { index = "pytorch" }
 imitation-learning-toolkit = { git = "https://gitlab.com/nct_tso_public/imitation-learning-toolkit.git" }
 
 [tool.uv.extra-build-dependencies]
-flash-attn = ["setuptools", "psutil", "torch==2.4.0"]
+flash-attn = ["setuptools", "psutil", "torch==2.10.0"]
 
 [tool.uv.pip]
 no-build-isolation-package = ["flash-attn"]
@@ -96,7 +96,7 @@ python_functions = "test_*"
 [tool.ruff]
 # Same as Black
 line-length = 88
-target-version = "py311"
+target-version = "py313"
 
 # Exclude directories
 exclude = [
@@ -174,7 +174,7 @@ line-ending = "auto"
 
 [tool.mypy]
 # Python version and basic settings
-python_version = "3.11"
+python_version = "3.13"
 warn_return_any = true
 warn_unused_configs = true
 warn_redundant_casts = true
