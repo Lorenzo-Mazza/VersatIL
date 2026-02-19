@@ -5,8 +5,6 @@ Supports encoder caching for inference optimization.
 """
 
 import logging
-from typing import Optional
-
 import torch
 from torch import nn
 
@@ -181,7 +179,7 @@ class DiTBlockActionTransformer(ActionDecoder):
             ).to_torch_activation(),
             dropout=self.dropout_rate,
         )
-        self._encoder_cache: Optional[torch.Tensor] = None
+        self._encoder_cache: torch.Tensor | None = None
         self._caching_enabled: bool = False
         self.to(self.device)
 

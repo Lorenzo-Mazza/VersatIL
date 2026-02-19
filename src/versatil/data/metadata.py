@@ -3,8 +3,6 @@
  zarr v3 allowed dtypes are defined here https://zarr-specs.readthedocs.io/en/latest/v3/data-types/index.html
 """
 
-from typing import Optional
-
 from versatil.data.constants import (
     CoordinateSystem,
     ProprioceptiveType,
@@ -73,8 +71,8 @@ class ObservationMetadata(BaseMetadata):
         dtype: str,
         is_numerical: bool,
         needs_normalization: bool,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
     ):
         super().__init__(dtype, is_numerical, needs_normalization)
         if not raw_data_column_keys:
@@ -124,8 +122,8 @@ class PositionObservationMetadata(ObservationMetadata):
         dtype: str,
         needs_normalization: bool,
         frame: str = CoordinateSystem.ROBOT_BASE.value,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
     ):
         if "float" not in dtype:
             raise ValueError("Position observations dtype must be a float type.")
@@ -167,8 +165,8 @@ class OrientationObservationMetadata(ObservationMetadata):
         needs_normalization: bool,
         frame: str = CoordinateSystem.ROBOT_BASE.value,
         orientation_representation: str = OrientationRepresentation.ROLL.value,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
     ):
         if "float" not in dtype:
             raise ValueError("Orientation observations dtype must be a float type.")
@@ -220,8 +218,8 @@ class GripperObservationMetadata(ObservationMetadata):
         needs_normalization: bool,
         gripper_type: str = GripperType.BINARY.value,
         binary_gripper_range: str = BinaryGripperRange.ZERO_ONE.value,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
     ):
         super().__init__(
             raw_data_column_keys=raw_data_column_keys,
@@ -293,8 +291,8 @@ class CameraMetadata(BaseMetadata):
         camera_key: str,
         dtype: str,
         channels: int,
-        image_width: Optional[int] = None,
-        image_height: Optional[int] = None,
+        image_width: int | None = None,
+        image_height: int | None = None,
     ):
         super().__init__(dtype, is_numerical=True, needs_normalization=True)
         if camera_key not in VALID_CAMERAS:
@@ -432,8 +430,8 @@ class PrecomputedActionMetadata(ActionMetadata):
         is_numerical: bool,
         needs_normalization: bool,
         dtype: str,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
         requires_prediction_head: bool = True,
     ):
         super().__init__(
@@ -491,8 +489,8 @@ class PositionActionMetadata(PrecomputedActionMetadata):
         prediction_dimension: int,
         needs_normalization: bool,
         dtype: str,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
     ):
         super().__init__(
             raw_data_column_keys=raw_data_column_keys,
@@ -533,8 +531,8 @@ class OrientationActionMetadata(PrecomputedActionMetadata):
         prediction_dimension: int,
         needs_normalization: bool,
         dtype: str,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
     ):
         super().__init__(
             raw_data_column_keys=raw_data_column_keys,
@@ -590,8 +588,8 @@ class GripperActionMetadata(PrecomputedActionMetadata):
         needs_normalization: bool,
         dtype: str,
         binary_gripper_range: str = BinaryGripperRange.ZERO_ONE.value,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
     ):
         super().__init__(
             prediction_dimension=prediction_dimension,

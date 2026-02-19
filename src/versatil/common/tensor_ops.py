@@ -4,7 +4,7 @@ of numpy arrays and torch tensors.
 """
 import collections
 import functools
-from typing import Dict, Callable, List
+from collections.abc import Callable
 
 import numpy as np
 import torch
@@ -12,8 +12,8 @@ from torch import nn
 
 
 def dict_apply(
-    x: Dict[str, torch.Tensor], func: Callable[[torch.Tensor], torch.Tensor]
-) -> Dict[str, torch.Tensor]:
+    x: dict[str, torch.Tensor], func: Callable[[torch.Tensor], torch.Tensor]
+) -> dict[str, torch.Tensor]:
     result = dict()
     for key, value in x.items():
         if isinstance(value, dict):
@@ -29,9 +29,9 @@ def pad_remaining_dims(x, target):
 
 
 def dict_apply_split(
-    x: Dict[str, torch.Tensor],
-    split_func: Callable[[torch.Tensor], Dict[str, torch.Tensor]],
-) -> Dict[str, torch.Tensor]:
+    x: dict[str, torch.Tensor],
+    split_func: Callable[[torch.Tensor], dict[str, torch.Tensor]],
+) -> dict[str, torch.Tensor]:
     results = collections.defaultdict(dict)
     for key, value in x.items():
         result = split_func(value)
@@ -41,9 +41,9 @@ def dict_apply_split(
 
 
 def dict_apply_reduce(
-    x: List[Dict[str, torch.Tensor]],
-    reduce_func: Callable[[List[torch.Tensor]], torch.Tensor],
-) -> Dict[str, torch.Tensor]:
+    x: list[dict[str, torch.Tensor]],
+    reduce_func: Callable[[list[torch.Tensor]], torch.Tensor],
+) -> dict[str, torch.Tensor]:
     result = dict()
     for key in x[0].keys():
         result[key] = reduce_func([x_[key] for x_ in x])
@@ -1091,7 +1091,7 @@ def get_module_by_path(module: nn.Module, path: list[int | str]) -> nn.Module:
 
     Args:
         module (nn.Module): The starting module (e.g., self.backbone).
-        path (List[Union[int, str]]): List of keys/indices to traverse (e.g., ['stem', 0]).
+        path (list[int | str]): List of keys/indices to traverse (e.g., ['stem', 0]).
 
     Returns:
         nn.Module: The module at the specified path.
@@ -1107,7 +1107,7 @@ def set_module_by_path(
 
     Args:
         module (nn.Module): The starting module (e.g., self.backbone).
-        path (List[Union[int, str]]): List of keys/indices to traverse (e.g., ['stem', 0]).
+        path (list[int | str]): List of keys/indices to traverse (e.g., ['stem', 0]).
         value (nn.Module): The new module to set at the path.
 
     Raises:

@@ -10,8 +10,6 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional
-
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.transformer import (
     TransformerDecoderLayer,
@@ -208,7 +206,7 @@ class FreeTransformerLatentEncoder(nn.Module):
     def forward(
         self,
         mid_features: torch.Tensor,
-        mid_features_mask: Optional[torch.Tensor] = None,
+        mid_features_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward pass through the non-causal latent encoder blocks
 

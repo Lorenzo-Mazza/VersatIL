@@ -3,8 +3,6 @@ Reference implementation: Diffusion Policy (https://arxiv.org/abs/2303.04137)
 """
 
 import logging
-from typing import Optional
-
 import torch
 from torch import nn
 
@@ -114,8 +112,8 @@ class ConditionalActionUNet(ActionDecoder):
         self.use_local_conditioning = use_local_conditioning
         self.condition_predict_scale = condition_predict_scale
 
-        self._global_conditioning_dimension: Optional[int] = None
-        self._feature_projections: Optional[nn.ModuleDict] = None
+        self._global_conditioning_dimension: int | None = None
+        self._feature_projections: nn.ModuleDict | None = None
         self.unet_conditioning_builder = UNetInputBuilder(
             embedding_dim=embedding_dimension, has_time_dim=self.observation_horizon > 1
         )

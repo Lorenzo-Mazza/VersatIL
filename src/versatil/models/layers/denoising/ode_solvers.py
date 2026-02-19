@@ -6,7 +6,7 @@ in flow matching models. Used for both latent space priors and action decoders.
 
 import torch
 from torch import Tensor
-from typing import Callable
+from collections.abc import Callable
 
 from versatil.models.decoding.constants import ODESolver
 

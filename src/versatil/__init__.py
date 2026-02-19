@@ -41,3 +41,24 @@ warnings.filterwarnings("ignore", category=UserWarning, module="timm")
 warnings.filterwarnings("ignore", category=UserWarning, module="albumentations")
 warnings.filterwarnings("ignore", category=UserWarning, module="hydra")
 warnings.filterwarnings("ignore", message="Trying to infer the `batch_size`")
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="geomloss")
+warnings.filterwarnings(
+    "ignore",
+    message=".*self.log.*self.trainer.*not registered.*",
+    module="pytorch_lightning",
+)
+warnings.filterwarnings(
+    "ignore",
+    message=".*tensorboardX.*has been removed.*",
+    module="pytorch_lightning",
+)
+warnings.filterwarnings(
+    "ignore",
+    message=".*isinstance.*LeafSpec.*is deprecated.*",
+    module="pytorch_lightning",
+)
+warnings.filterwarnings(
+    "ignore",
+    message="Checkpoint directory.*exists and is not empty",
+    module="pytorch_lightning",
+)

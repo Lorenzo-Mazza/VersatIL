@@ -1,7 +1,5 @@
 """Conditional 1-dimensional U-Net architecture, originally used in the Diffusion Policy paper https://arxiv.org/abs/2303.04137v4 """
 
-from typing import Union
-
 import torch
 from torch import nn
 from torch.nn.modules.batchnorm import _BatchNorm
@@ -216,7 +214,7 @@ class ConditionalUnet1D(nn.Module):
     def forward(
         self,
         noisy_input: torch.Tensor,
-        timesteps: Union[torch.Tensor, float, int],
+        timesteps: torch.Tensor | float | int,
         local_conditioning: torch.Tensor | None = None,
         global_conditioning: torch.Tensor | None = None,
     ) -> torch.Tensor:

@@ -37,8 +37,7 @@ class AttentionImplementation(str, enum.Enum):
     """Attention implementation types."""
 
     EAGER = "eager"  # Standard PyTorch attention
-    SDPA = "sdpa"  # Scaled Dot-Product Attention
-    FLASH_ATTENTION_2 = "flash_attention_2"  # using Dao-AILab/flash-attention
+    SDPA = "sdpa"  # Scaled Dot-Product Attention, automatically enables Torch 2.10 Flash Attention kernels
 
 
 class PoolingMethod(str, enum.Enum):
