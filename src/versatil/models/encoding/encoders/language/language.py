@@ -92,10 +92,7 @@ class LanguageEncoder(Encoder):
                 embedding_dim=embedding_dim,
             )
             if self.pretrained:
-                temp_model = AutoModel.from_pretrained(
-                    self.model_name,
-                    use_safetensors=True,
-                )
+                temp_model = AutoModel.from_pretrained(self.model_name)
                 source_emb = temp_model.get_input_embeddings()
                 self.encoder.load_state_dict(source_emb.state_dict())
                 del temp_model
@@ -106,7 +103,6 @@ class LanguageEncoder(Encoder):
                 self.encoder = AutoModel.from_pretrained(
                     self.model_name,
                     attn_implementation=self.attention_type,
-                    use_safetensors=True,
                 )
             else:
                 self.encoder = AutoModel.from_config(

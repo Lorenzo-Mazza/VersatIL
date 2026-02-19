@@ -53,7 +53,7 @@ class VLMEncoder(Encoder):
         config = AutoConfig.from_pretrained(model_name)
         if pretrained:
             self.encoder = AutoModel.from_pretrained(
-                model_name, attn_implementation=attention_type, use_safetensors=True
+                model_name, attn_implementation=attention_type
             )
         else:
             self.encoder = AutoModel.from_config(
