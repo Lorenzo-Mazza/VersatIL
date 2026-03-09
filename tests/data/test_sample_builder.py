@@ -1,1183 +1,604 @@
-import pytest
-import numpy as np
-import torch
+"""Tests for versatil.data.sample_builder module."""
+from collections.abc import Callable
 from unittest.mock import MagicMock
 
-from versatil.data.sample_builder import SampleBuilder
-from versatil.data.tokenization.tokenizer import Tokenizer
-from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
-from versatil.data.tokenization.action_tokenizer import ActionTokenizer
+import numpy as np
+import pytest
+import torch
+
 from versatil.data.constants import (
+    ActionComputationMethod,
     Cameras,
-    GripperType,
-    ObsKey,
-    ProprioceptiveType,
-    ProprioKey,
     SampleKey,
-    TokenizerType,
 )
+from versatil.data.metadata import (
+    ActionMetadata,
+    CameraMetadata,
+    ObservationMetadata,
+    OnTheFlyActionMetadata,
+    PositionObservationMetadata,
+)
+from versatil.data.sample_builder import SampleBuilder
+from versatil.data.task import ActionSpace, ObservationSpace
 
 
 @pytest.fixture
-def action_config():
-    """Action space configuration."""
-    config = MagicMock()
-    config.predict_in_camera_frame = False
-    config.deltas_as_actions = True
-    config.has_gripper = True
-    config.gripper_type = GripperType.BINARY.value
-    config.task_has_phases = False
-    return config
+def sample_builder_factory(
+    action_space_factory: Callable[..., ActionSpace],
+    observation_space_factory: Callable[..., ObservationSpace],
+) -> Callable[..., SampleBuilder]:
+    """Factory for creating SampleBuilder instances with mocked dependencies."""
 
+    def factory(
+        actions_metadata: dict = None,
+        observations_metadata: dict = None,
+        obs_horizon: int = 2,
+        pred_horizon: int = 4,
+        action_backward_shift: int = 0,
+        normalizer: MagicMock = None,
+        tokenizer: MagicMock = None,
+    ) -> SampleBuilder:
+        action_space = action_space_factory(actions_metadata=actions_metadata or {})
+        observation_space = observation_space_factory(
+            observations_metadata=observations_metadata or {},
+        )
+        mock_augmentation = MagicMock()
+        mock_augmentation.apply_rgb_augmentations.side_effect = lambda x: x
+        mock_augmentation.apply_depth_augmentations.side_effect = lambda x: x
 
-@pytest.fixture
-def observation_config():
-    """Observation space configuration."""
-    config = MagicMock()
-    config.camera_keys = [Cameras.LEFT.value, Cameras.RIGHT.value]
-    config.use_proprio_base_frame = True
-    config.use_proprio_camera_frame = False
-    config.use_language = False
-    return config
+        mock_action_processor = MagicMock()
 
+        return SampleBuilder(
+            action_space=action_space,
+            observation_space=observation_space,
+            obs_horizon=obs_horizon,
+            pred_horizon=pred_horizon,
+            action_backward_shift=action_backward_shift,
+            augmentation_pipeline=mock_augmentation,
+            action_processor=mock_action_processor,
+            tokenizer=tokenizer,
+            normalizer=normalizer,
+        )
 
-@pytest.fixture
-def mock_augmentation_pipeline():
-    """Mock augmentation pipeline."""
-    pipeline = MagicMock()
-    pipeline.setup_rotation.return_value = (0, None)  # No rotation by default
-    pipeline.apply_rgb_augmentations.side_effect = lambda x, angle: x
-    pipeline.apply_depth_augmentations.side_effect = lambda x, angle: x
-    pipeline.rotate_proprio_data.side_effect = lambda x, R: x
-    return pipeline
-
-
-@pytest.fixture
-def mock_action_processor():
-    """Mock action processor."""
-    processor = MagicMock()
-    processor.rotate_actions.side_effect = lambda action_dict, R: action_dict
-    return processor
-
-
-@pytest.fixture
-def sample_builder(action_config, observation_config, mock_augmentation_pipeline, mock_action_processor):
-    """SampleBuilder instance."""
-    return SampleBuilder(
-        action_space=action_config,
-        observation_space=observation_config,
-        obs_horizon=3,
-        pred_horizon=4,
-        action_backward_shift=0,
-        augmentation_pipeline=mock_augmentation_pipeline,
-        action_processor=mock_action_processor,
-    )
-
-
-@pytest.fixture
-def padded_data():
-    """Padded episode data."""
-    return {
-        Cameras.LEFT.value: np.ones((10, 32, 32, 3), dtype=np.uint8) * 128,
-        Cameras.RIGHT.value: np.ones((10, 32, 32, 3), dtype=np.uint8) * 64,
-        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.arange(70, dtype=np.float32).reshape(10, 7),
-        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.arange(70, dtype=np.float32).reshape(10, 7),
-    }
-
-
-@pytest.fixture
-def action_dict():
-    """Action dictionary."""
-    return {
-        ProprioceptiveType.POSITION.value: np.ones((4, 3), dtype=np.float32) * 0.1,
-        ProprioceptiveType.ORIENTATION.value: np.ones((4, 4), dtype=np.float32) * 0.2,
-        ProprioceptiveType.GRIPPER.value: np.array([[1], [0], [1], [0]], dtype=np.float32),
-    }
-
-
-@pytest.fixture
-def sampler_indices():
-    """Sampler indices array."""
-    # (buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx)
-    indices = np.zeros((10, 4), dtype=np.int64)
-    for i in range(10):
-        indices[i] = [i, i + 6, 2, 5]
-    return indices
-
-
-@pytest.fixture
-def dummy_normalizer():
-    """Dummy normalizer that acts as pass-through."""
-    class DummyNormalizer(torch.nn.Module):
-        """Dummy normalizer that acts as pass-through (no normalization)."""
-
-        def __init__(self):
-            super().__init__()
-            self.params_dict = torch.nn.ParameterDict()
-
-        def __getitem__(self, key):
-            """Support subscripting to match LinearNormalizer API."""
-            return self
-
-        def normalize(self, x):
-            """Pass-through normalization (identity function)."""
-            return x
-
-        def unnormalize(self, x):
-            """Pass-through unnormalization (identity function)."""
-            return x
-
-        def unnormalize_actions(self, x):
-            """Pass-through action unnormalization (identity function)."""
-            return x
-
-    return DummyNormalizer()
+    return factory
 
 
 class TestSampleBuilderInitialization:
-    """Test SampleBuilder initialization."""
+
+    @pytest.mark.parametrize("obs_horizon,pred_horizon,action_backward_shift", [
+        (1, 4, 0),
+        (3, 8, 1),
+        (5, 16, 2),
+    ])
+    def test_stores_horizon_parameters(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+        obs_horizon: int,
+        pred_horizon: int,
+        action_backward_shift: int,
+    ):
+        builder = sample_builder_factory(
+            obs_horizon=obs_horizon,
+            pred_horizon=pred_horizon,
+            action_backward_shift=action_backward_shift,
+        )
+
+        assert builder.obs_horizon == obs_horizon
+        assert builder.pred_horizon == pred_horizon
+        assert builder.action_backward_shift == action_backward_shift
+
+    def test_normalizer_and_tokenizer_stored(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+    ):
+        mock_normalizer = MagicMock()
+        mock_tokenizer = MagicMock()
+        builder = sample_builder_factory(
+            normalizer=mock_normalizer,
+            tokenizer=mock_tokenizer,
+        )
+
+        assert builder.normalizer is mock_normalizer
+        assert builder.tokenizer is mock_tokenizer
 
 
-    def test_init_basic(self, action_config, observation_config, mock_augmentation_pipeline, mock_action_processor):
-        """Test basic initialization."""
-        builder = SampleBuilder(
-            action_space=action_config,
-            observation_space=observation_config,
-            obs_horizon=5,
-            pred_horizon=10,
+class TestGetSampleImages:
+
+    def test_processes_rgb_image_with_augmentation_and_channel_reorder(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+        rng: np.random.Generator,
+    ):
+        builder = sample_builder_factory(
+            observations_metadata={
+                Cameras.LEFT.value: camera_metadata_factory(
+                    camera_key=Cameras.LEFT.value,
+                ),
+            },
+            obs_horizon=2,
+        )
+        # (T, H, W, C) uint8 images — 4 timesteps, take obs_horizon=2 starting at shift=0
+        padded_images = rng.integers(
+            0, 256, (4, 8, 8, 3), dtype=np.uint8,
+        )
+        padded_data = {Cameras.LEFT.value: padded_images}
+
+        result = builder._get_sample_images(padded_data=padded_data)
+
+        assert Cameras.LEFT.value in result
+        image_tensor = result[Cameras.LEFT.value]
+        # Should be (obs_horizon=2, C=3, H=8, W=8) float32 in [0, 1]
+        assert image_tensor.shape == (2, 3, 8, 8)
+        assert image_tensor.dtype == torch.float32
+        assert image_tensor.max() <= 1.0
+        assert image_tensor.min() >= 0.0
+
+    def test_processes_depth_image_with_channel_dimension_added(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+        rng: np.random.Generator,
+    ):
+        builder = sample_builder_factory(
+            observations_metadata={
+                Cameras.DEPTH.value: camera_metadata_factory(
+                    camera_key=Cameras.DEPTH.value,
+                    channels=1,
+                ),
+            },
+            obs_horizon=2,
+        )
+        # (T, H, W) depth images — no channel dimension
+        padded_depth = rng.random((4, 8, 8)).astype(np.float32)
+        padded_data = {Cameras.DEPTH.value: padded_depth}
+
+        result = builder._get_sample_images(padded_data=padded_data)
+
+        depth_tensor = result[Cameras.DEPTH.value]
+        # Should have channel dimension added: (obs_horizon=2, 1, H=8, W=8)
+        assert depth_tensor.shape == (2, 1, 8, 8)
+
+    def test_applies_action_backward_shift_to_image_slicing(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+    ):
+        builder = sample_builder_factory(
+            observations_metadata={
+                Cameras.LEFT.value: camera_metadata_factory(
+                    camera_key=Cameras.LEFT.value,
+                ),
+            },
+            obs_horizon=2,
             action_backward_shift=1,
-            augmentation_pipeline=mock_augmentation_pipeline,
-            action_processor=mock_action_processor,
         )
+        # Timestep 0 has all zeros, timesteps 1-3 have distinct values
+        padded_images = np.zeros((4, 2, 2, 3), dtype=np.uint8)
+        padded_images[1:] = 128
 
-        assert builder.obs_horizon == 5
-        assert builder.pred_horizon == 10
-        assert builder.action_backward_shift == 1
-        assert builder.action_space == action_config
-        assert builder.observation_space == observation_config
+        padded_data = {Cameras.LEFT.value: padded_images}
+        result = builder._get_sample_images(padded_data=padded_data)
 
+        # With shift=1, should take indices [1:3], skipping the zero-filled timestep 0
+        assert result[Cameras.LEFT.value][0].sum() > 0
 
-class TestBuildSample:
-    """Test complete sample building."""
-
-
-    def test_build_sample_basic(self, sample_builder, padded_data, action_dict, sampler_indices):
-        """Test basic sample building."""
-        sample = sample_builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
+    def test_depth_image_already_has_channel_dimension_skips_unsqueeze(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+        rng: np.random.Generator,
+    ):
+        builder = sample_builder_factory(
+            observations_metadata={
+                Cameras.DEPTH.value: camera_metadata_factory(
+                    camera_key=Cameras.DEPTH.value,
+                    channels=1,
+                ),
+            },
+            obs_horizon=2,
         )
+        # (T, C, H, W) — already has channel dimension
+        padded_depth = rng.random((4, 1, 8, 8)).astype(np.float32)
+        padded_data = {Cameras.DEPTH.value: padded_depth}
 
-        assert SampleKey.OBSERVATION.value in sample
-        assert SampleKey.ACTION.value in sample
-        assert ProprioceptiveType.POSITION.value in sample[SampleKey.ACTION.value]
-        assert ProprioceptiveType.ORIENTATION.value in sample[SampleKey.ACTION.value]
-        assert ProprioceptiveType.GRIPPER.value in sample[SampleKey.ACTION.value]
-        assert SampleKey.IS_PAD_ACTION.value in sample[SampleKey.ACTION.value]
+        result = builder._get_sample_images(padded_data=padded_data)
 
+        # Shape should remain (obs_horizon=2, 1, H=8, W=8) — no extra unsqueeze
+        assert result[Cameras.DEPTH.value].shape == (2, 1, 8, 8)
 
-    def test_build_sample_with_rotation(self, sample_builder, padded_data, action_dict, sampler_indices):
-        """Test sample building with rotation augmentation."""
-        sample_builder.augmentation_pipeline.setup_rotation.return_value = (45.0, np.eye(3))
-        sample_builder.action_space.predict_in_camera_frame = True
+    def test_no_cameras_returns_empty_dict(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+    ):
+        builder = sample_builder_factory(observations_metadata={})
 
-        sample = sample_builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
+        result = builder._get_sample_images(padded_data={})
+
+        assert result == {}
+
+    def test_calls_rgb_augmentation_pipeline(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+        rng: np.random.Generator,
+    ):
+        builder = sample_builder_factory(
+            observations_metadata={
+                Cameras.LEFT.value: camera_metadata_factory(
+                    camera_key=Cameras.LEFT.value,
+                ),
+            },
+            obs_horizon=2,
         )
-
-        # Should call rotate_actions when angle != 0 and in camera frame
-        sample_builder.action_processor.rotate_actions.assert_called_once()
-
-
-    def test_build_sample_no_rotation_in_robot_frame(self, sample_builder, padded_data, action_dict, sampler_indices):
-        """Test that rotation is not applied in robot frame."""
-        sample_builder.augmentation_pipeline.setup_rotation.return_value = (45.0, np.eye(3))
-        sample_builder.action_space.predict_in_camera_frame = False
-
-        sample = sample_builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
-        )
-
-        # Should NOT call rotate_actions when in robot frame
-        sample_builder.action_processor.rotate_actions.assert_not_called()
-
-
-    def test_build_sample_with_phases(self, sample_builder, padded_data, action_dict, sampler_indices):
-        """Test sample building with phase labels."""
-        sample_builder.action_space.predict_task_phases = True
-        padded_data[ObsKey.PHASE_LABEL.value] = np.array([[0], [1], [1], [2], [2], [3], [3], [4], [4], [0]], dtype=np.int64)
-
-        sample = sample_builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
-        )
-
-        assert ObsKey.PHASE_LABEL.value in sample[SampleKey.ACTION.value]
-        assert sample[SampleKey.ACTION.value][ObsKey.PHASE_LABEL.value].dtype == torch.long
-
-
-    def test_build_sample_without_proprio(self, sample_builder, padded_data, action_dict, sampler_indices):
-        """Test sample building without proprioceptive data."""
-        sample_builder.observation_space.use_proprioceptive_data = False
-
-        sample = sample_builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
-        )
-
-        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value not in sample[SampleKey.OBSERVATION.value]
-        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value not in sample[SampleKey.OBSERVATION.value]
-
-
-class TestAddImages:
-    """Test image processing and addition."""
-
-
-    def test_add_rgb_images(self, sample_builder, padded_data):
-        """Test RGB image processing."""
-        sample = {SampleKey.OBSERVATION.value: {}}
-        sample_builder._get_sample_images(sample, padded_data, angle=0)
-
-        assert Cameras.LEFT.value in sample[SampleKey.OBSERVATION.value]
-        assert Cameras.RIGHT.value in sample[SampleKey.OBSERVATION.value]
-
-        # Check shape: (T, C, H, W)
-        left_img = sample[SampleKey.OBSERVATION.value][Cameras.LEFT.value]
-        assert left_img.shape == (3, 3, 32, 32)  # obs_horizon=3
-
-        # Check normalization [0, 255] -> [0, 1]
-        assert left_img.dtype == torch.float32
-        assert left_img.max() <= 1.0
-        assert left_img.min() >= 0.0
-
-
-    def test_add_depth_images(self, sample_builder, padded_data):
-        """Test depth image processing."""
-        sample_builder.observation_space.camera_keys = [Cameras.DEPTH.value]
-        padded_data[Cameras.DEPTH.value] = np.ones((10, 32, 32), dtype=np.float32) * 2.5
-
-        sample = {SampleKey.OBSERVATION.value: {}}
-        sample_builder._get_sample_images(sample, padded_data, angle=0)
-
-        assert Cameras.DEPTH.value in sample[SampleKey.OBSERVATION.value]
-
-        # Check shape: (T, 1, H, W)
-        depth_img = sample[SampleKey.OBSERVATION.value][Cameras.DEPTH.value]
-        assert depth_img.shape == (3, 1, 32, 32)
-        assert depth_img.dtype == torch.float32
-
-
-    def test_add_images_with_rotation(self, sample_builder, padded_data):
-        """Test image processing with rotation."""
-        sample = {SampleKey.OBSERVATION.value: {}}
-        sample_builder._get_sample_images(sample, padded_data, angle=45.0)
-
-        # Should call augmentation pipeline with angle
-        assert sample_builder.augmentation_pipeline.apply_rgb_augmentations.call_count == 2
-
-
-    def test_add_images_respects_obs_horizon(self, sample_builder, padded_data):
-        """Test that only obs_horizon frames are included."""
-        sample_builder.obs_horizon = 2
-
-        sample = {SampleKey.OBSERVATION.value: {}}
-        sample_builder._get_sample_images(sample, padded_data, angle=0)
-
-        left_img = sample[SampleKey.OBSERVATION.value][Cameras.LEFT.value]
-        assert left_img.shape[0] == 2  # Only 2 timesteps
-
-
-class TestAddProprioceptive:
-    """Test proprioceptive data addition."""
-
-
-    def test_add_proprio_robot_frame(self, sample_builder, padded_data):
-        """Test adding robot frame proprioceptive data."""
-        sample = {SampleKey.OBSERVATION.value: {}}
-        sample_builder._add_proprioceptive(sample, padded_data, angle=0, rotation_matrix=None)
-
-        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in sample[SampleKey.OBSERVATION.value]
-        # Camera frame should NOT be present since use_proprio_camera_frame=False in fixture
-        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value not in sample[SampleKey.OBSERVATION.value]
-
-        proprio = sample[SampleKey.OBSERVATION.value][ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value]
-        assert proprio.shape == (3, 7)  # obs_horizon=3, dim=7
-        assert proprio.dtype == torch.float32
-
-
-    def test_add_proprio_camera_frame(self, sample_builder, padded_data):
-        """Test adding camera frame proprioceptive data."""
-        sample_builder.observation_space.use_proprio_camera_frame = True
-
-        sample = {SampleKey.OBSERVATION.value: {}}
-        sample_builder._add_proprioceptive(sample, padded_data, angle=0, rotation_matrix=None)
-        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in sample[SampleKey.OBSERVATION.value]
-
-
-    def test_add_proprio_camera_frame_with_rotation(self, sample_builder, padded_data):
-        """Test camera frame rotation."""
-        sample_builder.observation_space.use_proprio_camera_frame = True
-        rotation_matrix = np.eye(3, dtype=np.float32)
-
-        sample = {SampleKey.OBSERVATION.value: {}}
-        sample_builder._add_proprioceptive(sample, padded_data, angle=45.0, rotation_matrix=rotation_matrix)
-
-        # Should call rotate_proprio_data
-        sample_builder.augmentation_pipeline.rotate_proprio_data.assert_called_once()
-
-
-    def test_add_proprio_camera_frame_no_rotation_when_angle_zero(self, sample_builder, padded_data):
-        """Test that camera frame is not rotated when angle is zero."""
-        sample_builder.observation_space.use_proprio_camera_frame = True
-
-        sample = {SampleKey.OBSERVATION.value: {}}
-        sample_builder._add_proprioceptive(sample, padded_data, angle=0, rotation_matrix=None)
-
-        # Should NOT call rotate_proprio_data when angle=0
-        sample_builder.augmentation_pipeline.rotate_proprio_data.assert_not_called()
-
-
-    def test_add_proprio_both_frames(self, sample_builder, padded_data):
-        """Test adding both robot and camera frames."""
-        sample_builder.observation_space.use_proprio_camera_frame = True
-
-        sample = {SampleKey.OBSERVATION.value: {}}
-        sample_builder._add_proprioceptive(sample, padded_data, angle=0, rotation_matrix=None)
-        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in sample[SampleKey.OBSERVATION.value]
-        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in sample[SampleKey.OBSERVATION.value]
-
-
-class TestAddPhaseLabels:
-    """Test phase label addition."""
-
-
-    def test_add_phase_labels(self, sample_builder, padded_data):
-        """Test adding phase labels."""
-        padded_data[ObsKey.PHASE_LABEL.value] = np.array([[0], [1], [1], [2], [2], [3], [3], [4], [4], [0]], dtype=np.int64)
-
-        sample = {SampleKey.ACTION.value:{}}
-        sample_builder._add_phase_labels(sample, padded_data)
-
-        assert ObsKey.PHASE_LABEL.value in sample[SampleKey.ACTION.value]
-        assert sample[SampleKey.ACTION.value][ObsKey.PHASE_LABEL.value].dtype == torch.long
-
-
-    def test_phase_labels_with_backward_shift(self, sample_builder, padded_data):
-        """Test phase labels with action backward shift."""
-        sample_builder.action_backward_shift = 1
-        padded_data[ObsKey.PHASE_LABEL.value] = np.array([[0], [1], [1], [2], [2], [3], [3], [4], [4], [0]], dtype=np.int64)
-
-        sample = {SampleKey.ACTION.value:{}}
-        sample_builder._add_phase_labels(sample, padded_data)
-
-        assert sample[SampleKey.ACTION.value][ObsKey.PHASE_LABEL.value].shape == torch.Size([4, 1])
-
-
-class TestAddPaddingMask:
-    """Test padding mask computation."""
-
-
-    def test_padding_mask_end_of_episode(self, sample_builder):
-        """Test padding mask at episode end with deltas."""
-        indices = np.array([[0, 10, 2, 5]], dtype=np.int64)  # valid range [2, 5)
-        sample_builder.pred_horizon = 6
-
-        sample = {SampleKey.ACTION.value:{}}
-        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=indices)
-
-        # action_slice_start = 2
-        # action_positions = [2, 3, 4, 5, 6, 7]
-        # For deltas: need both position AND next position valid
-        # Valid range is [2, 5), so positions 2,3,4 are valid
-        is_pad = sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].numpy()
-        assert not is_pad[0]  # Position 2 valid, next (3) valid
-        assert not is_pad[1]  # Position 3 valid, next (4) valid
-        assert is_pad[2]  # Position 4 valid, but next (5) >= 5 (invalid)
-        assert is_pad[3]  # Position 5 >= 5 (both invalid)
-        assert is_pad[4]  # Position 6 >= 5 (both invalid)
-
-
-    def test_padding_mask_delta_vs_absolute_distinction(self, sample_builder):
-        """Test that deltas require both positions valid, absolute only next."""
-        # Key: make action_position invalid but next position valid
-        indices = np.array([[0, 10, 3, 6]], dtype=np.int64)  # valid range [3, 6)
-
-        # action_slice_start = 2
-        # action_positions = [2, 3, 4, 5]
-
-        # Delta actions: need both current AND next
-        sample_builder.action_space.deltas_as_actions = True
-        sample = {SampleKey.ACTION.value:{}}
-        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=indices)
-        delta_pad = sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].numpy().copy()
-
-        # Absolute actions: only need next
-        sample_builder.action_space.deltas_as_actions = False
-        sample = {SampleKey.ACTION.value:{}}
-        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=indices)
-        absolute_pad = sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].numpy()
-
-        # Position 0: action_position=2 (invalid), next=3 (valid at boundary)
-        assert delta_pad[0] == True  # Delta: 2 < 3, so padded
-        assert absolute_pad[0] == False  # Absolute: only needs 3, which is valid
-
-        # Position 1: action_position=3 (valid), next=4 (valid)
-        assert delta_pad[1] == False
-        assert absolute_pad[1] == False
-
-        # Position 3: action_position=5 (valid), next=6 (invalid, at boundary)
-        assert delta_pad[3] == True
-        assert absolute_pad[3] == True  # Both padded when next is invalid
-
-
-    def test_padding_mask_start_of_episode_absolute_vs_delta(self, sample_builder):
-        """Test boundary behavior at episode start."""
-        indices = np.array([[0, 10, 3, 8]], dtype=np.int64)
-
-        # Test with deltas
-        sample_builder.action_space.deltas_as_actions = True
-        sample = {SampleKey.ACTION.value:{}}
-        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=indices)
-        delta_result = sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].numpy()
-
-        # Test with absolute
-        sample_builder.action_space.deltas_as_actions = False
-        sample = {SampleKey.ACTION.value:{}}
-        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=indices)
-        absolute_result = sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].numpy()
-
-        # action_positions = [2, 3, 4, 5]
-        # Position 2 < 3 (start), so current is invalid but next (3) is valid
-        assert delta_result[0] == True  # Needs current (2), which is invalid
-        assert absolute_result[0] == False  # Only needs next (3), which is valid
-
-
-    def test_padding_mask_deltas_no_padding(self, sample_builder, sampler_indices):
-        """Test padding mask for deltas with no padding needed."""
-        sample = {SampleKey.ACTION.value:{}}
-        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=sampler_indices)
-
-        assert SampleKey.IS_PAD_ACTION.value in sample[SampleKey.ACTION.value]
-        assert sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].dtype == torch.bool
-        assert sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].shape == torch.Size([4])  # pred_horizon=4
-
-        # Check specific values
-        is_pad = sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].numpy()
-        # action_slice_start = 2, action_positions = [2, 3, 4, 5]
-        # sample_start_idx=2, sample_end_idx=5 (valid range is [2, 5))
-        # For deltas: both current and next positions must be valid
-        expected = np.array([False, False, True, True])  # position 4,5 are out of range so they are padded
-        np.testing.assert_array_equal(is_pad, expected)
-
-
-    def test_padding_mask_absolute_no_padding(self, sample_builder, sampler_indices):
-        """Test padding mask for absolute actions with no padding needed."""
-        sample_builder.action_space.deltas_as_actions = False
-
-        sample = {SampleKey.ACTION.value:{}}
-        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=sampler_indices)
-
-        # With absolute actions, only next position needs to be valid
-        # action_positions = [2, 3, 4, 5]
-        # next positions = [3, 4, 5, 6]
-        # sample_end_idx=5, so positions 3,4 are valid, 5,6 are padding
-        expected = np.array([False, False, True, True])
-        np.testing.assert_array_equal(sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].numpy(), expected)
-
-
-    def test_padding_mask_with_backward_shift(self, sample_builder, sampler_indices):
-        """Test padding mask with action backward shift."""
-        sample_builder.action_backward_shift = 1
-
-        sample = {SampleKey.ACTION.value:{}}
-        sample_builder._compute_action_padding_mask(sample, start_idx=0, sampler_indices=sampler_indices)
-
-        # action_slice_start = 3 - 1 - 1 = 1
-        # action_positions = [1, 2, 3, 4]
-        assert sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].shape == torch.Size([4])  # pred_horizon=4
-
-
-class TestGetActionSliceStart:
-    """Test action slice start computation."""
-
-
-    def test_get_action_slice_start_no_shift(self, sample_builder):
-        """Test action slice start without backward shift."""
-        start = sample_builder._get_action_slice_start()
-        assert start == 2  # obs_horizon - 1 = 3 - 1
-
-
-    def test_get_action_slice_start_with_shift(self, sample_builder):
-        """Test action slice start with backward shift."""
-        sample_builder.action_backward_shift = 1
-        start = sample_builder._get_action_slice_start()
-        assert start == 2  # obs_horizon - 1 = 3 - 1
-
-
-    def test_get_action_slice_start_large_horizon(self, sample_builder):
-        """Test action slice start with large obs horizon."""
-        sample_builder.obs_horizon = 10
-        start = sample_builder._get_action_slice_start()
-        assert start == 9  # 10 - 1 - 0
-
-
-
-class TestActionConversion:
-    """Test action dictionary to tensor conversion."""
-
-
-    def test_binary_gripper_converted_to_long(self, sample_builder, padded_data, sampler_indices):
-        """Test binary gripper actions are converted to long."""
-        action_dict = {
-            ProprioceptiveType.POSITION.value: np.ones((4, 3), dtype=np.float32),
-            ProprioceptiveType.GRIPPER.value: np.array([[1], [0], [1], [0]], dtype=np.float32),
+        padded_data = {
+            Cameras.LEFT.value: rng.integers(0, 256, (4, 8, 8, 3), dtype=np.uint8),
         }
 
-        sample = sample_builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
+        builder._get_sample_images(padded_data=padded_data)
+
+        builder.augmentation_pipeline.apply_rgb_augmentations.assert_called_once()
+
+    def test_calls_depth_augmentation_pipeline(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+        rng: np.random.Generator,
+    ):
+        builder = sample_builder_factory(
+            observations_metadata={
+                Cameras.DEPTH.value: camera_metadata_factory(
+                    camera_key=Cameras.DEPTH.value,
+                    channels=1,
+                ),
+            },
+            obs_horizon=2,
         )
-
-        assert sample[SampleKey.ACTION.value][ProprioceptiveType.GRIPPER.value].dtype == torch.long
-
-
-    def test_continuous_gripper_converted_to_float(self, sample_builder, padded_data, sampler_indices):
-        """Test continuous gripper actions are converted to float."""
-        sample_builder.action_space.gripper_type = GripperType.CONTINUOUS.value
-
-        action_dict = {
-            ProprioceptiveType.POSITION.value: np.ones((4, 3), dtype=np.float32),
-            ProprioceptiveType.GRIPPER.value: np.array([[0.5], [0.3], [0.8], [0.1]], dtype=np.float32),
+        padded_data = {
+            Cameras.DEPTH.value: rng.random((4, 8, 8)).astype(np.float32),
         }
 
-        sample = sample_builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
-        )
-
-        assert sample[SampleKey.ACTION.value][ProprioceptiveType.GRIPPER.value].dtype == torch.float32
-
-
-    def test_position_actions_converted_to_float(self, sample_builder, padded_data, action_dict, sampler_indices):
-        """Test position actions are converted to float."""
-        sample = sample_builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
-        )
-
-        assert sample[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].dtype == torch.float32
-        assert sample[SampleKey.ACTION.value][ProprioceptiveType.ORIENTATION.value].dtype == torch.float32
-
-
-class TestIntegration:
-    """Integration tests for complete workflows."""
-
-
-    def test_complete_sample_structure(self, sample_builder, padded_data, action_dict, sampler_indices):
-        """Test complete sample has correct structure."""
-        sample = sample_builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
-        )
-
-        # Check top-level keys
-        assert SampleKey.OBSERVATION.value in sample
-        assert SampleKey.ACTION.value in sample
-        assert ProprioceptiveType.POSITION.value in sample[SampleKey.ACTION.value]
-        assert ProprioceptiveType.ORIENTATION.value in sample[SampleKey.ACTION.value]
-        assert ProprioceptiveType.GRIPPER.value in sample[SampleKey.ACTION.value]
-        assert SampleKey.IS_PAD_ACTION.value in sample[SampleKey.ACTION.value]
-
-        # Check observation structure
-        assert isinstance(sample[SampleKey.OBSERVATION.value], dict)
-        assert Cameras.LEFT.value in sample[SampleKey.OBSERVATION.value]
-        assert Cameras.RIGHT.value in sample[SampleKey.OBSERVATION.value]
-        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in sample[SampleKey.OBSERVATION.value]
-        # Camera frame should NOT be present since use_proprio_camera_frame=False in fixture
-        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value not in sample[SampleKey.OBSERVATION.value]
-
-        # Check all tensors
-        for key in [ProprioceptiveType.POSITION.value, ProprioceptiveType.ORIENTATION.value]:
-            assert isinstance(sample[SampleKey.ACTION.value][key], torch.Tensor)
-
-
-    def test_different_obs_pred_horizons(self, action_config, observation_config,
-                                         mock_augmentation_pipeline, mock_action_processor,
-                                         padded_data, action_dict, sampler_indices):
-        """Test with different observation and prediction horizons."""
-        builder = SampleBuilder(
-            action_space=action_config,
-            observation_space=observation_config,
-            obs_horizon=5,
-            pred_horizon=8,
-            action_backward_shift=0,
-            augmentation_pipeline=mock_augmentation_pipeline,
-            action_processor=mock_action_processor,
-        )
-
-        # Need to adjust action_dict and padded_data for new horizons
-        action_dict_large = {
-            ProprioceptiveType.POSITION.value: np.ones((8, 3), dtype=np.float32),
-            ProprioceptiveType.ORIENTATION.value: np.ones((8, 4), dtype=np.float32),
-            ProprioceptiveType.GRIPPER.value: np.ones((8, 1), dtype=np.float32),
-        }
-
-        sample = builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict_large,
-            start_idx=0,
-            sampler_indices=sampler_indices,
-        )
-
-        # Check horizons
-        assert sample[SampleKey.OBSERVATION.value][Cameras.LEFT.value].shape[0] == 5  # obs_horizon
-        assert sample[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape[0] == 8  # pred_horizon
-        assert sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].shape[0] == 8
-
-
-    def test_sample_with_all_features(self, action_config, observation_config,
-                                      mock_augmentation_pipeline, mock_action_processor,
-                                      padded_data, action_dict, sampler_indices):
-        """Test sample with all features enabled."""
-        observation_config.use_proprio_camera_frame = True
-        observation_config.camera_keys = [Cameras.LEFT.value, Cameras.RIGHT.value, Cameras.DEPTH.value]
-
-        padded_data[Cameras.DEPTH.value] = np.ones((10, 32, 32), dtype=np.float32)
-        padded_data[ObsKey.PHASE_LABEL.value] = np.array([[0], [1], [1], [2], [2], [3], [3], [4], [4], [0]], dtype=np.int64)
-
-        mock_augmentation_pipeline.setup_rotation.return_value = (30.0, np.eye(3))
-        action_config.predict_in_camera_frame = True
-        action_config.task_has_phases = True
-
-        builder = SampleBuilder(
-            action_space=action_config,
-            observation_space=observation_config,
-            obs_horizon=3,
-            pred_horizon=4,
-            action_backward_shift=0,
-            augmentation_pipeline=mock_augmentation_pipeline,
-            action_processor=mock_action_processor,
-        )
-
-        sample = builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
-        )
-
-        # Check all features present
-        assert Cameras.DEPTH.value in sample[SampleKey.OBSERVATION.value]
-        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in sample[SampleKey.OBSERVATION.value]
-        assert ObsKey.PHASE_LABEL.value in sample[SampleKey.ACTION.value]
-
-        # Verify rotation was called
-        mock_action_processor.rotate_actions.assert_called_once()
-
-
-class TestLanguageInSampleBuilder:
-    """Test language instruction handling in SampleBuilder."""
-
-
-    def test_add_language_converts_to_list(self, sample_builder, padded_data):
-        """Test that language is converted from numpy array to list."""
-        sample_builder.observation_space.use_language = True
-        padded_data[ObsKey.LANGUAGE.value] = np.array([
-            'pick up the red cube',
-            'place it on the table',
-            'return to home position',
-            'grasp the object carefully',
-            'move slowly to the right',
-            'open the gripper',
-            'close the gripper',
-            'push the button',
-            'pull the lever',
-            'complete the task'
-        ], dtype=object)
-
-        sample = {SampleKey.OBSERVATION.value: {}}
-        sample_builder._add_additional_observation_keys(sample, padded_data)
-
-        # Should be in observations
-        assert ObsKey.LANGUAGE.value in sample[SampleKey.OBSERVATION.value]
-
-        # Should be a list, not numpy array
-        lang_data = sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]
-        assert isinstance(lang_data, list)
-
-        # Should have obs_horizon elements
-        assert len(lang_data) == 3  # obs_horizon=3
-
-        # Each element should be a string
-        assert all(isinstance(s, str) for s in lang_data)
-
-        # Check actual values
-        assert lang_data[0] == 'pick up the red cube'
-        assert lang_data[1] == 'place it on the table'
-        assert lang_data[2] == 'return to home position'
-
-
-    def test_language_with_variable_lengths(self, sample_builder, padded_data):
-        """Test language instructions of varying lengths."""
-        sample_builder.observation_space.use_language = True
-        padded_data[ObsKey.LANGUAGE.value] = np.array([
-            'short',
-            'this is a very long instruction with many many words that describes a complex task in detail',
-            'medium instruction',
-            'action_embedding',
-            'normal length',
-            'brief',
-            'another long one with lots of descriptive text',
-            'ok',
-            'standard instruction here',
-            'final'
-        ], dtype=object)
-
-        sample = {SampleKey.OBSERVATION.value: {}}
-        sample_builder._add_additional_observation_keys(sample, padded_data)
-
-        lang_data = sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]
-
-        # All should be strings
-        assert all(isinstance(s, str) for s in lang_data)
-
-        # Check variable lengths preserved
-        assert len(lang_data[0]) < len(lang_data[1])
-        assert lang_data[0] == 'short'
-        assert 'very long instruction' in lang_data[1]
-
-
-    def test_language_with_special_characters(self, sample_builder, padded_data):
-        """Test language with special characters and punctuation."""
-        sample_builder.observation_space.use_language = True
-        padded_data[ObsKey.LANGUAGE.value] = np.array([
-            "pick up the cube & place it (carefully!)",
-            "move 5.5cm to the left, then stop",
-            "grasp object #3 from the bin",
-            "apply 50% force when closing",
-            "navigate to position (action_embedding=10, y=20)",
-            "warning: fragile item!",
-            "task: assembly step 1/5",
-            "rotate 90° clockwise",
-            "maintain speed ≤ 10cm/s",
-            "success criteria: δ < 0.1mm"
-        ], dtype=object)
-
-        sample = {SampleKey.OBSERVATION.value: {}}
-        sample_builder._add_additional_observation_keys(sample, padded_data)
-
-        lang_data = sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]
-
-        # Special characters should be preserved
-        assert '&' in lang_data[0]
-        assert '!' in lang_data[0]
-        assert '5.5cm' in lang_data[1]
-
-
-    def test_language_not_added_when_disabled(self, sample_builder, padded_data):
-        """Test that language is not added when use_language=False."""
-        sample_builder.observation_space.use_language = False
-
-        sample = {SampleKey.OBSERVATION.value: {}}
-        sample_builder._add_additional_observation_keys(sample, padded_data)
-
-        # Language should not be present
-        assert ObsKey.LANGUAGE.value not in sample[SampleKey.OBSERVATION.value]
-
-
-    def test_build_sample_with_language(self, sample_builder, padded_data, action_dict, sampler_indices):
-        """Test complete sample building with language."""
-        sample_builder.observation_space.use_language = True
-        padded_data[ObsKey.LANGUAGE.value] = np.array([
-            f'instruction_{i}' for i in range(10)
-        ], dtype=object)
-
-        sample = sample_builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
-        )
-
-        # Check complete structure
-        assert SampleKey.OBSERVATION.value in sample
-        assert ObsKey.LANGUAGE.value in sample[SampleKey.OBSERVATION.value]
-        assert isinstance(sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value], list)
-        assert len(sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]) == 3
-
-
-    def test_language_with_different_obs_horizons(self, action_config, observation_config,
-                                                  mock_augmentation_pipeline, mock_action_processor,
-                                                  padded_data, action_dict, sampler_indices):
-        """Test language with different observation horizons."""
-        observation_config.use_language = True
-
-        # Test with obs_horizon=1
-        builder = SampleBuilder(
-            action_space=action_config,
-            observation_space=observation_config,
-            obs_horizon=1,
-            pred_horizon=4,
-            action_backward_shift=0,
-            augmentation_pipeline=mock_augmentation_pipeline,
-            action_processor=mock_action_processor,
-        )
-
-        padded_data[ObsKey.LANGUAGE.value] = np.array([f'inst_{i}' for i in range(10)], dtype=object)
-
-        sample = {SampleKey.OBSERVATION.value: {}}
-        builder._add_additional_observation_keys(sample, padded_data)
-
-        # Should have only 1 instruction
-        assert len(sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]) == 1
-
-        # Test with obs_horizon=5
-        builder.obs_horizon = 5
-        sample = {SampleKey.OBSERVATION.value: {}}
-        builder._add_additional_observation_keys(sample, padded_data)
-
-        # Should have 5 instructions
-        assert len(sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]) == 5
-
-
-    def test_language_empty_strings_handled(self, sample_builder, padded_data):
-        """Test that empty language strings are handled."""
-        sample_builder.observation_space.use_language = True
-        padded_data[ObsKey.LANGUAGE.value] = np.array([
-            'valid instruction',
-            '',  # Empty string
-            'another valid one',
-            '',
-            'final instruction',
-            'normal',
-            '',
-            'ok',
-            'last',
-            ''
-        ], dtype=object)
-
-        sample = {SampleKey.OBSERVATION.value: {}}
-        sample_builder._add_additional_observation_keys(sample, padded_data)
-
-        lang_data = sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]
-
-        # Should handle empty strings gracefully
-        assert lang_data[0] == 'valid instruction'
-        assert lang_data[1] == ''
-        assert lang_data[2] == 'another valid one'
-
-
-@pytest.mark.integration
-class TestNormalizationInSampleBuilder:
-    """Test normalization integration in SampleBuilder."""
-
-    def test_build_sample_with_normalizer(
-        self, action_config, observation_config, mock_augmentation_pipeline, mock_action_processor,
-        padded_data, action_dict, sampler_indices, dummy_normalizer
+        builder._get_sample_images(padded_data=padded_data)
+
+        builder.augmentation_pipeline.apply_depth_augmentations.assert_called_once()
+
+
+class TestSliceObservationTensor:
+
+    @pytest.mark.parametrize("dtype,expected_torch_dtype", [
+        ("float32", torch.float32),
+        ("float64", torch.float32),
+        ("int32", torch.int64),
+        ("int64", torch.int64),
+        ("bool", torch.int64),
+    ])
+    def test_converts_to_correct_torch_dtype(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+        dtype: str,
+        expected_torch_dtype: torch.dtype,
     ):
-        """Test sample building with normalization."""
-        # Use dummy normalizer that passes through all data
+        builder = sample_builder_factory(obs_horizon=2)
+        # Use mock to test dtype dispatch without metadata validation constraints
+        metadata = MagicMock()
+        metadata.dtype = dtype
+        padded_data = {"value": np.array([[1], [2], [3], [4]], dtype=np.float32)}
 
-        builder = SampleBuilder(
-            action_space=action_config,
-            observation_space=observation_config,
-            obs_horizon=3,
-            pred_horizon=4,
-            action_backward_shift=0,
-            augmentation_pipeline=mock_augmentation_pipeline,
-            action_processor=mock_action_processor,
-            normalizer=dummy_normalizer,
+        result = builder._slice_observation_tensor(
+            key="value", padded_data=padded_data, metadata=metadata,
         )
 
-        sample = builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
-        )
+        assert result.dtype == expected_torch_dtype
 
-        # Verify data is present
-        assert SampleKey.OBSERVATION.value in sample
-        assert SampleKey.ACTION.value in sample
-        assert isinstance(sample[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value], torch.Tensor)
-        assert isinstance(sample[SampleKey.OBSERVATION.value][ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value], torch.Tensor)
-
-    def test_normalization_preserves_shapes(
-        self, action_config, observation_config, mock_augmentation_pipeline, mock_action_processor,
-        padded_data, action_dict, sampler_indices, dummy_normalizer
+    def test_string_dtype_returns_list(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
     ):
-        """Test that normalization preserves tensor shapes."""
-        # Use dummy normalizer that passes through all data
+        builder = sample_builder_factory(obs_horizon=2)
+        metadata = ObservationMetadata(
+            raw_data_column_keys=["label"],
+            dimension=1,
+            dtype="str",
+            is_numerical=False,
+            needs_normalization=False,
+        )
+        padded_data = {"label": np.array([["a"], ["b"], ["c"], ["d"]])}
 
-        builder = SampleBuilder(
-            action_space=action_config,
-            observation_space=observation_config,
-            obs_horizon=3,
-            pred_horizon=4,
-            action_backward_shift=0,
-            augmentation_pipeline=mock_augmentation_pipeline,
-            action_processor=mock_action_processor,
-            normalizer=dummy_normalizer,
+        result = builder._slice_observation_tensor(
+            key="label", padded_data=padded_data, metadata=metadata,
         )
 
-        sample = builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
-        )
+        assert isinstance(result, list)
+        assert len(result) == 2
 
-        # Shapes should be the same with or without normalization
-        assert sample[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape == (4, 3)
-        assert sample[SampleKey.ACTION.value][ProprioceptiveType.ORIENTATION.value].shape == (4, 4)
-
-
-@pytest.mark.integration
-class TestTokenizationInSampleBuilder:
-    """Test tokenization integration in SampleBuilder."""
-
-    def test_build_sample_with_observation_tokenizer(
-        self, action_config, observation_config, mock_augmentation_pipeline, mock_action_processor,
-        padded_data, action_dict, sampler_indices
+    def test_unsupported_dtype_raises(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
     ):
-        """Test sample building with observation tokenization."""
-        observation_config.use_language = True
-        padded_data[ObsKey.LANGUAGE.value] = np.array([f'instruction_{i}' for i in range(10)], dtype=object)
+        builder = sample_builder_factory(obs_horizon=2)
+        # Use a mock to bypass BaseMetadata validation and reach the else branch
+        metadata = MagicMock()
+        metadata.dtype = "complex128"
+        padded_data = {"value": np.array([[1], [2], [3], [4]])}
 
-        obs_tokenizer = ObservationTokenizer(
-            tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[ObsKey.LANGUAGE.value],
-            bin_continuous_data=False,
-            device=torch.device("cpu"),
-        )
-        obs_tokenizer.fit({})
+        with pytest.raises(ValueError, match="Unsupported custom observation dtype"):
+            builder._slice_observation_tensor(
+                key="value", padded_data=padded_data, metadata=metadata,
+            )
 
-        tokenizer = Tokenizer(observation_tokenizer=obs_tokenizer)
-
-        builder = SampleBuilder(
-            action_space=action_config,
-            observation_space=observation_config,
-            obs_horizon=3,
-            pred_horizon=4,
-            action_backward_shift=0,
-            augmentation_pipeline=mock_augmentation_pipeline,
-            action_processor=mock_action_processor,
-            tokenizer=tokenizer,
-        )
-
-        sample = builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
-        )
-
-        # Verify tokenized observations are added
-        assert SampleKey.TOKENIZED_OBSERVATIONS.value in sample[SampleKey.OBSERVATION.value]
-        assert SampleKey.IS_PAD_OBSERVATION.value in sample[SampleKey.OBSERVATION.value]
-        assert sample[SampleKey.OBSERVATION.value][SampleKey.TOKENIZED_OBSERVATIONS.value].dtype == torch.long
-        assert sample[SampleKey.OBSERVATION.value][SampleKey.IS_PAD_OBSERVATION.value].dtype == torch.bool
-
-    def test_build_sample_with_action_tokenizer(
-        self, action_config, observation_config, mock_augmentation_pipeline, mock_action_processor,
-        padded_data, action_dict, sampler_indices
+    def test_slices_with_correct_obs_horizon_and_shift(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
     ):
-        """Test sample building with action tokenization."""
-        action_tokenizer = ActionTokenizer(
-            tokenizer_chain=[TokenizerType.FAST.value],
-            use_pretrained_fast=True,
-            device=torch.device("cpu"),
+        builder = sample_builder_factory(
+            obs_horizon=2,
+            action_backward_shift=1,
+        )
+        metadata = ObservationMetadata(
+            raw_data_column_keys=["value"],
+            dimension=1,
+            dtype="float32",
+            is_numerical=True,
+            needs_normalization=True,
+        )
+        # With shift=1, obs_horizon=2: should take indices [1:3]
+        padded_data = {"value": np.array([[10], [20], [30], [40]], dtype=np.float32)}
+
+        result = builder._slice_observation_tensor(
+            key="value", padded_data=padded_data, metadata=metadata,
         )
 
-        tokenizer = Tokenizer(action_tokenizer=action_tokenizer)
+        torch.testing.assert_close(result, torch.tensor([[20.0], [30.0]]))
 
-        builder = SampleBuilder(
-            action_space=action_config,
-            observation_space=observation_config,
-            obs_horizon=3,
-            pred_horizon=4,
-            action_backward_shift=0,
-            augmentation_pipeline=mock_augmentation_pipeline,
-            action_processor=mock_action_processor,
-            tokenizer=tokenizer,
-        )
 
-        sample = builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
-        )
+class TestSliceActionData:
 
-        # Verify tokenized actions are added
-        assert SampleKey.TOKENIZED_ACTIONS.value in sample[SampleKey.ACTION.value]
-        assert sample[SampleKey.ACTION.value][SampleKey.TOKENIZED_ACTIONS.value].dtype == torch.long
-        # SampleKey.IS_PAD_ACTION.value should be replaced with tokenizer's padding mask
-        assert SampleKey.IS_PAD_ACTION.value in sample[SampleKey.ACTION.value]
-        assert sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].dtype == torch.bool
-
-    def test_build_sample_with_both_tokenizers(
-        self, action_config, observation_config, mock_augmentation_pipeline, mock_action_processor,
-        padded_data, action_dict, sampler_indices
+    @pytest.mark.parametrize("dtype,expected_torch_dtype", [
+        ("float32", torch.float32),
+        ("int32", torch.int64),
+        ("bool", torch.int64),
+    ])
+    def test_converts_to_correct_torch_dtype(
+        self,
+        dtype: str,
+        expected_torch_dtype: torch.dtype,
     ):
-        """Test sample building with both observation and action tokenization."""
-        observation_config.use_language = True
-        padded_data[ObsKey.LANGUAGE.value] = np.array([f'instruction_{i}' for i in range(10)], dtype=object)
+        metadata = MagicMock()
+        metadata.dtype = dtype
+        action_data = {"action": np.array([[1], [2], [3]], dtype=np.float32)}
 
-        obs_tokenizer = ObservationTokenizer(
-            tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[ObsKey.LANGUAGE.value],
-            bin_continuous_data=False,
-            device=torch.device("cpu"),
-        )
-        obs_tokenizer.fit({})
-
-        action_tokenizer = ActionTokenizer(
-            tokenizer_chain=[TokenizerType.FAST.value],
-            use_pretrained_fast=True,
-            device=torch.device("cpu"),
+        result = SampleBuilder._slice_action_data(
+            key="action", action_data=action_data, metadata=metadata,
         )
 
-        tokenizer = Tokenizer(
-            observation_tokenizer=obs_tokenizer,
-            action_tokenizer=action_tokenizer,
+        assert result.dtype == expected_torch_dtype
+
+    def test_string_dtype_returns_list(self):
+        metadata = ActionMetadata(
+            prediction_dimension=1,
+            is_numerical=False,
+            needs_normalization=False,
+            dtype="str",
+            is_precomputed=True,
+            requires_prediction_head=False,
+        )
+        action_data = {"label": np.array([["open"], ["close"]])}
+
+        result = SampleBuilder._slice_action_data(
+            key="label", action_data=action_data, metadata=metadata,
         )
 
-        builder = SampleBuilder(
-            action_space=action_config,
-            observation_space=observation_config,
-            obs_horizon=3,
-            pred_horizon=4,
-            action_backward_shift=0,
-            augmentation_pipeline=mock_augmentation_pipeline,
-            action_processor=mock_action_processor,
-            tokenizer=tokenizer,
-        )
+        assert isinstance(result, list)
 
-        sample = builder.build_sample(
-            padded_data=padded_data,
-            action_dict=action_dict,
-            start_idx=0,
-            sampler_indices=sampler_indices,
-        )
+    def test_unsupported_dtype_raises(self):
+        metadata = MagicMock()
+        metadata.dtype = "complex128"
 
-        # Verify both tokenized observations and actions are added
-        assert SampleKey.TOKENIZED_OBSERVATIONS.value in sample[SampleKey.OBSERVATION.value]
-        assert SampleKey.IS_PAD_OBSERVATION.value in sample[SampleKey.OBSERVATION.value]
-        assert SampleKey.TOKENIZED_ACTIONS.value in sample[SampleKey.ACTION.value]
-
-    def test_observation_tokenization_raises_on_missing_key(
-        self, action_config, observation_config, mock_augmentation_pipeline, mock_action_processor,
-        padded_data, action_dict, sampler_indices
-    ):
-        """Test that observation tokenization raises error when required key is missing."""
-        # Don't add language to padded_data
-        obs_tokenizer = ObservationTokenizer(
-            tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[ObsKey.LANGUAGE.value],  # Require language but don't add it to padded_data
-            bin_continuous_data=False,
-            device=torch.device("cpu"),
-        )
-        obs_tokenizer.fit({})
-
-        tokenizer = Tokenizer(observation_tokenizer=obs_tokenizer)
-
-        builder = SampleBuilder(
-            action_space=action_config,
-            observation_space=observation_config,
-            obs_horizon=3,
-            pred_horizon=4,
-            action_backward_shift=0,
-            augmentation_pipeline=mock_augmentation_pipeline,
-            action_processor=mock_action_processor,
-            tokenizer=tokenizer,
-        )
-
-        with pytest.raises(KeyError, match="not found in sample for tokenization"):
-            builder.build_sample(
-                padded_data=padded_data,
-                action_dict=action_dict,
-                start_idx=0,
-                sampler_indices=sampler_indices,
+        with pytest.raises(ValueError, match="Unsupported custom action dtype"):
+            SampleBuilder._slice_action_data(
+                key="action",
+                action_data={"action": np.array([[1]])},
+                metadata=metadata,
             )
 
 
-@pytest.mark.integration
-class TestNormalizationAndTokenizationTogether:
-    """Test normalization and real tokenization working together."""
+class TestComputeActionPaddingMask:
 
-    def test_build_sample_with_normalizer_and_tokenizers(
-        self, action_config, observation_config, mock_augmentation_pipeline, mock_action_processor,
-        padded_data, action_dict, sampler_indices, dummy_normalizer
+    def test_delta_actions_pad_when_either_position_invalid(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
     ):
-        """Test sample building with both normalization and tokenization."""
-        observation_config.use_language = True
-        padded_data[ObsKey.LANGUAGE.value] = np.array([f'instruction_{i}' for i in range(10)], dtype=object)
-
-        # Use dummy normalizer that passes through all data
-
-        # Create tokenizers
-        obs_tokenizer = ObservationTokenizer(
-            tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[ObsKey.LANGUAGE.value],
-            bin_continuous_data=False,
-            device=torch.device("cpu"),
-        )
-        obs_tokenizer.fit({})
-
-        action_tokenizer = ActionTokenizer(
-            tokenizer_chain=[TokenizerType.FAST.value],
-            use_pretrained_fast=True,
-            device=torch.device("cpu"),
-        )
-
-        tokenizer = Tokenizer(
-            observation_tokenizer=obs_tokenizer,
-            action_tokenizer=action_tokenizer,
-        )
-
-        builder = SampleBuilder(
-            action_space=action_config,
-            observation_space=observation_config,
-            obs_horizon=3,
+        builder = sample_builder_factory(
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(),
+            },
+            obs_horizon=1,
             pred_horizon=4,
-            action_backward_shift=0,
-            augmentation_pipeline=mock_augmentation_pipeline,
-            action_processor=mock_action_processor,
-            normalizer=dummy_normalizer,
-            tokenizer=tokenizer,
+        )
+        # sampler_indices[start_idx] = (buffer_start, buffer_end, sample_start, sample_end)
+        # Valid sample range: [1, 4) — positions 0 and 4+ are padded
+        sampler_indices = np.array([[0, 6, 1, 4]])
+
+        mask = builder._compute_action_padding_mask(
+            start_idx=0, sampler_indices=sampler_indices,
         )
 
-        sample = builder.build_sample(
+        assert mask.dtype == torch.bool
+        assert mask.shape == (4,)
+        # action_slice_start = obs_horizon - 1 = 0
+        # action_positions = [0, 1, 2, 3]
+        # For deltas: both pos and pos+1 must be in [1, 4)
+        # pos=0: 0 < 1 → pad. pos=1: 1,2 in [1,4) → valid. pos=2: 2,3 in [1,4) → valid. pos=3: 3 ok, 4 >= 4 → pad
+        assert mask[0] is True or mask[0].item() is True
+        assert mask[1].item() is False
+        assert mask[2].item() is False
+        assert mask[3].item() is True
+
+    def test_absolute_actions_pad_when_next_position_invalid(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+    ):
+        builder = sample_builder_factory(
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_observation_metadata_factory(),
+                    computation_method=ActionComputationMethod.NEXT_TIMESTEP.value,
+                ),
+            },
+            obs_horizon=1,
+            pred_horizon=4,
+        )
+        sampler_indices = np.array([[0, 6, 1, 4]])
+
+        mask = builder._compute_action_padding_mask(
+            start_idx=0, sampler_indices=sampler_indices,
+        )
+
+        # For absolute: only next position (pos+1) must be in [1, 4)
+        # pos=0: pos+1=1 in [1,4) → valid. pos=1: 2 → valid. pos=2: 3 → valid. pos=3: 4 >= 4 → pad
+        assert mask[0].item() is False
+        assert mask[1].item() is False
+        assert mask[2].item() is False
+        assert mask[3].item() is True
+
+    def test_mask_shape_matches_prediction_horizon(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+    ):
+        builder = sample_builder_factory(
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(),
+            },
+            obs_horizon=1,
+            pred_horizon=8,
+        )
+        sampler_indices = np.array([[0, 20, 0, 20]])
+
+        mask = builder._compute_action_padding_mask(
+            start_idx=0, sampler_indices=sampler_indices,
+        )
+
+        assert mask.shape == (8,)
+
+
+class TestGetActionSliceStart:
+
+    def test_returns_obs_horizon_minus_one(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+    ):
+        builder = sample_builder_factory(obs_horizon=3)
+
+        assert builder._get_action_slice_start() == 2
+
+
+class TestNormalizeAndTokenizeSample:
+
+    def test_applies_normalizer_when_present(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+    ):
+        mock_normalizer = MagicMock()
+        builder = sample_builder_factory(normalizer=mock_normalizer)
+
+        sample = {
+            SampleKey.OBSERVATION.value: {"position": torch.tensor([1.0])},
+            SampleKey.ACTION.value: {"position": torch.tensor([2.0])},
+        }
+
+        # normalize_sample is a module-level function; the builder delegates to it
+        # We just verify it doesn't crash and returns a dict
+        result = builder.normalize_and_tokenize_sample(sample=sample)
+
+        assert isinstance(result, dict)
+
+    def test_skips_normalization_when_normalizer_is_none(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+    ):
+        builder = sample_builder_factory(normalizer=None, tokenizer=None)
+        original_tensor = torch.tensor([1.0, 2.0, 3.0])
+
+        sample = {
+            SampleKey.OBSERVATION.value: {"position": original_tensor},
+            SampleKey.ACTION.value: {},
+        }
+
+        result = builder.normalize_and_tokenize_sample(sample=sample)
+
+        torch.testing.assert_close(
+            result[SampleKey.OBSERVATION.value]["position"],
+            original_tensor,
+        )
+
+    def test_applies_tokenizer_when_present(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+    ):
+        mock_tokenizer = MagicMock()
+        mock_tokenizer.observation_tokenizer = None
+        mock_tokenizer.action_tokenizer = None
+        builder = sample_builder_factory(tokenizer=mock_tokenizer)
+
+        sample = {
+            SampleKey.OBSERVATION.value: {},
+            SampleKey.ACTION.value: {},
+        }
+
+        result = builder.normalize_and_tokenize_sample(sample=sample)
+
+        assert isinstance(result, dict)
+
+
+class TestBuildSample:
+
+    def test_assembles_observations_actions_and_padding_mask(
+        self,
+        sample_builder_factory: Callable[..., SampleBuilder],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+        rng: np.random.Generator,
+    ):
+        position_metadata = on_the_fly_action_metadata_factory()
+
+        builder = sample_builder_factory(
+            observations_metadata={
+                Cameras.LEFT.value: camera_metadata_factory(
+                    camera_key=Cameras.LEFT.value,
+                ),
+                "position": position_observation_metadata_factory(dimension=3),
+            },
+            actions_metadata={"position": position_metadata},
+            obs_horizon=2,
+            pred_horizon=3,
+        )
+
+        padded_data = {
+            Cameras.LEFT.value: rng.integers(0, 256, (8, 4, 4, 3), dtype=np.uint8),
+            "position": rng.standard_normal((8, 3)).astype(np.float32),
+        }
+        action_data = {
+            "position": rng.standard_normal((3, 3)).astype(np.float32),
+        }
+        action_meta = {"position": position_metadata}
+        sampler_indices = np.array([[0, 8, 0, 8]])
+
+        result = builder.build_sample(
             padded_data=padded_data,
-            action_dict=action_dict,
+            action_data=action_data,
+            action_meta=action_meta,
             start_idx=0,
             sampler_indices=sampler_indices,
         )
 
-        # Verify both normalization and tokenization happened
-        assert SampleKey.TOKENIZED_OBSERVATIONS.value in sample[SampleKey.OBSERVATION.value]
-        assert SampleKey.TOKENIZED_ACTIONS.value in sample[SampleKey.ACTION.value]
-        # Original data should still be present (normalized)
-        assert ProprioceptiveType.POSITION.value in sample[SampleKey.ACTION.value]
-        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in sample[SampleKey.OBSERVATION.value]
+        assert SampleKey.OBSERVATION.value in result
+        assert SampleKey.ACTION.value in result
+        assert Cameras.LEFT.value in result[SampleKey.OBSERVATION.value]
+        assert "position" in result[SampleKey.OBSERVATION.value]
+        assert "position" in result[SampleKey.ACTION.value]
+        assert SampleKey.IS_PAD_ACTION.value in result[SampleKey.ACTION.value]

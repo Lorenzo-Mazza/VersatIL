@@ -391,6 +391,8 @@ Additional standards:
 
 ## Testing
 
+**Before writing or modifying any test, read `tests/CLAUDE.md` for mandatory testing guidelines.**
+
 Test structure mirrors source code:
 ```
 tests/

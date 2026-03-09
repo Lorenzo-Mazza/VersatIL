@@ -223,15 +223,6 @@ class GripperObservationMetadata(ObservationMetadata):
         slice_start: Optional[int] = None,
         slice_end: Optional[int] = None,
     ):
-        super().__init__(
-            raw_data_column_keys=raw_data_column_keys,
-            dimension=dimension,
-            dtype=dtype,
-            is_numerical=True,
-            needs_normalization=needs_normalization,
-            slice_start=slice_start,
-            slice_end=slice_end,
-        )
         valid_types = [e.value for e in GripperType]
         if gripper_type not in valid_types:
             raise ValueError(
@@ -247,14 +238,22 @@ class GripperObservationMetadata(ObservationMetadata):
                 raise ValueError("Binary gripper state dimension must be 1.")
             if needs_normalization:
                 raise ValueError("Binary gripper state should not need normalization.")
-            if dtype != "bool" and "int" not in dtype:
+            if "int" not in dtype:
                 raise ValueError(
-                    "Binary gripper state dtype must be 'bool' or an integer type."
+                    "Binary gripper state dtype must be an integer type."
                 )
         else:
-            if "float" not in dtype or not self.is_numerical:
+            if "float" not in dtype:
                 raise ValueError("Continuous gripper state dtype must be a float type.")
-
+        super().__init__(
+            raw_data_column_keys=raw_data_column_keys,
+            dimension=dimension,
+            dtype=dtype,
+            is_numerical=True,
+            needs_normalization=needs_normalization,
+            slice_start=slice_start,
+            slice_end=slice_end,
+        )
         self.gripper_type: str = gripper_type
         self.binary_gripper_range: str = binary_gripper_range
         self.proprioception_type: str = ProprioceptiveType.GRIPPER.value
@@ -593,16 +592,6 @@ class GripperActionMetadata(PrecomputedActionMetadata):
         slice_start: Optional[int] = None,
         slice_end: Optional[int] = None,
     ):
-        super().__init__(
-            prediction_dimension=prediction_dimension,
-            is_numerical=True,
-            needs_normalization=needs_normalization,
-            dtype=dtype,
-            raw_data_column_keys=raw_data_column_keys,
-            storage_dimension=storage_dimension,
-            slice_start=slice_start,
-            slice_end=slice_end,
-        )
         valid_types = [e.value for e in GripperType]
         if gripper_type not in valid_types:
             raise ValueError(
@@ -616,16 +605,25 @@ class GripperActionMetadata(PrecomputedActionMetadata):
         if gripper_type == GripperType.BINARY.value:
             if needs_normalization:
                 raise ValueError("Binary gripper action should not need normalization.")
-            if dtype != "bool" and "int" not in dtype:
+            if "int" not in dtype:
                 raise ValueError(
-                    "Binary gripper action dtype must be 'bool' or an integer type."
+                    "Binary gripper action dtype must be an integer type."
                 )
         else:
-            if "float" not in dtype or not self.is_numerical:
+            if "float" not in dtype:
                 raise ValueError(
                     "Continuous gripper action dtype must be a float type."
                 )
-
+        super().__init__(
+            prediction_dimension=prediction_dimension,
+            is_numerical=True,
+            needs_normalization=needs_normalization,
+            dtype=dtype,
+            raw_data_column_keys=raw_data_column_keys,
+            storage_dimension=storage_dimension,
+            slice_start=slice_start,
+            slice_end=slice_end,
+        )
         self.gripper_type: str = gripper_type
         self.binary_gripper_range: str = binary_gripper_range
         self.raw_data_column_keys = raw_data_column_keys

@@ -148,7 +148,7 @@ def get_dataloaders(
     )
 
 
-def validate_dataloader_config(config: DataLoaderConfig):
+def validate_dataloader_config(config: DataLoaderConfig) -> None:
     """Validate Dataloader configuration."""
     if config.batch_size <= 0:
         raise ValueError(f"batch_size must be positive, got {config.batch_size}")
@@ -230,7 +230,8 @@ def _ensure_zarr_exists(schema: DatasetSchema, preload_in_memory: bool = False) 
             create_replay_buffer_from_hdf5(schema=schema)
         elif isinstance(schema, CsvDatasetSchema):
             datasets_paths = _collect_dataset_paths(
-                schema.dataset_folders, schema.dataset_filename
+                dataset_folders=schema.dataset_folders,
+                episode_filename=schema.dataset_filename,
             )
             logging.info(
                 f"Found {len(datasets_paths)} episodes across {len(schema.dataset_folders)} folders"

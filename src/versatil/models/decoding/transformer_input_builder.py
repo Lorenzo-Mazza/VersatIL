@@ -266,7 +266,7 @@ class TransformerInputBuilder(nn.Module):
             positional_encodings = torch.cat(pe_list, dim=1) if pe_list else None  # (B, Total_Seq, Emb)
 
         padding_mask = torch.cat(spatial_mask_list + flat_mask_list, dim=1) # (B, Total_Seq)
-        if not padding_mask.any():
+        if not torch.compiler.is_compiling() and not padding_mask.any():
             padding_mask = None
         return tokens, positional_encodings, padding_mask
 

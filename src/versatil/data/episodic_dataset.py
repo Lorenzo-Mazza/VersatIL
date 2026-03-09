@@ -85,8 +85,6 @@ class EpisodicDataset(data.Dataset):
             target_width=dataloader_config.image_width,
             train=train,
         )
-        self.train = train
-        self.seed = seed
         all_keys = list(
             set(
                 observation_space.get_required_zarr_keys()
@@ -264,7 +262,6 @@ class EpisodicDataset(data.Dataset):
         clamp_kinematics_range: bool = True,
         min_kinematics_std: float = 2e-2,
         min_kinematics_range: float = 4e-2,
-        **kwargs,
     ) -> tuple[LinearNormalizer, Tokenizer | None]:
         """Get normalizer and optionally tokenizer for this dataset.
 
@@ -278,7 +275,6 @@ class EpisodicDataset(data.Dataset):
             clamp_kinematics_range: Whether to clamp std/range to minimum values.
             min_kinematics_std: Minimum std for Gaussian mode when clamp_kinematics_range=True.
             min_kinematics_range: Minimum range for MinMax mode when clamp_kinematics_range=True.
-            **kwargs: Additional arguments for normalizer fitting
 
         Returns:
             Tuple of (normalizer, tokenizer) where tokenizer is None if not configured
@@ -305,7 +301,7 @@ class EpisodicDataset(data.Dataset):
         )
 
         return normalizer_builder.create_normalizer_and_tokenizer(
-            device=device, **kwargs
+            device=device,
         )
 
     def set_tokenizer(self, tokenizer: Tokenizer | None) -> None:
@@ -346,7 +342,10 @@ class EpisodicDataset(data.Dataset):
         if isinstance(meta, GripperActionMetadata):
             gripper_type = meta.gripper_type
         elif isinstance(meta, OnTheFlyActionMetadata):
-            assert isinstance(meta.source_metadata, GripperObservationMetadata)
+            if not isinstance(meta.source_metadata, GripperObservationMetadata):
+                raise TypeError(
+                    f"Expected GripperObservationMetadata, got {type(meta.source_metadata)}"
+                )
             gripper_type = meta.source_metadata.gripper_type
         else:
             raise ValueError(f"Unsupported gripper action metadata type: {type(meta)}")

@@ -290,7 +290,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
     def _get_frames_from_videos(
         self, query_timestamps: dict[str, list[float]], episode_index: int
-    ) -> dict[str, list[np.array]]:
+    ) -> dict[str, list[np.ndarray]]:
         """Extract frames from video files at specified timestamps.
 
         LeRobot videos may have an offset (from_timestamp) that needs to be
@@ -322,7 +322,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
     def _get_images_from_filesystem(
         self, episode_index: int, image_key: str, frame_indexes: list[int]
-    ) -> list[np.array]:
+    ) -> list[np.ndarray]:
         """Load images from individual files on the filesystem.
 
         Used when images are stored as separate files rather than embedded
@@ -344,7 +344,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
             if not image_path.exists():
                 raise ValueError(f"Image was not found: {image_path}")
 
-            img = cv2.open(image_path)
+            img = cv2.imread(str(image_path))
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             frames.append(img)
         return frames
@@ -356,7 +356,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
     def get_episode_videos_frames(
         self, episode_id: int, preloaded_episode_table: pa.Table = None
-    ) -> dict[str, list[np.array]]:
+    ) -> dict[str, list[np.ndarray]]:
         """Extract all video frames for an episode.
 
         Args:
@@ -387,7 +387,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
     def get_episode_images(
         self, episode_id: int, preloaded_episode_table: pa.Table = None
-    ) -> dict[str, list[np.array]]:
+    ) -> dict[str, list[np.ndarray]]:
         """Extract all images for an episode.
 
         Images in LeRobot can be stored in three ways:
@@ -469,7 +469,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         episode_id: int,
         resizer: A.Resize | A.NoOp,
         depth_resizer: A.Resize | A.NoOp,
-    ) -> dict[str, np.array]:
+    ) -> dict[str, np.ndarray]:
         """Extract and convert a complete episode to zarr format.
 
         Args:
