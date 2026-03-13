@@ -121,7 +121,8 @@ class MoEFreeActionTransformer(FreeActionTransformer):
             is_inference=False,
             return_latent_embeddings=True,
         )
-        action_outputs = decoder_output[:, prefix_len:, :]  # (B, action_len, emb_dim)
+        # Shift alignment: grabs outputs from the last feature to the penultimate action so step t predicts target t+1.
+        action_outputs = decoder_output[:, prefix_len - 1 : -1, :] # (B, action_token_len, D)
         gating_logits = self.expert_gating_projection(
             latent_embeddings
         )  # Global latent (B, 1, num_experts)

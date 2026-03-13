@@ -288,7 +288,8 @@ class FreeActionTransformer(ActionDecoder):
             is_inference=False,
             return_latent_embeddings=True,
         )  # (B, query_len, D), (B, query_len, 2**latent_dim), None
-        action_outputs = decoder_output[:, prefix_len:, :]  # (B, action_token_len, D)
+        # Shift alignment: grabs outputs from the last feature to the penultimate action so step t predicts target t+1.
+        action_outputs = decoder_output[:, prefix_len - 1 : -1, :] # (B, action_token_len, D)
         logits = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value](
             action_outputs
         )  # (B, action_token_len, vocab_size)

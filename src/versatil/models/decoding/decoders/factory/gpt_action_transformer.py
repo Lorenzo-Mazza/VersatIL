@@ -318,7 +318,10 @@ class GPTActionTransformer(ActionDecoder):
             use_cache=False,
             self_attention_mask=full_attention_mask,
         )  # (B, query_len, D)
-        action_outputs = decoder_output[:, prefix_len:, :]  # (B, action_token_len, D)
+        # Shift alignment: grabs outputs from the last feature to the penultimate action so step t predicts target t+1.
+        # NB: This is crucial for correct teacher forcing without information leakage from future tokens.
+        # The first action token attends to all feature tokens but not future action tokens, etc.
+        action_outputs = decoder_output[:, prefix_len - 1 : -1, :] # (B, action_token_len, D)
         logits = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value](
             action_outputs
         )  # (B, action_token_len, vocab_size)
