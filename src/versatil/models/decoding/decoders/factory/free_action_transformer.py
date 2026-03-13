@@ -288,7 +288,8 @@ class FreeActionTransformer(ActionDecoder):
             is_inference=False,
             return_latent_embeddings=True,
         )  # (B, query_len, D), (B, query_len, 2**latent_dim), None
-        action_outputs = decoder_output[:, prefix_len:, :]  # (B, action_token_len, D)
+        # Shift alignment: grabs outputs from the last feature to the penultimate action so step t predicts target t+1.
+        action_outputs = decoder_output[:, prefix_len - 1 : -1, :] # (B, action_token_len, D)
         logits = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value](
             action_outputs
         )  # (B, action_token_len, vocab_size)
@@ -340,7 +341,7 @@ class FreeActionTransformer(ActionDecoder):
                     decoder_cache,
                 ) = self.free_transformer(
                     hidden_states=next_token_embedding,
-                    key_padding_mask=feature_token_mask,
+                    key_padding_mask=None,  # Cached mask handles prefix padding; new token is always valid
                     self_attention_mask=None,  # Causal mask handled internally
                     decoder_cache=decoder_cache,
                     use_cache=True,
@@ -358,15 +359,17 @@ class FreeActionTransformer(ActionDecoder):
                 next_token = torch.multinomial(
                     probs.squeeze(-1), num_samples=1
                 )  # (B, 1)
+            generated_tokens.append(next_token)
+            if (next_token == self.tokenizer.eos_token_id).all():
+                break
             next_token_embedding = self.token_embedding(
                 next_token
             )  # (B, 1, embedding_dimension)
-            generated_tokens.append(next_token)
 
         return {
             DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.cat(
                 generated_tokens, dim=1
-            ),  # (B, max_seq_len)
+            ),  # (B, num_generated_tokens)
             DecoderOutputKey.LATENT_CODES.value: latent_codes,
             LatentKey.POSTERIOR_LATENT.value: z,
         }

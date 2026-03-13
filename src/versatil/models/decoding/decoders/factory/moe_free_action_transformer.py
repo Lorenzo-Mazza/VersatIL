@@ -199,7 +199,8 @@ class MoEFreeActionTransformer(FreeActionTransformer):
             is_inference=False,
             return_latent_embeddings=True,
         )
-        action_outputs = decoder_output[:, prefix_len:, :]  # (B, action_len, emb_dim)
+        # Shift alignment: grabs outputs from the last feature to the penultimate action so step t predicts target t+1.
+        action_outputs = decoder_output[:, prefix_len - 1 : -1, :] # (B, action_token_len, D)
         gating_logits = self.expert_gating_projection(
             latent_embeddings
         )  # Global latent (B, 1, num_experts)
@@ -254,7 +255,7 @@ class MoEFreeActionTransformer(FreeActionTransformer):
                     decoder_cache,
                 ) = self.free_transformer(
                     hidden_states=next_token_embedding,
-                    key_padding_mask=feature_token_mask,
+                    key_padding_mask=None,  # Cached mask handles prefix padding; new token is always valid
                     self_attention_mask=None,  # Causal mask handled internally
                     decoder_cache=decoder_cache,
                     use_cache=True,
@@ -281,16 +282,18 @@ class MoEFreeActionTransformer(FreeActionTransformer):
                 DecoderOutputKey.ROUTING_WEIGHTS.value
             ]  # (B, 1, num_experts)
             expert_usages.append(expert_usage)
+            generated_tokens.append(next_token)
+            if (next_token == self.tokenizer.eos_token_id).all():
+                break
             next_token_embedding = self.token_embedding(
                 next_token
             )  # (B, 1, embedding_dimension)
-            generated_tokens.append(next_token)
 
         return {
             DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.cat(
                 generated_tokens, dim=1
-            ),  # (B, max_seq_len)
+            ),  # (B, num_generated_tokens)
             f"{DecoderOutputKey.ACTION_LOGITS.value}_{DecoderOutputKey.ROUTING_WEIGHTS.value}": torch.cat(
                 expert_usages, dim=1
-            ),  # (B, max_seq_len, num_experts)
+            ),  # (B, num_generated_tokens, num_experts)
         }

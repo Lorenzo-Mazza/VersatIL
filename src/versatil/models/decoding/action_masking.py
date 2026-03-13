@@ -36,7 +36,7 @@ def make_attention_mask(
                 device=action_tokens.device,
                 dtype=torch.bool,
             ),
-            diagonal=0,  # `True`s start on the main diagonal, i.e. don't attend to current and future action tokens
+            diagonal=1,  # `True`s start 1 position off the main diagonal, i.e. don't attend to future action tokens
         )
         .unsqueeze(0)
         .unsqueeze(0)
