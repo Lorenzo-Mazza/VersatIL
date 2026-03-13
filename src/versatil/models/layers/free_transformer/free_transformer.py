@@ -444,15 +444,15 @@ class FreeTransformer(nn.Module):
         Note:
             If self.use_global_latent is True, bit logits, latent codes and latent embeddings have all shape (B, 1, D).
         """
-        if isinstance(
-            self.positional_encoding,
-            (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D),
-        ):
-            hidden_states += self.positional_encoding(hidden_states)
         batch_size = hidden_states.shape[0]
         device = hidden_states.device
         query_length = hidden_states.shape[1]
         cache_length = decoder_cache.get_length() if decoder_cache else 0
+        if isinstance(
+            self.positional_encoding,
+            (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D),
+        ):
+            hidden_states += self.positional_encoding(hidden_states, offset=cache_length)
         cached_key_padding_mask = (
             decoder_cache.key_padding_mask if decoder_cache else None
         )
