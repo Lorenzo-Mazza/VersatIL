@@ -70,6 +70,7 @@ class ActionTokenizer:
         self.num_special_tokens_to_skip = num_special_tokens_to_skip
         self.max_token_len = max_token_len
         self.pad_token_id = pad_token_id
+        self.eos_token_id: int | None = None  # Set when vocab_size is finalized
         self.device = device if device is not None else torch.device("cpu")
 
         self.fast_processor: PreTrainedTokenizerFast | None = None
@@ -110,6 +111,13 @@ class ActionTokenizer:
                     f"FAST tokens ({self.fast_vocab_size}) + special tokens ({self.num_special_tokens_to_skip}). "
                     f"Required: {required_vocab_size}"
                 )
+        if self.vocab_size is not None:
+            self._set_eos_token()
+
+    def _set_eos_token(self) -> None:
+        """Reserve EOS token at the end of the vocabulary and increment vocab_size."""
+        self.eos_token_id = self.vocab_size
+        self.vocab_size += 1
 
     def fit(self, action_chunks: np.ndarray) -> None:
         """Fit FAST tokenizer on action chunk data.
@@ -144,6 +152,7 @@ class ActionTokenizer:
 
         if self.language_tokenizer is None:
             self.vocab_size = self.fast_vocab_size
+            self._set_eos_token()
 
         logging.info(
             f"Fitted action tokenizer (chain={self.tokenizer_chain}, vocab_size={self.vocab_size})"
@@ -255,17 +264,21 @@ class ActionTokenizer:
                 tokens = fast_tokens
 
             tokens_len = len(tokens)
-            if tokens_len < self.max_token_len:
-                padding_len = self.max_token_len - tokens_len
+            # Truncate action tokens if needed, leaving room for EOS
+            if tokens_len >= self.max_token_len:
+                logging.warning(
+                    f"Token length ({tokens_len}) exceeds max_token_len ({self.max_token_len}), "
+                    f"truncating to {self.max_token_len - 1}."
+                )
+                tokens = tokens[: self.max_token_len - 1]
+                tokens_len = self.max_token_len - 1
+            # Append EOS after real action tokens — model learns to produce it as stop signal
+            tokens.append(self.eos_token_id)
+            sequence_len = tokens_len + 1  # action tokens + EOS
+            padding_len = self.max_token_len - sequence_len
+            if padding_len > 0:
                 tokens = tokens + [self.pad_token_id] * padding_len
-                is_pad = [False] * tokens_len + [True] * padding_len
-            else:
-                if tokens_len > self.max_token_len:
-                    logging.warning(
-                        f"Token length ({tokens_len}) exceeds max_token_len ({self.max_token_len}), truncating"
-                    )
-                tokens = tokens[: self.max_token_len]
-                is_pad = [False] * self.max_token_len
+            is_pad = [False] * sequence_len + [True] * padding_len
 
             return {
                 SampleKey.TOKENIZED_ACTIONS.value: torch.tensor(
@@ -342,7 +355,8 @@ class ActionTokenizer:
         else:
             tokens_arr = tokens
 
-        valid_tokens = tokens_arr[tokens_arr != self.pad_token_id]
+        valid_mask = (tokens_arr != self.pad_token_id) & (tokens_arr != self.eos_token_id)
+        valid_tokens = tokens_arr[valid_mask]
         if self.language_tokenizer is not None:
             fast_tokens = self._unmap_language_to_fast_vocab(valid_tokens)
         else:
@@ -375,15 +389,13 @@ class ActionTokenizer:
         else:
             tokens_arr = tokens
 
-        if self.language_tokenizer is not None:
-            fast_tokens = self._unmap_language_to_fast_vocab(tokens_arr)
-        else:
-            fast_tokens = tokens_arr
-
         tokens_list_of_lists = []
-        for i in range(fast_tokens.shape[0]):
-            sample_tokens = fast_tokens[i]
-            valid_tokens = sample_tokens[sample_tokens != self.pad_token_id]
+        for i in range(tokens_arr.shape[0]):
+            sample_tokens = tokens_arr[i]
+            valid_mask = (sample_tokens != self.pad_token_id) & (sample_tokens != self.eos_token_id)
+            valid_tokens = sample_tokens[valid_mask]
+            if self.language_tokenizer is not None:
+                valid_tokens = self._unmap_language_to_fast_vocab(valid_tokens)
             tokens_list_of_lists.append(valid_tokens.tolist())
 
         if self.fast_processor is not None:
@@ -464,6 +476,7 @@ class ActionTokenizer:
             "fast_vocab_size": self.fast_vocab_size,
             "num_special_tokens_to_skip": self.num_special_tokens_to_skip,
             "vocab_size": self.vocab_size,
+            "eos_token_id": self.eos_token_id,
             "is_fitted": self._is_fitted,
         }
 
@@ -479,6 +492,7 @@ class ActionTokenizer:
         self.fast_vocab_size = state_dict["fast_vocab_size"]
         self.num_special_tokens_to_skip = state_dict["num_special_tokens_to_skip"]
         self.vocab_size = state_dict["vocab_size"]
+        self.eos_token_id = state_dict.get("eos_token_id", None)
         self._is_fitted = state_dict["is_fitted"]
 
     @classmethod

@@ -204,7 +204,7 @@ class MoEFreeActionTransformer(FreeActionTransformer):
             ]  # (B, 1, num_experts)
             expert_usages.append(expert_usage)
             generated_tokens.append(next_token)
-            if (next_token == self.tokenizer.pad_token_id).all():
+            if (next_token == self.tokenizer.eos_token_id).all():
                 break
             next_token_embedding = self.token_embedding(
                 next_token
