@@ -1,1044 +1,756 @@
-"""Tests for Policy class - validation, methods, and attributes."""
+"""Tests for versatil.models.policy module."""
+import re
+from collections.abc import Callable
+from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 import torch
-import torch.nn as nn
-from unittest.mock import MagicMock, Mock
 
+from versatil.data.constants import Cameras, SampleKey
+from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.data.constants import (
-    Cameras,
-    GripperType,
-    ObsKey,
-    ProprioceptiveType,
-    SampleKey,
-)
-from versatil.metrics import (
-    ActionReconstructionLoss,
-    PhaseActionLoss,
-)
-from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
-from versatil.models.encoding.encoders.depth.cnn import DepthCNNEncoder
-from versatil.models.encoding.encoders.depth.dformerv2 import DFormerEncoder
-from versatil.models.encoding.encoders.depth.light_geometric import LightGeometricEncoder
-from versatil.models.encoding.encoders.rgb.cnn import CNNEncoder
-from versatil.models.encoding.encoders.rgb.conditional_cnn import ConditionalCNNEncoder
-from versatil.models.encoding.encoders.unconditional import Encoder
+from versatil.data.tokenization import Tokenizer
+from versatil.metrics.base import BaseLoss, LossOutput
+from versatil.metrics.components import GripperLoss
+from versatil.models.decoding.algorithm.base import DecodingAlgorithm
+from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.policy import Policy
-from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
-from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
-from versatil.models.decoding.latent import VAETransformerEncoder, DiffusionPrior
-from versatil.models.decoding.constants import LatentKey
-from versatil.metrics.components import PriorDenoisingLoss
-from tests.conftest import DummyNormalizer
 
 
-class TestPolicyLossValidation:
-    """Test that Policy validates loss keys against action space."""
+class TestPolicyInitialization:
 
-    def test_valid_loss_keys_pass_validation(self):
-        """Test that valid loss configuration passes validation."""
+    def test_stores_encoding_pipeline(
+        self,
+        policy_factory: Callable[..., Policy],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        pipeline = encoding_pipeline_factory()
+        policy = policy_factory(encoding_pipeline=pipeline)
+        assert policy.encoding_pipeline is pipeline
 
-        action_space = ActionSpace(
-            has_position=True,
-            position_dim=3,
-            has_orientation=False,
-            has_gripper=True,
-            gripper_type=GripperType.BINARY.value,
-            gripper_dim=1,
-            task_has_phases=False,
-        )
+    def test_stores_algorithm_and_decoder(self, policy_factory: Callable[..., Policy]):
+        algorithm = MagicMock(spec=DecodingAlgorithm)
+        decoder = MagicMock(spec=ActionDecoder)
+        policy = policy_factory(algorithm=algorithm, decoder=decoder)
+        assert policy.algorithm is algorithm
+        assert policy.decoder is decoder
 
-        observation_space = ObservationSpace(
-            use_proprio_base_frame=False,
-            use_proprio_camera_frame=False,
-            camera_keys=[Cameras.LEFT.value],
-            use_language=False,
-        )
-
-        loss = ActionReconstructionLoss(
-            action_keys=[ProprioceptiveType.POSITION.value],
-            gripper_bce_weight=1.0,
-        )
-
-        encoding_pipeline = MagicMock()
-        encoding_pipeline.get_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
-        }
-        encoding_pipeline.get_final_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
-        }
-
-        decoder = MagicMock()
-        decoder.decoder_input.keys = ["spatial_features"]
-        decoder.decoder_input.validate_feature_types = MagicMock()
-
-        algorithm = MagicMock()
-
-        policy = Policy(
-            encoding_pipeline=encoding_pipeline,
-            algorithm=algorithm,
-            decoder=decoder,
+    def test_stores_observation_and_action_space(self, policy_factory: Callable[..., Policy]):
+        observation_space = MagicMock(spec=ObservationSpace)
+        action_space = MagicMock(spec=ActionSpace)
+        policy = policy_factory(
             observation_space=observation_space,
             action_space=action_space,
-            prediction_horizon=10,
-            loss=loss,
-            device="cpu",
-            validate_loss_keys=True,
+        )
+        assert policy.observation_space is observation_space
+        assert policy.action_space is action_space
+
+    def test_stores_prediction_and_observation_horizon(self, policy_factory: Callable[..., Policy]):
+        policy = policy_factory(prediction_horizon=8, observation_horizon=3)
+        assert policy.prediction_horizon == 8
+        assert policy.observation_horizon == 3
+
+    def test_converts_device_string_to_torch_device(self, policy_factory: Callable[..., Policy]):
+        policy = policy_factory(device="cpu")
+        assert isinstance(policy.device, torch.device)
+        assert policy.device.type == "cpu"
+
+    def test_initializes_empty_normalizer(self, policy_factory: Callable[..., Policy]):
+        policy = policy_factory()
+        assert isinstance(policy.normalizer, LinearNormalizer)
+
+    def test_initializes_tokenizer_as_none(self, policy_factory: Callable[..., Policy]):
+        policy = policy_factory()
+        assert policy.tokenizer is None
+
+    def test_stores_loss_module(self, policy_factory: Callable[..., Policy]):
+        loss = MagicMock(spec=BaseLoss)
+        policy = policy_factory(loss=loss)
+        assert policy.loss_module is loss
+
+
+class TestSetNormalizer:
+
+    def test_loads_normalizer_state_dict(self, policy_factory: Callable[..., Policy]):
+        policy = policy_factory()
+        normalizer = MagicMock(spec=LinearNormalizer)
+        normalizer.state_dict.return_value = {}
+        with patch.object(policy.normalizer, "load_state_dict") as mock_load:
+            policy.set_normalizer(normalizer=normalizer)
+            mock_load.assert_called_once_with(normalizer.state_dict())
+
+    def test_moves_normalizer_to_device(self, policy_factory: Callable[..., Policy]):
+        policy = policy_factory(device="cpu")
+        normalizer = MagicMock(spec=LinearNormalizer)
+        normalizer.state_dict.return_value = {}
+        with patch.object(policy.normalizer, "load_state_dict"):
+            with patch.object(policy.normalizer, "to") as mock_to:
+                policy.set_normalizer(normalizer=normalizer)
+                mock_to.assert_called_once_with(policy.device)
+
+    def test_propagates_normalizer_to_decoder(self, policy_factory: Callable[..., Policy]):
+        decoder = MagicMock(spec=ActionDecoder)
+        policy = policy_factory(decoder=decoder)
+        normalizer = MagicMock(spec=LinearNormalizer)
+        normalizer.state_dict.return_value = {}
+        with patch.object(policy.normalizer, "load_state_dict"):
+            with patch.object(policy.normalizer, "to"):
+                policy.set_normalizer(normalizer=normalizer)
+        decoder.set_normalizer.assert_called_once_with(policy.normalizer)
+
+
+class TestSetTokenizer:
+
+    def test_stores_tokenizer(self, policy_factory: Callable[..., Policy]):
+        tokenizer = MagicMock(spec=Tokenizer)
+        policy = policy_factory()
+        policy.set_tokenizer(tokenizer=tokenizer)
+        assert policy.tokenizer is tokenizer
+
+    def test_propagates_to_encoding_pipeline(self, policy_factory: Callable[..., Policy]):
+        tokenizer = MagicMock(spec=Tokenizer)
+        policy = policy_factory()
+        policy.set_tokenizer(tokenizer=tokenizer)
+        policy.encoding_pipeline.set_tokenizer.assert_called_once_with(tokenizer)
+
+    def test_propagates_to_decoder(self, policy_factory: Callable[..., Policy]):
+        tokenizer = MagicMock(spec=Tokenizer)
+        policy = policy_factory()
+        policy.set_tokenizer(tokenizer=tokenizer)
+        policy.decoder.set_tokenizer.assert_called_once_with(tokenizer)
+
+    def test_accepts_none_tokenizer(self, policy_factory: Callable[..., Policy]):
+        policy = policy_factory()
+        policy.set_tokenizer(tokenizer=None)
+        assert policy.tokenizer is None
+        policy.encoding_pipeline.set_tokenizer.assert_called_once_with(None)
+        policy.decoder.set_tokenizer.assert_called_once_with(None)
+
+
+class TestSetDenoisingThresholds:
+
+    def test_stores_thresholds_as_parameters(self, policy_factory: Callable[..., Policy]):
+        policy = policy_factory()
+        thresholds = {"position": 0.05, "orientation": 0.02}
+        policy.set_denoising_thresholds(thresholds=thresholds)
+        assert "position" in policy.denoising_thresholds.params_dict
+        assert "orientation" in policy.denoising_thresholds.params_dict
+        assert policy.denoising_thresholds.params_dict["position"].item() == pytest.approx(0.05)
+        assert policy.denoising_thresholds.params_dict["orientation"].item() == pytest.approx(0.02)
+
+    def test_parameters_have_no_gradient(self, policy_factory: Callable[..., Policy]):
+        policy = policy_factory()
+        policy.set_denoising_thresholds(thresholds={"key": 1.0})
+        assert policy.denoising_thresholds.params_dict["key"].requires_grad is False
+
+    def test_empty_thresholds_dict(self, policy_factory: Callable[..., Policy]):
+        policy = policy_factory()
+        policy.set_denoising_thresholds(thresholds={})
+        assert len(policy.denoising_thresholds.params_dict) == 0
+
+
+class TestSetGripperClassWeights:
+
+    def test_sets_pos_weight_on_gripper_loss_modules(
+        self,
+        policy_factory: Callable[..., Policy],
+        rng: np.random.Generator,
+    ):
+        gripper_loss = MagicMock(spec=GripperLoss)
+        gripper_loss.__class__ = GripperLoss
+        loss_module = MagicMock(spec=BaseLoss)
+        loss_module.modules.return_value = [loss_module, gripper_loss]
+        policy = policy_factory(loss=loss_module)
+        pos_weight = torch.from_numpy(rng.standard_normal(1).astype(np.float32))
+        policy.set_gripper_class_weights(pos_weight=pos_weight)
+        assert gripper_loss.pos_weight is pos_weight
+
+    def test_ignores_non_gripper_loss_modules(self, policy_factory: Callable[..., Policy]):
+        other_module = MagicMock(spec=BaseLoss)
+        loss_module = MagicMock(spec=BaseLoss)
+        loss_module.modules.return_value = [loss_module, other_module]
+        policy = policy_factory(loss=loss_module)
+        pos_weight = torch.tensor([0.75])
+        policy.set_gripper_class_weights(pos_weight=pos_weight)
+        assert not hasattr(other_module, "pos_weight") or other_module.pos_weight is not pos_weight
+
+    def test_none_pos_weight(self, policy_factory: Callable[..., Policy]):
+        gripper_loss = MagicMock(spec=GripperLoss)
+        gripper_loss.__class__ = GripperLoss
+        loss_module = MagicMock(spec=BaseLoss)
+        loss_module.modules.return_value = [loss_module, gripper_loss]
+        policy = policy_factory(loss=loss_module)
+        policy.set_gripper_class_weights(pos_weight=None)
+        assert gripper_loss.pos_weight is None
+
+
+class TestForward:
+
+    def test_extracts_observations_and_calls_pipeline(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+    ):
+        policy = policy_factory()
+        batch = batch_dictionary_factory()
+        policy.forward(batch=batch)
+        policy.encoding_pipeline.assert_called_once_with(
+            batch[SampleKey.OBSERVATION.value],
         )
 
-        assert policy is not None
-
-    def test_invalid_loss_keys_raise_error(self):
-        """Test that invalid loss configuration raises ValueError."""
-
-        action_space = ActionSpace(
-            has_position=True,
-            position_dim=3,
-            has_orientation=False,
-            has_gripper=True,
-            gripper_type=GripperType.BINARY.value,
-            gripper_dim=1,
-            task_has_phases=False,
+    def test_passes_features_and_actions_to_algorithm(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        features = feature_dictionary_factory()
+        pipeline = encoding_pipeline_factory()
+        pipeline.return_value = features
+        policy = policy_factory(encoding_pipeline=pipeline)
+        batch = batch_dictionary_factory()
+        policy.forward(batch=batch)
+        policy.algorithm.forward.assert_called_once_with(
+            features=features,
+            actions=batch[SampleKey.ACTION.value],
+            network=policy.decoder,
         )
 
-        observation_space = ObservationSpace(
-            use_proprioceptive_data=False,
-            camera_keys=[Cameras.LEFT.value],
-            use_language=False,
-        )
+    def test_returns_algorithm_output(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+    ):
+        expected_output = {"prediction": torch.zeros(2, 4, 7)}
+        policy = policy_factory(algorithm_forward_return=expected_output)
+        batch = batch_dictionary_factory()
+        result = policy.forward(batch=batch)
+        assert result is expected_output
 
-        loss = PhaseActionLoss(
-            action_keys=[ProprioceptiveType.POSITION.value],
-            phase_ce_weight=1.0,
-        )
+    def test_passes_none_actions_when_action_key_absent(
+        self,
+        policy_factory: Callable[..., Policy],
+        observation_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        policy = policy_factory()
+        batch = {SampleKey.OBSERVATION.value: observation_dictionary_factory()}
+        policy.forward(batch=batch)
+        call_kwargs = policy.algorithm.forward.call_args.kwargs
+        assert call_kwargs["actions"] is None
 
-        encoding_pipeline = MagicMock()
-        encoding_pipeline.get_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
-        }
-        encoding_pipeline.get_final_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
-        }
 
-        decoder = MagicMock()
-        decoder.decoder_input.keys = ["spatial_features"]
-        decoder.decoder_input.validate_feature_types = MagicMock()
+class TestComputeLoss:
 
-        algorithm = MagicMock()
+    def test_calls_forward_then_loss_module(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+    ):
+        forward_output = {"prediction": torch.zeros(2, 4, 7)}
+        loss_output = LossOutput(total_loss=torch.tensor(0.5))
+        loss_module = MagicMock(spec=BaseLoss)
+        loss_module.return_value = loss_output
+        policy = policy_factory(loss=loss_module, algorithm_forward_return=forward_output)
+        batch = batch_dictionary_factory()
+        result = policy.compute_loss(batch=batch)
+        assert result is loss_output
+        loss_module.assert_called_once()
 
-        with pytest.raises(ValueError, match="phase_label.*not defined in the action space"):
-            Policy(
-                encoding_pipeline=encoding_pipeline,
-                algorithm=algorithm,
-                decoder=decoder,
-                observation_space=observation_space,
-                action_space=action_space,
-                prediction_horizon=10,
-                loss=loss,
-                device="cpu",
-                validate_loss_keys=True,
-            )
+    def test_passes_predictions_and_targets_to_loss_module(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+    ):
+        forward_output = {"prediction": torch.zeros(2, 4, 7)}
+        loss_module = MagicMock(spec=BaseLoss)
+        loss_module.return_value = LossOutput(total_loss=torch.tensor(0.1))
+        policy = policy_factory(loss=loss_module, algorithm_forward_return=forward_output)
+        batch = batch_dictionary_factory()
+        policy.compute_loss(batch=batch)
+        call_kwargs = loss_module.call_args.kwargs
+        assert call_kwargs["predictions"] is forward_output
+        assert call_kwargs["targets"] is batch[SampleKey.ACTION.value]
 
-    def test_phase_loss_with_phase_action_space(self):
-        """Test that phase loss works when action space has phases."""
+    def test_extracts_is_pad_from_action_dictionary(
+        self,
+        policy_factory: Callable[..., Policy],
+        batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
+    ):
+        forward_output = {"prediction": torch.zeros(2, 4, 7)}
+        loss_module = MagicMock(spec=BaseLoss)
+        loss_module.return_value = LossOutput(total_loss=torch.tensor(0.1))
+        policy = policy_factory(loss=loss_module, algorithm_forward_return=forward_output)
+        batch = batch_dictionary_factory()
+        is_pad = batch[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value]
+        policy.compute_loss(batch=batch)
+        call_kwargs = loss_module.call_args.kwargs
+        assert torch.equal(call_kwargs["is_pad"], is_pad)
 
-        action_space = ActionSpace(
-            has_position=True,
-            position_dim=3,
-            has_orientation=False,
-            has_gripper=True,
-            gripper_type=GripperType.BINARY.value,
-            gripper_dim=1,
-            task_has_phases=True,
-            number_of_phases=5,
-        )
 
-        observation_space = ObservationSpace(
-            use_proprioceptive_data=False,
-            camera_keys=[Cameras.LEFT.value],
-            use_language=False,
-        )
+class TestPredictAction:
 
-        loss = PhaseActionLoss(
-            action_keys=[ProprioceptiveType.POSITION.value],
-            phase_ce_weight=1.0,
-        )
-
-        encoding_pipeline = MagicMock()
-        encoding_pipeline.get_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
-        }
-        encoding_pipeline.get_final_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
-        }
-
-        decoder = MagicMock()
-        decoder.decoder_input.keys = ["spatial_features"]
-        decoder.decoder_input.validate_feature_types = MagicMock()
-
-        algorithm = MagicMock()
-
-        policy = Policy(
-            encoding_pipeline=encoding_pipeline,
+    @patch("versatil.models.policy.unnormalize_actions")
+    @patch("versatil.models.policy.normalize_observation")
+    @patch("versatil.models.policy.to_device")
+    def test_calls_normalize_encode_predict_unnormalize(
+        self,
+        mock_to_device,
+        mock_normalize,
+        mock_unnormalize,
+        policy_factory: Callable[..., Policy],
+        observation_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        observation = observation_dictionary_factory()
+        normalized_observation = observation_dictionary_factory()
+        features = feature_dictionary_factory()
+        predictions = {"position": torch.zeros(2, 4, 3)}
+        unnormalized = {"position": torch.ones(2, 4, 3)}
+        mock_to_device.side_effect = lambda x, device: x
+        mock_normalize.return_value = normalized_observation
+        mock_unnormalize.return_value = unnormalized
+        algorithm = MagicMock(spec=DecodingAlgorithm)
+        algorithm.predict.return_value = predictions
+        policy = policy_factory(
+            feature_return_value=features,
             algorithm=algorithm,
-            decoder=decoder,
-            observation_space=observation_space,
-            action_space=action_space,
-            prediction_horizon=10,
-            loss=loss,
-            device="cpu",
-            validate_loss_keys=True,
         )
 
-        assert policy is not None
+        result = policy.predict_action(obs_dict=observation)
 
-    def test_validation_can_be_disabled(self):
-        """Test that validation can be disabled if needed."""
+        mock_normalize.assert_called_once()
+        policy.encoding_pipeline.assert_called_once_with(normalized_observation)
+        algorithm.predict.assert_called_once_with(features=features, network=policy.decoder)
+        mock_unnormalize.assert_called_once()
+        assert result is unnormalized
 
-        action_space = ActionSpace(
-            has_position=True,
-            position_dim=3,
-            has_orientation=False,
-            has_gripper=True,
-            gripper_type=GripperType.BINARY.value,
-            gripper_dim=1,
-            task_has_phases=False,
+    @patch("versatil.models.policy.unnormalize_actions")
+    @patch("versatil.models.policy.tokenize_observation")
+    @patch("versatil.models.policy.normalize_observation")
+    @patch("versatil.models.policy.to_device")
+    def test_tokenizes_observation_when_tokenizer_set(
+        self,
+        mock_to_device,
+        mock_normalize,
+        mock_tokenize,
+        mock_unnormalize,
+        policy_factory: Callable[..., Policy],
+        observation_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        observation = observation_dictionary_factory()
+        normalized_observation = observation_dictionary_factory()
+        tokenized_observation = observation_dictionary_factory()
+        mock_to_device.side_effect = lambda x, device: x
+        mock_normalize.return_value = normalized_observation
+        mock_tokenize.return_value = tokenized_observation
+        mock_unnormalize.return_value = {}
+        policy = policy_factory()
+        tokenizer = MagicMock(spec=Tokenizer)
+        tokenizer.observation_tokenizer = MagicMock()
+        tokenizer.action_tokenizer = None
+        policy.tokenizer = tokenizer
+        policy.algorithm.predict.return_value = {}
+
+        policy.predict_action(obs_dict=observation)
+
+        mock_tokenize.assert_called_once_with(
+            observation=normalized_observation,
+            obs_tokenizer=tokenizer.observation_tokenizer,
         )
 
-        observation_space = ObservationSpace(
-            use_proprioceptive_data=False,
-            camera_keys=[Cameras.LEFT.value],
-            use_language=False,
-        )
-
-        loss = PhaseActionLoss(
-            action_keys=[ProprioceptiveType.POSITION.value],
-            phase_ce_weight=1.0,
-        )
-
-        encoding_pipeline = MagicMock()
-        encoding_pipeline.get_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
-        }
-        encoding_pipeline.get_final_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
-        }
-
-        decoder = MagicMock()
-        decoder.decoder_input.keys = ["spatial_features"]
-        decoder.decoder_input.validate_feature_types = MagicMock()
-
-        algorithm = MagicMock()
-
-        policy = Policy(
-            encoding_pipeline=encoding_pipeline,
-            algorithm=algorithm,
-            decoder=decoder,
-            observation_space=observation_space,
-            action_space=action_space,
-            prediction_horizon=10,
-            loss=loss,
-            device="cpu",
-            validate_loss_keys=False,
-        )
-
-        assert policy is not None
-
-    def test_vae_keys_valid_when_algorithm_is_variational(self):
-        """Test that VAE keys (mu, logvar) are valid when using VariationalAlgorithm."""
-        action_space = ActionSpace(
-            has_position=True,
-            position_dim=3,
-            has_orientation=False,
-            has_gripper=True,
-            gripper_type=GripperType.BINARY.value,
-            gripper_dim=1,
-            task_has_phases=False,
-        )
-
-        observation_space = ObservationSpace(
-            use_proprioceptive_data=False,
-            camera_keys=[Cameras.LEFT.value],
-            use_language=False,
-        )
-
-        loss = ActionReconstructionLoss(
-            action_keys=[ProprioceptiveType.POSITION.value],
-            gripper_bce_weight=1.0,
-            use_vae=True,  # This will add KL divergence loss which uses mu and logvar
-        )
-
-        encoding_pipeline = MagicMock()
-        encoding_pipeline.get_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
-        }
-        encoding_pipeline.get_final_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
+    @patch("versatil.models.policy.unnormalize_actions")
+    @patch("versatil.models.policy.detokenize_actions")
+    @patch("versatil.models.policy.to_device")
+    @patch("versatil.models.policy.normalize_observation")
+    def test_detokenizes_actions_when_tokenized_key_present(
+        self,
+        mock_normalize,
+        mock_to_device_function,
+        mock_detokenize,
+        mock_unnormalize,
+        policy_factory: Callable[..., Policy],
+        observation_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        observation = observation_dictionary_factory()
+        mock_normalize.return_value = observation
+        mock_to_device_function.side_effect = lambda x, device: x
+        detokenized = {"position": torch.zeros(2, 4, 3)}
+        mock_detokenize.return_value = detokenized
+        mock_unnormalize.return_value = {}
+        policy = policy_factory()
+        tokenizer = MagicMock(spec=Tokenizer)
+        tokenizer.observation_tokenizer = None
+        tokenizer.action_tokenizer = MagicMock()
+        policy.tokenizer = tokenizer
+        policy.algorithm.predict.return_value = {
+            SampleKey.TOKENIZED_ACTIONS.value: torch.zeros(2, 4),
         }
 
-        decoder = MagicMock()
-        decoder.decoder_input.keys = ["spatial_features"]
-        decoder.decoder_input.validate_feature_types = MagicMock()
+        policy.predict_action(obs_dict=observation)
 
-        # Create actual VariationalAlgorithm
-        vae_encoder = VAETransformerEncoder(
-            latent_dimension=16,
-            embedding_dimension=64,
-            prediction_horizon=10,
-            number_of_heads=2,
-            feedforward_dimension=128,
-            number_of_encoder_layers=2,
-            dropout_rate=0.0,
-            device="cpu",
-        )
-        algorithm = VariationalAlgorithm(
-            base_algorithm=BehavioralCloning(),
-            posterior_encoder=vae_encoder,
-            prior=None,  # Auto-creates GaussianPrior
-        )
+        mock_detokenize.assert_called_once()
 
-        # Should NOT raise an error because algorithm is VariationalAlgorithm
-        policy = Policy(
-            encoding_pipeline=encoding_pipeline,
-            algorithm=algorithm,
-            decoder=decoder,
-            observation_space=observation_space,
-            action_space=action_space,
-            prediction_horizon=10,
-            loss=loss,
-            device="cpu",
-            validate_loss_keys=True,
-        )
+    @patch("versatil.models.policy.unnormalize_actions")
+    @patch("versatil.models.policy.normalize_observation")
+    @patch("versatil.models.policy.to_device")
+    def test_skips_tokenization_when_observation_tokenizer_is_none(
+        self,
+        mock_to_device,
+        mock_normalize,
+        mock_unnormalize,
+        policy_factory: Callable[..., Policy],
+        observation_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        observation = observation_dictionary_factory()
+        normalized_observation = observation_dictionary_factory()
+        mock_to_device.side_effect = lambda x, device: x
+        mock_normalize.return_value = normalized_observation
+        mock_unnormalize.return_value = {}
+        policy = policy_factory()
+        tokenizer = MagicMock(spec=Tokenizer)
+        tokenizer.observation_tokenizer = None
+        tokenizer.action_tokenizer = None
+        policy.tokenizer = tokenizer
+        policy.algorithm.predict.return_value = {}
+        with patch("versatil.models.policy.tokenize_observation") as mock_tokenize:
+            policy.predict_action(obs_dict=observation)
+            mock_tokenize.assert_not_called()
 
-        assert policy is not None
-
-    def test_vae_keys_invalid_when_algorithm_is_not_variational(self):
-        """Test that VAE keys (mu, logvar) are invalid when using pure algorithm."""
-
-        action_space = ActionSpace(
-            has_position=True,
-            position_dim=3,
-            has_orientation=False,
-            has_gripper=True,
-            gripper_type=GripperType.BINARY.value,
-            gripper_dim=1,
-            task_has_phases=False,
-        )
-
-        observation_space = ObservationSpace(
-            use_proprioceptive_data=False,
-            camera_keys=[Cameras.LEFT.value],
-            use_language=False,
-        )
-
-        loss = ActionReconstructionLoss(
-            action_keys=[ProprioceptiveType.POSITION.value],
-            gripper_bce_weight=1.0,
-            use_vae=True,  # This will add KL divergence loss which uses mu and logvar
-        )
-
-        encoding_pipeline = MagicMock()
-        encoding_pipeline.get_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
+    @patch("versatil.models.policy.unnormalize_actions")
+    @patch("versatil.models.policy.normalize_observation")
+    @patch("versatil.models.policy.to_device")
+    def test_raises_when_tokenized_actions_without_action_tokenizer(
+        self,
+        mock_to_device,
+        mock_normalize,
+        mock_unnormalize,
+        policy_factory: Callable[..., Policy],
+        observation_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        observation = observation_dictionary_factory()
+        mock_to_device.side_effect = lambda x, device: x
+        mock_normalize.return_value = observation
+        policy = policy_factory()
+        tokenizer = MagicMock(spec=Tokenizer)
+        tokenizer.observation_tokenizer = None
+        tokenizer.action_tokenizer = None
+        policy.tokenizer = tokenizer
+        policy.algorithm.predict.return_value = {
+            SampleKey.TOKENIZED_ACTIONS.value: torch.zeros(2, 4),
         }
-        encoding_pipeline.get_final_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape("Action tokenizer not set. Cannot detokenize actions."),
+        ):
+            policy.predict_action(obs_dict=observation)
+
+    @patch("versatil.models.policy.unnormalize_actions")
+    @patch("versatil.models.policy.normalize_observation")
+    @patch("versatil.models.policy.to_device")
+    def test_raises_when_tokenized_actions_without_tokenizer(
+        self,
+        mock_to_device,
+        mock_normalize,
+        mock_unnormalize,
+        policy_factory: Callable[..., Policy],
+        observation_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        observation = observation_dictionary_factory()
+        mock_to_device.side_effect = lambda x, device: x
+        mock_normalize.return_value = observation
+        policy = policy_factory()
+        policy.tokenizer = None
+        policy.algorithm.predict.return_value = {
+            SampleKey.TOKENIZED_ACTIONS.value: torch.zeros(2, 4),
         }
-
-        decoder = MagicMock()
-        decoder.decoder_input.keys = ["spatial_features"]
-        decoder.decoder_input.validate_feature_types = MagicMock()
-
-        # Pure algorithm (not variational)
-        algorithm = BehavioralCloning()
-
-        # Should raise an error because algorithm is not variational but loss uses VAE keys
-        with pytest.raises(ValueError, match="mu.*not.*defined"):
-            Policy(
-                encoding_pipeline=encoding_pipeline,
-                algorithm=algorithm,
-                decoder=decoder,
-                observation_space=observation_space,
-                action_space=action_space,
-                prediction_horizon=10,
-                loss=loss,
-                device="cpu",
-                validate_loss_keys=True,
-            )
-
-    def test_prior_keys_invalid_with_gaussian_prior(self):
-        """Test that prior keys (prior_prediction, prior_target) are invalid with GaussianPrior."""
-        action_space = ActionSpace(
-            has_position=True,
-            position_dim=3,
-            has_orientation=False,
-            has_gripper=True,
-            gripper_type=GripperType.BINARY.value,
-            gripper_dim=1,
-            task_has_phases=False,
-        )
-
-        observation_space = ObservationSpace(
-            use_proprioceptive_data=False,
-            camera_keys=[Cameras.LEFT.value],
-            use_language=False,
-        )
-
-        # Loss that requires prior keys
-        loss = PriorDenoisingLoss(weight=1.0)
-
-        encoding_pipeline = MagicMock()
-        encoding_pipeline.get_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
-        }
-        encoding_pipeline.get_final_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
-        }
-
-        decoder = MagicMock()
-        decoder.decoder_input.keys = ["spatial_features"]
-        decoder.decoder_input.validate_feature_types = MagicMock()
-
-        # VariationalAlgorithm with GaussianPrior (doesn't produce prior keys)
-        vae_encoder = VAETransformerEncoder(
-            latent_dimension=16,
-            embedding_dimension=64,
-            prediction_horizon=10,
-            number_of_heads=2,
-            feedforward_dimension=128,
-            number_of_encoder_layers=2,
-            dropout_rate=0.0,
-            device="cpu",
-        )
-        algorithm = VariationalAlgorithm(
-            base_algorithm=BehavioralCloning(),
-            posterior_encoder=vae_encoder,
-            prior=None,  # Auto-creates GaussianPrior
-        )
-
-        # Should raise because GaussianPrior doesn't produce prior keys
-        with pytest.raises(ValueError, match="prior_prediction.*not.*defined"):
-            Policy(
-                encoding_pipeline=encoding_pipeline,
-                algorithm=algorithm,
-                decoder=decoder,
-                observation_space=observation_space,
-                action_space=action_space,
-                prediction_horizon=10,
-                loss=loss,
-                device="cpu",
-                validate_loss_keys=True,
-            )
-
-    def test_prior_keys_valid_with_learned_prior(self):
-        """Test that prior keys (prior_prediction, prior_target) are valid with DiffusionPrior."""
-        action_space = ActionSpace(
-            has_position=True,
-            position_dim=3,
-            has_orientation=False,
-            has_gripper=True,
-            gripper_type=GripperType.BINARY.value,
-            gripper_dim=1,
-            task_has_phases=False,
-        )
-
-        observation_space = ObservationSpace(
-            use_proprioceptive_data=False,
-            camera_keys=[Cameras.LEFT.value],
-            use_language=False,
-        )
-
-        # Loss that requires prior keys
-        loss = PriorDenoisingLoss(weight=1.0)
-
-        encoding_pipeline = MagicMock()
-        encoding_pipeline.get_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
-        }
-        encoding_pipeline.get_final_features_to_dimensions.return_value = {
-            "spatial_features": (256, 7, 7)
-        }
-
-        decoder = MagicMock()
-        decoder.decoder_input.keys = ["spatial_features"]
-        decoder.decoder_input.validate_feature_types = MagicMock()
-
-        # VariationalAlgorithm with DiffusionPrior (produces prior keys)
-        vae_encoder = VAETransformerEncoder(
-            latent_dimension=16,
-            embedding_dimension=64,
-            prediction_horizon=10,
-            number_of_heads=2,
-            feedforward_dimension=128,
-            number_of_encoder_layers=2,
-            dropout_rate=0.0,
-            device="cpu",
-        )
-        diffusion_prior = DiffusionPrior(
-            latent_dimension=16,
-            conditioning_dim=64,
-            output_dim=64,
-            hidden_dims=[32, 32],
-            num_train_timesteps=10,
-            num_inference_steps=3,
-            device="cpu",
-        )
-        algorithm = VariationalAlgorithm(
-            base_algorithm=BehavioralCloning(),
-            posterior_encoder=vae_encoder,
-            prior=diffusion_prior,  # Learned prior
-        )
-
-        # Should NOT raise because DiffusionPrior produces prior keys
-        policy = Policy(
-            encoding_pipeline=encoding_pipeline,
-            algorithm=algorithm,
-            decoder=decoder,
-            observation_space=observation_space,
-            action_space=action_space,
-            prediction_horizon=10,
-            loss=loss,
-            device="cpu",
-            validate_loss_keys=True,
-        )
-
-        assert policy is not None
-
-
-@pytest.mark.unit
-class TestPolicyAttributes:
-    """Test Policy attributes and initialization."""
-
-    def test_policy_device_attribute(self, simple_policy, device):
-        """Test policy.device is correctly set."""
-        assert simple_policy.device == device
-        assert isinstance(simple_policy.device, torch.device)
-
-    def test_policy_normalizer_attribute(self, simple_policy):
-        """Test policy has normalizer attribute."""
-        assert hasattr(simple_policy, "normalizer")
-        assert simple_policy.normalizer is not None
-
-    def test_policy_components_exist(self, simple_policy):
-        """Test policy has all expected components."""
-        assert hasattr(simple_policy, "encoding_pipeline")
-        assert hasattr(simple_policy, "algorithm")
-        assert hasattr(simple_policy, "decoder")
-        assert hasattr(simple_policy, "loss_module")
-        assert hasattr(simple_policy, "observation_space")
-        assert hasattr(simple_policy, "action_space")
-        assert hasattr(simple_policy, "prediction_horizon")
-
-    def test_policy_action_space_attributes(self, simple_policy, simple_action_space):
-        """Test policy stores action space correctly."""
-        assert simple_policy.action_space == simple_action_space
-        assert simple_policy.action_space.has_position
-        assert simple_policy.action_space.has_orientation
-        assert simple_policy.action_space.has_gripper
-
-    def test_policy_observation_space_attributes(self, simple_policy, simple_observation_space):
-        """Test policy stores observation space correctly."""
-        assert simple_policy.observation_space == simple_observation_space
-
-
-@pytest.mark.unit
-class TestPolicyNormalizerMethods:
-    """Test Policy normalizer-related methods."""
-
-    def test_set_normalizer(self, simple_policy):
-        """Test set_normalizer method."""
-        original_normalizer = simple_policy.normalizer
-        new_normalizer = DummyNormalizer()
-        simple_policy.set_normalizer(new_normalizer)
-
-        assert simple_policy.normalizer.state_dict().keys() == new_normalizer.state_dict().keys()
-
-
-@pytest.mark.unit
-class TestPolicyForwardMethod:
-    """Test Policy forward method."""
-
-    def test_forward_returns_predictions(self, simple_policy, synthetic_training_batch):
-        """Test forward method returns action predictions."""
-        simple_policy.train()
-
-        output = simple_policy.forward(synthetic_training_batch)
-
-        assert isinstance(output, dict)
-        assert ProprioceptiveType.POSITION.value in output
-        assert ProprioceptiveType.ORIENTATION.value in output
-        assert ProprioceptiveType.GRIPPER.value in output
-
-    def test_forward_output_shapes(self, simple_policy, synthetic_training_batch):
-        """Test forward output has correct shapes."""
-        simple_policy.train()
-
-        output = simple_policy.forward(synthetic_training_batch)
-
-        batch_size = synthetic_training_batch[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape[0]
-        pred_horizon = synthetic_training_batch[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape[1]
-
-        assert output[ProprioceptiveType.POSITION.value].shape[0] == batch_size
-        assert output[ProprioceptiveType.POSITION.value].shape[1] == pred_horizon
-
-
-@pytest.mark.unit
-class TestPolicyComputeLoss:
-    """Test Policy compute_loss method."""
-
-    def test_compute_loss_returns_loss_output(self, simple_policy, synthetic_training_batch):
-        """Test compute_loss returns LossOutput."""
-        simple_policy.train()
-
-        loss_output = simple_policy.compute_loss(synthetic_training_batch)
-
-        assert hasattr(loss_output, "total_loss")
-        assert hasattr(loss_output, "component_losses")
-
-    def test_compute_loss_total_loss_is_scalar(self, simple_policy, synthetic_training_batch):
-        """Test total loss is a scalar tensor."""
-        simple_policy.train()
-
-        loss_output = simple_policy.compute_loss(synthetic_training_batch)
-
-        assert loss_output.total_loss.dim() == 0
-        assert loss_output.total_loss.requires_grad
-
-    def test_compute_loss_components_exist(self, simple_policy, synthetic_training_batch):
-        """Test loss components are populated."""
-        simple_policy.train()
-
-        loss_output = simple_policy.compute_loss(synthetic_training_batch)
-
-        assert len(loss_output.component_losses) > 0
-
-
-@pytest.mark.unit
-class TestPolicyPredictAction:
-    """Test Policy predict_action method."""
-
-    def test_predict_action_inference_mode(self, simple_policy, device):
-        """Test predict_action in inference mode."""
-        simple_policy.eval()
-
-        obs = {
-            "rgb": torch.randn(1, 2, 3, 64, 64, device=device),
-            "proprio": torch.randn(1, 2, 7, device=device),
-        }
-
-        with torch.no_grad():
-            actions = simple_policy.predict_action(obs)
-
-        assert isinstance(actions, dict)
-
-    def test_predict_action_device_movement(self, simple_policy, device):
-        """Test predict_action handles device movement automatically."""
-        simple_policy.eval()
-
-        obs_cpu = {
-            "rgb": torch.randn(1, 2, 3, 64, 64),
-            "proprio": torch.randn(1, 2, 7),
-        }
-
-        with torch.no_grad():
-            actions = simple_policy.predict_action(obs_cpu)
-
-        for key, action_tensor in actions.items():
-            assert action_tensor.device.type == device.type
-
-    def test_predict_action_no_gradients(self, simple_policy, device):
-        """Test predict_action doesn't compute gradients."""
-        simple_policy.eval()
-
-        obs = {
-            "rgb": torch.randn(1, 2, 3, 64, 64, device=device),
-            "proprio": torch.randn(1, 2, 7, device=device),
-        }
-
-        with torch.no_grad():
-            actions = simple_policy.predict_action(obs)
-
-            for action_tensor in actions.values():
-                assert not action_tensor.requires_grad
-
-
-@pytest.mark.unit
-class TestPolicyDeviceConsistency:
-    """Test device consistency across Policy components."""
-
-    def test_all_encoders_on_same_device(self, simple_policy, device):
-        """Test all encoders are on policy device."""
-        for encoder in simple_policy.encoding_pipeline.encoders.values():
-            for param in encoder.parameters():
-                assert param.device.type == device.type
-
-    def test_decoder_on_policy_device(self, simple_policy, device):
-        """Test decoder is on policy device."""
-        for param in simple_policy.decoder.parameters():
-            assert param.device.type == device.type
-
-    def test_normalizer_on_policy_device(self, simple_policy, device):
-        """Test normalizer is on policy device."""
-        for param in simple_policy.normalizer.parameters():
-            assert param.device.type == device.type
-
-    def test_policy_to_device_moves_all_components(self, simple_policy):
-        """Test policy.to(device) moves all components."""
-        target_device = torch.device("cpu")
-        simple_policy.to(target_device)
-
-        for param in simple_policy.parameters():
-            assert param.device.type == target_device.type
-
-
-class MockEncodingPipeline(nn.Module):
-    """Mock encoding pipeline for testing explainer integration."""
-
-    def __init__(self, encoders: dict[str, nn.Module] | None = None, conditional_encoders: dict[str, nn.Module] | None = None):
-        super().__init__()
-        self.encoders = nn.ModuleDict(encoders or {})
-        self.conditional_encoders = nn.ModuleDict(conditional_encoders or {})
-        self.encoder_to_outputs: dict[str, EncoderOutput] = {}
-
-        for name, encoder in self.encoders.items():
-            self.encoder_to_outputs[name] = encoder.get_output_specification()
-        for name, encoder in self.conditional_encoders.items():
-            self.encoder_to_outputs[name] = encoder.get_output_specification()
-
-    def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        return {}
-
-    def get_features_to_dimensions(self) -> dict[str, int | tuple[int, ...]]:
-        result = {}
-        for encoder_name, output in self.encoder_to_outputs.items():
-            for feat_name, dim in output.dimensions.items():
-                result[f"{encoder_name}_{feat_name}"] = dim
-        return result
-
-
-def create_minimal_policy_for_explainer(encoding_pipeline: MockEncodingPipeline) -> Policy:
-    """Create minimal Policy instance for testing explainer methods."""
-    policy = Policy.__new__(Policy)
-    nn.Module.__init__(policy)
-    policy.encoding_pipeline = encoding_pipeline
-    return policy
-
-
-@pytest.mark.unit
-class TestPolicyExplainerIntegration:
-    """Test Policy methods for explainer integration."""
-
-    def test_get_vision_encoder_modules_with_cnn(self):
-        """Test that get_vision_encoder_modules() returns CNNEncoder."""
-        encoder = CNNEncoder(
-            input_keys=Cameras.LEFT.value,
-            backbone="timm/resnet18.a1_in1k",
-            pretrained=False,
-        )
-        encoding_pipeline = MockEncodingPipeline(encoders={"rgb_encoder": encoder})
-        policy = create_minimal_policy_for_explainer(encoding_pipeline)
-
-        vision_encoders = policy.get_vision_encoder_modules()
-        assert "rgb_encoder" in vision_encoders
-        assert vision_encoders["rgb_encoder"] is encoder
-        assert hasattr(vision_encoders["rgb_encoder"], "backbone")
-
-    def test_get_vision_encoder_modules_with_depth_cnn(self):
-        """Test that get_vision_encoder_modules() returns DepthCNNEncoder."""
-        encoder = DepthCNNEncoder(
-            input_keys=Cameras.DEPTH.value,
-            backbone="timm/resnet18.a1_in1k",
-            pretrained=False,
-        )
-        encoding_pipeline = MockEncodingPipeline(encoders={"depth_encoder": encoder})
-        policy = create_minimal_policy_for_explainer(encoding_pipeline)
-
-        vision_encoders = policy.get_vision_encoder_modules()
-        assert "depth_encoder" in vision_encoders
-        assert hasattr(vision_encoders["depth_encoder"], "backbone")
-
-    def test_get_vision_encoder_modules_with_conditional_cnn(self):
-        """Test that get_vision_encoder_modules() returns ConditionalCNNEncoder."""
-        encoder = ConditionalCNNEncoder(
-            input_keys=Cameras.LEFT.value,
-            condition_key="language",
-            condition_dim=512,
-            backbone="timm/resnet18.a1_in1k",
-            pretrained=False,
-        )
-        encoding_pipeline = MockEncodingPipeline(conditional_encoders={"conditional_rgb_encoder": encoder})
-        policy = create_minimal_policy_for_explainer(encoding_pipeline)
-
-        vision_encoders = policy.get_vision_encoder_modules()
-        assert "conditional_rgb_encoder" in vision_encoders
-        assert hasattr(vision_encoders["conditional_rgb_encoder"], "layer4")
-
-    def test_get_vision_encoder_modules_with_dformer(self):
-        """Test that get_vision_encoder_modules() returns DFormerEncoder."""
-        encoder = DFormerEncoder(
-            input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
-            variant="S",
-            pretrained=False,
-        )
-        encoding_pipeline = MockEncodingPipeline(encoders={"dformer_encoder": encoder})
-        policy = create_minimal_policy_for_explainer(encoding_pipeline)
-
-        vision_encoders = policy.get_vision_encoder_modules()
-        assert "dformer_encoder" in vision_encoders
-        assert hasattr(vision_encoders["dformer_encoder"], "stages")
-
-    def test_get_vision_encoder_modules_with_light_geometric(self):
-        """Test that get_vision_encoder_modules() returns LightGeometricEncoder."""
-        encoder = LightGeometricEncoder(
-            input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
-            pretrained=False,
-        )
-        encoding_pipeline = MockEncodingPipeline(encoders={"light_geo_encoder": encoder})
-        policy = create_minimal_policy_for_explainer(encoding_pipeline)
-
-        vision_encoders = policy.get_vision_encoder_modules()
-        assert "light_geo_encoder" in vision_encoders
-        assert hasattr(vision_encoders["light_geo_encoder"], "attention_block")
-
-    def test_get_vision_encoder_modules_raises_when_no_vision_encoders(self):
-        """Test that get_vision_encoder_modules() raises error when no vision encoders exist."""
-        class DummyEncoder(Encoder):
-            def __init__(self):
-                spec = EncoderInput(keys=["state"])
-                super().__init__(input_specification=spec)
-                self.output_dim = 10
-
-            def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-                return {"state_features": torch.zeros(1, self.output_dim)}
-
-            def get_output_specification(self) -> EncoderOutput:
-                return EncoderOutput(features=["state_features"], dimensions={"state_features": self.output_dim})
-
-        encoder = DummyEncoder()
-        encoding_pipeline = MockEncodingPipeline(encoders={"state_encoder": encoder})
-        policy = create_minimal_policy_for_explainer(encoding_pipeline)
-
-        with pytest.raises(RuntimeError, match="No compatible vision encoders found"):
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape("Action tokenizer not set. Cannot detokenize actions."),
+        ):
+            policy.predict_action(obs_dict=observation)
+
+
+class TestGetVisionEncoderModules:
+
+    def test_finds_encoder_with_backbone(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(has_backbone=True)
+        pipeline = encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        result = policy.get_vision_encoder_modules()
+        assert "rgb_encoder" in result
+        assert result["rgb_encoder"] is encoder
+
+    def test_finds_encoder_with_stages(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(has_stages=True)
+        encoder.stages = [MagicMock()]
+        pipeline = encoding_pipeline_factory(encoders={"dformer_encoder": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        result = policy.get_vision_encoder_modules()
+        assert "dformer_encoder" in result
+
+    def test_finds_encoder_with_layer4(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(has_layer4=True)
+        pipeline = encoding_pipeline_factory(conditional_encoders={"film_encoder": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        result = policy.get_vision_encoder_modules()
+        assert "film_encoder" in result
+
+    def test_finds_encoder_with_attention_block(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(has_attention_block=True)
+        pipeline = encoding_pipeline_factory(encoders={"light_geo": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        result = policy.get_vision_encoder_modules()
+        assert "light_geo" in result
+
+    def test_raises_when_no_vision_encoders(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory()
+        pipeline = encoding_pipeline_factory(encoders={"proprio_encoder": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape(
+                "No compatible vision encoders found in the encoding pipeline. "
+                "Explainer requires encoders that produce spatial feature maps "
+                "(CNNEncoder, DepthCNNEncoder, ConditionalCNNEncoder, DFormerEncoder, LightGeometricEncoder). "
+                "Available encoders: ['proprio_encoder']"
+            ),
+        ):
             policy.get_vision_encoder_modules()
 
-    def test_get_gradcam_target_layers_for_cnn(self):
-        """Test get_gradcam_target_layers() returns correct layers for CNNEncoder."""
-        encoder = CNNEncoder(
-            input_keys=Cameras.LEFT.value,
-            backbone="timm/resnet18.a1_in1k",
-            pretrained=False,
-        )
-        encoding_pipeline = MockEncodingPipeline(encoders={"rgb_encoder": encoder})
-        policy = create_minimal_policy_for_explainer(encoding_pipeline)
 
-        target_layers = policy.get_gradcam_target_layers("rgb_encoder")
-        assert len(target_layers) == 1
-        assert isinstance(target_layers[0], nn.Module)
+class TestGetGradcamTargetLayers:
 
-    def test_get_gradcam_target_layers_for_dformer(self):
-        """Test get_gradcam_target_layers() returns correct layers for DFormerEncoder."""
-        encoder = DFormerEncoder(
-            input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
-            variant="S",
-            pretrained=False,
-        )
-        encoding_pipeline = MockEncodingPipeline(encoders={"dformer_encoder": encoder})
-        policy = create_minimal_policy_for_explainer(encoding_pipeline)
+    def test_returns_layer4_for_timm_resnet_backbone(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        actual_backbone = MagicMock()
+        actual_backbone.layer4 = MagicMock()
+        backbone = MagicMock()
+        backbone._backbone = actual_backbone
+        encoder = vision_encoder_factory(has_backbone=True)
+        encoder.backbone = backbone
+        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        result = policy.get_gradcam_target_layers(encoder_name="rgb")
+        assert result == [actual_backbone.layer4]
 
-        target_layers = policy.get_gradcam_target_layers("dformer_encoder")
-        assert len(target_layers) == 1
-        assert isinstance(target_layers[0], nn.Module)
+    def test_returns_last_stage_for_timm_stages_backbone(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        actual_backbone = MagicMock()
+        del actual_backbone.layer4
+        actual_backbone.stages = [MagicMock(), MagicMock()]
+        backbone = MagicMock()
+        backbone._backbone = actual_backbone
+        encoder = vision_encoder_factory(has_backbone=True)
+        encoder.backbone = backbone
+        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        result = policy.get_gradcam_target_layers(encoder_name="rgb")
+        assert result == [actual_backbone.stages[-1]]
 
-    def test_get_gradcam_target_layers_for_conditional_cnn(self):
-        """Test get_gradcam_target_layers() returns correct layers for ConditionalCNNEncoder."""
-        encoder = ConditionalCNNEncoder(
-            input_keys=Cameras.LEFT.value,
-            condition_key="language",
-            condition_dim=512,
-            backbone="timm/resnet18.a1_in1k",
-            pretrained=False,
-        )
-        encoding_pipeline = MockEncodingPipeline(conditional_encoders={"conditional_rgb_encoder": encoder})
-        policy = create_minimal_policy_for_explainer(encoding_pipeline)
+    def test_returns_last_stage_for_dformer_encoder(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(has_stages=True)
+        encoder.stages = [MagicMock(), MagicMock(), MagicMock()]
+        pipeline = encoding_pipeline_factory(encoders={"dformer": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        result = policy.get_gradcam_target_layers(encoder_name="dformer")
+        assert result == [encoder.stages[-1]]
 
-        target_layers = policy.get_gradcam_target_layers("conditional_rgb_encoder")
-        assert len(target_layers) == 1
-        assert isinstance(target_layers[0], nn.Module)
+    def test_returns_last_block_for_film_encoder(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(has_layer4=True)
+        encoder.layer4 = [MagicMock(), MagicMock()]
+        pipeline = encoding_pipeline_factory(conditional_encoders={"film": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        result = policy.get_gradcam_target_layers(encoder_name="film")
+        assert result == [encoder.layer4[-1]]
 
-    def test_get_gradcam_target_layers_for_light_geometric(self):
-        """Test get_gradcam_target_layers() returns correct layers for LightGeometricEncoder."""
-        encoder = LightGeometricEncoder(
-            input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
-            pretrained=False,
-        )
-        encoding_pipeline = MockEncodingPipeline(encoders={"light_geo_encoder": encoder})
-        policy = create_minimal_policy_for_explainer(encoding_pipeline)
+    def test_returns_attention_block_for_light_geometric(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(has_attention_block=True)
+        pipeline = encoding_pipeline_factory(encoders={"light_geo": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        result = policy.get_gradcam_target_layers(encoder_name="light_geo")
+        assert result == [encoder.attention_block]
 
-        target_layers = policy.get_gradcam_target_layers("light_geo_encoder")
-        assert len(target_layers) == 1
-        assert isinstance(target_layers[0], nn.Module)
+    def test_returns_last_stage_for_direct_backbone_stages(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        backbone = MagicMock()
+        del backbone._backbone
+        backbone.stages = [MagicMock(), MagicMock()]
+        encoder = vision_encoder_factory(has_backbone=True)
+        encoder.backbone = backbone
+        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        result = policy.get_gradcam_target_layers(encoder_name="rgb")
+        assert result == [backbone.stages[-1]]
 
-    def test_get_gradcam_target_layers_raises_for_invalid_encoder(self):
-        """Test get_gradcam_target_layers() raises error for non-existent encoder."""
-        encoder = CNNEncoder(
-            input_keys=Cameras.LEFT.value,
-            backbone="timm/resnet18.a1_in1k",
-            pretrained=False,
-        )
-        encoding_pipeline = MockEncodingPipeline(encoders={"rgb_encoder": encoder})
-        policy = create_minimal_policy_for_explainer(encoding_pipeline)
+    def test_raises_for_unrecognized_timm_backbone_with_wrapper(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        actual_backbone = MagicMock()
+        del actual_backbone.layer4
+        del actual_backbone.stages
+        backbone = MagicMock()
+        backbone._backbone = actual_backbone
+        encoder = vision_encoder_factory(has_backbone=True)
+        encoder.backbone = backbone
+        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        with pytest.raises(RuntimeError, match="backbone structure not recognized"):
+            policy.get_gradcam_target_layers(encoder_name="rgb")
 
+    def test_raises_for_unrecognized_direct_backbone(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        backbone = MagicMock()
+        del backbone._backbone
+        del backbone.stages
+        encoder = vision_encoder_factory(has_backbone=True)
+        encoder.backbone = backbone
+        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        with pytest.raises(RuntimeError, match="has backbone but structure not recognized"):
+            policy.get_gradcam_target_layers(encoder_name="rgb")
+
+    def test_raises_for_unknown_encoder_name(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(has_backbone=True)
+        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
         with pytest.raises(ValueError, match="not found or not a vision encoder"):
-            policy.get_gradcam_target_layers("nonexistent_encoder")
+            policy.get_gradcam_target_layers(encoder_name="nonexistent")
 
-    def test_get_camera_to_encoder_mapping(self):
-        """Test get_camera_to_encoder_mapping() returns correct mappings."""
-        rgb_encoder = CNNEncoder(
-            input_keys=Cameras.LEFT.value,
-            backbone="timm/resnet18.a1_in1k",
-            pretrained=False,
+
+class TestGetCameraToEncoderMapping:
+
+    def test_maps_camera_keys_to_encoder_names(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(
+            has_backbone=True, input_keys=[Cameras.LEFT.value],
         )
-        depth_encoder = DepthCNNEncoder(
-            input_keys=Cameras.DEPTH.value,
-            backbone="timm/resnet18.a1_in1k",
-            pretrained=False,
+        pipeline = encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        result = policy.get_camera_to_encoder_mapping()
+        assert result == {Cameras.LEFT.value: "rgb_encoder"}
+
+    def test_excludes_non_camera_keys(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(
+            has_backbone=True, input_keys=[Cameras.LEFT.value, "proprio_robot_frame"],
         )
-        encoding_pipeline = MockEncodingPipeline(
-            encoders={"rgb_encoder": rgb_encoder, "depth_encoder": depth_encoder}
+        pipeline = encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        result = policy.get_camera_to_encoder_mapping()
+        assert "proprio_robot_frame" not in result
+        assert Cameras.LEFT.value in result
+
+    def test_skips_encoders_without_input_specification(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        encoder_with_spec = vision_encoder_factory(
+            has_backbone=True, input_keys=[Cameras.RIGHT.value],
         )
-        policy = create_minimal_policy_for_explainer(encoding_pipeline)
-
-        mapping = policy.get_camera_to_encoder_mapping()
-        assert Cameras.LEFT.value in mapping
-        assert Cameras.DEPTH.value in mapping
-        assert mapping[Cameras.LEFT.value] == "rgb_encoder"
-        assert mapping[Cameras.DEPTH.value] == "depth_encoder"
-
-    def test_get_camera_to_encoder_mapping_excludes_non_camera_encoders(self):
-        """Test that proprioceptive/language encoders are excluded from camera mapping."""
-        class ProprioEncoder(Encoder):
-            def __init__(self):
-                spec = EncoderInput(keys=["robot_state"])
-                super().__init__(input_specification=spec)
-                self.output_dim = 10
-                self.backbone = nn.Identity()
-
-            def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-                return {"proprio_features": torch.zeros(1, self.output_dim)}
-
-            def get_output_specification(self) -> EncoderOutput:
-                return EncoderOutput(features=["proprio_features"], dimensions={"proprio_features": self.output_dim})
-
-        rgb_encoder = CNNEncoder(
-            input_keys=Cameras.LEFT.value,
-            backbone="timm/resnet18.a1_in1k",
-            pretrained=False,
+        encoder_without_spec = vision_encoder_factory(has_backbone=True)
+        del encoder_without_spec.input_specification
+        pipeline = encoding_pipeline_factory(
+            encoders={"with_spec": encoder_with_spec, "no_spec": encoder_without_spec},
         )
-        proprio_encoder = ProprioEncoder()
+        policy = policy_factory(encoding_pipeline=pipeline)
+        result = policy.get_camera_to_encoder_mapping()
+        assert result == {Cameras.RIGHT.value: "with_spec"}
+        assert "no_spec" not in result.values()
 
-        encoding_pipeline = MockEncodingPipeline(encoders={"rgb_encoder": rgb_encoder, "proprio_encoder": proprio_encoder})
-        policy = create_minimal_policy_for_explainer(encoding_pipeline)
-
-        mapping = policy.get_camera_to_encoder_mapping()
-        assert Cameras.LEFT.value in mapping
-        assert "robot_state" not in mapping
-
-
-@pytest.mark.unit
-class TestPolicySetTokenizer:
-    """Test Policy.set_tokenizer() propagation."""
-
-    def test_set_tokenizer_propagates_to_pipeline(self):
-        """Test tokenizer propagates to encoding pipeline."""
-        encoding_pipeline = MagicMock()
-        encoding_pipeline.set_tokenizer = Mock()
-        encoding_pipeline.get_features_to_dimensions.return_value = {"features": 256}
-        encoding_pipeline.get_final_features_to_dimensions.return_value = {"features": 256}
-
-        decoder = MagicMock()
-        decoder.decoder_input.keys = ["features"]
-        decoder.decoder_input.validate_feature_types = MagicMock()
-        decoder.set_tokenizer = Mock()
-
-        algorithm = MagicMock()
-
-        policy = Policy(
-            encoding_pipeline=encoding_pipeline,
-            algorithm=algorithm,
-            decoder=decoder,
-            observation_space=MagicMock(),
-            action_space=MagicMock(),
-            prediction_horizon=10,
-            loss=None,
-            device="cpu",
-            validate_loss_keys=False,
+    def test_raises_when_no_camera_mappings(
+        self,
+        policy_factory: Callable[..., Policy],
+        vision_encoder_factory: Callable[..., MagicMock],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(
+            has_backbone=True, input_keys=["proprio_robot_frame"],
         )
-
-        tokenizer = Mock()
-        policy.set_tokenizer(tokenizer)
-
-        encoding_pipeline.set_tokenizer.assert_called_once_with(tokenizer)
-
-    def test_set_tokenizer_propagates_to_decoder(self):
-        """Test tokenizer propagates to decoder."""
-        encoding_pipeline = MagicMock()
-        encoding_pipeline.set_tokenizer = Mock()
-        encoding_pipeline.get_features_to_dimensions.return_value = {"features": 256}
-        encoding_pipeline.get_final_features_to_dimensions.return_value = {"features": 256}
-
-        decoder = MagicMock()
-        decoder.decoder_input.keys = ["features"]
-        decoder.decoder_input.validate_feature_types = MagicMock()
-        decoder.set_tokenizer = Mock()
-
-        algorithm = MagicMock()
-
-        policy = Policy(
-            encoding_pipeline=encoding_pipeline,
-            algorithm=algorithm,
-            decoder=decoder,
-            observation_space=MagicMock(),
-            action_space=MagicMock(),
-            prediction_horizon=10,
-            loss=None,
-            device="cpu",
-            validate_loss_keys=False,
-        )
-
-        tokenizer = Mock()
-        policy.set_tokenizer(tokenizer)
-
-        decoder.set_tokenizer.assert_called_once_with(tokenizer)
-
-    def test_set_tokenizer_none(self):
-        """Test setting None tokenizer sets attribute but doesn't propagate."""
-        encoding_pipeline = MagicMock()
-        encoding_pipeline.set_tokenizer = Mock()
-        encoding_pipeline.get_features_to_dimensions.return_value = {"features": 256}
-        encoding_pipeline.get_final_features_to_dimensions.return_value = {"features": 256}
-
-        decoder = MagicMock()
-        decoder.decoder_input.keys = ["features"]
-        decoder.decoder_input.validate_feature_types = MagicMock()
-        decoder.set_tokenizer = Mock()
-
-        algorithm = MagicMock()
-
-        policy = Policy(
-            encoding_pipeline=encoding_pipeline,
-            algorithm=algorithm,
-            decoder=decoder,
-            observation_space=MagicMock(),
-            action_space=MagicMock(),
-            prediction_horizon=10,
-            loss=None,
-            device="cpu",
-            validate_loss_keys=False,
-        )
-
-        policy.set_tokenizer(None)
-
-        assert policy.tokenizer is None
-        encoding_pipeline.set_tokenizer.assert_not_called()
-        decoder.set_tokenizer.assert_not_called()
+        pipeline = encoding_pipeline_factory(encoders={"proprio_encoder": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        valid_camera_keys = {cam.value for cam in Cameras}
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape(
+                f"No camera-to-encoder mappings found. "
+                f"Valid camera keys: {valid_camera_keys}. "
+                f"Vision encoders: ['proprio_encoder']"
+            ),
+        ):
+            policy.get_camera_to_encoder_mapping()

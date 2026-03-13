@@ -66,16 +66,16 @@ class TestCheckChunksCompatible:
 
     @pytest.mark.parametrize("chunks, shape, expectation", [
         ((10, 3), (100, 3), does_not_raise()),
-        ((10,), (100, 3), pytest.raises(ValueError, match="dimensionality")),
-        ((0, 3), (100, 3), pytest.raises(ValueError, match="positive")),
-        ((-1, 3), (100, 3), pytest.raises(ValueError, match="positive")),
+        ((10,), (100, 3), pytest.raises(ValueError, match="Chunks dimensionality 1 does not match shape dimensionality 2")),
+        ((0, 3), (100, 3), pytest.raises(ValueError, match="Chunk size must be positive, got 0")),
+        ((-1, 3), (100, 3), pytest.raises(ValueError, match="Chunk size must be positive, got -1")),
     ])
     def test_chunk_shape_validation(self, chunks, shape, expectation):
         with expectation:
             check_chunks_compatible(chunks=chunks, shape=shape)
 
     def test_non_integral_chunk_raises_type_error(self):
-        with pytest.raises(TypeError, match="integer"):
+        with pytest.raises(TypeError, match="Chunk size must be an integer"):
             check_chunks_compatible(chunks=(1.5, 3), shape=(100, 3))
 
 

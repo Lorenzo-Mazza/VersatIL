@@ -1,345 +1,290 @@
-"""Tests for action-decoding algorithms (BC, Diffusion, Flow Matching)."""
+"""Tests for versatil.models.decoding.algorithm.diffusion module."""
+import re
+from collections.abc import Callable
+from dataclasses import dataclass
+from unittest.mock import MagicMock
+
 import pytest
 import torch
-from typing import Dict, Optional
+from diffusers import DDIMScheduler, DDPMScheduler
 
+from versatil.data.constants import SampleKey
+from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.algorithm.diffusion import Diffusion
-from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
-from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.data.constants import (
-    Cameras,
-    GripperType,
-    OrientationRepresentation,
-    ProprioceptiveType,
-)
 from versatil.models.decoding.constants import (
-    PredictionType,
     BetaSchedule,
+    DecoderOutputKey,
+    PredictionType,
     VarianceType,
 )
 from versatil.models.layers.denoising.diffusion_process import SchedulerType
 
 
-# Mock decoder for testing algorithms
-class MockActionDecoder(ActionDecoder):
-    """Mock action decoder for testing algorithms."""
+@dataclass
+class StepOutput:
+    """Mock output for noise scheduler step."""
 
-    def __init__(
-        self,
-        observation_space: ObservationSpace,
-        action_space: ActionSpace,
-        feature_dim: int = 128,
-        prediction_horizon: int = 10,
-        device: str = "cpu",
-    ):
-        """Initialize mock decoder."""
-        decoder_input = DecoderInput(keys=["features"])
-
-        # Create simple action heads
-        from versatil.models.decoding.action_heads import ActionHead
-
-        action_heads = {}
-        if action_space.has_position:
-            action_heads[ProprioceptiveType.POSITION.value] = ActionHead(
-                input_dim=feature_dim,
-                output_dim=action_space.position_dim,
-                blocks=[],
-            )
-        if action_space.has_orientation:
-            action_heads[ProprioceptiveType.ORIENTATION.value] = ActionHead(
-                input_dim=feature_dim,
-                output_dim=action_space.orientation_dim,
-                blocks=[],
-            )
-        if action_space.has_gripper:
-            action_heads[ProprioceptiveType.GRIPPER.value] = ActionHead(
-                input_dim=feature_dim,
-                output_dim=action_space.gripper_dim,
-                blocks=[],
-            )
-
-        super().__init__(
-            decoder_input=decoder_input,
-            observation_space=observation_space,
-            action_space=action_space,
-            action_heads=action_heads,
-            device=device,
-            observation_horizon=1,
-            prediction_horizon=prediction_horizon,
-        )
-
-        self.feature_dim = feature_dim
-
-        # Create simple projection layers for mock predictions
-        self.feature_proj = torch.nn.Linear(feature_dim, feature_dim).to(self.device)
-
-    def forward(
-        self,
-        features: Dict[str, torch.Tensor],
-        actions: Optional[Dict[str, torch.Tensor]] = None,
-    ) -> Dict[str, torch.Tensor]:
-        """Mock forward pass."""
-        # Extract batch size from features
-        if "features" in features:
-            feature_tensor = features["features"]
-        else:
-            feature_tensor = next(iter(features.values()))
-        batch_size = feature_tensor.shape[0]
-
-        # Project features
-        projected = self.feature_proj(feature_tensor)
-
-        # Generate mock predictions
-        predictions = {}
-
-        if self.use_position_actions:
-            predictions[ProprioceptiveType.POSITION.value] = torch.randn(
-                batch_size,
-                self.prediction_horizon,
-                self.position_dim,
-                device=self.device,
-            )
-
-        if self.use_orientation_actions:
-            predictions[ProprioceptiveType.ORIENTATION.value] = torch.randn(
-                batch_size,
-                self.prediction_horizon,
-                self.orientation_dim,
-                device=self.device,
-            )
-
-        if self.use_gripper_actions:
-            predictions[ProprioceptiveType.GRIPPER.value] = torch.randn(
-                batch_size,
-                self.prediction_horizon,
-                self.gripper_dim,
-                device=self.device,
-            )
-
-        return predictions
+    prev_sample: torch.Tensor
 
 
 @pytest.fixture
-def device():
-    """Get available device."""
-    return "cuda" if torch.cuda.is_available() else "cpu"
-
-
-@pytest.fixture
-def batch_size():
-    """Default batch size."""
-    return 4
-
-
-@pytest.fixture
-def prediction_horizon():
-    """Default prediction horizon."""
-    return 10
-
-
-@pytest.fixture
-def feature_dim():
-    """Default feature dimension."""
-    return 128
-
-
-@pytest.fixture
-def action_space():
-    """Create default action space configuration."""
-    return ActionSpace(
-        has_position=True,
-        position_dim=3,
-        has_orientation=True,
-        orientation_dim=4,
-        orientation_repr=OrientationRepresentation.QUATERNION.value,
-        has_gripper=True,
-        gripper_type=GripperType.BINARY.value,
-        gripper_dim=1,
-        predict_in_camera_frame=False,
-        deltas_as_actions=False,
-    )
-
-
-@pytest.fixture
-def observation_space():
-    """Create default observation space configuration."""
-    return ObservationSpace(
-        use_proprioceptive_data=True,
-        use_proprio_base_frame=True,
-        use_proprio_camera_frame=False,
-        use_gripper_state=True,
-        gripper_type=GripperType.BINARY.value,
-        camera_keys=[Cameras.LEFT.value],
-        use_language=False,
-    )
-
-
-@pytest.fixture
-def mock_decoder(observation_space, action_space, feature_dim, prediction_horizon, device):
-    """Create mock decoder for testing."""
-    return MockActionDecoder(
-        observation_space=observation_space,
-        action_space=action_space,
-        feature_dim=feature_dim,
-        prediction_horizon=prediction_horizon,
-        device=device,
-    )
-
-
-@pytest.fixture
-def features(batch_size, feature_dim, device):
-    """Create mock features."""
-    return {
-        "features": torch.randn(batch_size, feature_dim, device=device),
-    }
-
-
-@pytest.fixture
-def actions(batch_size, prediction_horizon, action_space, device):
-    """Create mock actions."""
-    actions_dict = {}
-
-    if action_space.has_position:
-        actions_dict[ProprioceptiveType.POSITION.value] = torch.randn(
-            batch_size, prediction_horizon, action_space.position_dim, device=device
-        )
-
-    if action_space.has_orientation:
-        actions_dict[ProprioceptiveType.ORIENTATION.value] = torch.randn(
-            batch_size, prediction_horizon, action_space.orientation_dim, device=device
-        )
-
-    if action_space.has_gripper:
-        actions_dict[ProprioceptiveType.GRIPPER.value] = torch.randn(
-            batch_size, prediction_horizon, action_space.gripper_dim, device=device
-        )
-
-    return actions_dict
-
-
-@pytest.mark.unit
-class TestDiffusion:
-    """Tests for Diffusion algorithm."""
-
-    @pytest.mark.parametrize("scheduler_type", [
-        SchedulerType.DDPM.value,
-        SchedulerType.DDIM.value,
-    ])
-    def test_instantiation_schedulers(self, scheduler_type):
-        """Test that Diffusion algorithm can be instantiated with all scheduler types."""
-        algo = Diffusion(scheduler_type=scheduler_type)
-        assert algo is not None
-        assert algo.noise_scheduler is not None
-
-    def test_invalid_scheduler_type(self):
-        """Test that invalid scheduler type raises error."""
-        with pytest.raises(ValueError, match="Unknown scheduler_type"):
-            Diffusion(scheduler_type="invalid")
-
-    @pytest.mark.parametrize("prediction_type", [
-        PredictionType.EPSILON.value,
-        PredictionType.SAMPLE.value,
-        PredictionType.VELOCITY.value,
-    ])
-    def test_prediction_types(self, mock_decoder, features, actions, prediction_type):
-        """Test all prediction types."""
-        from versatil.models.decoding.constants import DecoderOutputKey
-
-        algo = Diffusion(
-            num_train_timesteps=50,
-            prediction_type=prediction_type,
-        )
-        outputs = algo.forward(mock_decoder, features, actions)
-
-        # Check that outputs contain required keys
-        assert DecoderOutputKey.NOISE.value in outputs
-        assert DecoderOutputKey.TIMESTEP.value in outputs
-        assert DecoderOutputKey.TARGET_DIFFUSION.value in outputs
-
-    @pytest.mark.parametrize("beta_schedule", [
-        BetaSchedule.LINEAR.value,
-        BetaSchedule.SCALED_LINEAR.value,
-        BetaSchedule.SQUAREDCOS_CAP_V2.value,
-    ])
-    def test_beta_schedules(self, beta_schedule):
-        """Test all beta schedule types."""
-        algo = Diffusion(beta_schedule=beta_schedule)
-        assert algo is not None
-        assert algo.noise_scheduler is not None
-
-    @pytest.mark.parametrize("variance_type", [
-        VarianceType.FIXED_SMALL.value,
-        VarianceType.FIXED_LARGE.value,
-    ])
-    def test_variance_types_ddpm(self, variance_type):
-        """Test variance types for DDPM scheduler."""
-        algo = Diffusion(
-            scheduler_type=SchedulerType.DDPM.value,
-            scheduler_variance_type=variance_type,
-        )
-        assert algo is not None
-        assert algo.noise_scheduler is not None
-
-    @pytest.mark.parametrize("num_train_timesteps,num_inference_steps", [
-        (50, 10),
-        (100, 20),
-        (1000, 50),
-    ])
-    def test_timestep_configurations(self, num_train_timesteps, num_inference_steps):
-        """Test different timestep configurations."""
-        algo = Diffusion(
+def diffusion_factory() -> Callable[..., Diffusion]:
+    """Factory for Diffusion instances."""
+    def factory(
+        scheduler_type: str = SchedulerType.DDIM.value,
+        num_train_timesteps: int = 100,
+        num_inference_steps: int = 10,
+        beta_start: float = 0.0001,
+        beta_end: float = 0.02,
+        beta_schedule: str = BetaSchedule.SQUAREDCOS_CAP_V2.value,
+        prediction_type: str = PredictionType.EPSILON.value,
+        scheduler_variance_type: str = VarianceType.FIXED_SMALL.value,
+        clip_sample: bool = True,
+        set_alpha_to_one: bool = True,
+        steps_offset: int = 0,
+    ) -> Diffusion:
+        return Diffusion(
+            scheduler_type=scheduler_type,
             num_train_timesteps=num_train_timesteps,
             num_inference_steps=num_inference_steps,
+            beta_start=beta_start,
+            beta_end=beta_end,
+            beta_schedule=beta_schedule,
+            prediction_type=prediction_type,
+            scheduler_variance_type=scheduler_variance_type,
+            clip_sample=clip_sample,
+            set_alpha_to_one=set_alpha_to_one,
+            steps_offset=steps_offset,
         )
-        assert algo.num_inference_steps == num_inference_steps
-        assert algo.noise_scheduler.config.num_train_timesteps == num_train_timesteps
+    return factory
 
-    def test_forward_pass(self, mock_decoder, features, actions):
-        """Test forward pass during training."""
-        from versatil.models.decoding.constants import DecoderOutputKey
 
-        algo = Diffusion(num_train_timesteps=100)
-        outputs = algo.forward(mock_decoder, features, actions)
+class TestDiffusionInitialization:
 
-        # Check that outputs contain noise and timesteps
-        assert DecoderOutputKey.NOISE.value in outputs
-        assert DecoderOutputKey.TIMESTEP.value in outputs
-        assert DecoderOutputKey.TARGET_DIFFUSION.value in outputs
+    def test_inherits_from_decoding_algorithm(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+    ):
+        diff = diffusion_factory()
+        assert isinstance(diff, DecodingAlgorithm)
 
-        # Check that timesteps are in valid range
-        timesteps = outputs[DecoderOutputKey.TIMESTEP.value]
-        assert torch.all(timesteps >= 0)
-        assert torch.all(timesteps < 100)
-
-    def test_forward_requires_actions(self, mock_decoder, features):
-        """Test that forward pass requires actions."""
-        algo = Diffusion()
-        with pytest.raises(ValueError, match="requires actions"):
-            algo.forward(mock_decoder, features, actions=None)
-
-    @pytest.mark.parametrize("scheduler_type", [
-        SchedulerType.DDPM.value,
-        SchedulerType.DDIM.value,
+    @pytest.mark.parametrize("num_train_timesteps", [50, 200])
+    @pytest.mark.parametrize("num_inference_steps", [5, 20])
+    @pytest.mark.parametrize("prediction_type", [
+        PredictionType.EPSILON.value,
+        PredictionType.VELOCITY.value,
     ])
-    def test_predict_with_schedulers(self, mock_decoder, features, scheduler_type):
-        """Test prediction with different schedulers."""
-        algo = Diffusion(
+    @pytest.mark.parametrize("scheduler_type, expected_scheduler_class", [
+        (SchedulerType.DDPM.value, DDPMScheduler),
+        (SchedulerType.DDIM.value, DDIMScheduler),
+    ])
+    def test_stores_configuration(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        num_train_timesteps: int,
+        num_inference_steps: int,
+        prediction_type: str,
+        scheduler_type: str,
+        expected_scheduler_class: type,
+    ):
+        diff = diffusion_factory(
+            num_train_timesteps=num_train_timesteps,
+            num_inference_steps=num_inference_steps,
+            prediction_type=prediction_type,
             scheduler_type=scheduler_type,
-            num_inference_steps=3,  # Use fewer steps for testing
         )
-        outputs = algo.predict(mock_decoder, features)
+        assert diff.num_train_timesteps == num_train_timesteps
+        assert diff.num_inference_steps == num_inference_steps
+        assert diff.prediction_type == prediction_type
+        assert isinstance(diff.noise_scheduler, expected_scheduler_class)
 
-        # Check that outputs contain expected action keys
-        assert ProprioceptiveType.POSITION.value in outputs
-        assert ProprioceptiveType.ORIENTATION.value in outputs
-        assert ProprioceptiveType.GRIPPER.value in outputs
 
-        # Check output shapes
-        batch_size = features["features"].shape[0]
-        prediction_horizon = mock_decoder.prediction_horizon
+class TestDiffusionForward:
 
-        assert outputs[ProprioceptiveType.POSITION.value].shape == (
-            batch_size,
-            prediction_horizon,
-            mock_decoder.position_dim,
+    def test_raises_without_actions(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        diff = diffusion_factory()
+        mock_network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        with pytest.raises(
+            ValueError,
+            match="Diffusion algorithm requires actions during training",
+        ):
+            diff.forward(network=mock_network, features=features, actions=None)
+
+    @pytest.mark.parametrize("include_padding_mask", [True, False])
+    def test_output_contains_exact_keys(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        include_padding_mask: bool,
+    ):
+        diff = diffusion_factory()
+        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+            include_padding_mask=include_padding_mask,
         )
+        result = diff.forward(network=mock_network, features=features, actions=actions)
+        expected_keys = {
+            "position_action",
+            DecoderOutputKey.TARGET_DIFFUSION.value,
+            DecoderOutputKey.NOISE.value,
+            DecoderOutputKey.TIMESTEP.value,
+            SampleKey.IS_PAD_ACTION.value,
+        }
+        assert set(result.keys()) == expected_keys
+        assert set(result[DecoderOutputKey.TARGET_DIFFUSION.value].keys()) == {"position_action"}
+        assert set(result[DecoderOutputKey.NOISE.value].keys()) == {"position_action"}
+        if include_padding_mask:
+            assert result[SampleKey.IS_PAD_ACTION.value] is not None
+        else:
+            assert result[SampleKey.IS_PAD_ACTION.value] is None
+
+    def test_epsilon_target_equals_noise(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        diff = diffusion_factory(prediction_type=PredictionType.EPSILON.value)
+        mock_network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            include_padding_mask=False,
+        )
+        mock_network.return_value = {"position_action": torch.zeros(2, 8, 3)}
+        result = diff.forward(network=mock_network, features=features, actions=actions)
+        target = result[DecoderOutputKey.TARGET_DIFFUSION.value]
+        noise = result[DecoderOutputKey.NOISE.value]
+        assert torch.equal(target["position_action"], noise["position_action"])
+
+    def test_sample_target_equals_original_actions(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        diff = diffusion_factory(prediction_type=PredictionType.SAMPLE.value)
+        mock_network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            include_padding_mask=False,
+        )
+        original_actions = actions["position_action"].clone()
+        mock_network.return_value = {"position_action": torch.zeros(2, 8, 3)}
+        result = diff.forward(network=mock_network, features=features, actions=actions)
+        target = result[DecoderOutputKey.TARGET_DIFFUSION.value]
+        assert torch.equal(target["position_action"], original_actions)
+
+    def test_network_receives_timestep_in_features(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        diff = diffusion_factory()
+        mock_network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+        )
+        mock_network.return_value = {"position_action": torch.zeros(2, 8, 3)}
+        diff.forward(network=mock_network, features=features, actions=actions)
+        features_passed = mock_network.call_args.kwargs["features"]
+        assert DecoderOutputKey.TIMESTEP.value in features_passed
+
+    def test_velocity_target_uses_get_velocity(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        diff = diffusion_factory(prediction_type=PredictionType.VELOCITY.value)
+        mock_network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            include_padding_mask=False,
+        )
+        mock_network.return_value = {"position_action": torch.zeros(2, 8, 3)}
+        result = diff.forward(network=mock_network, features=features, actions=actions)
+        target = result[DecoderOutputKey.TARGET_DIFFUSION.value]
+        noise = result[DecoderOutputKey.NOISE.value]
+        assert set(target.keys()) == {"position_action"}
+        # Velocity target should differ from both noise and original actions
+        assert not torch.equal(target["position_action"], noise["position_action"])
+        assert not torch.equal(target["position_action"], actions["position_action"])
+
+    def test_invalid_prediction_type_raises(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        diff = diffusion_factory()
+        mock_network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            include_padding_mask=False,
+        )
+        mock_network.return_value = {"position_action": torch.zeros(2, 8, 3)}
+        diff.prediction_type = "invalid_type"
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Unknown prediction_type: invalid_type. "
+                f"Expected one of {[e.value for e in PredictionType]}"
+            ),
+        ):
+            diff.forward(network=mock_network, features=features, actions=actions)
+
+
+class TestDiffusionPredict:
+
+    def test_predict_returns_exact_action_keys(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        diff = diffusion_factory(num_inference_steps=2, num_train_timesteps=10)
+        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
+        features = feature_dictionary_factory()
+        diff.noise_scheduler.step = MagicMock(
+            return_value=StepOutput(prev_sample=torch.zeros(2, 8, 3))
+        )
+        result = diff.predict(network=mock_network, features=features)
+        assert set(result.keys()) == {"position_action"}
+
+    def test_predict_output_shape(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        diff = diffusion_factory(num_inference_steps=2, num_train_timesteps=10)
+        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
+        features = feature_dictionary_factory()
+        diff.noise_scheduler.step = MagicMock(
+            return_value=StepOutput(prev_sample=torch.zeros(2, 8, 3))
+        )
+        result = diff.predict(network=mock_network, features=features)
+        assert result["position_action"].shape == (2, 8, 3)

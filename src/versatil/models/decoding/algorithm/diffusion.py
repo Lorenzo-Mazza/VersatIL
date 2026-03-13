@@ -121,7 +121,9 @@ class Diffusion(DecodingAlgorithm):
             Decoder output dictionary containing:
                 - Predicted noise or actions (depending on prediction_type)
                 - 'target': The training target (noise or clean actions)
-                - All action keys with '_pred' suffix for predictions
+                - 'noise': The noise added to the clean actions
+                - 'timestep': The random timesteps sampled for each action in the batch
+                - 'is_pad_action': Padding mask if present
 
         Raises:
             ValueError: If actions are not provided (required for diffusion training)
@@ -142,8 +144,8 @@ class Diffusion(DecodingAlgorithm):
         )
 
         # Add noise to all action components using shared diffusion process
-        noisy_actions = {}
-        noise = {}
+        noisy_actions: dict[str, torch.Tensor] = {}
+        noise: dict[str, torch.Tensor] = {}
         is_pad = None
         for key, action in actions.items():
             if key == SampleKey.IS_PAD_ACTION.value:
@@ -158,13 +160,20 @@ class Diffusion(DecodingAlgorithm):
         # Add timesteps to features for eventual conditioning
         features_with_time = {**features, DecoderOutputKey.TIMESTEP.value: timesteps}
 
-        predictions = network(features_with_time, noisy_actions)
+        predictions = network(features=features_with_time, actions=noisy_actions)
         if self.prediction_type == PredictionType.EPSILON.value:
             target = noise
         elif self.prediction_type == PredictionType.SAMPLE.value:
             target = actions
         elif self.prediction_type == PredictionType.VELOCITY.value:
-            target = actions
+            velocity = {}
+            for key, action in actions.items():
+                if key == SampleKey.IS_PAD_ACTION.value:
+                    continue
+                velocity[key] = self.noise_scheduler.get_velocity(
+                    sample=action, noise=noise[key], timesteps=timesteps
+                )
+            target = velocity
         else:
             raise ValueError(
                 f"Unknown prediction_type: {self.prediction_type}. "
@@ -220,7 +229,7 @@ class Diffusion(DecodingAlgorithm):
             # Expand timestep to batch dimension
             timestep = t.unsqueeze(0).expand(batch_size).to(device)
             features_with_time = {**features, DecoderOutputKey.TIMESTEP.value: timestep}
-            model_output = network(features_with_time, noisy_actions)
+            model_output = network(features=features_with_time, actions=noisy_actions)
             for key in noisy_actions:
                 if key in model_output:
                     noisy_actions[key] = self.noise_scheduler.step(  # type: ignore[union-attr]

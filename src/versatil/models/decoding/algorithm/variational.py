@@ -61,7 +61,7 @@ class VariationalAlgorithm(DecodingAlgorithm):
         if prior is None:
             device = str(posterior_encoder.device)
             self.prior = GaussianPrior(
-                latent_dimension=self.posterior_encoder.latent_dim,
+                latent_dimension=self.posterior_encoder.latent_dimension,
                 device=device,
             )
             logging.info(

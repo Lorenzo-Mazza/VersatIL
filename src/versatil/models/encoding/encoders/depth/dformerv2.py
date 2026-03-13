@@ -158,8 +158,7 @@ class DFormerEncoder(Encoder):
         initial_decay: float = 2.0,
         pretrained: bool = False,
         frozen: bool = False,
-        checkpoint_path: str
-        | None = "/mnt/cluster/workspaces/mazzalore/pretrained_models/pretrained_dformer/DFormerv2_Small_NYU.pth",
+        checkpoint_path: str | None = None,
         pooling_method: str = PoolingMethod.AVERAGE.value,
     ):
         """Initialize DFormer encoder.
@@ -282,14 +281,14 @@ class DFormerEncoder(Encoder):
 
         mock_pooling_head = create_pooling_head(
             pooling_method=self.pooling_method,
-            feature_channels=self.embedding_dimension,
+            feature_channels=self.feature_dim,
             spatial_height=H_final,
             spatial_width=W_final,
         )
         self.pooling_head = (
             None  # Will be created in forward() with correct patch dimensions
         )
-        self.output_dim = mock_pooling_head.get_output_dim(self.embedding_dimension)
+        self.output_dim = mock_pooling_head.get_output_dim(self.feature_dim)
 
     def _load_checkpoint(self, checkpoint_path: str):
         """Load pretrained weights from checkpoint."""
@@ -355,7 +354,7 @@ class DFormerEncoder(Encoder):
         if self.pooling_head is None:
             self.pooling_head = create_pooling_head(
                 pooling_method=self.pooling_method,
-                feature_channels=self.embedding_dimension,
+                feature_channels=self.feature_dim,
                 spatial_height=H_patches,
                 spatial_width=W_patches,
             ).to(self.device)

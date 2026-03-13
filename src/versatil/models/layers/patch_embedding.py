@@ -3,6 +3,8 @@ import enum
 import torch
 import torch.nn as nn
 
+from versatil.models.layers.normalization.frozen_batchnorm import FrozenBatchNorm2d
+
 
 class PatchEmbedType(str, enum.Enum):
     """Patch embedding implementation types."""
@@ -33,8 +35,12 @@ class PatchEmbedding(nn.Module):
         if embed_type == PatchEmbedType.STANDARD.value:
             self.projection = self._build_standard_projection()
         elif embed_type == PatchEmbedType.PROGRESSIVE.value:
-            # Use LayerNorm as default if norm_layer is None
-            norm = norm_layer if norm_layer is not None else nn.LayerNorm
+            norm = norm_layer if norm_layer is not None else nn.BatchNorm2d
+            if not issubclass(norm, (nn.modules.batchnorm._BatchNorm, FrozenBatchNorm2d)):
+                raise ValueError(
+                    f"{norm.__name__} is not supported for progressive embedding. "
+                    f"Use a BatchNorm variant (e.g. nn.BatchNorm2d, FrozenBatchNorm2d)."
+                )
             self.projection = self._build_progressive_projection(norm_layer=norm)
         elif embed_type == PatchEmbedType.OVERLAPPING.value:
             self.projection = self._build_overlapping_projection()

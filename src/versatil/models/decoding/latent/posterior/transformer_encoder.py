@@ -60,7 +60,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         dropout_rate: float = 0.1,
         normalize_before: bool = False,
         use_proprioceptive: bool = False,
-        exclude_keys: list[str] = None,
+        exclude_keys: list[str] | None = None,
         min_logvar: float | None = None,
         deterministic: bool = False,
     ):
@@ -96,7 +96,6 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
         self.observation_horizon = observation_horizon
-        self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
         self.feedforward_dimension = feedforward_dimension
         self.number_of_encoder_layers = number_of_encoder_layers
@@ -104,10 +103,6 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         self.dropout_rate = dropout_rate
         self.normalize_before = normalize_before
         self.vae_latent_dimension = latent_dimension
-        self.use_proprioceptive = use_proprioceptive
-        self.prediction_horizon = prediction_horizon
-        self.observation_horizon = observation_horizon
-        self.device = device
         self.transformer_encoder = TransformerEncoder(
             encoder_layer=TransformerEncoderLayer(
                 embedding_dimension=self.embedding_dimension,
@@ -156,7 +151,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         self,
         actions: dict[str, torch.Tensor],
         observations: dict[str, torch.Tensor] | None = None,
-    ) -> dict[str, torch.Tensor | dict[str, torch.Tensor] | None]:
+    ) -> dict[str, torch.Tensor]:
         """Encode actions into latent space using VAE.
 
         Args:
@@ -176,7 +171,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         """
         if observations is not None:
             input_observations = {
-                k: v for k, v in observations.items() if not (k in self.exclude_keys)
+                k: v for k, v in observations.items() if k not in self.exclude_keys
             }
         else:
             input_observations = {}

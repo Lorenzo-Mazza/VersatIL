@@ -135,7 +135,7 @@ class TransformerInputBuilder(nn.Module):
         action_padding_mask = features.get(SampleKey.IS_PAD_ACTION.value, None)
         clean_features = {
             k: v for k, v in features.items()
-            if not EncoderOutputKeys.PADDING_MASK.value in k
+            if EncoderOutputKeys.PADDING_MASK.value not in k
             and k != SampleKey.IS_PAD_ACTION.value
             and k not in self.exclude_keys
         }

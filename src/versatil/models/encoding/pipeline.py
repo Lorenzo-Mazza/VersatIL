@@ -134,7 +134,10 @@ class EncodingPipeline(nn.Module):
 
     def _validate_encoder_outputs(self) -> None:
         """Validates encoder output keys for duplicates."""
-        all_outputs = list(self.flatten_encoder_feature_names())
+        all_outputs = []
+        for encoder_name, output in self.encoder_to_outputs.items():
+            for feature in output.features:
+                all_outputs.append(f"{encoder_name}_{feature}")
         if len(all_outputs) != len(set(all_outputs)):
             raise ValueError("Duplicate output keys detected from encoders")
 
@@ -336,7 +339,6 @@ class EncodingPipeline(nn.Module):
             ValueError: If observation tokenizer vocab size doesn't match encoder vocab sizes
         """
         for encoder_name, encoder in self.encoders.items():
-            assert isinstance(encoder, EncodingMixin)
             if encoder.input_specification.requires_tokenized:
                 if tokenizer is None or tokenizer.observation_tokenizer is None:
                     raise ValueError(
@@ -354,7 +356,6 @@ class EncodingPipeline(nn.Module):
                     )
 
         for encoder_name, encoder in self.conditional_encoders.items():
-            assert isinstance(encoder, EncodingMixin)
             if encoder.input_specification.requires_tokenized:
                 if tokenizer is None or tokenizer.observation_tokenizer is None:
                     raise ValueError(

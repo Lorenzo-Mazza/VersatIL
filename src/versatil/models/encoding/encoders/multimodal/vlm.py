@@ -29,12 +29,12 @@ class VLMEncoder(Encoder):
         pretrained: bool,
         frozen: bool,
         pooling_method: str,
-        model_name: str = ImageTextModelType.CLIP_VITB32,
+        model_name: str = ImageTextModelType.CLIP_VITB32.value,
         attention_type: str = AttentionImplementation.SDPA.value,
     ):
         specification = EncoderInput(
             keys=input_keys,
-            one_of_groups=[[RGB_CAMERAS]],
+            one_of_groups=[RGB_CAMERAS],
             required=[SampleKey.TOKENIZED_OBSERVATIONS.value],
             requires_tokenized=True,
         )
@@ -272,7 +272,11 @@ class VLMEncoder(Encoder):
         token_padding_mask = ~attention_mask  # bool, True where padded
         if has_time:
             if self.pooling_method == PoolingMethod.NONE.value:
-                assert image_features.ndim >= 3 and language_features.ndim == 3
+                if image_features.ndim < 3 or language_features.ndim != 3:
+                    raise RuntimeError(
+                        f"Expected image_features.ndim >= 3 and language_features.ndim == 3, "
+                        f"got {image_features.ndim} and {language_features.ndim}"
+                    )
                 vision_seq_len = image_features.shape[1]
                 image_features = image_features.view(
                     B, T, vision_seq_len, self.hidden_vision_dim
@@ -282,7 +286,11 @@ class VLMEncoder(Encoder):
                 )
                 token_padding_mask = token_padding_mask.view(B, T, self.max_text_length)
             else:
-                assert image_features.ndim == 2 and language_features.ndim == 2
+                if image_features.ndim != 2 or language_features.ndim != 2:
+                    raise RuntimeError(
+                        f"Expected image_features.ndim == 2 and language_features.ndim == 2, "
+                        f"got {image_features.ndim} and {language_features.ndim}"
+                    )
                 image_features = image_features.view(B, T, self.hidden_vision_dim)
                 language_features = language_features.view(
                     B, T, self.hidden_language_dim

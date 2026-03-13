@@ -12,10 +12,9 @@ from torch import nn
 
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.models.constants import FeatureType
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_heads.gaussian import GaussianHead
-from versatil.models.decoding.constants import DecoderOutputKey, GMMInitStrategy
+from versatil.models.decoding.constants import DecoderOutputKey, GMMInitStrategy, FeatureType
 from versatil.models.decoding.decoders import ActionDecoder, DecoderInput
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType

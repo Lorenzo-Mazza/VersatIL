@@ -110,13 +110,14 @@ class FlowMatching(DecodingAlgorithm):
 
         interpolated_actions = {}
         target_velocities = {}
-        times, noise, is_pad = None, None, None
+        noise = {}
+        times, is_pad = None, None
 
         for key, action in actions.items():
             if key == SampleKey.IS_PAD_ACTION.value:
                 is_pad = action
                 continue
-            noise = torch.randn_like(action.float(), device=action.device)
+            noise[key] = torch.randn_like(action.float(), device=action.device)
             if times is None:
                 times = sample_timesteps(
                     batch_size=action.shape[0],
@@ -130,10 +131,10 @@ class FlowMatching(DecodingAlgorithm):
                 )
             epsilon = torch.randn_like(action.float())
             x_t = self.flow_matcher.sample_xt(
-                x0=noise, x1=action, t=times, epsilon=epsilon
+                x0=noise[key], x1=action, t=times, epsilon=epsilon
             )
             u_t = self.flow_matcher.compute_conditional_flow(
-                x0=noise, x1=action, t=times, xt=x_t
+                x0=noise[key], x1=action, t=times, xt=x_t
             )
             interpolated_actions[key] = x_t
             target_velocities[key] = u_t

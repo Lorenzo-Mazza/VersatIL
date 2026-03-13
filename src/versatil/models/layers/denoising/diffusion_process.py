@@ -134,7 +134,7 @@ def sample_random_timesteps(
     batch_size: int,
     num_train_timesteps: int,
     device: torch.device,
-) -> torch.Tensor:
+) -> torch.IntTensor:
     """Sample random timesteps for training.
 
     Samples uniformly from [0, num_train_timesteps) for each batch element.

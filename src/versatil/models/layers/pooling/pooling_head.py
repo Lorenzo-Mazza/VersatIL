@@ -99,7 +99,7 @@ class LearnedAggregationPooling(PoolingHead):
     def __init__(self, channels: int):
         super().__init__()
         self.channels = channels
-        self.pooling_head = LearnedAggregation(ni=channels)
+        self.pooling_head = LearnedAggregation(feature_dimension=channels)
 
     def get_output_dim(self, input_channels: int) -> int:
         return self.channels

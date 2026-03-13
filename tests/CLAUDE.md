@@ -10,6 +10,8 @@ These guidelines define how tests in this codebase must be written. Reference im
 - `tests/data/tokenization/test_observation_tokenizer.py` — semantic dict factories, parametrized configs, observation_dict_factory pattern
 - `tests/data/tokenization/conftest.py` — shared semantic fixtures (action_chunk_factory, pad_mask_factory, binning_tokenizer_factory)
 - `tests/data/test_dataloader.py` — `does_not_raise()` parametrization pattern for validation tests, mock schema factories with `spec=` for `isinstance` dispatch
+- `tests/data/preprocessing/test_replay_buffer.py` — `does_not_raise()` for buffer validation (empty/non-empty), consolidated error testing, zarr backend fixture patterns
+- `tests/models/encoding/encoders/rgb/test_vit.py` — consolidated `test_stores_configuration` with stacked `@pytest.mark.parametrize` cross product, validation tests separate from storage, mocked backbone with `patch.object`, unit/integration test separation
 
 ## Principles
 
@@ -47,6 +49,20 @@ These guidelines define how tests in this codebase must be written. Reference im
    ```
    Reference: `tests/data/test_dataloader.py`.
 
+8b. **Consolidate attribute storage tests into a single cross-product test.** Never write individual `test_stores_X` tests that just check `self.x = x` — they are trivial and add noise. Instead, write one `test_stores_configuration` that takes all storable fields as explicit parameters using stacked `@pytest.mark.parametrize` decorators (which pytest expands into a cartesian product). Use 2 values per parameter. Assert all fields in the test body:
+   ```python
+   @pytest.mark.parametrize("input_keys", ["left", "right"])
+   @pytest.mark.parametrize("backbone", [BackboneType.A.value, BackboneType.B.value])
+   @pytest.mark.parametrize("pooling_method", [PoolingMethod.X.value, PoolingMethod.Y.value])
+   def test_stores_configuration(self, factory, input_keys, backbone, pooling_method):
+       module = factory(input_keys=input_keys, backbone=backbone, pooling_method=pooling_method)
+       assert module.backbone_name == backbone
+       assert module.pooling_method == pooling_method
+       assert module.input_specification.keys == ([input_keys] if isinstance(input_keys, str) else input_keys)
+   ```
+   Keep validation tests (e.g., `test_backbone_validation`, `test_input_keys_validation`) separate — those test enum coverage and error paths, not storage. Keep inheritance tests separate too.
+   Reference: `tests/models/encoding/encoders/rgb/test_vit.py`.
+
 9. **Always set values explicitly — never test defaults implicitly.** When verifying that a parameter is stored correctly, pass the value explicitly rather than relying on the default. Testing `factory()` and asserting `.field is True` is fragile because it assumes knowledge of the default value and will silently pass even if the default changes. Instead, use `factory(field=True)` and assert against the explicit value, or better, parametrize useful values to check several cases if it makes sense. Take as reference `tests/data/test_task.py`.
 
 10. **Use the `rng` fixture for all random data generation.** Never call `np.random.rand`, `np.random.randn`, `np.random.randint`, or `torch.randn` directly. Instead, use the `rng` fixture from `tests/conftest.py` (a `np.random.Generator` seeded per test). This ensures reproducibility and test isolation without global seed mutation. For torch tensors, convert from numpy: `torch.from_numpy(rng.standard_normal((shape,)).astype(np.float32))`. Wrap `rng` calls in semantic factory fixtures (see below) rather than calling `rng` directly in test bodies.
@@ -65,6 +81,29 @@ These guidelines define how tests in this codebase must be written. Reference im
    - Use double quotes for strings.
    - Use Google-style docstrings when docstrings are needed. Usually docstrings are not needed for tests, as tests should be as minimal and straightforward as possible.
    - When comparing tensor devices, use `.device.type` (e.g., `assert tensor.device.type == device.type`) because `torch.device("cuda") != torch.device("cuda", 0)`. Only use direct `==` for stored attribute comparisons (e.g., `tokenizer.device == device`), never for tensor device checks.
+
+## Error Match Strings
+
+11b. **`pytest.raises` match strings must reproduce the full error message.** Never use lazy partial matches like `match="requires"` or `match="max_seq_len"`. Always reconstruct the complete error message using f-strings with the actual values that would appear in the error. This ensures the test catches the exact error, not a different one that happens to contain the same substring:
+   ```python
+   # BAD — matches any error mentioning "max_seq_len"
+   with pytest.raises(ValueError, match="max_seq_len"):
+
+   # GOOD — matches the exact error with actual values
+   with pytest.raises(
+       ValueError,
+       match=f"Input token length {expected_length} > max_seq_len {max_seq_len}",
+   ):
+   ```
+   Use `re.escape()` if the message contains regex metacharacters (parentheses, brackets, etc.).
+
+## Fixture Reuse
+
+11c. **Never duplicate conftest fixtures locally.** Before writing any fixture in a test module, check all `conftest.py` files in the package hierarchy (`tests/conftest.py`, `tests/models/conftest.py`, etc.) for existing fixtures. If a fixture already exists (e.g., `feature_dictionary_factory`, `action_dictionary_factory`, `input_tensor_factory`), use it directly — never create a local copy with a different name or signature. When calling conftest fixtures, use their exact parameter names (e.g., `feature_dimension=`, not `embedding_dimension=`).
+
+11d. **No docstrings in tests.** Tests should not have docstrings. If context is needed, use an inline comment. Test names should be descriptive enough to explain intent without a docstring.
+
+11e. **Tests must verify what they claim.** If a test name or comment says it checks a specific behavior (e.g., "injects zero padding"), the assertions must actually verify that behavior — not just re-check output keys or types. A test that claims to verify a fallback path but only checks that the output dict has the right keys is a lie.
 
 ## What Not To Do
 

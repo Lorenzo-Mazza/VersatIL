@@ -8,7 +8,7 @@ from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ObservationSpace, ActionSpace
 from versatil.data.tokenization import Tokenizer, ActionTokenizer
-from versatil.models.constants import FeatureType
+from versatil.models.decoding.constants import FeatureType
 
 
 @dataclass
@@ -243,7 +243,7 @@ class ActionDecoder(nn.Module, ABC):
     @property
     def position_dim(self) -> int | None:
         """Get the position dimension if used."""
-        return self.action_space.position_dim if self.use_position_actions else None
+        return self.action_space.position_dim if self.action_space.has_position_actions else None
 
     def validate_action_heads(self):
         """Validate that action heads match the action space configuration.

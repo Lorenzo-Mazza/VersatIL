@@ -3,15 +3,13 @@ Reference implementation: Diffusion Policy (https://arxiv.org/abs/2303.04137)
 """
 
 import logging
-from typing import Optional
 
 import torch
 from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.constants import FeatureType
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import DecoderOutputKey, FeatureType
 from versatil.models.decoding.decoders.base import DecoderInput
 from versatil.models.layers.conditional_unet import ConditionalUnet1D
 from versatil.models.decoding.decoders.base import ActionDecoder
@@ -46,7 +44,7 @@ class ConditionalActionUNet(ActionDecoder):
         prediction_horizon: int,
         device: str,
         embedding_dimension: int = 256,
-        down_dimensions: list[int] = None,
+        down_dimensions: list[int] | None = None,
         kernel_size: int = 5,
         num_groups: int = 8,
         use_local_conditioning: bool = False,
@@ -114,8 +112,8 @@ class ConditionalActionUNet(ActionDecoder):
         self.use_local_conditioning = use_local_conditioning
         self.condition_predict_scale = condition_predict_scale
 
-        self._global_conditioning_dimension: Optional[int] = None
-        self._feature_projections: Optional[nn.ModuleDict] = None
+        self._global_conditioning_dimension: int | None = None
+        self._feature_projections: nn.ModuleDict | None = None
         self.unet_conditioning_builder = UNetInputBuilder(
             embedding_dim=embedding_dimension, has_time_dim=self.observation_horizon > 1
         )
@@ -227,7 +225,11 @@ class ConditionalActionUNet(ActionDecoder):
         )  # (B, global_conditioning_dimension)
 
         # Run U-Net denoising
-        assert self._unet is not None, "U-Net should be initialized by now."
+        if self._unet is None:
+            raise RuntimeError(
+                "U-Net should be initialized by now. "
+                "Call _prepare_global_conditioning before running the U-Net."
+            )
         denoised = self._unet(
             noisy_input=noisy_actions,
             timesteps=timesteps,
