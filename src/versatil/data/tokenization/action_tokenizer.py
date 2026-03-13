@@ -20,19 +20,24 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 class ActionTokenizer:
     """Action tokenizer with FAST and language vocabulary mapping support.
-
-    FAST (Frequency-space Action Sequence Tokenization) provides efficient tokenization
-    of multidimensional continuous action sequences into discrete tokens.
-
-    When using language tokenizer, FAST tokens are mapped to the END of the language
-    vocabulary, avoiding special tokens. This allows both text and action tokens to
-    coexist in the same vocabulary space.
+    
+    Note:
+        FAST (Frequency-space Action Sequence Tokenization) provides efficient tokenization
+        of multidimensional continuous action sequences into discrete tokens.
+        When using language tokenizer, FAST tokens are mapped to the END of the language
+        vocabulary, avoiding special tokens. This allows both text and action tokens to
+        coexist in the same vocabulary space.
+        An EOS token is reserved at the end of the vocabulary (ID = original vocab_size).
+        It is appended after real action tokens during encoding and used as the stop signal
+        during autoregressive inference. The EOS position is not masked by is_pad, so the
+        model receives gradient to learn when to stop generating.
 
     Attributes:
         tokenizer_chain: List of tokenizer types to apply
         use_pretrained_fast: Whether to use pretrained FAST weights
         language_tokenizer_model: HuggingFace model for language tokenizer
         fast_vocab_size: FAST tokenizer vocabulary size
+        eos_token_id: EOS token ID reserved at the end of the vocabulary
         device: Target device for tensors
     """
 
