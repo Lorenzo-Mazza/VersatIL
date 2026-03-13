@@ -359,15 +359,17 @@ class FreeActionTransformer(ActionDecoder):
                 next_token = torch.multinomial(
                     probs.squeeze(-1), num_samples=1
                 )  # (B, 1)
+            generated_tokens.append(next_token)
+            if (next_token == self.tokenizer.pad_token_id).all():
+                break
             next_token_embedding = self.token_embedding(
                 next_token
             )  # (B, 1, embedding_dimension)
-            generated_tokens.append(next_token)
 
         return {
             DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.cat(
                 generated_tokens, dim=1
-            ),  # (B, max_seq_len - prefix_len)
+            ),  # (B, num_generated_tokens)
             DecoderOutputKey.LATENT_CODES.value: latent_codes,
             LatentKey.POSTERIOR_LATENT.value: z,
         }
