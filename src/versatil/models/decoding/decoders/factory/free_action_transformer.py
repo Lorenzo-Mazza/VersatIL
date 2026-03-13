@@ -341,7 +341,7 @@ class FreeActionTransformer(ActionDecoder):
                     decoder_cache,
                 ) = self.free_transformer(
                     hidden_states=next_token_embedding,
-                    key_padding_mask=feature_token_mask,
+                    key_padding_mask=None,  # Cached mask handles prefix padding; new token is always valid
                     self_attention_mask=None,  # Causal mask handled internally
                     decoder_cache=decoder_cache,
                     use_cache=True,
