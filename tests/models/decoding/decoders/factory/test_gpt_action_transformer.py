@@ -133,6 +133,7 @@ class TestGPTActionTransformerInitialization:
             max_seq_len=MAX_SEQ_LEN,
             temperature=0.8,
             deterministic=False,
+            device="cpu",
         )
         assert decoder.embedding_dimension == embedding_dimension
         assert decoder.number_of_layers == number_of_layers
@@ -146,6 +147,7 @@ class TestGPTActionTransformerInitialization:
         assert decoder.positional_encoding_type == PositionalEncodingType.ROPE.value
         assert decoder.max_seq_len == MAX_SEQ_LEN
         assert decoder.deterministic is False
+        assert next(decoder.parameters()).device.type == "cpu"
 
     def test_creates_components(
         self,
@@ -416,7 +418,7 @@ class TestGPTActionTransformerForward:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Input token length {expected_token_length} >= max_seq_len {small_max_seq_len}. "
+                f"Input token length {expected_token_length} > max_seq_len {small_max_seq_len}. "
                 "No room for any action tokens. "
                 "Consider increasing max_seq_len or reducing feature token count."
             ),

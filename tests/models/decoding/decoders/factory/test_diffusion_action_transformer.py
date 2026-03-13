@@ -193,7 +193,7 @@ class TestDiffusionActionTransformerInitialization:
             ValueError,
             match=re.escape(
                 f"Unsupported diffusion_transformer_type: invalid_type. "
-                f"Supported types: {[DiTType.CROSS_ATTENTION.value, DiTType.MMDIT.value]}"
+                f"Supported types: {[DiTType.CROSS_ATTENTION.value, DiTType.MMDIT.value]}. "
                 f"Use DiTBlockActionTransformer for type {DiTType.DIT_BLOCK.value}."
             ),
         ):

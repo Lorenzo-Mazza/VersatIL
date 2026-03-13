@@ -14,6 +14,7 @@ from versatil.data.tokenization import Tokenizer
 from versatil.metrics.base import BaseLoss, LossOutput
 from versatil.metrics.components import GripperLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.policy import Policy
 
@@ -385,7 +386,7 @@ class TestPredictAction:
         tokenizer.action_tokenizer = MagicMock()
         policy.tokenizer = tokenizer
         policy.algorithm.predict.return_value = {
-            SampleKey.TOKENIZED_ACTIONS.value: torch.zeros(2, 4),
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.zeros(2, 4),
         }
 
         policy.predict_action(obs_dict=observation)
@@ -438,7 +439,7 @@ class TestPredictAction:
         tokenizer.action_tokenizer = None
         policy.tokenizer = tokenizer
         policy.algorithm.predict.return_value = {
-            SampleKey.TOKENIZED_ACTIONS.value: torch.zeros(2, 4),
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.zeros(2, 4),
         }
         with pytest.raises(
             RuntimeError,
@@ -463,7 +464,7 @@ class TestPredictAction:
         policy = policy_factory()
         policy.tokenizer = None
         policy.algorithm.predict.return_value = {
-            SampleKey.TOKENIZED_ACTIONS.value: torch.zeros(2, 4),
+            DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.zeros(2, 4),
         }
         with pytest.raises(
             RuntimeError,

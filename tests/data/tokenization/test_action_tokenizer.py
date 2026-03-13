@@ -60,14 +60,19 @@ class TestActionTokenizerInit:
         tokenizer = action_tokenizer_factory(use_pretrained_fast=True)
         assert tokenizer.use_pretrained_fast is True
 
-    def test_pretrained_fast_sets_vocab_size_2048(self, action_tokenizer_factory):
+    def test_pretrained_fast_sets_vocab_size(self, action_tokenizer_factory):
+        expected_fast_vocab_size = 2048
+        expected_eos_token_id = expected_fast_vocab_size
+        expected_tokenizer_vocab_size = expected_fast_vocab_size + 1
         tokenizer = action_tokenizer_factory(use_pretrained_fast=True)
-        assert tokenizer.fast_vocab_size == 2048
-        assert tokenizer.vocab_size == 2048
+        assert tokenizer.fast_vocab_size == expected_fast_vocab_size
+        assert tokenizer.eos_token_id == expected_eos_token_id
+        assert tokenizer.vocab_size == expected_tokenizer_vocab_size
 
     def test_custom_fast_sets_vocab_size_1024(self, action_tokenizer_factory):
+        expected_fast_vocab_size = 1024
         tokenizer = action_tokenizer_factory(use_pretrained_fast=False)
-        assert tokenizer.fast_vocab_size == 1024
+        assert tokenizer.fast_vocab_size == expected_fast_vocab_size
 
     def test_pretrained_fast_is_fitted_on_init(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory(use_pretrained_fast=True)
@@ -77,6 +82,7 @@ class TestActionTokenizerInit:
         tokenizer = action_tokenizer_factory(use_pretrained_fast=False)
         assert tokenizer._is_fitted is False
         assert tokenizer.vocab_size is None
+        assert tokenizer.eos_token_id is None
 
     @pytest.mark.parametrize("max_token_len", [64, 128, 256, 512])
     def test_stores_max_token_len(self, action_tokenizer_factory, max_token_len):
@@ -130,7 +136,7 @@ class TestActionTokenizerBuildTokenizers:
             language_tokenizer_model="some-model",
         )
         mock_auto_tokenizer.from_pretrained.assert_called_once_with("some-model")
-        assert tokenizer.vocab_size == 32000
+        assert tokenizer.vocab_size == 32001
 
     def test_language_without_model_raises(self, mock_auto_processor):
         with pytest.raises(
@@ -207,7 +213,8 @@ class TestActionTokenizerFit:
         tokenizer.fast_processor.fit.return_value = tokenizer.fast_processor
         data = action_chunk_factory(batch_size=10)
         tokenizer.fit(data)
-        assert tokenizer.vocab_size == 1024
+        assert tokenizer.eos_token_id == 1024
+        assert tokenizer.vocab_size == 1025
 
     def test_fit_raises_when_processor_none(
         self, action_tokenizer_factory, action_chunk_factory
@@ -360,8 +367,11 @@ class TestActionTokenizerEncodeChunk:
         is_pad = result[SampleKey.IS_PAD_ACTION.value]
         assert tokens.shape == (max_token_len,)
         assert is_pad.shape == (max_token_len,)
-        assert is_pad[:num_tokens].all() == False  # noqa: E712
-        assert is_pad[num_tokens:].all() == True  # noqa: E712
+        # EOS is appended after action tokens and is NOT marked as pad
+        sequence_len = num_tokens + 1  # action tokens + EOS
+        assert is_pad[:sequence_len].all() == False  # noqa: E712
+        assert is_pad[sequence_len:].all() == True  # noqa: E712
+        assert tokens[num_tokens].item() == tokenizer.eos_token_id
 
     def test_encode_chunk_with_pad_mask_filters_valid_actions(
         self, action_tokenizer_factory, action_chunk_factory, pad_mask_factory
@@ -396,6 +406,9 @@ class TestActionTokenizerEncodeChunk:
         assert tokens.shape == (8,)
         is_pad = result[SampleKey.IS_PAD_ACTION.value]
         assert not is_pad.any()
+        # Truncated to max_token_len - 1 action tokens, then EOS appended
+        assert tokens[-1].item() == tokenizer.eos_token_id
+        assert tokens[0].item() == 0  # first token from range(20)
 
     def test_encode_chunk_truncation_logs_warning(
         self, action_tokenizer_factory, action_chunk_factory
@@ -411,11 +424,12 @@ class TestActionTokenizerEncodeChunk:
             mock_logging.warning.assert_called_once()
             assert "truncating" in str(mock_logging.warning.call_args).lower()
 
-    def test_encode_chunk_exact_max_token_len_no_warning(
+    def test_encode_chunk_fits_exactly_with_eos_no_warning(
         self, action_tokenizer_factory, action_chunk_factory
     ):
+        # 4 action tokens + 1 EOS = 5 = max_token_len, no truncation needed
         tokenizer = action_tokenizer_factory(max_token_len=5)
-        tokenizer.fast_processor.side_effect = lambda x: [[10, 20, 30, 40, 50]]
+        tokenizer.fast_processor.side_effect = lambda x: [[10, 20, 30, 40]]
         chunk = action_chunk_factory()
         with patch(
             "versatil.data.tokenization.action_tokenizer.logging"
@@ -426,6 +440,7 @@ class TestActionTokenizerEncodeChunk:
         is_pad = result[SampleKey.IS_PAD_ACTION.value]
         assert tokens.shape == (5,)
         assert not is_pad.any()
+        assert tokens[-1].item() == tokenizer.eos_token_id
 
     def test_encode_chunk_raises_without_fast_processor(
         self, action_tokenizer_factory
@@ -536,6 +551,16 @@ class TestActionTokenizerDecodeChunk:
         call_args = tokenizer.fast_processor.decode.call_args[0][0]
         assert call_args == [[10, 20, 30]]
 
+    def test_decode_chunk_strips_eos_token(self, action_tokenizer_factory):
+        tokenizer = action_tokenizer_factory(pad_token_id=0)
+        eos_id = tokenizer.eos_token_id
+        decoded_array = np.zeros((1, 5, 7), dtype=np.float32)
+        tokenizer.fast_processor.decode.return_value = decoded_array
+        tokens = torch.tensor([10, 20, 30, eos_id, 0, 0])
+        tokenizer.decode_chunk(tokens)
+        call_args = tokenizer.fast_processor.decode.call_args[0][0]
+        assert call_args == [[10, 20, 30]]
+
     def test_decode_chunk_raises_without_fast_processor(
         self, action_tokenizer_factory
     ):
@@ -587,6 +612,18 @@ class TestActionTokenizerDecodeBatch:
         call_args = tokenizer.fast_processor.decode.call_args[0][0]
         assert call_args[0] == [10, 20]
         assert call_args[1] == [30, 40, 50]
+
+    def test_decode_batch_strips_eos_per_sample(self, action_tokenizer_factory):
+        tokenizer = action_tokenizer_factory(pad_token_id=0)
+        eos_id = tokenizer.eos_token_id
+        tokenizer.fast_processor.decode.return_value = np.zeros(
+            (2, 5, 7), dtype=np.float32
+        )
+        tokens = torch.tensor([[10, 20, eos_id, 0], [30, eos_id, 0, 0]])
+        tokenizer.decode_batch(tokens)
+        call_args = tokenizer.fast_processor.decode.call_args[0][0]
+        assert call_args[0] == [10, 20]
+        assert call_args[1] == [30]
 
     def test_decode_batch_raises_without_fast_processor(
         self, action_tokenizer_factory
@@ -677,6 +714,7 @@ class TestActionTokenizerStateDict:
             "fast_vocab_size",
             "num_special_tokens_to_skip",
             "vocab_size",
+            "eos_token_id",
             "is_fitted",
         }
         assert set(state.keys()) == expected_keys
@@ -706,7 +744,8 @@ class TestActionTokenizerStateDict:
         assert state["fast_vocab_size"] == expected_fast_vocab
         assert state["num_special_tokens_to_skip"] == num_special_tokens_to_skip
         assert state["is_fitted"] is True
-        assert state["vocab_size"] == expected_fast_vocab
+        assert state["eos_token_id"] == expected_fast_vocab
+        assert state["vocab_size"] == expected_fast_vocab + 1
 
 
 class TestActionTokenizerLoadStateDict:
@@ -751,6 +790,7 @@ class TestActionTokenizerLoadStateDict:
         skip_tokens,
         vocab_size,
     ):
+        eos_token_id = vocab_size - 1
         tokenizer = action_tokenizer_factory()
         state = {
             "tokenizer_chain": tokenizer_chain,
@@ -759,6 +799,7 @@ class TestActionTokenizerLoadStateDict:
             "fast_vocab_size": fast_vocab,
             "num_special_tokens_to_skip": skip_tokens,
             "vocab_size": vocab_size,
+            "eos_token_id": eos_token_id,
             "is_fitted": True,
         }
         tokenizer.load_state_dict(state)
@@ -768,7 +809,24 @@ class TestActionTokenizerLoadStateDict:
         assert tokenizer.fast_vocab_size == fast_vocab
         assert tokenizer.num_special_tokens_to_skip == skip_tokens
         assert tokenizer.vocab_size == vocab_size
+        assert tokenizer.eos_token_id == eos_token_id
         assert tokenizer._is_fitted is True
+
+    def test_load_state_dict_without_eos_token_id_defaults_to_none(
+        self, action_tokenizer_factory
+    ):
+        tokenizer = action_tokenizer_factory()
+        state = {
+            "tokenizer_chain": [TokenizerType.FAST.value],
+            "use_pretrained_fast": True,
+            "language_tokenizer_model": None,
+            "fast_vocab_size": 2048,
+            "num_special_tokens_to_skip": 128,
+            "vocab_size": 2048,
+            "is_fitted": True,
+        }
+        tokenizer.load_state_dict(state)
+        assert tokenizer.eos_token_id is None
 
 
 class TestActionTokenizerSavePretrained:

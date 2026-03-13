@@ -201,3 +201,54 @@ class TestPositionalEncoding1DForward:
         # All batch elements should have the same positional encoding
         assert torch.allclose(output[0], output[1], atol=1e-7)
         assert torch.allclose(output[1], output[2], atol=1e-7)
+
+    @pytest.mark.parametrize("precompute_encodings", [True, False])
+    def test_offset_matches_full_sequence_slice(
+        self,
+        sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        precompute_encodings: bool,
+    ):
+        embedding_dimension = 64
+        full_seq_len = 20
+        sub_seq_len = 5
+        offset = 10
+        module = sinusoidal_1d_factory(
+            embedding_dimension=embedding_dimension,
+            position_source=PositionSource.TENSOR_INDICES.value,
+            precompute_encodings=precompute_encodings,
+            maximum_length=100,
+        )
+        full_tensor = sequence_tensor_factory(
+            batch_size=2, seq_len=full_seq_len, embedding_dimension=embedding_dimension,
+        )
+        sub_tensor = sequence_tensor_factory(
+            batch_size=2, seq_len=sub_seq_len, embedding_dimension=embedding_dimension,
+        )
+        full_output = module(full_tensor)
+        offset_output = module(sub_tensor, offset=offset)
+        # Encodings with offset should match the corresponding slice from full sequence
+        assert torch.allclose(
+            full_output[:, offset:offset + sub_seq_len, :],
+            offset_output,
+            atol=1e-6,
+        )
+
+    def test_offset_zero_is_default_behavior(
+        self,
+        sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 64
+        module = sinusoidal_1d_factory(
+            embedding_dimension=embedding_dimension,
+            position_source=PositionSource.TENSOR_INDICES.value,
+            precompute_encodings=True,
+            maximum_length=100,
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=2, seq_len=10, embedding_dimension=embedding_dimension,
+        )
+        output_default = module(tensor)
+        output_explicit = module(tensor, offset=0)
+        assert torch.equal(output_default, output_explicit)

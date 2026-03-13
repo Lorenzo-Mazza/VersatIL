@@ -78,11 +78,11 @@ class TestMakeAttentionMask:
             action_tokens=action_tokens,
             feature_tokens=feature_tokens,
         )
-        # Check the action-to-action block is upper triangular (True on and above diagonal)
+        # Check the action-to-action block is strictly upper triangular (True above diagonal = masked future)
         action_block = full_mask[0, 0, prefix_len:, prefix_len:]
         for i in range(action_len):
             for j in range(action_len):
-                if j >= i:
+                if j > i:
                     assert action_block[i, j].item() is True
                 else:
                     assert action_block[i, j].item() is False

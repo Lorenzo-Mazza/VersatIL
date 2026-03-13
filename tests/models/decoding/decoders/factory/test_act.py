@@ -252,6 +252,7 @@ class TestACTForward:
         noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
     ):
         decoder = act_factory()
+        decoder.eval()
         features = spatial_feature_factory(
             batch_size=BATCH_SIZE,
             channels=EMBEDDING_DIMENSION,
@@ -262,21 +263,9 @@ class TestACTForward:
         predictions_without = decoder(features=features)
         predictions_with = decoder(features=features, actions=dummy_actions)
         assert set(predictions_without.keys()) == set(predictions_with.keys())
+        for key in predictions_without:
+            assert torch.equal(predictions_without[key], predictions_with[key])
 
-    def test_normalize_before_flag(
-        self,
-        act_factory: Callable[..., ACT],
-        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
-        decoder = act_factory(normalize_before=True)
-        features = spatial_feature_factory(
-            batch_size=BATCH_SIZE,
-            channels=EMBEDDING_DIMENSION,
-            height=SPATIAL_HEIGHT,
-            width=SPATIAL_WIDTH,
-        )
-        predictions = decoder(features=features)
-        assert set(predictions.keys()) == set(decoder.action_heads.keys())
 
 
 class TestACTTemporalObservation:

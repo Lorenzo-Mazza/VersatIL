@@ -323,5 +323,5 @@ class TestDiTBlockActionTransformerCaching:
         features_second = flat_features_with_timestep_factory(feature_dim=FEATURE_DIMENSION)
         decoder(features=features_second, actions=actions)
         second_cache = decoder._encoder_cache
-        # Cache should be updated (not the same object necessarily, but present)
-        assert second_cache is not None
+        # Cache object from first forward should be reused, not recomputed
+        assert first_cache is second_cache

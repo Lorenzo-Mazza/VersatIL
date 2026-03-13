@@ -398,7 +398,7 @@ class TestFreeActionTransformerForward:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Input token length {expected_token_length} >= max_seq_len {small_max_seq_len}. "
+                f"Input token length {expected_token_length} > max_seq_len {small_max_seq_len}. "
                 "No room for any action tokens. "
                 "Consider increasing max_seq_len or reducing feature token count."
             ),
