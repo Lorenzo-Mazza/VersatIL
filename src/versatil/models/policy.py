@@ -18,6 +18,7 @@ from versatil.data.transform import (
 from versatil.metrics.base import BaseLoss, LossOutput
 from versatil.metrics.components import GripperLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.encoding.pipeline import EncodingPipeline
 
@@ -175,8 +176,8 @@ class Policy(nn.Module):
             )
         features = self.encoding_pipeline(normalized_obs)
         predictions = self.algorithm.predict(features=features, network=self.decoder)
-        if SampleKey.TOKENIZED_ACTIONS.value in predictions:
-            action_tokens = predictions[SampleKey.TOKENIZED_ACTIONS.value]
+        if DecoderOutputKey.PREDICTED_ACTION_TOKENS.value in predictions:
+            action_tokens = predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
             if self.tokenizer is None or self.tokenizer.action_tokenizer is None:
                 raise RuntimeError(
                     "Action tokenizer not set. Cannot detokenize actions."

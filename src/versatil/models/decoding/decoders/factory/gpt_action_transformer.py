@@ -387,5 +387,5 @@ class GPTActionTransformer(ActionDecoder):
         return {
             DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.cat(
                 generated_tokens, dim=1
-            )  # (B, max_seq_len)
+            )  # (B, max_seq_len - prefix_len)
         }

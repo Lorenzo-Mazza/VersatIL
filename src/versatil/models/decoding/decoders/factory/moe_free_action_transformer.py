@@ -211,7 +211,7 @@ class MoEFreeActionTransformer(FreeActionTransformer):
         return {
             DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.cat(
                 generated_tokens, dim=1
-            ),  # (B, max_seq_len)
+            ),  # (B, max_seq_len - prefix_len)
             f"{DecoderOutputKey.ACTION_LOGITS.value}_{DecoderOutputKey.ROUTING_WEIGHTS.value}": torch.cat(
                 expert_usages, dim=1
             ),  # (B, max_seq_len, num_experts)

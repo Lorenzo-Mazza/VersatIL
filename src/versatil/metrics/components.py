@@ -1059,11 +1059,9 @@ class ActionTokenLoss(BaseLoss):
             DecoderOutputKey.ACTION_LOGITS.value
         ]  # (B, num_tokens, vocab_size)
         target_tokens = targets[SampleKey.TOKENIZED_ACTIONS.value]  # (B, num_tokens)
-        vocab_size = pred_logits.shape[-1]
-        num_tokens = pred_logits.shape[1]
-        logits = pred_logits.view(
-            -1, vocab_size, num_tokens
-        )  # (B, vocab_size, num_tokens)
+        token_sequence_dim = 1
+        vocabulary_size_dim = 2
+        logits = pred_logits.transpose(token_sequence_dim, vocabulary_size_dim)  # (B, vocab_size, num_tokens)
         ce_loss = F.cross_entropy(
             logits,
             target_tokens,
