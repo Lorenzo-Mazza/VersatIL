@@ -120,7 +120,7 @@ class TestMLPBlockForward:
             hidden_dims=hidden_dims,
             output_dim=output_dim,
         )
-        embedding = embedding_tensor_factory(embedding_dim=64)
+        embedding = embedding_tensor_factory(embedding_dimension=64)
         result = block(embedding)
         expected_last_dim = output_dim if output_dim is not None else hidden_dims[-1]
         assert result.shape == (2, 8, expected_last_dim)
@@ -134,7 +134,7 @@ class TestMLPBlockForward:
         block_relu = mlp_block_factory(activation=ActivationFunction.RELU.value)
         # Use same weights so only activation differs
         block_relu.load_state_dict(block_gelu.state_dict())
-        embedding = embedding_tensor_factory(embedding_dim=64)
+        embedding = embedding_tensor_factory(embedding_dimension=64)
         result_gelu = block_gelu(embedding)
         result_relu = block_relu(embedding)
         assert not torch.allclose(result_gelu, result_relu)
@@ -174,7 +174,7 @@ class TestAttentionBlockForward:
         embedding_tensor_factory: Callable[..., torch.Tensor],
     ):
         block = attention_block_factory(embedding_dimension=64)
-        embedding = embedding_tensor_factory(embedding_dim=64)
+        embedding = embedding_tensor_factory(embedding_dimension=64)
         result = block(embedding)
         assert result.shape == embedding.shape
 
@@ -184,7 +184,7 @@ class TestAttentionBlockForward:
         embedding_tensor_factory: Callable[..., torch.Tensor],
     ):
         block = attention_block_factory(embedding_dimension=64, dropout=0.0)
-        embedding = embedding_tensor_factory(embedding_dim=64)
+        embedding = embedding_tensor_factory(embedding_dimension=64)
         normalized = block.norm(embedding)
         attention_output, _ = block.attention(normalized, normalized, normalized)
         result = block(embedding)
@@ -218,7 +218,7 @@ class TestResidualBlockForward:
     ):
         inner = MLPBlock(input_dim=64, hidden_dims=[64])
         block = ResidualBlock(block=inner)
-        embedding = embedding_tensor_factory(embedding_dim=64)
+        embedding = embedding_tensor_factory(embedding_dimension=64)
         result = block(embedding)
         assert result.shape == embedding.shape
 
@@ -228,7 +228,7 @@ class TestResidualBlockForward:
     ):
         inner = MLPBlock(input_dim=64, hidden_dims=[64])
         block = ResidualBlock(block=inner)
-        embedding = embedding_tensor_factory(embedding_dim=64)
+        embedding = embedding_tensor_factory(embedding_dimension=64)
         inner_output = inner(embedding)
         result = block(embedding)
         assert torch.allclose(result, embedding + inner_output)

@@ -1,78 +1,29 @@
 """Tests for versatil.models.layers.modulation.conditional_modulation module."""
 import re
 from collections.abc import Callable
+from contextlib import nullcontext as does_not_raise
 
 import numpy as np
 import pytest
 import torch
 import torch.nn as nn
 
+from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.modulation.conditional_modulation import (
     ConditionalModulation,
 )
 
 
 @pytest.fixture
-def cnn_input_factory(
-    rng: np.random.Generator,
-) -> Callable[..., torch.Tensor]:
-    """Factory for CNN feature maps (B, C, H, W)."""
-    def factory(
-        batch_size: int = 2,
-        channels: int = 16,
-        height: int = 8,
-        width: int = 8,
-    ) -> torch.Tensor:
-        data = rng.standard_normal(
-            (batch_size, channels, height, width)
-        ).astype(np.float32)
-        return torch.from_numpy(data)
-    return factory
-
-
-@pytest.fixture
-def transformer_input_factory(
-    rng: np.random.Generator,
-) -> Callable[..., torch.Tensor]:
-    """Factory for transformer inputs (B, S, D)."""
-    def factory(
-        batch_size: int = 2,
-        sequence_length: int = 10,
-        feature_dim: int = 16,
-    ) -> torch.Tensor:
-        data = rng.standard_normal(
-            (batch_size, sequence_length, feature_dim)
-        ).astype(np.float32)
-        return torch.from_numpy(data)
-    return factory
-
-
-@pytest.fixture
-def conv1d_input_factory(
-    rng: np.random.Generator,
-) -> Callable[..., torch.Tensor]:
-    """Factory for Conv1D inputs (B, C, T)."""
-    def factory(
-        batch_size: int = 2,
-        channels: int = 16,
-        time_steps: int = 20,
-    ) -> torch.Tensor:
-        data = rng.standard_normal(
-            (batch_size, channels, time_steps)
-        ).astype(np.float32)
-        return torch.from_numpy(data)
-    return factory
-
-
-@pytest.fixture
 def modulation_factory() -> Callable[..., ConditionalModulation]:
     """Factory for ConditionalModulation instances."""
+
     def factory(
         condition_dim: int = 32,
         feature_dim: int = 16,
         use_shift: bool = True,
         use_gate: bool = False,
-        activation: str = "silu",
+        activation: str = ActivationFunction.SILU.value,
         init_strategy: str = "identity",
     ) -> ConditionalModulation:
         return ConditionalModulation(
@@ -83,6 +34,7 @@ def modulation_factory() -> Callable[..., ConditionalModulation]:
             activation=activation,
             init_strategy=init_strategy,
         )
+
     return factory
 
 
@@ -109,173 +61,310 @@ class TestConditionalModulationInitialization:
         assert module.feature_dim == feature_dim
         assert module.use_shift == use_shift
         assert module.use_gate == use_gate
+        assert module.output_dim == feature_dim * (1 + use_shift + use_gate)
 
-    @pytest.mark.parametrize("use_shift, use_gate, expected_multiplier", [
-        (False, False, 1),
-        (True, False, 2),
-        (False, True, 2),
-        (True, True, 3),
-    ])
-    def test_output_dim_calculation(
+    @pytest.mark.parametrize(
+        "init_strategy, expectation",
+        [
+            ("identity", does_not_raise()),
+            ("xavier", does_not_raise()),
+            ("zero", does_not_raise()),
+            (
+                "unknown_strategy",
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("Unknown init_strategy: unknown_strategy"),
+                ),
+            ),
+        ],
+    )
+    def test_init_strategy_validation(
         self,
         modulation_factory: Callable[..., ConditionalModulation],
-        use_shift: bool,
-        use_gate: bool,
-        expected_multiplier: int,
+        init_strategy: str,
+        expectation,
     ):
-        feature_dim = 16
-        module = modulation_factory(
-            feature_dim=feature_dim,
-            use_shift=use_shift,
-            use_gate=use_gate,
-        )
-        assert module.output_dim == feature_dim * expected_multiplier
+        with expectation:
+            module = modulation_factory(init_strategy=init_strategy)
+            assert module.init_strategy == init_strategy
 
-    @pytest.mark.parametrize("init_strategy", ["identity", "xavier", "zero"])
-    def test_valid_init_strategies(
+    @pytest.mark.parametrize("init_strategy", ["identity", "zero"])
+    def test_identity_and_zero_init_zero_all_projection_weights(
         self,
         modulation_factory: Callable[..., ConditionalModulation],
         init_strategy: str,
     ):
         module = modulation_factory(init_strategy=init_strategy)
-        assert module.init_strategy == init_strategy
+        for layer in module.projection.modules():
+            if isinstance(layer, nn.Linear):
+                assert torch.all(layer.weight == 0)
+                assert torch.all(layer.bias == 0)
 
-    def test_invalid_init_strategy_raises(
+    def test_xavier_init_produces_nonzero_weights_with_zero_biases(
         self,
         modulation_factory: Callable[..., ConditionalModulation],
     ):
-        invalid_strategy = "unknown_strategy"
-        with pytest.raises(
-            ValueError,
-            match=re.escape(f"Unknown init_strategy: {invalid_strategy}"),
-        ):
-            modulation_factory(init_strategy=invalid_strategy)
+        module = modulation_factory(init_strategy="xavier")
+        for layer in module.projection.modules():
+            if isinstance(layer, nn.Linear):
+                assert torch.any(layer.weight != 0)
+                assert torch.all(layer.bias == 0)
 
-    def test_inherits_nn_module(
+    def test_init_marks_linear_layers_for_modulation(
         self,
         modulation_factory: Callable[..., ConditionalModulation],
     ):
+        module = modulation_factory(init_strategy="identity")
+        linear_layers = [
+            m for m in module.projection.modules() if isinstance(m, nn.Linear)
+        ]
+        assert len(linear_layers) > 0
+        for layer in linear_layers:
+            assert getattr(layer, "_is_modulation_layer", False) is True
+
+    def test_swiglu_activation_forward_produces_valid_output(
+        self,
+        modulation_factory: Callable[..., ConditionalModulation],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        feature_dim = 16
         module = modulation_factory(
             condition_dim=32,
-            feature_dim=16,
-            use_shift=True,
-            use_gate=False,
+            feature_dim=feature_dim,
+            activation=ActivationFunction.SWIGLU.value,
+            init_strategy="xavier",
         )
-        assert isinstance(module, nn.Module)
+        tensor = nchw_tensor_factory(batch_size=2, channels=feature_dim)
+        condition = condition_factory(batch_size=2, condition_dim=32)
+        with torch.no_grad():
+            output = module(x=tensor, condition=condition)
+        assert output.shape == tensor.shape
 
 
 class TestConditionalModulationForward:
 
-    def test_4d_cnn_output_shape(
+    @pytest.mark.parametrize("use_shift", [True, False])
+    def test_identity_init_produces_no_modulation_effect(
         self,
         modulation_factory: Callable[..., ConditionalModulation],
-        cnn_input_factory: Callable[..., torch.Tensor],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+        use_shift: bool,
+    ):
+        feature_dim = 16
+        module = modulation_factory(
+            condition_dim=32,
+            feature_dim=feature_dim,
+            use_shift=use_shift,
+            init_strategy="identity",
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=2, sequence_length=10, embedding_dimension=feature_dim,
+        )
+        condition = condition_factory(batch_size=2, condition_dim=32)
+        with torch.no_grad():
+            output = module(x=tensor, condition=condition)
+        # gamma=0, beta=0 → x * (1+0) + 0 = x
+        assert torch.allclose(output, tensor, atol=1e-6)
+
+    def test_xavier_init_produces_modulation_effect(
+        self,
+        modulation_factory: Callable[..., ConditionalModulation],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
         feature_dim = 16
         module = modulation_factory(
             condition_dim=32,
             feature_dim=feature_dim,
-            use_gate=False,
+            init_strategy="xavier",
         )
-        tensor = cnn_input_factory(
-            batch_size=2,
-            channels=feature_dim,
-            height=8,
-            width=8,
+        tensor = sequence_tensor_factory(
+            batch_size=2, sequence_length=10, embedding_dimension=feature_dim,
         )
         condition = condition_factory(batch_size=2, condition_dim=32)
-        output = module(tensor, condition)
+        with torch.no_grad():
+            output = module(x=tensor, condition=condition)
+        assert not torch.allclose(output, tensor)
+
+    def test_different_conditions_produce_different_outputs(
+        self,
+        modulation_factory: Callable[..., ConditionalModulation],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        feature_dim = 16
+        module = modulation_factory(
+            condition_dim=32,
+            feature_dim=feature_dim,
+            init_strategy="xavier",
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=2, sequence_length=10, embedding_dimension=feature_dim,
+        )
+        condition_a = condition_factory(batch_size=2, condition_dim=32)
+        condition_b = condition_factory(batch_size=2, condition_dim=32)
+        with torch.no_grad():
+            output_a = module(x=tensor, condition=condition_a)
+            output_b = module(x=tensor, condition=condition_b)
+        assert not torch.allclose(output_a, output_b)
+
+    def test_scale_only_without_shift(
+        self,
+        modulation_factory: Callable[..., ConditionalModulation],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        feature_dim = 16
+        module = modulation_factory(
+            condition_dim=32,
+            feature_dim=feature_dim,
+            use_shift=False,
+            init_strategy="xavier",
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=2, sequence_length=10, embedding_dimension=feature_dim,
+        )
+        condition = condition_factory(batch_size=2, condition_dim=32)
+        with torch.no_grad():
+            projected = module.projection(condition)
+            gamma = projected.split(feature_dim, dim=-1)[0]
+            gamma_reshaped = gamma.unsqueeze(1)
+            expected = tensor * (1 + gamma_reshaped)
+            output = module(x=tensor, condition=condition)
+        assert torch.allclose(output, expected, atol=1e-5)
+
+    def test_film_formula_with_shift(
+        self,
+        modulation_factory: Callable[..., ConditionalModulation],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        feature_dim = 16
+        module = modulation_factory(
+            condition_dim=32,
+            feature_dim=feature_dim,
+            use_shift=True,
+            init_strategy="xavier",
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=2, sequence_length=10, embedding_dimension=feature_dim,
+        )
+        condition = condition_factory(batch_size=2, condition_dim=32)
+        with torch.no_grad():
+            projected = module.projection(condition)
+            chunks = projected.split(feature_dim, dim=-1)
+            gamma = chunks[0].unsqueeze(1)
+            beta = chunks[1].unsqueeze(1)
+            expected = tensor * (1 + gamma) + beta
+            output = module(x=tensor, condition=condition)
+        assert torch.allclose(output, expected, atol=1e-5)
+
+    def test_4d_cnn_path_preserves_shape(
+        self,
+        modulation_factory: Callable[..., ConditionalModulation],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        feature_dim = 16
+        module = modulation_factory(
+            condition_dim=32, feature_dim=feature_dim,
+        )
+        tensor = nchw_tensor_factory(batch_size=2, channels=feature_dim, height=8, width=8)
+        condition = condition_factory(batch_size=2, condition_dim=32)
+        output = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
 
-    def test_3d_transformer_output_shape(
+    def test_3d_conv1d_path_when_feature_dim_in_dim_1(
         self,
         modulation_factory: Callable[..., ConditionalModulation],
-        transformer_input_factory: Callable[..., torch.Tensor],
+        conv1d_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
         feature_dim = 16
         module = modulation_factory(
-            condition_dim=32,
-            feature_dim=feature_dim,
-            use_gate=False,
+            condition_dim=32, feature_dim=feature_dim,
         )
-        tensor = transformer_input_factory(
-            batch_size=2,
-            sequence_length=10,
-            feature_dim=feature_dim,
+        # (B=2, C=16, T=20) — C matches feature_dim → Conv1D path
+        tensor = conv1d_tensor_factory(
+            batch_size=2, channels=feature_dim, sequence_length=20,
         )
         condition = condition_factory(batch_size=2, condition_dim=32)
-        output = module(tensor, condition)
+        output = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
 
-    def test_3d_conv1d_output_shape(
+    def test_3d_transformer_path_when_feature_dim_in_dim_2(
         self,
         modulation_factory: Callable[..., ConditionalModulation],
-        conv1d_input_factory: Callable[..., torch.Tensor],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
         feature_dim = 16
         module = modulation_factory(
-            condition_dim=32,
-            feature_dim=feature_dim,
-            use_gate=False,
+            condition_dim=32, feature_dim=feature_dim,
         )
-        tensor = conv1d_input_factory(
-            batch_size=2,
-            channels=feature_dim,
-            time_steps=20,
+        # (B=2, S=10, D=16) — S != feature_dim, D matches → Transformer path
+        tensor = sequence_tensor_factory(
+            batch_size=2, sequence_length=10, embedding_dimension=feature_dim,
         )
         condition = condition_factory(batch_size=2, condition_dim=32)
-        output = module(tensor, condition)
+        output = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
 
-    def test_use_gate_returns_tuple(
-        self,
-        modulation_factory: Callable[..., ConditionalModulation],
-        cnn_input_factory: Callable[..., torch.Tensor],
-        condition_factory: Callable[..., torch.Tensor],
-    ):
-        feature_dim = 16
-        module = modulation_factory(
-            condition_dim=32,
-            feature_dim=feature_dim,
-            use_gate=True,
-        )
-        tensor = cnn_input_factory(
-            batch_size=2,
-            channels=feature_dim,
-            height=8,
-            width=8,
-        )
-        condition = condition_factory(batch_size=2, condition_dim=32)
-        result = module(tensor, condition)
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-        modulated, gate = result
-        assert modulated.shape == tensor.shape
-        # Gate is broadcast-shaped: (B, C, 1, 1) for 4D CNN inputs
-        assert gate.shape == (2, feature_dim, 1, 1)
-
-    def test_unsupported_input_shape_raises(
+    def test_3d_batch_in_dim_1_path(
         self,
         rng: np.random.Generator,
         modulation_factory: Callable[..., ConditionalModulation],
         condition_factory: Callable[..., torch.Tensor],
     ):
+        feature_dim = 16
+        batch_size = 2
         module = modulation_factory(
-            condition_dim=32,
-            feature_dim=16,
+            condition_dim=32, feature_dim=feature_dim,
         )
-        # 2D input is not supported
-        data = rng.standard_normal((2, 16)).astype(np.float32)
+        # (S=5, B=2, D=16) — x.size(1)==condition.size(0)
+        data = rng.standard_normal((5, batch_size, feature_dim)).astype(np.float32)
         tensor = torch.from_numpy(data)
+        condition = condition_factory(batch_size=batch_size, condition_dim=32)
+        output = module(x=tensor, condition=condition)
+        assert output.shape == tensor.shape
+
+    def test_gate_returns_tuple_with_correct_shapes(
+        self,
+        modulation_factory: Callable[..., ConditionalModulation],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        feature_dim = 16
+        module = modulation_factory(
+            condition_dim=32, feature_dim=feature_dim, use_gate=True,
+        )
+        tensor = nchw_tensor_factory(batch_size=2, channels=feature_dim, height=8, width=8)
         condition = condition_factory(batch_size=2, condition_dim=32)
-        with pytest.raises(
-            ValueError,
-            match=re.escape(f"Unsupported input shape: {tensor.shape}"),
-        ):
-            module(tensor, condition)
+        result = module(x=tensor, condition=condition)
+        assert len(result) == 2
+        modulated, gate = result
+        assert modulated.shape == tensor.shape
+        assert gate.shape == (2, feature_dim, 1, 1)
+
+    def test_no_gate_returns_single_tensor(
+        self,
+        modulation_factory: Callable[..., ConditionalModulation],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        feature_dim = 16
+        module = modulation_factory(
+            condition_dim=32, feature_dim=feature_dim, use_gate=False,
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=2, sequence_length=10, embedding_dimension=feature_dim,
+        )
+        condition = condition_factory(batch_size=2, condition_dim=32)
+        output = module(x=tensor, condition=condition)
+        # Accessing .shape would fail on a tuple
+        assert output.shape == tensor.shape
 
     def test_batch_dimension_mismatch_raises(
         self,
@@ -284,11 +373,7 @@ class TestConditionalModulationForward:
         condition_factory: Callable[..., torch.Tensor],
     ):
         feature_dim = 16
-        module = modulation_factory(
-            condition_dim=32,
-            feature_dim=feature_dim,
-        )
-        # 3D tensor where neither dim 0 nor dim 1 matches condition batch size
+        module = modulation_factory(condition_dim=32, feature_dim=feature_dim)
         data = rng.standard_normal((5, 7, feature_dim)).astype(np.float32)
         tensor = torch.from_numpy(data)
         condition = condition_factory(batch_size=3, condition_dim=32)
@@ -301,4 +386,19 @@ class TestConditionalModulationForward:
                 f"condition.size(0)={condition.size(0)}"
             ),
         ):
-            module(tensor, condition)
+            module(x=tensor, condition=condition)
+
+    def test_unsupported_2d_input_raises(
+        self,
+        modulation_factory: Callable[..., ConditionalModulation],
+        flat_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        module = modulation_factory(condition_dim=32, feature_dim=16)
+        tensor = flat_tensor_factory(batch_size=2, feature_dimension=16)
+        condition = condition_factory(batch_size=2, condition_dim=32)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(f"Unsupported input shape: {tensor.shape}"),
+        ):
+            module(x=tensor, condition=condition)

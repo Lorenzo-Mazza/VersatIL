@@ -2,7 +2,7 @@
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, PropertyMock
 
 import pytest
 import torch
@@ -16,6 +16,9 @@ from versatil.models.decoding.constants import (
     DecoderOutputKey,
     PredictionType,
     VarianceType,
+)
+from versatil.models.decoding.decoders.factory.dit_block_action_transformer import (
+    DiTBlockActionTransformer,
 )
 from versatil.models.layers.denoising.diffusion_process import SchedulerType
 
@@ -231,6 +234,34 @@ class TestDiffusionForward:
         assert not torch.equal(target["position_action"], noise["position_action"])
         assert not torch.equal(target["position_action"], actions["position_action"])
 
+    def test_forward_with_multiple_action_keys(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        diff = diffusion_factory(prediction_type=PredictionType.EPSILON.value)
+        action_keys = ["gripper_action", "position_action"]
+        mock_network = mock_action_decoder_factory(
+            action_keys=action_keys, prediction_dimension=3,
+        )
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=action_keys, prediction_horizon=8, action_dimension=3,
+            include_padding_mask=True,
+        )
+        mock_network.return_value = {
+            key: torch.zeros(2, 8, 3) for key in action_keys
+        }
+        result = diff.forward(network=mock_network, features=features, actions=actions)
+        target = result[DecoderOutputKey.TARGET_DIFFUSION.value]
+        noise = result[DecoderOutputKey.NOISE.value]
+        for key in action_keys:
+            assert key in target
+            assert key in noise
+            assert torch.equal(target[key], noise[key])
+
     def test_invalid_prediction_type_raises(
         self,
         diffusion_factory: Callable[..., Diffusion],
@@ -288,3 +319,62 @@ class TestDiffusionPredict:
         )
         result = diff.predict(network=mock_network, features=features)
         assert result["position_action"].shape == (2, 8, 3)
+
+    def test_predict_enables_and_disables_encoder_cache_for_dit_block(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        diff = diffusion_factory(num_inference_steps=2, num_train_timesteps=10)
+        mock_network = MagicMock()
+        # Make isinstance check pass for DiTBlockActionTransformer
+        mock_network.__class__ = DiTBlockActionTransformer
+        mock_network.action_space.actions_metadata = {
+            "position_action": MagicMock(
+                requires_prediction_head=True, prediction_dimension=3
+            ),
+        }
+        mock_network.prediction_horizon = 8
+        mock_network.return_value = {"position_action": torch.zeros(2, 8, 3)}
+        diff.noise_scheduler.step = MagicMock(
+            return_value=StepOutput(prev_sample=torch.zeros(2, 8, 3))
+        )
+        features = feature_dictionary_factory()
+        diff.predict(network=mock_network, features=features)
+        mock_network.enable_encoder_cache.assert_called_once()
+        mock_network.disable_encoder_cache.assert_called_once()
+
+    def test_predict_does_not_call_cache_for_non_dit_block(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        diff = diffusion_factory(num_inference_steps=2, num_train_timesteps=10)
+        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
+        features = feature_dictionary_factory()
+        diff.noise_scheduler.step = MagicMock(
+            return_value=StepOutput(prev_sample=torch.zeros(2, 8, 3))
+        )
+        diff.predict(network=mock_network, features=features)
+        assert not hasattr(mock_network, "enable_encoder_cache") or not mock_network.enable_encoder_cache.called
+
+    def test_predict_with_multiple_action_keys(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        diff = diffusion_factory(num_inference_steps=2, num_train_timesteps=10)
+        action_keys = ["gripper_action", "position_action"]
+        mock_network = mock_action_decoder_factory(
+            action_keys=action_keys, prediction_dimension=3,
+        )
+        features = feature_dictionary_factory()
+        diff.noise_scheduler.step = MagicMock(
+            return_value=StepOutput(prev_sample=torch.zeros(2, 8, 3))
+        )
+        result = diff.predict(network=mock_network, features=features)
+        assert set(result.keys()) == set(action_keys)
+        for key in action_keys:
+            assert result[key].shape == (2, 8, 3)

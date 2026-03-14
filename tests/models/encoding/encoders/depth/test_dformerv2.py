@@ -18,7 +18,6 @@ from versatil.models.encoding.encoders.depth.dformerv2 import (
     DFormerStage,
     DFormerVariant,
 )
-from versatil.models.encoding.encoders.unconditional import Encoder
 from versatil.models.layers.constants import AttentionDecompositionMode
 
 
@@ -122,16 +121,38 @@ class TestDFormerStageInitialization:
         assert stage.embedding_dimension == embedding_dimension
         assert len(stage.blocks) == num_blocks
         assert stage.downsample is None
-        assert isinstance(stage.norm, nn.LayerNorm)
         assert stage.norm.normalized_shape == (embedding_dimension,)
 
-    def test_stores_downsample_module(
+    def test_downsample_module_is_used_in_forward(
         self,
         dformer_stage_factory: Callable[..., DFormerStage],
+        rng: np.random.Generator,
     ):
+        embedding_dimension = 16
+        output_dimension = 32
+        batch_size = 2
+        height = 8
+        width = 8
         mock_downsample = MagicMock(spec=nn.Module)
-        stage = dformer_stage_factory(downsample=mock_downsample)
-        assert stage.downsample is mock_downsample
+        mock_downsample.return_value = torch.zeros(
+            batch_size, height // 2, width // 2, output_dimension,
+        )
+        stage = dformer_stage_factory(
+            embedding_dimension=embedding_dimension,
+            downsample=mock_downsample,
+        )
+        rgb_features = torch.from_numpy(
+            rng.standard_normal(
+                (batch_size, height, width, embedding_dimension)
+            ).astype(np.float32)
+        )
+        depth_map = torch.from_numpy(
+            rng.standard_normal(
+                (batch_size, 1, height, width)
+            ).astype(np.float32)
+        )
+        stage(rgb_features=rgb_features, depth_map=depth_map)
+        mock_downsample.assert_called_once()
 
 
 class TestDFormerStageForward:
@@ -287,15 +308,16 @@ class TestDFormerEncoderInitialization:
         assert encoder.embed_dims == DFormerEncoder.VARIANT_CONFIGS[variant]["embed_dims"]
         assert encoder.feature_dim == encoder.embed_dims[-1]
 
-    def test_inherits_from_encoder(
+    def test_has_encoder_interface(
         self,
         dformer_encoder_factory: Callable[..., DFormerEncoder],
     ):
         encoder = dformer_encoder_factory()
-        assert isinstance(encoder, Encoder)
+        assert hasattr(encoder, "forward")
+        assert hasattr(encoder, "get_output_specification")
+        assert hasattr(encoder, "input_specification")
 
     def test_requires_depth_in_input_keys(self):
-        """Depth camera key must be present in input_keys."""
         with pytest.raises(ValueError, match="Missing required inputs"):
             with (
                 patch.object(DFormerEncoder, "_build_backbone", _mock_build_backbone),
@@ -311,7 +333,6 @@ class TestDFormerEncoderInitialization:
                 )
 
     def test_requires_rgb_camera_in_input_keys(self):
-        """At least one RGB camera key must be present in input_keys."""
         with pytest.raises(ValueError, match="Exactly one from"):
             with (
                 patch.object(DFormerEncoder, "_build_backbone", _mock_build_backbone),

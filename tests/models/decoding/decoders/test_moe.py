@@ -228,7 +228,6 @@ class TestMoEDecoderInitialization:
         assert "sentinel" not in decoder.action_heads
 
 
-
 class TestCreateExpertsFromConfig:
 
     @pytest.mark.parametrize("num_experts", [2, 5])
@@ -443,32 +442,57 @@ class TestMoEDecoderForward:
         )
 
 
+@pytest.fixture
+def expert_action_outputs_factory(
+    rng: np.random.Generator,
+) -> Callable[..., list[dict[str, torch.Tensor]]]:
+    """Factory for lists of expert output dictionaries."""
+    def factory(
+        num_experts: int = NUM_EXPERTS,
+        batch_size: int = BATCH_SIZE,
+        prediction_horizon: int = PREDICTION_HORIZON,
+        position_dim: int = POSITION_DIM,
+    ) -> list[dict[str, torch.Tensor]]:
+        return [
+            {
+                "position_action": torch.from_numpy(
+                    rng.standard_normal(
+                        (batch_size, prediction_horizon, position_dim)
+                    ).astype(np.float32)
+                )
+            }
+            for _ in range(num_experts)
+        ]
+    return factory
+
+
+@pytest.fixture
+def moe_routing_weights_factory(
+    rng: np.random.Generator,
+) -> Callable[..., torch.Tensor]:
+    """Factory for softmax-normalized routing weight tensors."""
+    def factory(
+        batch_size: int = BATCH_SIZE,
+        num_experts: int = NUM_EXPERTS,
+    ) -> torch.Tensor:
+        raw = torch.from_numpy(
+            rng.standard_normal((batch_size, num_experts)).astype(np.float32)
+        )
+        return torch.softmax(raw, dim=-1)
+    return factory
+
+
 class TestCombineExpertOutputs:
 
     def test_combines_all_action_keys(
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
-        rng: np.random.Generator,
+        expert_action_outputs_factory: Callable[..., list[dict[str, torch.Tensor]]],
+        moe_routing_weights_factory: Callable[..., torch.Tensor],
     ):
         decoder = moe_decoder_factory()
-        expert_outputs = [
-            {
-                "position_action": torch.from_numpy(
-                    rng.standard_normal(
-                        (BATCH_SIZE, PREDICTION_HORIZON, POSITION_DIM)
-                    ).astype(np.float32)
-                )
-            }
-            for _ in range(NUM_EXPERTS)
-        ]
-        weights = torch.softmax(
-            torch.from_numpy(
-                rng.standard_normal(
-                    (BATCH_SIZE, NUM_EXPERTS)
-                ).astype(np.float32)
-            ),
-            dim=-1,
-        )
+        expert_outputs = expert_action_outputs_factory()
+        weights = moe_routing_weights_factory()
         combined = decoder._combine_expert_outputs(
             expert_outputs=expert_outputs, weights=weights
         )
@@ -477,27 +501,12 @@ class TestCombineExpertOutputs:
     def test_output_shape_preserves_dimensions(
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
-        rng: np.random.Generator,
+        expert_action_outputs_factory: Callable[..., list[dict[str, torch.Tensor]]],
+        moe_routing_weights_factory: Callable[..., torch.Tensor],
     ):
         decoder = moe_decoder_factory()
-        expert_outputs = [
-            {
-                "position_action": torch.from_numpy(
-                    rng.standard_normal(
-                        (BATCH_SIZE, PREDICTION_HORIZON, POSITION_DIM)
-                    ).astype(np.float32)
-                )
-            }
-            for _ in range(NUM_EXPERTS)
-        ]
-        weights = torch.softmax(
-            torch.from_numpy(
-                rng.standard_normal(
-                    (BATCH_SIZE, NUM_EXPERTS)
-                ).astype(np.float32)
-            ),
-            dim=-1,
-        )
+        expert_outputs = expert_action_outputs_factory()
+        weights = moe_routing_weights_factory()
         combined = decoder._combine_expert_outputs(
             expert_outputs=expert_outputs, weights=weights
         )

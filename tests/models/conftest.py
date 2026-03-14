@@ -24,13 +24,13 @@ def input_tensor_factory(
     """Factory for generic input tensors with configurable shape."""
     def factory(
         batch_size: int = 2,
-        input_dim: int = 64,
+        input_dimension: int = 64,
         sequence_length: int | None = None,
     ) -> torch.Tensor:
         if sequence_length is not None:
-            shape = (batch_size, sequence_length, input_dim)
+            shape = (batch_size, sequence_length, input_dimension)
         else:
-            shape = (batch_size, input_dim)
+            shape = (batch_size, input_dimension)
         return torch.from_numpy(
             rng.standard_normal(shape).astype(np.float32)
         )
@@ -41,13 +41,13 @@ def input_tensor_factory(
 def embedding_tensor_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:
-    """Factory for action embedding tensors (B, prediction_horizon, embedding_dim)."""
+    """Factory for action embedding tensors (B, prediction_horizon, embedding_dimension)."""
     def factory(
         batch_size: int = 2,
         prediction_horizon: int = 8,
-        embedding_dim: int = 64,
+        embedding_dimension: int = 64,
     ) -> torch.Tensor:
-        shape = (batch_size, prediction_horizon, embedding_dim)
+        shape = (batch_size, prediction_horizon, embedding_dimension)
         return torch.from_numpy(
             rng.standard_normal(shape).astype(np.float32)
         )

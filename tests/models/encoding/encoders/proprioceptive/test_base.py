@@ -8,7 +8,6 @@ import torch
 
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.encoding.encoders.proprioceptive.base import ProprioceptiveEncoder
-from versatil.models.encoding.encoders.unconditional import Encoder
 from versatil.models.layers.activation import ActivationFunction
 
 
@@ -100,12 +99,14 @@ class TestProprioceptiveEncoderInitialization:
         assert encoder.input_specification.keys == expected_keys
         assert encoder.network is None
 
-    def test_inherits_from_encoder(
+    def test_has_encoder_interface(
         self,
         proprioceptive_encoder_factory: Callable[..., ProprioceptiveEncoder],
     ):
         encoder = proprioceptive_encoder_factory()
-        assert isinstance(encoder, Encoder)
+        assert hasattr(encoder, "forward")
+        assert hasattr(encoder, "get_output_specification")
+        assert hasattr(encoder, "input_specification")
 
 
 class TestProprioceptiveEncoderBuildNetwork:

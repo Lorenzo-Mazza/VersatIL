@@ -21,54 +21,51 @@ from versatil.models.policy import Policy
 
 class TestPolicyInitialization:
 
-    def test_stores_encoding_pipeline(
+    @pytest.mark.parametrize("prediction_horizon", [4, 16])
+    @pytest.mark.parametrize("observation_horizon", [1, 3])
+    def test_stores_configuration(
         self,
         policy_factory: Callable[..., Policy],
         encoding_pipeline_factory: Callable[..., MagicMock],
+        prediction_horizon: int,
+        observation_horizon: int,
     ):
         pipeline = encoding_pipeline_factory()
-        policy = policy_factory(encoding_pipeline=pipeline)
-        assert policy.encoding_pipeline is pipeline
-
-    def test_stores_algorithm_and_decoder(self, policy_factory: Callable[..., Policy]):
         algorithm = MagicMock(spec=DecodingAlgorithm)
         decoder = MagicMock(spec=ActionDecoder)
-        policy = policy_factory(algorithm=algorithm, decoder=decoder)
-        assert policy.algorithm is algorithm
-        assert policy.decoder is decoder
-
-    def test_stores_observation_and_action_space(self, policy_factory: Callable[..., Policy]):
         observation_space = MagicMock(spec=ObservationSpace)
         action_space = MagicMock(spec=ActionSpace)
+        loss = MagicMock(spec=BaseLoss)
         policy = policy_factory(
+            encoding_pipeline=pipeline,
+            algorithm=algorithm,
+            decoder=decoder,
             observation_space=observation_space,
             action_space=action_space,
+            prediction_horizon=prediction_horizon,
+            observation_horizon=observation_horizon,
+            loss=loss,
         )
+        assert policy.encoding_pipeline is pipeline
+        assert policy.algorithm is algorithm
+        assert policy.decoder is decoder
         assert policy.observation_space is observation_space
         assert policy.action_space is action_space
-
-    def test_stores_prediction_and_observation_horizon(self, policy_factory: Callable[..., Policy]):
-        policy = policy_factory(prediction_horizon=8, observation_horizon=3)
-        assert policy.prediction_horizon == 8
-        assert policy.observation_horizon == 3
+        assert policy.prediction_horizon == prediction_horizon
+        assert policy.observation_horizon == observation_horizon
+        assert policy.loss_module is loss
 
     def test_converts_device_string_to_torch_device(self, policy_factory: Callable[..., Policy]):
         policy = policy_factory(device="cpu")
-        assert isinstance(policy.device, torch.device)
         assert policy.device.type == "cpu"
 
-    def test_initializes_empty_normalizer(self, policy_factory: Callable[..., Policy]):
+    def test_normalizer_starts_empty(self, policy_factory: Callable[..., Policy]):
         policy = policy_factory()
-        assert isinstance(policy.normalizer, LinearNormalizer)
+        assert len(list(policy.normalizer.parameters())) == 0
 
-    def test_initializes_tokenizer_as_none(self, policy_factory: Callable[..., Policy]):
+    def test_tokenizer_starts_unset(self, policy_factory: Callable[..., Policy]):
         policy = policy_factory()
         assert policy.tokenizer is None
-
-    def test_stores_loss_module(self, policy_factory: Callable[..., Policy]):
-        loss = MagicMock(spec=BaseLoss)
-        policy = policy_factory(loss=loss)
-        assert policy.loss_module is loss
 
 
 class TestSetNormalizer:
@@ -167,18 +164,30 @@ class TestSetGripperClassWeights:
         policy.set_gripper_class_weights(pos_weight=pos_weight)
         assert gripper_loss.pos_weight is pos_weight
 
-    def test_ignores_non_gripper_loss_modules(self, policy_factory: Callable[..., Policy]):
+    def test_ignores_non_gripper_loss_modules(
+        self,
+        policy_factory: Callable[..., Policy],
+        rng: np.random.Generator,
+    ):
         other_module = MagicMock(spec=BaseLoss)
+        original_pos_weight = torch.from_numpy(rng.standard_normal(1).astype(np.float32))
+        other_module.pos_weight = original_pos_weight
         loss_module = MagicMock(spec=BaseLoss)
         loss_module.modules.return_value = [loss_module, other_module]
         policy = policy_factory(loss=loss_module)
-        pos_weight = torch.tensor([0.75])
-        policy.set_gripper_class_weights(pos_weight=pos_weight)
-        assert not hasattr(other_module, "pos_weight") or other_module.pos_weight is not pos_weight
+        new_pos_weight = torch.from_numpy(rng.standard_normal(1).astype(np.float32))
+        policy.set_gripper_class_weights(pos_weight=new_pos_weight)
+        # Non-GripperLoss modules should retain their original pos_weight
+        assert torch.equal(other_module.pos_weight, original_pos_weight)
 
-    def test_none_pos_weight(self, policy_factory: Callable[..., Policy]):
+    def test_none_pos_weight_clears_weight(
+        self,
+        policy_factory: Callable[..., Policy],
+        rng: np.random.Generator,
+    ):
         gripper_loss = MagicMock(spec=GripperLoss)
         gripper_loss.__class__ = GripperLoss
+        gripper_loss.pos_weight = torch.from_numpy(rng.standard_normal(1).astype(np.float32))
         loss_module = MagicMock(spec=BaseLoss)
         loss_module.modules.return_value = [loss_module, gripper_loss]
         policy = policy_factory(loss=loss_module)
@@ -652,7 +661,13 @@ class TestGetGradcamTargetLayers:
         encoder.backbone = backbone
         pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
         policy = policy_factory(encoding_pipeline=pipeline)
-        with pytest.raises(RuntimeError, match="backbone structure not recognized"):
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape(
+                f"Encoder 'rgb' backbone structure not recognized. "
+                f"Backbone type: {type(actual_backbone).__name__}"
+            ),
+        ):
             policy.get_gradcam_target_layers(encoder_name="rgb")
 
     def test_raises_for_unrecognized_direct_backbone(
@@ -668,7 +683,13 @@ class TestGetGradcamTargetLayers:
         encoder.backbone = backbone
         pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
         policy = policy_factory(encoding_pipeline=pipeline)
-        with pytest.raises(RuntimeError, match="has backbone but structure not recognized"):
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape(
+                f"Encoder 'rgb' has backbone but structure not recognized. "
+                f"Backbone type: {type(backbone).__name__}"
+            ),
+        ):
             policy.get_gradcam_target_layers(encoder_name="rgb")
 
     def test_raises_for_unknown_encoder_name(
@@ -680,7 +701,14 @@ class TestGetGradcamTargetLayers:
         encoder = vision_encoder_factory(has_backbone=True)
         pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
         policy = policy_factory(encoding_pipeline=pipeline)
-        with pytest.raises(ValueError, match="not found or not a vision encoder"):
+        vision_encoder_keys = list(policy.get_vision_encoder_modules().keys())
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Encoder 'nonexistent' not found or not a vision encoder. "
+                f"Available vision encoders: {vision_encoder_keys}"
+            ),
+        ):
             policy.get_gradcam_target_layers(encoder_name="nonexistent")
 
 

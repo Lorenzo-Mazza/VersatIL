@@ -181,7 +181,7 @@ class TestVariationalAlgorithmInitialization:
 
     def test_vamp_prior_receives_encoder(
         self,
-        rng: np.random.Generator,
+        input_tensor_factory: Callable[..., torch.Tensor],
         mock_posterior_factory: Callable[..., MagicMock],
         mock_base_algorithm_factory: Callable[..., MagicMock],
     ):
@@ -190,8 +190,8 @@ class TestVariationalAlgorithmInitialization:
         vamp_prior = MagicMock(spec=VampPrior)
         vamp_prior.latent_dimension = LATENT_DIMENSION
         vamp_prior.forward.return_value = {
-            LatentKey.PRIOR_LATENT.value: torch.from_numpy(
-                rng.standard_normal((2, LATENT_DIMENSION)).astype(np.float32)
+            LatentKey.PRIOR_LATENT.value: input_tensor_factory(
+                batch_size=2, input_dimension=LATENT_DIMENSION
             ),
         }
         VariationalAlgorithm(
@@ -252,6 +252,32 @@ class TestVariationalAlgorithmForward:
         )
         algo.forward(network=network, features=features, actions=actions)
         algo.prior.forward.assert_called_once()
+
+    def test_prior_receives_detached_latent(
+        self,
+        variational_factory: Callable[..., VariationalAlgorithm],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        algo = variational_factory()
+        # Replace posterior output with a tensor that requires grad
+        posterior_z = torch.randn(2, LATENT_DIMENSION, requires_grad=True)
+        algo.posterior_encoder.encode.return_value = {
+            LatentKey.POSTERIOR_LATENT.value: posterior_z,
+            LatentKey.POSTERIOR_MU.value: torch.zeros(2, LATENT_DIMENSION),
+            LatentKey.POSTERIOR_LOGVAR.value: torch.zeros(2, LATENT_DIMENSION),
+        }
+        network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+        )
+        algo.forward(network=network, features=features, actions=actions)
+        # The target_latents passed to prior.forward should be detached
+        prior_call_kwargs = algo.prior.forward.call_args.kwargs
+        target_latents_passed = prior_call_kwargs["target_latents"]
+        assert not target_latents_passed.requires_grad
 
     def test_delegates_to_base_algorithm(
         self,

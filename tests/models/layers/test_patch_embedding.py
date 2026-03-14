@@ -3,42 +3,11 @@ import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
 
-import numpy as np
 import pytest
 import torch
 
 from versatil.models.layers.normalization.frozen_batchnorm import FrozenBatchNorm2d
 from versatil.models.layers.patch_embedding import PatchEmbedding, PatchEmbedType, PatchMerging
-
-
-@pytest.fixture
-def image_tensor_factory(rng: np.random.Generator) -> Callable[..., torch.Tensor]:
-    """Factory for image tensors in (B, C, H, W) format."""
-    def factory(
-        batch_size: int = 2,
-        channels: int = 3,
-        height: int = 64,
-        width: int = 64,
-    ) -> torch.Tensor:
-        return torch.from_numpy(
-            rng.standard_normal((batch_size, channels, height, width)).astype(np.float32)
-        )
-    return factory
-
-
-@pytest.fixture
-def spatial_tensor_factory(rng: np.random.Generator) -> Callable[..., torch.Tensor]:
-    """Factory for spatial tensors in (B, H, W, C) format."""
-    def factory(
-        batch_size: int = 2,
-        height: int = 16,
-        width: int = 16,
-        channels: int = 64,
-    ) -> torch.Tensor:
-        return torch.from_numpy(
-            rng.standard_normal((batch_size, height, width, channels)).astype(np.float32)
-        )
-    return factory
 
 
 @pytest.fixture
@@ -157,7 +126,7 @@ class TestPatchEmbeddingForward:
     def test_standard_output_shape(
         self,
         patch_embedding_factory: Callable[..., PatchEmbedding],
-        image_tensor_factory: Callable[..., torch.Tensor],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
     ):
         embed_dim = 256
         patch_size = 16
@@ -167,7 +136,7 @@ class TestPatchEmbeddingForward:
             patch_size=patch_size,
             embed_type=PatchEmbedType.STANDARD.value,
         )
-        x = image_tensor_factory(height=height, width=width)
+        x = nchw_tensor_factory(channels=3, height=height, width=width)
         output = module(x)
         expected_num_patches = (height // patch_size) * (width // patch_size)
         assert output.shape == (2, expected_num_patches, embed_dim)
@@ -175,7 +144,7 @@ class TestPatchEmbeddingForward:
     def test_progressive_output_shape(
         self,
         patch_embedding_factory: Callable[..., PatchEmbedding],
-        image_tensor_factory: Callable[..., torch.Tensor],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
     ):
         embed_dim = 256
         patch_size = 4
@@ -185,7 +154,7 @@ class TestPatchEmbeddingForward:
             patch_size=patch_size,
             embed_type=PatchEmbedType.PROGRESSIVE.value,
         )
-        x = image_tensor_factory(height=height, width=width)
+        x = nchw_tensor_factory(channels=3, height=height, width=width)
         output = module(x)
         # Progressive downsamples by stride 2 per stage; patch_size=4 means 2 stages -> total stride 4
         expected_height = height // patch_size
@@ -195,7 +164,7 @@ class TestPatchEmbeddingForward:
     def test_overlapping_output_shape(
         self,
         patch_embedding_factory: Callable[..., PatchEmbedding],
-        image_tensor_factory: Callable[..., torch.Tensor],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
     ):
         embed_dim = 256
         patch_size = 16
@@ -205,7 +174,7 @@ class TestPatchEmbeddingForward:
             patch_size=patch_size,
             embed_type=PatchEmbedType.OVERLAPPING.value,
         )
-        x = image_tensor_factory(height=height, width=width)
+        x = nchw_tensor_factory(channels=3, height=height, width=width)
         output = module(x)
         # Overlapping: stride = patch_size // 2, padding = patch_size // 4
         stride = patch_size // 2
@@ -218,40 +187,44 @@ class TestPatchEmbeddingForward:
     def test_return_patch_size_standard(
         self,
         patch_embedding_factory: Callable[..., PatchEmbedding],
-        image_tensor_factory: Callable[..., torch.Tensor],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
     ):
         patch_size = 16
         height, width = 64, 64
+        embed_dim = 768
         module = patch_embedding_factory(
             patch_size=patch_size,
+            embed_dim=embed_dim,
             embed_type=PatchEmbedType.STANDARD.value,
         )
-        x = image_tensor_factory(height=height, width=width)
-        result = module(x, return_patch_size=True)
-        assert isinstance(result, tuple)
-        assert len(result) == 3
-        tensor, h, w = result
-        assert h == height // patch_size
-        assert w == width // patch_size
+        x = nchw_tensor_factory(channels=3, height=height, width=width)
+        tensor, h, w = module(x, return_patch_size=True)
+        expected_h = height // patch_size
+        expected_w = width // patch_size
+        assert h == expected_h
+        assert w == expected_w
+        assert tensor.shape == (2, expected_h * expected_w, embed_dim)
 
     def test_return_patch_size_progressive(
         self,
         patch_embedding_factory: Callable[..., PatchEmbedding],
-        image_tensor_factory: Callable[..., torch.Tensor],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
     ):
         patch_size = 4
         height, width = 64, 64
+        embed_dim = 768
         module = patch_embedding_factory(
             patch_size=patch_size,
+            embed_dim=embed_dim,
             embed_type=PatchEmbedType.PROGRESSIVE.value,
         )
-        x = image_tensor_factory(height=height, width=width)
-        result = module(x, return_patch_size=True)
-        assert isinstance(result, tuple)
-        assert len(result) == 3
-        tensor, h, w = result
-        assert h == height // patch_size
-        assert w == width // patch_size
+        x = nchw_tensor_factory(channels=3, height=height, width=width)
+        tensor, h, w = module(x, return_patch_size=True)
+        expected_h = height // patch_size
+        expected_w = width // patch_size
+        assert h == expected_h
+        assert w == expected_w
+        assert tensor.shape == (2, expected_h, expected_w, embed_dim)
 
 
 class TestPatchMergingInitialization:
@@ -278,13 +251,25 @@ class TestPatchMergingForward:
     def test_halves_spatial_dimensions(
         self,
         patch_merging_factory: Callable[..., PatchMerging],
-        spatial_tensor_factory: Callable[..., torch.Tensor],
+        nhwc_tensor_factory: Callable[..., torch.Tensor],
         height: int,
         width: int,
     ):
         dim = 64
         out_dim = 128
         module = patch_merging_factory(dim=dim, out_dim=out_dim)
-        x = spatial_tensor_factory(height=height, width=width, channels=dim)
+        x = nhwc_tensor_factory(height=height, width=width, channels=dim)
+        output = module(x)
+        assert output.shape == (2, height // 2, width // 2, out_dim)
+
+    def test_works_with_batchnorm(
+        self,
+        nhwc_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        dim = 64
+        out_dim = 128
+        height, width = 16, 16
+        module = PatchMerging(dim=dim, out_dim=out_dim, norm_layer=torch.nn.BatchNorm2d)
+        x = nhwc_tensor_factory(height=height, width=width, channels=dim)
         output = module(x)
         assert output.shape == (2, height // 2, width // 2, out_dim)

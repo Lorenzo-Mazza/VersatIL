@@ -124,7 +124,7 @@ class TestBaseActionHeadForward:
     ):
         head = concrete_action_head_factory(input_dim=64)
         head.set_output_dim(output_dim)
-        embedding = embedding_tensor_factory(embedding_dim=64)
+        embedding = embedding_tensor_factory(embedding_dimension=64)
         result = head(embedding)
         assert result.shape == (2, 8, output_dim)
 
@@ -135,6 +135,6 @@ class TestBaseActionHeadForward:
         blocks = [MLPBlock(input_dim=64, hidden_dims=[32])]
         head = ConcreteActionHead(input_dim=64, blocks=blocks)
         head.set_output_dim(3)
-        embedding = embedding_tensor_factory(embedding_dim=64)
+        embedding = embedding_tensor_factory(embedding_dimension=64)
         result = head(embedding)
         assert result.shape == (2, 8, 3)

@@ -4,7 +4,6 @@ from collections.abc import Callable
 import pytest
 import torch
 
-from versatil.models.encoding.fusion.base import FusionOutput, SequentialFusion
 from versatil.models.encoding.fusion.concat import ConcatFusion
 
 
@@ -28,12 +27,15 @@ def concat_fusion_factory() -> Callable[..., ConcatFusion]:
 
 class TestConcatFusionInitialization:
 
-    def test_inherits_from_sequential_fusion(
+    def test_has_sequential_fusion_interface(
         self,
         concat_fusion_factory: Callable[..., ConcatFusion],
     ):
         module = concat_fusion_factory()
-        assert isinstance(module, SequentialFusion)
+        assert hasattr(module, "hidden_dim")
+        assert hasattr(module, "projections")
+        assert hasattr(module, "setup")
+        assert hasattr(module, "get_output_specification")
 
     @pytest.mark.parametrize("input_features", [
         ["feat_a", "feat_b"],
@@ -67,8 +69,8 @@ class TestConcatFusionForward:
     ):
         module = concat_fusion_factory()
         features = [
-            input_tensor_factory(input_dim=64),
-            input_tensor_factory(input_dim=128),
+            input_tensor_factory(input_dimension=64),
+            input_tensor_factory(input_dimension=128),
         ]
         with pytest.raises(
             RuntimeError,
@@ -93,12 +95,12 @@ class TestConcatFusionForward:
         features = [
             input_tensor_factory(
                 batch_size=batch_size,
-                input_dim=64,
+                input_dimension=64,
                 sequence_length=time_steps,
             ),
             input_tensor_factory(
                 batch_size=batch_size,
-                input_dim=128,
+                input_dimension=128,
                 sequence_length=time_steps,
             ),
         ]
@@ -125,7 +127,7 @@ class TestConcatFusionForward:
         dims = {name: 32 for name in feature_names}
         module.setup(feature_keys_to_dims=dims)
         features = [
-            input_tensor_factory(input_dim=32)
+            input_tensor_factory(input_dimension=32)
             for _ in range(num_features)
         ]
         output = module(features)
@@ -161,10 +163,11 @@ class TestConcatFusionGetOutputSpecification:
         spec = module.get_output_specification()
         assert spec.output_name == "test_fused"
 
-    def test_returns_fusion_output_type(
+    def test_returns_specification_with_expected_fields(
         self,
         concat_fusion_factory: Callable[..., ConcatFusion],
     ):
         module = concat_fusion_factory()
         spec = module.get_output_specification()
-        assert isinstance(spec, FusionOutput)
+        assert hasattr(spec, "output_name")
+        assert hasattr(spec, "output_dim")

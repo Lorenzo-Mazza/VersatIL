@@ -1,11 +1,11 @@
 """Tests for versatil.models.encoding.fusion.attention module."""
+import re
 from collections.abc import Callable
 
 import pytest
 import torch
 
 from versatil.models.encoding.fusion.attention import AttentionFusion
-from versatil.models.encoding.fusion.base import FusionOutput, SequentialFusion
 
 
 @pytest.fixture
@@ -38,12 +38,15 @@ def attention_fusion_factory() -> Callable[..., AttentionFusion]:
 
 class TestAttentionFusionInitialization:
 
-    def test_inherits_from_sequential_fusion(
+    def test_has_sequential_fusion_interface(
         self,
         attention_fusion_factory: Callable[..., AttentionFusion],
     ):
         module = attention_fusion_factory()
-        assert isinstance(module, SequentialFusion)
+        assert hasattr(module, "hidden_dim")
+        assert hasattr(module, "projections")
+        assert hasattr(module, "setup")
+        assert hasattr(module, "get_output_specification")
 
     @pytest.mark.parametrize("hidden_dim", [32, 128])
     @pytest.mark.parametrize("output_name", ["attention_fused", "my_attn"])
@@ -107,8 +110,8 @@ class TestAttentionFusionForward:
     ):
         module = attention_fusion_factory()
         features = [
-            input_tensor_factory(input_dim=64),
-            input_tensor_factory(input_dim=128),
+            input_tensor_factory(input_dimension=64),
+            input_tensor_factory(input_dimension=128),
         ]
         with pytest.raises(RuntimeError, match="Projections must be set up"):
             module(features)
@@ -130,12 +133,12 @@ class TestAttentionFusionForward:
         features = [
             input_tensor_factory(
                 batch_size=batch_size,
-                input_dim=64,
+                input_dimension=64,
                 sequence_length=time_steps,
             ),
             input_tensor_factory(
                 batch_size=batch_size,
-                input_dim=128,
+                input_dimension=128,
                 sequence_length=time_steps,
             ),
         ]
@@ -150,7 +153,6 @@ class TestAttentionFusionForward:
         attention_fusion_factory: Callable[..., AttentionFusion],
         input_tensor_factory: Callable[..., torch.Tensor],
     ):
-        """When only one feature is provided, attention is skipped."""
         hidden_dim = 32
         module = attention_fusion_factory(
             input_features=["only_feat"],
@@ -158,7 +160,7 @@ class TestAttentionFusionForward:
             use_norm=False,
         )
         module.setup(feature_keys_to_dims={"only_feat": 64})
-        features = [input_tensor_factory(input_dim=64)]
+        features = [input_tensor_factory(input_dimension=64)]
         output = module(features)
         assert output.shape == (2, hidden_dim)
 
@@ -167,7 +169,6 @@ class TestAttentionFusionForward:
         attention_fusion_factory: Callable[..., AttentionFusion],
         input_tensor_factory: Callable[..., torch.Tensor],
     ):
-        """Specifying input_feature_query selects that feature as query."""
         hidden_dim = 32
         module = attention_fusion_factory(
             input_features=["feat_a", "feat_b"],
@@ -176,8 +177,8 @@ class TestAttentionFusionForward:
         )
         module.setup(feature_keys_to_dims={"feat_a": 64, "feat_b": 128})
         features = [
-            input_tensor_factory(input_dim=64),
-            input_tensor_factory(input_dim=128),
+            input_tensor_factory(input_dimension=64),
+            input_tensor_factory(input_dimension=128),
         ]
         output = module(features)
         assert output.shape == (2, hidden_dim)
@@ -197,8 +198,8 @@ class TestAttentionFusionForward:
         )
         module.setup(feature_keys_to_dims={"feat_a": 64, "feat_b": 128})
         features = [
-            input_tensor_factory(input_dim=64),
-            input_tensor_factory(input_dim=128),
+            input_tensor_factory(input_dimension=64),
+            input_tensor_factory(input_dimension=128),
         ]
         output = module(features)
         assert output.shape == (2, hidden_dim)
@@ -218,8 +219,8 @@ class TestAttentionFusionForward:
         )
         module.setup(feature_keys_to_dims={"feat_a": 64, "feat_b": 128})
         features = [
-            input_tensor_factory(input_dim=64),
-            input_tensor_factory(input_dim=128),
+            input_tensor_factory(input_dimension=64),
+            input_tensor_factory(input_dimension=128),
         ]
         output = module(features)
         assert output.shape == (2, hidden_dim)
@@ -238,12 +239,36 @@ class TestAttentionFusionForward:
             feature_keys_to_dims={"feat_a": 32, "feat_b": 64, "feat_c": 128},
         )
         features = [
-            input_tensor_factory(input_dim=32),
-            input_tensor_factory(input_dim=64),
-            input_tensor_factory(input_dim=128),
+            input_tensor_factory(input_dimension=32),
+            input_tensor_factory(input_dimension=64),
+            input_tensor_factory(input_dimension=128),
         ]
         output = module(features)
         assert output.shape == (2, hidden_dim)
+
+    def test_norms_none_with_use_norm_true_raises(
+        self,
+        attention_fusion_factory: Callable[..., AttentionFusion],
+        input_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        module = attention_fusion_factory(
+            input_features=["feat_a", "feat_b"],
+            use_norm=True,
+        )
+        module.setup(feature_keys_to_dims={"feat_a": 64, "feat_b": 128})
+        # Force norms to None while use_norm remains True
+        module.norms = None
+        features = [
+            input_tensor_factory(input_dimension=64),
+            input_tensor_factory(input_dimension=128),
+        ]
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape(
+                "Norms should be initialized when use_norm is True"
+            ),
+        ):
+            module(features)
 
 
 class TestAttentionFusionGetOutputSpecification:
@@ -266,10 +291,11 @@ class TestAttentionFusionGetOutputSpecification:
         spec = module.get_output_specification()
         assert spec.output_name == "test_attn"
 
-    def test_returns_fusion_output_type(
+    def test_returns_specification_with_expected_fields(
         self,
         attention_fusion_factory: Callable[..., AttentionFusion],
     ):
         module = attention_fusion_factory()
         spec = module.get_output_specification()
-        assert isinstance(spec, FusionOutput)
+        assert hasattr(spec, "output_name")
+        assert hasattr(spec, "output_dim")

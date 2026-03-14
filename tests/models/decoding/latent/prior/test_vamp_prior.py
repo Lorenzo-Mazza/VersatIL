@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.latent.prior.vamp_prior module."""
+import re
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -6,23 +7,12 @@ import numpy as np
 import pytest
 import torch
 
-from versatil.data.task import ActionSpace
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.latent.posterior.base_posterior import (
     PosteriorLatentEncoder,
 )
 from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from versatil.models.decoding.latent.prior.vamp_prior import VampPrior, log_normal_diag
-
-
-@pytest.fixture
-def mock_action_space_factory() -> Callable[..., MagicMock]:
-    """Factory for mock ActionSpace with configurable total action dim."""
-    def factory(total_action_dim: int = 7) -> MagicMock:
-        action_space = MagicMock(spec=ActionSpace)
-        action_space.get_total_action_dim.return_value = total_action_dim
-        return action_space
-    return factory
 
 
 @pytest.fixture
@@ -38,7 +28,7 @@ def vamp_prior_factory(
         device: str = "cpu",
         min_logvar: float | None = None,
     ) -> VampPrior:
-        action_space = mock_action_space_factory(total_action_dim=action_dim)
+        action_space = mock_action_space_factory(position_dim=action_dim)
         return VampPrior(
             latent_dimension=latent_dimension,
             num_components=num_components,
@@ -94,41 +84,75 @@ def latent_tensor_factory(
     return factory
 
 
-class TestLogNormalDiag:
-
-    def test_output_shape(self, rng: np.random.Generator):
-        batch_size = 4
-        latent_dimension = 8
+@pytest.fixture
+def log_normal_inputs_factory(
+    rng: np.random.Generator,
+) -> Callable[..., tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """Factory for (z, mu, logvar) tuples for log_normal_diag tests."""
+    def factory(
+        batch_size: int = 4,
+        latent_dimension: int = 8,
+        logvar_value: float | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         z = torch.from_numpy(
             rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
         )
         mu = torch.from_numpy(
             rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
         )
-        logvar = torch.from_numpy(
-            rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
+        if logvar_value is not None:
+            logvar = torch.full(
+                (batch_size, latent_dimension), logvar_value, dtype=torch.float32
+            )
+        else:
+            logvar = torch.from_numpy(
+                rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
+            )
+        return z, mu, logvar
+    return factory
+
+
+class TestLogNormalDiag:
+
+    def test_output_shape(
+        self,
+        log_normal_inputs_factory: Callable[..., tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
+    ):
+        batch_size = 4
+        latent_dimension = 8
+        z, mu, logvar = log_normal_inputs_factory(
+            batch_size=batch_size,
+            latent_dimension=latent_dimension,
         )
         result = log_normal_diag(z=z, mu=mu, logvar=logvar)
         assert result.shape == (batch_size, latent_dimension)
 
-    def test_max_at_mean(self, rng: np.random.Generator):
+    def test_max_at_mean(
+        self,
+        log_normal_inputs_factory: Callable[..., tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
+    ):
         latent_dimension = 16
-        mu = torch.from_numpy(
-            rng.standard_normal((1, latent_dimension)).astype(np.float32)
+        _, mu, logvar = log_normal_inputs_factory(
+            batch_size=1,
+            latent_dimension=latent_dimension,
+            logvar_value=0.0,
         )
-        logvar = torch.zeros(1, latent_dimension)
         z_at_mean = mu.clone()
         z_away = mu + 2.0
         log_prob_at_mean = log_normal_diag(z=z_at_mean, mu=mu, logvar=logvar).sum(dim=-1)
         log_prob_away = log_normal_diag(z=z_away, mu=mu, logvar=logvar).sum(dim=-1)
         assert log_prob_at_mean.item() > log_prob_away.item()
 
-    def test_decreases_away_from_mean(self, rng: np.random.Generator):
+    def test_decreases_away_from_mean(
+        self,
+        log_normal_inputs_factory: Callable[..., tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
+    ):
         latent_dimension = 8
-        mu = torch.from_numpy(
-            rng.standard_normal((1, latent_dimension)).astype(np.float32)
+        _, mu, logvar = log_normal_inputs_factory(
+            batch_size=1,
+            latent_dimension=latent_dimension,
+            logvar_value=0.0,
         )
-        logvar = torch.zeros(1, latent_dimension)
         z_near = mu + 0.5
         z_far = mu + 3.0
         log_prob_near = log_normal_diag(z=z_near, mu=mu, logvar=logvar).sum(dim=-1)
@@ -205,8 +229,8 @@ class TestVampPriorEncoder:
         prior = vamp_prior_factory()
         with pytest.raises(
             RuntimeError,
-            match=(
-                "VampPrior encoder not set. Call set_encoder\\(\\) first or ensure "
+            match=re.escape(
+                "VampPrior encoder not set. Call set_encoder() first or ensure "
                 "VariationalAlgorithm properly initializes the prior."
             ),
         ):

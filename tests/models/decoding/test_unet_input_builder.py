@@ -53,7 +53,7 @@ class TestUNetInputBuilderFeatureFiltering:
         self,
         unet_input_builder_factory: Callable[..., UNetInputBuilder],
         flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
-        rng: np.random.Generator,
+        input_tensor_factory: Callable[..., torch.Tensor],
     ):
         embedding_dim = 64
         builder = unet_input_builder_factory(embedding_dim=embedding_dim)
@@ -69,9 +69,9 @@ class TestUNetInputBuilderFeatureFiltering:
             feature_keys=["rgb_features"],
         )
         padding_mask_key = f"rgb_features_{EncoderOutputKeys.PADDING_MASK.value}"
-        features[padding_mask_key] = torch.from_numpy(
-            rng.standard_normal((2,)).astype(np.float32)
-        )
+        features[padding_mask_key] = input_tensor_factory(
+            batch_size=2, input_dimension=1,
+        ).squeeze(-1)
         result = builder(features)
         assert padding_mask_key not in captured_keys
         assert "rgb_features" in captured_keys

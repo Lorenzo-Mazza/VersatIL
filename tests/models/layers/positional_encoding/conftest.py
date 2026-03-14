@@ -12,41 +12,6 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
 
 
 @pytest.fixture
-def sequence_tensor_factory(
-    rng: np.random.Generator,
-) -> Callable[..., torch.Tensor]:
-    """Factory for sequence tensors with shape (B, seq_len, emb_dim)."""
-    def factory(
-        batch_size: int = 2,
-        seq_len: int = 10,
-        embedding_dimension: int = 64,
-    ) -> torch.Tensor:
-        shape = (batch_size, seq_len, embedding_dimension)
-        return torch.from_numpy(
-            rng.standard_normal(shape).astype(np.float32)
-        )
-    return factory
-
-
-@pytest.fixture
-def spatial_tensor_factory(
-    rng: np.random.Generator,
-) -> Callable[..., torch.Tensor]:
-    """Factory for spatial tensors with shape (B, C, H, W)."""
-    def factory(
-        batch_size: int = 2,
-        channels: int = 64,
-        height: int = 8,
-        width: int = 8,
-    ) -> torch.Tensor:
-        shape = (batch_size, channels, height, width)
-        return torch.from_numpy(
-            rng.standard_normal(shape).astype(np.float32)
-        )
-    return factory
-
-
-@pytest.fixture
 def scalar_tensor_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:
@@ -69,6 +34,8 @@ def sinusoidal_1d_factory() -> Callable[..., SinusoidalPositionalEncoding1D]:
         maximum_length: int | None = 5000,
         learnable_frequencies: bool = False,
         temperature: float = 10000.0,
+        mlp_hidden_dimensions: list[int] | None = None,
+        mlp_activation: type | None = None,
     ) -> SinusoidalPositionalEncoding1D:
         return SinusoidalPositionalEncoding1D(
             embedding_dimension=embedding_dimension,
@@ -77,5 +44,7 @@ def sinusoidal_1d_factory() -> Callable[..., SinusoidalPositionalEncoding1D]:
             maximum_length=maximum_length,
             learnable_frequencies=learnable_frequencies,
             temperature=temperature,
+            mlp_hidden_dimensions=mlp_hidden_dimensions,
+            mlp_activation=mlp_activation,
         )
     return factory

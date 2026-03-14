@@ -1,10 +1,8 @@
 """Tests for versatil.models.layers.normalization.frozen_batchnorm module."""
 from collections.abc import Callable
 
-import numpy as np
 import pytest
 import torch
-from torch import nn
 
 from versatil.models.layers.normalization.frozen_batchnorm import FrozenBatchNorm2d
 
@@ -12,28 +10,12 @@ from versatil.models.layers.normalization.frozen_batchnorm import FrozenBatchNor
 @pytest.fixture
 def frozen_batchnorm_factory() -> Callable[..., FrozenBatchNorm2d]:
     """Factory for FrozenBatchNorm2d instances with configurable dimension."""
+
     def factory(
         dimension: int = 16,
     ) -> FrozenBatchNorm2d:
         return FrozenBatchNorm2d(dimension=dimension)
-    return factory
 
-
-@pytest.fixture
-def image_tensor_factory(
-    rng: np.random.Generator,
-) -> Callable[..., torch.Tensor]:
-    """Factory for 4D image tensors (B, C, H, W)."""
-    def factory(
-        batch_size: int = 2,
-        channels: int = 16,
-        height: int = 8,
-        width: int = 8,
-    ) -> torch.Tensor:
-        shape = (batch_size, channels, height, width)
-        return torch.from_numpy(
-            rng.standard_normal(shape).astype(np.float32)
-        )
     return factory
 
 
@@ -50,69 +32,73 @@ class TestFrozenBatchNorm2dInitialization:
         assert torch.allclose(norm.running_mean, torch.zeros(dimension))
         assert torch.allclose(norm.running_var, torch.ones(dimension))
 
-    def test_buffers_are_not_parameters(
+    def test_buffers_are_not_learnable_parameters(
         self,
         frozen_batchnorm_factory: Callable[..., FrozenBatchNorm2d],
     ):
         norm = frozen_batchnorm_factory(dimension=16)
-        parameter_names = [name for name, _ in norm.named_parameters()]
-        assert len(parameter_names) == 0
+        assert len(list(norm.parameters())) == 0
         buffer_names = [name for name, _ in norm.named_buffers()]
         assert "weight" in buffer_names
         assert "bias" in buffer_names
         assert "running_mean" in buffer_names
         assert "running_var" in buffer_names
 
-    def test_inherits_from_nn_module(
-        self,
-        frozen_batchnorm_factory: Callable[..., FrozenBatchNorm2d],
-    ):
-        norm = frozen_batchnorm_factory(dimension=16)
-        assert isinstance(norm, nn.Module)
-
 
 class TestFrozenBatchNorm2dForward:
-
-    @pytest.mark.parametrize("batch_size, channels, height, width", [
-        (2, 16, 8, 8),
-        (1, 32, 4, 4),
-    ])
-    def test_output_shape_matches_input(
-        self,
-        frozen_batchnorm_factory: Callable[..., FrozenBatchNorm2d],
-        image_tensor_factory: Callable[..., torch.Tensor],
-        batch_size: int,
-        channels: int,
-        height: int,
-        width: int,
-    ):
-        norm = frozen_batchnorm_factory(dimension=channels)
-        tensor = image_tensor_factory(
-            batch_size=batch_size,
-            channels=channels,
-            height=height,
-            width=width,
-        )
-        output = norm(tensor)
-        assert output.shape == (batch_size, channels, height, width)
 
     def test_default_stats_act_like_identity(
         self,
         frozen_batchnorm_factory: Callable[..., FrozenBatchNorm2d],
-        image_tensor_factory: Callable[..., torch.Tensor],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
     ):
         channels = 16
         norm = frozen_batchnorm_factory(dimension=channels)
-        tensor = image_tensor_factory(channels=channels)
+        tensor = nchw_tensor_factory(channels=channels)
         output = norm(tensor)
-        # weight=1, bias=0, running_var=1, running_mean=0
-        # scale = 1 * (1 + 1e-5).rsqrt() ≈ 1, bias = 0 - 0*scale = 0
+        # weight=1, bias=0, running_var=1, running_mean=0 → output ≈ input
         assert torch.allclose(output, tensor, atol=1e-4)
 
-    def test_parameters_do_not_change_in_train_mode(
+    def test_custom_stats_apply_correct_normalization(
         self,
         frozen_batchnorm_factory: Callable[..., FrozenBatchNorm2d],
-        image_tensor_factory: Callable[..., torch.Tensor],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        channels = 16
+        norm = frozen_batchnorm_factory(dimension=channels)
+        norm.running_mean.fill_(2.0)
+        norm.running_var.fill_(4.0)
+        tensor = nchw_tensor_factory(channels=channels)
+        output = norm(tensor)
+        # scale = weight * (running_var + eps).rsqrt() = 1.0 * (4.0 + 1e-5)^(-0.5)
+        # bias = bias - running_mean * scale = 0 - 2.0 * scale
+        eps = 1e-5
+        scale = 1.0 * (4.0 + eps) ** (-0.5)
+        bias = 0.0 - 2.0 * scale
+        expected = tensor * scale + bias
+        assert torch.allclose(output, expected, atol=1e-5)
+
+    def test_custom_weight_and_bias_affect_output(
+        self,
+        frozen_batchnorm_factory: Callable[..., FrozenBatchNorm2d],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        channels = 16
+        norm = frozen_batchnorm_factory(dimension=channels)
+        norm.weight.fill_(2.0)
+        norm.bias.fill_(1.0)
+        tensor = nchw_tensor_factory(channels=channels)
+        output = norm(tensor)
+        eps = 1e-5
+        scale = 2.0 * (1.0 + eps) ** (-0.5)
+        bias = 1.0 - 0.0 * scale
+        expected = tensor * scale + bias
+        assert torch.allclose(output, expected, atol=1e-5)
+
+    def test_buffers_do_not_change_in_train_mode(
+        self,
+        frozen_batchnorm_factory: Callable[..., FrozenBatchNorm2d],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
     ):
         channels = 16
         norm = frozen_batchnorm_factory(dimension=channels)
@@ -121,7 +107,7 @@ class TestFrozenBatchNorm2dForward:
         bias_before = norm.bias.clone()
         running_mean_before = norm.running_mean.clone()
         running_var_before = norm.running_var.clone()
-        tensor = image_tensor_factory(channels=channels)
+        tensor = nchw_tensor_factory(channels=channels)
         norm(tensor)
         assert torch.equal(norm.weight, weight_before)
         assert torch.equal(norm.bias, bias_before)
@@ -131,7 +117,7 @@ class TestFrozenBatchNorm2dForward:
 
 class TestFrozenBatchNorm2dLoadState:
 
-    def test_load_from_state_dict_removes_num_batches_tracked(
+    def test_load_state_dict_strips_num_batches_tracked_and_loads_values(
         self,
         frozen_batchnorm_factory: Callable[..., FrozenBatchNorm2d],
     ):
@@ -144,23 +130,20 @@ class TestFrozenBatchNorm2dLoadState:
             "running_var": torch.ones(dimension) * 0.9,
             "num_batches_tracked": torch.tensor(100),
         }
-        missing_keys = []
-        unexpected_keys = []
-        error_msgs = []
         norm._load_from_state_dict(
             state_dict=state_dict,
             prefix="",
             local_metadata={},
             strict=True,
-            missing_keys=missing_keys,
-            unexpected_keys=unexpected_keys,
-            error_msgs=error_msgs,
+            missing_keys=[],
+            unexpected_keys=[],
+            error_msgs=[],
         )
         assert "num_batches_tracked" not in state_dict
         assert torch.allclose(norm.weight, torch.ones(dimension) * 2.0)
         assert torch.allclose(norm.bias, torch.ones(dimension) * 0.5)
 
-    def test_load_from_state_dict_works_without_num_batches_tracked(
+    def test_load_state_dict_succeeds_without_num_batches_tracked(
         self,
         frozen_batchnorm_factory: Callable[..., FrozenBatchNorm2d],
     ):
@@ -172,16 +155,13 @@ class TestFrozenBatchNorm2dLoadState:
             "running_mean": torch.zeros(dimension),
             "running_var": torch.ones(dimension),
         }
-        missing_keys = []
-        unexpected_keys = []
-        error_msgs = []
         norm._load_from_state_dict(
             state_dict=state_dict,
             prefix="",
             local_metadata={},
             strict=True,
-            missing_keys=missing_keys,
-            unexpected_keys=unexpected_keys,
-            error_msgs=error_msgs,
+            missing_keys=[],
+            unexpected_keys=[],
+            error_msgs=[],
         )
         assert torch.allclose(norm.weight, torch.ones(dimension) * 3.0)

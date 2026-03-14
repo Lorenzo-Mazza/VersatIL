@@ -6,8 +6,74 @@ import numpy as np
 import pytest
 import torch
 
+from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads.gaussian import GaussianHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
+
+
+class _MockActionMeta:
+    """Minimal mock for action metadata entries."""
+
+    def __init__(
+        self, requires_prediction_head: bool, prediction_dimension: int
+    ):
+        self.requires_prediction_head = requires_prediction_head
+        self.prediction_dimension = prediction_dimension
+
+
+@pytest.fixture
+def mock_action_space_factory() -> Callable[..., MagicMock]:
+    """Factory for mock ActionSpace with configurable actions_metadata."""
+
+    def factory(
+        position_dim: int = 3,
+        has_orientation: bool = False,
+        orientation_dim: int = 0,
+        has_gripper: bool = False,
+        gripper_dim: int = 0,
+    ) -> MagicMock:
+        metadata = {
+            "position_action": _MockActionMeta(
+                requires_prediction_head=True,
+                prediction_dimension=position_dim,
+            ),
+        }
+        total_dim = position_dim
+        if has_orientation:
+            metadata["orientation_action"] = _MockActionMeta(
+                requires_prediction_head=True,
+                prediction_dimension=orientation_dim,
+            )
+            total_dim += orientation_dim
+        if has_gripper:
+            metadata["gripper_action"] = _MockActionMeta(
+                requires_prediction_head=True,
+                prediction_dimension=gripper_dim,
+            )
+            total_dim += gripper_dim
+        action_space = MagicMock(spec=ActionSpace)
+        action_space.actions_metadata = metadata
+        action_space.get_total_action_dim.return_value = total_dim
+        action_space.has_gripper_actions = has_gripper
+        action_space.gripper_dim = gripper_dim
+        action_space.has_orientation_actions = has_orientation
+        action_space.orientation_dim = orientation_dim
+        has_position = position_dim > 0
+        action_space.has_position_actions = has_position
+        action_space.position_dim = position_dim
+        return action_space
+
+    return factory
+
+
+@pytest.fixture
+def mock_observation_space_factory() -> Callable[..., MagicMock]:
+    """Factory for mock ObservationSpace."""
+
+    def factory() -> MagicMock:
+        return MagicMock(spec=ObservationSpace)
+
+    return factory
 
 
 @pytest.fixture

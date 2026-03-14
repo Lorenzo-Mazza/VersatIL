@@ -279,7 +279,7 @@ class TestACTForward:
             predictions_without = decoder(features=features)
         features[LatentKey.POSTERIOR_LATENT.value] = input_tensor_factory(
             batch_size=BATCH_SIZE,
-            input_dim=EMBEDDING_DIMENSION,
+            input_dimension=EMBEDDING_DIMENSION,
         )
         with torch.no_grad():
             predictions_with = decoder(features=features)
@@ -344,12 +344,12 @@ class TestACTDecodeActions:
         input_tokens = input_tensor_factory(
             batch_size=BATCH_SIZE,
             sequence_length=sequence_length,
-            input_dim=EMBEDDING_DIMENSION,
+            input_dimension=EMBEDDING_DIMENSION,
         )
         positional_encodings = input_tensor_factory(
             batch_size=BATCH_SIZE,
             sequence_length=sequence_length,
-            input_dim=EMBEDDING_DIMENSION,
+            input_dimension=EMBEDDING_DIMENSION,
         )
         action_embeddings = decoder._decode_actions(
             input_tokens=input_tokens,
@@ -374,12 +374,12 @@ class TestACTDecodeActions:
         input_tokens = input_tensor_factory(
             batch_size=BATCH_SIZE,
             sequence_length=sequence_length,
-            input_dim=EMBEDDING_DIMENSION,
+            input_dimension=EMBEDDING_DIMENSION,
         )
         positional_encodings = input_tensor_factory(
             batch_size=BATCH_SIZE,
             sequence_length=sequence_length,
-            input_dim=EMBEDDING_DIMENSION,
+            input_dimension=EMBEDDING_DIMENSION,
         )
         with torch.no_grad():
             output_without_mask = decoder._decode_actions(

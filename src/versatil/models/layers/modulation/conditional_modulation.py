@@ -61,12 +61,14 @@ class ConditionalModulation(nn.Module):
             for layer in linear_layers:
                 layer._is_modulation_layer = True
                 nn.init.constant_(layer.weight, 0)
-                nn.init.constant_(layer.bias, 0)
+                if layer.bias is not None:
+                    nn.init.constant_(layer.bias, 0)
         elif self.init_strategy == "xavier":
             for layer in linear_layers:
                 layer._is_modulation_layer = True
                 nn.init.xavier_uniform_(layer.weight)
-                nn.init.zeros_(layer.bias)
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
         else:
             raise ValueError(f"Unknown init_strategy: {self.init_strategy}")
 

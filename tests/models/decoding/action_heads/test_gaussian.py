@@ -75,7 +75,7 @@ class TestGaussianHeadForward:
     ):
         head = gaussian_head_factory(input_dim=64)
         head.set_output_dim(3)
-        embedding = embedding_tensor_factory(embedding_dim=64)
+        embedding = embedding_tensor_factory(embedding_dimension=64)
         result = head(embedding)
         assert isinstance(result, dict)
         assert DecoderOutputKey.MEAN.value in result
@@ -90,7 +90,7 @@ class TestGaussianHeadForward:
     ):
         head = gaussian_head_factory(input_dim=64)
         head.set_output_dim(output_dim)
-        embedding = embedding_tensor_factory(embedding_dim=64)
+        embedding = embedding_tensor_factory(embedding_dimension=64)
         result = head(embedding)
         assert result[DecoderOutputKey.MEAN.value].shape == (2, 8, output_dim)
         assert result[DecoderOutputKey.LOGVAR.value].shape == (2, 8, output_dim)
@@ -109,7 +109,7 @@ class TestGaussianHeadForward:
         )
         head.set_output_dim(3)
         # Use large embeddings to push logvar towards extremes
-        embedding = embedding_tensor_factory(embedding_dim=64) * 100
+        embedding = embedding_tensor_factory(embedding_dimension=64) * 100
         result = head(embedding)
         logvar = result[DecoderOutputKey.LOGVAR.value]
         assert logvar.min().item() >= min_logvar

@@ -101,7 +101,7 @@ These guidelines define how tests in this codebase must be written. Reference im
 
 11c. **Never duplicate conftest fixtures locally.** Before writing any fixture in a test module, check all `conftest.py` files in the package hierarchy (`tests/conftest.py`, `tests/models/conftest.py`, etc.) for existing fixtures. If a fixture already exists (e.g., `feature_dictionary_factory`, `action_dictionary_factory`, `input_tensor_factory`), use it directly — never create a local copy with a different name or signature. When calling conftest fixtures, use their exact parameter names (e.g., `feature_dimension=`, not `embedding_dimension=`).
 
-11d. **No docstrings in tests.** Tests should not have docstrings. If context is needed, use an inline comment. Test names should be descriptive enough to explain intent without a docstring.
+11d. **No docstrings on test functions or test classes.** Test functions and test classes should not have docstrings. If context is needed, use an inline comment. Test names should be descriptive enough to explain intent without a docstring. **Module-level docstrings ARE required** on every test file, following the pattern `"""Tests for versatil.{module_path} module."""` (e.g., `"""Tests for versatil.models.layers.mlp module."""`). This is consistent with `tests/data/` and must not be removed.
 
 11e. **Tests must verify what they claim.** If a test name or comment says it checks a specific behavior (e.g., "injects zero padding"), the assertions must actually verify that behavior — not just re-check output keys or types. A test that claims to verify a fallback path but only checks that the output dict has the right keys is a lie.
 

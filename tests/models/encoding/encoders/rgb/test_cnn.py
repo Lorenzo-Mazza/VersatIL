@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
+from transformers import TimmBackbone, TimmBackboneConfig
 
 from versatil.data.constants import RGB_CAMERAS
 from versatil.models.encoding.encoders.constants import (
@@ -15,7 +16,6 @@ from versatil.models.encoding.encoders.constants import (
     RGBBackboneType,
 )
 from versatil.models.encoding.encoders.rgb.cnn import CNNEncoder
-from versatil.models.encoding.encoders.unconditional import Encoder
 
 
 CNN_BACKBONES = [
@@ -110,12 +110,14 @@ class TestCNNEncoderInitialization:
         with expectation:
             cnn_encoder_factory(input_keys=input_keys)
 
-    def test_inherits_from_encoder(
+    def test_has_encoder_interface(
         self,
         cnn_encoder_factory: Callable[..., CNNEncoder],
     ):
         encoder = cnn_encoder_factory()
-        assert isinstance(encoder, Encoder)
+        assert hasattr(encoder, "forward")
+        assert hasattr(encoder, "get_output_specification")
+        assert hasattr(encoder, "input_specification")
 
     @pytest.mark.parametrize("input_keys", ["left", "right"])
     @pytest.mark.parametrize("backbone", [
@@ -309,3 +311,29 @@ class TestCNNEncoderIntegration:
         )
         for parameter in encoder.parameters():
             assert parameter.requires_grad is expected_requires_grad
+
+
+class TestCNNEncoderBuildBackbone:
+
+    def test_invalid_batch_norm_handling_raises(self):
+        invalid_handling = "invalid_batch_norm_handling"
+
+        def _mock_setup_pooling_only(self_inner):
+            self_inner.pooling_head = None
+            self_inner.output_dim = self_inner.feature_dim
+
+        with (
+            patch.object(CNNEncoder, "_setup_pooling", _mock_setup_pooling_only),
+            pytest.raises(
+                ValueError,
+                match=re.escape(
+                    f"Unknown batch norm handling: {invalid_handling}"
+                ),
+            ),
+        ):
+            CNNEncoder(
+                input_keys="left",
+                backbone=RGBBackboneType.RESNET18.value,
+                batch_norm_handling=invalid_handling,
+                pretrained=False,
+            )

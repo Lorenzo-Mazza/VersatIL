@@ -142,4 +142,6 @@ def create_pooling_head(
             return LearnedAggregationPooling(feature_channels)
         case _:
             raise ValueError(
-                f"Unsupported pooling method: {pooling_method}.Supported: {[e.value for e in PoolingMethod]}" )
+                f"Unsupported pooling method: {pooling_method}. "
+                f"Supported: {[e.value for e in PoolingMethod]}"
+            )

@@ -18,7 +18,6 @@ from versatil.models.encoding.encoders.constants import (
     RGBBackboneType,
 )
 from versatil.models.encoding.encoders.rgb.vit import ViTEncoder
-from versatil.models.encoding.encoders.unconditional import Encoder
 
 
 VIT_BACKBONES = [
@@ -157,12 +156,14 @@ class TestViTEncoderInitialization:
         with expectation:
             vit_encoder_factory(input_keys=input_keys)
 
-    def test_inherits_from_encoder(
+    def test_has_encoder_interface(
         self,
         vit_encoder_factory: Callable[..., ViTEncoder],
     ):
         encoder = vit_encoder_factory()
-        assert isinstance(encoder, Encoder)
+        assert hasattr(encoder, "forward")
+        assert hasattr(encoder, "get_output_specification")
+        assert hasattr(encoder, "input_specification")
 
     @pytest.mark.parametrize("input_keys", ["left", "right"])
     @pytest.mark.parametrize("backbone", [
@@ -193,7 +194,6 @@ class TestViTEncoderInitialization:
 
 
     def test_none_pooling_sets_output_dim_to_tuple(self):
-        """When pooling_method is NONE, _setup_feature_extractor sets output_dim to a tuple."""
         with patch.object(ViTEncoder, "_build_backbone", _mock_build_backbone):
             encoder = ViTEncoder(
                 input_keys="left",
@@ -205,7 +205,6 @@ class TestViTEncoderInitialization:
         assert encoder.output_dim == (-1, FEATURE_DIM - 1)
 
     def test_non_none_pooling_sets_output_dim_to_int(self):
-        """When pooling_method is not NONE, _setup_feature_extractor sets output_dim to an int."""
         with patch.object(ViTEncoder, "_build_backbone", _mock_build_backbone):
             encoder = ViTEncoder(
                 input_keys="left",

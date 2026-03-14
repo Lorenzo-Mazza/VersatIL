@@ -398,8 +398,8 @@ class TestGPTActionTransformerForward:
             batch_size=BATCH_SIZE,
             feature_dim=EMBEDDING_DIMENSION,
         )
-        posterior_mu = input_tensor_factory(batch_size=BATCH_SIZE, input_dim=16)
-        posterior_logvar = input_tensor_factory(batch_size=BATCH_SIZE, input_dim=16)
+        posterior_mu = input_tensor_factory(batch_size=BATCH_SIZE, input_dimension=16)
+        posterior_logvar = input_tensor_factory(batch_size=BATCH_SIZE, input_dimension=16)
         features[LatentKey.POSTERIOR_MU.value] = posterior_mu
         features[LatentKey.POSTERIOR_LOGVAR.value] = posterior_logvar
         actions = tokenized_actions_factory(batch_size=BATCH_SIZE)

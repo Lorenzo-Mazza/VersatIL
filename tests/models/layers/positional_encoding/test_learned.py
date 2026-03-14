@@ -4,7 +4,6 @@ from collections.abc import Callable
 
 import pytest
 import torch
-import torch.nn as nn
 
 from versatil.models.layers.positional_encoding.base import PositionSource
 from versatil.models.layers.positional_encoding.learned import (
@@ -71,7 +70,7 @@ class TestLearnedPositionalEncoding1D:
                 maximum_length=None,
             )
 
-    def test_has_learned_encoding_embedding(
+    def test_learned_encoding_dimensions(
         self,
         learned_1d_factory: Callable[..., LearnedPositionalEncoding1D],
     ):
@@ -79,11 +78,12 @@ class TestLearnedPositionalEncoding1D:
             embedding_dimension=64,
             maximum_length=100,
         )
-        assert isinstance(module.learned_encoding, nn.Embedding)
         assert module.learned_encoding.num_embeddings == 100
         assert module.learned_encoding.embedding_dim == 64
+        # Verify the encoding is learnable (has requires_grad=True weights)
+        assert module.learned_encoding.weight.requires_grad is True
 
-    @pytest.mark.parametrize("batch_size, seq_len, embedding_dimension", [
+    @pytest.mark.parametrize("batch_size, sequence_length, embedding_dimension", [
         (2, 10, 64),
         (4, 20, 128),
     ])
@@ -92,20 +92,20 @@ class TestLearnedPositionalEncoding1D:
         learned_1d_factory: Callable[..., LearnedPositionalEncoding1D],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         batch_size: int,
-        seq_len: int,
+        sequence_length: int,
         embedding_dimension: int,
     ):
         module = learned_1d_factory(
             embedding_dimension=embedding_dimension,
-            maximum_length=max(seq_len, 100),
+            maximum_length=max(sequence_length, 100),
         )
         tensor = sequence_tensor_factory(
             batch_size=batch_size,
-            seq_len=seq_len,
+            sequence_length=sequence_length,
             embedding_dimension=embedding_dimension,
         )
         output = module(tensor)
-        assert output.shape == (batch_size, seq_len, embedding_dimension)
+        assert output.shape == (batch_size, sequence_length, embedding_dimension)
 
     def test_different_positions_produce_different_encodings(
         self,
@@ -114,7 +114,7 @@ class TestLearnedPositionalEncoding1D:
     ):
         module = learned_1d_factory(embedding_dimension=64, maximum_length=100)
         tensor = sequence_tensor_factory(
-            batch_size=1, seq_len=10, embedding_dimension=64,
+            batch_size=1, sequence_length=10, embedding_dimension=64,
         )
         output = module(tensor)
         encoding_pos_0 = output[0, 0]
@@ -196,7 +196,7 @@ class TestLearnedPositionalEncoding2D:
                 max_width=None,
             )
 
-    def test_has_row_and_col_encoding_embeddings(
+    def test_row_and_col_encoding_dimensions(
         self,
         learned_2d_factory: Callable[..., LearnedPositionalEncoding2D],
     ):
@@ -206,12 +206,13 @@ class TestLearnedPositionalEncoding2D:
             max_width=20,
         )
         half_dim = 32
-        assert isinstance(module.row_encoding, nn.Embedding)
         assert module.row_encoding.num_embeddings == 10
         assert module.row_encoding.embedding_dim == half_dim
-        assert isinstance(module.col_encoding, nn.Embedding)
         assert module.col_encoding.num_embeddings == 20
         assert module.col_encoding.embedding_dim == half_dim
+        # Verify encodings are learnable
+        assert module.row_encoding.weight.requires_grad is True
+        assert module.col_encoding.weight.requires_grad is True
 
     @pytest.mark.parametrize("batch_size, embedding_dimension, height, width", [
         (2, 64, 8, 8),
@@ -220,7 +221,7 @@ class TestLearnedPositionalEncoding2D:
     def test_output_shape(
         self,
         learned_2d_factory: Callable[..., LearnedPositionalEncoding2D],
-        spatial_tensor_factory: Callable[..., torch.Tensor],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
         batch_size: int,
         embedding_dimension: int,
         height: int,
@@ -231,7 +232,7 @@ class TestLearnedPositionalEncoding2D:
             max_height=max(height, 50),
             max_width=max(width, 50),
         )
-        tensor = spatial_tensor_factory(
+        tensor = nchw_tensor_factory(
             batch_size=batch_size,
             channels=embedding_dimension,
             height=height,

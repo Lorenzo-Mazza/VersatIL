@@ -86,10 +86,50 @@ class TestDynamicFeatureEmbeddingForward:
         assert len(module.embeddings) == 2
         assert not torch.equal(first, second)
 
-    def test_output_is_parameter(
+    def test_embedding_is_trainable(
         self,
         dynamic_feature_embedding_factory: Callable[..., DynamicFeatureEmbedding],
     ):
         module = dynamic_feature_embedding_factory()
         module(name="test", device=torch.device("cpu"))
-        assert isinstance(module.embeddings["test"], torch.nn.Parameter)
+        # Functional consequence: embedding appears in model.parameters() and is trainable
+        named_params = dict(module.named_parameters())
+        assert "embeddings.test" in named_params
+        assert named_params["embeddings.test"].requires_grad is True
+
+
+class TestDynamicFeatureEmbeddingLoadFromStateDict:
+
+    def test_load_state_dict_creates_embeddings_from_checkpoint(
+        self,
+        dynamic_feature_embedding_factory: Callable[..., DynamicFeatureEmbedding],
+    ):
+        embedding_dim = 64
+        # Create source module with embeddings
+        source = dynamic_feature_embedding_factory(embedding_dim=embedding_dim)
+        source(name="rgb_features", device=torch.device("cpu"))
+        source(name="depth_features", device=torch.device("cpu"))
+        state_dict = source.state_dict()
+
+        # Load into fresh module that has no embeddings
+        target = dynamic_feature_embedding_factory(embedding_dim=embedding_dim)
+        assert len(target.embeddings) == 0
+        target.load_state_dict(state_dict)
+        assert "rgb_features" in target.embeddings
+        assert "depth_features" in target.embeddings
+
+    def test_loaded_embeddings_match_source_values(
+        self,
+        dynamic_feature_embedding_factory: Callable[..., DynamicFeatureEmbedding],
+    ):
+        embedding_dim = 32
+        source = dynamic_feature_embedding_factory(embedding_dim=embedding_dim)
+        source(name="test_feat", device=torch.device("cpu"))
+        state_dict = source.state_dict()
+
+        target = dynamic_feature_embedding_factory(embedding_dim=embedding_dim)
+        target.load_state_dict(state_dict)
+        torch.testing.assert_close(
+            target.embeddings["test_feat"],
+            source.embeddings["test_feat"],
+        )

@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.encoders.multimodal.vlm module."""
+import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -14,7 +15,6 @@ from versatil.models.encoding.encoders.constants import (
     PoolingMethod,
 )
 from versatil.models.encoding.encoders.multimodal.vlm import VLMEncoder
-from versatil.models.encoding.encoders.unconditional import Encoder
 
 
 HIDDEN_VISION_DIM = 768
@@ -146,12 +146,14 @@ def vlm_input_factory(
 
 class TestVLMEncoderInitialization:
 
-    def test_inherits_from_encoder(
+    def test_has_encoder_interface(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
     ):
         encoder = vlm_encoder_factory()
-        assert isinstance(encoder, Encoder)
+        assert hasattr(encoder, "forward")
+        assert hasattr(encoder, "get_output_specification")
+        assert hasattr(encoder, "input_specification")
 
     @pytest.mark.parametrize("input_keys", [
         [Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value],
@@ -520,23 +522,13 @@ class TestVLMEncoderForward:
         self,
         encoder: VLMEncoder,
         batch_size: int,
-        pooling_method: str,
     ):
-        """Configure the mock encoder to return expected output structure."""
-        if pooling_method == PoolingMethod.NONE.value:
-            vision_hidden = torch.zeros(
-                batch_size, 49, HIDDEN_VISION_DIM
-            )
-            language_hidden = torch.zeros(
-                batch_size, MAX_TEXT_LENGTH, HIDDEN_LANGUAGE_DIM
-            )
-        else:
-            vision_hidden = torch.zeros(
-                batch_size, 49, HIDDEN_VISION_DIM
-            )
-            language_hidden = torch.zeros(
-                batch_size, MAX_TEXT_LENGTH, HIDDEN_LANGUAGE_DIM
-            )
+        vision_hidden = torch.zeros(
+            batch_size, 49, HIDDEN_VISION_DIM
+        )
+        language_hidden = torch.zeros(
+            batch_size, MAX_TEXT_LENGTH, HIDDEN_LANGUAGE_DIM
+        )
 
         vision_pooler = torch.zeros(batch_size, HIDDEN_VISION_DIM)
         language_pooler = torch.zeros(batch_size, HIDDEN_LANGUAGE_DIM)
@@ -583,7 +575,6 @@ class TestVLMEncoderForward:
         self._setup_encoder_mock_outputs(
             encoder=encoder,
             batch_size=effective_batch,
-            pooling_method=pooling_method,
         )
         inputs = vlm_input_factory(
             batch_size=batch_size,
@@ -663,7 +654,6 @@ class TestVLMEncoderForward:
         self._setup_encoder_mock_outputs(
             encoder=encoder,
             batch_size=effective_batch,
-            pooling_method=pooling_method,
         )
         inputs = vlm_input_factory(
             batch_size=batch_size,
@@ -697,13 +687,133 @@ class TestVLMEncoderForward:
         self._setup_encoder_mock_outputs(
             encoder=encoder,
             batch_size=batch_size,
-            pooling_method=PoolingMethod.DEFAULT.value,
         )
         inputs = vlm_input_factory(batch_size=batch_size)
         output = encoder(inputs=inputs)
         assert EncoderOutputKeys.RGB.value in output
         assert EncoderOutputKeys.LANGUAGE.value in output
         assert encoder.padding_mask_name in output
+
+    def test_none_pooling_with_time_wrong_ndim_raises(
+        self,
+        vlm_encoder_factory: Callable[..., VLMEncoder],
+        vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 2
+        time_steps = 3
+        effective_batch = batch_size * time_steps
+        encoder = vlm_encoder_factory(
+            pooling_method=PoolingMethod.NONE.value
+        )
+        # Create mock outputs where image_features has wrong ndim (2D instead of 3D+)
+        vision_hidden = torch.zeros(effective_batch, HIDDEN_VISION_DIM)
+        language_hidden = torch.zeros(
+            effective_batch, MAX_TEXT_LENGTH, HIDDEN_LANGUAGE_DIM
+        )
+        vision_pooler = torch.zeros(effective_batch, HIDDEN_VISION_DIM)
+        language_pooler = torch.zeros(effective_batch, HIDDEN_LANGUAGE_DIM)
+        mock_vision_output = BaseModelOutputWithPooling(
+            last_hidden_state=vision_hidden,
+            pooler_output=vision_pooler,
+        )
+        mock_language_output = BaseModelOutputWithPooling(
+            last_hidden_state=language_hidden,
+            pooler_output=language_pooler,
+        )
+        mock_full_output = MagicMock()
+        mock_full_output.vision_model_output = mock_vision_output
+        mock_full_output.text_model_output = mock_language_output
+        encoder.encoder.return_value = mock_full_output
+        encoder.image_processor = MagicMock()
+        mock_processed = MagicMock()
+        mock_processed.to.return_value = {
+            "pixel_values": torch.zeros(
+                effective_batch, 3, IMAGE_SIZE, IMAGE_SIZE
+            )
+        }
+        mock_processed.__iter__ = lambda s: iter(["pixel_values"])
+        mock_processed.__getitem__ = lambda s, k: torch.zeros(
+            effective_batch, 3, IMAGE_SIZE, IMAGE_SIZE
+        )
+        mock_processed.keys = lambda: ["pixel_values"]
+        encoder.image_processor.return_value = mock_processed
+        inputs = vlm_input_factory(
+            batch_size=batch_size,
+            time_steps=time_steps,
+            include_padding_mask=True,
+        )
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape(
+                "Expected image_features.ndim >= 3 and language_features.ndim == 3, "
+                f"got 2 and 3"
+            ),
+        ):
+            encoder(inputs=inputs)
+
+    def test_pooled_with_time_wrong_ndim_raises(
+        self,
+        vlm_encoder_factory: Callable[..., VLMEncoder],
+        vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 2
+        time_steps = 3
+        effective_batch = batch_size * time_steps
+        encoder = vlm_encoder_factory(
+            pooling_method=PoolingMethod.DEFAULT.value
+        )
+        # Create mock outputs where pooler_output has wrong ndim (3D instead of 2D)
+        vision_hidden = torch.zeros(
+            effective_batch, 49, HIDDEN_VISION_DIM
+        )
+        language_hidden = torch.zeros(
+            effective_batch, MAX_TEXT_LENGTH, HIDDEN_LANGUAGE_DIM
+        )
+        # pooler_output with wrong shape (3D instead of 2D)
+        vision_pooler = torch.zeros(
+            effective_batch, 2, HIDDEN_VISION_DIM
+        )
+        language_pooler = torch.zeros(
+            effective_batch, HIDDEN_LANGUAGE_DIM
+        )
+        mock_vision_output = BaseModelOutputWithPooling(
+            last_hidden_state=vision_hidden,
+            pooler_output=vision_pooler,
+        )
+        mock_language_output = BaseModelOutputWithPooling(
+            last_hidden_state=language_hidden,
+            pooler_output=language_pooler,
+        )
+        mock_full_output = MagicMock()
+        mock_full_output.vision_model_output = mock_vision_output
+        mock_full_output.text_model_output = mock_language_output
+        encoder.encoder.return_value = mock_full_output
+        encoder.image_processor = MagicMock()
+        mock_processed = MagicMock()
+        mock_processed.to.return_value = {
+            "pixel_values": torch.zeros(
+                effective_batch, 3, IMAGE_SIZE, IMAGE_SIZE
+            )
+        }
+        mock_processed.__iter__ = lambda s: iter(["pixel_values"])
+        mock_processed.__getitem__ = lambda s, k: torch.zeros(
+            effective_batch, 3, IMAGE_SIZE, IMAGE_SIZE
+        )
+        mock_processed.keys = lambda: ["pixel_values"]
+        encoder.image_processor.return_value = mock_processed
+        inputs = vlm_input_factory(
+            batch_size=batch_size,
+            time_steps=time_steps,
+            include_padding_mask=True,
+        )
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape(
+                "Expected image_features.ndim == 2 and language_features.ndim == 2, "
+                f"got 3 and 2"
+            ),
+        ):
+            encoder(inputs=inputs)
 
 
 class TestVLMEncoderGetVocabSize:

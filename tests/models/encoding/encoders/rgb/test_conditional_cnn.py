@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.encoders.rgb.conditional_cnn module."""
+import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
 from unittest.mock import MagicMock, patch
@@ -14,7 +15,6 @@ from versatil.models.encoding.encoders.constants import (
     PoolingMethod,
     RGBBackboneType,
 )
-from versatil.models.encoding.encoders.conditional import ConditionalEncoder
 from versatil.models.encoding.encoders.rgb.conditional_cnn import (
     ConditionalCNNEncoder,
 )
@@ -169,12 +169,15 @@ class TestConditionalCNNEncoderInitialization:
         assert encoder.feature_dim == 512
         assert encoder.input_specification.keys == [input_keys]
 
-    def test_inherits_from_conditional_encoder(
+    def test_has_conditional_encoder_interface(
         self,
         conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
     ):
         encoder = conditional_cnn_factory()
-        assert isinstance(encoder, ConditionalEncoder)
+        assert hasattr(encoder, "forward")
+        assert hasattr(encoder, "get_output_specification")
+        assert hasattr(encoder, "condition_key")
+        assert hasattr(encoder, "input_specification")
 
     @pytest.mark.parametrize("input_keys, expectation", [
         ("left", does_not_raise()),
@@ -237,7 +240,6 @@ class TestConditionalCNNEncoderForward:
         image_input_factory: Callable[..., dict[str, torch.Tensor]],
         conditioning_factory: Callable[..., torch.Tensor],
     ):
-        """2D conditioning (B, D) is replicated over time when input is 5D."""
         batch_size = 2
         time_steps = 3
         feature_dimension = 512
@@ -268,7 +270,6 @@ class TestConditionalCNNEncoderForward:
         image_input_factory: Callable[..., dict[str, torch.Tensor]],
         rng: np.random.Generator,
     ):
-        """Conditioning with wrong number of dimensions raises ValueError."""
         batch_size = 2
         time_steps = 3
         condition_dim = 64
@@ -445,3 +446,52 @@ class TestConditionalCNNEncoderIntegration:
         ).cpu()
         for parameter in encoder.parameters():
             assert parameter.requires_grad is expected_requires_grad
+
+
+class TestConditionalCNNEncoderApplyBatchNormHandling:
+
+    def test_invalid_batch_norm_handling_raises(self):
+        invalid_handling = "invalid_batch_norm_handling"
+
+        def _mock_setup_pooling_only(self_inner):
+            self_inner.pooling_head = None
+            self_inner.output_dim = self_inner.feature_dim
+
+        with (
+            patch.object(
+                ConditionalCNNEncoder,
+                "_setup_pooling",
+                _mock_setup_pooling_only,
+            ),
+            pytest.raises(
+                ValueError,
+                match=re.escape(
+                    f"Unknown batch norm handling: {invalid_handling}"
+                ),
+            ),
+        ):
+            ConditionalCNNEncoder(
+                input_keys="left",
+                condition_key="language_instruction",
+                condition_dim=64,
+                backbone=RGBBackboneType.RESNET18.value,
+                batch_norm_handling=invalid_handling,
+                pretrained=False,
+            )
+
+
+class TestConditionalCNNEncoderCopyPretrainedWeights:
+
+    @pytest.mark.integration
+    def test_pretrained_weights_are_copied_to_filmed_blocks(self):
+        encoder = ConditionalCNNEncoder(
+            input_keys="left",
+            condition_key="language_instruction",
+            condition_dim=64,
+            backbone=RGBBackboneType.RESNET18.value,
+            pretrained=True,
+        ).cpu()
+        # Verify conv weights are non-zero (pretrained weights loaded)
+        first_block = encoder.layer1[0]
+        conv1_weight_norm = first_block.conv1.weight.data.abs().sum().item()
+        assert conv1_weight_norm > 0.0

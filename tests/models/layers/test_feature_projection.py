@@ -185,6 +185,22 @@ class TestFeatureProjectionCreateProjectionLayer:
         layer = projection._create_projection_layer(feature=feature_tensor)
         assert isinstance(layer, nn.Identity)
 
+    def test_raises_for_unsupported_shape(
+        self,
+        rng: np.random.Generator,
+        feature_projection_factory: Callable[..., FeatureProjection],
+    ):
+        projection = feature_projection_factory(embedding_dim=64)
+        # 5D tensor passed directly to _create_projection_layer (not via forward)
+        unsupported = torch.from_numpy(
+            rng.standard_normal((2, 3, 4, 5, 6)).astype(np.float32)
+        )
+        with pytest.raises(
+            ValueError,
+            match=re.escape(f"Unsupported feature shape: {unsupported.shape}"),
+        ):
+            projection._create_projection_layer(feature=unsupported)
+
 
 class TestFeatureProjectionForward:
 
@@ -291,6 +307,83 @@ class TestFeatureProjectionForward:
         assert len(projection.spatial_projections) == 1
         assert "spatial_feature" in projection.spatial_projections
 
+    def test_5d_spatial_features_with_time_dim_preserves_temporal_shape(
+        self,
+        rng: np.random.Generator,
+        feature_projection_factory: Callable[..., FeatureProjection],
+    ):
+        batch_size = 2
+        temporal_length = 3
+        channel_dim = 32
+        height = 7
+        width = 7
+        embedding_dim = 64
+        projection = feature_projection_factory(
+            embedding_dim=embedding_dim, has_time_dim=True,
+        )
+        features = {
+            "video_feature": torch.from_numpy(
+                rng.standard_normal(
+                    (batch_size, temporal_length, channel_dim, height, width)
+                ).astype(np.float32)
+            )
+        }
+        output = projection(features)
+        assert output["video_feature"].shape == (
+            batch_size, temporal_length, embedding_dim, height, width
+        )
+
+    def test_5d_spatial_features_without_time_dim_flattens_batch_and_time(
+        self,
+        rng: np.random.Generator,
+        feature_projection_factory: Callable[..., FeatureProjection],
+    ):
+        batch_size = 2
+        temporal_length = 3
+        channel_dim = 32
+        height = 7
+        width = 7
+        embedding_dim = 64
+        projection = feature_projection_factory(
+            embedding_dim=embedding_dim, has_time_dim=False,
+        )
+        features = {
+            "video_feature": torch.from_numpy(
+                rng.standard_normal(
+                    (batch_size, temporal_length, channel_dim, height, width)
+                ).astype(np.float32)
+            )
+        }
+        output = projection(features)
+        # Without has_time_dim, B*T stays flattened
+        assert output["video_feature"].shape == (
+            batch_size * temporal_length, embedding_dim, height, width
+        )
+
+    def test_has_time_dim_reshapes_4d_sequential_features(
+        self,
+        rng: np.random.Generator,
+        feature_projection_factory: Callable[..., FeatureProjection],
+    ):
+        batch_size = 2
+        temporal_length = 3
+        channel_dim = 32
+        embedding_dim = 64
+        projection = feature_projection_factory(
+            embedding_dim=embedding_dim, has_time_dim=True,
+        )
+        features = {
+            "temporal_flat": torch.from_numpy(
+                rng.standard_normal(
+                    (batch_size, temporal_length, 1, channel_dim)
+                ).astype(np.float32)
+            )
+        }
+        output = projection(features)
+        assert output["temporal_flat"].shape == (
+            batch_size, temporal_length, 1, embedding_dim
+        )
+
     def test_reuses_projections_on_subsequent_calls(
         self,
         feature_projection_factory: Callable[..., FeatureProjection],
@@ -299,10 +392,13 @@ class TestFeatureProjectionForward:
         projection = feature_projection_factory(embedding_dim=64)
         features = flat_feature_factory(channel_dim=32)
         projection(features)
-        layer_after_first_call = projection.linear_projections["flat_feature"]
-        projection(features)
-        layer_after_second_call = projection.linear_projections["flat_feature"]
-        assert layer_after_first_call is layer_after_second_call
+        # Mutate the weight of the projection created on first call
+        projection.linear_projections["flat_feature"].weight.data.fill_(999.0)
+        output_second_call = projection(features)
+        # If projection is reused, the mutated weight should affect the output
+        assert (output_second_call["flat_feature"].abs().mean() > 100.0), (
+            "Second call should use the same (mutated) projection layer"
+        )
 
 
 class TestFeatureProjectionProjectAndConcatenate:
@@ -367,3 +463,104 @@ class TestFeatureProjectionProjectAndConcatenate:
             concatenation_dimension=0,
         )
         assert result.shape == (batch_size * 2, embedding_dim)
+
+    def test_raises_shape_mismatch_on_non_concatenation_dimension(
+        self,
+        rng: np.random.Generator,
+        feature_projection_factory: Callable[..., FeatureProjection],
+    ):
+        embedding_dim = 64
+        projection = feature_projection_factory(embedding_dim=embedding_dim)
+        # Two flat features with different batch sizes cannot be concatenated along dim=-1
+        features = {
+            "feature_a": torch.from_numpy(
+                rng.standard_normal((2, embedding_dim)).astype(np.float32)
+            ),
+            "feature_b": torch.from_numpy(
+                rng.standard_normal((3, embedding_dim)).astype(np.float32)
+            ),
+        }
+        with pytest.raises(
+            ValueError,
+            match=re.escape("Feature shapes do not match for concatenation:"),
+        ):
+            projection.project_and_concatenate(
+                features=features,
+                concatenation_dimension=-1,
+            )
+
+
+class TestFeatureProjectionLoadFromStateDict:
+
+    def test_creates_linear_projections_from_state_dict(
+        self,
+        rng: np.random.Generator,
+        feature_projection_factory: Callable[..., FeatureProjection],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        embedding_dim = 64
+        input_dim = 32
+        # Create a projection with a linear layer via forward pass
+        source_projection = feature_projection_factory(embedding_dim=embedding_dim)
+        features = flat_feature_factory(channel_dim=input_dim)
+        source_projection(features)
+        state_dict = source_projection.state_dict()
+        # Create a fresh projection with no layers and load the state dict
+        target_projection = feature_projection_factory(embedding_dim=embedding_dim)
+        assert len(target_projection.linear_projections) == 0
+        target_projection.load_state_dict(state_dict)
+        assert "flat_feature" in target_projection.linear_projections
+        # Verify loaded weights produce identical output
+        source_output = source_projection(features)
+        target_output = target_projection(features)
+        torch.testing.assert_close(
+            target_output["flat_feature"], source_output["flat_feature"]
+        )
+
+    def test_creates_spatial_projections_from_state_dict(
+        self,
+        rng: np.random.Generator,
+        feature_projection_factory: Callable[..., FeatureProjection],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        embedding_dim = 64
+        input_dim = 32
+        # Create a projection with a spatial layer via forward pass
+        source_projection = feature_projection_factory(embedding_dim=embedding_dim)
+        features = spatial_feature_factory(channel_dim=input_dim)
+        source_projection(features)
+        state_dict = source_projection.state_dict()
+        # Create a fresh projection with no layers and load the state dict
+        target_projection = feature_projection_factory(embedding_dim=embedding_dim)
+        assert len(target_projection.spatial_projections) == 0
+        target_projection.load_state_dict(state_dict)
+        assert "spatial_feature" in target_projection.spatial_projections
+        # Verify loaded weights produce identical output
+        source_output = source_projection(features)
+        target_output = target_projection(features)
+        torch.testing.assert_close(
+            target_output["spatial_feature"], source_output["spatial_feature"]
+        )
+
+    def test_preserves_existing_projections_during_load(
+        self,
+        feature_projection_factory: Callable[..., FeatureProjection],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        embedding_dim = 64
+        input_dim = 32
+        # Create source and target with the same feature
+        source_projection = feature_projection_factory(embedding_dim=embedding_dim)
+        features = flat_feature_factory(channel_dim=input_dim)
+        source_projection(features)
+        target_projection = feature_projection_factory(embedding_dim=embedding_dim)
+        target_projection(features)
+        # Load source state dict into target (projection already exists)
+        state_dict = source_projection.state_dict()
+        target_projection.load_state_dict(state_dict)
+        # Verify outputs match after load
+        source_output = source_projection(features)
+        target_output = target_projection(features)
+        torch.testing.assert_close(
+            target_output["flat_feature"], source_output["flat_feature"]
+        )

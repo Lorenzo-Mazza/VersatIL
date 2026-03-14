@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.encoders.depth.cnn module."""
+import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -13,7 +14,6 @@ from versatil.models.encoding.encoders.constants import (
     RGBBackboneType,
 )
 from versatil.models.encoding.encoders.depth.cnn import DepthCNNEncoder
-from versatil.models.encoding.encoders.unconditional import Encoder
 
 
 CNN_BACKBONES = [
@@ -91,15 +91,16 @@ class TestDepthCNNEncoderInitialization:
         assert encoder.batch_norm_handling == batch_norm_handling
         assert encoder.feature_dim == 512
 
-    def test_inherits_from_encoder(
+    def test_has_encoder_interface(
         self,
         depth_cnn_encoder_factory: Callable[..., DepthCNNEncoder],
     ):
         encoder = depth_cnn_encoder_factory()
-        assert isinstance(encoder, Encoder)
+        assert hasattr(encoder, "forward")
+        assert hasattr(encoder, "get_output_specification")
+        assert hasattr(encoder, "input_specification")
 
     def test_requires_depth_in_input_keys(self):
-        """Depth camera key must be present in input_keys."""
         with pytest.raises(ValueError, match="Missing required inputs"):
             with (
                 patch.object(DepthCNNEncoder, "_build_backbone", _mock_build_backbone),
@@ -301,3 +302,31 @@ class TestDepthCNNEncoderIntegration:
         )
         for parameter in encoder.parameters():
             assert parameter.requires_grad is expected_requires_grad
+
+
+class TestDepthCNNEncoderBuildBackbone:
+
+    def test_invalid_batch_norm_handling_raises(self):
+        invalid_handling = "invalid_batch_norm_handling"
+
+        def _mock_setup_pooling_only(self_inner):
+            self_inner.pooling_head = None
+            self_inner.output_dim = self_inner.feature_dim
+
+        with (
+            patch.object(
+                DepthCNNEncoder, "_setup_pooling", _mock_setup_pooling_only
+            ),
+            pytest.raises(
+                ValueError,
+                match=re.escape(
+                    f"Unknown batch norm handling: {invalid_handling}"
+                ),
+            ),
+        ):
+            DepthCNNEncoder(
+                input_keys=Cameras.DEPTH.value,
+                backbone=RGBBackboneType.RESNET18.value,
+                batch_norm_handling=invalid_handling,
+                pretrained=False,
+            )

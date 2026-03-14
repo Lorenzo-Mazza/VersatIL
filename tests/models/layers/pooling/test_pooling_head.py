@@ -45,7 +45,7 @@ class TestCreatePoolingHeadFactory:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Unsupported pooling method: {invalid_method}."
+                f"Unsupported pooling method: {invalid_method}. "
                 f"Supported: {[e.value for e in PoolingMethod]}"
             ),
         ):
@@ -80,7 +80,7 @@ class TestSpatialSoftmaxPooling:
 
     def test_forward_shape(
         self,
-        feature_map_factory: Callable[..., torch.Tensor],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
     ):
         channels = 16
         height, width = 8, 8
@@ -89,7 +89,7 @@ class TestSpatialSoftmaxPooling:
             spatial_width=width,
             channels=channels,
         )
-        tensor = feature_map_factory(
+        tensor = nchw_tensor_factory(
             batch_size=2,
             channels=channels,
             height=height,
@@ -108,11 +108,11 @@ class TestGlobalAveragePooling:
 
     def test_forward_shape(
         self,
-        feature_map_factory: Callable[..., torch.Tensor],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
     ):
         channels = 16
         head = GlobalAveragePooling()
-        tensor = feature_map_factory(
+        tensor = nchw_tensor_factory(
             batch_size=2,
             channels=channels,
             height=8,
@@ -120,6 +120,14 @@ class TestGlobalAveragePooling:
         )
         output = head(tensor)
         assert output.shape == (2, channels)
+
+    def test_forward_computes_spatial_mean(self):
+        # Construct a tensor with known channel means across spatial dims
+        head = GlobalAveragePooling()
+        tensor = torch.tensor([[[[1.0, 3.0], [5.0, 7.0]]]]) # (1, 1, 2, 2)
+        output = head(tensor)
+        expected_mean = (1.0 + 3.0 + 5.0 + 7.0) / 4.0
+        assert torch.allclose(output, torch.tensor([[expected_mean]]))
 
 
 class TestMaxPooling:
@@ -131,11 +139,11 @@ class TestMaxPooling:
 
     def test_forward_shape(
         self,
-        feature_map_factory: Callable[..., torch.Tensor],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
     ):
         channels = 16
         head = MaxPooling()
-        tensor = feature_map_factory(
+        tensor = nchw_tensor_factory(
             batch_size=2,
             channels=channels,
             height=8,
@@ -144,22 +152,29 @@ class TestMaxPooling:
         output = head(tensor)
         assert output.shape == (2, channels)
 
+    def test_forward_returns_spatial_maximum(self):
+        head = MaxPooling()
+        tensor = torch.tensor([[[[1.0, 3.0], [5.0, 7.0]]]]) # (1, 1, 2, 2)
+        output = head(tensor)
+        assert torch.allclose(output, torch.tensor([[7.0]]))
+
 
 class TestIdentityPooling:
 
-    def test_output_dim_returns_tuple(self):
-        head = IdentityPooling(channels=16)
-        result = head.get_output_dim(input_channels=16)
-        assert isinstance(result, tuple)
-        assert result[0] == 16
+    def test_output_dim_returns_channels_and_spatial_dims(self):
+        channels = 16
+        head = IdentityPooling(channels=channels)
+        result = head.get_output_dim(input_channels=channels)
+        # IdentityPooling returns (channels, height, width) where spatial dims are unknown (-1)
+        assert result == (channels, -1, -1)
 
     def test_forward_returns_input_unchanged(
         self,
-        feature_map_factory: Callable[..., torch.Tensor],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
     ):
         channels = 16
         head = IdentityPooling(channels=channels)
-        tensor = feature_map_factory(
+        tensor = nchw_tensor_factory(
             batch_size=2,
             channels=channels,
             height=8,
@@ -178,12 +193,12 @@ class TestLearnedAggregationPooling:
 
     def test_forward_shape(
         self,
-        feature_map_factory: Callable[..., torch.Tensor],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
     ):
         channels = 16
         batch_size = 2
         head = LearnedAggregationPooling(channels=channels)
-        tensor = feature_map_factory(
+        tensor = nchw_tensor_factory(
             batch_size=batch_size,
             channels=channels,
             height=4,

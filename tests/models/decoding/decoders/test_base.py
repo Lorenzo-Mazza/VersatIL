@@ -2,7 +2,6 @@
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
-from dataclasses import dataclass
 from unittest.mock import MagicMock
 
 import pytest
@@ -10,7 +9,6 @@ import torch
 import torch.nn as nn
 
 from versatil.data.normalization.normalizer import LinearNormalizer
-from versatil.data.task import ActionSpace
 from versatil.data.tokenization import Tokenizer
 from versatil.models.decoding.constants import FeatureType
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
@@ -31,14 +29,6 @@ class TokenizedConcreteDecoder(ConcreteDecoder):
     """Concrete decoder that supports tokenized actions."""
 
     supports_tokenized_actions: bool = True
-
-
-@dataclass
-class MockActionMeta:
-    """Minimal mock for action metadata entries."""
-
-    requires_prediction_head: bool = True
-    prediction_dimension: int = 3
 
 
 @pytest.fixture
@@ -72,39 +62,6 @@ def decoder_input_factory() -> Callable[..., DecoderInput]:
             conditioning_required=conditioning_required,
             conditioning_one_of_groups=conditioning_one_of_groups,
         )
-    return factory
-
-
-@pytest.fixture
-def mock_action_space_factory() -> Callable[..., MagicMock]:
-    """Factory for mock ActionSpace with configurable actions_metadata."""
-    def factory(
-        actions_metadata: dict[str, MockActionMeta] | None = None,
-        total_action_dim: int = 7,
-        has_gripper_actions: bool = False,
-        gripper_dim: int = 0,
-        has_orientation_actions: bool = False,
-        orientation_dim: int = 0,
-        has_position_actions: bool = False,
-        position_dim: int = 0,
-    ) -> MagicMock:
-        if actions_metadata is None:
-            actions_metadata = {
-                "position_action": MockActionMeta(
-                    requires_prediction_head=True,
-                    prediction_dimension=3,
-                ),
-            }
-        action_space = MagicMock(spec=ActionSpace)
-        action_space.actions_metadata = actions_metadata
-        action_space.get_total_action_dim.return_value = total_action_dim
-        action_space.has_gripper_actions = has_gripper_actions
-        action_space.gripper_dim = gripper_dim
-        action_space.has_orientation_actions = has_orientation_actions
-        action_space.orientation_dim = orientation_dim
-        action_space.has_position_actions = has_position_actions
-        action_space.position_dim = position_dim
-        return action_space
     return factory
 
 
@@ -297,7 +254,7 @@ class TestActionDecoderProperties:
         concrete_decoder_factory: Callable[..., ConcreteDecoder],
         mock_action_space_factory: Callable[..., MagicMock],
     ):
-        action_space = mock_action_space_factory(total_action_dim=12)
+        action_space = mock_action_space_factory(position_dim=12)
         decoder = concrete_decoder_factory(action_space=action_space)
         assert decoder.action_dim == 12
         action_space.get_total_action_dim.assert_called()
@@ -307,7 +264,7 @@ class TestActionDecoderProperties:
         concrete_decoder_factory: Callable[..., ConcreteDecoder],
         mock_action_space_factory: Callable[..., MagicMock],
     ):
-        action_space = mock_action_space_factory(has_gripper_actions=True)
+        action_space = mock_action_space_factory(has_gripper=True, gripper_dim=1)
         decoder = concrete_decoder_factory(action_space=action_space)
         assert decoder.use_gripper_actions is True
 
@@ -324,7 +281,7 @@ class TestActionDecoderProperties:
         expected: int | None,
     ):
         action_space = mock_action_space_factory(
-            has_gripper_actions=has_gripper,
+            has_gripper=has_gripper,
             gripper_dim=gripper_dim,
         )
         decoder = concrete_decoder_factory(action_space=action_space)
@@ -335,7 +292,7 @@ class TestActionDecoderProperties:
         concrete_decoder_factory: Callable[..., ConcreteDecoder],
         mock_action_space_factory: Callable[..., MagicMock],
     ):
-        action_space = mock_action_space_factory(has_orientation_actions=True)
+        action_space = mock_action_space_factory(has_orientation=True, orientation_dim=4)
         decoder = concrete_decoder_factory(action_space=action_space)
         assert decoder.use_orientation_actions is True
 
@@ -352,26 +309,24 @@ class TestActionDecoderProperties:
         expected: int | None,
     ):
         action_space = mock_action_space_factory(
-            has_orientation_actions=has_orientation,
+            has_orientation=has_orientation,
             orientation_dim=orientation_dim,
         )
         decoder = concrete_decoder_factory(action_space=action_space)
         assert decoder.orientation_dim == expected
 
-    @pytest.mark.parametrize("has_position, position_dim, expected", [
-        (False, 0, None),
-        (True, 3, 3),
+    @pytest.mark.parametrize("position_dim, expected", [
+        (0, None),
+        (3, 3),
     ])
     def test_position_dim(
         self,
         concrete_decoder_factory: Callable[..., ConcreteDecoder],
         mock_action_space_factory: Callable[..., MagicMock],
-        has_position: bool,
         position_dim: int,
         expected: int | None,
     ):
         action_space = mock_action_space_factory(
-            has_position_actions=has_position,
             position_dim=position_dim,
         )
         decoder = concrete_decoder_factory(action_space=action_space)
@@ -430,16 +385,9 @@ class TestActionDecoderValidateActionHeads:
         mock_action_head_factory: Callable[..., MagicMock],
     ):
         action_space = mock_action_space_factory(
-            actions_metadata={
-                "position_action": MockActionMeta(
-                    requires_prediction_head=True,
-                    prediction_dimension=3,
-                ),
-                "orientation_action": MockActionMeta(
-                    requires_prediction_head=True,
-                    prediction_dimension=4,
-                ),
-            },
+            position_dim=3,
+            has_orientation=True,
+            orientation_dim=4,
         )
         position_head = mock_action_head_factory(output_dim=3)
         with pytest.raises(
@@ -460,14 +408,7 @@ class TestActionDecoderValidateActionHeads:
         mock_action_space_factory: Callable[..., MagicMock],
         mock_action_head_factory: Callable[..., MagicMock],
     ):
-        action_space = mock_action_space_factory(
-            actions_metadata={
-                "position_action": MockActionMeta(
-                    requires_prediction_head=True,
-                    prediction_dimension=3,
-                ),
-            },
-        )
+        action_space = mock_action_space_factory(position_dim=3)
         position_head = mock_action_head_factory(output_dim=3)
         extra_head = mock_action_head_factory(output_dim=2)
         with pytest.raises(
@@ -491,14 +432,7 @@ class TestActionDecoderValidateActionHeads:
         mock_action_space_factory: Callable[..., MagicMock],
         mock_action_head_factory: Callable[..., MagicMock],
     ):
-        action_space = mock_action_space_factory(
-            actions_metadata={
-                "position_action": MockActionMeta(
-                    requires_prediction_head=True,
-                    prediction_dimension=3,
-                ),
-            },
-        )
+        action_space = mock_action_space_factory(position_dim=3)
         # Create head with output_dim=5 and override set_output_dim to be a no-op,
         # so _set_action_head_dimensions cannot correct it to the expected dim=3.
         wrong_dim_head = mock_action_head_factory(output_dim=5)
@@ -519,16 +453,9 @@ class TestActionDecoderValidateActionHeads:
         mock_action_head_factory: Callable[..., MagicMock],
     ):
         action_space = mock_action_space_factory(
-            actions_metadata={
-                "position_action": MockActionMeta(
-                    requires_prediction_head=True,
-                    prediction_dimension=3,
-                ),
-                "gripper_action": MockActionMeta(
-                    requires_prediction_head=True,
-                    prediction_dimension=1,
-                ),
-            },
+            position_dim=3,
+            has_gripper=True,
+            gripper_dim=1,
         )
         position_head = mock_action_head_factory(output_dim=3)
         gripper_head = mock_action_head_factory(output_dim=1)
@@ -553,16 +480,9 @@ class TestActionDecoderSetActionHeadDimensions:
         decoder_input_factory: Callable[..., DecoderInput],
     ):
         action_space = mock_action_space_factory(
-            actions_metadata={
-                "position_action": MockActionMeta(
-                    requires_prediction_head=True,
-                    prediction_dimension=3,
-                ),
-                "orientation_action": MockActionMeta(
-                    requires_prediction_head=True,
-                    prediction_dimension=4,
-                ),
-            },
+            position_dim=3,
+            has_orientation=True,
+            orientation_dim=4,
         )
         position_head = mock_action_head_factory(output_dim=0)
         orientation_head = mock_action_head_factory(output_dim=0)
@@ -588,14 +508,7 @@ class TestActionDecoderSetActionHeadDimensions:
         mock_action_head_factory: Callable[..., MagicMock],
         decoder_input_factory: Callable[..., DecoderInput],
     ):
-        action_space = mock_action_space_factory(
-            actions_metadata={
-                "position_action": MockActionMeta(
-                    requires_prediction_head=True,
-                    prediction_dimension=3,
-                ),
-            },
-        )
+        action_space = mock_action_space_factory(position_dim=3)
         head = mock_action_head_factory(output_dim=0)
         TokenizedConcreteDecoder(
             decoder_input=decoder_input_factory(),

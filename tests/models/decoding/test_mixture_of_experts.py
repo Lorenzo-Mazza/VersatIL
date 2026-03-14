@@ -78,7 +78,6 @@ def expert_outputs_factory(
     return factory
 
 
-
 class TestBaseMixtureOfExpertsInitialization:
 
     @pytest.mark.parametrize("num_experts", [2, 8])
@@ -194,7 +193,7 @@ class TestComputeRoutingWeights:
         )
         gating_feature = input_tensor_factory(
             batch_size=batch_size,
-            input_dim=input_dim,
+            input_dimension=input_dim,
         )
         weights = moe.compute_routing_weights(features=gating_feature)
         assert weights.shape == (batch_size, num_experts)
@@ -206,15 +205,48 @@ class TestComputeRoutingWeights:
     ):
         input_dim = 64
         moe = moe_factory(gating_input_dim=input_dim)
-        gating_feature = input_tensor_factory(input_dim=input_dim)
+        gating_feature = input_tensor_factory(input_dimension=input_dim)
         weights = moe.compute_routing_weights(features=gating_feature)
         sums = weights.sum(dim=-1)
         assert torch.allclose(sums, torch.ones_like(sums), atol=1e-5)
 
+    def test_higher_temperature_produces_more_uniform_weights(
+        self,
+        moe_factory: Callable[..., BaseMixtureOfExperts],
+        input_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        num_experts = 4
+        input_dim = 64
+        gating_feature = input_tensor_factory(
+            batch_size=2,
+            input_dimension=input_dim,
+        )
+        moe_low_temp = moe_factory(
+            num_experts=num_experts,
+            gating_input_dim=input_dim,
+            temperature=0.1,
+        )
+        moe_high_temp = moe_factory(
+            num_experts=num_experts,
+            gating_input_dim=input_dim,
+            temperature=100.0,
+        )
+        # Copy gating network weights so both see the same logits
+        moe_high_temp.gating_network.load_state_dict(
+            moe_low_temp.gating_network.state_dict()
+        )
+        weights_low = moe_low_temp.compute_routing_weights(features=gating_feature)
+        weights_high = moe_high_temp.compute_routing_weights(features=gating_feature)
+        # High temperature should produce weights closer to uniform (1/num_experts)
+        uniform = torch.full_like(weights_high, 1.0 / num_experts)
+        distance_low = (weights_low - uniform).abs().mean()
+        distance_high = (weights_high - uniform).abs().mean()
+        assert distance_high < distance_low
+
     def test_uses_raw_features_without_gating_network(
         self,
         moe_factory: Callable[..., BaseMixtureOfExperts],
-        rng: np.random.Generator,
+        input_tensor_factory: Callable[..., torch.Tensor],
     ):
         num_experts = 4
         moe = moe_factory(
@@ -222,8 +254,9 @@ class TestComputeRoutingWeights:
             gating_input_dim=None,
         )
         # When no gating network, features must already have num_experts dim
-        raw_logits = torch.from_numpy(
-            rng.standard_normal((2, num_experts)).astype(np.float32)
+        raw_logits = input_tensor_factory(
+            batch_size=2,
+            input_dimension=num_experts,
         )
         weights = moe.compute_routing_weights(features=raw_logits)
         expected = torch.softmax(raw_logits / moe.temperature, dim=-1)
@@ -238,7 +271,7 @@ class TestGetExpertSpecialization:
         input_tensor_factory: Callable[..., torch.Tensor],
     ):
         moe = moe_factory(gating_input_dim=64)
-        gating_feature = input_tensor_factory(input_dim=64)
+        gating_feature = input_tensor_factory(input_dimension=64)
         result = moe.get_expert_specialization(gating_feature=gating_feature)
         assert isinstance(result, dict)
         assert set(result.keys()) == {
@@ -256,7 +289,7 @@ class TestGetExpertSpecialization:
         input_tensor_factory: Callable[..., torch.Tensor],
     ):
         moe = moe_factory(gating_input_dim=64)
-        gating_feature = input_tensor_factory(input_dim=64)
+        gating_feature = input_tensor_factory(input_dimension=64)
         result = moe.get_expert_specialization(gating_feature=gating_feature)
         usage = result[DecoderOutputKey.EXPERT_USAGE.value]
         assert usage.sum().item() == pytest.approx(1.0, abs=1e-5)
@@ -267,7 +300,7 @@ class TestGetExpertSpecialization:
         input_tensor_factory: Callable[..., torch.Tensor],
     ):
         moe = moe_factory(gating_input_dim=64)
-        gating_feature = input_tensor_factory(input_dim=64)
+        gating_feature = input_tensor_factory(input_dimension=64)
         result = moe.get_expert_specialization(gating_feature=gating_feature)
         entropy = result[DecoderOutputKey.ROUTING_ENTROPY.value]
         assert entropy.item() >= 0.0
@@ -367,6 +400,42 @@ class TestApplyRouting:
             weights=weights,
         )
         assert result.shape == (batch_size, prediction_horizon, action_dim)
+
+    def test_soft_routing_value_correctness(
+        self,
+        moe_factory: Callable[..., BaseMixtureOfExperts],
+    ):
+        num_experts = 3
+        batch_size = 2
+        output_dim = 4
+        moe = moe_factory(
+            num_experts=num_experts,
+            routing_type=MoERoutingType.SOFT.value,
+            gating_input_dim=None,
+        )
+        # Create expert outputs where each expert outputs a distinct constant
+        outputs = [
+            torch.full((batch_size, output_dim), fill_value=float(i))
+            for i in range(num_experts)
+        ]
+        # Manually set routing weights: batch 0 -> all weight on expert 1,
+        # batch 1 -> equal weights
+        weights = torch.tensor(
+            [[0.0, 1.0, 0.0], [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]],
+            dtype=torch.float32,
+        )
+        result = moe._apply_routing(
+            expert_outputs=outputs,
+            weights=weights,
+        )
+        # Batch 0: 0*0.0 + 1*1.0 + 2*0.0 = 1.0
+        assert torch.allclose(
+            result[0], torch.full((output_dim,), 1.0), atol=1e-5,
+        )
+        # Batch 1: 0*(1/3) + 1*(1/3) + 2*(1/3) = 1.0
+        assert torch.allclose(
+            result[1], torch.full((output_dim,), 1.0), atol=1e-5,
+        )
 
     def test_topk_routing_selects_fewer_experts(
         self,

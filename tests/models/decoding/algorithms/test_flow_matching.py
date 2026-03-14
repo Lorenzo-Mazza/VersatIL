@@ -12,6 +12,9 @@ from versatil.data.constants import SampleKey
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.algorithm.flow_matching import FlowMatching
 from versatil.models.decoding.constants import DecoderOutputKey, ODESolver
+from versatil.models.decoding.decoders.factory.dit_block_action_transformer import (
+    DiTBlockActionTransformer,
+)
 from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 
 
@@ -214,6 +217,33 @@ class TestFlowMatchingForward:
         features_passed = mock_network.call_args.kwargs["features"]
         assert DecoderOutputKey.TIMESTEP.value in features_passed
 
+    def test_forward_with_multiple_action_keys(
+        self,
+        flow_matching_factory: Callable[..., FlowMatching],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        fm = flow_matching_factory()
+        action_keys = ["gripper_action", "position_action"]
+        mock_network = mock_action_decoder_factory(
+            action_keys=action_keys, prediction_dimension=3,
+        )
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=action_keys, prediction_horizon=8, action_dimension=3,
+            include_padding_mask=True,
+        )
+        mock_network.return_value = {
+            key: torch.zeros(2, 8, 3) for key in action_keys
+        }
+        result = fm.forward(network=mock_network, features=features, actions=actions)
+        target_velocity = result[DecoderOutputKey.TARGET_VELOCITY.value]
+        noise = result[DecoderOutputKey.NOISE.value]
+        for key in action_keys:
+            assert key in target_velocity
+            assert key in noise
+
 
 class TestFlowMatchingPredict:
 
@@ -248,3 +278,50 @@ class TestFlowMatchingPredict:
             mock_integrate.return_value = torch.zeros(2, 8 * 3)
             result = fm.predict(network=mock_network, features=features)
         assert result["position_action"].shape == (2, 8, 3)
+
+    def test_predict_enables_and_disables_encoder_cache_for_dit_block(
+        self,
+        flow_matching_factory: Callable[..., FlowMatching],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        fm = flow_matching_factory(num_inference_steps=2)
+        mock_network = MagicMock()
+        # Make isinstance check pass for DiTBlockActionTransformer
+        mock_network.__class__ = DiTBlockActionTransformer
+        mock_network.action_space.actions_metadata = {
+            "position_action": MagicMock(
+                requires_prediction_head=True, prediction_dimension=3
+            ),
+        }
+        mock_network.prediction_horizon = 8
+        mock_network.return_value = {"position_action": torch.zeros(2, 8, 3)}
+        features = feature_dictionary_factory()
+        with patch(
+            "versatil.models.decoding.algorithm.flow_matching.integrate_ode",
+        ) as mock_integrate:
+            mock_integrate.return_value = torch.zeros(2, 8 * 3)
+            fm.predict(network=mock_network, features=features)
+        mock_network.enable_encoder_cache.assert_called_once()
+        mock_network.disable_encoder_cache.assert_called_once()
+
+    def test_predict_with_multiple_action_keys(
+        self,
+        flow_matching_factory: Callable[..., FlowMatching],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        fm = flow_matching_factory(num_inference_steps=2)
+        action_keys = ["gripper_action", "position_action"]
+        mock_network = mock_action_decoder_factory(
+            action_keys=action_keys, prediction_dimension=3,
+        )
+        features = feature_dictionary_factory()
+        # Total flat dim: 2 keys * 8 horizon * 3 dim = 48
+        with patch(
+            "versatil.models.decoding.algorithm.flow_matching.integrate_ode",
+        ) as mock_integrate:
+            mock_integrate.return_value = torch.zeros(2, 8 * 3 * 2)
+            result = fm.predict(network=mock_network, features=features)
+        assert set(result.keys()) == set(action_keys)
+        for key in action_keys:
+            assert result[key].shape == (2, 8, 3)

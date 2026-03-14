@@ -61,7 +61,7 @@ class TestGaussianPriorForward:
         latent_dimension = 32
         prior = gaussian_prior_factory(latent_dimension=latent_dimension)
         target_latents = input_tensor_factory(
-            batch_size=2, input_dim=latent_dimension,
+            batch_size=2, input_dimension=latent_dimension,
         )
         observations = feature_dictionary_factory(batch_size=2)
         result = prior.forward(
@@ -87,7 +87,7 @@ class TestGaussianPriorForward:
         latent_dimension = 32
         prior = gaussian_prior_factory(latent_dimension=latent_dimension)
         target_latents = input_tensor_factory(
-            batch_size=2, input_dim=latent_dimension,
+            batch_size=2, input_dimension=latent_dimension,
         )
         observations = feature_dictionary_factory(batch_size=2)
         result = prior.forward(
@@ -105,7 +105,7 @@ class TestGaussianPriorForward:
         latent_dimension = 32
         prior = gaussian_prior_factory(latent_dimension=latent_dimension)
         target_latents = input_tensor_factory(
-            batch_size=2, input_dim=latent_dimension,
+            batch_size=2, input_dimension=latent_dimension,
         )
         observations = feature_dictionary_factory(batch_size=2)
         result = prior.forward(
@@ -124,7 +124,7 @@ class TestGaussianPriorForward:
         latent_dimension = 16
         prior = gaussian_prior_factory(latent_dimension=latent_dimension)
         target_latents = input_tensor_factory(
-            batch_size=batch_size, input_dim=latent_dimension,
+            batch_size=batch_size, input_dimension=latent_dimension,
         )
         observations = feature_dictionary_factory(batch_size=batch_size)
         result = prior.forward(

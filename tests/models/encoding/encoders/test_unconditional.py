@@ -3,7 +3,7 @@ from collections.abc import Callable
 
 import pytest
 
-from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput, EncodingMixin
+from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from versatil.models.encoding.encoders.unconditional import Encoder
 
 
@@ -40,9 +40,13 @@ def concrete_encoder_factory(
 
 class TestEncoderInitialization:
 
-    def test_inherits_from_encoding_mixin(
+    def test_has_encoding_mixin_interface(
         self,
         concrete_encoder_factory: Callable[..., ConcreteEncoder],
     ):
         encoder = concrete_encoder_factory()
-        assert isinstance(encoder, EncodingMixin)
+        # Verify functional consequence: EncodingMixin provides these attributes/methods
+        assert hasattr(encoder, "input_specification")
+        assert hasattr(encoder, "get_output_specification")
+        assert hasattr(encoder, "pretrained")
+        assert hasattr(encoder, "frozen")

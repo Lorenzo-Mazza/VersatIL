@@ -3,7 +3,6 @@ from collections.abc import Callable
 
 import pytest
 import torch
-import torch.nn as nn
 
 from versatil.models.encoding.fusion.base import (
     FusionInput,
@@ -147,12 +146,14 @@ class TestFusionModuleInitialization:
         assert module.output_name == output_name
         assert module._initialized is False
 
-    def test_inherits_from_nn_module(
+    def test_has_nn_module_interface(
         self,
         fusion_module_factory: Callable[..., ConcreteFusionModule],
     ):
         module = fusion_module_factory()
-        assert isinstance(module, nn.Module)
+        assert hasattr(module, "forward")
+        assert hasattr(module, "parameters")
+        assert hasattr(module, "state_dict")
 
 
 class TestFusionModuleInputFeaturesProperty:
@@ -229,12 +230,15 @@ class TestSequentialFusionInitialization:
         assert module.output_name == output_name
         assert module.projections is None
 
-    def test_inherits_from_fusion_module(
+    def test_has_fusion_module_interface(
         self,
         sequential_fusion_factory: Callable[..., ConcreteSequentialFusion],
     ):
         module = sequential_fusion_factory()
-        assert isinstance(module, FusionModule)
+        assert hasattr(module, "input_features")
+        assert hasattr(module, "output_name")
+        assert hasattr(module, "setup")
+        assert hasattr(module, "get_output_dim")
 
 
 class TestSequentialFusionSetupLayers:
@@ -272,7 +276,6 @@ class TestSequentialFusionSetupLayers:
         self,
         sequential_fusion_factory: Callable[..., ConcreteSequentialFusion],
     ):
-        """Tuple dimensions use last element as projection input dim."""
         module = sequential_fusion_factory(
             input_features=["seq_feat"],
             hidden_dim=32,
@@ -285,7 +288,6 @@ class TestSequentialFusionSetupLayers:
         self,
         sequential_fusion_factory: Callable[..., ConcreteSequentialFusion],
     ):
-        """Tuple dimensions with >2 elements (spatial) raise ValueError."""
         module = sequential_fusion_factory(
             input_features=["spatial_feat"],
         )
@@ -312,7 +314,7 @@ class TestSequentialFusionForward:
         module.setup(feature_keys_to_dims=dims)
         features = [
             input_tensor_factory(
-                input_dim=dim,
+                input_dimension=dim,
                 sequence_length=time_steps,
             )
             for dim in [64, 128]

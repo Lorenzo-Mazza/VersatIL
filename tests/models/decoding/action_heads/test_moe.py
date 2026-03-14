@@ -150,6 +150,19 @@ class TestMoEHeadSetNumExperts:
         ):
             head.set_num_experts(num_experts=3)
 
+    def test_raises_if_no_lazy_init_params(
+        self,
+        moe_head_factory: Callable[..., MoEHead],
+    ):
+        head = moe_head_factory(mode="lazy")
+        # Remove lazy init params to simulate missing state
+        head._lazy_init_params = None
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape("No lazy init params stored."),
+        ):
+            head.set_num_experts(num_experts=3)
+
     def test_raises_if_no_output_dim(
         self,
         action_head_factory: Callable[..., ActionHead],
@@ -225,7 +238,7 @@ class TestMoEHeadForward:
             output_dim=5,
             gating_input_dim=32,
         )
-        features = embedding_tensor_factory(embedding_dim=64)
+        features = embedding_tensor_factory(embedding_dimension=64)
         gating = gating_tensor_factory(gating_input_dim=32)
         result = head.forward(features=features, gating_feature=gating)
         assert SampleKey.ACTION.value in result
@@ -256,7 +269,7 @@ class TestMoEHeadForward:
         features = embedding_tensor_factory(
             batch_size=batch_size,
             prediction_horizon=prediction_horizon,
-            embedding_dim=input_dim,
+            embedding_dimension=input_dim,
         )
         gating = gating_tensor_factory(
             batch_size=batch_size,

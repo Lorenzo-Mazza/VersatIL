@@ -4,7 +4,7 @@ from contextlib import nullcontext as does_not_raise
 
 import pytest
 
-from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput, EncodingMixin
+from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from versatil.models.encoding.encoders.conditional import ConditionalEncoder
 
 
@@ -69,9 +69,12 @@ class TestConditionalEncoderInitialization:
         encoder = concrete_conditional_encoder_factory(conditioning_key="rgb_embedding")
         assert encoder.condition_key == "rgb_embedding"
 
-    def test_inherits_from_encoding_mixin(
+    def test_has_encoding_mixin_interface(
         self,
         concrete_conditional_encoder_factory: Callable[..., ConcreteConditionalEncoder],
     ):
         encoder = concrete_conditional_encoder_factory()
-        assert isinstance(encoder, EncodingMixin)
+        assert hasattr(encoder, "input_specification")
+        assert hasattr(encoder, "get_output_specification")
+        assert hasattr(encoder, "pretrained")
+        assert hasattr(encoder, "frozen")

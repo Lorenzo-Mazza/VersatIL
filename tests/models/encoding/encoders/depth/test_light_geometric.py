@@ -15,7 +15,6 @@ from versatil.models.encoding.encoders.constants import (
 from versatil.models.encoding.encoders.depth.light_geometric import (
     LightGeometricEncoder,
 )
-from versatil.models.encoding.encoders.unconditional import Encoder
 from versatil.models.layers.constants import AttentionDecompositionMode
 
 
@@ -53,12 +52,14 @@ def light_geometric_encoder_factory() -> Callable[..., LightGeometricEncoder]:
 
 class TestLightGeometricEncoderInitialization:
 
-    def test_inherits_from_encoder(
+    def test_has_encoder_interface(
         self,
         light_geometric_encoder_factory: Callable[..., LightGeometricEncoder],
     ):
         encoder = light_geometric_encoder_factory()
-        assert isinstance(encoder, Encoder)
+        assert hasattr(encoder, "forward")
+        assert hasattr(encoder, "get_output_specification")
+        assert hasattr(encoder, "input_specification")
 
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("decomposition_mode", [
@@ -117,7 +118,9 @@ class TestLightGeometricEncoderInitialization:
         with caplog.at_level(logging.WARNING):
             encoder = light_geometric_encoder_factory(pretrained=True)
         assert "does not support pretrained weights" in caplog.text
-        assert isinstance(encoder, LightGeometricEncoder)
+        # Encoder is still created successfully despite the warning
+        specification = encoder.get_output_specification()
+        assert EncoderOutputKeys.RGBD.value in specification.features
 
     def test_requires_depth_in_input_keys(
         self,

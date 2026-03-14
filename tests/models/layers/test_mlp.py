@@ -1,27 +1,12 @@
 """Tests for versatil.models.layers.mlp module."""
 from collections.abc import Callable
 
-import numpy as np
 import pytest
 import torch
 import torch.nn as nn
 
 from versatil.models.layers.mlp import MLP
 from versatil.models.layers.swiglu import SwiGLU
-
-
-@pytest.fixture
-def input_tensor_factory(
-    rng: np.random.Generator,
-) -> Callable[..., torch.Tensor]:
-    """Factory for input tensors with configurable shape."""
-    def factory(
-        batch_size: int = 4,
-        input_dim: int = 32,
-    ) -> torch.Tensor:
-        data = rng.standard_normal((batch_size, input_dim)).astype(np.float32)
-        return torch.from_numpy(data)
-    return factory
 
 
 @pytest.fixture
@@ -46,12 +31,15 @@ def mlp_factory() -> Callable[..., MLP]:
 
 class TestMLPInitialization:
 
-    def test_stores_layers_as_sequential(
+    def test_layers_are_iterable_and_ordered(
         self,
         mlp_factory: Callable[..., MLP],
     ):
-        mlp = mlp_factory(input_dim=32)
-        assert isinstance(mlp.layers, nn.Sequential)
+        mlp = mlp_factory(input_dim=32, hidden_dims=[64], output_dim=16)
+        # Functional: layers can be iterated and produce the expected sequence
+        layer_types = [type(layer).__name__ for layer in mlp.layers]
+        assert layer_types[0] == "Linear"
+        assert layer_types[-1] == "Linear"
 
     @pytest.mark.parametrize("hidden_dims, expected_linear_count", [
         (None, 0),
@@ -131,7 +119,7 @@ class TestMLPForward:
     def test_output_shape(
         self,
         mlp_factory: Callable[..., MLP],
-        input_tensor_factory: Callable[..., torch.Tensor],
+        flat_tensor_factory: Callable[..., torch.Tensor],
         input_dim: int,
         hidden_dims: list[int] | None,
         output_dim: int | None,
@@ -142,17 +130,17 @@ class TestMLPForward:
             hidden_dims=hidden_dims,
             output_dim=output_dim,
         )
-        tensor = input_tensor_factory(batch_size=4, input_dim=input_dim)
+        tensor = flat_tensor_factory(batch_size=4, feature_dimension=input_dim)
         output = mlp(tensor)
         assert output.shape == (4, expected_output_dim)
 
     def test_no_hidden_no_output_is_identity(
         self,
         mlp_factory: Callable[..., MLP],
-        input_tensor_factory: Callable[..., torch.Tensor],
+        flat_tensor_factory: Callable[..., torch.Tensor],
     ):
         mlp = mlp_factory(input_dim=32, hidden_dims=None, output_dim=None)
-        tensor = input_tensor_factory(batch_size=4, input_dim=32)
+        tensor = flat_tensor_factory(batch_size=4, feature_dimension=32)
         output = mlp(tensor)
         assert output.shape == (4, 32)
         assert torch.equal(output, tensor)
@@ -165,7 +153,7 @@ class TestMLPForward:
     def test_works_with_different_activations(
         self,
         mlp_factory: Callable[..., MLP],
-        input_tensor_factory: Callable[..., torch.Tensor],
+        flat_tensor_factory: Callable[..., torch.Tensor],
         activation_function: type[nn.Module],
     ):
         mlp = mlp_factory(
@@ -174,14 +162,14 @@ class TestMLPForward:
             output_dim=16,
             activation_function=activation_function,
         )
-        tensor = input_tensor_factory(batch_size=4, input_dim=32)
+        tensor = flat_tensor_factory(batch_size=4, feature_dimension=32)
         output = mlp(tensor)
         assert output.shape == (4, 16)
 
     def test_dropout_does_not_affect_eval_output_shape(
         self,
         mlp_factory: Callable[..., MLP],
-        input_tensor_factory: Callable[..., torch.Tensor],
+        flat_tensor_factory: Callable[..., torch.Tensor],
     ):
         mlp = mlp_factory(
             input_dim=32,
@@ -190,7 +178,7 @@ class TestMLPForward:
             dropout=0.5,
         )
         mlp.eval()
-        tensor = input_tensor_factory(batch_size=4, input_dim=32)
+        tensor = flat_tensor_factory(batch_size=4, feature_dimension=32)
         output = mlp(tensor)
         assert output.shape == (4, 16)
 
@@ -200,7 +188,7 @@ class TestMLPWithSwiGLU:
     def test_forward_with_swiglu_activation(
         self,
         mlp_factory: Callable[..., MLP],
-        input_tensor_factory: Callable[..., torch.Tensor],
+        flat_tensor_factory: Callable[..., torch.Tensor],
     ):
         mlp = mlp_factory(
             input_dim=32,
@@ -208,7 +196,7 @@ class TestMLPWithSwiGLU:
             output_dim=16,
             activation_function=SwiGLU,
         )
-        tensor = input_tensor_factory(batch_size=4, input_dim=32)
+        tensor = flat_tensor_factory(batch_size=4, feature_dimension=32)
         output = mlp(tensor)
         assert output.shape == (4, 16)
 
@@ -235,7 +223,7 @@ class TestMLPWithSwiGLU:
     def test_swiglu_with_multiple_hidden_dims(
         self,
         mlp_factory: Callable[..., MLP],
-        input_tensor_factory: Callable[..., torch.Tensor],
+        flat_tensor_factory: Callable[..., torch.Tensor],
     ):
         mlp = mlp_factory(
             input_dim=32,
@@ -243,6 +231,6 @@ class TestMLPWithSwiGLU:
             output_dim=16,
             activation_function=SwiGLU,
         )
-        tensor = input_tensor_factory(batch_size=4, input_dim=32)
+        tensor = flat_tensor_factory(batch_size=4, feature_dimension=32)
         output = mlp(tensor)
         assert output.shape == (4, 16)

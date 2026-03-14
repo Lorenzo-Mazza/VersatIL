@@ -40,7 +40,6 @@ class TransformerDecoderLayer(nn.Module):
             number_of_heads=number_of_heads,
             dropout=dropout,
         )
-        self.feedforward_linear1 = nn.Linear(embedding_dimension, feedforward_dimension)
         self.feedforward_dropout = nn.Dropout(dropout)
         self.feedforward_linear2 = nn.Linear(feedforward_dimension, embedding_dimension)
         self.normalization1 = nn.LayerNorm(embedding_dimension)
@@ -60,6 +59,9 @@ class TransformerDecoderLayer(nn.Module):
             )
         else:
             self.activation = ActivationFunction(activation).to_torch_activation()()
+            self.feedforward_linear1 = nn.Linear(
+                embedding_dimension, feedforward_dimension
+            )
             self.feedforward_network = nn.Sequential(
                 self.feedforward_linear1,
                 self.activation,
@@ -92,6 +94,7 @@ class TransformerDecoderLayer(nn.Module):
             Output tensor of shape (batch size, target_length, embedding_dimension).
         """
         residual = target
+        target = self.normalization1(target) if self.normalize_before else target
         target = self.self_attention(
             query=target,
             key=target,

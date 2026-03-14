@@ -25,12 +25,16 @@ def sinusoidal_2d_factory() -> Callable[..., SinusoidalPositionalEncoding2D]:
         temperature: float = 10000.0,
         normalize: bool = False,
         scale: float | None = None,
+        mlp_hidden_dimensions: list[int] | None = None,
+        mlp_activation: type | None = None,
     ) -> SinusoidalPositionalEncoding2D:
         return SinusoidalPositionalEncoding2D(
             embedding_dimension=embedding_dimension,
             temperature=temperature,
             normalize=normalize,
             scale=scale,
+            mlp_hidden_dimensions=mlp_hidden_dimensions,
+            mlp_activation=mlp_activation,
         )
     return factory
 
@@ -52,30 +56,35 @@ class TestSinusoidalPositionalEncoding1DInit:
     ])
     def test_stores_configuration(
         self,
-        sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
         embedding_dimension: int,
         temperature: float,
         ordering_mode: str,
     ):
-        module = sinusoidal_1d_factory(
+        module = SinusoidalPositionalEncoding1D(
             embedding_dimension=embedding_dimension,
             temperature=temperature,
+            ordering_mode=ordering_mode,
         )
         assert module.embedding_dimension == embedding_dimension
         assert module.temperature == temperature
+        assert module.ordering_mode == ordering_mode
 
-    def test_has_precomputed_buffer_when_precomputed_true(
+    def test_precomputed_buffer_has_correct_shape(
         self,
         sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
     ):
+        embedding_dimension = 64
+        maximum_length = 100
         module = sinusoidal_1d_factory(
-            embedding_dimension=64,
+            embedding_dimension=embedding_dimension,
             precompute_encodings=True,
-            maximum_length=100,
+            maximum_length=maximum_length,
             position_source=PositionSource.TENSOR_INDICES.value,
         )
-        assert hasattr(module, "precomputed_encodings")
-        assert module.precomputed_encodings is not None
+        # Buffer should be (1, maximum_length, embedding_dimension)
+        assert module.precomputed_encodings.shape == (
+            1, maximum_length, embedding_dimension
+        )
 
     def test_no_precomputed_buffer_when_precomputed_false(
         self,
@@ -86,7 +95,9 @@ class TestSinusoidalPositionalEncoding1DInit:
             precompute_encodings=False,
             position_source=PositionSource.TENSOR_INDICES.value,
         )
-        assert not hasattr(module, "precomputed_encodings")
+        # When precompute_encodings is False, accessing the buffer should raise
+        buffers = dict(module.named_buffers())
+        assert "precomputed_encodings" not in buffers
 
     @pytest.mark.parametrize("denominator_mode, expectation", [
         (DenominatorMode.HALF.value, does_not_raise()),
@@ -122,7 +133,7 @@ class TestSinusoidalPositionalEncoding1DInit:
 
 class TestSinusoidalPositionalEncoding1DForward:
 
-    @pytest.mark.parametrize("batch_size, seq_len, embedding_dimension", [
+    @pytest.mark.parametrize("batch_size, sequence_length, embedding_dimension", [
         (2, 10, 64),
         (4, 20, 128),
     ])
@@ -131,7 +142,7 @@ class TestSinusoidalPositionalEncoding1DForward:
         sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         batch_size: int,
-        seq_len: int,
+        sequence_length: int,
         embedding_dimension: int,
     ):
         module = sinusoidal_1d_factory(
@@ -140,11 +151,11 @@ class TestSinusoidalPositionalEncoding1DForward:
         )
         tensor = sequence_tensor_factory(
             batch_size=batch_size,
-            seq_len=seq_len,
+            sequence_length=sequence_length,
             embedding_dimension=embedding_dimension,
         )
         output = module(tensor)
-        assert output.shape == (batch_size, seq_len, embedding_dimension)
+        assert output.shape == (batch_size, sequence_length, embedding_dimension)
 
     @pytest.mark.parametrize("batch_size", [2, 4])
     def test_output_shape_scalar(
@@ -170,7 +181,7 @@ class TestSinusoidalPositionalEncoding1DForward:
     ):
         module = sinusoidal_1d_factory(embedding_dimension=64)
         tensor = sequence_tensor_factory(
-            batch_size=1, seq_len=10, embedding_dimension=64,
+            batch_size=1, sequence_length=10, embedding_dimension=64,
         )
         output = module(tensor)
         encoding_pos_0 = output[0, 0]
@@ -183,7 +194,7 @@ class TestSinusoidalPositionalEncoding1DForward:
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 64
-        seq_len = 10
+        sequence_length = 10
         precomputed = sinusoidal_1d_factory(
             embedding_dimension=embedding_dimension,
             precompute_encodings=True,
@@ -194,7 +205,7 @@ class TestSinusoidalPositionalEncoding1DForward:
             precompute_encodings=False,
         )
         tensor = sequence_tensor_factory(
-            batch_size=2, seq_len=seq_len, embedding_dimension=embedding_dimension,
+            batch_size=2, sequence_length=sequence_length, embedding_dimension=embedding_dimension,
         )
         output_precomputed = precomputed(tensor)
         output_non_precomputed = non_precomputed(tensor)
@@ -244,14 +255,14 @@ class TestSinusoidalPositionalEncoding2D:
     def test_output_shape(
         self,
         sinusoidal_2d_factory: Callable[..., SinusoidalPositionalEncoding2D],
-        spatial_tensor_factory: Callable[..., torch.Tensor],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
         batch_size: int,
         embedding_dimension: int,
         height: int,
         width: int,
     ):
         module = sinusoidal_2d_factory(embedding_dimension=embedding_dimension)
-        tensor = spatial_tensor_factory(
+        tensor = nchw_tensor_factory(
             batch_size=batch_size,
             channels=embedding_dimension,
             height=height,
@@ -275,13 +286,208 @@ class TestSinusoidalPositionalEncoding2D:
     def test_different_spatial_positions_produce_different_encodings(
         self,
         sinusoidal_2d_factory: Callable[..., SinusoidalPositionalEncoding2D],
-        spatial_tensor_factory: Callable[..., torch.Tensor],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
     ):
         module = sinusoidal_2d_factory(embedding_dimension=64)
-        tensor = spatial_tensor_factory(
+        tensor = nchw_tensor_factory(
             batch_size=1, channels=64, height=4, width=4,
         )
         output = module(tensor)
         encoding_00 = output[0, :, 0, 0]
         encoding_11 = output[0, :, 1, 1]
         assert not torch.allclose(encoding_00, encoding_11)
+
+    def test_normalize_changes_encoding_values(
+        self,
+        sinusoidal_2d_factory: Callable[..., SinusoidalPositionalEncoding2D],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 64
+        height, width = 8, 8
+        normalized = sinusoidal_2d_factory(
+            embedding_dimension=embedding_dimension, normalize=True,
+        )
+        unnormalized = sinusoidal_2d_factory(
+            embedding_dimension=embedding_dimension, normalize=False,
+        )
+        tensor = nchw_tensor_factory(
+            batch_size=1, channels=embedding_dimension, height=height, width=width,
+        )
+        output_normalized = normalized(tensor)
+        output_unnormalized = unnormalized(tensor)
+        assert not torch.allclose(output_normalized, output_unnormalized, atol=1e-5)
+
+    def test_normalize_produces_scale_invariant_encodings(
+        self,
+        sinusoidal_2d_factory: Callable[..., SinusoidalPositionalEncoding2D],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 64
+        module = sinusoidal_2d_factory(
+            embedding_dimension=embedding_dimension, normalize=True,
+        )
+        small_tensor = nchw_tensor_factory(
+            batch_size=1, channels=embedding_dimension, height=4, width=4,
+        )
+        large_tensor = nchw_tensor_factory(
+            batch_size=1, channels=embedding_dimension, height=8, width=8,
+        )
+        output_small = module(small_tensor)
+        output_large = module(large_tensor)
+        # The last spatial position should have similar encoding since both are
+        # normalized to the same scale range
+        assert torch.allclose(
+            output_small[0, :, -1, -1],
+            output_large[0, :, -1, -1],
+            atol=1e-4,
+        )
+
+
+class TestSinusoidalPositionalEncoding1DInvalidOrderingMode:
+
+    def test_invalid_ordering_mode_raises_on_compute(self):
+        invalid_ordering = "invalid_ordering"
+        module = SinusoidalPositionalEncoding1D(
+            embedding_dimension=64,
+            ordering_mode=OrderingMode.INTERLEAVE_SIN_COS.value,
+            precompute_encodings=False,
+        )
+        # Bypass __init__ validation by setting ordering_mode after construction
+        module.ordering_mode = invalid_ordering
+        input_values = torch.arange(10).float()
+        with pytest.raises(
+            ValueError,
+            match=re.escape(f"Invalid ordering mode: {invalid_ordering}"),
+        ):
+            module._compute_encodings(input_values)
+
+
+class TestSinusoidalPositionalEncoding1DMlpPostProcessing:
+
+    def test_mlp_changes_output_dimension(
+        self,
+        sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 64
+        mlp_output_dimension = 128
+        batch_size = 2
+        sequence_length = 10
+        module = sinusoidal_1d_factory(
+            embedding_dimension=embedding_dimension,
+            precompute_encodings=False,
+            mlp_hidden_dimensions=[mlp_output_dimension],
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=embedding_dimension,
+        )
+        output = module(tensor)
+        assert output.shape == (batch_size, sequence_length, mlp_output_dimension)
+
+    def test_mlp_produces_different_output_than_no_mlp(
+        self,
+        sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 64
+        batch_size = 2
+        sequence_length = 10
+        module_without_mlp = sinusoidal_1d_factory(
+            embedding_dimension=embedding_dimension,
+            precompute_encodings=False,
+        )
+        module_with_mlp = sinusoidal_1d_factory(
+            embedding_dimension=embedding_dimension,
+            precompute_encodings=False,
+            mlp_hidden_dimensions=[embedding_dimension],
+        )
+        tensor = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=embedding_dimension,
+        )
+        output_without_mlp = module_without_mlp(tensor)
+        output_with_mlp = module_with_mlp(tensor)
+        assert not torch.allclose(output_without_mlp, output_with_mlp, atol=1e-6)
+
+    def test_mlp_with_scalar_source(
+        self,
+        sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
+        scalar_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 64
+        mlp_output_dimension = 32
+        batch_size = 2
+        module = sinusoidal_1d_factory(
+            embedding_dimension=embedding_dimension,
+            position_source=PositionSource.SCALAR.value,
+            precompute_encodings=False,
+            mlp_hidden_dimensions=[mlp_output_dimension],
+        )
+        tensor = scalar_tensor_factory(batch_size=batch_size)
+        output = module(tensor)
+        assert output.shape == (batch_size, mlp_output_dimension)
+
+    def test_no_mlp_network_when_mlp_hidden_dimensions_is_none(
+        self,
+        sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
+    ):
+        module = sinusoidal_1d_factory(
+            embedding_dimension=64,
+            mlp_hidden_dimensions=None,
+        )
+        assert module.mlp_network is None
+
+
+class TestSinusoidalPositionalEncoding2DMlpPostProcessing:
+
+    def test_mlp_changes_2d_output_dimension(
+        self,
+        sinusoidal_2d_factory: Callable[..., SinusoidalPositionalEncoding2D],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 64
+        mlp_output_dimension = 128
+        batch_size = 2
+        height = 4
+        width = 4
+        module = sinusoidal_2d_factory(
+            embedding_dimension=embedding_dimension,
+            mlp_hidden_dimensions=[mlp_output_dimension],
+        )
+        tensor = nchw_tensor_factory(
+            batch_size=batch_size,
+            channels=embedding_dimension,
+            height=height,
+            width=width,
+        )
+        output = module(tensor)
+        assert output.shape == (batch_size, mlp_output_dimension, height, width)
+
+    def test_2d_mlp_produces_different_output_than_no_mlp(
+        self,
+        sinusoidal_2d_factory: Callable[..., SinusoidalPositionalEncoding2D],
+        nchw_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 64
+        batch_size = 2
+        height = 4
+        width = 4
+        module_without_mlp = sinusoidal_2d_factory(
+            embedding_dimension=embedding_dimension,
+        )
+        module_with_mlp = sinusoidal_2d_factory(
+            embedding_dimension=embedding_dimension,
+            mlp_hidden_dimensions=[embedding_dimension],
+        )
+        tensor = nchw_tensor_factory(
+            batch_size=batch_size,
+            channels=embedding_dimension,
+            height=height,
+            width=width,
+        )
+        output_without_mlp = module_without_mlp(tensor)
+        output_with_mlp = module_with_mlp(tensor)
+        assert not torch.allclose(output_without_mlp, output_with_mlp, atol=1e-6)

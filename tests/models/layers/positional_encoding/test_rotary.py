@@ -56,11 +56,11 @@ def rotation_input_factory(
     """Factory for tensors used with apply_rotation."""
     def factory(
         batch_size: int = 2,
-        num_heads: int = 4,
-        seq_len: int = 8,
-        head_dim: int = 16,
+        number_of_heads: int = 4,
+        sequence_length: int = 8,
+        head_dimension: int = 16,
     ) -> torch.Tensor:
-        shape = (batch_size, num_heads, seq_len, head_dim)
+        shape = (batch_size, number_of_heads, sequence_length, head_dimension)
         return torch.from_numpy(
             rng.standard_normal(shape).astype(np.float32)
         )
@@ -111,8 +111,8 @@ class TestRotaryPositionalEncoding:
             embedding_dimension=embedding_dimension,
             num_heads=num_heads,
         )
-        head_dim = embedding_dimension // num_heads
-        assert module.frequencies.shape == (head_dim,)
+        head_dimension = embedding_dimension // num_heads
+        assert module.frequencies.shape == (head_dimension,)
 
     @pytest.mark.parametrize("learnable_frequencies", [True, False])
     def test_learnable_frequencies_controls_requires_grad(
@@ -150,26 +150,26 @@ class TestRotaryPositionalEncoding:
 
 class TestRotaryApplyRotation:
 
-    @pytest.mark.parametrize("seq_len, head_dim", [
+    @pytest.mark.parametrize("sequence_length, head_dimension", [
         (8, 16),
         (12, 32),
     ])
     def test_output_shape_matches_input(
         self,
         rotation_input_factory: Callable[..., torch.Tensor],
-        seq_len: int,
-        head_dim: int,
+        sequence_length: int,
+        head_dimension: int,
     ):
         batch_size = 2
-        num_heads = 4
+        number_of_heads = 4
         tensor = rotation_input_factory(
             batch_size=batch_size,
-            num_heads=num_heads,
-            seq_len=seq_len,
-            head_dim=head_dim,
+            number_of_heads=number_of_heads,
+            sequence_length=sequence_length,
+            head_dimension=head_dimension,
         )
-        sine = torch.zeros(seq_len, head_dim)
-        cosine = torch.ones(seq_len, head_dim)
+        sine = torch.zeros(sequence_length, head_dimension)
+        cosine = torch.ones(sequence_length, head_dimension)
         result = RotaryPositionalEncoding.apply_rotation(
             tensor=tensor, sine=sine, cosine=cosine,
         )
@@ -180,7 +180,7 @@ class TestRotaryApplyRotation:
         rotation_input_factory: Callable[..., torch.Tensor],
     ):
         tensor = rotation_input_factory(
-            batch_size=2, num_heads=4, seq_len=8, head_dim=16,
+            batch_size=2, number_of_heads=4, sequence_length=8, head_dimension=16,
         )
         sine = torch.zeros(8, 16)
         cosine = torch.ones(8, 16)
@@ -195,7 +195,7 @@ class TestRotaryApplyRotation:
         rng: np.random.Generator,
     ):
         tensor = rotation_input_factory(
-            batch_size=2, num_heads=4, seq_len=8, head_dim=16,
+            batch_size=2, number_of_heads=4, sequence_length=8, head_dimension=16,
         )
         angles = torch.from_numpy(
             rng.standard_normal((8, 16)).astype(np.float32)
@@ -226,10 +226,10 @@ class TestRotaryPositionalEncoding1D:
             embedding_dimension=embedding_dimension,
             num_heads=num_heads,
         )
-        head_dim = embedding_dimension // num_heads
+        head_dimension = embedding_dimension // num_heads
         sine, cosine = module.compute_rotation_components(seq_len=seq_len)
-        assert sine.shape == (seq_len, head_dim)
-        assert cosine.shape == (seq_len, head_dim)
+        assert sine.shape == (seq_len, head_dimension)
+        assert cosine.shape == (seq_len, head_dimension)
 
     def test_compute_rotation_components_first_position_sine_is_zero(
         self,
@@ -281,17 +281,17 @@ class TestRotaryPositionalEncoding2D:
         width: int,
     ):
         module = rotary_2d_factory(embedding_dimension=128, num_heads=4)
-        head_dim = 128 // 4
+        head_dimension = 128 // 4
         sine, cosine = module.compute_rotation_components(
             height=height, width=width,
         )
-        assert sine.shape == (height, width, head_dim)
-        assert cosine.shape == (height, width, head_dim)
+        assert sine.shape == (height, width, head_dimension)
+        assert cosine.shape == (height, width, head_dimension)
 
     def test_frequencies_shape_is_full_head_dim(
         self,
         rotary_2d_factory: Callable[..., RotaryPositionalEncoding2D],
     ):
         module = rotary_2d_factory(embedding_dimension=128, num_heads=4)
-        head_dim = 128 // 4
-        assert module.frequencies.shape == (head_dim,)
+        head_dimension = 128 // 4
+        assert module.frequencies.shape == (head_dimension,)

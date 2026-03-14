@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.encoders.language.language module."""
+import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
 from unittest.mock import MagicMock, patch
@@ -15,7 +16,6 @@ from versatil.models.encoding.encoders.constants import (
     PoolingMethod,
 )
 from versatil.models.encoding.encoders.language.language import LanguageEncoder
-from versatil.models.encoding.encoders.unconditional import Encoder
 
 
 HIDDEN_SIZE = 768
@@ -105,12 +105,14 @@ def token_input_factory(
 
 class TestLanguageEncoderInitialization:
 
-    def test_inherits_from_encoder(
+    def test_has_encoder_interface(
         self,
         language_encoder_factory: Callable[..., LanguageEncoder],
     ):
         encoder = language_encoder_factory()
-        assert isinstance(encoder, Encoder)
+        assert hasattr(encoder, "forward")
+        assert hasattr(encoder, "get_output_specification")
+        assert hasattr(encoder, "input_specification")
 
     @pytest.mark.parametrize("pooling_method", [
         PoolingMethod.DEFAULT.value,
@@ -578,6 +580,34 @@ class TestLanguageEncoderGetOutputSpecification:
         assert EncoderOutputKeys.LANGUAGE.value in specification.features
         assert encoder.padding_mask_name in specification.features
         assert len(specification.features) == 2
+
+
+class TestLanguageEncoderBuildEncoder:
+
+    def test_missing_embedding_and_hidden_size_raises(self):
+        model_name = "bert-base-uncased"
+        mock_config = MagicMock(spec=[])
+        mock_config.vocab_size = VOCAB_SIZE
+        with (
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoConfig.from_pretrained",
+                return_value=mock_config,
+            ),
+            pytest.raises(
+                ValueError,
+                match=re.escape(
+                    f"Config for {model_name} has neither "
+                    f"'embedding_size' nor 'hidden_size'"
+                ),
+            ),
+        ):
+            LanguageEncoder(
+                pretrained=False,
+                frozen=False,
+                pooling_method=PoolingMethod.NONE.value,
+                model_name=model_name,
+                use_embeddings_only=True,
+            )
 
 
 class TestLanguageEncoderIntegration:

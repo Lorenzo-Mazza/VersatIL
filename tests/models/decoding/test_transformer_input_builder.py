@@ -225,7 +225,7 @@ class TestTransformerInputBuilderFeatureFiltering:
         self,
         transformer_input_builder_factory: Callable[..., TransformerInputBuilder],
         spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
-        rng: np.random.Generator,
+        input_tensor_factory: Callable[..., torch.Tensor],
     ):
         embedding_dim = 64
         height, width = 4, 4
@@ -246,8 +246,8 @@ class TestTransformerInputBuilderFeatureFiltering:
             width=width,
         )
         padding_mask_key = f"rgb_features_{EncoderOutputKeys.PADDING_MASK.value}"
-        features[padding_mask_key] = torch.from_numpy(
-            rng.standard_normal((2, height * width)).astype(np.float32)
+        features[padding_mask_key] = input_tensor_factory(
+            batch_size=2, input_dimension=height * width,
         )
         tokens, _, _ = builder(features)
         assert padding_mask_key not in captured_keys
@@ -465,7 +465,6 @@ class TestTransformerInputBuilderFeatureShapes:
     def test_unsupported_feature_ndim_raises(
         self,
         transformer_input_builder_factory: Callable[..., TransformerInputBuilder],
-        rng: np.random.Generator,
     ):
         embedding_dim = 64
         builder = transformer_input_builder_factory(
@@ -474,9 +473,7 @@ class TestTransformerInputBuilderFeatureShapes:
         )
         builder.projection.forward = lambda features: features
         feature_name = "bad_feature"
-        bad_tensor = torch.from_numpy(
-            rng.standard_normal((2, 3, 4, 5, 6, 7)).astype(np.float32)
-        )
+        bad_tensor = torch.zeros(2, 3, 4, 5, 6, 7)
         features = {feature_name: bad_tensor}
         with pytest.raises(
             ValueError,
