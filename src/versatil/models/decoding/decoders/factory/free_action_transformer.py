@@ -360,7 +360,7 @@ class FreeActionTransformer(ActionDecoder):
                     probs.squeeze(-1), num_samples=1
                 )  # (B, 1)
             generated_tokens.append(next_token)
-            if (next_token == self.tokenizer.pad_token_id).all():
+            if (next_token == self.tokenizer.eos_token_id).all():
                 break
             next_token_embedding = self.token_embedding(
                 next_token
