@@ -213,8 +213,12 @@ class TestActionTransformerForward:
         )
         predictions = decoder(features=features)
         for action_key in decoder.action_heads:
-            assert predictions[action_key].shape[0] == BATCH_SIZE
-            assert predictions[action_key].shape[1] == prediction_horizon
+            expected_dim = decoder.action_heads[action_key].output_dim
+            assert predictions[action_key].shape == (
+                BATCH_SIZE,
+                prediction_horizon,
+                expected_dim,
+            )
 
     def test_with_multiple_action_heads(
         self,
@@ -242,7 +246,7 @@ class TestActionTransformerForward:
         assert predictions["orientation_action"].shape == (BATCH_SIZE, 4, 4)
         assert predictions["gripper_action"].shape == (BATCH_SIZE, 4, 1)
 
-    def test_with_multiple_spatial_features(
+    def test_with_multiple_spatial_features_changes_output(
         self,
         action_transformer_factory: Callable[..., ActionTransformer],
         spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
@@ -250,15 +254,27 @@ class TestActionTransformerForward:
         decoder = action_transformer_factory(
             input_keys=["left_features", "right_features"],
         )
-        features = spatial_feature_factory(
+        decoder.eval()
+        features_both = spatial_feature_factory(
             batch_size=BATCH_SIZE,
             channels=EMBEDDING_DIMENSION,
             height=SPATIAL_HEIGHT,
             width=SPATIAL_WIDTH,
             feature_keys=["left_features", "right_features"],
         )
-        predictions = decoder(features=features)
-        assert set(predictions.keys()) == set(decoder.action_heads.keys())
+        with torch.no_grad():
+            predictions_both = decoder(features=features_both)
+        features_swapped = {
+            "left_features": features_both["right_features"],
+            "right_features": features_both["left_features"],
+        }
+        with torch.no_grad():
+            predictions_swapped = decoder(features=features_swapped)
+        for action_key in decoder.action_heads:
+            assert not torch.equal(
+                predictions_both[action_key],
+                predictions_swapped[action_key],
+            )
 
     def test_forward_ignores_actions_argument(
         self,
@@ -284,43 +300,20 @@ class TestActionTransformerForward:
 
 class TestActionTransformerTemporalObservation:
 
-    def test_observation_horizon_greater_than_one_creates_temporal_pe(
+    @pytest.mark.parametrize("observation_horizon, expects_temporal_pe", [
+        (1, False),
+        (3, True),
+    ])
+    def test_temporal_pe_created_based_on_observation_horizon(
         self,
         action_transformer_factory: Callable[..., ActionTransformer],
+        observation_horizon: int,
+        expects_temporal_pe: bool,
     ):
-        decoder = action_transformer_factory(observation_horizon=3)
-        assert decoder.input_sequence_builder.temporal_positional_encoding_layer is not None
-        assert isinstance(
-            decoder.input_sequence_builder.temporal_positional_encoding_layer,
-            LearnedPositionalEncoding1D,
-        )
+        decoder = action_transformer_factory(observation_horizon=observation_horizon)
+        layer = decoder.input_sequence_builder.temporal_positional_encoding_layer
+        if expects_temporal_pe:
+            assert isinstance(layer, LearnedPositionalEncoding1D)
+        else:
+            assert layer is None
 
-    def test_observation_horizon_equal_to_one_has_no_temporal_pe(
-        self,
-        action_transformer_factory: Callable[..., ActionTransformer],
-    ):
-        decoder = action_transformer_factory(observation_horizon=1)
-        assert decoder.input_sequence_builder.temporal_positional_encoding_layer is None
-
-    def test_forward_with_temporal_features(
-        self,
-        action_transformer_factory: Callable[..., ActionTransformer],
-        temporal_spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
-        observation_horizon = 2
-        prediction_horizon = 4
-        decoder = action_transformer_factory(
-            observation_horizon=observation_horizon,
-            prediction_horizon=prediction_horizon,
-        )
-        features = temporal_spatial_feature_factory(
-            batch_size=BATCH_SIZE,
-            observation_horizon=observation_horizon,
-            channels=EMBEDDING_DIMENSION,
-            height=SPATIAL_HEIGHT,
-            width=SPATIAL_WIDTH,
-        )
-        predictions = decoder(features=features)
-        for action_key in decoder.action_heads:
-            assert predictions[action_key].shape[0] == BATCH_SIZE
-            assert predictions[action_key].shape[1] == prediction_horizon

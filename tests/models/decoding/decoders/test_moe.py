@@ -216,12 +216,17 @@ class TestMoEDecoderInitialization:
         assert isinstance(decoder.expert_decoders, nn.ModuleList)
         assert len(decoder.expert_decoders) == num_experts
 
-    def test_action_heads_reference_base_expert(
+    def test_action_heads_shared_with_base_expert(
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
     ):
         decoder = moe_decoder_factory()
-        assert decoder.action_heads is decoder.base_expert.action_heads
+        # Mutating base_expert.action_heads must be visible through decoder.action_heads
+        decoder.base_expert.action_heads["sentinel"] = nn.Identity()
+        assert "sentinel" in decoder.action_heads
+        del decoder.base_expert.action_heads["sentinel"]
+        assert "sentinel" not in decoder.action_heads
+
 
 
 class TestCreateExpertsFromConfig:

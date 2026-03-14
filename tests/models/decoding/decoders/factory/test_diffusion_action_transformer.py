@@ -391,6 +391,35 @@ class TestDiffusionActionTransformerForward:
         assert outputs["gripper_action"].shape == (BATCH_SIZE, PREDICTION_HORIZON, 1)
 
 
+    def test_adaln_zero_init_makes_output_timestep_independent(
+        self,
+        diffusion_transformer_factory: Callable[..., DiffusionActionTransformer],
+        spatial_features_with_timestep_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        # AdaLN-Zero initializes modulation scale=0, shift=0 and the final output
+        # linear to zeros. At init, the network output must be identical regardless
+        # of timestep — this is the DiT design that ensures stable early training.
+        decoder = diffusion_transformer_factory()
+        decoder.eval()
+        features_t0 = spatial_features_with_timestep_factory(
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        features_t0[DecoderOutputKey.TIMESTEP.value] = torch.zeros(BATCH_SIZE)
+        features_t99 = {
+            key: tensor.clone() for key, tensor in features_t0.items()
+        }
+        features_t99[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 99.0)
+        actions = noisy_actions_factory()
+        with torch.no_grad():
+            output_t0 = decoder(features=features_t0, actions=actions)
+            output_t99 = decoder(features=features_t99, actions=actions)
+        for action_key in actions:
+            torch.testing.assert_close(output_t0[action_key], output_t99[action_key])
+
+
 class TestDiffusionActionTransformerTemporal:
 
     def test_observation_horizon_greater_than_one_creates_temporal_pe(

@@ -14,6 +14,9 @@ from versatil.models.decoding.constants import (
     FeatureType,
     GMMInitStrategy,
 )
+from versatil.models.layers.positional_encoding.learned import (
+    LearnedPositionalEncoding1D,
+)
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.mode_act import (
     MixtureOfDensitiesActionTransformer,
@@ -545,6 +548,39 @@ class TestModeACTForwardWithActionHead:
         )
 
 
+    def test_different_features_produce_different_routing_weights(
+        self,
+        mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = mode_act_factory()
+        decoder.eval()
+        features_a = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        features_b = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        actions = noisy_actions_factory(
+            prediction_horizon=PREDICTION_HORIZON,
+            action_keys_to_dims={"position_action": POSITION_DIM},
+        )
+        with torch.no_grad():
+            predictions_a = decoder(features=features_a, actions=actions)
+            predictions_b = decoder(features=features_b, actions=actions)
+        assert not torch.equal(
+            predictions_a[DecoderOutputKey.ROUTING_WEIGHTS.value],
+            predictions_b[DecoderOutputKey.ROUTING_WEIGHTS.value],
+        )
+
+
 class TestModeACTSampling:
 
     def test_sample_from_gaussian_mixture_deterministic(
@@ -586,7 +622,7 @@ class TestModeACTSampling:
                 result[batch_index], expected, atol=0, rtol=0
             )
 
-    def test_sample_from_gaussian_mixture_stochastic(
+    def test_sample_from_gaussian_mixture_stochastic_adds_noise(
         self,
         rng: np.random.Generator,
     ):
@@ -615,8 +651,11 @@ class TestModeACTSampling:
             deterministic=False,
         )
         assert result.shape == (batch_size, prediction_horizon, action_dim)
-        # Stochastic adds noise, so result differs from mean (with high probability)
-        # We just verify the shape is correct and it ran without error
+        # With logvar=0 (std=1), the reparameterized noise should make the
+        # result differ from the mean of every component
+        for component_index in range(num_components):
+            component_mean = mean[:, :, component_index, :]
+            assert not torch.allclose(result, component_mean, atol=1e-5)
 
     def test_sample_from_mixture_deterministic(
         self,
@@ -650,7 +689,7 @@ class TestModeACTSampling:
                 result[batch_index], expected, atol=0, rtol=0
             )
 
-    def test_sample_from_mixture_stochastic(
+    def test_sample_from_mixture_stochastic_selects_valid_component(
         self,
         rng: np.random.Generator,
     ):
@@ -675,6 +714,17 @@ class TestModeACTSampling:
             deterministic=False,
         )
         assert result.shape == (batch_size, prediction_horizon, action_dim)
+        # Stochastic selects via multinomial (no noise), so each batch element's
+        # result must exactly match one of the mixture components
+        for batch_index in range(batch_size):
+            matches_any_component = any(
+                torch.equal(
+                    result[batch_index],
+                    stacked[batch_index, :, component_index, :],
+                )
+                for component_index in range(num_components)
+            )
+            assert matches_any_component
 
 
 class TestModeACTGMMInitialization:
@@ -733,6 +783,30 @@ class TestModeACTGMMInitialization:
             assert torch.all(centers[component_index] >= data_min - 1e-6)
             assert torch.all(centers[component_index] <= data_max + 1e-6)
 
+    def test_gating_feature_key_missing_from_features_raises(
+        self,
+        mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        gating_key = "missing_gating_input"
+        decoder = mode_act_factory(
+            input_keys=["rgb_features"],
+            gating_feature_key=gating_key,
+        )
+        features = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        actions = noisy_actions_factory(
+            prediction_horizon=PREDICTION_HORIZON,
+            action_keys_to_dims={"position_action": POSITION_DIM},
+        )
+        with pytest.raises(KeyError):
+            decoder(features=features, actions=actions)
+
     def test_gating_feature_key_uses_external_feature(
         self,
         mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
@@ -790,33 +864,40 @@ class TestModeACTGMMInitialization:
 
 class TestModeACTInferenceMode:
 
-    def test_stochastic_gaussian_inference(
+    def test_stochastic_gaussian_inference_differs_from_deterministic(
         self,
         gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
         spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
     ):
-        decoder = gaussian_mode_act_factory(deterministic_inference=False)
-        decoder.eval()
         features = spatial_feature_factory(
             batch_size=BATCH_SIZE,
             channels=EMBEDDING_DIMENSION,
             height=SPATIAL_HEIGHT,
             width=SPATIAL_WIDTH,
         )
-        predictions = decoder(features=features, actions=None)
-        assert "position_action" in predictions
-        assert predictions["position_action"].shape == (
-            BATCH_SIZE,
-            PREDICTION_HORIZON,
-            POSITION_DIM,
+        deterministic_decoder = gaussian_mode_act_factory(deterministic_inference=True)
+        deterministic_decoder.eval()
+        deterministic_result = deterministic_decoder(features=features, actions=None)
+        stochastic_decoder = gaussian_mode_act_factory(deterministic_inference=False)
+        stochastic_decoder.eval()
+        # Copy weights so only the sampling strategy differs
+        stochastic_decoder.load_state_dict(deterministic_decoder.state_dict())
+        stochastic_result = stochastic_decoder(features=features, actions=None)
+        assert not torch.equal(
+            stochastic_result["position_action"],
+            deterministic_result["position_action"],
         )
 
-    def test_stochastic_action_head_inference(
+    def test_stochastic_action_head_inference_is_nondeterministic(
         self,
         mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
         spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
     ):
-        decoder = mode_act_factory(deterministic_inference=False)
+        num_components = 8
+        decoder = mode_act_factory(
+            deterministic_inference=False,
+            num_mixture_components=num_components,
+        )
         decoder.eval()
         features = spatial_feature_factory(
             batch_size=BATCH_SIZE,
@@ -824,13 +905,18 @@ class TestModeACTInferenceMode:
             height=SPATIAL_HEIGHT,
             width=SPATIAL_WIDTH,
         )
-        predictions = decoder(features=features, actions=None)
-        assert "position_action" in predictions
-        assert predictions["position_action"].shape == (
-            BATCH_SIZE,
-            PREDICTION_HORIZON,
-            POSITION_DIM,
+        # Run multiple forward passes because multinomial sampling can return the
+        # same component by chance. With 8 components and 5 trials the probability
+        # of always matching is negligible (~8^-4 per batch element per trial).
+        results = [
+            decoder(features=features, actions=None)["position_action"]
+            for _ in range(5)
+        ]
+        any_differ = any(
+            not torch.equal(results[0], results[index])
+            for index in range(1, len(results))
         )
+        assert any_differ
 
     def test_deterministic_inference_is_reproducible(
         self,
@@ -853,3 +939,24 @@ class TestModeACTInferenceMode:
             atol=1e-6,
             rtol=1e-6,
         )
+
+
+class TestModeACTTemporalObservation:
+
+    @pytest.mark.parametrize("observation_horizon, expects_temporal_pe", [
+        (1, False),
+        (3, True),
+    ])
+    def test_temporal_pe_created_based_on_observation_horizon(
+        self,
+        mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+        observation_horizon: int,
+        expects_temporal_pe: bool,
+    ):
+        decoder = mode_act_factory(observation_horizon=observation_horizon)
+        layer = decoder.input_sequence_builder.temporal_positional_encoding_layer
+        if expects_temporal_pe:
+            assert isinstance(layer, LearnedPositionalEncoding1D)
+        else:
+            assert layer is None
+

@@ -1,18 +1,21 @@
 """Tests for versatil.models.decoding.decoders.factory.phase_act module."""
 import re
 from collections.abc import Callable
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 import torch
 
 from versatil.data.constants import ObsKey, SampleKey
-from versatil.data.task import ActionSpace
 from versatil.models.decoding.action_heads.moe import MoEHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import DecoderOutputKey, FeatureType
 from versatil.models.decoding.decoders.factory.act import ACT
 from versatil.models.decoding.decoders.factory.phase_act import PhaseACT
+from versatil.models.layers.positional_encoding.learned import (
+    LearnedPositionalEncoding1D,
+)
 
 
 EMBEDDING_DIMENSION = 32
@@ -29,40 +32,21 @@ NUM_PHASES = 3
 
 
 @pytest.fixture
-def phase_action_space_factory() -> Callable[..., MagicMock]:
+def phase_action_space_factory(
+    mock_action_space_factory: Callable[..., MagicMock],
+) -> Callable[..., MagicMock]:
     """Factory for mock ActionSpace with phase_label metadata entry."""
-
-    class _MockMeta:
-        def __init__(
-            self, requires_prediction_head: bool, prediction_dimension: int
-        ):
-            self.requires_prediction_head = requires_prediction_head
-            self.prediction_dimension = prediction_dimension
 
     def factory(
         position_dim: int = POSITION_DIM,
         num_phases: int = NUM_PHASES,
     ) -> MagicMock:
-        metadata = {
-            "position_action": _MockMeta(
-                requires_prediction_head=True,
-                prediction_dimension=position_dim,
-            ),
-            ObsKey.PHASE_LABEL.value: _MockMeta(
-                requires_prediction_head=True,
-                prediction_dimension=num_phases,
-            ),
-        }
-        total_dim = position_dim + num_phases
-        action_space = MagicMock(spec=ActionSpace)
-        action_space.actions_metadata = metadata
-        action_space.get_total_action_dim.return_value = total_dim
-        action_space.has_gripper_actions = False
-        action_space.gripper_dim = 0
-        action_space.has_orientation_actions = False
-        action_space.orientation_dim = 0
-        action_space.has_position_actions = True
-        action_space.position_dim = position_dim
+        action_space = mock_action_space_factory(position_dim=position_dim)
+        action_space.actions_metadata[ObsKey.PHASE_LABEL.value] = SimpleNamespace(
+            requires_prediction_head=True,
+            prediction_dimension=num_phases,
+        )
+        action_space.get_total_action_dim.return_value = position_dim + num_phases
         return action_space
 
     return factory
@@ -248,7 +232,7 @@ class TestPhaseACTInitialization:
 
 class TestPhaseACTForward:
 
-    def test_output_contains_phase_predictions(
+    def test_output_keys(
         self,
         phase_act_factory: Callable[..., PhaseACT],
         spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
@@ -261,53 +245,13 @@ class TestPhaseACTForward:
             width=SPATIAL_WIDTH,
         )
         predictions = decoder(features=features)
-        assert ObsKey.PHASE_LABEL.value in predictions
-
-    def test_output_contains_action_predictions(
-        self,
-        phase_act_factory: Callable[..., PhaseACT],
-        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
-        decoder = phase_act_factory()
-        features = spatial_feature_factory(
-            batch_size=BATCH_SIZE,
-            channels=EMBEDDING_DIMENSION,
-            height=SPATIAL_HEIGHT,
-            width=SPATIAL_WIDTH,
-        )
-        predictions = decoder(features=features)
-        assert "position_action" in predictions
-
-    def test_output_contains_routing_weights(
-        self,
-        phase_act_factory: Callable[..., PhaseACT],
-        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
-        decoder = phase_act_factory()
-        features = spatial_feature_factory(
-            batch_size=BATCH_SIZE,
-            channels=EMBEDDING_DIMENSION,
-            height=SPATIAL_HEIGHT,
-            width=SPATIAL_WIDTH,
-        )
-        predictions = decoder(features=features)
-        assert DecoderOutputKey.ROUTING_WEIGHTS.value in predictions
-
-    def test_output_contains_expert_outputs(
-        self,
-        phase_act_factory: Callable[..., PhaseACT],
-        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
-        decoder = phase_act_factory()
-        features = spatial_feature_factory(
-            batch_size=BATCH_SIZE,
-            channels=EMBEDDING_DIMENSION,
-            height=SPATIAL_HEIGHT,
-            width=SPATIAL_WIDTH,
-        )
-        predictions = decoder(features=features)
-        expected_key = f"position_action_{DecoderOutputKey.EXPERT_OUTPUTS.value}"
-        assert expected_key in predictions
+        expected_keys = {
+            ObsKey.PHASE_LABEL.value,
+            "position_action",
+            DecoderOutputKey.ROUTING_WEIGHTS.value,
+            f"position_action_{DecoderOutputKey.EXPERT_OUTPUTS.value}",
+        }
+        assert set(predictions.keys()) == expected_keys
 
     @pytest.mark.parametrize("prediction_horizon", [4, 8])
     def test_output_shapes(
@@ -358,3 +302,50 @@ class TestPhaseACTForward:
         routing_weights = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]
         # Routing weights are derived from phase logits via softmax, so last dim == NUM_PHASES
         assert routing_weights.shape[-1] == NUM_PHASES
+
+    def test_routing_selects_expert_matching_dominant_phase(
+        self,
+        phase_act_factory: Callable[..., PhaseACT],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = phase_act_factory()
+        decoder.eval()
+        phase_head = decoder.action_heads[ObsKey.PHASE_LABEL.value]
+        with torch.no_grad():
+            phase_head.output_proj.weight.data.zero_()
+            phase_head.output_proj.bias.data.zero_()
+            phase_head.output_proj.bias.data[0] = 100.0
+        features = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        with torch.no_grad():
+            predictions = decoder(features=features)
+        expert_outputs_key = f"position_action_{DecoderOutputKey.EXPERT_OUTPUTS.value}"
+        expert_outputs = predictions[expert_outputs_key]
+        routed_output = predictions["position_action"]
+        expert_0_output = expert_outputs[:, :, 0, :]
+        torch.testing.assert_close(routed_output, expert_0_output, atol=1e-5, rtol=1e-5)
+
+
+class TestPhaseACTTemporalObservation:
+
+    @pytest.mark.parametrize("observation_horizon, expects_temporal_pe", [
+        (1, False),
+        (3, True),
+    ])
+    def test_temporal_pe_created_based_on_observation_horizon(
+        self,
+        phase_act_factory: Callable[..., PhaseACT],
+        observation_horizon: int,
+        expects_temporal_pe: bool,
+    ):
+        decoder = phase_act_factory(observation_horizon=observation_horizon)
+        layer = decoder.input_sequence_builder.temporal_positional_encoding_layer
+        if expects_temporal_pe:
+            assert isinstance(layer, LearnedPositionalEncoding1D)
+        else:
+            assert layer is None
+

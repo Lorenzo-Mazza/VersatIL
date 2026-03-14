@@ -122,7 +122,7 @@ class MoEFreeActionTransformer(FreeActionTransformer):
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
         if tokenizer is None or tokenizer.action_tokenizer is None:
             raise ValueError(
-                "FreeActionTransformer requires a tokenizer for tokenized action prediction."
+                "MoEFreeActionTransformer requires a tokenizer for tokenized action prediction."
             )
         device = self.temperature.device
         self.vocab_size = tokenizer.action_tokenizer.vocab_size

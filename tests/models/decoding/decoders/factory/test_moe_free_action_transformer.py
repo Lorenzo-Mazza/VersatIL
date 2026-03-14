@@ -31,7 +31,7 @@ POSITION_DIM = 3
 SPATIAL_HEIGHT = 4
 SPATIAL_WIDTH = 4
 VOCAB_SIZE = 32
-ACTION_TOKEN_LEN = 8
+ACTION_TOKEN_LENGTH = 8
 NUM_EXPERTS = 3
 
 
@@ -154,7 +154,7 @@ class TestMoEFreeActionTransformerSetTokenizer:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                "FreeActionTransformer requires a tokenizer for tokenized action prediction."
+                "MoEFreeActionTransformer requires a tokenizer for tokenized action prediction."
             ),
         ):
             decoder.set_tokenizer(tokenizer=None)
@@ -169,7 +169,7 @@ class TestMoEFreeActionTransformerSetTokenizer:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                "FreeActionTransformer requires a tokenizer for tokenized action prediction."
+                "MoEFreeActionTransformer requires a tokenizer for tokenized action prediction."
             ),
         ):
             decoder.set_tokenizer(tokenizer=tokenizer)
@@ -182,7 +182,8 @@ class TestMoEFreeActionTransformerSetTokenizer:
         decoder = moe_free_transformer_factory()
         tokenizer = mock_tokenizer_factory(vocab_size=VOCAB_SIZE)
         decoder.set_tokenizer(tokenizer=tokenizer)
-        assert decoder.vocab_size == VOCAB_SIZE
+        effective_vocab_size = VOCAB_SIZE + 1
+        assert decoder.vocab_size == effective_vocab_size
 
     def test_creates_expert_gating_projection(
         self,
@@ -204,9 +205,10 @@ class TestMoEFreeActionTransformerSetTokenizer:
         decoder = moe_free_transformer_factory()
         tokenizer = mock_tokenizer_factory(vocab_size=VOCAB_SIZE)
         decoder.set_tokenizer(tokenizer=tokenizer)
+        effective_vocab_size = VOCAB_SIZE + 1
         for expert in decoder.moe_action_head.experts:
-            assert expert.output_dim == VOCAB_SIZE
-            assert expert.output_proj.out_features == VOCAB_SIZE
+            assert expert.output_dim == effective_vocab_size
+            assert expert.output_proj.out_features == effective_vocab_size
 
     def test_creates_token_embedding(
         self,
@@ -217,7 +219,8 @@ class TestMoEFreeActionTransformerSetTokenizer:
         tokenizer = mock_tokenizer_factory(vocab_size=VOCAB_SIZE)
         decoder.set_tokenizer(tokenizer=tokenizer)
         assert isinstance(decoder.token_embedding, nn.Embedding)
-        assert decoder.token_embedding.num_embeddings == VOCAB_SIZE
+        effective_vocab_size = VOCAB_SIZE + 1
+        assert decoder.token_embedding.num_embeddings == effective_vocab_size
         assert decoder.token_embedding.embedding_dim == EMBEDDING_DIMENSION
 
     def test_stores_action_tokenizer(
@@ -255,7 +258,9 @@ class TestMoEFreeActionTransformerForward:
         expected_token_length = SPATIAL_HEIGHT * SPATIAL_WIDTH + 8  # feature + action tokens
         with pytest.raises(
             ValueError,
-            match=f"Input token length {expected_token_length} > max_seq_len {small_max_seq_len}",
+            match=re.escape(
+                f"Input token length {expected_token_length} > max_seq_len {small_max_seq_len}."
+            ),
         ):
             decoder(features=features, actions=actions)
 
@@ -304,7 +309,8 @@ class TestMoEFreeActionTransformerForward:
         actions = tokenized_actions_factory()
         outputs = decoder(features=features, actions=actions)
         logits = outputs[DecoderOutputKey.ACTION_LOGITS.value]
-        assert logits.shape == (BATCH_SIZE, ACTION_TOKEN_LEN, VOCAB_SIZE)
+        effective_vocab_size = VOCAB_SIZE + 1
+        assert logits.shape == (BATCH_SIZE, ACTION_TOKEN_LENGTH, effective_vocab_size)
 
     def test_training_routing_weights_shape(
         self,
@@ -374,7 +380,38 @@ class TestMoEFreeActionTransformerForward:
             outputs = decoder(features=features, actions=None)
         predicted_tokens = outputs[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
         assert predicted_tokens.shape[0] == BATCH_SIZE
-        assert predicted_tokens.dtype == torch.int64 or predicted_tokens.dtype == torch.long
+        prefix_length = SPATIAL_HEIGHT * SPATIAL_WIDTH
+        max_generated_length = MAX_SEQ_LEN - prefix_length
+        assert 1 <= predicted_tokens.shape[1] <= max_generated_length
+        assert predicted_tokens.dtype == torch.long
+
+    def test_inference_terminates_early_on_eos(
+        self,
+        moe_free_transformer_factory: Callable[..., MoEFreeActionTransformer],
+        mock_tokenizer_factory: Callable[..., MagicMock],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = moe_free_transformer_factory()
+        tokenizer = mock_tokenizer_factory(vocab_size=VOCAB_SIZE)
+        decoder.set_tokenizer(tokenizer=tokenizer)
+        decoder.eval()
+        eos_token_id = tokenizer.action_tokenizer.eos_token_id
+        with torch.no_grad():
+            for expert in decoder.moe_action_head.experts:
+                expert.output_proj.weight.data.zero_()
+                expert.output_proj.bias.data.zero_()
+                expert.output_proj.bias.data[eos_token_id] = 100.0
+        features = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        with torch.no_grad():
+            outputs = decoder(features=features, actions=None)
+        tokens = outputs[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
+        assert tokens.shape[1] == 1
+        assert (tokens == eos_token_id).all()
 
     def test_inference_routing_weights_shape(
         self,
@@ -400,3 +437,36 @@ class TestMoEFreeActionTransformerForward:
         routing_weights = outputs[routing_key]
         assert routing_weights.shape[0] == BATCH_SIZE
         assert routing_weights.shape[-1] == NUM_EXPERTS
+
+    def test_different_features_produce_different_routing(
+        self,
+        moe_free_transformer_factory: Callable[..., MoEFreeActionTransformer],
+        mock_tokenizer_factory: Callable[..., MagicMock],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = moe_free_transformer_factory()
+        decoder.set_tokenizer(tokenizer=mock_tokenizer_factory(vocab_size=VOCAB_SIZE))
+        decoder.eval()
+        features_a = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        features_b = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        with torch.no_grad():
+            outputs_a = decoder(features=features_a, actions=None)
+            outputs_b = decoder(features=features_b, actions=None)
+        routing_key = (
+            f"{DecoderOutputKey.ACTION_LOGITS.value}"
+            f"_{DecoderOutputKey.ROUTING_WEIGHTS.value}"
+        )
+        assert not torch.equal(
+            outputs_a[routing_key],
+            outputs_b[routing_key],
+        )

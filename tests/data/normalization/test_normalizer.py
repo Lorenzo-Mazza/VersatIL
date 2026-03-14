@@ -87,6 +87,8 @@ class TestSingleFieldLinearNormalizerNormalize:
 
         assert isinstance(result, torch.Tensor)
         assert result.shape == (10, 3)
+        # Normalized output must differ from raw input values
+        assert not torch.equal(result, torch.from_numpy(numpy_input))
 
     def test_normalize_preserves_higher_dimensional_shapes(self, rng: np.random.Generator):
         data = torch.from_numpy(rng.standard_normal((20, 3)).astype(np.float32))
@@ -457,8 +459,12 @@ class TestLinearNormalizerGetInputStats:
 
         assert "position" in stats
         assert "orientation" in stats
-        assert "min" in stats["position"]
-        assert "max" in stats["position"]
+        torch.testing.assert_close(
+            stats["position"]["min"], data["position"].min(dim=0).values
+        )
+        torch.testing.assert_close(
+            stats["position"]["max"], data["position"].max(dim=0).values
+        )
 
     def test_get_input_stats_tensor_mode(self, rng: np.random.Generator):
         data = torch.from_numpy(rng.standard_normal((50, 3)).astype(np.float32))
@@ -467,8 +473,8 @@ class TestLinearNormalizerGetInputStats:
 
         stats = normalizer.get_input_stats()
 
-        assert "min" in stats
-        assert "max" in stats
+        torch.testing.assert_close(stats["min"], data.min(dim=0).values)
+        torch.testing.assert_close(stats["max"], data.max(dim=0).values)
 
     def test_get_input_stats_raises_when_not_initialized(self):
         normalizer = LinearNormalizer()

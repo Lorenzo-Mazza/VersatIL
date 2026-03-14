@@ -155,15 +155,15 @@ class TestLACTInitialization:
         decoder = lact_decoder_factory()
         assert isinstance(decoder.action_decoder, CrossConditioningDecoder)
 
-    def test_cross_conditioning_decoder_uses_latent_as_timestep_dimension(
+    def test_cross_conditioning_decoder_uses_latent_as_condition_dimension(
         self,
         lact_decoder_factory: Callable[..., LACT],
     ):
         latent_dimension = 24
         decoder = lact_decoder_factory(latent_dimension=latent_dimension)
-        # The CrossConditioningDecoder's AdaNorm layers use latent_dimension
-        # as their timestep_dimension, which is stored internally
-        assert decoder.latent_dimension == latent_dimension
+        first_layer = decoder.action_decoder.layers[0]
+        assert first_layer.self_attention_normalization.condition_dim == latent_dimension
+        assert first_layer.feedforward_normalization.condition_dim == latent_dimension
 
     def test_excludes_latent_from_tokenization(
         self,
@@ -172,32 +172,14 @@ class TestLACTInitialization:
         decoder = lact_decoder_factory()
         assert LatentKey.POSTERIOR_LATENT.value in decoder.input_sequence_builder.exclude_keys
 
-    def test_decoder_input_requires_spatial_features(
+    def test_decoder_input_specification(
         self,
         lact_decoder_factory: Callable[..., LACT],
     ):
         decoder = lact_decoder_factory()
         assert FeatureType.SPATIAL.value in decoder.decoder_input.required_types
-
-    def test_decoder_input_does_not_require_actions(
-        self,
-        lact_decoder_factory: Callable[..., LACT],
-    ):
-        decoder = lact_decoder_factory()
         assert decoder.decoder_input.requires_actions is False
-
-    def test_decoder_input_conditioning_key_is_latent(
-        self,
-        lact_decoder_factory: Callable[..., LACT],
-    ):
-        decoder = lact_decoder_factory()
         assert decoder.decoder_input.conditioning_key == LatentKey.POSTERIOR_LATENT.value
-
-    def test_decoder_input_conditioning_required_includes_latent(
-        self,
-        lact_decoder_factory: Callable[..., LACT],
-    ):
-        decoder = lact_decoder_factory()
         assert LatentKey.POSTERIOR_LATENT.value in decoder.decoder_input.conditioning_required
 
 
@@ -269,26 +251,26 @@ class TestLACTForward:
         assert output["orientation_action"].shape == (BATCH_SIZE, PREDICTION_HORIZON, orientation_dim)
         assert output["gripper_action"].shape == (BATCH_SIZE, PREDICTION_HORIZON, gripper_dim)
 
-    def test_with_temporal_observation_horizon(
+    def test_adaln_zero_init_makes_output_latent_independent(
         self,
         lact_decoder_factory: Callable[..., LACT],
-        temporal_spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
-        input_tensor_factory: Callable[..., torch.Tensor],
+        spatial_features_with_latent_factory: Callable[..., dict[str, torch.Tensor]],
     ):
-        observation_horizon = 3
-        decoder = lact_decoder_factory(observation_horizon=observation_horizon)
-        features = temporal_spatial_feature_factory(
-            batch_size=BATCH_SIZE,
-            observation_horizon=observation_horizon,
-            channels=SPATIAL_CHANNELS,
-            height=SPATIAL_HEIGHT,
-            width=SPATIAL_WIDTH,
+        # LACT uses CrossConditioningDecoder with AdaLN-Zero modulation.
+        # At initialization, scale=0 and shift=0 so the latent has no effect
+        # on the output — this ensures stable early training.
+        decoder = lact_decoder_factory()
+        decoder.eval()
+        features_latent_a = spatial_features_with_latent_factory()
+        features_latent_b = {
+            key: tensor.clone() for key, tensor in features_latent_a.items()
+        }
+        features_latent_b[LatentKey.POSTERIOR_LATENT.value] = torch.zeros_like(
+            features_latent_b[LatentKey.POSTERIOR_LATENT.value]
         )
-        features[LatentKey.POSTERIOR_LATENT.value] = input_tensor_factory(
-            batch_size=BATCH_SIZE,
-            input_dim=LATENT_DIMENSION,
-        )
-        output = decoder(features=features)
+        with torch.no_grad():
+            output_a = decoder(features=features_latent_a)
+            output_b = decoder(features=features_latent_b)
         for action_key in decoder.action_heads:
-            expected_dim = decoder.action_heads[action_key].output_dim
-            assert output[action_key].shape == (BATCH_SIZE, PREDICTION_HORIZON, expected_dim)
+            torch.testing.assert_close(output_a[action_key], output_b[action_key])
+

@@ -105,6 +105,26 @@ These guidelines define how tests in this codebase must be written. Reference im
 
 11e. **Tests must verify what they claim.** If a test name or comment says it checks a specific behavior (e.g., "injects zero padding"), the assertions must actually verify that behavior — not just re-check output keys or types. A test that claims to verify a fallback path but only checks that the output dict has the right keys is a lie.
 
+11f. **Test functional consequences, not implementation details.** Assertions should verify observable behavior, not Python internals. Checking `a is b` (object identity), `isinstance(x, T)`, or `x is not None` tests the mechanism, not whether the behavior works. Instead, test the *consequence*:
+   ```python
+   # BAD — checks Python identity, says nothing about weight tying working
+   assert lm_head.weight is decoder.token_embedding.weight
+
+   # GOOD — verifies the functional consequence of weight tying
+   decoder.token_embedding.weight.data[0] = 999.0
+   assert lm_head.weight.data[0, 0] == 999.0
+   ```
+   Ask: "what would break if this behavior were wrong?" and assert that.
+
+11g. **Prefer behavioral tests over shape-only checks.** Shape and key checks are necessary but insufficient — they pass even if the model computes garbage. Where possible, write tests that verify the model's behavior through value-level assertions with controlled inputs:
+   - **Causal masking**: modify a middle action token, verify earlier predictions unchanged and later predictions changed.
+   - **Conditioning**: verify that different conditioning inputs (timestep, latent, phase) produce different outputs — or, if zero-initialized (AdaLN-Zero, FiLM), verify the *design intent* that conditioning has no effect at init.
+   - **Routing/gating**: force routing weights to select a specific expert (e.g., bias one output to 100.0), then verify the routed output matches that expert exactly.
+   - **Caching**: verify cached forward produces identical output to uncached forward with the same inputs.
+   - **Weight tying**: mutate one weight tensor and verify the tied tensor reflects the change.
+
+   These tests catch real bugs that shape tests miss: broken attention masks, dead conditioning paths, incorrect expert selection, cache corruption.
+
 ## What Not To Do
 
 12. **Never use legacy tests as reference.** Tests not listed as references above are outdated and do not follow these guidelines. Always refer to the reference implementations listed at the top and to this document for the rules.

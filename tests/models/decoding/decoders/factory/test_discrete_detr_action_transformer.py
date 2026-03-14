@@ -15,6 +15,7 @@ from versatil.models.decoding.decoders.factory.discrete_detr_action_transformer 
     DiscreteDETRActionTransformer,
 )
 from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.detr_transformer.transformer import Transformer
 
 
 EMBEDDING_DIMENSION = 32
@@ -29,6 +30,7 @@ BATCH_SIZE = 2
 POSITION_DIM = 3
 SPATIAL_HEIGHT = 4
 SPATIAL_WIDTH = 4
+VOCAB_SIZE = 32
 
 
 @pytest.fixture
@@ -91,7 +93,6 @@ def detr_decoder_factory(
     return factory
 
 
-
 class TestDiscreteDETRInitialization:
 
     def test_inherits_from_action_decoder(
@@ -138,7 +139,7 @@ class TestDiscreteDETRInitialization:
         }
         with pytest.raises(
             ValueError,
-            match=(
+            match=re.escape(
                 f"DiscreteDETRActionTransformer only supports DecoderOutputKey.ACTION_LOGITS.value in action_heads."
                 f" Make sure to use key {DecoderOutputKey.ACTION_LOGITS.value} in your hydra config."
             ),
@@ -182,32 +183,20 @@ class TestDiscreteDETRInitialization:
         )
         assert decoder.temperature.requires_grad is expected_requires_grad
 
-    def test_decoder_input_requires_spatial_features(
+    def test_decoder_input_specification(
         self,
         detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
     ):
         decoder = detr_decoder_factory()
         assert FeatureType.SPATIAL.value in decoder.decoder_input.required_types
-
-    def test_decoder_input_requires_actions(
-        self,
-        detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
-    ):
-        decoder = detr_decoder_factory()
         assert decoder.decoder_input.requires_actions is True
 
-    def test_token_embedding_initially_none(
+    def test_tokenizer_state_initially_none(
         self,
         detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
     ):
         decoder = detr_decoder_factory()
         assert decoder.token_embedding is None
-
-    def test_vocab_size_initially_none(
-        self,
-        detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
-    ):
-        decoder = detr_decoder_factory()
         assert decoder.vocab_size is None
 
     def test_creates_action_decoder_transformer(
@@ -215,22 +204,19 @@ class TestDiscreteDETRInitialization:
         detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
     ):
         decoder = detr_decoder_factory()
-        assert hasattr(decoder, "action_decoder")
-        assert decoder.action_decoder is not None
+        assert isinstance(decoder.action_decoder, Transformer)
 
     def test_creates_learnable_query(
         self,
         detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
     ):
         decoder = detr_decoder_factory()
-        assert hasattr(decoder, "learnable_query")
+        assert isinstance(decoder.learnable_query, nn.Embedding)
         assert decoder.learnable_query.weight.shape == (
             MAX_SEQ_LEN,
             EMBEDDING_DIMENSION,
         )
 
-
-VOCAB_SIZE = 32
 
 
 class TestDiscreteDETRSetTokenizer:
@@ -271,7 +257,8 @@ class TestDiscreteDETRSetTokenizer:
         decoder = detr_decoder_factory()
         tokenizer = mock_tokenizer_factory(vocab_size=VOCAB_SIZE)
         decoder.set_tokenizer(tokenizer=tokenizer)
-        assert decoder.vocab_size == VOCAB_SIZE
+        effective_vocab_size = VOCAB_SIZE + 1
+        assert decoder.vocab_size == effective_vocab_size
 
     def test_creates_token_embedding(
         self,
@@ -281,9 +268,12 @@ class TestDiscreteDETRSetTokenizer:
         decoder = detr_decoder_factory()
         tokenizer = mock_tokenizer_factory(vocab_size=VOCAB_SIZE)
         decoder.set_tokenizer(tokenizer=tokenizer)
-        assert decoder.token_embedding is not None
+        effective_vocab_size = VOCAB_SIZE + 1
+        assert isinstance(decoder.token_embedding, nn.Embedding)
+        assert decoder.token_embedding.num_embeddings == effective_vocab_size
+        assert decoder.token_embedding.embedding_dim == EMBEDDING_DIMENSION
 
-    def test_ties_output_weights(
+    def test_ties_output_weights_to_token_embedding(
         self,
         detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
         mock_tokenizer_factory: Callable[..., MagicMock],
@@ -292,8 +282,9 @@ class TestDiscreteDETRSetTokenizer:
         tokenizer = mock_tokenizer_factory(vocab_size=VOCAB_SIZE)
         decoder.set_tokenizer(tokenizer=tokenizer)
         lm_head = decoder.action_heads[DecoderOutputKey.ACTION_LOGITS.value].output_proj
-        assert isinstance(decoder.token_embedding, nn.Embedding)
-        assert lm_head.weight is decoder.token_embedding.weight
+        with torch.no_grad():
+            decoder.token_embedding.weight.data[0] = 999.0
+        assert lm_head.weight.data[0, 0] == 999.0
 
     def test_updates_action_head_output_dim(
         self,
@@ -304,8 +295,9 @@ class TestDiscreteDETRSetTokenizer:
         tokenizer = mock_tokenizer_factory(vocab_size=VOCAB_SIZE)
         decoder.set_tokenizer(tokenizer=tokenizer)
         head = decoder.action_heads[DecoderOutputKey.ACTION_LOGITS.value]
-        assert head.output_dim == VOCAB_SIZE
-        assert head.output_proj.out_features == VOCAB_SIZE
+        effective_vocab_size = VOCAB_SIZE + 1
+        assert head.output_dim == effective_vocab_size
+        assert head.output_proj.out_features == effective_vocab_size
 
     def test_stores_action_tokenizer(
         self,
@@ -320,12 +312,13 @@ class TestDiscreteDETRSetTokenizer:
 
 class TestDiscreteDETRForward:
 
-    def test_returns_logits_for_training(
+    def test_training_returns_logits(
         self,
         detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
         spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
     ):
         decoder = detr_decoder_factory()
+        decoder.train()
         features = spatial_feature_factory(
             batch_size=BATCH_SIZE,
             channels=EMBEDDING_DIMENSION,
@@ -333,14 +326,15 @@ class TestDiscreteDETRForward:
             width=SPATIAL_WIDTH,
         )
         outputs = decoder(features=features)
-        assert DecoderOutputKey.ACTION_LOGITS.value in outputs
+        assert set(outputs.keys()) == {DecoderOutputKey.ACTION_LOGITS.value}
 
-    def test_output_logits_shape(
+    def test_training_output_logits_shape(
         self,
         detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
         spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
     ):
         decoder = detr_decoder_factory()
+        decoder.train()
         features = spatial_feature_factory(
             batch_size=BATCH_SIZE,
             channels=EMBEDDING_DIMENSION,
@@ -351,6 +345,69 @@ class TestDiscreteDETRForward:
         logits = outputs[DecoderOutputKey.ACTION_LOGITS.value]
         head = decoder.action_heads[DecoderOutputKey.ACTION_LOGITS.value]
         assert logits.shape == (BATCH_SIZE, MAX_SEQ_LEN, head.output_dim)
+
+    def test_inference_returns_predicted_tokens(
+        self,
+        detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
+        mock_tokenizer_factory: Callable[..., MagicMock],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = detr_decoder_factory(deterministic=True)
+        decoder.set_tokenizer(tokenizer=mock_tokenizer_factory(vocab_size=VOCAB_SIZE))
+        decoder.eval()
+        features = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        with torch.no_grad():
+            outputs = decoder(features=features)
+        assert set(outputs.keys()) == {DecoderOutputKey.PREDICTED_ACTION_TOKENS.value}
+
+    def test_inference_output_shape(
+        self,
+        detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
+        mock_tokenizer_factory: Callable[..., MagicMock],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = detr_decoder_factory(deterministic=True)
+        decoder.set_tokenizer(tokenizer=mock_tokenizer_factory(vocab_size=VOCAB_SIZE))
+        decoder.eval()
+        features = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        with torch.no_grad():
+            outputs = decoder(features=features)
+        tokens = outputs[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
+        assert tokens.shape == (BATCH_SIZE, MAX_SEQ_LEN)
+        assert tokens.dtype == torch.long
+
+    def test_deterministic_inference_is_reproducible(
+        self,
+        detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
+        mock_tokenizer_factory: Callable[..., MagicMock],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = detr_decoder_factory(deterministic=True)
+        decoder.set_tokenizer(tokenizer=mock_tokenizer_factory(vocab_size=VOCAB_SIZE))
+        decoder.eval()
+        features = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        with torch.no_grad():
+            first = decoder(features=features)
+            second = decoder(features=features)
+        assert torch.equal(
+            first[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value],
+            second[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value],
+        )
 
 
 class TestDiscreteDETRDecodeActions:

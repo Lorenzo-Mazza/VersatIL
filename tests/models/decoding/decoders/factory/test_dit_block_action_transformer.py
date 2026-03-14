@@ -273,6 +273,35 @@ class TestDiTBlockActionTransformerForward:
         )
 
 
+    def test_adaln_zero_init_makes_output_timestep_independent(
+        self,
+        dit_decoder_factory: Callable[..., DiTBlockActionTransformer],
+        flat_features_with_timestep_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        # AdaLN-Zero initializes modulation scale=0, shift=0 and the final output
+        # linear to zeros. At init, the network output must be identical regardless
+        # of timestep — this is the DiT design that ensures stable early training.
+        decoder = dit_decoder_factory()
+        decoder.eval()
+        features_t0 = flat_features_with_timestep_factory(feature_dim=FEATURE_DIMENSION)
+        features_t0[DecoderOutputKey.TIMESTEP.value] = torch.zeros(
+            BATCH_SIZE, dtype=torch.long
+        )
+        features_t99 = {
+            key: tensor.clone() for key, tensor in features_t0.items()
+        }
+        features_t99[DecoderOutputKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 99, dtype=torch.long
+        )
+        actions = noisy_actions_factory()
+        with torch.no_grad():
+            output_t0 = decoder(features=features_t0, actions=actions)
+            output_t99 = decoder(features=features_t99, actions=actions)
+        for action_key in actions:
+            torch.testing.assert_close(output_t0[action_key], output_t99[action_key])
+
+
 class TestDiTBlockActionTransformerCaching:
 
     def test_enable_cache(
@@ -325,3 +354,34 @@ class TestDiTBlockActionTransformerCaching:
         second_cache = decoder._encoder_cache
         # Cache object from first forward should be reused, not recomputed
         assert first_cache is second_cache
+
+    def test_cached_forward_produces_identical_output_to_uncached(
+        self,
+        dit_decoder_factory: Callable[..., DiTBlockActionTransformer],
+        flat_features_with_timestep_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = dit_decoder_factory()
+        decoder.eval()
+        actions = noisy_actions_factory()
+        # Forward pops timestep from features, so clone for each call
+        base_features = flat_features_with_timestep_factory(feature_dim=FEATURE_DIMENSION)
+        features_uncached = {k: v.clone() for k, v in base_features.items()}
+        with torch.no_grad():
+            output_uncached = decoder(features=features_uncached, actions=actions)
+        decoder.enable_encoder_cache()
+        features_cached_first = {k: v.clone() for k, v in base_features.items()}
+        with torch.no_grad():
+            output_first_cached = decoder(features=features_cached_first, actions=actions)
+        features_cached_second = {k: v.clone() for k, v in base_features.items()}
+        with torch.no_grad():
+            output_second_cached = decoder(features=features_cached_second, actions=actions)
+        for action_key in actions:
+            torch.testing.assert_close(
+                output_uncached[action_key],
+                output_first_cached[action_key],
+            )
+            torch.testing.assert_close(
+                output_first_cached[action_key],
+                output_second_cached[action_key],
+            )

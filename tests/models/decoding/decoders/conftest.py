@@ -80,8 +80,10 @@ def mock_tokenizer_factory() -> Callable[..., MagicMock]:
     def factory(vocab_size: int = 32) -> MagicMock:
         tokenizer = MagicMock(spec=Tokenizer)
         tokenizer.action_tokenizer = MagicMock()
-        tokenizer.action_tokenizer.vocab_size = vocab_size
-        tokenizer.action_tokenizer.eos_token_id = vocab_size
+        eos_token_id = vocab_size
+        effective_vocab_size = vocab_size + 1
+        tokenizer.action_tokenizer.vocab_size = effective_vocab_size
+        tokenizer.action_tokenizer.eos_token_id = eos_token_id
         return tokenizer
 
     return factory

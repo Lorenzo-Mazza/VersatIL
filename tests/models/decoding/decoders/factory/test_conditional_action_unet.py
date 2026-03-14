@@ -299,3 +299,30 @@ class TestConditionalActionUNetForward:
         assert output["position_action"].shape == (BATCH_SIZE, PREDICTION_HORIZON, position_dim)
         assert output["orientation_action"].shape == (BATCH_SIZE, PREDICTION_HORIZON, orientation_dim)
         assert output["gripper_action"].shape == (BATCH_SIZE, PREDICTION_HORIZON, gripper_dim)
+
+    def test_zero_init_modulation_makes_output_timestep_independent(
+        self,
+        unet_decoder_factory: Callable[..., ConditionalActionUNet],
+        flat_features_with_timestep_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        # FiLM modulation layers are zero-initialized, so the conditioning bias
+        # is zero and the output is timestep-independent at initialization.
+        decoder = unet_decoder_factory()
+        decoder.eval()
+        features_t0 = flat_features_with_timestep_factory(feature_dim=FEATURE_DIMENSION)
+        features_t0[DecoderOutputKey.TIMESTEP.value] = torch.zeros(
+            BATCH_SIZE, dtype=torch.long
+        )
+        features_t99 = {
+            key: tensor.clone() for key, tensor in features_t0.items()
+        }
+        features_t99[DecoderOutputKey.TIMESTEP.value] = torch.full(
+            (BATCH_SIZE,), 99, dtype=torch.long
+        )
+        actions = noisy_actions_factory()
+        with torch.no_grad():
+            output_t0 = decoder(features=features_t0, actions=actions)
+            output_t99 = decoder(features=features_t99, actions=actions)
+        for action_key in actions:
+            torch.testing.assert_close(output_t0[action_key], output_t99[action_key])

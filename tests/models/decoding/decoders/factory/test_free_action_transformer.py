@@ -229,11 +229,11 @@ class TestFreeActionTransformerSetTokenizer:
         free_transformer_factory: Callable[..., FreeActionTransformer],
         mock_tokenizer_factory: Callable[..., MagicMock],
     ):
-        vocab_size = 64
+        base_vocab_size = 64
         decoder = free_transformer_factory()
-        tokenizer = mock_tokenizer_factory(vocab_size=vocab_size)
+        tokenizer = mock_tokenizer_factory(vocab_size=base_vocab_size)
         decoder.set_tokenizer(tokenizer=tokenizer)
-        assert decoder.vocab_size == vocab_size
+        assert decoder.vocab_size == base_vocab_size + 1
 
     def test_creates_token_embedding(
         self,
@@ -241,22 +241,25 @@ class TestFreeActionTransformerSetTokenizer:
         mock_tokenizer_factory: Callable[..., MagicMock],
     ):
         decoder = free_transformer_factory()
-        tokenizer = mock_tokenizer_factory()
+        tokenizer = mock_tokenizer_factory(vocab_size=VOCAB_SIZE)
         decoder.set_tokenizer(tokenizer=tokenizer)
-        assert decoder.token_embedding is not None
+        effective_vocab_size = VOCAB_SIZE + 1
+        assert isinstance(decoder.token_embedding, nn.Embedding)
+        assert decoder.token_embedding.num_embeddings == effective_vocab_size
+        assert decoder.token_embedding.embedding_dim == EMBEDDING_DIMENSION
 
-    def test_ties_output_weights(
+    def test_ties_output_weights_to_token_embedding(
         self,
         free_transformer_factory: Callable[..., FreeActionTransformer],
         mock_tokenizer_factory: Callable[..., MagicMock],
     ):
         decoder = free_transformer_factory()
-        tokenizer = mock_tokenizer_factory()
+        tokenizer = mock_tokenizer_factory(vocab_size=VOCAB_SIZE)
         decoder.set_tokenizer(tokenizer=tokenizer)
         lm_head = decoder.action_heads[DecoderOutputKey.ACTION_LOGITS.value].output_proj
-        # embedding_dimension == output_proj.in_features, so token_embedding is nn.Embedding
-        assert isinstance(decoder.token_embedding, nn.Embedding)
-        assert lm_head.weight is decoder.token_embedding.weight
+        with torch.no_grad():
+            decoder.token_embedding.weight.data[0] = 999.0
+        assert lm_head.weight.data[0, 0] == 999.0
 
 
 class TestFreeActionTransformerForward:
@@ -271,7 +274,7 @@ class TestFreeActionTransformerForward:
         decoder = free_transformer_factory()
         tokenizer = mock_tokenizer_factory(vocab_size=VOCAB_SIZE)
         decoder.set_tokenizer(tokenizer=tokenizer)
-        decoder.eval()
+        decoder.train()
         features = spatial_feature_factory(
             batch_size=BATCH_SIZE,
             channels=EMBEDDING_DIMENSION,
@@ -283,8 +286,7 @@ class TestFreeActionTransformerForward:
             action_token_length=ACTION_TOKEN_LENGTH,
             vocab_size=VOCAB_SIZE,
         )
-        with torch.no_grad():
-            predictions = decoder(features=features, actions=actions)
+        predictions = decoder(features=features, actions=actions)
         expected_keys = {
             DecoderOutputKey.ACTION_LOGITS.value,
             DecoderOutputKey.BINARY_LOGITS.value,
@@ -303,7 +305,7 @@ class TestFreeActionTransformerForward:
         decoder = free_transformer_factory()
         tokenizer = mock_tokenizer_factory(vocab_size=VOCAB_SIZE)
         decoder.set_tokenizer(tokenizer=tokenizer)
-        decoder.eval()
+        decoder.train()
         features = spatial_feature_factory(
             batch_size=BATCH_SIZE,
             channels=EMBEDDING_DIMENSION,
@@ -315,10 +317,10 @@ class TestFreeActionTransformerForward:
             action_token_length=ACTION_TOKEN_LENGTH,
             vocab_size=VOCAB_SIZE,
         )
-        with torch.no_grad():
-            predictions = decoder(features=features, actions=actions)
+        predictions = decoder(features=features, actions=actions)
         logits = predictions[DecoderOutputKey.ACTION_LOGITS.value]
-        assert logits.shape == (BATCH_SIZE, ACTION_TOKEN_LENGTH, VOCAB_SIZE)
+        effective_vocab_size = VOCAB_SIZE + 1
+        assert logits.shape == (BATCH_SIZE, ACTION_TOKEN_LENGTH, effective_vocab_size)
 
     def test_inference_output_keys(
         self,
@@ -366,8 +368,37 @@ class TestFreeActionTransformerForward:
         predicted_tokens = predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
         # Spatial features produce SPATIAL_HEIGHT * SPATIAL_WIDTH = 16 prefix tokens
         prefix_length = SPATIAL_HEIGHT * SPATIAL_WIDTH
-        expected_generated_length = MAX_SEQ_LEN - prefix_length
-        assert predicted_tokens.shape == (BATCH_SIZE, expected_generated_length)
+        max_generated_length = MAX_SEQ_LEN - prefix_length
+        assert predicted_tokens.shape[0] == BATCH_SIZE
+        assert 1 <= predicted_tokens.shape[1] <= max_generated_length
+
+    def test_inference_terminates_early_on_eos(
+        self,
+        free_transformer_factory: Callable[..., FreeActionTransformer],
+        mock_tokenizer_factory: Callable[..., MagicMock],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = free_transformer_factory()
+        tokenizer = mock_tokenizer_factory(vocab_size=VOCAB_SIZE)
+        decoder.set_tokenizer(tokenizer=tokenizer)
+        decoder.eval()
+        eos_token_id = tokenizer.action_tokenizer.eos_token_id
+        head = decoder.action_heads[DecoderOutputKey.ACTION_LOGITS.value]
+        with torch.no_grad():
+            head.output_proj.weight.data.zero_()
+            # Set EOS embedding row to large value so dot product with any input strongly favors EOS
+            head.output_proj.weight.data[eos_token_id] = 100.0
+        features = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        with torch.no_grad():
+            predictions = decoder(features=features, actions=None)
+        tokens = predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
+        assert tokens.shape[1] == 1
+        assert (tokens == eos_token_id).all()
 
     def test_raises_if_sequence_too_long(
         self,
