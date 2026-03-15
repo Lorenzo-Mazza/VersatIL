@@ -133,16 +133,19 @@ class Workspace:
         self._tune_hyperparameters()
 
         logging.info("Starting training...")
-        assert self.trainer is not None, "Trainer should be initialized"
+        if self.trainer is None:
+            raise RuntimeError("Trainer should be initialized before training.")
         self.trainer.fit(model=self.lightning_policy, ckpt_path=resume_checkpoint_path)
         logging.info(f"Training completed. Best checkpoint saved to {self.output_dir}")
 
     def _set_seed(self):
         """Set random seeds for reproducibility."""
-        torch.manual_seed(self.config.experiment.seed)
-        np.random.seed(self.config.experiment.seed)
+        seed = self.config.experiment.seed
+        torch.manual_seed(seed)
+        np.random.default_rng(seed)
+        np.random.seed(seed)  # Legacy: required by some third-party libraries
         if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(self.config.experiment.seed)
+            torch.cuda.manual_seed_all(seed)
 
     def _setup_data(self):
         """Setup dataloaders, normalizer, and tokenizer."""
@@ -471,8 +474,10 @@ class Workspace:
         if not self.config.training.tune_lr:
             return
 
-        assert self.trainer is not None, "Trainer must be initialized"
-        assert self.lightning_policy is not None, "Lightning policy must be initialized"
+        if self.trainer is None:
+            raise RuntimeError("Trainer must be initialized before tuning.")
+        if self.lightning_policy is None:
+            raise RuntimeError("Lightning policy must be initialized before tuning.")
         if self.config.experiment.distributed:
             logging.warning(
                 "Hyperparameter tuning not supported with distributed training. Skipping..."
@@ -550,7 +555,8 @@ class Workspace:
         """
         if self.lightning_policy is None:
             raise RuntimeError("Policy not initialized. Call run() first.")
-        assert self.policy is not None, "Policy must be initialized"
+        if self.policy is None:
+            raise RuntimeError("Policy must be initialized. Call run() first.")
         policy = self.policy
         if (
             self.config.training.use_ema

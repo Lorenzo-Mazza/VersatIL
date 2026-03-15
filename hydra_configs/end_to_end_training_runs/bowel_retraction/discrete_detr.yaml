@@ -1,4 +1,5 @@
 # @package _global_
+_target_: versatil.configs.main.MainConfig
 
 defaults:
   - /experiment: default

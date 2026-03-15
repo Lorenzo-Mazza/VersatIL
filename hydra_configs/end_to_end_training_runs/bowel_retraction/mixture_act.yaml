@@ -42,8 +42,8 @@ policy:
         _target_: versatil.metrics.MetadataPassthrough
         keys_mapping:
           ${obs_key:PHASE_LABEL}: ${metadata_key:PHASE_LABEL}
-  base_expert:
-    decoder:
+  decoder:
+    base_expert:
       input_keys:
         - left_rgb
         - right_rgb

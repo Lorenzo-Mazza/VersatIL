@@ -2,7 +2,11 @@
 
 **Read this file first before writing or modifying any test.**
 
-These guidelines define how tests in this codebase must be written. Reference implementations:
+These guidelines define how tests in this codebase must be written.
+
+**Package status:** `tests/data/` and `tests/models/` are fully up-to-date and guideline-compliant. All source modules with testable logic have corresponding test files. Use any test in these packages as reference.
+
+Reference implementations:
 - `tests/data/augmentation/test_augmentation_pipeline.py` — mocking and factory fixtures
 - `tests/data/test_task.py` — using conftest factories, module-level fixtures, explicit value testing
 - `tests/data/conftest.py` — factory fixtures with type hints, RNG-based data generators
@@ -12,6 +16,8 @@ These guidelines define how tests in this codebase must be written. Reference im
 - `tests/data/test_dataloader.py` — `does_not_raise()` parametrization pattern for validation tests, mock schema factories with `spec=` for `isinstance` dispatch
 - `tests/data/preprocessing/test_replay_buffer.py` — `does_not_raise()` for buffer validation (empty/non-empty), consolidated error testing, zarr backend fixture patterns
 - `tests/models/encoding/encoders/rgb/test_vit.py` — consolidated `test_stores_configuration` with stacked `@pytest.mark.parametrize` cross product, validation tests separate from storage, mocked backbone with `patch.object`, unit/integration test separation
+- `tests/models/decoding/decoders/factory/test_dit_block_action_transformer.py` — decoder factory integration tests with behavioral assertions (conditioning sensitivity, timestep independence at init, gradient flow)
+- `tests/models/layers/denoising/test_ode_solvers.py` — mathematical correctness tests (convergence order, exact integration for known ODEs, solver accuracy comparison)
 
 ## Principles
 
@@ -127,10 +133,46 @@ These guidelines define how tests in this codebase must be written. Reference im
 
 ## What Not To Do
 
-12. **Never use legacy tests as reference.** Tests not listed as references above are outdated and do not follow these guidelines. Always refer to the reference implementations listed at the top and to this document for the rules.
+12. **Never use legacy tests as reference.** Tests in `tests/data/` and `tests/models/` are up-to-date and follow these guidelines — they can be used as reference alongside the files listed at the top. Tests in other packages not listed as references above may be outdated. Always refer to the reference implementations and to this document for the rules.
 
 13.**Never write tests just to increase coverage.** Every test must verify a meaningful condition. If a test does not guard against a real failure mode, it should not exist.
 
 14.**Every code path must be tested.** If a function exists in the codebase and is used, it must be tested — regardless of whether it contains "business logic". Logging functions, plotting functions, and utility functions all have logic that can break. Untested code paths are unacceptable.
 
 15.**Verify source code correctness while writing tests.** When writing tests for a module, audit the source code for violations of project rules (e.g., `assert` statements that should be `raise`, missing kwargs, bare assertions). If a test reveals a bug or rule violation in the source code, fix the source code — do not adjust the test to work around it.
+
+## Conftest Hierarchy
+
+The test suite uses a layered conftest structure. Before writing any fixture, check what already exists:
+
+```
+tests/conftest.py                              ← rng, device, batch_size, temporal_length, image_size,
+                                                  loss_output_factory, padding_mask_factory,
+                                                  action_tensor_factory
+tests/models/conftest.py                       ← input_tensor_factory, feature_dictionary_factory,
+                                                  action_dictionary_factory, batch_dictionary_factory,
+                                                  policy_factory, vision_encoder_factory, etc.
+tests/models/layers/conftest.py                ← flat_tensor_factory, sequence_tensor_factory,
+                                                  nchw_tensor_factory, conv1d_tensor_factory,
+                                                  condition_factory, timestep_factory,
+                                                  attention_mask_factory
+tests/models/decoding/conftest.py              ← mock_action_space_factory, spatial_feature_factory,
+                                                  flat_feature_factory, action_head_factory, etc.
+tests/models/encoding/conftest.py              ← encoder_mock_factory, conditional_encoder_mock_factory,
+                                                  fusion_module_mock_factory
+```
+
+Subpackage-level conftests exist for domain-specific fixtures only (e.g., `denoising/conftest.py` has scheduler factories, `detr_transformer/conftest.py` has transformer component factories). A fixture belongs in a subpackage conftest only if it is used by multiple test files within that subpackage but NOT by other subpackages.
+
+## Lessons Learned
+
+- **Factory parameter names must match exactly.** When calling a conftest factory, use its exact parameter names (e.g., `feature_dimension=` not `feature_dim=`, `input_dimension=` not `input_dim=`). Mismatched kwargs are silently ignored and the factory uses defaults, causing tests to pass with wrong dimensions.
+- **Test error paths, not just happy paths.** Every `raise ValueError/TypeError/RuntimeError` in source code must have a corresponding `pytest.raises` test. Error paths are where real bugs hide.
+- **Writing tests finds source bugs.** During this audit, testing MLP post-processing in positional encodings revealed a hardcoded dimension bug in `base.py:178`. Always write tests with the expectation that the source might be wrong.
+- **Behavioral assertions over shape checks.** A test that only checks `output.shape == (B, T, D)` passes even if the computation is completely wrong. Always include value-level assertions: conditioning sensitivity, mathematical correctness, gradient flow, cache equivalence.
+
+## Testing Philosophy: models/ vs data/
+
+**`tests/models/`** — Deep learning building blocks (layers, encoders, decoders, transformers) often do NOT follow strict unit testing isolation. It is acceptable and expected to instantiate real PyTorch modules with small dimensions and run real forward passes rather than mocking every dependency. Mocking a `nn.Linear` inside a transformer layer would defeat the purpose — the test needs to verify that the actual computation produces correct outputs. Use mocks only at system boundaries (e.g., mock the `EncodingPipeline` when testing `Policy`, mock `ActionSpace` when testing decoders).
+
+**`tests/data/`** — Data processing, normalization, dataset loading, and configuration logic follow strict unit testing principles. Mock everything that is not the class/function under test. If testing `SampleBuilder`, mock the `ActionProcessor` and `AugmentationPipeline`. If testing `EpisodicDataset`, mock the Zarr backend. This keeps tests fast, isolated, and focused on one behavior at a time.

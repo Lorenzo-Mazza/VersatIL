@@ -121,28 +121,6 @@ def conv1d_tensor_factory(
 
 
 @pytest.fixture
-def padding_mask_factory() -> Callable[..., torch.Tensor]:
-    """Factory for padding masks (B, S) with True=padded."""
-
-    def factory(
-        batch_size: int = 2,
-        sequence_length: int = 4,
-        padded_positions: list[list[int]] | None = None,
-        mask_last_n: int | None = None,
-    ) -> torch.Tensor:
-        mask = torch.zeros(batch_size, sequence_length, dtype=torch.bool)
-        if padded_positions is not None:
-            for batch_index, positions in enumerate(padded_positions):
-                for position in positions:
-                    mask[batch_index, position] = True
-        elif mask_last_n is not None:
-            mask[:, -mask_last_n:] = True
-        return mask
-
-    return factory
-
-
-@pytest.fixture
 def timestep_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:

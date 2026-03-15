@@ -21,7 +21,7 @@ class DataLoaderConfig:
     image_width: int = 480
     image_norm_type: str = ImageNormalizationType.MINUS_ONE_TO_ONE.value
     depth_norm_type: str = ImageNormalizationType.MINUS_ONE_TO_ONE.value
-    kinematics_norm_type: str = KinematicsNormalizationType.MIN_MAX
+    kinematics_norm_type: str = KinematicsNormalizationType.MIN_MAX.value
     winsorize_depth: bool = True
     depth_winsorize_quantiles: tuple[float, float] = (0.01, 0.99)
     winsorize_kinematics: bool = True

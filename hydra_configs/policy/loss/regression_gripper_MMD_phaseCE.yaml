@@ -30,7 +30,7 @@ loss_modules:
 
         maximum_mean_discrepancy:
             weight: 10.0
-            kernel_bandwidths: [50.0]
+            bandwidth_multipliers: [50.0]
 
         trajectory_length:
             _target_: versatil.metrics.TrajectoryLengthLoss

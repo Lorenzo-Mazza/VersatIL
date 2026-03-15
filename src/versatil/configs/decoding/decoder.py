@@ -292,7 +292,7 @@ class MoEFreeActionTransformerConfig(FreeActionTransformerConfig):
 class MixtureOfExpertsDecoderConfig(DecodingNetworkConfig):
     """Mixture of Experts (MoE) decoder configuration."""
 
-    _target_: str = "versatil.models.decoding.decoders.mixture_of_experts.MoEDecoder"
+    _target_: str = "versatil.models.decoding.decoders.moe.MoEDecoder"
     base_expert: Any = MISSING
     num_experts: int = MISSING
     gating_feature_key: str = MISSING

@@ -1,206 +1,653 @@
-"""Tests for LightningPolicy wrapper."""
+"""Tests for versatil.training.lightning_policy module."""
+from collections.abc import Callable
+from unittest.mock import MagicMock, Mock, patch
 
+import numpy as np
+import pytest
 import torch
-from unittest.mock import Mock
 
+from versatil.configs.training import (
+    AdamWConfig,
+    ParameterGroupConfig,
+    TrainingConfig,
+)
 from versatil.training.lightning_policy import LightningPolicy
-from versatil.data.constants import SampleKey
-from versatil.configs.training import TrainingConfig, OptimizerConfig, AdamWConfig, ParameterGroupConfig
 
 
-class TestLightningPolicyBasics:
-    """Test basic LightningPolicy functionality."""
-
-    def test_initialization(self, simple_policy, simple_training_config):
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=simple_training_config,
+@pytest.fixture
+def lightning_policy_factory(
+    mock_policy_factory: Callable,
+    training_config_factory: Callable,
+) -> Callable[..., LightningPolicy]:
+    def factory(
+        policy: Mock | None = None,
+        training_config: TrainingConfig | None = None,
+        total_training_steps: int | None = None,
+    ) -> LightningPolicy:
+        if policy is None:
+            policy = mock_policy_factory()
+        if training_config is None:
+            training_config = training_config_factory()
+        return LightningPolicy(
+            policy=policy,
+            training_config=training_config,
+            total_training_steps=total_training_steps,
         )
 
-        assert lightning_policy.policy == simple_policy
-        assert lightning_policy.training_config == simple_training_config
-        assert lightning_policy.train_metrics is not None
-        assert lightning_policy.val_metrics is not None
-
-    def test_forward(self, simple_policy, simple_training_config, synthetic_training_batch):
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=simple_training_config,
-        )
-
-        obs_dict = synthetic_training_batch[SampleKey.OBSERVATION.value]
-        output = lightning_policy.forward(obs_dict)
-
-        assert output is not None
-        assert isinstance(output, dict)
+    return factory
 
 
-class TestLightningPolicyTraining:
-    """Test training step functionality."""
+@pytest.mark.unit
+class TestLightningPolicyInitialization:
 
-    def test_training_step(self, simple_policy, simple_training_config, synthetic_training_batch):
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=simple_training_config,
-        )
+    def test_stores_policy_reference(
+        self,
+        mock_policy_factory: Callable,
+        lightning_policy_factory: Callable,
+    ):
+        policy = mock_policy_factory()
+        lightning_policy = lightning_policy_factory(policy=policy)
 
-        loss = lightning_policy.training_step(synthetic_training_batch, batch_idx=0)
+        assert lightning_policy.policy is policy
 
-        assert isinstance(loss, torch.Tensor)
-        assert loss.dim() == 0
-        assert loss.item() > 0
+    def test_stores_training_config(
+        self,
+        training_config_factory: Callable,
+        lightning_policy_factory: Callable,
+    ):
+        config = training_config_factory(num_epochs=42)
+        lightning_policy = lightning_policy_factory(training_config=config)
 
-        assert lightning_policy.train_metrics.num_batches == 1
-        assert lightning_policy.train_metrics.total_loss > 0
+        assert lightning_policy.training_config is config
 
-    def test_training_epoch_end(self, simple_policy, simple_training_config, synthetic_training_batch):
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=simple_training_config,
-        )
+    def test_stores_total_training_steps(
+        self,
+        lightning_policy_factory: Callable,
+    ):
+        lightning_policy = lightning_policy_factory(total_training_steps=5000)
 
-        for i in range(3):
-            lightning_policy.training_step(synthetic_training_batch, batch_idx=i)
+        assert lightning_policy.total_training_steps == 5000
+
+    def test_initializes_metrics_accumulators_at_zero(
+        self,
+        lightning_policy_factory: Callable,
+    ):
+        lightning_policy = lightning_policy_factory()
+
+        assert lightning_policy.train_metrics.num_batches == 0
+        assert lightning_policy.val_metrics.num_batches == 0
+        assert lightning_policy.train_metrics.total_loss == 0.0
+        assert lightning_policy.val_metrics.total_loss == 0.0
+
+    def test_initializes_dataloaders_as_none(
+        self,
+        lightning_policy_factory: Callable,
+    ):
+        lightning_policy = lightning_policy_factory()
+
+        assert lightning_policy._train_dataloader is None
+        assert lightning_policy._val_dataloader is None
+
+
+@pytest.mark.unit
+class TestTrainingStep:
+
+    def test_calls_policy_compute_loss_with_batch(
+        self,
+        mock_policy_factory: Callable,
+        loss_output_factory: Callable,
+        lightning_policy_factory: Callable,
+        rng: np.random.Generator,
+    ):
+        policy = mock_policy_factory()
+        loss_output = loss_output_factory(total_loss_value=1.5)
+        policy.compute_loss.return_value = loss_output
+
+        lightning_policy = lightning_policy_factory(policy=policy)
+        batch = {
+            "observations": {
+                "left": torch.from_numpy(
+                    rng.standard_normal((2, 3, 64, 64)).astype(np.float32)
+                )
+            }
+        }
+
+        lightning_policy.training_step(batch=batch, batch_idx=0)
+
+        policy.compute_loss.assert_called_once_with(batch)
+
+    def test_returns_total_loss_tensor(
+        self,
+        mock_policy_factory: Callable,
+        loss_output_factory: Callable,
+        lightning_policy_factory: Callable,
+    ):
+        policy = mock_policy_factory()
+        expected_loss_value = 2.3
+        loss_output = loss_output_factory(total_loss_value=expected_loss_value)
+        policy.compute_loss.return_value = loss_output
+
+        lightning_policy = lightning_policy_factory(policy=policy)
+        batch = {"observations": {}}
+
+        result = lightning_policy.training_step(batch=batch, batch_idx=0)
+
+        assert torch.isclose(result, torch.tensor(expected_loss_value), atol=1e-6)
+
+    def test_accumulates_metrics_across_batches(
+        self,
+        mock_policy_factory: Callable,
+        loss_output_factory: Callable,
+        lightning_policy_factory: Callable,
+    ):
+        policy = mock_policy_factory()
+        lightning_policy = lightning_policy_factory(policy=policy)
+
+        for step in range(3):
+            loss_output = loss_output_factory(total_loss_value=float(step + 1))
+            policy.compute_loss.return_value = loss_output
+            lightning_policy.training_step(batch={}, batch_idx=step)
+
+        assert lightning_policy.train_metrics.num_batches == 3
+        # total_loss accumulates: 1.0 + 2.0 + 3.0 = 6.0
+        assert abs(lightning_policy.train_metrics.total_loss - 6.0) < 1e-5
+
+    def test_logs_train_loss_on_epoch(
+        self,
+        mock_policy_factory: Callable,
+        loss_output_factory: Callable,
+        lightning_policy_factory: Callable,
+    ):
+        policy = mock_policy_factory()
+        loss_output = loss_output_factory(total_loss_value=0.7)
+        policy.compute_loss.return_value = loss_output
+
+        lightning_policy = lightning_policy_factory(policy=policy)
+
+        with patch.object(lightning_policy, "log") as mock_log:
+            lightning_policy.training_step(batch={}, batch_idx=0)
+
+            mock_log.assert_called_once_with(
+                "train_loss",
+                loss_output.total_loss,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+            )
+
+
+@pytest.mark.unit
+class TestValidationStep:
+
+    def test_calls_policy_compute_loss_with_batch(
+        self,
+        mock_policy_factory: Callable,
+        loss_output_factory: Callable,
+        lightning_policy_factory: Callable,
+        rng: np.random.Generator,
+    ):
+        policy = mock_policy_factory()
+        loss_output = loss_output_factory(total_loss_value=0.8)
+        policy.compute_loss.return_value = loss_output
+
+        lightning_policy = lightning_policy_factory(policy=policy)
+        batch = {
+            "observations": {
+                "right": torch.from_numpy(
+                    rng.standard_normal((2, 3, 64, 64)).astype(np.float32)
+                )
+            }
+        }
+
+        lightning_policy.validation_step(batch=batch, batch_idx=0)
+
+        policy.compute_loss.assert_called_once_with(batch)
+
+    def test_returns_total_loss_tensor(
+        self,
+        mock_policy_factory: Callable,
+        loss_output_factory: Callable,
+        lightning_policy_factory: Callable,
+    ):
+        policy = mock_policy_factory()
+        expected_loss_value = 1.1
+        loss_output = loss_output_factory(total_loss_value=expected_loss_value)
+        policy.compute_loss.return_value = loss_output
+
+        lightning_policy = lightning_policy_factory(policy=policy)
+
+        result = lightning_policy.validation_step(batch={}, batch_idx=0)
+
+        assert torch.isclose(result, torch.tensor(expected_loss_value), atol=1e-6)
+
+    def test_accumulates_val_metrics_not_train(
+        self,
+        mock_policy_factory: Callable,
+        loss_output_factory: Callable,
+        lightning_policy_factory: Callable,
+    ):
+        policy = mock_policy_factory()
+        loss_output = loss_output_factory(total_loss_value=0.5)
+        policy.compute_loss.return_value = loss_output
+
+        lightning_policy = lightning_policy_factory(policy=policy)
+        lightning_policy.validation_step(batch={}, batch_idx=0)
+
+        assert lightning_policy.val_metrics.num_batches == 1
+        assert lightning_policy.train_metrics.num_batches == 0
+
+
+@pytest.mark.unit
+class TestOnTrainEpochEnd:
+
+    def test_resets_train_metrics_after_logging(
+        self,
+        mock_policy_factory: Callable,
+        loss_output_factory: Callable,
+        lightning_policy_factory: Callable,
+    ):
+        policy = mock_policy_factory()
+        lightning_policy = lightning_policy_factory(policy=policy)
+
+        # Accumulate some metrics
+        for step in range(3):
+            loss_output = loss_output_factory(
+                total_loss_value=1.0,
+                component_losses={"mse": 0.5},
+            )
+            policy.compute_loss.return_value = loss_output
+            lightning_policy.training_step(batch={}, batch_idx=step)
 
         assert lightning_policy.train_metrics.num_batches == 3
 
-        lightning_policy.on_train_epoch_end()
+        with patch.object(lightning_policy, "log_dict"):
+            lightning_policy.on_train_epoch_end()
 
         assert lightning_policy.train_metrics.num_batches == 0
         assert lightning_policy.train_metrics.total_loss == 0.0
 
-    def test_validation_step(self, simple_policy, simple_training_config, synthetic_training_batch):
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=simple_training_config,
+    def test_logs_metrics_with_train_prefix(
+        self,
+        mock_policy_factory: Callable,
+        loss_output_factory: Callable,
+        lightning_policy_factory: Callable,
+    ):
+        policy = mock_policy_factory()
+        loss_output = loss_output_factory(
+            total_loss_value=2.0,
+            component_losses={"mse": 1.0},
         )
+        policy.compute_loss.return_value = loss_output
 
-        loss = lightning_policy.validation_step(synthetic_training_batch, batch_idx=0)
+        lightning_policy = lightning_policy_factory(policy=policy)
+        lightning_policy.training_step(batch={}, batch_idx=0)
 
-        assert isinstance(loss, torch.Tensor)
-        assert loss.dim() == 0
+        with patch.object(lightning_policy, "log_dict") as mock_log_dict:
+            lightning_policy.on_train_epoch_end()
 
-        assert lightning_policy.val_metrics.num_batches == 1
+            logged_metrics = mock_log_dict.call_args[0][0]
+            for key in logged_metrics:
+                assert key.startswith("train/")
 
-    def test_validation_epoch_end(self, simple_policy, simple_training_config, synthetic_training_batch):
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=simple_training_config,
-        )
 
-        for i in range(2):
-            lightning_policy.validation_step(synthetic_training_batch, batch_idx=i)
+@pytest.mark.unit
+class TestOnValidationEpochEnd:
+
+    def test_resets_val_metrics_after_logging(
+        self,
+        mock_policy_factory: Callable,
+        loss_output_factory: Callable,
+        lightning_policy_factory: Callable,
+    ):
+        policy = mock_policy_factory()
+        loss_output = loss_output_factory(total_loss_value=0.5)
+        policy.compute_loss.return_value = loss_output
+
+        lightning_policy = lightning_policy_factory(policy=policy)
+
+        for step in range(2):
+            lightning_policy.validation_step(batch={}, batch_idx=step)
 
         assert lightning_policy.val_metrics.num_batches == 2
 
-        lightning_policy.on_validation_epoch_end()
+        with patch.object(lightning_policy, "log_dict"):
+            lightning_policy.on_validation_epoch_end()
 
         assert lightning_policy.val_metrics.num_batches == 0
 
+    def test_logs_metrics_with_val_prefix(
+        self,
+        mock_policy_factory: Callable,
+        loss_output_factory: Callable,
+        lightning_policy_factory: Callable,
+    ):
+        policy = mock_policy_factory()
+        loss_output = loss_output_factory(total_loss_value=0.8)
+        policy.compute_loss.return_value = loss_output
 
-class TestLightningPolicyOptimizer:
-    """Test optimizer configuration."""
+        lightning_policy = lightning_policy_factory(policy=policy)
+        lightning_policy.validation_step(batch={}, batch_idx=0)
 
-    def test_configure_optimizers_basic(self, simple_policy, simple_training_config):
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=simple_training_config,
+        with patch.object(lightning_policy, "log_dict") as mock_log_dict:
+            lightning_policy.on_validation_epoch_end()
+
+            logged_metrics = mock_log_dict.call_args[0][0]
+            for key in logged_metrics:
+                assert key.startswith("val/")
+
+
+@pytest.mark.unit
+class TestForward:
+
+    def test_delegates_to_policy_predict_action(
+        self,
+        mock_policy_factory: Callable,
+        lightning_policy_factory: Callable,
+        rng: np.random.Generator,
+    ):
+        policy = mock_policy_factory()
+        expected_output = {
+            "actions": torch.from_numpy(
+                rng.standard_normal((2, 10, 7)).astype(np.float32)
+            )
+        }
+        policy.predict_action.return_value = expected_output
+
+        lightning_policy = lightning_policy_factory(policy=policy)
+        obs_dict = {
+            "left": torch.from_numpy(
+                rng.standard_normal((2, 3, 64, 64)).astype(np.float32)
+            )
+        }
+
+        result = lightning_policy(obs_dict)
+
+        policy.predict_action.assert_called_once_with(obs_dict)
+        assert result is expected_output
+
+
+@pytest.mark.unit
+class TestConfigureOptimizers:
+
+    def test_returns_optimizer_without_scheduler_when_no_lr_schedule(
+        self,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+    ):
+        config = training_config_factory(lr_schedule=None)
+        lightning_policy = lightning_policy_factory(training_config=config)
+
+        result = lightning_policy.configure_optimizers()
+
+        assert "optimizer" in result
+        assert "lr_scheduler" not in result
+        assert isinstance(result["optimizer"], torch.optim.AdamW)
+
+    def test_returns_optimizer_with_scheduler_when_lr_schedule_set(
+        self,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+        mock_trainer_factory: Callable,
+    ):
+        config = training_config_factory(
+            lr_schedule="cosine", lr_warmup_steps=50
+        )
+        lightning_policy = lightning_policy_factory(
+            training_config=config,
+            total_training_steps=1000,
         )
 
-        optimizer_config = lightning_policy.configure_optimizers()
+        result = lightning_policy.configure_optimizers()
 
-        assert "optimizer" in optimizer_config
-        assert isinstance(optimizer_config["optimizer"], torch.optim.AdamW)
-        assert "lr_scheduler" not in optimizer_config
+        assert "optimizer" in result
+        assert "lr_scheduler" in result
+        assert "scheduler" in result["lr_scheduler"]
+        assert result["lr_scheduler"]["interval"] == "step"
+        assert result["lr_scheduler"]["frequency"] == 1
+        assert result["lr_scheduler"]["name"] == "learning_rate"
 
-    def test_configure_optimizers_with_lr_schedule(self, simple_policy):
-        optimizer_config = AdamWConfig(
-            lr=1e-4,
+    def test_uses_total_training_steps_when_provided(
+        self,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+    ):
+        config = training_config_factory(
+            lr_schedule="linear", lr_warmup_steps=10
+        )
+        total_steps = 500
+        lightning_policy = lightning_policy_factory(
+            training_config=config,
+            total_training_steps=total_steps,
         )
 
-        training_config = TrainingConfig(
-            num_epochs=10,
-            optimizer=optimizer_config,
-            lr_schedule="cosine",
-            lr_warmup_steps=100,
-            use_ema=False,
+        result = lightning_policy.configure_optimizers()
+
+        # The scheduler should have been created with the provided total_steps
+        assert "lr_scheduler" in result
+
+    def test_falls_back_to_trainer_estimated_steps(
+        self,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+        mock_trainer_factory: Callable,
+    ):
+        config = training_config_factory(
+            lr_schedule="cosine", lr_warmup_steps=10
+        )
+        lightning_policy = lightning_policy_factory(
+            training_config=config,
+            total_training_steps=None,
+        )
+        # Attach mock trainer so estimated_stepping_batches is available
+        lightning_policy._trainer = mock_trainer_factory(
+            estimated_stepping_batches=2000
         )
 
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=training_config,
+        result = lightning_policy.configure_optimizers()
+
+        assert "lr_scheduler" in result
+
+    def test_optimizer_receives_correct_learning_rate(
+        self,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+    ):
+        learning_rate = 3e-5
+        optimizer_config = AdamWConfig(lr=learning_rate)
+        config = training_config_factory(optimizer=optimizer_config)
+        lightning_policy = lightning_policy_factory(training_config=config)
+
+        result = lightning_policy.configure_optimizers()
+        optimizer = result["optimizer"]
+
+        assert optimizer.param_groups[0]["lr"] == learning_rate
+
+
+@pytest.mark.unit
+class TestCreateParameterGroups:
+
+    def test_single_group_when_no_param_groups_configured(
+        self,
+        mock_policy_factory: Callable,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+    ):
+        policy = mock_policy_factory()
+        config = training_config_factory()
+        lightning_policy = lightning_policy_factory(
+            policy=policy, training_config=config
         )
 
-        mock_trainer = Mock()
-        mock_trainer.estimated_stepping_batches = 1000
-        lightning_policy._trainer = mock_trainer
+        groups = lightning_policy._create_parameter_groups(config.optimizer)
 
-        optimizer_config = lightning_policy.configure_optimizers()
+        assert len(groups) == 1
+        assert "params" in groups[0]
 
-        assert "optimizer" in optimizer_config
-        assert "lr_scheduler" in optimizer_config
-        assert "scheduler" in optimizer_config["lr_scheduler"]
-        assert optimizer_config["lr_scheduler"]["interval"] == "step"
+    def test_assigns_parameters_to_groups_by_pattern(
+        self,
+        rng: np.random.Generator,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+    ):
+        # Create a policy mock with named parameters that match patterns
+        encoder_weight = torch.nn.Parameter(
+            torch.from_numpy(rng.standard_normal((4, 4)).astype(np.float32))
+        )
+        decoder_weight = torch.nn.Parameter(
+            torch.from_numpy(rng.standard_normal((4, 4)).astype(np.float32))
+        )
+        other_weight = torch.nn.Parameter(
+            torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
+        )
 
-    def test_configure_optimizers_with_param_groups(self, simple_policy):
+        policy = MagicMock()
+        policy.named_parameters.return_value = iter([
+            ("encoder.layer.weight", encoder_weight),
+            ("decoder.layer.weight", decoder_weight),
+            ("head.bias", other_weight),
+        ])
+        policy.parameters.return_value = iter(
+            [encoder_weight, decoder_weight, other_weight]
+        )
+
         param_groups = [
             ParameterGroupConfig(
-                name="backbone",
+                name="encoder",
                 lr=1e-5,
-                params_pattern=r".*backbone.*",
+                params_pattern=r"encoder\.",
             ),
             ParameterGroupConfig(
                 name="decoder",
                 lr=1e-4,
-                params_pattern=r".*decoder.*",
+                params_pattern=r"decoder\.",
             ),
         ]
-
-        optimizer_config = AdamWConfig(
-            lr=1e-4,
-            param_groups=param_groups,
+        optimizer_config = AdamWConfig(lr=1e-3, param_groups=param_groups)
+        config = training_config_factory(optimizer=optimizer_config)
+        lightning_policy = lightning_policy_factory(
+            policy=policy, training_config=config
         )
 
-        training_config = TrainingConfig(
-            num_epochs=10,
-            optimizer=optimizer_config,
-            use_ema=False,
+        groups = lightning_policy._create_parameter_groups(config.optimizer)
+
+        # Should have: default group (head.bias) + encoder group + decoder group
+        assert len(groups) == 3
+
+        # Default group has unmatched params
+        default_group = groups[0]
+        assert len(list(default_group["params"])) == 1
+
+        # Encoder group
+        encoder_group = groups[1]
+        assert encoder_group["lr"] == 1e-5
+
+        # Decoder group
+        decoder_group = groups[2]
+        assert decoder_group["lr"] == 1e-4
+
+    def test_skips_frozen_parameters(
+        self,
+        rng: np.random.Generator,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+    ):
+        trainable = torch.nn.Parameter(
+            torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
+        )
+        frozen = torch.nn.Parameter(
+            torch.from_numpy(rng.standard_normal((4,)).astype(np.float32)),
+            requires_grad=False,
         )
 
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=training_config,
+        policy = MagicMock()
+        policy.named_parameters.return_value = iter([
+            ("trainable.weight", trainable),
+            ("frozen.weight", frozen),
+        ])
+        policy.parameters.return_value = iter([trainable, frozen])
+
+        param_groups = [
+            ParameterGroupConfig(
+                name="frozen_group",
+                lr=1e-5,
+                params_pattern=r"frozen\.",
+            ),
+        ]
+        optimizer_config = AdamWConfig(lr=1e-3, param_groups=param_groups)
+        config = training_config_factory(optimizer=optimizer_config)
+        lightning_policy = lightning_policy_factory(
+            policy=policy, training_config=config
         )
 
-        optimizer_dict = lightning_policy.configure_optimizers()
-        optimizer = optimizer_dict["optimizer"]
+        groups = lightning_policy._create_parameter_groups(config.optimizer)
 
-        assert len(optimizer.param_groups) >= 1
+        # Only the default group with the trainable parameter
+        total_params = sum(len(list(g["params"])) for g in groups)
+        assert total_params == 1
 
-
-class TestLightningPolicyGradientClipping:
-    """Test gradient clipping configuration."""
-
-    def test_gradient_clipping_disabled(self, simple_policy, simple_training_config):
-        simple_training_config.clip_gradient_norm = False
-
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=simple_training_config,
+    def test_includes_weight_decay_when_specified(
+        self,
+        rng: np.random.Generator,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+    ):
+        weight = torch.nn.Parameter(
+            torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
         )
 
-        assert not simple_training_config.clip_gradient_norm
+        policy = MagicMock()
+        policy.named_parameters.return_value = iter([
+            ("encoder.weight", weight),
+        ])
+        policy.parameters.return_value = iter([weight])
 
-    def test_gradient_clipping_enabled(self, simple_policy):
-        optimizer_config = AdamWConfig(lr=1e-4)
-
-        training_config = TrainingConfig(
-            num_epochs=10,
-            optimizer=optimizer_config,
-            clip_gradient_norm=True,
-            clip_max_norm=1.0,
-            use_ema=False,
+        param_groups = [
+            ParameterGroupConfig(
+                name="encoder",
+                lr=1e-5,
+                weight_decay=0.01,
+                params_pattern=r"encoder\.",
+            ),
+        ]
+        optimizer_config = AdamWConfig(lr=1e-3, param_groups=param_groups)
+        config = training_config_factory(optimizer=optimizer_config)
+        lightning_policy = lightning_policy_factory(
+            policy=policy, training_config=config
         )
 
-        assert training_config.clip_gradient_norm
-        assert training_config.clip_max_norm == 1.0
+        groups = lightning_policy._create_parameter_groups(config.optimizer)
+
+        encoder_group = [g for g in groups if "lr" in g][0]
+        assert encoder_group["weight_decay"] == 0.01
+
+
+@pytest.mark.unit
+class TestDataloaderAccessors:
+
+    def test_train_dataloader_returns_stored_value(
+        self,
+        lightning_policy_factory: Callable,
+    ):
+        lightning_policy = lightning_policy_factory()
+        mock_loader = MagicMock()
+        lightning_policy._train_dataloader = mock_loader
+
+        assert lightning_policy.train_dataloader() is mock_loader
+
+    def test_val_dataloader_returns_stored_value(
+        self,
+        lightning_policy_factory: Callable,
+    ):
+        lightning_policy = lightning_policy_factory()
+        mock_loader = MagicMock()
+        lightning_policy._val_dataloader = mock_loader
+
+        assert lightning_policy.val_dataloader() is mock_loader
+
+    def test_val_dataloader_returns_none_when_not_set(
+        self,
+        lightning_policy_factory: Callable,
+    ):
+        lightning_policy = lightning_policy_factory()
+
+        assert lightning_policy.val_dataloader() is None

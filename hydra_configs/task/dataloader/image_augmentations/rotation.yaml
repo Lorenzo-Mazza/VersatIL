@@ -1,0 +1,7 @@
+_target_: albumentations.Compose
+transforms:
+  - _target_: albumentations.ShiftScaleRotate
+    rotate_limit: [-15, 15]
+    scale_limit: 0.0
+    shift_limit: 0.0
+    p: 0.5

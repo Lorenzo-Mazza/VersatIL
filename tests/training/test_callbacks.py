@@ -1,467 +1,936 @@
-"""Tests for PyTorch Lightning callbacks."""
+"""Tests for versatil.training.callbacks module."""
+from collections.abc import Callable
+from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 import torch
-import pytorch_lightning as pl
-from pytorch_lightning.callbacks import LearningRateMonitor, StochasticWeightAveraging
-from unittest.mock import Mock, MagicMock, patch
 
-from versatil.training.callbacks import EMACallback, GradientNormCallback, ConfusionMatrixCallback, ReduceLROnPlateauCallback
-from versatil.training.lightning_policy import LightningPolicy
-from versatil.configs.training import TrainingConfig, AdamWConfig
+from versatil.training.callbacks import (
+    ConfusionMatrixCallback,
+    EMACallback,
+    ExpertUsageCallback,
+    GradientNormCallback,
+    LatentVisualizationCallback,
+    ReduceLROnPlateauCallback,
+    ResumableEarlyStopping,
+)
+
+
+@pytest.fixture
+def ema_callback_factory() -> Callable[..., EMACallback]:
+    def factory(
+        power: float = 0.75,
+        update_after_step: int = 0,
+        inv_gamma: float = 1.0,
+        min_value: float = 0.0,
+        max_value: float = 0.9999,
+    ) -> EMACallback:
+        return EMACallback(
+            power=power,
+            update_after_step=update_after_step,
+            inv_gamma=inv_gamma,
+            min_value=min_value,
+            max_value=max_value,
+        )
+
+    return factory
+
+
+@pytest.fixture
+def simple_module_factory(rng: np.random.Generator) -> Callable[..., torch.nn.Module]:
+    def factory(
+        input_dimension: int = 4,
+        output_dimension: int = 4,
+    ) -> torch.nn.Module:
+        module = torch.nn.Linear(input_dimension, output_dimension)
+        # Deterministic initialization for reproducibility
+        weight_data = torch.from_numpy(
+            rng.standard_normal(
+                (output_dimension, input_dimension)
+            ).astype(np.float32)
+        )
+        bias_data = torch.from_numpy(
+            rng.standard_normal((output_dimension,)).astype(np.float32)
+        )
+        module.weight.data.copy_(weight_data)
+        module.bias.data.copy_(bias_data)
+        return module
+
+    return factory
+
+
+@pytest.fixture
+def pl_module_with_policy_factory(
+    simple_module_factory: Callable,
+) -> Callable[..., MagicMock]:
+    def factory(
+        policy: torch.nn.Module | None = None,
+    ) -> MagicMock:
+        if policy is None:
+            policy = simple_module_factory()
+        pl_module = MagicMock()
+        pl_module.policy = policy
+        pl_module.parameters.return_value = policy.parameters()
+        pl_module.log = MagicMock()
+        pl_module.log_dict = MagicMock()
+        return pl_module
+
+    return factory
 
 
 @pytest.mark.unit
-class TestEMACallback:
-    """Test EMA callback functionality."""
+class TestResumableEarlyStopping:
 
-    def test_initialization(self):
-        """Test EMA callback initialization."""
-        callback = EMACallback(power=0.75)
+    def test_load_state_dict_is_noop(self):
+        callback = ResumableEarlyStopping(monitor="val_loss")
 
-        assert callback.power == 0.75
-        assert callback.update_after_step == 0
-        assert callback.inv_gamma == 1.0
-        assert callback.min_value == 0.0
-        assert callback.max_value == 0.9999
+        # Should not raise, and should ignore the state dict completely
+        callback.load_state_dict({"wait_count": 5, "best_score": 0.1})
+
+        # The internal state should remain at initial values, not loaded values
+        assert callback.wait_count == 0
+
+
+@pytest.mark.unit
+class TestEMACallbackInitialization:
+
+    @pytest.mark.parametrize("power", [0.5, 0.999])
+    @pytest.mark.parametrize("update_after_step", [0, 100])
+    @pytest.mark.parametrize("max_value", [0.999, 0.9999])
+    def test_stores_configuration(
+        self,
+        ema_callback_factory: Callable,
+        power: float,
+        update_after_step: int,
+        max_value: float,
+    ):
+        callback = ema_callback_factory(
+            power=power,
+            update_after_step=update_after_step,
+            max_value=max_value,
+        )
+
+        assert callback.power == power
+        assert callback.update_after_step == update_after_step
+        assert callback.max_value == max_value
+
+    def test_ema_model_starts_as_none(
+        self,
+        ema_callback_factory: Callable,
+    ):
+        callback = ema_callback_factory()
+
         assert callback.ema_model is None
+        assert callback.optimization_step == 0
+        assert callback.decay == 0.0
 
-    def test_initialization_custom_params(self):
-        """Test EMA callback with custom parameters."""
-        callback = EMACallback(
-            power=0.999,
-            update_after_step=100,
-            inv_gamma=0.5,
-            min_value=0.1,
-            max_value=0.999,
+
+@pytest.mark.unit
+class TestEMACallbackDecayComputation:
+
+    def test_decay_is_zero_before_update_after_step(
+        self,
+        ema_callback_factory: Callable,
+    ):
+        callback = ema_callback_factory(update_after_step=100)
+
+        # Steps 0 through 100 should return 0.0
+        assert callback._get_decay(optimization_step=0) == 0.0
+        assert callback._get_decay(optimization_step=50) == 0.0
+        assert callback._get_decay(optimization_step=100) == 0.0
+
+    def test_decay_increases_monotonically_with_steps(
+        self,
+        ema_callback_factory: Callable,
+    ):
+        callback = ema_callback_factory(
+            power=0.75, update_after_step=0, inv_gamma=1.0
         )
 
-        assert callback.power == 0.999
-        assert callback.update_after_step == 100
-        assert callback.inv_gamma == 0.5
-        assert callback.min_value == 0.1
-        assert callback.max_value == 0.999
+        decay_10 = callback._get_decay(optimization_step=10)
+        decay_100 = callback._get_decay(optimization_step=100)
+        decay_1000 = callback._get_decay(optimization_step=1000)
 
-    def test_ema_model_created_on_fit_start(self, simple_policy, simple_training_config):
-        """Test that EMA model is created when training starts."""
-        callback = EMACallback(power=0.75)
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=simple_training_config,
+        assert 0.0 < decay_10 < decay_100 < decay_1000
+
+    def test_decay_clamped_to_max_value(
+        self,
+        ema_callback_factory: Callable,
+    ):
+        max_value = 0.99
+        callback = ema_callback_factory(max_value=max_value)
+
+        # Very large step should be clamped
+        decay = callback._get_decay(optimization_step=1_000_000)
+
+        assert decay <= max_value
+
+    def test_decay_clamped_to_min_value(
+        self,
+        ema_callback_factory: Callable,
+    ):
+        min_value = 0.5
+        callback = ema_callback_factory(
+            min_value=min_value, update_after_step=0
         )
 
-        trainer = Mock()
+        # Early step where raw value is below min_value
+        decay = callback._get_decay(optimization_step=2)
 
-        # Simulate fit start
-        callback.on_fit_start(trainer, lightning_policy)
+        assert decay >= min_value
+
+
+@pytest.mark.unit
+class TestEMACallbackOnFitStart:
+
+    def test_creates_ema_model_as_deep_copy_of_policy(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+        simple_module_factory: Callable,
+    ):
+        policy = simple_module_factory()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        callback = ema_callback_factory()
+
+        callback.on_fit_start(
+            trainer=mock_trainer_factory(),
+            pl_module=pl_module,
+        )
 
         assert callback.ema_model is not None
-        assert isinstance(callback.ema_model, type(simple_policy))
+        # Verify it's a separate copy by checking weight values match
+        for ema_param, policy_param in zip(
+            callback.ema_model.parameters(), policy.parameters()
+        ):
+            assert torch.equal(ema_param.data, policy_param.data)
 
-    def test_decay_computation(self):
-        """Test EMA decay factor computation."""
-        callback = EMACallback(power=0.75, inv_gamma=1.0)
+        # Verify it's actually a different object
+        policy_weight_original = policy.weight.data[0, 0].item()
+        policy.weight.data[0, 0] = 999.0
+        assert callback.ema_model.weight.data[0, 0].item() == pytest.approx(
+            policy_weight_original
+        )
 
-        # Test decay at different steps
-        decay_0 = callback._get_decay(0)
-        decay_100 = callback._get_decay(100)
-        decay_1000 = callback._get_decay(1000)
+    def test_ema_model_set_to_eval_and_no_grad(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ema_callback_factory()
+        pl_module = pl_module_with_policy_factory()
 
-        # Decay should increase with steps
-        assert 0.0 <= decay_0 <= 1.0
-        assert decay_0 < decay_100 < decay_1000
-        assert decay_1000 <= callback.max_value
+        callback.on_fit_start(
+            trainer=mock_trainer_factory(),
+            pl_module=pl_module,
+        )
+
+        assert not callback.ema_model.training
+        for param in callback.ema_model.parameters():
+            assert not param.requires_grad
+
+
+@pytest.mark.unit
+class TestEMACallbackOnTrainBatchEnd:
+
+    def test_updates_ema_weights_with_exponential_average(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+        simple_module_factory: Callable,
+        rng: np.random.Generator,
+    ):
+        policy = simple_module_factory()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        callback = ema_callback_factory(
+            power=0.75, update_after_step=0, inv_gamma=1.0
+        )
+        trainer = mock_trainer_factory()
+
+        callback.on_fit_start(trainer=trainer, pl_module=pl_module)
+
+        # Save EMA weights before update
+        ema_weight_before = callback.ema_model.weight.data.clone()
+
+        # Change policy weights to simulate a training step
+        new_weight = torch.from_numpy(
+            rng.standard_normal(policy.weight.shape).astype(np.float32)
+        )
+        policy.weight.data.copy_(new_weight)
+
+        callback.on_train_batch_end(
+            trainer=trainer,
+            pl_module=pl_module,
+            outputs=None,
+            batch=None,
+            batch_idx=0,
+        )
+
+        # EMA weight should be between old EMA and new policy weight
+        ema_weight_after = callback.ema_model.weight.data
+        # At step 0 (first call), decay = _get_decay(0) = 0.0 (since step <= 0)
+        # So EMA should be entirely the new param: ema = 0 * ema + 1 * param
+        assert torch.allclose(ema_weight_after, new_weight, atol=1e-6)
+
+    def test_increments_optimization_step(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ema_callback_factory()
+        pl_module = pl_module_with_policy_factory()
+        trainer = mock_trainer_factory()
+
+        callback.on_fit_start(trainer=trainer, pl_module=pl_module)
+
+        assert callback.optimization_step == 0
+
+        callback.on_train_batch_end(
+            trainer=trainer,
+            pl_module=pl_module,
+            outputs=None,
+            batch=None,
+            batch_idx=0,
+        )
+        assert callback.optimization_step == 1
+
+        callback.on_train_batch_end(
+            trainer=trainer,
+            pl_module=pl_module,
+            outputs=None,
+            batch=None,
+            batch_idx=1,
+        )
+        assert callback.optimization_step == 2
+
+    def test_does_nothing_when_ema_model_is_none(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ema_callback_factory()
+        pl_module = pl_module_with_policy_factory()
+        # Do NOT call on_fit_start, so ema_model stays None
+
+        callback.on_train_batch_end(
+            trainer=mock_trainer_factory(),
+            pl_module=pl_module,
+            outputs=None,
+            batch=None,
+            batch_idx=0,
+        )
+
+        assert callback.optimization_step == 0
+
+    def test_logs_decay_every_100_steps(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ema_callback_factory()
+        pl_module = pl_module_with_policy_factory()
+        trainer = mock_trainer_factory()
+
+        callback.on_fit_start(trainer=trainer, pl_module=pl_module)
+
+        # Run 100 steps to reach logging point
+        for step in range(100):
+            callback.on_train_batch_end(
+                trainer=trainer,
+                pl_module=pl_module,
+                outputs=None,
+                batch=None,
+                batch_idx=step,
+            )
+
+        # Step 99 internally increments to optimization_step=100, which triggers log
+        log_calls = [
+            call_args
+            for call_args in pl_module.log.call_args_list
+            if call_args[0][0] == "ema_decay"
+        ]
+        assert len(log_calls) == 1
+
+
+@pytest.mark.unit
+class TestEMACallbackValidationSwap:
+
+    def test_swaps_policy_with_ema_model_during_validation(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+        simple_module_factory: Callable,
+    ):
+        policy = simple_module_factory()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        callback = ema_callback_factory()
+        trainer = mock_trainer_factory()
+
+        callback.on_fit_start(trainer=trainer, pl_module=pl_module)
+
+        # Before validation, policy is the original
+        assert pl_module.policy is policy
+
+        callback.on_validation_start(trainer=trainer, pl_module=pl_module)
+
+        # During validation, policy should be the EMA model
+        assert pl_module.policy is callback.ema_model
+
+        callback.on_validation_end(trainer=trainer, pl_module=pl_module)
+
+        # After validation, policy should be restored
+        assert pl_module.policy is policy
+
+    def test_no_swap_when_ema_model_is_none(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+        simple_module_factory: Callable,
+    ):
+        policy = simple_module_factory()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        callback = ema_callback_factory()
+        trainer = mock_trainer_factory()
+
+        # Do NOT call on_fit_start
+
+        callback.on_validation_start(trainer=trainer, pl_module=pl_module)
+
+        # Policy should remain unchanged
+        assert pl_module.policy is policy
+
+
+@pytest.mark.unit
+class TestEMACallbackCheckpoint:
+
+    def test_injects_ema_weights_into_checkpoint(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+        simple_module_factory: Callable,
+        rng: np.random.Generator,
+    ):
+        policy = simple_module_factory()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        callback = ema_callback_factory()
+        trainer = mock_trainer_factory()
+
+        callback.on_fit_start(trainer=trainer, pl_module=pl_module)
+
+        # Modify EMA model weights to be different from policy
+        ema_weight = torch.from_numpy(
+            rng.standard_normal(
+                callback.ema_model.weight.shape
+            ).astype(np.float32)
+        )
+        callback.ema_model.weight.data.copy_(ema_weight)
+
+        checkpoint = {
+            "state_dict": {
+                "policy.weight": policy.weight.data.clone(),
+                "policy.bias": policy.bias.data.clone(),
+            }
+        }
+
+        callback.on_save_checkpoint(
+            trainer=trainer,
+            pl_module=pl_module,
+            checkpoint=checkpoint,
+        )
+
+        # Checkpoint should now have EMA weights
+        assert torch.allclose(
+            checkpoint["state_dict"]["policy.weight"],
+            ema_weight,
+            atol=1e-6,
+        )
+
+    def test_no_checkpoint_modification_when_ema_model_is_none(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+        rng: np.random.Generator,
+    ):
+        callback = ema_callback_factory()
+        trainer = mock_trainer_factory()
+        pl_module = pl_module_with_policy_factory()
+
+        original_weight = torch.from_numpy(
+            rng.standard_normal((4, 4)).astype(np.float32)
+        )
+        checkpoint = {
+            "state_dict": {"policy.weight": original_weight.clone()}
+        }
+
+        callback.on_save_checkpoint(
+            trainer=trainer,
+            pl_module=pl_module,
+            checkpoint=checkpoint,
+        )
+
+        # Checkpoint should be unchanged
+        assert torch.equal(
+            checkpoint["state_dict"]["policy.weight"], original_weight
+        )
 
 
 @pytest.mark.unit
 class TestGradientNormCallback:
-    """Test gradient norm logging callback."""
 
-    def test_initialization(self):
-        """Test gradient norm callback initialization."""
-        callback = GradientNormCallback(log_every_n_steps=50)
-
-        assert callback.log_every_n_steps == 50
-
-    def test_initialization_default_params(self):
-        """Test gradient norm callback with default parameters."""
-        callback = GradientNormCallback()
-
-        assert callback.log_every_n_steps == 50  # Default value
-
-    def test_gradient_logging_frequency(self, simple_policy, simple_training_config):
-        """Test that gradients are logged at correct frequency."""
-        callback = GradientNormCallback(log_every_n_steps=10)
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=simple_training_config,
+    @pytest.mark.parametrize("log_every_n_steps", [10, 50, 100])
+    def test_stores_configuration(self, log_every_n_steps: int):
+        callback = GradientNormCallback(
+            log_every_n_steps=log_every_n_steps
         )
 
-        trainer = Mock()
+        assert callback.log_every_n_steps == log_every_n_steps
 
-        # Should log at step 0 (0 % 10 == 0)
-        trainer.global_step = 0
-        with patch.object(lightning_policy, 'log') as mock_log:
-            callback.on_before_optimizer_step(trainer, lightning_policy, optimizer=None)
-            mock_log.assert_called_once()
+    def test_logs_at_correct_frequency(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = GradientNormCallback(log_every_n_steps=10)
+        pl_module = MagicMock()
+        pl_module.parameters.return_value = iter([])
 
-        # Should not log at step 5 (5 % 10 != 0)
-        trainer.global_step = 5
-        with patch.object(lightning_policy, 'log') as mock_log:
-            callback.on_before_optimizer_step(trainer, lightning_policy, optimizer=None)
-            mock_log.assert_not_called()
+        # Should log at step 0
+        trainer = mock_trainer_factory(global_step=0)
+        callback.on_before_optimizer_step(
+            trainer=trainer, pl_module=pl_module, optimizer=MagicMock()
+        )
+        pl_module.log.assert_called()
 
-        # Should log at step 10 (10 % 10 == 0)
-        trainer.global_step = 10
-        with patch.object(lightning_policy, 'log') as mock_log:
-            callback.on_before_optimizer_step(trainer, lightning_policy, optimizer=None)
-            mock_log.assert_called_once()
+        pl_module.log.reset_mock()
+
+        # Should NOT log at step 5
+        trainer = mock_trainer_factory(global_step=5)
+        callback.on_before_optimizer_step(
+            trainer=trainer, pl_module=pl_module, optimizer=MagicMock()
+        )
+        pl_module.log.assert_not_called()
+
+        # Should log at step 10
+        trainer = mock_trainer_factory(global_step=10)
+        callback.on_before_optimizer_step(
+            trainer=trainer, pl_module=pl_module, optimizer=MagicMock()
+        )
+        pl_module.log.assert_called()
+
+    def test_computes_correct_gradient_norm(
+        self,
+        mock_trainer_factory: Callable,
+        rng: np.random.Generator,
+    ):
+        callback = GradientNormCallback(log_every_n_steps=1)
+
+        # Create module with known gradient
+        param1 = torch.nn.Parameter(torch.zeros(3))
+        param1.grad = torch.from_numpy(
+            np.array([3.0, 4.0, 0.0], dtype=np.float32)
+        )
+        param2 = torch.nn.Parameter(torch.zeros(2))
+        param2.grad = torch.from_numpy(
+            np.array([0.0, 0.0], dtype=np.float32)
+        )
+
+        pl_module = MagicMock()
+        pl_module.parameters.return_value = [param1, param2]
+        pl_module.log = MagicMock()
+
+        expected_norm = (3.0**2 + 4.0**2) ** 0.5  # = 5.0
+
+        trainer = mock_trainer_factory(global_step=0)
+        optimizer = MagicMock()
+        optimizer.param_groups = [{"params": [param1, param2]}]
+
+        callback.on_before_optimizer_step(
+            trainer=trainer, pl_module=pl_module, optimizer=optimizer
+        )
+
+        # Find the grad_norm log call
+        log_calls = {
+            call_args[0][0]: call_args[0][1]
+            for call_args in pl_module.log.call_args_list
+        }
+        assert abs(log_calls["grad_norm"] - expected_norm) < 1e-5
+
+    def test_logs_per_group_norms_with_multiple_param_groups(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = GradientNormCallback(log_every_n_steps=1)
+
+        param1 = torch.nn.Parameter(torch.zeros(2))
+        param1.grad = torch.tensor([1.0, 0.0])
+        param2 = torch.nn.Parameter(torch.zeros(2))
+        param2.grad = torch.tensor([0.0, 2.0])
+
+        pl_module = MagicMock()
+        pl_module.parameters.return_value = [param1, param2]
+        pl_module.log = MagicMock()
+
+        optimizer = MagicMock()
+        optimizer.param_groups = [
+            {"params": [param1]},
+            {"params": [param2]},
+        ]
+
+        trainer = mock_trainer_factory(global_step=0)
+        callback.on_before_optimizer_step(
+            trainer=trainer, pl_module=pl_module, optimizer=optimizer
+        )
+
+        log_calls = {
+            call_args[0][0]: call_args[0][1]
+            for call_args in pl_module.log.call_args_list
+        }
+
+        assert "grad_norm_group_0" in log_calls
+        assert "grad_norm_group_1" in log_calls
+        assert abs(log_calls["grad_norm_group_0"] - 1.0) < 1e-5
+        assert abs(log_calls["grad_norm_group_1"] - 2.0) < 1e-5
+
+
+@pytest.mark.unit
+class TestExpertUsageCallback:
+
+    @pytest.mark.parametrize("log_every_n_epochs", [1, 5])
+    def test_stores_configuration(self, log_every_n_epochs: int):
+        callback = ExpertUsageCallback(
+            log_every_n_epochs=log_every_n_epochs
+        )
+
+        assert callback.log_every_n_epochs == log_every_n_epochs
+
+    def test_skips_logging_on_non_matching_epochs(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ExpertUsageCallback(log_every_n_epochs=3)
+        pl_module = MagicMock()
+        trainer = mock_trainer_factory(current_epoch=1)
+
+        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        pl_module.train_metrics.compute_expert_usage.assert_not_called()
+
+    def test_logs_when_epoch_matches_frequency(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ExpertUsageCallback(log_every_n_epochs=2)
+        pl_module = MagicMock()
+        pl_module.train_metrics.compute_expert_usage.return_value = None
+
+        trainer = mock_trainer_factory(current_epoch=4)
+
+        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        pl_module.train_metrics.compute_expert_usage.assert_called_once()
+
+    @patch("versatil.training.callbacks._figure_to_wandb_image")
+    def test_creates_figure_and_logs_to_wandb_on_train_epoch_end(
+        self,
+        mock_figure_to_image: MagicMock,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ExpertUsageCallback(log_every_n_epochs=1)
+        expert_usage = np.array([0.3, 0.5, 0.2])
+        pl_module = MagicMock()
+        pl_module.train_metrics.compute_expert_usage.return_value = {
+            "expert_usage": expert_usage
+        }
+        mock_figure_to_image.return_value = MagicMock()
+
+        trainer = mock_trainer_factory(current_epoch=0)
+
+        with patch.object(callback, "_create_expert_usage_figure") as mock_create:
+            mock_create.return_value = MagicMock()
+            callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        trainer.logger.log_metrics.assert_called_once()
+
+    def test_no_logging_when_no_expert_usage_data(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ExpertUsageCallback(log_every_n_epochs=1)
+        pl_module = MagicMock()
+        pl_module.train_metrics.compute_expert_usage.return_value = None
+
+        trainer = mock_trainer_factory(current_epoch=0)
+
+        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        trainer.logger.log_metrics.assert_not_called()
 
 
 @pytest.mark.unit
 class TestConfusionMatrixCallback:
-    """Test confusion matrix logging callback."""
 
-    def test_initialization(self):
-        """Test confusion matrix callback initialization."""
-        callback = ConfusionMatrixCallback(log_every_n_epochs=5)
-
-        assert callback.log_every_n_epochs == 5
-
-    def test_initialization_default_params(self):
-        """Test confusion matrix callback with default parameters."""
-        callback = ConfusionMatrixCallback()
-
-        assert callback.log_every_n_epochs == 1  # Default value
-
-
-@pytest.mark.unit
-class TestLearningRateMonitor:
-    """Test PyTorch Lightning's LearningRateMonitor callback."""
-
-    def test_initialization(self):
-        """Test learning rate monitor initialization."""
-        callback = LearningRateMonitor(logging_interval='step')
-
-        assert callback.logging_interval == 'step'
-
-    def test_initialization_epoch_interval(self):
-        """Test learning rate monitor with epoch interval."""
-        callback = LearningRateMonitor(logging_interval='epoch')
-
-        assert callback.logging_interval == 'epoch'
-
-    def test_log_momentum_disabled(self):
-        """Test learning rate monitor with momentum logging disabled."""
-        callback = LearningRateMonitor(logging_interval='step', log_momentum=False)
-
-        assert callback.logging_interval == 'step'
-        assert not callback.log_momentum
-
-    def test_integration_with_optimizer(self, simple_policy, simple_training_config):
-        """Test that LR monitor works with optimizer."""
-        simple_training_config.lr_schedule = "cosine"
-        simple_training_config.lr_warmup_steps = 100
-
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=simple_training_config,
+    @pytest.mark.parametrize("log_every_n_epochs", [1, 5])
+    def test_stores_configuration(self, log_every_n_epochs: int):
+        callback = ConfusionMatrixCallback(
+            log_every_n_epochs=log_every_n_epochs
         )
 
-        # Mock trainer
-        trainer = Mock()
-        trainer.estimated_stepping_batches = 1000
-        lightning_policy._trainer = trainer
+        assert callback.log_every_n_epochs == log_every_n_epochs
 
-        # Configure optimizer with scheduler
-        optimizer_config = lightning_policy.configure_optimizers()
+    def test_skips_logging_on_non_matching_epochs(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ConfusionMatrixCallback(log_every_n_epochs=3)
+        pl_module = MagicMock()
+        trainer = mock_trainer_factory(current_epoch=1)
 
-        assert "optimizer" in optimizer_config
-        assert "lr_scheduler" in optimizer_config
+        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
 
-        # Verify scheduler name is set for LR monitor
-        assert optimizer_config["lr_scheduler"]["name"] == "learning_rate"
+        pl_module.train_metrics.compute_confusion_matrix.assert_not_called()
 
+    @patch("versatil.training.callbacks._figure_to_wandb_image")
+    def test_logs_confusion_matrix_on_train_epoch_end(
+        self,
+        mock_figure_to_image: MagicMock,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ConfusionMatrixCallback(log_every_n_epochs=1)
+        confusion_matrix = np.array([[10, 2], [3, 15]])
+        pl_module = MagicMock()
+        pl_module.train_metrics.compute_confusion_matrix.return_value = (
+            confusion_matrix
+        )
+        mock_figure_to_image.return_value = MagicMock()
 
-@pytest.mark.unit
-class TestStochasticWeightAveraging:
-    """Test PyTorch Lightning's StochasticWeightAveraging callback."""
+        trainer = mock_trainer_factory(current_epoch=0)
 
-    def test_initialization(self):
-        """Test SWA callback initialization."""
-        callback = StochasticWeightAveraging(
-            swa_lrs=0.05,
-            swa_epoch_start=10,
-            annealing_epochs=5,
+        with patch.object(callback, "_create_confusion_matrix_figure") as mock_create:
+            mock_create.return_value = MagicMock()
+            callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        trainer.logger.log_metrics.assert_called_once()
+
+    def test_no_logging_when_no_confusion_matrix(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ConfusionMatrixCallback(log_every_n_epochs=1)
+        pl_module = MagicMock()
+        pl_module.train_metrics.compute_confusion_matrix.return_value = None
+
+        trainer = mock_trainer_factory(current_epoch=0)
+
+        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        trainer.logger.log_metrics.assert_not_called()
+
+    def test_no_logging_when_logger_is_none(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ConfusionMatrixCallback(log_every_n_epochs=1)
+        confusion_matrix = np.array([[5, 1], [2, 8]])
+        pl_module = MagicMock()
+        pl_module.train_metrics.compute_confusion_matrix.return_value = (
+            confusion_matrix
         )
 
-        # SWA callback uses private attributes with underscores
-        assert callback._swa_lrs == 0.05
-        assert callback._swa_epoch_start == 10
-        assert callback._annealing_epochs == 5
+        trainer = mock_trainer_factory(current_epoch=0, logger=None)
 
-    def test_initialization_default_annealing(self):
-        """Test SWA callback with default annealing epochs."""
-        callback = StochasticWeightAveraging(
-            swa_lrs=0.05,
-            swa_epoch_start=10,
-        )
+        with patch.object(callback, "_create_confusion_matrix_figure") as mock_create:
+            mock_fig = MagicMock()
+            mock_create.return_value = mock_fig
 
-        # SWA callback uses private attributes with underscores
-        assert callback._swa_lrs == 0.05
-        assert callback._swa_epoch_start == 10
-        assert callback._annealing_epochs == 10  # Default value
+            with patch("versatil.training.callbacks._figure_to_wandb_image") as mock_to_wandb:
+                callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
 
-    def test_swa_start_calculation(self):
-        """Test SWA start epoch calculation based on fraction."""
-        num_epochs = 100
-        swa_epoch_start_fraction = 0.8
-
-        # Calculate start epoch as done in workspace
-        swa_epoch_start = int(swa_epoch_start_fraction * num_epochs)
-
-        callback = StochasticWeightAveraging(
-            swa_lrs=0.05,
-            swa_epoch_start=swa_epoch_start,
-            annealing_epochs=10,
-        )
-
-        # SWA callback uses private attributes with underscores
-        assert callback._swa_epoch_start == 80
-        assert callback._annealing_epochs == 10
-
-
-@pytest.mark.integration
-class TestCallbacksIntegration:
-    """Integration tests for callbacks working together."""
-
-    def test_multiple_callbacks_together(self, simple_policy, simple_training_config):
-        """Test that multiple callbacks can work together."""
-        simple_training_config.use_ema = True
-        simple_training_config.lr_schedule = "cosine"
-        simple_training_config.lr_warmup_steps = 100
-
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=simple_training_config,
-        )
-
-        # Create callbacks
-        ema_callback = EMACallback(power=0.75)
-        lr_monitor = LearningRateMonitor(logging_interval='step')
-        gradient_norm_callback = GradientNormCallback(log_every_n_steps=50)
-
-        # Mock trainer
-        trainer = Mock()
-        trainer.global_step = 0
-        trainer.estimated_stepping_batches = 1000
-        trainer.callbacks = [ema_callback, lr_monitor, gradient_norm_callback]
-
-        # Initialize EMA
-        ema_callback.on_fit_start(trainer, lightning_policy)
-
-        # Verify all callbacks initialized
-        assert ema_callback.ema_model is not None
-        assert lr_monitor.logging_interval == 'step'
-        assert gradient_norm_callback.log_every_n_steps == 50
-
-    def test_ema_with_swa(self, simple_policy, simple_training_config):
-        """Test that EMA and SWA can coexist (though typically not used together)."""
-        simple_training_config.use_ema = True
-
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=simple_training_config,
-        )
-
-        # Create both callbacks
-        ema_callback = EMACallback(power=0.75)
-        swa_callback = StochasticWeightAveraging(
-            swa_lrs=0.05,
-            swa_epoch_start=10,
-            annealing_epochs=5,
-        )
-
-        # Mock trainer
-        trainer = Mock()
-        trainer.callbacks = [ema_callback, swa_callback]
-
-        # Initialize EMA
-        ema_callback.on_fit_start(trainer, lightning_policy)
-
-        # Both should be properly configured
-        assert ema_callback.ema_model is not None
-        assert swa_callback._swa_lrs == 0.05
-
-
-@pytest.mark.unit
-class TestTrainingConfigCallbackParameters:
-    """Test training config parameters for callbacks."""
-
-    def test_swa_config_parameters(self):
-        """Test SWA configuration parameters."""
-        training_config = TrainingConfig(
-            num_epochs=100,
-            optimizer=AdamWConfig(lr=1e-4),
-            swa_lrs=0.05,
-            swa_epoch_start=0.8,
-            swa_annealing_epochs=10,
-        )
-
-        assert training_config.swa_lrs == 0.05
-        assert training_config.swa_epoch_start == 0.8
-        assert training_config.swa_annealing_epochs == 10
-
-    def test_swa_disabled_by_default(self):
-        """Test that SWA is disabled by default."""
-        training_config = TrainingConfig(
-            num_epochs=100,
-            optimizer=AdamWConfig(lr=1e-4),
-        )
-
-        assert training_config.swa_lrs is None
-
-    def test_tuning_config_parameters(self):
-        """Test hyperparameter tuning configuration parameters."""
-        training_config = TrainingConfig(
-            num_epochs=100,
-            optimizer=AdamWConfig(lr=1e-4),
-            tune_lr=True,
-            tune_batch_size=True,
-        )
-
-        assert training_config.tune_lr is True
-        assert training_config.tune_batch_size is True
-
-    def test_tuning_disabled_by_default(self):
-        """Test that hyperparameter tuning is disabled by default."""
-        training_config = TrainingConfig(
-            num_epochs=100,
-            optimizer=AdamWConfig(lr=1e-4),
-        )
-
-        assert training_config.tune_lr is False
-        assert training_config.tune_batch_size is False
-
-    def test_all_callback_parameters_together(self):
-        """Test all callback-related parameters in training config."""
-        training_config = TrainingConfig(
-            num_epochs=100,
-            optimizer=AdamWConfig(lr=1e-4),
-            use_ema=True,
-            ema_power=0.999,
-            swa_lrs=0.05,
-            swa_epoch_start=0.8,
-            swa_annealing_epochs=10,
-            tune_lr=False,
-            tune_batch_size=False,
-        )
-
-        # EMA parameters
-        assert training_config.use_ema is True
-        assert training_config.ema_power == 0.999
-
-        # SWA parameters
-        assert training_config.swa_lrs == 0.05
-        assert training_config.swa_epoch_start == 0.8
-        assert training_config.swa_annealing_epochs == 10
-
-        # Tuning parameters
-        assert training_config.tune_lr is False
-        assert training_config.tune_batch_size is False
-
-    def test_reduce_lr_on_plateau_config_parameters(self):
-        """Test ReduceLROnPlateau configuration parameters."""
-        training_config = TrainingConfig(
-            num_epochs=100,
-            optimizer=AdamWConfig(lr=1e-4),
-            reduce_lr_on_plateau=True,
-            reduce_lr_patience=15,
-        )
-
-        assert training_config.reduce_lr_on_plateau is True
-        assert training_config.reduce_lr_patience == 15
-
-    def test_reduce_lr_on_plateau_disabled_by_default(self):
-        """Test that ReduceLROnPlateau is disabled by default."""
-        training_config = TrainingConfig(
-            num_epochs=100,
-            optimizer=AdamWConfig(lr=1e-4),
-        )
-
-        assert training_config.reduce_lr_on_plateau is False
-        assert training_config.reduce_lr_patience == 10  # Default value
+                mock_to_wandb.assert_not_called()
 
 
 @pytest.mark.unit
 class TestReduceLROnPlateauCallback:
-    """Test ReduceLROnPlateau callback."""
 
-    def test_initialization(self):
-        """Test ReduceLROnPlateau callback initialization."""
-        callback = ReduceLROnPlateauCallback(patience=15)
+    @pytest.mark.parametrize("patience", [5, 15])
+    @pytest.mark.parametrize("factor", [0.1, 0.5])
+    def test_stores_configuration(self, patience: int, factor: float):
+        callback = ReduceLROnPlateauCallback(
+            patience=patience, factor=factor
+        )
 
+        assert callback.patience == patience
+        assert callback.factor == factor
         assert callback.monitor == "val_loss"
         assert callback.mode == "min"
-        assert callback.patience == 15
-        assert callback.factor == 0.5
         assert callback.scheduler is None
 
-    def test_initialization_custom_params(self):
-        """Test ReduceLROnPlateau callback with custom parameters."""
-        callback = ReduceLROnPlateauCallback(
-            monitor="val_acc",
-            mode="max",
-            factor=0.1,
-            patience=5,
-            min_lr=1e-7,
-        )
-
-        assert callback.monitor == "val_acc"
-        assert callback.mode == "max"
-        assert callback.factor == 0.1
-        assert callback.patience == 5
-        assert callback.min_lr == 1e-7
-
-    def test_scheduler_created_on_fit_start(self, simple_policy, simple_training_config):
-        """Test that scheduler is created when training starts."""
+    def test_creates_scheduler_on_fit_start(
+        self,
+        mock_trainer_factory: Callable,
+    ):
         callback = ReduceLROnPlateauCallback(patience=10)
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=simple_training_config,
+        pl_module = MagicMock()
+        optimizer = torch.optim.SGD(
+            [torch.nn.Parameter(torch.zeros(1))], lr=0.01
         )
+        pl_module.optimizers.return_value = optimizer
 
-        trainer = Mock()
-
-        # Simulate fit start
-        callback.on_fit_start(trainer, lightning_policy)
+        callback.on_fit_start(
+            trainer=mock_trainer_factory(),
+            pl_module=pl_module,
+        )
 
         assert callback.scheduler is not None
 
-    def test_lr_reduction_on_plateau(self, simple_policy, simple_training_config):
-        """Test that LR is reduced when metric plateaus."""
-        callback = ReduceLROnPlateauCallback(patience=2, factor=0.5)
-        lightning_policy = LightningPolicy(
-            policy=simple_policy,
-            training_config=simple_training_config,
+    def test_reduces_lr_after_patience_exceeded(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ReduceLROnPlateauCallback(
+            patience=2, factor=0.5, threshold=0.0
+        )
+        param = torch.nn.Parameter(torch.zeros(1))
+        optimizer = torch.optim.SGD([param], lr=0.1)
+
+        pl_module = MagicMock()
+        pl_module.optimizers.return_value = optimizer
+        pl_module.log = MagicMock()
+
+        callback.on_fit_start(
+            trainer=mock_trainer_factory(), pl_module=pl_module
         )
 
-        trainer = Mock()
-        trainer.callback_metrics = {"val_loss": torch.tensor(1.0)}
-
-        # Initialize scheduler
-        callback.on_fit_start(trainer, lightning_policy)
-
-        # Get initial LR
-        optimizer = lightning_policy.optimizers()
         initial_lr = optimizer.param_groups[0]["lr"]
 
-        # Simulate plateau (same val_loss for patience+1 epochs)
-        with patch.object(lightning_policy, 'log'):
-            for _ in range(3):  # patience=2, so LR should reduce on 3rd call
-                callback.on_validation_epoch_end(trainer, lightning_policy)
+        # Simulate plateau: same val_loss for patience+1 epochs
+        for _ in range(4):
+            trainer = mock_trainer_factory(
+                callback_metrics={"val_loss": torch.tensor(1.0)}
+            )
+            callback.on_validation_epoch_end(
+                trainer=trainer, pl_module=pl_module
+            )
 
-        # Check LR was reduced
         new_lr = optimizer.param_groups[0]["lr"]
         assert new_lr < initial_lr
-        assert new_lr == initial_lr * callback.factor
+        assert abs(new_lr - initial_lr * 0.5) < 1e-8
+
+    def test_no_update_when_scheduler_is_none(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ReduceLROnPlateauCallback(patience=10)
+        pl_module = MagicMock()
+
+        trainer = mock_trainer_factory(
+            callback_metrics={"val_loss": torch.tensor(0.5)}
+        )
+
+        # Should not raise when scheduler is None
+        callback.on_validation_epoch_end(
+            trainer=trainer, pl_module=pl_module
+        )
+
+    def test_no_update_when_metric_not_available(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ReduceLROnPlateauCallback(
+            patience=2, monitor="val_loss"
+        )
+        param = torch.nn.Parameter(torch.zeros(1))
+        optimizer = torch.optim.SGD([param], lr=0.1)
+
+        pl_module = MagicMock()
+        pl_module.optimizers.return_value = optimizer
+
+        callback.on_fit_start(
+            trainer=mock_trainer_factory(), pl_module=pl_module
+        )
+
+        initial_lr = optimizer.param_groups[0]["lr"]
+
+        # No "val_loss" in callback_metrics
+        trainer = mock_trainer_factory(callback_metrics={})
+        callback.on_validation_epoch_end(
+            trainer=trainer, pl_module=pl_module
+        )
+
+        assert optimizer.param_groups[0]["lr"] == initial_lr
+
+    def test_handles_optimizer_list(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ReduceLROnPlateauCallback(patience=10)
+        param = torch.nn.Parameter(torch.zeros(1))
+        optimizer = torch.optim.SGD([param], lr=0.01)
+
+        pl_module = MagicMock()
+        # Return as list (multi-optimizer case)
+        pl_module.optimizers.return_value = [optimizer]
+
+        callback.on_fit_start(
+            trainer=mock_trainer_factory(), pl_module=pl_module
+        )
+
+        assert callback.scheduler is not None
+
+
+@pytest.mark.unit
+class TestLatentVisualizationCallback:
+
+    @pytest.mark.parametrize("log_every_n_epochs", [1, 10])
+    @pytest.mark.parametrize("max_samples", [100, 5000])
+    def test_stores_configuration(
+        self,
+        log_every_n_epochs: int,
+        max_samples: int,
+    ):
+        callback = LatentVisualizationCallback(
+            log_every_n_epochs=log_every_n_epochs,
+            max_samples=max_samples,
+        )
+
+        assert callback.log_every_n_epochs == log_every_n_epochs
+        assert callback.max_samples == max_samples
+
+    def test_skips_logging_on_non_matching_epochs(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback(log_every_n_epochs=5)
+        pl_module = MagicMock()
+        trainer = mock_trainer_factory(current_epoch=3)
+
+        callback.on_validation_epoch_end(
+            trainer=trainer, pl_module=pl_module
+        )
+
+        pl_module.val_metrics.compute_latent_visualization_data.assert_not_called()
+
+    def test_skips_logging_when_no_latent_data(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback(log_every_n_epochs=1)
+        pl_module = MagicMock()
+        pl_module.val_metrics.compute_latent_visualization_data.return_value = None
+
+        trainer = mock_trainer_factory(current_epoch=0)
+
+        callback.on_validation_epoch_end(
+            trainer=trainer, pl_module=pl_module
+        )
+
+        trainer.logger.log_metrics.assert_not_called()

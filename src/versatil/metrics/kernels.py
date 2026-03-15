@@ -51,6 +51,8 @@ class MMDKernel(nn.Module, abc.ABC):
             Median squared distance (scalar).
         """
         points = points.detach()
+        if points.dim() > 2:
+            points = points.view(-1, points.size(-1))
         device = points.device
         norms = (points ** 2).sum(-1)
         dist_sq = (

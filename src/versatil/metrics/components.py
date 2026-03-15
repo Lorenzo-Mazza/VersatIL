@@ -1,4 +1,5 @@
 """Individual loss components for action prediction tasks."""
+import logging
 import math
 
 import torch
@@ -23,7 +24,6 @@ from versatil.metrics.constants import (
 )
 from versatil.metrics.kernels import KernelType
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
-import logging
 
 
 class RegressionLoss(BaseLoss):
@@ -739,7 +739,7 @@ class BinaryMaximumMeanDiscrepancyLoss(BaseLoss):
         """
         if DecoderOutputKey.BINARY_LOGITS.value not in predictions:
             raise ValueError(
-                f"Predictions must contain '{DecoderOutputKey.BINARY_LOGITS.value}'for BinaryMaximumMeanDiscrepancyLoss."
+                f"Predictions must contain '{DecoderOutputKey.BINARY_LOGITS.value}' for BinaryMaximumMeanDiscrepancyLoss."
             )
 
         logits = predictions[DecoderOutputKey.BINARY_LOGITS.value]  # (B, T, H)
