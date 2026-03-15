@@ -280,7 +280,10 @@ class TestValidateAll:
         loss = mock_loss_factory(required_keys={"nonexistent_key"})
         decoder = mock_decoder_factory(action_head_keys=["position"])
         validator = validator_factory(loss=loss, decoder=decoder)
-        with pytest.raises(ExperimentValidationError):
+        with pytest.raises(
+            ExperimentValidationError,
+            match=re.escape("Policy validation failed with 1 error(s):"),
+        ):
             validator.validate_all(validate_loss_keys=True)
 
     def test_logs_warnings_without_raising(
@@ -307,7 +310,11 @@ class TestValidateAll:
         with patch("versatil.validation.logging") as mock_logging:
             validator.validate_all()
         assert len(validator.warnings) == 1
-        assert "right" in validator.warnings[0]
+        expected_warning = (
+            f"Observation space contains keys {{'right'}} "
+            f"but no encoder is configured to process them."
+        )
+        assert validator.warnings[0] == expected_warning
         mock_logging.warning.assert_called_once()
 
     def test_aggregates_multiple_errors(
@@ -615,7 +622,11 @@ class TestValidateEncoderObservationConsistency:
         )
         validator.validate_encoder_observation_consistency()
         assert len(validator.warnings) == 1
-        assert "right" in validator.warnings[0]
+        expected_warning = (
+            f"Observation space contains keys {{'right'}} "
+            f"but no encoder is configured to process them."
+        )
+        assert validator.warnings[0] == expected_warning
 
     def test_uncovered_keys_excludes_tokenized_special_keys(
         self,
@@ -686,8 +697,12 @@ class TestValidateDecoderEncoderCompatibility:
         )
         validator.validate_decoder_encoder_compatibility()
         assert len(validator.errors) == 1
-        assert "language_features" in validator.errors[0]
-        assert "not produced by any encoder" in validator.errors[0]
+        expected_error = (
+            "Action decoding network expects input feature 'language_features' "
+            "but it's not produced by any encoder or fusion layer (or it was consumed by fusion). "
+            "Available final features: ['visual_features']"
+        )
+        assert validator.errors[0] == expected_error
 
     def test_calls_validate_feature_types_on_decoder_input(
         self,
@@ -765,7 +780,12 @@ class TestValidateMoEGatingFeature:
         )
         validator.validate_decoder_encoder_compatibility()
         assert len(validator.errors) == 1
-        assert "nonexistent_feature" in validator.errors[0]
+        expected_error = (
+            "MoE decoder gating feature key 'nonexistent_feature' not found. "
+            "Available features from encoding pipeline: ['visual_features']. "
+            "Algorithm provides latent: No."
+        )
+        assert validator.errors[0] == expected_error
 
     def test_moe_without_gating_network_skips_validation(
         self,
@@ -845,7 +865,12 @@ class TestValidateMoEGatingFeature:
         )
         validator.validate_decoder_encoder_compatibility()
         assert len(validator.errors) == 1
-        assert "Algorithm provides latent: No" in validator.errors[0]
+        expected_error = (
+            f"MoE decoder gating feature key '{LatentKey.POSTERIOR_LATENT.value}' not found. "
+            f"Available features from encoding pipeline: ['visual_features']. "
+            f"Algorithm provides latent: No."
+        )
+        assert validator.errors[0] == expected_error
 
 
 @pytest.mark.unit
@@ -874,7 +899,13 @@ class TestValidateLossKeys:
         validator = validator_factory(decoder=decoder, loss=loss)
         validator.validate_loss_keys()
         assert len(validator.errors) == 1
-        assert "unknown_key" in validator.errors[0]
+        expected_error = (
+            f"Loss module references keys {{'unknown_key'}} that are not "
+            f"defined in the action space or auxiliary keys. "
+            f"Valid loss keys: {{'position'}}. "
+            f"Please update your loss configuration or decoder."
+        )
+        assert validator.errors[0] == expected_error
 
     def test_action_without_prediction_head_is_valid_loss_key(
         self,
@@ -1012,7 +1043,7 @@ class TestValidateLossKeys:
 @pytest.mark.unit
 class TestValidateExperiment:
 
-    def test_delegates_to_experiment_validator(self):
+    def test_validate_experiment_passes_with_valid_config(self):
         mock_config = MagicMock()
         mock_config.task.observation_space = MagicMock()
         mock_config.task.action_space = MagicMock()
