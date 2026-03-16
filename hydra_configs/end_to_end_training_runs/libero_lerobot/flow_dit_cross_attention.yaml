@@ -10,7 +10,7 @@ defaults:
   - /task/dataloader: libero_lerobot
   - /task/action_space: libero_precomputed_lerobot
   - /task/observation_space: libero_rgb_lerobot
-  - /training: ema_cosine_schedule
+  - /training: ema
   - /policy/encoding_pipeline: stereo_rgb_language_encoder
   - /policy/decoder: dit_cross_attention_transformer
   - /policy/algorithm: flow_matching
@@ -30,6 +30,7 @@ task:
 experiment:
   precision: ${precision:FP32}
   checkpoint_folder: ${checkpoint_dir:libero}
+  checkpoint_every: 5
 
 training:
   num_epochs: 200

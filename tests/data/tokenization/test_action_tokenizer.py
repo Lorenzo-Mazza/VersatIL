@@ -1072,6 +1072,92 @@ class TestActionTokenizerIntegrationCustomFast:
 
 
 @pytest.mark.integration
+class TestActionTokenizerIntegrationSaveLoad:
+
+    def test_fit_save_load_decode_roundtrip(self, action_chunk_factory, tmp_path):
+        tokenizer = ActionTokenizer(
+            tokenizer_chain=[TokenizerType.FAST.value],
+            use_pretrained_fast=False,
+        )
+        training_data = action_chunk_factory(batch_size=20, scale=0.5)
+        tokenizer.fit(training_data)
+
+        save_path = tmp_path / "action_tokenizer"
+        tokenizer.save_pretrained(save_path)
+        loaded = ActionTokenizer.from_pretrained(save_path)
+
+        chunk = training_data[0]
+        original_result = tokenizer.encode_chunk(chunk)
+        original_tokens = original_result[SampleKey.TOKENIZED_ACTIONS.value]
+
+        loaded_decoded = loaded.decode_chunk(original_tokens)
+        assert loaded_decoded.shape == chunk.shape
+
+        original_decoded = tokenizer.decode_chunk(original_tokens)
+        np.testing.assert_array_equal(loaded_decoded, original_decoded)
+
+    def test_loaded_tokenizer_preserves_vocab_size(
+        self, action_chunk_factory, tmp_path
+    ):
+        tokenizer = ActionTokenizer(
+            tokenizer_chain=[TokenizerType.FAST.value],
+            use_pretrained_fast=False,
+        )
+        training_data = action_chunk_factory(batch_size=20, scale=0.5)
+        tokenizer.fit(training_data)
+
+        save_path = tmp_path / "action_tokenizer"
+        tokenizer.save_pretrained(save_path)
+        loaded = ActionTokenizer.from_pretrained(save_path)
+
+        assert loaded.vocab_size == tokenizer.vocab_size
+        assert loaded._is_fitted is True
+
+    def test_loaded_tokenizer_encode_produces_valid_tokens(
+        self, action_chunk_factory, tmp_path
+    ):
+        tokenizer = ActionTokenizer(
+            tokenizer_chain=[TokenizerType.FAST.value],
+            use_pretrained_fast=False,
+        )
+        training_data = action_chunk_factory(batch_size=20, scale=0.5)
+        tokenizer.fit(training_data)
+
+        save_path = tmp_path / "action_tokenizer"
+        tokenizer.save_pretrained(save_path)
+        loaded = ActionTokenizer.from_pretrained(save_path)
+
+        chunk = training_data[0]
+        result = loaded.encode_chunk(chunk)
+        tokens = result[SampleKey.TOKENIZED_ACTIONS.value]
+        non_pad = tokens[~result[SampleKey.IS_PAD_ACTION.value]]
+        assert (non_pad >= 0).all()
+        assert (non_pad < loaded.vocab_size).all()
+
+    def test_fit_save_load_with_language_chain(
+        self, action_chunk_factory, tmp_path
+    ):
+        tokenizer = ActionTokenizer(
+            tokenizer_chain=[TokenizerType.FAST.value, TokenizerType.LANGUAGE.value],
+            use_pretrained_fast=False,
+            language_tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
+            num_special_tokens_to_skip=128,
+        )
+        training_data = action_chunk_factory(batch_size=20, scale=0.5)
+        tokenizer.fit(training_data)
+
+        save_path = tmp_path / "action_tokenizer"
+        tokenizer.save_pretrained(save_path)
+        loaded = ActionTokenizer.from_pretrained(save_path)
+
+        chunk = training_data[0]
+        original_tokens = tokenizer.encode_chunk(chunk)[SampleKey.TOKENIZED_ACTIONS.value]
+        loaded_decoded = loaded.decode_chunk(original_tokens)
+        original_decoded = tokenizer.decode_chunk(original_tokens)
+        np.testing.assert_array_equal(loaded_decoded, original_decoded)
+
+
+@pytest.mark.integration
 class TestActionTokenizerIntegrationLanguageMapping:
 
     def test_encode_decode_with_language_mapping(

@@ -29,6 +29,7 @@ task:
 experiment:
   precision: ${precision:FP32}
   checkpoint_folder: ${checkpoint_dir:libero}
+  checkpoint_every: 5
 
 training:
   num_epochs: 200

@@ -10,8 +10,8 @@ loss_modules:
       _target_: versatil.metrics.RegressionLoss
       action_keys:
         - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
-      mse_weight: 1.0
-      l1_weight: 0.0
+      mse_weight: 0.0
+      l1_weight: 1.0
       huber_weight: 0.0
 
     gripper_loss:
@@ -19,8 +19,8 @@ loss_modules:
       key: ${proprio_key:GRIPPER_STATE}
       actions_metadata: ${task.action_space.actions_metadata}
       bce_weight: 0.05
-
+ 
     trajectory_length:
         _target_: versatil.metrics.TrajectoryLengthLoss
-        weight: 0.001
+        weight: 0.000
         action_key: ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}

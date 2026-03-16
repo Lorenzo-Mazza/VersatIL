@@ -1,6 +1,8 @@
 """Tests for versatil.models.encoding.encoders.depth.dformerv2 module."""
+import os
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -19,6 +21,10 @@ from versatil.models.encoding.encoders.depth.dformerv2 import (
     DFormerVariant,
 )
 from versatil.models.layers.constants import AttentionDecompositionMode
+
+DFORMER_CHECKPOINT_PATH = Path(
+    os.environ.get("VERSATIL_PRETRAINED_DIR", ".")
+) / "pretrained_dformer" / "DFormerv2_Small_NYU.pth"
 
 
 def _mock_build_backbone(self, drop_path_rate, layer_scale_init_value=1e-6, initial_decay=2.0):
@@ -502,3 +508,66 @@ class TestDFormerEncoderIntegration:
             assert features.shape == (batch_size, time_steps, encoder.output_dim)
         else:
             assert features.shape == (batch_size, encoder.output_dim)
+
+
+@pytest.mark.integration
+class TestDFormerEncoderPretrainedCheckpoint:
+
+    @pytest.mark.skipif(
+        not DFORMER_CHECKPOINT_PATH.exists(),
+        reason=f"DFormer checkpoint not found at {DFORMER_CHECKPOINT_PATH}",
+    )
+    def test_loads_pretrained_weights_and_produces_output(
+        self,
+        rgbd_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        encoder = DFormerEncoder(
+            input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
+            variant=DFormerVariant.SMALL.value,
+            pretrained=True,
+            checkpoint_path=str(DFORMER_CHECKPOINT_PATH),
+            pooling_method=PoolingMethod.AVERAGE.value,
+        )
+        encoder.eval()
+        batch_size = 1
+        inputs = rgbd_input_factory(batch_size=batch_size, height=224, width=224)
+
+        with torch.no_grad():
+            output = encoder(inputs)
+
+        features = output[EncoderOutputKeys.RGBD.value]
+        assert features.shape == (batch_size, encoder.output_dim)
+        # Pretrained weights should produce non-zero, non-constant features
+        assert features.std() > 1e-6
+
+    @pytest.mark.skipif(
+        not DFORMER_CHECKPOINT_PATH.exists(),
+        reason=f"DFormer checkpoint not found at {DFORMER_CHECKPOINT_PATH}",
+    )
+    def test_pretrained_features_differ_from_random_init(
+        self,
+        rgbd_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        pretrained_encoder = DFormerEncoder(
+            input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
+            variant=DFormerVariant.SMALL.value,
+            pretrained=True,
+            checkpoint_path=str(DFORMER_CHECKPOINT_PATH),
+            pooling_method=PoolingMethod.AVERAGE.value,
+        )
+        random_encoder = DFormerEncoder(
+            input_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
+            variant=DFormerVariant.SMALL.value,
+            pretrained=False,
+            checkpoint_path=None,
+            pooling_method=PoolingMethod.AVERAGE.value,
+        )
+        pretrained_encoder.eval()
+        random_encoder.eval()
+        inputs = rgbd_input_factory(batch_size=1, height=224, width=224)
+
+        with torch.no_grad():
+            pretrained_features = pretrained_encoder(inputs)[EncoderOutputKeys.RGBD.value]
+            random_features = random_encoder(inputs)[EncoderOutputKeys.RGBD.value]
+
+        assert not torch.allclose(pretrained_features, random_features, atol=1e-3)

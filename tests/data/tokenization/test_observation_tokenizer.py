@@ -913,3 +913,40 @@ class TestObservationTokenizerIntegrationSaveLoad:
         assert loaded.max_token_len == tokenizer.max_token_len
         assert loaded._is_fitted is True
         assert proprio_key in loaded.binning_tokenizers
+
+    def test_loaded_tokenizer_produces_identical_tokens(
+        self, training_data_factory, observation_dict_factory, device, tmp_path
+    ):
+        proprio_key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
+        tokenizer = ObservationTokenizer(
+            tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
+            observation_keys=[ObsKey.LANGUAGE.value, proprio_key],
+            bin_continuous_data=True,
+            num_bins=32,
+            max_token_len=64,
+            device=device,
+        )
+        training_data = training_data_factory(
+            proprio_keys=[proprio_key], num_samples=100
+        )
+        tokenizer.fit(training_data)
+
+        save_path = tmp_path / "obs_tokenizer"
+        tokenizer.save_pretrained(save_path)
+        loaded = ObservationTokenizer.from_pretrained(save_path, device=device)
+
+        observations = observation_dict_factory(
+            language=["pick up the red block"],
+            proprio_keys=[proprio_key],
+            as_torch=True,
+        )
+        original_result = tokenizer.tokenize(observations)
+        loaded_result = loaded.tokenize(observations)
+
+        original_tokens = original_result[SampleKey.TOKENIZED_OBSERVATIONS.value]
+        loaded_tokens = loaded_result[SampleKey.TOKENIZED_OBSERVATIONS.value]
+        assert torch.equal(original_tokens, loaded_tokens)
+
+        original_pad = original_result[SampleKey.IS_PAD_OBSERVATION.value]
+        loaded_pad = loaded_result[SampleKey.IS_PAD_OBSERVATION.value]
+        assert torch.equal(original_pad, loaded_pad)

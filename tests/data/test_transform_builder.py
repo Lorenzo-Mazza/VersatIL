@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
+import zarr
+import zarr.storage
 
 from versatil.data.constants import (
     Cameras,
@@ -23,17 +25,38 @@ from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.transform_builder import TransformBuilder
 
 
+def _numpy_to_zarr_array(array: np.ndarray) -> zarr.Array:
+    """Wrap a numpy array into an in-memory zarr array."""
+    store = zarr.storage.MemoryStore()
+    root = zarr.open_group(store=store, mode="w")
+    return root.create_array("arr", data=array, chunks=array.shape)
+
+
 @pytest.fixture
 def mock_replay_buffer() -> Callable[..., MagicMock]:
-    """Factory for mock ReplayBuffer."""
+    """Factory for mock ReplayBuffer.
+
+    When use_zarr=True, stored arrays are wrapped as zarr.Array (disk
+    backend). When False, raw numpy arrays are returned (preloaded /
+    numpy backend).
+    """
 
     def factory(
         data: dict[str, np.ndarray] = None,
         n_steps: int = 100,
+        use_zarr: bool = False,
     ) -> MagicMock:
         buffer = MagicMock()
         buffer.n_steps = n_steps
-        stored_data = data or {}
+        raw_data = data or {}
+
+        if use_zarr:
+            stored_data = {
+                key: _numpy_to_zarr_array(value)
+                for key, value in raw_data.items()
+            }
+        else:
+            stored_data = raw_data
 
         def getitem(mock_self, key):
             if key in stored_data:
@@ -70,6 +93,7 @@ def transform_builder_factory(
         prediction_horizon: int = 4,
         denoise_actions: bool = False,
         tokenization_config: MagicMock = None,
+        use_zarr: bool = False,
     ) -> TransformBuilder:
         action_space = action_space_factory(
             actions_metadata=actions_metadata or {},
@@ -81,6 +105,7 @@ def transform_builder_factory(
         buffer = mock_replay_buffer(
             data=replay_buffer_data or {},
             n_steps=n_steps,
+            use_zarr=use_zarr,
         )
         mock_action_processor = MagicMock()
         mock_action_processor.action_space = action_space
@@ -363,6 +388,7 @@ class TestComputeDepthStatsStreaming:
         transform_builder_factory: Callable[..., TransformBuilder],
         camera_metadata_factory: Callable[..., CameraMetadata],
         depth_data: np.ndarray,
+        use_zarr: bool = False,
     ) -> TransformBuilder:
         return transform_builder_factory(
             observations_metadata={
@@ -372,16 +398,20 @@ class TestComputeDepthStatsStreaming:
                 ),
             },
             replay_buffer_data={Cameras.DEPTH.value: depth_data},
+            use_zarr=use_zarr,
         )
 
+    @pytest.mark.parametrize("use_zarr", [False, True], ids=["numpy", "zarr"])
     def test_computes_correct_stats_for_uniform_data(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
         camera_metadata_factory: Callable[..., CameraMetadata],
+        use_zarr: bool,
     ):
         depth_data = np.ones((10, 4, 4), dtype=np.float32) * 3.0
         builder = self._make_depth_builder(
             transform_builder_factory, camera_metadata_factory, depth_data,
+            use_zarr=use_zarr,
         )
 
         stats = builder._compute_depth_stats_streaming(
@@ -393,16 +423,19 @@ class TestComputeDepthStatsStreaming:
         assert stats["mean"] == pytest.approx(3.0)
         assert stats["std"] == pytest.approx(0.0)
 
+    @pytest.mark.parametrize("use_zarr", [False, True], ids=["numpy", "zarr"])
     def test_computes_correct_stats_across_multiple_chunks(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
         camera_metadata_factory: Callable[..., CameraMetadata],
+        use_zarr: bool,
     ):
         # 4 frames of 2x2 pixels: values 1..16
         # chunk_size=2 → two chunks, exercises Welford merge
         depth_data = np.arange(1, 17, dtype=np.float32).reshape(4, 2, 2)
         builder = self._make_depth_builder(
             transform_builder_factory, camera_metadata_factory, depth_data,
+            use_zarr=use_zarr,
         )
 
         stats = builder._compute_depth_stats_streaming(
@@ -416,10 +449,12 @@ class TestComputeDepthStatsStreaming:
         assert stats["mean"] == pytest.approx(8.5, abs=1e-4)
         assert stats["std"] == pytest.approx(np.sqrt(21.25), abs=1e-3)
 
+    @pytest.mark.parametrize("use_zarr", [False, True], ids=["numpy", "zarr"])
     def test_winsorization_clips_outliers_in_stats(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
         camera_metadata_factory: Callable[..., CameraMetadata],
+        use_zarr: bool,
     ):
         # 100 pixels of value 1.0, with two outliers
         depth_data = np.ones((25, 2, 2), dtype=np.float32)
@@ -428,6 +463,7 @@ class TestComputeDepthStatsStreaming:
 
         builder = self._make_depth_builder(
             transform_builder_factory, camera_metadata_factory, depth_data,
+            use_zarr=use_zarr,
         )
 
         stats = builder._compute_depth_stats_streaming(
@@ -438,14 +474,17 @@ class TestComputeDepthStatsStreaming:
         assert stats["min"] > -50.0
         assert stats["max"] < 100.0
 
+    @pytest.mark.parametrize("use_zarr", [False, True], ids=["numpy", "zarr"])
     def test_returns_nan_for_empty_array(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
         camera_metadata_factory: Callable[..., CameraMetadata],
+        use_zarr: bool,
     ):
         depth_data = np.empty((0, 4, 4), dtype=np.float32)
         builder = self._make_depth_builder(
             transform_builder_factory, camera_metadata_factory, depth_data,
+            use_zarr=use_zarr,
         )
 
         stats = builder._compute_depth_stats_streaming(
@@ -455,6 +494,7 @@ class TestComputeDepthStatsStreaming:
         assert np.isnan(stats["min"])
         assert np.isnan(stats["max"])
 
+    @pytest.mark.parametrize("use_zarr", [False, True], ids=["numpy", "zarr"])
     @pytest.mark.parametrize("chunk_size", [2, 3, 7, 15])
     def test_chunked_processing_produces_same_result_as_single_chunk(
         self,
@@ -462,10 +502,12 @@ class TestComputeDepthStatsStreaming:
         camera_metadata_factory: Callable[..., CameraMetadata],
         rng: np.random.Generator,
         chunk_size: int,
+        use_zarr: bool,
     ):
         depth_data = rng.uniform(0.5, 5.0, (30, 4, 4)).astype(np.float32)
         builder = self._make_depth_builder(
             transform_builder_factory, camera_metadata_factory, depth_data,
+            use_zarr=use_zarr,
         )
 
         # Large chunk (single pass)

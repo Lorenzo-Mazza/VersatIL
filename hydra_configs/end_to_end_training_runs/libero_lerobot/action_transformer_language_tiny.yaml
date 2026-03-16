@@ -24,7 +24,7 @@ task:
   dataloader:
     tokenization:
       observation_tokenizer:
-        tokenizer_model: ${language_model:ALBERT_BASE}
+        tokenizer_model: ${language_model:MINI_LM_L6}
 
 experiment:
   precision: ${precision:FP32}
@@ -67,7 +67,7 @@ policy:
             input_keys:
               - ${cameras:EYE_IN_HAND}
         instruction:
-          model_name: ${language_model:ALBERT_BASE}
+          model_name: ${language_model:MINI_LM_L6}
 
 # Override specific parameters from defaults/command line if needed
 # For example, to use different batch size:
