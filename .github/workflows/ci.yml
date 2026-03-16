@@ -21,6 +21,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/ruff-action@v3
         with:
+          version: "0.14.3"
           args: format --check src/ tests/
 
   ruff-lint:
@@ -29,6 +30,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/ruff-action@v3
         with:
+          version: "0.14.3"
           args: check src/ tests/
 
   # -------------------------------------------------------------------------
