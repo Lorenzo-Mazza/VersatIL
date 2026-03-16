@@ -61,7 +61,7 @@ unit-tests:
   stage: test
   extends: .setup
   script:
-    - python -m pytest tests/ -m "unit" --tb=short -q --junitxml=report-unit.xml
+    - python -m pytest tests/ -m "unit and not requires_gpu" --tb=short -q --junitxml=report-unit.xml
   artifacts:
     when: always
     reports:
@@ -112,7 +112,7 @@ coverage:
     - !reference [.setup, before_script]
     - uv pip install pytest-cov
   script:
-    - python -m pytest tests/ -m "unit" --cov=versatil --cov-report=xml:coverage.xml --cov-report=term-missing -q
+    - python -m pytest tests/ -m "unit and not requires_gpu" --cov=versatil --cov-report=xml:coverage.xml --cov-report=term-missing -q
   coverage: '/(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
   artifacts:
     reports:
