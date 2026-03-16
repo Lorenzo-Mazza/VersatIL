@@ -1,5 +1,12 @@
 # VersatIL: Imitation Learning for Any Robot Policy
 
+[![pipeline status](https://gitlab.com/nct_tso_public/versatil/badges/main/pipeline.svg)](https://gitlab.com/nct_tso_public/versatil/-/commits/main)
+[![coverage report](https://gitlab.com/nct_tso_public/versatil/badges/main/coverage.svg)](https://gitlab.com/nct_tso_public/versatil/-/commits/main)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI](https://img.shields.io/pypi/v/versatil.svg)](https://pypi.org/project/versatil/)
+
 ![VersatIL Logo](media/VersatIL_logo.png)
 
 ### 🤯 The Paradox of Research Code

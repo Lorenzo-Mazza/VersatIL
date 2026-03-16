@@ -87,14 +87,14 @@ addopts = [
 ]
 filterwarnings = [
     "ignore::pydantic._internal._generate_schema.UnsupportedFieldAttributeWarning",
-    "ignore:In '.*'\\: Defaults list is missing `_self_`:UserWarning",
+    "ignore:.*Defaults list is missing.*:UserWarning",
     "ignore:.*is validated against ConfigStore schema.*:UserWarning",
     "ignore:.*autocast.*:UserWarning",
-    "ignore:.*self\\.log\\(\\).*:UserWarning",
+    "ignore:.*self.log.*:UserWarning",
     "ignore::DeprecationWarning:geomloss",
-    "ignore:Argument\\(s\\).*are not valid for transform:UserWarning",
-    "ignore:ShiftScaleRotate is a special case:UserWarning",
-    "ignore:Initializing zero-element tensors:UserWarning",
+    "ignore:.*are not valid for transform.*:UserWarning",
+    "ignore:ShiftScaleRotate is a special case.*:UserWarning",
+    "ignore:Initializing zero-element tensors.*:UserWarning",
 ]
 testpaths = ["tests"]
 python_files = "test_*.py"
