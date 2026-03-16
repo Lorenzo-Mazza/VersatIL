@@ -27,7 +27,7 @@ dependencies = [
   "numba==0.61.2",
   "numpy==2.2.0",
   "omegaconf",
-  "opencv-python",
+  "opencv-python-headless",
   "pandas",
   "pre-commit",
   "psutil",
