@@ -152,7 +152,11 @@ class ActionTokenizer:
             f"Fitting FAST tokenizer on {action_chunks.shape[0]} chunks "
             f"(time_horizon={action_chunks.shape[1]}, action_dim={action_chunks.shape[2]})"
         )
-        self.fast_processor = self.fast_processor.fit(action_chunks)
+        self.fast_processor = self.fast_processor.fit(
+            action_chunks,
+            time_horizon=action_chunks.shape[1],
+            action_dim=action_chunks.shape[2],
+        )
         self._is_fitted = True
 
         if self.language_tokenizer is None:
@@ -480,7 +484,7 @@ class ActionTokenizer:
         Returns:
             Dictionary containing tokenizer state.
         """
-        return {
+        state = {
             "tokenizer_chain": self.tokenizer_chain,
             "use_pretrained_fast": self.use_pretrained_fast,
             "language_tokenizer_model": self.language_tokenizer_model,
@@ -490,6 +494,10 @@ class ActionTokenizer:
             "eos_token_id": self.eos_token_id,
             "is_fitted": self._is_fitted,
         }
+        if self.fast_processor is not None:
+            state["time_horizon"] = self.fast_processor.time_horizon
+            state["action_dim"] = self.fast_processor.action_dim
+        return state
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
         """Load state dictionary.
@@ -542,6 +550,8 @@ class ActionTokenizer:
             tokenizer.fast_processor = AutoProcessor.from_pretrained(
                 str(fast_path), trust_remote_code=True
             )
+            tokenizer.fast_processor.time_horizon = state_dict.get("time_horizon")
+            tokenizer.fast_processor.action_dim = state_dict.get("action_dim")
             tokenizer._is_fitted = True
 
         lang_path = path / "language_tokenizer"

@@ -637,3 +637,47 @@ class TestLanguageEncoderIntegration:
         features = output[EncoderOutputKeys.LANGUAGE.value]
         assert features.ndim == 2
         assert features.shape[0] == batch_size
+
+    @pytest.mark.integration
+    def test_pretrained_weights_differ_from_random_init(
+        self,
+        token_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        model_name = LanguageEncoderType.ALBERT_BASE.value
+        pretrained_encoder = LanguageEncoder(
+            pretrained=True,
+            frozen=False,
+            pooling_method=PoolingMethod.DEFAULT.value,
+            model_name=model_name,
+        )
+        random_encoder = LanguageEncoder(
+            pretrained=False,
+            frozen=False,
+            pooling_method=PoolingMethod.DEFAULT.value,
+            model_name=model_name,
+        )
+        pretrained_encoder.eval()
+        random_encoder.eval()
+        inputs = token_input_factory(batch_size=2, sequence_length=10)
+
+        with torch.no_grad():
+            pretrained_output = pretrained_encoder(inputs=inputs)
+            random_output = random_encoder(inputs=inputs)
+
+        pretrained_features = pretrained_output[EncoderOutputKeys.LANGUAGE.value]
+        random_features = random_output[EncoderOutputKeys.LANGUAGE.value]
+        assert not torch.allclose(pretrained_features, random_features, atol=1e-3)
+
+    @pytest.mark.integration
+    def test_frozen_pretrained_has_no_gradients(
+        self,
+        token_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        encoder = LanguageEncoder(
+            pretrained=True,
+            frozen=True,
+            pooling_method=PoolingMethod.DEFAULT.value,
+            model_name=LanguageEncoderType.ALBERT_BASE.value,
+        )
+        for parameter in encoder.parameters():
+            assert not parameter.requires_grad

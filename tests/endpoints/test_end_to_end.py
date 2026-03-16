@@ -14,8 +14,15 @@ import torch
 import zarr
 import zarr.storage
 from hydra import compose, initialize_config_dir
+from tso_robotics_sockets import CompressionType
 
 import versatil.configs  # noqa: F401
+from versatil.inference.inference_client import InferenceClient
+from versatil.inference.policy_loader import PolicyLoader
+from versatil.inference.socket_transport import (
+    SocketActionTransport,
+    SocketObservationTransport,
+)
 from versatil.workspace import Workspace
 
 from tests.endpoints.conftest import (
@@ -24,7 +31,9 @@ from tests.endpoints.conftest import (
     _generate_array_for_key,
     build_tiny_overrides,
     discover_e2e_configs,
+    get_free_port,
     resolve_dataset_type,
+    start_mock_observation_server,
 )
 
 COMMON_OVERRIDES = [
@@ -100,7 +109,7 @@ def _create_synthetic_zarr(
     E2E_CONFIGS,
     ids=[c.split("/")[-1] for c in E2E_CONFIGS],
 )
-def test_train_one_epoch_and_save_checkpoint(config_name, tmp_path):
+def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
     if "flow_unet" in config_name and "libero_hdf5" in config_name:
         pytest.skip("libero_hdf5/flow_unet has broken dropout_rate interpolation")
 
@@ -146,7 +155,48 @@ def test_train_one_epoch_and_save_checkpoint(config_name, tmp_path):
 
     output_dir = Path(checkpoint_dir) / "test_e2e" / "e2e_test"
     assert (output_dir / "last.ckpt").exists()
-
     del workspace
     gc.collect()
     torch.cuda.empty_cache()
+    # --- Reload checkpoint and run inference against mock server ---
+    with patch(
+        "versatil.data.raw.schemas.lerobot.LeRobotDatasetMetadataV30.__init__",
+        lambda self, dataset_path: setattr(self, "dataset_path", dataset_path),
+    ):
+        policy_loader = PolicyLoader(
+            device=torch.device("cpu"),
+            checkpoint_path=str(output_dir),
+            checkpoint_name="last.ckpt",
+            precision="32",
+        )
+
+    port = get_free_port()
+    server = start_mock_observation_server(
+        observation_space=policy_loader.observation_space,
+        port=port,
+    )
+    try:
+        observation_transport = SocketObservationTransport(
+            server_address="127.0.0.1",
+            server_port=port,
+        )
+        action_transport = SocketActionTransport(
+            server_address="127.0.0.1",
+            server_port=port,
+        )
+        client = InferenceClient(
+            policy_loader=policy_loader,
+            observation_transport=observation_transport,
+            action_transport=action_transport,
+            compression_type=CompressionType.RAW.value,
+        )
+        status = client.step()
+        assert status == "continue"
+
+        action_metadata = client.action_postprocessor.build_action_metadata()
+        assert len(action_metadata) > 0
+    finally:
+        server.stop()
+
+    del policy_loader, client
+    gc.collect()

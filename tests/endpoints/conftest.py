@@ -1,5 +1,7 @@
 """Endpoint test fixtures: synthetic zarr factories and e2e config helpers."""
 import os
+import socket as socket_module
+import threading
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
@@ -12,9 +14,20 @@ import zarr
 import zarr.storage
 from hydra import compose, initialize_config_dir
 from omegaconf import DictConfig, OmegaConf
+from tso_robotics_sockets import (
+    CompressionType,
+    InferenceRequestKey,
+    InferenceResponseKey,
+    ServerRoute,
+    ServerStatus,
+    SocketServer,
+    TransportKey,
+    compress_array,
+)
 
 import versatil.configs  # noqa: F401 — registers ConfigStore entries
 from versatil.data.constants import Cameras, ObsKey, ProprioKey
+from versatil.data.task import ObservationSpace
 
 
 BOWEL_RETRACTION_ZARR_SPEC: dict[str, dict] = {
@@ -359,3 +372,92 @@ def build_tiny_overrides(config_name: str) -> list[str]:
             )
 
     return overrides
+
+
+def get_free_port() -> int:
+    """Find a free TCP port on localhost."""
+    with socket_module.socket(socket_module.AF_INET, socket_module.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
+
+
+def start_mock_observation_server(
+    observation_space: ObservationSpace,
+    port: int,
+) -> SocketServer:
+    """Create and start a ZMQ SocketServer that returns observations matching the policy's space.
+
+    Args:
+        observation_space: The policy's observation space (cameras, proprio, language).
+        port: TCP port for the server.
+
+    Returns:
+        Running SocketServer instance (call .stop() when done).
+    """
+    camera_keys = list(observation_space.cameras.keys())
+    proprio_observations = observation_space.proprioceptive_observations
+    has_language = ObsKey.LANGUAGE.value in observation_space.observations_metadata
+    server_rng = np.random.default_rng(seed=777)
+
+    def handle_get_observation(request_data: dict) -> tuple[bool, dict]:
+        requested = request_data.get(
+            InferenceRequestKey.REQUESTED_KEYS.value, []
+        )
+        compression = request_data.get(
+            InferenceRequestKey.COMPRESSION_TYPE.value,
+            CompressionType.RAW.value,
+        )
+        response: dict = {
+            TransportKey.STATUS.value: ServerStatus.WAITING_ACTION.value,
+            InferenceResponseKey.COMPRESSION_TYPE.value: compression,
+        }
+        for key in camera_keys:
+            if key in requested:
+                channels = observation_space.cameras[key].channels
+                image = server_rng.integers(
+                    0, 256, (64, 64, channels), dtype=np.uint8
+                )
+                response[key] = compress_array(
+                    image, method=compression, as_base64=True
+                )
+        for key, metadata in proprio_observations.items():
+            if key in requested:
+                response[key] = (
+                    server_rng.standard_normal(metadata.dimension)
+                    .astype(np.float32)
+                    .tolist()
+                )
+        if has_language and ObsKey.LANGUAGE.value in requested:
+            response[ObsKey.LANGUAGE.value] = "pick up the object"
+        return True, response
+
+    def handle_send_action(request_data: dict) -> tuple[bool, dict]:
+        return True, {}
+
+    def handle_register(request_data: dict) -> tuple[bool, dict]:
+        return True, {}
+
+    server = SocketServer(
+        ip_address="127.0.0.1",
+        port=port,
+        max_workers=1,
+    )
+    server.add_route(
+        ServerRoute.GET_OBSERVATION.value,
+        handle_get_observation,
+        blocking=True,
+    )
+    server.add_route(
+        ServerRoute.SEND_ACTION.value,
+        handle_send_action,
+        blocking=True,
+    )
+    server.add_route(
+        ServerRoute.REGISTER_CLIENT.value,
+        handle_register,
+        blocking=True,
+    )
+
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    return server
