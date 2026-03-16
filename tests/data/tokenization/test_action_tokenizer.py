@@ -1063,7 +1063,7 @@ class TestActionTokenizerIntegrationCustomFast:
         training_data = action_chunk_factory(batch_size=20, scale=0.5)
         tokenizer.fit(training_data)
         assert tokenizer._is_fitted is True
-        assert tokenizer.vocab_size == 1024
+        assert tokenizer.vocab_size == 1024 + 1  # +1 for EOS token
         chunk = training_data[0]
         result = tokenizer.encode_chunk(chunk)
         decoded = tokenizer.decode_chunk(result[SampleKey.TOKENIZED_ACTIONS.value])
@@ -1104,6 +1104,8 @@ class TestActionTokenizerIntegrationLanguageMapping:
         result = tokenizer.encode_chunk(chunk)
         tokens = result[SampleKey.TOKENIZED_ACTIONS.value]
         non_pad = tokens[~result[SampleKey.IS_PAD_ACTION.value]]
+        # Filter out EOS token — it's outside the FAST-mapped range
+        non_pad = non_pad[non_pad != tokenizer.eos_token_id]
         if len(non_pad) > 0:
             language_vocab_size = tokenizer.language_tokenizer.vocab_size
             expected_max = (
