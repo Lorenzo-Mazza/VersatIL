@@ -213,7 +213,7 @@ class BowelRetractionSchema(CsvDatasetSchema):
             )
 
         for zarr_key, cam_metadata in self.metadata.cameras.items():
-            cam = cam_metadata.camera_key
+            cam = cam_metadata.raw_camera_key
             if cam == Cameras.DEPTH.value:
                 left_col = self._get_rgb_column(Cameras.LEFT.value)
                 paths = [self._compute_depth_path(p) for p in episode[left_col]]

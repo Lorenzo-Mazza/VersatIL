@@ -120,7 +120,7 @@ class TestDiTBlockForward:
         self,
         dit_block_factory: Callable[..., DiTBlock],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
         batch_size: int,
         encoder_sequence_length: int,
         decoder_sequence_length: int,
@@ -141,7 +141,7 @@ class TestDiTBlockForward:
             sequence_length=decoder_sequence_length,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=batch_size)
+        timesteps = continuous_timestep_factory(batch_size=batch_size)
         encoder_output_mean, decoder_output = block(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
@@ -155,7 +155,7 @@ class TestDiTBlockForward:
         self,
         dit_block_factory: Callable[..., DiTBlock],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
@@ -170,7 +170,7 @@ class TestDiTBlockForward:
             sequence_length=4,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=2)
+        timesteps = continuous_timestep_factory(batch_size=2)
         encoder_cache = condition_factory(
             batch_size=2,
             condition_dim=embedding_dimension,
@@ -225,7 +225,7 @@ class TestDiTBlockForward:
         self,
         dit_block_factory: Callable[..., DiTBlock],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
         block = dit_block_factory(embedding_dimension=embedding_dimension)
@@ -239,7 +239,7 @@ class TestDiTBlockForward:
             sequence_length=4,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=2)
+        timesteps = continuous_timestep_factory(batch_size=2)
         encoder_output_mean, _ = block(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
@@ -255,7 +255,7 @@ class TestDiTBlockForward:
         self,
         dit_block_factory: Callable[..., DiTBlock],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
         block = dit_block_factory(embedding_dimension=embedding_dimension)
@@ -269,7 +269,7 @@ class TestDiTBlockForward:
             sequence_length=4,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=2)
+        timesteps = continuous_timestep_factory(batch_size=2)
         encoder_hidden.requires_grad_(True)
         decoder_hidden.requires_grad_(True)
         _, decoder_output = block(

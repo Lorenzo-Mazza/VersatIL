@@ -28,6 +28,8 @@ from versatil.validation import (
 
 @pytest.fixture
 def mock_encoder_factory() -> Callable[..., MagicMock]:
+    """Factory for mock EncodingMixin instances with configurable input keys."""
+
     def factory(
         input_keys: str | list[str] = "left",
         backbone_name: str | None = None,
@@ -49,6 +51,8 @@ def mock_encoder_factory() -> Callable[..., MagicMock]:
 def mock_encoding_pipeline_factory(
     mock_encoder_factory: Callable[..., MagicMock],
 ) -> Callable[..., MagicMock]:
+    """Factory for mock EncodingPipeline instances with configurable encoders."""
+
     def factory(
         encoders: dict[str, MagicMock] | None = None,
         final_features_to_dims: dict[str, int | tuple[int, ...]] | None = None,
@@ -69,6 +73,8 @@ def mock_encoding_pipeline_factory(
 
 @pytest.fixture
 def mock_decoder_factory() -> Callable[..., MagicMock]:
+    """Factory for mock ActionDecoder instances with configurable input and head keys."""
+
     def factory(
         input_keys: list[str] | None = None,
         action_head_keys: list[str] | None = None,
@@ -93,6 +99,8 @@ def mock_decoder_factory() -> Callable[..., MagicMock]:
 
 @pytest.fixture
 def mock_observation_space_factory() -> Callable[..., MagicMock]:
+    """Factory for mock ObservationSpace with configurable observation keys."""
+
     def factory(
         observation_keys: dict | None = None,
     ) -> MagicMock:
@@ -108,6 +116,8 @@ def mock_observation_space_factory() -> Callable[..., MagicMock]:
 
 @pytest.fixture
 def mock_action_space_factory() -> Callable[..., MagicMock]:
+    """Factory for mock ActionSpace with configurable action metadata."""
+
     def factory(
         actions_metadata: dict | None = None,
     ) -> MagicMock:
@@ -124,6 +134,8 @@ def mock_action_space_factory() -> Callable[..., MagicMock]:
 
 @pytest.fixture
 def mock_loss_factory() -> Callable[..., MagicMock]:
+    """Factory for mock BaseLoss instances with configurable required keys."""
+
     def factory(
         required_keys: set[str] | None = None,
     ) -> MagicMock:
@@ -138,6 +150,8 @@ def mock_loss_factory() -> Callable[..., MagicMock]:
 
 @pytest.fixture
 def mock_algorithm_factory() -> Callable[..., MagicMock]:
+    """Factory for mock DecodingAlgorithm instances."""
+
     def factory(
         is_variational: bool = False,
     ) -> MagicMock:
@@ -157,6 +171,8 @@ def validator_factory(
     mock_action_space_factory: Callable[..., MagicMock],
     mock_loss_factory: Callable[..., MagicMock],
 ) -> Callable[..., ExperimentValidator]:
+    """Factory for ExperimentValidator instances with all dependencies mocked."""
+
     def factory(
         encoding_pipeline: MagicMock | None = None,
         algorithm: MagicMock | None = None,

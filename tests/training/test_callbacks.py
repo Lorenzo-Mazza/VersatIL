@@ -1,4 +1,5 @@
 """Tests for versatil.training.callbacks module."""
+import matplotlib.pyplot as plt
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -14,6 +15,7 @@ from versatil.training.callbacks import (
     LatentVisualizationCallback,
     ReduceLROnPlateauCallback,
     ResumableEarlyStopping,
+    _figure_to_wandb_image,
 )
 
 
@@ -275,6 +277,115 @@ class TestEMACallbackOnTrainBatchEnd:
         # At step 0 (first call), decay = _get_decay(0) = 0.0 (since step <= 0)
         # So EMA should be entirely the new param: ema = 0 * ema + 1 * param
         assert torch.allclose(ema_weight_after, new_weight, atol=1e-6)
+
+    def test_non_zero_decay_blends_old_and_new_weights(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+        simple_module_factory: Callable,
+        rng: np.random.Generator,
+    ):
+        policy = simple_module_factory()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        callback = ema_callback_factory(
+            power=0.75, update_after_step=0, inv_gamma=1.0
+        )
+        trainer = mock_trainer_factory()
+
+        callback.on_fit_start(trainer=trainer, pl_module=pl_module)
+
+        # Step 0: decay=0, EMA becomes policy (warmup step)
+        new_weight_step0 = torch.from_numpy(
+            rng.standard_normal(policy.weight.shape).astype(np.float32)
+        )
+        policy.weight.data.copy_(new_weight_step0)
+        callback.on_train_batch_end(
+            trainer=trainer, pl_module=pl_module,
+            outputs=None, batch=None, batch_idx=0,
+        )
+        # Step 1: decay=0, EMA becomes policy again
+        new_weight_step1 = torch.from_numpy(
+            rng.standard_normal(policy.weight.shape).astype(np.float32)
+        )
+        policy.weight.data.copy_(new_weight_step1)
+        callback.on_train_batch_end(
+            trainer=trainer, pl_module=pl_module,
+            outputs=None, batch=None, batch_idx=1,
+        )
+        ema_after_step1 = callback.ema_model.weight.data.clone()
+
+        # Step 2: optimization_step=2, decay = _get_decay(2) > 0
+        decay = callback._get_decay(optimization_step=2)
+        assert decay > 0.0, "Decay should be non-zero at step 2"
+
+        new_weight_step2 = torch.from_numpy(
+            rng.standard_normal(policy.weight.shape).astype(np.float32)
+        )
+        policy.weight.data.copy_(new_weight_step2)
+        callback.on_train_batch_end(
+            trainer=trainer, pl_module=pl_module,
+            outputs=None, batch=None, batch_idx=2,
+        )
+
+        # Verify EMA = decay * old_ema + (1 - decay) * new_param
+        expected_ema = decay * ema_after_step1 + (1 - decay) * new_weight_step2
+        assert torch.allclose(
+            callback.ema_model.weight.data, expected_ema, atol=1e-6
+        )
+
+    def test_batchnorm_running_stats_copied_directly(
+        self,
+        ema_callback_factory: Callable,
+        mock_trainer_factory: Callable,
+        rng: np.random.Generator,
+    ):
+        # Build a module that contains a BatchNorm layer
+        policy = torch.nn.Sequential(
+            torch.nn.Linear(4, 4),
+            torch.nn.BatchNorm1d(4),
+        )
+        weight_data = torch.from_numpy(
+            rng.standard_normal((4, 4)).astype(np.float32)
+        )
+        policy[0].weight.data.copy_(weight_data)
+
+        pl_module = MagicMock()
+        pl_module.policy = policy
+        pl_module.parameters.return_value = policy.parameters()
+        pl_module.log = MagicMock()
+
+        callback = ema_callback_factory(
+            power=0.75, update_after_step=0, inv_gamma=1.0
+        )
+        trainer = mock_trainer_factory()
+
+        callback.on_fit_start(trainer=trainer, pl_module=pl_module)
+
+        # Run a forward pass through policy to update BN running stats
+        input_data = torch.from_numpy(
+            rng.standard_normal((8, 4)).astype(np.float32)
+        )
+        policy.train()
+        policy(input_data)
+
+        # Advance to step 2 so decay > 0
+        for step in range(3):
+            callback.on_train_batch_end(
+                trainer=trainer, pl_module=pl_module,
+                outputs=None, batch=None, batch_idx=step,
+            )
+
+        # BN running_mean/running_var in EMA should match policy exactly
+        # (copied directly, not blended via EMA decay)
+        policy_bn = policy[1]
+        ema_bn = callback.ema_model[1]
+        assert torch.allclose(
+            ema_bn.running_mean, policy_bn.running_mean, atol=1e-6
+        )
+        assert torch.allclose(
+            ema_bn.running_var, policy_bn.running_var, atol=1e-6
+        )
 
     def test_increments_optimization_step(
         self,
@@ -675,6 +786,55 @@ class TestExpertUsageCallback:
 
         trainer.logger.log_metrics.assert_not_called()
 
+    @patch("versatil.training.callbacks._figure_to_wandb_image")
+    def test_on_validation_epoch_end_logs_val_expert_usage(
+        self,
+        mock_figure_to_image: MagicMock,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ExpertUsageCallback(log_every_n_epochs=1)
+        expert_usage = np.array([0.4, 0.6])
+        pl_module = MagicMock()
+        pl_module.val_metrics.compute_expert_usage.return_value = {
+            "expert_usage": expert_usage
+        }
+        mock_figure_to_image.return_value = MagicMock()
+
+        trainer = mock_trainer_factory(current_epoch=0)
+
+        with patch.object(callback, "_create_expert_usage_figure") as mock_create:
+            mock_create.return_value = MagicMock()
+            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        pl_module.val_metrics.compute_expert_usage.assert_called_once()
+        trainer.logger.log_metrics.assert_called_once()
+
+    def test_on_validation_epoch_end_skips_non_matching_epoch(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ExpertUsageCallback(log_every_n_epochs=3)
+        pl_module = MagicMock()
+        trainer = mock_trainer_factory(current_epoch=1)
+
+        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        pl_module.val_metrics.compute_expert_usage.assert_not_called()
+
+    def test_on_validation_epoch_end_no_logging_when_no_data(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ExpertUsageCallback(log_every_n_epochs=1)
+        pl_module = MagicMock()
+        pl_module.val_metrics.compute_expert_usage.return_value = None
+
+        trainer = mock_trainer_factory(current_epoch=0)
+
+        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        trainer.logger.log_metrics.assert_not_called()
+
 
 @pytest.mark.unit
 class TestConfusionMatrixCallback:
@@ -756,6 +916,55 @@ class TestConfusionMatrixCallback:
                 callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
 
                 mock_to_wandb.assert_not_called()
+
+    @patch("versatil.training.callbacks._figure_to_wandb_image")
+    def test_on_validation_epoch_end_logs_val_confusion_matrix(
+        self,
+        mock_figure_to_image: MagicMock,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ConfusionMatrixCallback(log_every_n_epochs=1)
+        confusion_matrix = np.array([[8, 2], [1, 9]])
+        pl_module = MagicMock()
+        pl_module.val_metrics.compute_confusion_matrix.return_value = (
+            confusion_matrix
+        )
+        mock_figure_to_image.return_value = MagicMock()
+
+        trainer = mock_trainer_factory(current_epoch=0)
+
+        with patch.object(callback, "_create_confusion_matrix_figure") as mock_create:
+            mock_create.return_value = MagicMock()
+            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        pl_module.val_metrics.compute_confusion_matrix.assert_called_once()
+        trainer.logger.log_metrics.assert_called_once()
+
+    def test_on_validation_epoch_end_skips_non_matching_epoch(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ConfusionMatrixCallback(log_every_n_epochs=3)
+        pl_module = MagicMock()
+        trainer = mock_trainer_factory(current_epoch=2)
+
+        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        pl_module.val_metrics.compute_confusion_matrix.assert_not_called()
+
+    def test_on_validation_epoch_end_no_logging_when_no_matrix(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ConfusionMatrixCallback(log_every_n_epochs=1)
+        pl_module = MagicMock()
+        pl_module.val_metrics.compute_confusion_matrix.return_value = None
+
+        trainer = mock_trainer_factory(current_epoch=0)
+
+        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        trainer.logger.log_metrics.assert_not_called()
 
 
 @pytest.mark.unit
@@ -934,3 +1143,90 @@ class TestLatentVisualizationCallback:
         )
 
         trainer.logger.log_metrics.assert_not_called()
+
+
+@pytest.mark.unit
+class TestCreateConfusionMatrixFigure:
+
+    def test_returns_matplotlib_figure(self):
+        callback = ConfusionMatrixCallback()
+        confusion_matrix = np.array([[10, 2], [3, 15]])
+        fig = callback._create_confusion_matrix_figure(
+            confusion_matrix, "Test Matrix"
+        )
+        assert isinstance(fig, plt.Figure)
+        plt.close(fig)
+
+    def test_normalizes_rows_to_proportions(self):
+        callback = ConfusionMatrixCallback()
+        confusion_matrix = np.array([[8, 2], [4, 6]])
+        fig = callback._create_confusion_matrix_figure(
+            confusion_matrix, "Normalized"
+        )
+        # Figure was created without errors; row sums are normalized
+        axes = fig.get_axes()
+        assert len(axes) > 0
+        plt.close(fig)
+
+    def test_handles_zero_row_without_division_error(self):
+        callback = ConfusionMatrixCallback()
+        confusion_matrix = np.array([[0, 0], [3, 7]])
+        # Should not raise due to clip(min=1e-10)
+        fig = callback._create_confusion_matrix_figure(
+            confusion_matrix, "Zero Row"
+        )
+        assert isinstance(fig, plt.Figure)
+        plt.close(fig)
+
+    def test_labels_match_number_of_phases(self):
+        callback = ConfusionMatrixCallback()
+        confusion_matrix = np.eye(4, dtype=int) * 10
+        fig = callback._create_confusion_matrix_figure(
+            confusion_matrix, "4 Phases"
+        )
+        axis = fig.get_axes()[0]
+        x_labels = [label.get_text() for label in axis.get_xticklabels()]
+        y_labels = [label.get_text() for label in axis.get_yticklabels()]
+        assert len(x_labels) == 4
+        assert len(y_labels) == 4
+        assert "Phase 0" in x_labels
+        assert "Phase 3" in x_labels
+        plt.close(fig)
+
+
+@pytest.mark.unit
+class TestCreateExpertUsageFigure:
+
+    def test_returns_matplotlib_figure(self):
+        callback = ExpertUsageCallback()
+        expert_usage = np.array([0.3, 0.5, 0.2])
+        fig = callback._create_expert_usage_figure(
+            expert_usage, "Test Usage"
+        )
+        assert isinstance(fig, plt.Figure)
+        plt.close(fig)
+
+    def test_figure_has_correct_title(self):
+        callback = ExpertUsageCallback()
+        expert_usage = np.array([0.6, 0.4])
+        title = "Train Expert Usage"
+        fig = callback._create_expert_usage_figure(expert_usage, title)
+        axis = fig.get_axes()[0]
+        assert axis.get_title() == title
+        plt.close(fig)
+
+
+@pytest.mark.unit
+class TestFigureToWandbImage:
+
+    @patch("versatil.training.callbacks.wandb")
+    def test_converts_figure_to_wandb_image(self, mock_wandb):
+        fig, ax = plt.subplots()
+        ax.plot([0, 1], [0, 1])
+        mock_wandb.Image.return_value = MagicMock()
+
+        result = _figure_to_wandb_image(fig)
+
+        mock_wandb.Image.assert_called_once()
+        assert result is mock_wandb.Image.return_value
+        plt.close(fig)

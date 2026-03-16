@@ -200,6 +200,24 @@ class TestObservationBufferGetRecent:
         recent = buffer.get_recent(count=10)
         assert recent["rgb"] == ["frame_0", "frame_1"]
 
+    def test_get_recent_with_count_zero(
+        self, observation_buffer_factory
+    ):
+        # count=0 should return empty lists, not the entire buffer.
+        # Python's list[-0:] returns the full list, so the source guards
+        # against this edge case explicitly.
+        buffer = observation_buffer_factory(
+            buffer_size=3, required_keys=["rgb", "depth"]
+        )
+        buffer.add(observations={"rgb": "r0", "depth": "d0"})
+        buffer.add(observations={"rgb": "r1", "depth": "d1"})
+        buffer.add(observations={"rgb": "r2", "depth": "d2"})
+
+        recent = buffer.get_recent(count=0)
+
+        assert recent["rgb"] == []
+        assert recent["depth"] == []
+
 
 @pytest.mark.unit
 class TestObservationBufferReset:

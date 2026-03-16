@@ -16,6 +16,7 @@ from versatil.data.constants import (
     GripperType,
     ObsKey,
     ProprioKey,
+    RawCameraKey,
 )
 from versatil.data.metadata import (
     CameraMetadata,
@@ -157,8 +158,8 @@ class TestBowelRetractionValidateMetadata:
             Cameras.RIGHT.value: camera_metadata_factory(
                 camera_key=Cameras.RIGHT.value, image_height=480, image_width=640
             ),
-            "wrist": camera_metadata_factory(
-                camera_key=Cameras.WRIST.value, image_height=480, image_width=640
+            Cameras.EYE_IN_HAND.value: camera_metadata_factory(
+                camera_key=RawCameraKey.WRIST.value, image_height=480, image_width=640
             ),
             ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: position_observation_metadata_factory(
                 dimension=3, frame=CoordinateSystem.ROBOT_BASE.value

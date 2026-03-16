@@ -218,7 +218,7 @@ class TestMetadataInstantiation:
         )
         instance = instantiate(config)
         assert type(instance).__name__ == "CameraMetadata"
-        assert instance.camera_key == "left"
+        assert instance.raw_camera_key == "left"
         assert instance.channels == 3
 
     def test_action_metadata_instantiates(self):

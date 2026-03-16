@@ -426,23 +426,26 @@ class TestLinearNormalizerNormalize:
 
 class TestLinearNormalizerSubscriptAccess:
 
-    def test_getitem_returns_single_field_normalizer(self, rng: np.random.Generator):
+    def test_getitem_returns_functional_single_field_normalizer(self, rng: np.random.Generator):
         data = {"position": torch.from_numpy(rng.standard_normal((50, 3)).astype(np.float32))}
         normalizer = LinearNormalizer()
         normalizer.fit(data=data, mode=KinematicsNormalizationType.MIN_MAX.value)
 
         single = normalizer["position"]
 
-        assert isinstance(single, SingleFieldLinearNormalizer)
+        test_input = torch.from_numpy(rng.standard_normal((5, 3)).astype(np.float32))
+        result = single.normalize(test_input)
+        assert result.shape == test_input.shape
 
-    def test_setitem_stores_single_field_normalizer(self):
+    def test_setitem_stores_retrievable_normalizer(self):
         normalizer = LinearNormalizer()
         single = SingleFieldLinearNormalizer.create_identity()
 
         normalizer["custom_key"] = single
 
         retrieved = normalizer["custom_key"]
-        assert isinstance(retrieved, SingleFieldLinearNormalizer)
+        test_input = torch.ones(3)
+        torch.testing.assert_close(retrieved.normalize(test_input), test_input)
 
 
 class TestLinearNormalizerGetInputStats:
@@ -604,6 +607,7 @@ class TestSequentialNormalizerLinearNormalizerIntegration:
 
     def test_setitem_and_getitem_roundtrip(
         self,
+        rng: np.random.Generator,
         gaussian_then_minmax_sequential: SequentialNormalizer,
     ):
         linear = LinearNormalizer()
@@ -611,7 +615,9 @@ class TestSequentialNormalizerLinearNormalizerIntegration:
 
         retrieved = linear["position"]
 
-        assert isinstance(retrieved, SequentialNormalizer)
+        test_input = torch.from_numpy(rng.standard_normal((5, 3)).astype(np.float32)) * 10.0
+        expected = gaussian_then_minmax_sequential.normalize(test_input)
+        torch.testing.assert_close(retrieved.normalize(test_input), expected)
 
     def test_sequential_stored_in_linear_normalizer_produces_same_results(
         self,

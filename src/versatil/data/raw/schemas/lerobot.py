@@ -503,7 +503,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
 
             elif isinstance(obs, CameraMetadata):
                 # Camera observations: extract frames and resize
-                camera_key = obs.camera_key
+                camera_key = obs.raw_camera_key
 
                 if camera_key not in frames:
                     raise ValueError(

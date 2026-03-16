@@ -13,6 +13,7 @@ import pytest
 from versatil.data.constants import (
     Cameras,
     CoordinateSystem,
+    RawCameraKey,
     LeRobotPathsV30,
     ObsKey,
 )
@@ -205,7 +206,7 @@ class TestLeRobotDatasetMetadataV30Methods:
             "codebase_version": "v3.0",
             "total_episodes": 2,
             "features": {
-                Cameras.FRONT.value: {"dtype": "video", "shape": [128, 128, 3]},
+                RawCameraKey.FRONT.value: {"dtype": "video", "shape": [128, 128, 3]},
                 "observation.images.side": {"dtype": "image", "shape": [64, 64, 3]},
                 "observation.state": {"dtype": "float32", "shape": [6]},
                 "action": {"dtype": "float32", "shape": [7]},
@@ -248,7 +249,7 @@ class TestLeRobotDatasetMetadataV30Methods:
     def test_get_features(self, lerobot_metadata: LeRobotDatasetMetadataV30):
         features = lerobot_metadata.get_features()
 
-        assert Cameras.FRONT.value in features
+        assert RawCameraKey.FRONT.value in features
         assert "action" in features
 
     def test_get_video_keys_filters_by_dtype_video(
@@ -256,7 +257,7 @@ class TestLeRobotDatasetMetadataV30Methods:
     ):
         video_keys = lerobot_metadata.get_video_keys()
 
-        assert video_keys == [Cameras.FRONT.value]
+        assert video_keys == [RawCameraKey.FRONT.value]
 
     def test_get_image_keys_filters_by_dtype_image(
         self, lerobot_metadata: LeRobotDatasetMetadataV30
@@ -288,7 +289,7 @@ class TestLeRobotDatasetMetadataV30Methods:
     def test_get_video_file_path(
         self, lerobot_metadata: LeRobotDatasetMetadataV30, tmp_path: Path
     ):
-        path = lerobot_metadata.get_video_file_path(0, Cameras.FRONT.value)
+        path = lerobot_metadata.get_video_file_path(0, RawCameraKey.FRONT.value)
 
         assert path == tmp_path / "videos/observation.images.front/chunk-000/file-000.mp4"
 
@@ -373,8 +374,8 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
     ) -> LeRobotDatasetSchemaV30:
         """Create a LeRobotDatasetSchemaV30 with mocked LeRobotDatasetMetadataV30."""
         observations = {
-            Cameras.LEFT.value: camera_metadata_factory(
-                camera_key=Cameras.FRONT.value,
+            Cameras.AGENTVIEW.value: camera_metadata_factory(
+                camera_key=RawCameraKey.FRONT.value,
                 image_height=128,
                 image_width=128,
             ),
@@ -433,7 +434,7 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
 
         with patch.object(lerobot_schema, "get_episode_parquet", return_value=episode_table), \
              patch.object(lerobot_schema, "get_episode_language_instructions", return_value=[["pick"]] * 3), \
-             patch.object(lerobot_schema, "get_episode_videos_frames", return_value={Cameras.FRONT.value: mock_frames}), \
+             patch.object(lerobot_schema, "get_episode_videos_frames", return_value={RawCameraKey.FRONT.value: mock_frames}), \
              patch.object(lerobot_schema, "get_episode_images", return_value={}):
             data = lerobot_schema.extract_episode(
                 episode_id=0,
@@ -441,10 +442,10 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
                 depth_resizer=noop_resizer,
             )
 
-        assert Cameras.LEFT.value in data
-        assert data[Cameras.LEFT.value].shape == (3, 128, 128, 3)
-        assert data[Cameras.LEFT.value].dtype == np.uint8
-        np.testing.assert_array_equal(data[Cameras.LEFT.value][0], mock_frames[0])
+        assert Cameras.AGENTVIEW.value in data
+        assert data[Cameras.AGENTVIEW.value].shape == (3, 128, 128, 3)
+        assert data[Cameras.AGENTVIEW.value].dtype == np.uint8
+        np.testing.assert_array_equal(data[Cameras.AGENTVIEW.value][0], mock_frames[0])
 
     def test_processes_language_observation(
         self,
@@ -463,8 +464,8 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
         )
         observations = {
             ObsKey.LANGUAGE.value: language_observation,
-            Cameras.LEFT.value: camera_metadata_factory(
-                camera_key=Cameras.FRONT.value,
+            Cameras.AGENTVIEW.value: camera_metadata_factory(
+                camera_key=RawCameraKey.FRONT.value,
                 image_height=64,
                 image_width=64,
             ),
@@ -501,7 +502,7 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
 
         with patch.object(schema, "get_episode_parquet", return_value=episode_table), \
              patch.object(schema, "get_episode_language_instructions", return_value=language_instructions), \
-             patch.object(schema, "get_episode_videos_frames", return_value={Cameras.FRONT.value: mock_frames}), \
+             patch.object(schema, "get_episode_videos_frames", return_value={RawCameraKey.FRONT.value: mock_frames}), \
              patch.object(schema, "get_episode_images", return_value={}):
             data = schema.extract_episode(
                 episode_id=0,
@@ -560,7 +561,7 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
 
         with patch.object(lerobot_schema, "get_episode_parquet", return_value=episode_table), \
              patch.object(lerobot_schema, "get_episode_language_instructions", return_value=[["pick"]] * 3), \
-             patch.object(lerobot_schema, "get_episode_videos_frames", return_value={Cameras.FRONT.value: mock_frames}), \
+             patch.object(lerobot_schema, "get_episode_videos_frames", return_value={RawCameraKey.FRONT.value: mock_frames}), \
              patch.object(lerobot_schema, "get_episode_images", return_value={}):
             data = lerobot_schema.extract_episode(
                 episode_id=0,
@@ -651,7 +652,7 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
 
         with patch.object(lerobot_schema, "get_episode_parquet", return_value=episode_table), \
              patch.object(lerobot_schema, "get_episode_language_instructions", return_value=[["pick"]] * 2), \
-             patch.object(lerobot_schema, "get_episode_videos_frames", return_value={Cameras.FRONT.value: mock_frames}), \
+             patch.object(lerobot_schema, "get_episode_videos_frames", return_value={RawCameraKey.FRONT.value: mock_frames}), \
              patch.object(lerobot_schema, "get_episode_images", return_value={}):
             with pytest.raises(ValueError, match="does not exist"):
                 lerobot_schema.extract_episode(
@@ -680,7 +681,7 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
 
         with patch.object(lerobot_schema, "get_episode_parquet", return_value=episode_table), \
              patch.object(lerobot_schema, "get_episode_language_instructions", return_value=[["pick"]] * 3), \
-             patch.object(lerobot_schema, "get_episode_videos_frames", return_value={Cameras.FRONT.value: mock_frames}), \
+             patch.object(lerobot_schema, "get_episode_videos_frames", return_value={RawCameraKey.FRONT.value: mock_frames}), \
              patch.object(lerobot_schema, "get_episode_images", return_value={}):
             data = lerobot_schema.extract_episode(
                 episode_id=0,

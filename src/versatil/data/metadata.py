@@ -11,7 +11,8 @@ from versatil.data.constants import (
     OrientationRepresentation,
     GripperType,
     BinaryGripperRange,
-    VALID_CAMERAS,
+    VALID_RAW_CAMERA_KEYS,
+    RAW_TO_CAMERA_MAPPING,
     ActionComputationMethod,
 )
 
@@ -280,8 +281,8 @@ class CameraMetadata(BaseMetadata):
     """Camera observation metadata.
 
     Attributes:
-        camera_key: Key in the raw dataset corresponding to the camera.
-            It has to be one of `data.constants.VALID_CAMERAS` values.
+        raw_camera_key: Key in the raw dataset corresponding to the camera.
+            It has to be one of `data.constants.VALID_RAW_CAMERA_KEYS` values.
         channels: Number of image channels.
         image_width: Optional target image width for resizing when storing images.
         image_height: Optional target image height for resizing when storing images.
@@ -296,11 +297,13 @@ class CameraMetadata(BaseMetadata):
         image_height: Optional[int] = None,
     ):
         super().__init__(dtype, is_numerical=True, needs_normalization=True)
-        if camera_key not in VALID_CAMERAS:
+        if camera_key not in RAW_TO_CAMERA_MAPPING:
             raise ValueError(
-                f"camera_key has to be included in {VALID_CAMERAS}. Got {camera_key}"
+                f"camera_key must be a valid raw camera key. "
+                f"Got '{camera_key}', expected one of "
+                f"{list(RAW_TO_CAMERA_MAPPING.keys())}"
             )
-        self.camera_key = camera_key
+        self.raw_camera_key = camera_key
         self.channels = channels
         self.image_width = image_width
         self.image_height = image_height
@@ -310,11 +313,11 @@ class CameraMetadata(BaseMetadata):
         if not isinstance(other, CameraMetadata):
             return NotImplemented
         return (
-            super().__eq__(other)
-            and self.camera_key == other.camera_key
-            and self.channels == other.channels
-            and self.image_width == other.image_width
-            and self.image_height == other.image_height
+                super().__eq__(other)
+                and self.raw_camera_key == other.raw_camera_key
+                and self.channels == other.channels
+                and self.image_width == other.image_width
+                and self.image_height == other.image_height
         )
 
 

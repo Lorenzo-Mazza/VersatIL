@@ -27,7 +27,7 @@ def reinit_modulation_layers(module: nn.Module) -> None:
 
 
 @pytest.fixture
-def timestep_factory(
+def continuous_timestep_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:
     """Factory for diffusion timestep tensors (B,)."""

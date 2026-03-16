@@ -115,7 +115,7 @@ class TestCrossAttentionDiTForward:
         self,
         cross_attention_dit_factory: Callable[..., CrossAttentionDiT],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
         batch_size: int,
         decoder_sequence_length: int,
         encoder_sequence_length: int,
@@ -136,7 +136,7 @@ class TestCrossAttentionDiTForward:
             sequence_length=encoder_sequence_length,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=batch_size)
+        timesteps = continuous_timestep_factory(batch_size=batch_size)
         output = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
@@ -149,7 +149,7 @@ class TestCrossAttentionDiTForward:
         self,
         cross_attention_dit_factory: Callable[..., CrossAttentionDiT],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
     ):
         # FinalPredictionLayer is zero-initialized, so output should be all zeros at init
         embedding_dimension = 32
@@ -166,7 +166,7 @@ class TestCrossAttentionDiTForward:
             sequence_length=6,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=2)
+        timesteps = continuous_timestep_factory(batch_size=2)
         output = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
@@ -215,7 +215,7 @@ class TestCrossAttentionDiTForward:
         self,
         cross_attention_dit_factory: Callable[..., CrossAttentionDiT],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
         model = cross_attention_dit_factory(
@@ -229,7 +229,7 @@ class TestCrossAttentionDiTForward:
             sequence_length=4,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=2)
+        timesteps = continuous_timestep_factory(batch_size=2)
         encoder_a = sequence_tensor_factory(
             batch_size=2,
             sequence_length=6,
@@ -256,7 +256,7 @@ class TestCrossAttentionDiTForward:
         self,
         cross_attention_dit_factory: Callable[..., CrossAttentionDiT],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
         model = cross_attention_dit_factory(embedding_dimension=embedding_dimension)
@@ -270,7 +270,7 @@ class TestCrossAttentionDiTForward:
             sequence_length=6,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=2)
+        timesteps = continuous_timestep_factory(batch_size=2)
         decoder_hidden.requires_grad_(True)
         encoder_hidden.requires_grad_(True)
         output = model(

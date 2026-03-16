@@ -1,4 +1,5 @@
 """Tests for versatil.data.preprocessing.replay_buffer module."""
+import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
 
@@ -635,8 +636,12 @@ class TestReplayBufferUpdateMeta:
     ):
         buffer = numpy_buffer_factory(num_episodes=1, episode_length=5)
 
-        with pytest.raises(TypeError):
-            buffer.update_meta(data={"bad": [{"nested": "dict"}]})
+        bad_value = [{"nested": "dict"}]
+        with pytest.raises(
+            TypeError,
+            match=re.escape(f"Invalid value type {type(bad_value)}"),
+        ):
+            buffer.update_meta(data={"bad": bad_value})
 
 
 class TestReplayBufferValuesAndItems:
@@ -883,7 +888,10 @@ class TestResolveArrayChunks:
     ):
         array = rng.standard_normal((20, 3)).astype(np.float32)
 
-        with pytest.raises(TypeError):
+        with pytest.raises(
+            TypeError,
+            match=re.escape(f"Unsupported chunks type {type(5)}"),
+        ):
             ReplayBuffer._resolve_array_chunks(
                 chunks=5, key="position", array=array,
             )

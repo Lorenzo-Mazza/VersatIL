@@ -236,6 +236,29 @@ class TestValidationStep:
         assert lightning_policy.val_metrics.num_batches == 1
         assert lightning_policy.train_metrics.num_batches == 0
 
+    def test_logs_val_loss(
+        self,
+        mock_policy_factory: Callable,
+        loss_output_factory: Callable,
+        lightning_policy_factory: Callable,
+    ):
+        policy = mock_policy_factory()
+        loss_output = loss_output_factory(total_loss_value=0.42)
+        policy.compute_loss.return_value = loss_output
+
+        lightning_policy = lightning_policy_factory(policy=policy)
+
+        with patch.object(lightning_policy, "log") as mock_log:
+            lightning_policy.validation_step(batch={}, batch_idx=0)
+
+            mock_log.assert_called_once_with(
+                "val_loss",
+                loss_output.total_loss,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+            )
+
 
 @pytest.mark.unit
 class TestOnTrainEpochEnd:

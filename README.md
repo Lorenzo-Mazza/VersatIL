@@ -76,10 +76,11 @@ Instead, VersatIL handles this with a two-stage approach:
    - Custom CSV + image folders (TSO Lab format)  
    Extend by subclassing `DatasetSchema` for new formats.
    
-2. **Zarr Store Creation**  
-   Zarr [https://zarr.readthedocs.io/en/stable/]  provides fast, compressed, chunked storage with NumPy-like access.  
+2. **Zarr Store Creation**
+   Zarr [https://zarr.readthedocs.io/en/stable/]  provides fast, compressed, chunked storage with NumPy-like access.
    - Created **automatically** on first training run if missing — no separate preprocessing script needed.
    - Decouples raw storage from training-optimized layout.
+   - Raw keys vs pipeline keys: Raw data formats use their own naming (e.g., LIBERO LeRobot dataset uses `observation.images.image`, LIBERO original HDF5 dataset uses `agentview_image`). During zarr creation, these *raw camera keys* (`RawCameraKey`) are remapped to standardized *pipeline camera keys* (`Cameras`) via `RAW_TO_CAMERA_MAPPING`. After zarr creation, only pipeline keys exist — the rest of the codebase (training, inference, validation) never sees raw format keys. This separation is defined in `src/versatil/data/constants.py` and ensures that adding a new raw data format only requires a new `RawCameraKey` entry and its mapping, with zero changes to the training or inference pipeline.
 
 ---
 
@@ -176,13 +177,11 @@ Follow the instructions here https://github.com/conda-forge/miniforge
 git clone https://gitlab.com/nct_tso_public/versatil.git
 cd versatil
 
-# 2. Configure git credentials
-git config --global credential.helper store
-# 3. Create environment (use Mamba for faster installation)
+# 2. Create environment (use Mamba for faster installation)
 mamba env create -f environment.yml
 mamba activate versatil
 
-# 4. Install dependencies with uv
+# 3. Install dependencies with uv
 UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
 ```
 
@@ -489,7 +488,7 @@ pytest -m "not slow"       # Skip slow tests
 - **Strings**: Use double quotes (`"foo"` not `'foo'`)
 - **Constants**: Avoid hardcoded strings, use `Enum.MY_ENUM.value`
 - **No wildcard imports**: Avoid `from module import *`
-- Avoid **kwargs and *args: Explicit is better than implicit
+- Avoid `**kwargs` and `*args` signatures: Explicit is better than implicit
 
 ```bash
 # Format code

@@ -8,6 +8,25 @@ import numpy as np
 import pytest
 import torch
 
+from versatil.data.constants import (
+    ActionComputationMethod,
+    BinaryGripperRange,
+    Cameras,
+    CoordinateSystem,
+    GripperType,
+    OrientationRepresentation,
+)
+from versatil.data.metadata import (
+    CameraMetadata,
+    GripperActionMetadata,
+    GripperObservationMetadata,
+    OnTheFlyActionMetadata,
+    OrientationActionMetadata,
+    OrientationObservationMetadata,
+    PositionActionMetadata,
+    PositionObservationMetadata,
+)
+from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.metrics.base import LossOutput
 
 
@@ -109,4 +128,248 @@ def action_tensor_factory(
         ).astype(np.float32)
         return torch.from_numpy(data)
 
+    return factory
+
+
+@pytest.fixture
+def position_observation_metadata_factory() -> Callable[..., PositionObservationMetadata]:
+    def factory(
+        dimension: int = 3,
+        frame: str = CoordinateSystem.ROBOT_BASE.value,
+        needs_normalization: bool = True,
+        raw_data_column_keys: list[str] = None,
+        dtype: str = "float32",
+        slice_start: int = None,
+        slice_end: int = None,
+    ) -> PositionObservationMetadata:
+        if raw_data_column_keys is None:
+            raw_data_column_keys = ["x", "y", "z"][:dimension]
+        return PositionObservationMetadata(
+            raw_data_column_keys=raw_data_column_keys,
+            dimension=dimension,
+            dtype=dtype,
+            needs_normalization=needs_normalization,
+            frame=frame,
+            slice_start=slice_start,
+            slice_end=slice_end,
+        )
+    return factory
+
+
+@pytest.fixture
+def orientation_observation_metadata_factory() -> Callable[..., OrientationObservationMetadata]:
+    def factory(
+        dimension: int = 1,
+        frame: str = CoordinateSystem.ROBOT_BASE.value,
+        orientation_representation: str = OrientationRepresentation.ROLL.value,
+        needs_normalization: bool = True,
+        raw_data_column_keys: list[str] = None,
+        dtype: str = "float32",
+        slice_start: int = None,
+        slice_end: int = None,
+    ) -> OrientationObservationMetadata:
+        if raw_data_column_keys is None:
+            raw_data_column_keys = ["roll", "pitch", "yaw"][:dimension]
+        return OrientationObservationMetadata(
+            raw_data_column_keys=raw_data_column_keys,
+            dimension=dimension,
+            dtype=dtype,
+            needs_normalization=needs_normalization,
+            frame=frame,
+            orientation_representation=orientation_representation,
+            slice_start=slice_start,
+            slice_end=slice_end,
+        )
+    return factory
+
+
+@pytest.fixture
+def gripper_observation_metadata_factory() -> Callable[..., GripperObservationMetadata]:
+    def factory(
+        gripper_type: str = GripperType.BINARY.value,
+        binary_gripper_range: str = BinaryGripperRange.ZERO_ONE.value,
+        dimension: int = 1,
+        raw_data_column_keys: list[str] = None,
+        dtype: str = None,
+        needs_normalization: bool = None,
+    ) -> GripperObservationMetadata:
+        if raw_data_column_keys is None:
+            raw_data_column_keys = ["gripper_state"]
+        if gripper_type == GripperType.BINARY.value:
+            if dtype is None:
+                dtype = "int32"
+            if needs_normalization is None:
+                needs_normalization = False
+        else:
+            if dtype is None:
+                dtype = "float32"
+            if needs_normalization is None:
+                needs_normalization = True
+        return GripperObservationMetadata(
+            raw_data_column_keys=raw_data_column_keys,
+            dimension=dimension,
+            dtype=dtype,
+            needs_normalization=needs_normalization,
+            gripper_type=gripper_type,
+            binary_gripper_range=binary_gripper_range,
+        )
+    return factory
+
+
+@pytest.fixture
+def camera_metadata_factory() -> Callable[..., CameraMetadata]:
+    def factory(
+        camera_key: str = Cameras.LEFT.value,
+        dtype: str = "uint8",
+        channels: int = 3,
+        image_width: int = None,
+        image_height: int = None,
+    ) -> CameraMetadata:
+        return CameraMetadata(
+            camera_key=camera_key,
+            dtype=dtype,
+            channels=channels,
+            image_width=image_width,
+            image_height=image_height,
+        )
+    return factory
+
+
+@pytest.fixture
+def on_the_fly_action_metadata_factory(
+    position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+) -> Callable[..., OnTheFlyActionMetadata]:
+    def factory(
+        source_metadata: PositionObservationMetadata
+        | OrientationObservationMetadata
+        | GripperObservationMetadata = None,
+        computation_method: str = ActionComputationMethod.DELTA.value,
+    ) -> OnTheFlyActionMetadata:
+        if source_metadata is None:
+            source_metadata = position_observation_metadata_factory()
+        return OnTheFlyActionMetadata(
+            source_metadata=source_metadata,
+            computation_method=computation_method,
+        )
+    return factory
+
+
+@pytest.fixture
+def gripper_action_metadata_factory() -> Callable[..., GripperActionMetadata]:
+    def factory(
+        gripper_type: str = GripperType.BINARY.value,
+        binary_gripper_range: str = BinaryGripperRange.ZERO_ONE.value,
+        raw_data_column_keys: list[str] = None,
+        storage_dimension: int = 1,
+        prediction_dimension: int = 1,
+        dtype: str = None,
+        needs_normalization: bool = None,
+    ) -> GripperActionMetadata:
+        if raw_data_column_keys is None:
+            raw_data_column_keys = ["gripper_action"]
+        if gripper_type == GripperType.BINARY.value:
+            if dtype is None:
+                dtype = "int32"
+            if needs_normalization is None:
+                needs_normalization = False
+        else:
+            if dtype is None:
+                dtype = "float32"
+            if needs_normalization is None:
+                needs_normalization = True
+        return GripperActionMetadata(
+            gripper_type=gripper_type,
+            raw_data_column_keys=raw_data_column_keys,
+            storage_dimension=storage_dimension,
+            prediction_dimension=prediction_dimension,
+            needs_normalization=needs_normalization,
+            dtype=dtype,
+            binary_gripper_range=binary_gripper_range,
+        )
+    return factory
+
+
+@pytest.fixture
+def action_space_factory() -> Callable[..., ActionSpace]:
+    def factory(
+        actions_metadata: dict = None,
+        use_gripper_class_weights: bool = False,
+        denoise_actions: bool = True,
+        denoising_percentile: float = 15.0,
+    ) -> ActionSpace:
+        if actions_metadata is None:
+            actions_metadata = {}
+        return ActionSpace(
+            actions_metadata=actions_metadata,
+            use_gripper_class_weights=use_gripper_class_weights,
+            denoise_actions=denoise_actions,
+            denoising_percentile=denoising_percentile,
+        )
+    return factory
+
+
+@pytest.fixture
+def position_action_metadata_factory() -> Callable[..., PositionActionMetadata]:
+    def factory(
+        frame: str = CoordinateSystem.ROBOT_BASE.value,
+        raw_data_column_keys: list[str] = None,
+        storage_dimension: int = 3,
+        prediction_dimension: int = 3,
+        needs_normalization: bool = True,
+        dtype: str = "float32",
+        slice_start: int = None,
+        slice_end: int = None,
+    ) -> PositionActionMetadata:
+        if raw_data_column_keys is None:
+            raw_data_column_keys = ["x", "y", "z"][:prediction_dimension]
+        return PositionActionMetadata(
+            frame=frame,
+            raw_data_column_keys=raw_data_column_keys,
+            storage_dimension=storage_dimension,
+            prediction_dimension=prediction_dimension,
+            needs_normalization=needs_normalization,
+            dtype=dtype,
+            slice_start=slice_start,
+            slice_end=slice_end,
+        )
+    return factory
+
+
+@pytest.fixture
+def orientation_action_metadata_factory() -> Callable[..., OrientationActionMetadata]:
+    def factory(
+        frame: str = CoordinateSystem.ROBOT_BASE.value,
+        orientation_representation: str = OrientationRepresentation.ROLL.value,
+        raw_data_column_keys: list[str] = None,
+        storage_dimension: int = 1,
+        prediction_dimension: int = 1,
+        needs_normalization: bool = True,
+        dtype: str = "float32",
+        slice_start: int = None,
+        slice_end: int = None,
+    ) -> OrientationActionMetadata:
+        if raw_data_column_keys is None:
+            raw_data_column_keys = ["roll", "pitch", "yaw"][:prediction_dimension]
+        return OrientationActionMetadata(
+            frame=frame,
+            orientation_representation=orientation_representation,
+            raw_data_column_keys=raw_data_column_keys,
+            storage_dimension=storage_dimension,
+            prediction_dimension=prediction_dimension,
+            needs_normalization=needs_normalization,
+            dtype=dtype,
+            slice_start=slice_start,
+            slice_end=slice_end,
+        )
+    return factory
+
+
+@pytest.fixture
+def observation_space_factory() -> Callable[..., ObservationSpace]:
+    def factory(
+        observations_metadata: dict = None,
+    ) -> ObservationSpace:
+        if observations_metadata is None:
+            observations_metadata = {}
+        return ObservationSpace(observations_metadata=observations_metadata)
     return factory

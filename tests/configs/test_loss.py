@@ -6,6 +6,7 @@ from hydra.utils import instantiate
 from omegaconf import MISSING
 
 from versatil.configs.loss import (
+    ActionTokenLossConfig,
     BaseLossConfig,
     BinaryKLDivergenceLossConfig,
     BinaryMaximumMeanDiscrepancyLossConfig,
@@ -292,6 +293,23 @@ class TestBinaryMaximumMeanDiscrepancyLossConfig:
 
 
 @pytest.mark.unit
+class TestActionTokenLossConfig:
+
+    def test_target_points_to_action_token_loss(self):
+        config = ActionTokenLossConfig()
+        assert config._target_ == "versatil.metrics.ActionTokenLoss"
+
+    @pytest.mark.parametrize("label_smoothing", [0.0, 0.2, 0.5])
+    def test_stores_label_smoothing(self, label_smoothing):
+        config = ActionTokenLossConfig(label_smoothing=label_smoothing)
+        assert config.label_smoothing == label_smoothing
+
+    def test_inherits_from_base_loss_config(self):
+        config = ActionTokenLossConfig()
+        assert isinstance(config, BaseLossConfig)
+
+
+@pytest.mark.unit
 class TestLossInstantiation:
 
     def test_regression_loss_instantiates(self):
@@ -331,3 +349,8 @@ class TestLossInstantiation:
         config = PhaseClassificationLossConfig(key="phase_label", cross_entropy_weight=1.0)
         instance = instantiate(config)
         assert instance.key == "phase_label"
+
+    def test_action_token_loss_instantiates(self):
+        config = ActionTokenLossConfig(label_smoothing=0.1)
+        instance = instantiate(config)
+        assert instance.label_smoothing == 0.1

@@ -100,6 +100,8 @@ class TemporalAggregator:
         Returns:
             Tensor of shape (num_predictions, 1).
         """
+        if num_predictions <= 0:
+            return torch.empty(0, 1, device=self.device, dtype=torch.float32)
         indices = np.arange(num_predictions)
         if self.favor_more_recent:
             indices = indices[::-1]

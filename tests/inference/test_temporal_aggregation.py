@@ -193,6 +193,36 @@ class TestTemporalAggregatorStoreAndAverage:
             torch.tensor([20.5], device=device),
         )
 
+    def test_boundary_at_max_timesteps(
+        self, temporal_aggregator_factory, device
+    ):
+        aggregator = temporal_aggregator_factory(
+            action_keys_to_dimensions={"action": 1},
+            prediction_horizon=3,
+            max_timesteps=5,
+            exponential_decay=0.0,
+        )
+        results = []
+        for step in range(4):
+            predictions = {
+                "action": torch.full(
+                    (3, 1), fill_value=float(step), device=device
+                )
+            }
+            result = aggregator.store_and_average(
+                current_predictions=predictions
+            )
+            results.append(result["action"])
+        assert aggregator.timestep == 4
+        # At step 3, timestep column 3 has contributions from steps 1,2,3
+        # (predictions from step 1 cover timesteps 1-3,
+        #  step 2 covers 2-4, step 3 covers 3-5)
+        # With uniform weights: (1 + 2 + 3) / 3 = 2.0
+        torch.testing.assert_close(
+            results[3],
+            torch.tensor([2.0], device=device),
+        )
+
     def test_favor_more_recent_weights_newer_predictions_higher(
         self, temporal_aggregator_factory, device
     ):
@@ -299,9 +329,12 @@ class TestTemporalAggregatorReset:
 @pytest.mark.unit
 class TestComputeExponentialWeights:
 
-    def test_weights_sum_to_one(self, temporal_aggregator_factory):
+    @pytest.mark.parametrize("num_predictions", [1, 3, 10])
+    def test_weights_sum_to_one(self, temporal_aggregator_factory, num_predictions):
         aggregator = temporal_aggregator_factory(exponential_decay=0.05)
-        weights = aggregator._compute_exponential_weights(num_predictions=5)
+        weights = aggregator._compute_exponential_weights(
+            num_predictions=num_predictions
+        )
         torch.testing.assert_close(
             weights.sum(),
             torch.tensor(1.0, device=weights.device),
@@ -352,3 +385,30 @@ class TestComputeExponentialWeights:
             (4, 1), fill_value=0.25, device=weights.device
         )
         torch.testing.assert_close(weights, expected)
+
+    def test_weights_with_zero_predictions_returns_empty(
+        self, temporal_aggregator_factory
+    ):
+        aggregator = temporal_aggregator_factory()
+        weights = aggregator._compute_exponential_weights(num_predictions=0)
+        assert weights.shape == (0, 1)
+        assert weights.dtype == torch.float32
+
+    def test_exact_weight_values_for_known_decay(
+        self, temporal_aggregator_factory
+    ):
+        # num_predictions=3, decay=1.0, favor_more_recent=True
+        # indices [0,1,2] reversed to [2,1,0]
+        # raw weights: exp(-2), exp(-1), exp(0)
+        # normalized by sum
+        aggregator = temporal_aggregator_factory(
+            exponential_decay=1.0, favor_more_recent=True
+        )
+        weights = aggregator._compute_exponential_weights(num_predictions=3)
+        raw = np.exp(-1.0 * np.array([2.0, 1.0, 0.0]))
+        expected = raw / raw.sum()
+        torch.testing.assert_close(
+            weights,
+            torch.tensor(expected, dtype=torch.float32, device=weights.device)
+            .unsqueeze(dim=1),
+        )

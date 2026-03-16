@@ -137,6 +137,7 @@ from versatil.data.constants import (
     ObsKey,
     OrientationRepresentation,
     ProprioKey,
+    RawCameraKey,
     TokenizerType,
     KinematicsNormalizationType,
     ImageNormalizationType,
@@ -232,6 +233,8 @@ def register_resolvers():
     """
     if not OmegaConf.has_resolver("cameras"):
         OmegaConf.register_new_resolver("cameras", lambda name: Cameras[name].value)
+    if not OmegaConf.has_resolver("raw_camera"):
+        OmegaConf.register_new_resolver("raw_camera", lambda name: RawCameraKey[name].value)
     if not OmegaConf.has_resolver("gripper"):
         OmegaConf.register_new_resolver("gripper", lambda name: GripperType[name].value)
     if not OmegaConf.has_resolver("orientation"):
