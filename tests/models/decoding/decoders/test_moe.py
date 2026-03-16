@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.decoders.moe module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -14,7 +15,6 @@ from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.decoding.decoders.moe import MoEDecoder
 from versatil.models.decoding.mixture_of_experts import BaseMixtureOfExperts
 from versatil.models.layers.activation import ActivationFunction
-
 
 EMBEDDING_DIMENSION = 32
 BATCH_SIZE = 2
@@ -60,9 +60,7 @@ class MinimalDecoder(ActionDecoder):
         projected = self.linear(feature)
         results = {}
         for key, head in self.action_heads.items():
-            expanded = projected.unsqueeze(1).expand(
-                -1, self.prediction_horizon, -1
-            )
+            expanded = projected.unsqueeze(1).expand(-1, self.prediction_horizon, -1)
             results[key] = head(expanded)
         return results
 
@@ -158,14 +156,15 @@ def moe_decoder_factory(
 @pytest.fixture
 def mock_cuda():
     """Mock CUDA stream operations for CPU testing."""
-    with patch("torch.cuda.Stream", return_value=MagicMock()), \
-         patch("torch.cuda.stream"), \
-         patch("torch.cuda.synchronize"):
+    with (
+        patch("torch.cuda.Stream", return_value=MagicMock()),
+        patch("torch.cuda.stream"),
+        patch("torch.cuda.synchronize"),
+    ):
         yield
 
 
 class TestMoEDecoderInitialization:
-
     def test_inherits_from_action_decoder_and_base_moe(
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
@@ -191,10 +190,13 @@ class TestMoEDecoderInitialization:
         assert decoder.action_keys == ["position_action"]
         assert isinstance(decoder.base_expert, MinimalDecoder)
 
-    @pytest.mark.parametrize("inference_gating_key, expected_key", [
-        (None, GATING_FEATURE_KEY),
-        (INFERENCE_GATING_KEY, INFERENCE_GATING_KEY),
-    ])
+    @pytest.mark.parametrize(
+        "inference_gating_key, expected_key",
+        [
+            (None, GATING_FEATURE_KEY),
+            (INFERENCE_GATING_KEY, INFERENCE_GATING_KEY),
+        ],
+    )
     def test_inference_gating_key(
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
@@ -229,7 +231,6 @@ class TestMoEDecoderInitialization:
 
 
 class TestCreateExpertsFromConfig:
-
     @pytest.mark.parametrize("num_experts", [2, 5])
     def test_creates_correct_number_of_experts(
         self,
@@ -302,7 +303,6 @@ class TestCreateExpertsFromConfig:
 
 
 class TestMoEDecoderForward:
-
     def test_training_uses_gating_feature_key(
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
@@ -416,10 +416,13 @@ class TestMoEDecoderForward:
         decoder(features=features, actions=None)
         assert GATING_FEATURE_KEY not in features
 
-    @pytest.mark.parametrize("routing_type", [
-        MoERoutingType.SOFT.value,
-        MoERoutingType.TOP_K.value,
-    ])
+    @pytest.mark.parametrize(
+        "routing_type",
+        [
+            MoERoutingType.SOFT.value,
+            MoERoutingType.TOP_K.value,
+        ],
+    )
     def test_routing_type_produces_valid_output(
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],
@@ -447,6 +450,7 @@ def expert_action_outputs_factory(
     rng: np.random.Generator,
 ) -> Callable[..., list[dict[str, torch.Tensor]]]:
     """Factory for lists of expert output dictionaries."""
+
     def factory(
         num_experts: int = NUM_EXPERTS,
         batch_size: int = BATCH_SIZE,
@@ -463,6 +467,7 @@ def expert_action_outputs_factory(
             }
             for _ in range(num_experts)
         ]
+
     return factory
 
 
@@ -471,6 +476,7 @@ def moe_routing_weights_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:
     """Factory for softmax-normalized routing weight tensors."""
+
     def factory(
         batch_size: int = BATCH_SIZE,
         num_experts: int = NUM_EXPERTS,
@@ -479,11 +485,11 @@ def moe_routing_weights_factory(
             rng.standard_normal((batch_size, num_experts)).astype(np.float32)
         )
         return torch.softmax(raw, dim=-1)
+
     return factory
 
 
 class TestCombineExpertOutputs:
-
     def test_combines_all_action_keys(
         self,
         moe_decoder_factory: Callable[..., MoEDecoder],

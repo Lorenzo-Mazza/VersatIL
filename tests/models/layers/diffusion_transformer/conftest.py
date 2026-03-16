@@ -1,4 +1,5 @@
 """Shared fixtures for diffusion transformer layer tests."""
+
 from collections.abc import Callable
 
 import numpy as np

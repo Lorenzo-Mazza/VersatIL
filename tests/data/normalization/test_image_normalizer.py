@@ -1,4 +1,5 @@
 """Tests for versatil.data.normalization.image_normalizer module."""
+
 from collections.abc import Callable
 
 import numpy as np
@@ -6,10 +7,6 @@ import pytest
 import torch
 
 from versatil.data.constants import (
-    IMAGENET_DEPTH_MEAN,
-    IMAGENET_DEPTH_STD,
-    IMAGENET_RGB_MEAN,
-    IMAGENET_RGB_STD,
     ImageNormalizationType,
 )
 from versatil.data.normalization.image_normalizer import (
@@ -36,9 +33,7 @@ def rgb_image_tensor(rng: np.random.Generator) -> Callable[..., torch.Tensor]:
         batch_size: int = 2,
         channels: int = 3,
     ) -> torch.Tensor:
-        return torch.from_numpy(
-            rng.random((batch_size, channels)).astype(np.float32)
-        )
+        return torch.from_numpy(rng.random((batch_size, channels)).astype(np.float32))
 
     return factory
 
@@ -55,7 +50,6 @@ def depth_stats() -> dict[str, float]:
 
 
 class TestToTensor:
-
     def test_converts_numpy_array(self):
         array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
         result = _to_tensor(array)
@@ -90,7 +84,6 @@ class TestToTensor:
 
 
 class TestGetRgbImageNormalizer:
-
     @pytest.mark.parametrize("norm_type", ALL_IMAGE_NORM_TYPES)
     def test_returns_normalizer_for_all_types(self, norm_type: str):
         normalizer = get_rgb_image_normalizer(norm_type=norm_type)
@@ -110,8 +103,12 @@ class TestGetRgbImageNormalizer:
         zeros = torch.zeros(1, 3)
         ones = torch.ones(1, 3)
 
-        torch.testing.assert_close(normalizer.normalize(zeros), zeros, atol=1e-5, rtol=1e-5)
-        torch.testing.assert_close(normalizer.normalize(ones), ones, atol=1e-5, rtol=1e-5)
+        torch.testing.assert_close(
+            normalizer.normalize(zeros), zeros, atol=1e-5, rtol=1e-5
+        )
+        torch.testing.assert_close(
+            normalizer.normalize(ones), ones, atol=1e-5, rtol=1e-5
+        )
 
     def test_minus_one_to_one_maps_to_symmetric_range(self):
         normalizer = get_rgb_image_normalizer(
@@ -153,7 +150,6 @@ class TestGetRgbImageNormalizer:
 
 
 class TestGetDepthImageNormalizer:
-
     @pytest.mark.parametrize("norm_type", ALL_IMAGE_NORM_TYPES)
     def test_returns_normalizer_for_all_types(
         self,
@@ -161,7 +157,8 @@ class TestGetDepthImageNormalizer:
         depth_stats: dict[str, float],
     ):
         normalizer = get_depth_image_normalizer(
-            **depth_stats, norm_type=norm_type,
+            **depth_stats,
+            norm_type=norm_type,
         )
 
         assert isinstance(
@@ -208,7 +205,8 @@ class TestGetDepthImageNormalizer:
         depth_stats: dict[str, float],
     ):
         normalizer = get_depth_image_normalizer(
-            **depth_stats, norm_type=norm_type,
+            **depth_stats,
+            norm_type=norm_type,
         )
 
         depth_values = torch.tensor([1.0, 2.5, 4.0])
@@ -218,7 +216,6 @@ class TestGetDepthImageNormalizer:
 
 
 class TestCreateImageNormalizer:
-
     def test_without_standardization_returns_single_field(self):
         normalizer = create_image_normalizer(
             input_min=0.0,
@@ -284,7 +281,6 @@ class TestCreateImageNormalizer:
 
 
 class TestGetRangeNormalizerFromStat:
-
     def test_creates_normalizer_from_precomputed_stats(self):
         stat = {
             "min": torch.tensor([0.0, 0.0]),
@@ -294,7 +290,9 @@ class TestGetRangeNormalizerFromStat:
         }
 
         normalizer = get_range_normalizer_from_stat(
-            stat=stat, output_min=-1.0, output_max=1.0,
+            stat=stat,
+            output_min=-1.0,
+            output_max=1.0,
         )
 
         assert isinstance(normalizer, SingleFieldLinearNormalizer)
@@ -327,7 +325,6 @@ class TestGetRangeNormalizerFromStat:
 
 
 class TestArrayToStats:
-
     def test_computes_correct_statistics(self):
         data = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
 

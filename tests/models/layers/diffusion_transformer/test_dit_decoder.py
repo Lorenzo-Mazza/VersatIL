@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.diffusion_transformer.dit_decoder module."""
+
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -7,6 +8,7 @@ import pytest
 import torch
 import torch.nn as nn
 
+from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.diffusion_transformer.dit_decoder import (
@@ -14,12 +16,9 @@ from versatil.models.layers.diffusion_transformer.dit_decoder import (
 )
 from versatil.models.layers.normalization.constants import NormalizationType
 
-from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
-
 
 @pytest.fixture
 def dit_decoder_factory() -> Callable[..., DiffusionTransformerDecoder]:
-
     def factory(
         number_of_layers: int = 2,
         embedding_dimension: int = 32,
@@ -65,7 +64,6 @@ def dit_decoder_factory() -> Callable[..., DiffusionTransformerDecoder]:
 
 
 class TestDiffusionTransformerDecoderInitialization:
-
     @pytest.mark.parametrize("number_of_layers", [1, 3])
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     def test_stores_configuration(
@@ -124,13 +122,14 @@ class TestDiffusionTransformerDecoderInitialization:
             use_gating=True,
         )
         first_layer = decoder.layers[0]
-        for linear in first_layer.self_attention_normalization.modulation.projection.modules():
+        for (
+            linear
+        ) in first_layer.self_attention_normalization.modulation.projection.modules():
             if isinstance(linear, nn.Linear):
                 assert torch.all(linear.weight == 0.0)
 
 
 class TestDiffusionTransformerDecoderForward:
-
     @pytest.mark.parametrize(
         "batch_size, sequence_length, embedding_dimension",
         [
@@ -287,7 +286,6 @@ class TestDiffusionTransformerDecoderForward:
 
 
 class TestExpandPaddingMask:
-
     @pytest.mark.parametrize(
         "batch_size, sequence_length",
         [

@@ -26,7 +26,7 @@ class GMMInitStrategy(str, enum.Enum):
     """Initialization strategies for GMM mixture components."""
 
     KMEANS_PLUS_PLUS = "kmeans_plus_plus"  # K-means++ style spread for means
-    UNIFORM = "uniform"  # Simple uniform spread 
+    UNIFORM = "uniform"  # Simple uniform spread
 
 
 class PredictionType(str, enum.Enum):

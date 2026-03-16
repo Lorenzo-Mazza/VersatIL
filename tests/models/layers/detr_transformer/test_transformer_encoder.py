@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.detr_transformer.transformer_encoder module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -17,7 +18,6 @@ SOURCE_LENGTH = 8
 
 
 class TestTransformerEncoderLayerInitialization:
-
     @pytest.mark.parametrize("embedding_dimension", [EMBEDDING_DIMENSION, 128])
     @pytest.mark.parametrize("number_of_heads", [NUMBER_OF_HEADS, 8])
     @pytest.mark.parametrize("normalize_before", [False, True])
@@ -37,10 +37,13 @@ class TestTransformerEncoderLayerInitialization:
         assert layer.self_attention.embedding_dimension == embedding_dimension
         assert layer.self_attention.number_of_heads == number_of_heads
 
-    @pytest.mark.parametrize("activation", [
-        ActivationFunction.RELU.value,
-        ActivationFunction.GELU.value,
-    ])
+    @pytest.mark.parametrize(
+        "activation",
+        [
+            ActivationFunction.RELU.value,
+            ActivationFunction.GELU.value,
+        ],
+    )
     def test_standard_activation_creates_feedforward_linear1(
         self,
         encoder_layer_factory: Callable[..., TransformerEncoderLayer],
@@ -63,7 +66,6 @@ class TestTransformerEncoderLayerInitialization:
 
 
 class TestTransformerEncoderLayerForward:
-
     def test_output_shape(
         self,
         encoder_layer_factory: Callable[..., TransformerEncoderLayer],
@@ -168,11 +170,14 @@ class TestTransformerEncoderLayerForward:
         )
         assert not torch.allclose(output_without, output_with)
 
-    @pytest.mark.parametrize("activation", [
-        ActivationFunction.RELU.value,
-        ActivationFunction.GELU.value,
-        ActivationFunction.SWIGLU.value,
-    ])
+    @pytest.mark.parametrize(
+        "activation",
+        [
+            ActivationFunction.RELU.value,
+            ActivationFunction.GELU.value,
+            ActivationFunction.SWIGLU.value,
+        ],
+    )
     def test_forward_with_different_activations(
         self,
         encoder_layer_factory: Callable[..., TransformerEncoderLayer],
@@ -239,7 +244,6 @@ class TestTransformerEncoderLayerForward:
 
 
 class TestTransformerEncoderInitialization:
-
     @pytest.mark.parametrize("number_of_layers", [1, 3])
     def test_stores_number_of_layers(
         self,
@@ -258,7 +262,9 @@ class TestTransformerEncoderInitialization:
         # Mutate one layer's weight and verify the other is unaffected
         original_weight = encoder.layers[1].normalization1.weight.data.clone()
         encoder.layers[0].normalization1.weight.data.fill_(999.0)
-        assert torch.allclose(encoder.layers[1].normalization1.weight.data, original_weight)
+        assert torch.allclose(
+            encoder.layers[1].normalization1.weight.data, original_weight
+        )
 
     def test_normalization_applied_when_configured(
         self,
@@ -319,7 +325,6 @@ class TestTransformerEncoderInitialization:
 
 
 class TestTransformerEncoderForward:
-
     def test_output_shape(
         self,
         transformer_encoder_factory: Callable[..., TransformerEncoder],

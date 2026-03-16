@@ -3,8 +3,9 @@
 `dtype` across all configs refers to zarr v3 storage data type.
 zarr v3 allowed dtypes are defined here https://zarr-specs.readthedocs.io/en/latest/v3/data-types/index.html
 """
+
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from omegaconf import MISSING
 
@@ -26,8 +27,8 @@ class ObservationMetadataConfig:
     dtype: str = MISSING
     is_numerical: bool = MISSING
     needs_normalization: bool = MISSING
-    slice_start: Optional[int] = None
-    slice_end: Optional[int] = None
+    slice_start: int | None = None
+    slice_end: int | None = None
 
 
 @dataclass
@@ -64,8 +65,8 @@ class CameraMetadataConfig:
     camera_key: str = MISSING
     dtype: str = MISSING
     channels: int = MISSING
-    image_width: Optional[int] = None
-    image_height: Optional[int] = None
+    image_width: int | None = None
+    image_height: int | None = None
 
 
 @dataclass

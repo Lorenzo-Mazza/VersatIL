@@ -6,8 +6,8 @@ import albumentations as A
 import h5py
 import numpy as np
 
-from versatil.data.raw.zarr_meta import DatasetMetadata
 from versatil.data.raw.schemas.base import DatasetSchema
+from versatil.data.raw.zarr_meta import DatasetMetadata
 
 
 class Hdf5DatasetSchema(DatasetSchema):

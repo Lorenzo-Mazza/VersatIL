@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.mlp module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -12,6 +13,7 @@ from versatil.models.layers.swiglu import SwiGLU
 @pytest.fixture
 def mlp_factory() -> Callable[..., MLP]:
     """Factory for MLP instances."""
+
     def factory(
         input_dim: int = 32,
         hidden_dims: list[int] | None = None,
@@ -26,11 +28,11 @@ def mlp_factory() -> Callable[..., MLP]:
             activation_function=activation_function,
             dropout=dropout,
         )
+
     return factory
 
 
 class TestMLPInitialization:
-
     def test_layers_are_iterable_and_ordered(
         self,
         mlp_factory: Callable[..., MLP],
@@ -41,11 +43,14 @@ class TestMLPInitialization:
         assert layer_types[0] == "Linear"
         assert layer_types[-1] == "Linear"
 
-    @pytest.mark.parametrize("hidden_dims, expected_linear_count", [
-        (None, 0),
-        ([64], 1),
-        ([64, 128], 2),
-    ])
+    @pytest.mark.parametrize(
+        "hidden_dims, expected_linear_count",
+        [
+            (None, 0),
+            ([64], 1),
+            ([64, 128], 2),
+        ],
+    )
     def test_creates_correct_number_of_hidden_layers(
         self,
         mlp_factory: Callable[..., MLP],
@@ -53,15 +58,16 @@ class TestMLPInitialization:
         expected_linear_count: int,
     ):
         mlp = mlp_factory(input_dim=32, hidden_dims=hidden_dims)
-        linear_layers = [
-            layer for layer in mlp.layers if isinstance(layer, nn.Linear)
-        ]
+        linear_layers = [layer for layer in mlp.layers if isinstance(layer, nn.Linear)]
         assert len(linear_layers) == expected_linear_count
 
-    @pytest.mark.parametrize("output_dim, expected_extra_linear", [
-        (None, 0),
-        (16, 1),
-    ])
+    @pytest.mark.parametrize(
+        "output_dim, expected_extra_linear",
+        [
+            (None, 0),
+            (16, 1),
+        ],
+    )
     def test_output_layer_added_when_output_dim_specified(
         self,
         mlp_factory: Callable[..., MLP],
@@ -73,9 +79,7 @@ class TestMLPInitialization:
             hidden_dims=[64],
             output_dim=output_dim,
         )
-        linear_layers = [
-            layer for layer in mlp.layers if isinstance(layer, nn.Linear)
-        ]
+        linear_layers = [layer for layer in mlp.layers if isinstance(layer, nn.Linear)]
         # 1 for hidden + expected_extra_linear for output
         assert len(linear_layers) == 1 + expected_extra_linear
 
@@ -109,13 +113,15 @@ class TestMLPInitialization:
 
 
 class TestMLPForward:
-
-    @pytest.mark.parametrize("input_dim, hidden_dims, output_dim, expected_output_dim", [
-        (32, [64], 16, 16),
-        (32, [64, 128], 8, 8),
-        (32, [64], None, 64),
-        (32, None, 16, 16),
-    ])
+    @pytest.mark.parametrize(
+        "input_dim, hidden_dims, output_dim, expected_output_dim",
+        [
+            (32, [64], 16, 16),
+            (32, [64, 128], 8, 8),
+            (32, [64], None, 64),
+            (32, None, 16, 16),
+        ],
+    )
     def test_output_shape(
         self,
         mlp_factory: Callable[..., MLP],
@@ -145,11 +151,14 @@ class TestMLPForward:
         assert output.shape == (4, 32)
         assert torch.equal(output, tensor)
 
-    @pytest.mark.parametrize("activation_function", [
-        nn.GELU,
-        nn.ReLU,
-        nn.SiLU,
-    ])
+    @pytest.mark.parametrize(
+        "activation_function",
+        [
+            nn.GELU,
+            nn.ReLU,
+            nn.SiLU,
+        ],
+    )
     def test_works_with_different_activations(
         self,
         mlp_factory: Callable[..., MLP],
@@ -184,7 +193,6 @@ class TestMLPForward:
 
 
 class TestMLPWithSwiGLU:
-
     def test_forward_with_swiglu_activation(
         self,
         mlp_factory: Callable[..., MLP],
@@ -210,11 +218,10 @@ class TestMLPWithSwiGLU:
             activation_function=SwiGLU,
         )
         # SwiGLU replaces the Linear+Activation pair, so no separate nn.Linear for hidden
-        swiglu_layers = [
-            layer for layer in mlp.layers if isinstance(layer, SwiGLU)
-        ]
+        swiglu_layers = [layer for layer in mlp.layers if isinstance(layer, SwiGLU)]
         standalone_linear_layers = [
-            layer for layer in mlp.layers
+            layer
+            for layer in mlp.layers
             if isinstance(layer, nn.Linear) and not isinstance(layer, SwiGLU)
         ]
         assert len(swiglu_layers) == 1

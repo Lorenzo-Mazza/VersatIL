@@ -7,7 +7,6 @@ from typing import Self
 
 import cv2
 import numpy as np
-
 from zarr.abc.codec import ArrayBytesCodec
 from zarr.core.array_spec import ArraySpec
 from zarr.core.buffer import Buffer, NDBuffer
@@ -85,9 +84,7 @@ class WebPCodec(ArrayBytesCodec):
         arr = _protective_squeeze(arr)
         if arr.ndim == 3 and arr.shape[-1] == 3:
             arr = np.ascontiguousarray(arr[..., ::-1])  # RGB -> BGR
-        _, encoded = cv2.imencode(
-            ".webp", arr, [cv2.IMWRITE_WEBP_QUALITY, self.level]
-        )
+        _, encoded = cv2.imencode(".webp", arr, [cv2.IMWRITE_WEBP_QUALITY, self.level])
         return chunk_spec.prototype.buffer.from_array_like(encoded.ravel())
 
     def compute_encoded_size(

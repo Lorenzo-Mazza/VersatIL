@@ -1,9 +1,12 @@
 """Tests for versatil.endpoints.train module."""
+
 import os
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from omegaconf import DictConfig, OmegaConf
+
+from versatil.endpoints.train import main
 
 
 @pytest.mark.unit
@@ -15,14 +18,14 @@ def test_main_instantiates_validates_and_runs_workspace(
     mock_validate,
     mock_workspace_class,
 ):
-    from versatil.endpoints.train import main
-
-    yaml_config = OmegaConf.create({
-        "policy": {"_target_": "fake"},
-        "task": {},
-        "training": {},
-        "experiment": {"distributed": False},
-    })
+    yaml_config = OmegaConf.create(
+        {
+            "policy": {"_target_": "fake"},
+            "task": {},
+            "training": {},
+            "experiment": {"distributed": False},
+        }
+    )
     mock_config = MagicMock()
     mock_instantiate.return_value = mock_config
     mock_workspace = MagicMock()
@@ -47,14 +50,14 @@ def test_main_sets_distributed_when_world_size_in_env(
     mock_validate,
     mock_workspace_class,
 ):
-    from versatil.endpoints.train import main
-
-    yaml_config = OmegaConf.create({
-        "policy": {"_target_": "fake"},
-        "task": {},
-        "training": {},
-        "experiment": {"distributed": False},
-    })
+    yaml_config = OmegaConf.create(
+        {
+            "policy": {"_target_": "fake"},
+            "task": {},
+            "training": {},
+            "experiment": {"distributed": False},
+        }
+    )
     mock_instantiate.return_value = MagicMock()
     mock_workspace_class.return_value = MagicMock()
 
@@ -66,7 +69,5 @@ def test_main_sets_distributed_when_world_size_in_env(
 
 @pytest.mark.unit
 def test_main_raises_on_empty_config():
-    from versatil.endpoints.train import main
-
     with pytest.raises(ValueError, match="No configuration specified"):
         main(DictConfig({}))

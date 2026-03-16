@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.latent.reparametrize module."""
+
 from collections.abc import Callable
 
 import numpy as np
@@ -13,6 +14,7 @@ def mu_logvar_factory(
     rng: np.random.Generator,
 ) -> Callable[..., tuple[torch.Tensor, torch.Tensor]]:
     """Factory for mu and logvar tensors with configurable shape."""
+
     def factory(
         batch_size: int = 2,
         latent_dim: int = 8,
@@ -43,11 +45,11 @@ def mu_logvar_factory(
         mu.requires_grad_(requires_grad)
         logvar.requires_grad_(requires_grad)
         return mu, logvar
+
     return factory
 
 
 class TestReparametrize:
-
     @pytest.mark.parametrize("batch_size", [1, 4])
     @pytest.mark.parametrize("latent_dim", [8, 32])
     def test_output_shape_matches_mu_shape(

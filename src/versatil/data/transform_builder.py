@@ -5,15 +5,14 @@ import torch
 
 from versatil.common.tensor_ops import tensor_to_str
 from versatil.configs.data.tokenizer import TokenizationConfig
-from versatil.data.metadata import (
-    PositionObservationMetadata,
-    ActionMetadata,
-    OnTheFlyActionMetadata,
-)
-from versatil.data.task import ObservationSpace
 from versatil.data.action_processor import ActionProcessor
 from versatil.data.constants import (
     Cameras,
+)
+from versatil.data.metadata import (
+    ActionMetadata,
+    OnTheFlyActionMetadata,
+    PositionObservationMetadata,
 )
 from versatil.data.normalization.image_normalizer import (
     get_depth_image_normalizer,
@@ -21,9 +20,10 @@ from versatil.data.normalization.image_normalizer import (
 )
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.preprocessing.replay_buffer import ReplayBuffer
-from versatil.data.tokenization.tokenizer import Tokenizer
-from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
+from versatil.data.task import ObservationSpace
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
+from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
+from versatil.data.tokenization.tokenizer import Tokenizer
 
 
 class TransformBuilder:
@@ -80,7 +80,8 @@ class TransformBuilder:
         self.min_kinematics_range = min_kinematics_range
 
     def create_normalizer_and_tokenizer(
-        self, device: torch.device | None = None,
+        self,
+        device: torch.device | None = None,
     ) -> tuple[LinearNormalizer, Tokenizer | None]:
         """Create and fit normalizer and optionally tokenizer to data.
         Pipeline: Raw data → Winsorize → Normalize → Tokenize
@@ -210,7 +211,7 @@ class TransformBuilder:
             device: Target device
             winsorize_depth: Apply winsorization to depth
         """
-        for camera_key, camera_meta in self.observation_space.cameras.items():
+        for camera_key, _camera_meta in self.observation_space.cameras.items():
             if camera_key == Cameras.DEPTH.value:
                 depth_stats = self._compute_depth_stats_streaming(
                     camera_key, winsorize_depth
@@ -297,7 +298,7 @@ class TransformBuilder:
                 delta = chunk_mean - global_mean
                 new_count = global_count + n
                 global_mean += delta * n / new_count
-                global_m2 += chunk_m2 + delta ** 2 * global_count * n / new_count
+                global_m2 += chunk_m2 + delta**2 * global_count * n / new_count
                 global_count = new_count
         if global_count == 0:
             return {"min": float("nan"), "max": float("nan"), "mean": 0.0, "std": 0.0}
@@ -515,7 +516,7 @@ class TransformBuilder:
                 logging.info(
                     f"Winsorized {key} to [{lower_q:.3f}, {upper_q:.3f}] quantiles - "
                     f"clipped {n_clipped}/{data.size} values "
-                    f"({100*n_clipped/data.size:.2f}%)"
+                    f"({100 * n_clipped / data.size:.2f}%)"
                 )
         return winsorized
 

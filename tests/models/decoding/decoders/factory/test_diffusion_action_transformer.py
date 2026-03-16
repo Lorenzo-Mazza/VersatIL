@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.decoders.factory.diffusion_action_transformer module."""
+
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock
@@ -12,6 +13,7 @@ from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.diffusion_action_transformer import (
     DiffusionActionTransformer,
 )
+from versatil.models.layers import MLP
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.diffusion_transformer import (
@@ -22,8 +24,6 @@ from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
-from versatil.models.layers import MLP
-
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 2
@@ -114,9 +114,7 @@ def diffusion_transformer_factory(
     return factory
 
 
-
 class TestDiffusionActionTransformerInitialization:
-
     def test_inherits_from_action_decoder(
         self,
         diffusion_transformer_factory: Callable[..., DiffusionActionTransformer],
@@ -127,7 +125,10 @@ class TestDiffusionActionTransformerInitialization:
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("number_of_layers", [1, 2])
     @pytest.mark.parametrize("use_gating", [True, False])
-    @pytest.mark.parametrize("diffusion_transformer_type", [DiTType.CROSS_ATTENTION.value, DiTType.MMDIT.value])
+    @pytest.mark.parametrize(
+        "diffusion_transformer_type",
+        [DiTType.CROSS_ATTENTION.value, DiTType.MMDIT.value],
+    )
     def test_stores_configuration(
         self,
         diffusion_transformer_factory: Callable[..., DiffusionActionTransformer],
@@ -248,7 +249,6 @@ class TestDiffusionActionTransformerInitialization:
 
 
 class TestDiffusionActionTransformerForward:
-
     def test_raises_without_actions(
         self,
         diffusion_transformer_factory: Callable[..., DiffusionActionTransformer],
@@ -350,9 +350,7 @@ class TestDiffusionActionTransformerForward:
         ].unsqueeze(-1)
         actions = noisy_actions_factory()
         outputs = decoder(features=features, actions=actions)
-        assert all(
-            tensor.shape[0] == BATCH_SIZE for tensor in outputs.values()
-        )
+        assert all(tensor.shape[0] == BATCH_SIZE for tensor in outputs.values())
 
     def test_with_multiple_action_heads(
         self,
@@ -387,9 +385,12 @@ class TestDiffusionActionTransformerForward:
         assert "orientation_action" in outputs
         assert "gripper_action" in outputs
         assert outputs["position_action"].shape == (BATCH_SIZE, PREDICTION_HORIZON, 3)
-        assert outputs["orientation_action"].shape == (BATCH_SIZE, PREDICTION_HORIZON, 4)
+        assert outputs["orientation_action"].shape == (
+            BATCH_SIZE,
+            PREDICTION_HORIZON,
+            4,
+        )
         assert outputs["gripper_action"].shape == (BATCH_SIZE, PREDICTION_HORIZON, 1)
-
 
     def test_adaln_zero_init_makes_output_timestep_independent(
         self,
@@ -408,9 +409,7 @@ class TestDiffusionActionTransformerForward:
             width=SPATIAL_WIDTH,
         )
         features_t0[DecoderOutputKey.TIMESTEP.value] = torch.zeros(BATCH_SIZE)
-        features_t99 = {
-            key: tensor.clone() for key, tensor in features_t0.items()
-        }
+        features_t99 = {key: tensor.clone() for key, tensor in features_t0.items()}
         features_t99[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 99.0)
         actions = noisy_actions_factory()
         with torch.no_grad():
@@ -421,7 +420,6 @@ class TestDiffusionActionTransformerForward:
 
 
 class TestDiffusionActionTransformerTemporal:
-
     def test_observation_horizon_greater_than_one_creates_temporal_pe(
         self,
         diffusion_transformer_factory: Callable[..., DiffusionActionTransformer],

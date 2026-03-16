@@ -1,4 +1,5 @@
 """Tests for end-to-end training pipeline."""
+
 import gc
 import os
 
@@ -17,14 +18,6 @@ from hydra import compose, initialize_config_dir
 from tso_robotics_sockets import CompressionType
 
 import versatil.configs  # noqa: F401
-from versatil.inference.inference_client import InferenceClient
-from versatil.inference.policy_loader import PolicyLoader
-from versatil.inference.socket_transport import (
-    SocketActionTransport,
-    SocketObservationTransport,
-)
-from versatil.workspace import Workspace
-
 from tests.endpoints.conftest import (
     DATASET_SPECS,
     HYDRA_CONFIG_DIR,
@@ -35,6 +28,13 @@ from tests.endpoints.conftest import (
     resolve_dataset_type,
     start_mock_observation_server,
 )
+from versatil.inference.inference_client import InferenceClient
+from versatil.inference.policy_loader import PolicyLoader
+from versatil.inference.socket_transport import (
+    SocketActionTransport,
+    SocketObservationTransport,
+)
+from versatil.workspace import Workspace
 
 COMMON_OVERRIDES = [
     "task.dataloader.batch_size=2",

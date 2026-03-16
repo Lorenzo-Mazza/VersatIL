@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.transformer.kv_cache module."""
+
 from collections.abc import Callable
 
 import numpy as np
@@ -42,12 +43,22 @@ def layer_cache_factory(
         if include_cross_attention:
             cross_keys = torch.from_numpy(
                 rng.standard_normal(
-                    (batch_size, number_of_heads, cross_attention_length, head_dimension)
+                    (
+                        batch_size,
+                        number_of_heads,
+                        cross_attention_length,
+                        head_dimension,
+                    )
                 ).astype(np.float32)
             )
             cross_values = torch.from_numpy(
                 rng.standard_normal(
-                    (batch_size, number_of_heads, cross_attention_length, head_dimension)
+                    (
+                        batch_size,
+                        number_of_heads,
+                        cross_attention_length,
+                        head_dimension,
+                    )
                 ).astype(np.float32)
             )
         return LayerKVCache(
@@ -88,7 +99,6 @@ def new_kv_factory(
 
 
 class TestLayerKVCache:
-
     def test_get_length_returns_cached_sequence_length(
         self,
         layer_cache_factory: Callable[..., LayerKVCache],
@@ -128,7 +138,6 @@ class TestLayerKVCache:
 
 
 class TestDecoderKVCache:
-
     def test_get_length_delegates_to_first_layer(
         self,
         layer_cache_factory: Callable[..., LayerKVCache],
@@ -148,9 +157,7 @@ class TestDecoderKVCache:
         self,
         layer_cache_factory: Callable[..., LayerKVCache],
     ):
-        decoder_cache = DecoderKVCache(
-            layers=[layer_cache_factory(cached_length=3)]
-        )
+        decoder_cache = DecoderKVCache(layers=[layer_cache_factory(cached_length=3)])
         assert decoder_cache.key_padding_mask is None
 
     def test_key_padding_mask_stored(
@@ -166,7 +173,6 @@ class TestDecoderKVCache:
 
 
 class TestInitializeDecoderCache:
-
     @pytest.mark.parametrize("number_of_layers", [1, 4])
     def test_creates_correct_number_of_layer_caches(
         self, device: torch.device, number_of_layers: int
@@ -238,7 +244,6 @@ class TestInitializeDecoderCache:
 
 
 class TestUpdateLayerCache:
-
     def test_concatenates_new_keys_along_sequence_dimension(
         self,
         layer_cache_factory: Callable[..., LayerKVCache],
@@ -283,7 +288,7 @@ class TestUpdateLayerCache:
         new_kv_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
     ):
         cache = layer_cache_factory(cached_length=0)
-        for step in range(5):
+        for _step in range(5):
             new_keys, new_values = new_kv_factory(new_length=1)
             cache = update_layer_cache(
                 cache=cache, new_keys=new_keys, new_values=new_values

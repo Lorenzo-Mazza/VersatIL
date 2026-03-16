@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.decoders.factory.lact module."""
+
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock
@@ -14,7 +15,6 @@ from versatil.models.decoding.decoders.factory.lact import LACT
 from versatil.models.layers.diffusion_transformer.cross_attention_dit_decoder import (
     CrossConditioningDecoder,
 )
-
 
 EMBEDDING_DIMENSION = 32
 LATENT_DIMENSION = 16
@@ -107,9 +107,7 @@ def spatial_features_with_latent_factory(
             feature_keys=feature_keys,
         )
         features[LatentKey.POSTERIOR_LATENT.value] = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, latent_dimension)
-            ).astype(np.float32)
+            rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
         )
         return features
 
@@ -117,7 +115,6 @@ def spatial_features_with_latent_factory(
 
 
 class TestLACTInitialization:
-
     def test_inherits_from_action_decoder(
         self,
         lact_decoder_factory: Callable[..., LACT],
@@ -162,7 +159,9 @@ class TestLACTInitialization:
         latent_dimension = 24
         decoder = lact_decoder_factory(latent_dimension=latent_dimension)
         first_layer = decoder.action_decoder.layers[0]
-        assert first_layer.self_attention_normalization.condition_dim == latent_dimension
+        assert (
+            first_layer.self_attention_normalization.condition_dim == latent_dimension
+        )
         assert first_layer.feedforward_normalization.condition_dim == latent_dimension
 
     def test_excludes_latent_from_tokenization(
@@ -170,7 +169,10 @@ class TestLACTInitialization:
         lact_decoder_factory: Callable[..., LACT],
     ):
         decoder = lact_decoder_factory()
-        assert LatentKey.POSTERIOR_LATENT.value in decoder.input_sequence_builder.exclude_keys
+        assert (
+            LatentKey.POSTERIOR_LATENT.value
+            in decoder.input_sequence_builder.exclude_keys
+        )
 
     def test_decoder_input_specification(
         self,
@@ -179,12 +181,16 @@ class TestLACTInitialization:
         decoder = lact_decoder_factory()
         assert FeatureType.SPATIAL.value in decoder.decoder_input.required_types
         assert decoder.decoder_input.requires_actions is False
-        assert decoder.decoder_input.conditioning_key == LatentKey.POSTERIOR_LATENT.value
-        assert LatentKey.POSTERIOR_LATENT.value in decoder.decoder_input.conditioning_required
+        assert (
+            decoder.decoder_input.conditioning_key == LatentKey.POSTERIOR_LATENT.value
+        )
+        assert (
+            LatentKey.POSTERIOR_LATENT.value
+            in decoder.decoder_input.conditioning_required
+        )
 
 
 class TestLACTForward:
-
     def test_raises_without_latent_in_features(
         self,
         lact_decoder_factory: Callable[..., LACT],
@@ -227,7 +233,11 @@ class TestLACTForward:
         output = decoder(features=features)
         for action_key in decoder.action_heads:
             expected_dim = decoder.action_heads[action_key].output_dim
-            assert output[action_key].shape == (BATCH_SIZE, PREDICTION_HORIZON, expected_dim)
+            assert output[action_key].shape == (
+                BATCH_SIZE,
+                PREDICTION_HORIZON,
+                expected_dim,
+            )
 
     def test_with_multiple_action_heads(
         self,
@@ -246,10 +256,26 @@ class TestLACTForward:
         )
         features = spatial_features_with_latent_factory()
         output = decoder(features=features)
-        assert set(output.keys()) == {"position_action", "orientation_action", "gripper_action"}
-        assert output["position_action"].shape == (BATCH_SIZE, PREDICTION_HORIZON, position_dim)
-        assert output["orientation_action"].shape == (BATCH_SIZE, PREDICTION_HORIZON, orientation_dim)
-        assert output["gripper_action"].shape == (BATCH_SIZE, PREDICTION_HORIZON, gripper_dim)
+        assert set(output.keys()) == {
+            "position_action",
+            "orientation_action",
+            "gripper_action",
+        }
+        assert output["position_action"].shape == (
+            BATCH_SIZE,
+            PREDICTION_HORIZON,
+            position_dim,
+        )
+        assert output["orientation_action"].shape == (
+            BATCH_SIZE,
+            PREDICTION_HORIZON,
+            orientation_dim,
+        )
+        assert output["gripper_action"].shape == (
+            BATCH_SIZE,
+            PREDICTION_HORIZON,
+            gripper_dim,
+        )
 
     def test_adaln_zero_init_makes_output_latent_independent(
         self,
@@ -273,4 +299,3 @@ class TestLACTForward:
             output_b = decoder(features=features_latent_b)
         for action_key in decoder.action_heads:
             torch.testing.assert_close(output_a[action_key], output_b[action_key])
-

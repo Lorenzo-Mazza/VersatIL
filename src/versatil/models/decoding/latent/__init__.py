@@ -17,18 +17,18 @@ This package provides two types of latent modules:
 from versatil.models.decoding.latent.posterior.base_posterior import (
     PosteriorLatentEncoder,
 )
-from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
-from versatil.models.decoding.latent.prior.gaussian_prior import GaussianPrior
-from versatil.models.decoding.latent.prior.vamp_prior import VampPrior
 from versatil.models.decoding.latent.posterior.transformer_encoder import (
     VAETransformerEncoder,
 )
+from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from versatil.models.decoding.latent.prior.dit_prior import (
     DiTPrior,
 )
+from versatil.models.decoding.latent.prior.gaussian_prior import GaussianPrior
 from versatil.models.decoding.latent.prior.transformer_encoder import (
     PriorTransformerEncoder,
 )
+from versatil.models.decoding.latent.prior.vamp_prior import VampPrior
 
 __all__ = [
     "PosteriorLatentEncoder",

@@ -13,9 +13,9 @@ from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 @pytest.fixture
 def mock_auto_processor():
     """Patches AutoProcessor in action_tokenizer module."""
-    with patch(
-        "versatil.data.tokenization.action_tokenizer.AutoProcessor"
-    ) as mock:
+    with patch("versatil.data.tokenization.action_tokenizer.AutoProcessor") as mock:
+        mock.from_pretrained.return_value.time_horizon = None
+        mock.from_pretrained.return_value.action_dim = None
         yield mock
 
 
@@ -50,7 +50,6 @@ def action_tokenizer_factory(mock_auto_processor):
 
 
 class TestActionTokenizerInit:
-
     def test_stores_tokenizer_chain(self, action_tokenizer_factory):
         chain = [TokenizerType.FAST.value]
         tokenizer = action_tokenizer_factory(tokenizer_chain=chain)
@@ -104,7 +103,6 @@ class TestActionTokenizerInit:
 
 
 class TestActionTokenizerBuildTokenizers:
-
     def test_loads_fast_processor(self, mock_auto_processor):
         ActionTokenizer(
             tokenizer_chain=[TokenizerType.FAST.value], use_pretrained_fast=True
@@ -187,7 +185,6 @@ class TestActionTokenizerBuildTokenizers:
 
 
 class TestActionTokenizerFit:
-
     def test_fit_raises_when_pretrained(
         self, action_tokenizer_factory, action_chunk_factory
     ):
@@ -241,7 +238,6 @@ class TestActionTokenizerFit:
 
 
 class TestActionTokenizerMapFastToLanguageVocab:
-
     @patch("versatil.data.tokenization.action_tokenizer.AutoTokenizer")
     def test_mapping_formula(self, mock_auto_tokenizer, action_tokenizer_factory):
         mock_lang_tok = MagicMock()
@@ -255,16 +251,16 @@ class TestActionTokenizerMapFastToLanguageVocab:
         )
         fast_tokens = np.array([0, 1, 2])
         mapped = tokenizer._map_fast_to_language_vocab(fast_tokens)
-        expected = np.array([
-            32000 - 1 - 128 - 0,
-            32000 - 1 - 128 - 1,
-            32000 - 1 - 128 - 2,
-        ])
+        expected = np.array(
+            [
+                32000 - 1 - 128 - 0,
+                32000 - 1 - 128 - 1,
+                32000 - 1 - 128 - 2,
+            ]
+        )
         np.testing.assert_array_equal(mapped, expected)
 
-    def test_mapping_without_language_tokenizer_raises(
-        self, action_tokenizer_factory
-    ):
+    def test_mapping_without_language_tokenizer_raises(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory()
         with pytest.raises(RuntimeError, match="Language tokenizer not initialized"):
             tokenizer._map_fast_to_language_vocab(np.array([0, 1]))
@@ -286,11 +282,8 @@ class TestActionTokenizerMapFastToLanguageVocab:
 
 
 class TestActionTokenizerUnmapLanguageToFastVocab:
-
     @patch("versatil.data.tokenization.action_tokenizer.AutoTokenizer")
-    def test_roundtrip_map_unmap(
-        self, mock_auto_tokenizer, action_tokenizer_factory
-    ):
+    def test_roundtrip_map_unmap(self, mock_auto_tokenizer, action_tokenizer_factory):
         mock_lang_tok = MagicMock()
         mock_lang_tok.vocab_size = 32000
         mock_lang_tok.pad_token = "[PAD]"
@@ -321,16 +314,13 @@ class TestActionTokenizerUnmapLanguageToFastVocab:
         fast_tokens = tokenizer._unmap_language_to_fast_vocab(lang_tokens)
         assert isinstance(fast_tokens, np.ndarray)
 
-    def test_unmap_without_language_tokenizer_raises(
-        self, action_tokenizer_factory
-    ):
+    def test_unmap_without_language_tokenizer_raises(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory()
         with pytest.raises(RuntimeError, match="Language tokenizer not initialized"):
             tokenizer._unmap_language_to_fast_vocab(np.array([100]))
 
 
 class TestActionTokenizerEncodeChunk:
-
     def test_encode_chunk_raises_when_not_fitted(
         self, action_tokenizer_factory, action_chunk_factory
     ):
@@ -380,7 +370,7 @@ class TestActionTokenizerEncodeChunk:
         tokenizer.fast_processor.side_effect = lambda x: [[10, 20]]
         chunk = action_chunk_factory()
         pad_mask = pad_mask_factory(total=5, num_valid=2)
-        result = tokenizer.encode_chunk(chunk, is_pad_mask=pad_mask)
+        tokenizer.encode_chunk(chunk, is_pad_mask=pad_mask)
         called_data = tokenizer.fast_processor.call_args[0][0]
         assert called_data.shape[0] == 2
 
@@ -442,9 +432,7 @@ class TestActionTokenizerEncodeChunk:
         assert not is_pad.any()
         assert tokens[-1].item() == tokenizer.eos_token_id
 
-    def test_encode_chunk_raises_without_fast_processor(
-        self, action_tokenizer_factory
-    ):
+    def test_encode_chunk_raises_without_fast_processor(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory()
         tokenizer.fast_processor = None
         with pytest.raises(RuntimeError, match="No tokenizers in chain"):
@@ -452,7 +440,6 @@ class TestActionTokenizerEncodeChunk:
 
 
 class TestActionTokenizerEncodeBatch:
-
     def test_encode_batch_raises_when_not_fitted(
         self, action_tokenizer_factory, action_chunk_factory
     ):
@@ -487,16 +474,17 @@ class TestActionTokenizerEncodeBatch:
         tokenizer = action_tokenizer_factory(max_token_len=8)
         tokenizer.fast_processor.side_effect = lambda x: [[10, 20]]
         batch = action_chunk_factory(batch_size=2)
-        pad_mask = np.array([
-            [False, False, True, True, True],
-            [False, False, False, True, True],
-        ])
+        pad_mask = np.array(
+            [
+                [False, False, True, True, True],
+                [False, False, False, True, True],
+            ]
+        )
         result = tokenizer.encode_batch(batch, is_pad_mask=pad_mask)
         assert result[SampleKey.TOKENIZED_ACTIONS.value].shape == (2, 8)
 
 
 class TestActionTokenizerEncode:
-
     def test_encode_2d_dispatches_to_encode_chunk(
         self, action_tokenizer_factory, action_chunk_factory
     ):
@@ -521,10 +509,12 @@ class TestActionTokenizerEncode:
         tokenizer = action_tokenizer_factory(max_token_len=8)
         tokenizer.fast_processor.side_effect = lambda x: [[10, 20]]
         batch = action_chunk_factory(batch_size=2)
-        pad_mask = np.array([
-            [False, False, True, True, True],
-            [False, False, False, True, True],
-        ])
+        pad_mask = np.array(
+            [
+                [False, False, True, True, True],
+                [False, False, False, True, True],
+            ]
+        )
         result = tokenizer.encode(batch, is_pad_mask=pad_mask)
         assert result[SampleKey.TOKENIZED_ACTIONS.value].shape[0] == 2
 
@@ -536,7 +526,6 @@ class TestActionTokenizerEncode:
 
 
 class TestActionTokenizerDecodeChunk:
-
     def test_decode_chunk_raises_when_not_fitted(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory(use_pretrained_fast=False)
         with pytest.raises(RuntimeError, match="fitted or loaded before decoding"):
@@ -561,9 +550,7 @@ class TestActionTokenizerDecodeChunk:
         call_args = tokenizer.fast_processor.decode.call_args[0][0]
         assert call_args == [[10, 20, 30]]
 
-    def test_decode_chunk_raises_without_fast_processor(
-        self, action_tokenizer_factory
-    ):
+    def test_decode_chunk_raises_without_fast_processor(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory()
         tokenizer.fast_processor = None
         with pytest.raises(RuntimeError, match="Cannot decode without FAST processor"):
@@ -595,7 +582,6 @@ class TestActionTokenizerDecodeChunk:
 
 
 class TestActionTokenizerDecodeBatch:
-
     def test_decode_batch_raises_when_not_fitted(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory(use_pretrained_fast=False)
         tokens = torch.tensor([[10, 20, 30], [40, 50, 60]])
@@ -625,9 +611,7 @@ class TestActionTokenizerDecodeBatch:
         assert call_args[0] == [10, 20]
         assert call_args[1] == [30]
 
-    def test_decode_batch_raises_without_fast_processor(
-        self, action_tokenizer_factory
-    ):
+    def test_decode_batch_raises_without_fast_processor(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory()
         tokenizer.fast_processor = None
         tokens = torch.tensor([[10, 20, 30]])
@@ -654,7 +638,6 @@ class TestActionTokenizerDecodeBatch:
 
 
 class TestActionTokenizerDecode:
-
     def test_decode_1d_dispatches_to_decode_chunk(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory(pad_token_id=0)
         tokenizer.fast_processor.decode.return_value = np.zeros(
@@ -690,7 +673,6 @@ class TestActionTokenizerDecode:
 
 
 class TestActionTokenizerTo:
-
     def test_to_updates_device(self, action_tokenizer_factory, device):
         tokenizer = action_tokenizer_factory()
         tokenizer.to(device)
@@ -703,7 +685,6 @@ class TestActionTokenizerTo:
 
 
 class TestActionTokenizerStateDict:
-
     def test_state_dict_keys(self, action_tokenizer_factory):
         tokenizer = action_tokenizer_factory()
         state = tokenizer.state_dict()
@@ -716,6 +697,8 @@ class TestActionTokenizerStateDict:
             "vocab_size",
             "eos_token_id",
             "is_fitted",
+            "time_horizon",
+            "action_dim",
         }
         assert set(state.keys()) == expected_keys
 
@@ -749,7 +732,6 @@ class TestActionTokenizerStateDict:
 
 
 class TestActionTokenizerLoadStateDict:
-
     @pytest.mark.parametrize(
         "tokenizer_chain, use_pretrained, language_model, fast_vocab,"
         " skip_tokens, vocab_size",
@@ -830,7 +812,6 @@ class TestActionTokenizerLoadStateDict:
 
 
 class TestActionTokenizerSavePretrained:
-
     def test_save_raises_when_not_fitted(self, action_tokenizer_factory, tmp_path):
         tokenizer = action_tokenizer_factory(use_pretrained_fast=False)
         with pytest.raises(RuntimeError, match="Cannot save unfitted tokenizer"):
@@ -882,10 +863,9 @@ class TestActionTokenizerSavePretrained:
             save_path / "language_tokenizer"
         )
 
-    def test_save_pretrained_logs_info(
-        self, action_tokenizer_factory, tmp_path
-    ):
+    def test_save_pretrained_logs_info(self, action_tokenizer_factory, tmp_path):
         tokenizer = action_tokenizer_factory()
+        tokenizer.fast_processor = None
         save_path = tmp_path / "tokenizer"
         with patch(
             "versatil.data.tokenization.action_tokenizer.logging"
@@ -896,7 +876,6 @@ class TestActionTokenizerSavePretrained:
 
 
 class TestActionTokenizerFromPretrained:
-
     def test_raises_file_not_found(self, mock_auto_processor):
         with pytest.raises(FileNotFoundError, match="Tokenizer path not found"):
             ActionTokenizer.from_pretrained("/nonexistent/path")
@@ -999,7 +978,6 @@ class TestActionTokenizerFromPretrained:
 
 @pytest.mark.integration
 class TestActionTokenizerIntegrationPretrainedFast:
-
     def test_encode_decode_roundtrip(self, action_chunk_factory, device):
         tokenizer = ActionTokenizer(
             tokenizer_chain=[TokenizerType.FAST.value],
@@ -1027,9 +1005,7 @@ class TestActionTokenizerIntegrationPretrainedFast:
         assert result[SampleKey.TOKENIZED_ACTIONS.value].shape == (128,)
         assert result[SampleKey.IS_PAD_ACTION.value].shape == (128,)
 
-    def test_encode_with_pad_mask(
-        self, action_chunk_factory, pad_mask_factory, device
-    ):
+    def test_encode_with_pad_mask(self, action_chunk_factory, pad_mask_factory, device):
         tokenizer = ActionTokenizer(
             tokenizer_chain=[TokenizerType.FAST.value],
             use_pretrained_fast=True,
@@ -1053,7 +1029,6 @@ class TestActionTokenizerIntegrationPretrainedFast:
 
 @pytest.mark.integration
 class TestActionTokenizerIntegrationCustomFast:
-
     def test_fit_and_encode_decode(self, action_chunk_factory, device):
         tokenizer = ActionTokenizer(
             tokenizer_chain=[TokenizerType.FAST.value],
@@ -1073,7 +1048,6 @@ class TestActionTokenizerIntegrationCustomFast:
 
 @pytest.mark.integration
 class TestActionTokenizerIntegrationSaveLoad:
-
     def test_fit_save_load_decode_roundtrip(self, action_chunk_factory, tmp_path):
         tokenizer = ActionTokenizer(
             tokenizer_chain=[TokenizerType.FAST.value],
@@ -1134,9 +1108,7 @@ class TestActionTokenizerIntegrationSaveLoad:
         assert (non_pad >= 0).all()
         assert (non_pad < loaded.vocab_size).all()
 
-    def test_fit_save_load_with_language_chain(
-        self, action_chunk_factory, tmp_path
-    ):
+    def test_fit_save_load_with_language_chain(self, action_chunk_factory, tmp_path):
         tokenizer = ActionTokenizer(
             tokenizer_chain=[TokenizerType.FAST.value, TokenizerType.LANGUAGE.value],
             use_pretrained_fast=False,
@@ -1151,7 +1123,9 @@ class TestActionTokenizerIntegrationSaveLoad:
         loaded = ActionTokenizer.from_pretrained(save_path)
 
         chunk = training_data[0]
-        original_tokens = tokenizer.encode_chunk(chunk)[SampleKey.TOKENIZED_ACTIONS.value]
+        original_tokens = tokenizer.encode_chunk(chunk)[
+            SampleKey.TOKENIZED_ACTIONS.value
+        ]
         loaded_decoded = loaded.decode_chunk(original_tokens)
         original_decoded = tokenizer.decode_chunk(original_tokens)
         np.testing.assert_array_equal(loaded_decoded, original_decoded)
@@ -1159,10 +1133,7 @@ class TestActionTokenizerIntegrationSaveLoad:
 
 @pytest.mark.integration
 class TestActionTokenizerIntegrationLanguageMapping:
-
-    def test_encode_decode_with_language_mapping(
-        self, action_chunk_factory, device
-    ):
+    def test_encode_decode_with_language_mapping(self, action_chunk_factory, device):
         tokenizer = ActionTokenizer(
             tokenizer_chain=[TokenizerType.FAST.value, TokenizerType.LANGUAGE.value],
             use_pretrained_fast=True,

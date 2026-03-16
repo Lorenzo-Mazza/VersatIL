@@ -1,12 +1,13 @@
 """Base classes for the posterior action encoder."""
 
 import abc
+
 import torch
 import torch.nn as nn
 
 
 class PosteriorLatentEncoder(nn.Module, abc.ABC):
-    """Abstract base class for posterior encoders, used for modeling the conditional posterior `q_\phi(z|a,s)`.
+    r"""Abstract base class for posterior encoders, used for modeling the conditional posterior `q_\phi(z|a,s)`.
 
     Posterior encoders learn lower-dimensional latent embeddings conditioned on privileged
      information such as expert actions (a) and optionally observations (s),

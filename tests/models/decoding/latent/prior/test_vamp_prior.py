@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.latent.prior.vamp_prior module."""
+
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock
@@ -20,6 +21,7 @@ def vamp_prior_factory(
     mock_action_space_factory: Callable[..., MagicMock],
 ) -> Callable[..., VampPrior]:
     """Factory for VampPrior instances with mocked ActionSpace."""
+
     def factory(
         latent_dimension: int = 16,
         num_components: int = 5,
@@ -37,6 +39,7 @@ def vamp_prior_factory(
             device=device,
             min_logvar=min_logvar,
         )
+
     return factory
 
 
@@ -45,6 +48,7 @@ def mock_encoder_factory(
     rng: np.random.Generator,
 ) -> Callable[..., MagicMock]:
     """Factory for mock PosteriorLatentEncoder returning mu and logvar."""
+
     def factory(
         latent_dimension: int = 16,
         num_components: int = 5,
@@ -66,6 +70,7 @@ def mock_encoder_factory(
             LatentKey.POSTERIOR_LATENT.value: latent,
         }
         return encoder
+
     return factory
 
 
@@ -74,6 +79,7 @@ def latent_tensor_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:
     """Factory for latent tensors of shape (batch_size, latent_dimension)."""
+
     def factory(
         batch_size: int = 4,
         latent_dimension: int = 16,
@@ -81,6 +87,7 @@ def latent_tensor_factory(
         return torch.from_numpy(
             rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
         )
+
     return factory
 
 
@@ -89,6 +96,7 @@ def log_normal_inputs_factory(
     rng: np.random.Generator,
 ) -> Callable[..., tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
     """Factory for (z, mu, logvar) tuples for log_normal_diag tests."""
+
     def factory(
         batch_size: int = 4,
         latent_dimension: int = 8,
@@ -109,14 +117,16 @@ def log_normal_inputs_factory(
                 rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
             )
         return z, mu, logvar
+
     return factory
 
 
 class TestLogNormalDiag:
-
     def test_output_shape(
         self,
-        log_normal_inputs_factory: Callable[..., tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
+        log_normal_inputs_factory: Callable[
+            ..., tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+        ],
     ):
         batch_size = 4
         latent_dimension = 8
@@ -129,7 +139,9 @@ class TestLogNormalDiag:
 
     def test_max_at_mean(
         self,
-        log_normal_inputs_factory: Callable[..., tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
+        log_normal_inputs_factory: Callable[
+            ..., tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+        ],
     ):
         latent_dimension = 16
         _, mu, logvar = log_normal_inputs_factory(
@@ -139,13 +151,17 @@ class TestLogNormalDiag:
         )
         z_at_mean = mu.clone()
         z_away = mu + 2.0
-        log_prob_at_mean = log_normal_diag(z=z_at_mean, mu=mu, logvar=logvar).sum(dim=-1)
+        log_prob_at_mean = log_normal_diag(z=z_at_mean, mu=mu, logvar=logvar).sum(
+            dim=-1
+        )
         log_prob_away = log_normal_diag(z=z_away, mu=mu, logvar=logvar).sum(dim=-1)
         assert log_prob_at_mean.item() > log_prob_away.item()
 
     def test_decreases_away_from_mean(
         self,
-        log_normal_inputs_factory: Callable[..., tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
+        log_normal_inputs_factory: Callable[
+            ..., tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+        ],
     ):
         latent_dimension = 8
         _, mu, logvar = log_normal_inputs_factory(
@@ -161,7 +177,6 @@ class TestLogNormalDiag:
 
 
 class TestVampPriorInitialization:
-
     def test_inherits_from_prior_latent_encoder(
         self,
         vamp_prior_factory: Callable[..., VampPrior],
@@ -190,10 +205,13 @@ class TestVampPriorInitialization:
         assert prior.action_dim == action_dim
         assert prior.prediction_horizon == prediction_horizon
 
-    @pytest.mark.parametrize("num_components, prediction_horizon, action_dim", [
-        (3, 4, 7),
-        (10, 16, 14),
-    ])
+    @pytest.mark.parametrize(
+        "num_components, prediction_horizon, action_dim",
+        [
+            (3, 4, 7),
+            (10, 16, 14),
+        ],
+    )
     def test_pseudo_inputs_shape(
         self,
         vamp_prior_factory: Callable[..., VampPrior],
@@ -206,7 +224,11 @@ class TestVampPriorInitialization:
             prediction_horizon=prediction_horizon,
             action_dim=action_dim,
         )
-        assert prior.pseudo_inputs.shape == (num_components, prediction_horizon, action_dim)
+        assert prior.pseudo_inputs.shape == (
+            num_components,
+            prediction_horizon,
+            action_dim,
+        )
         assert prior.pseudo_inputs.requires_grad is True
 
     @pytest.mark.parametrize("num_components", [3, 10])
@@ -221,7 +243,6 @@ class TestVampPriorInitialization:
 
 
 class TestVampPriorEncoder:
-
     def test_encoder_raises_when_not_set(
         self,
         vamp_prior_factory: Callable[..., VampPrior],
@@ -258,7 +279,6 @@ class TestVampPriorEncoder:
 
 
 class TestVampPriorGetMixtureParams:
-
     def test_returns_mu_and_logvar(
         self,
         vamp_prior_factory: Callable[..., VampPrior],
@@ -310,8 +330,8 @@ class TestVampPriorGetMixtureParams:
             num_components=num_components,
         )
         # Set logvar to values below the clamp threshold
-        encoder.encode.return_value[LatentKey.POSTERIOR_LOGVAR.value] = (
-            torch.full((num_components, latent_dimension), -10.0)
+        encoder.encode.return_value[LatentKey.POSTERIOR_LOGVAR.value] = torch.full(
+            (num_components, latent_dimension), -10.0
         )
         prior.set_encoder(encoder=encoder)
         _, logvar = prior.get_mixture_params()
@@ -319,7 +339,6 @@ class TestVampPriorGetMixtureParams:
 
 
 class TestVampPriorSamplePrior:
-
     @pytest.mark.parametrize("batch_size", [2, 8])
     @pytest.mark.parametrize("latent_dimension", [8, 32])
     def test_output_shape(
@@ -357,7 +376,6 @@ class TestVampPriorSamplePrior:
 
 
 class TestVampPriorForward:
-
     def test_returns_expected_keys(
         self,
         vamp_prior_factory: Callable[..., VampPrior],
@@ -416,12 +434,14 @@ class TestVampPriorForward:
             target_latents=target_latents,
             observations=observations,
         )
-        assert result[LatentKey.PRIOR_LATENT.value].shape == (batch_size, latent_dimension)
+        assert result[LatentKey.PRIOR_LATENT.value].shape == (
+            batch_size,
+            latent_dimension,
+        )
         assert result[LatentKey.PRIOR_LOG_PROB.value].shape == (batch_size,)
 
 
 class TestVampPriorLogProb:
-
     @pytest.mark.parametrize("batch_size", [1, 4])
     @pytest.mark.parametrize("latent_dimension", [8, 32])
     def test_output_shape(

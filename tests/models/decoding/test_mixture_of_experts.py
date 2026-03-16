@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.mixture_of_experts module."""
+
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -14,6 +15,7 @@ from versatil.models.decoding.mixture_of_experts import BaseMixtureOfExperts
 @pytest.fixture
 def moe_factory() -> Callable[..., BaseMixtureOfExperts]:
     """Factory for BaseMixtureOfExperts with configurable parameters."""
+
     def factory(
         num_experts: int = 4,
         device: str = "cpu",
@@ -32,6 +34,7 @@ def moe_factory() -> Callable[..., BaseMixtureOfExperts]:
             temperature=temperature,
             learnable_temperature=learnable_temperature,
         )
+
     return factory
 
 
@@ -40,6 +43,7 @@ def routing_weights_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:
     """Factory for routing weight tensors normalized along the expert dimension."""
+
     def factory(
         batch_size: int = 2,
         num_experts: int = 4,
@@ -49,10 +53,9 @@ def routing_weights_factory(
             shape = (batch_size, horizon, num_experts)
         else:
             shape = (batch_size, num_experts)
-        raw = torch.from_numpy(
-            rng.standard_normal(shape).astype(np.float32)
-        )
+        raw = torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
         return torch.softmax(raw, dim=-1)
+
     return factory
 
 
@@ -61,6 +64,7 @@ def expert_outputs_factory(
     rng: np.random.Generator,
 ) -> Callable[..., list[torch.Tensor]]:
     """Factory for lists of expert output tensors."""
+
     def factory(
         num_experts: int = 4,
         batch_size: int = 2,
@@ -75,16 +79,19 @@ def expert_outputs_factory(
             )
             for _ in range(num_experts)
         ]
+
     return factory
 
 
 class TestBaseMixtureOfExpertsInitialization:
-
     @pytest.mark.parametrize("num_experts", [2, 8])
-    @pytest.mark.parametrize("routing_type", [
-        MoERoutingType.SOFT.value,
-        MoERoutingType.TOP_K.value,
-    ])
+    @pytest.mark.parametrize(
+        "routing_type",
+        [
+            MoERoutingType.SOFT.value,
+            MoERoutingType.TOP_K.value,
+        ],
+    )
     @pytest.mark.parametrize("top_k", [1, 3])
     @pytest.mark.parametrize("temperature", [0.5, 2.0])
     def test_stores_configuration(
@@ -106,11 +113,14 @@ class TestBaseMixtureOfExpertsInitialization:
         assert moe.top_k == min(top_k, num_experts)
         assert moe.temperature.item() == pytest.approx(temperature)
 
-    @pytest.mark.parametrize("num_experts, expectation", [
-        (0, pytest.raises(ValueError, match="Must provide at least one expert")),
-        (1, does_not_raise()),
-        (4, does_not_raise()),
-    ])
+    @pytest.mark.parametrize(
+        "num_experts, expectation",
+        [
+            (0, pytest.raises(ValueError, match="Must provide at least one expert")),
+            (1, does_not_raise()),
+            (4, does_not_raise()),
+        ],
+    )
     def test_num_experts_validation(
         self,
         moe_factory: Callable[..., BaseMixtureOfExperts],
@@ -176,7 +186,6 @@ class TestBaseMixtureOfExpertsInitialization:
 
 
 class TestComputeRoutingWeights:
-
     @pytest.mark.parametrize("batch_size", [1, 4])
     @pytest.mark.parametrize("num_experts", [2, 6])
     def test_output_shape(
@@ -264,7 +273,6 @@ class TestComputeRoutingWeights:
 
 
 class TestGetExpertSpecialization:
-
     def test_returns_expected_keys(
         self,
         moe_factory: Callable[..., BaseMixtureOfExperts],
@@ -281,7 +289,9 @@ class TestGetExpertSpecialization:
         }
         assert isinstance(result[DecoderOutputKey.EXPERT_USAGE.value], torch.Tensor)
         assert isinstance(result[DecoderOutputKey.ROUTING_ENTROPY.value], torch.Tensor)
-        assert isinstance(result[DecoderOutputKey.TOP_EXPERT_CONFIDENCE.value], torch.Tensor)
+        assert isinstance(
+            result[DecoderOutputKey.TOP_EXPERT_CONFIDENCE.value], torch.Tensor
+        )
 
     def test_expert_usage_sums_to_one(
         self,
@@ -307,7 +317,6 @@ class TestGetExpertSpecialization:
 
 
 class TestApplyRouting:
-
     def test_soft_routing_output_shape(
         self,
         moe_factory: Callable[..., BaseMixtureOfExperts],
@@ -430,11 +439,15 @@ class TestApplyRouting:
         )
         # Batch 0: 0*0.0 + 1*1.0 + 2*0.0 = 1.0
         assert torch.allclose(
-            result[0], torch.full((output_dim,), 1.0), atol=1e-5,
+            result[0],
+            torch.full((output_dim,), 1.0),
+            atol=1e-5,
         )
         # Batch 1: 0*(1/3) + 1*(1/3) + 2*(1/3) = 1.0
         assert torch.allclose(
-            result[1], torch.full((output_dim,), 1.0), atol=1e-5,
+            result[1],
+            torch.full((output_dim,), 1.0),
+            atol=1e-5,
         )
 
     def test_topk_routing_selects_fewer_experts(

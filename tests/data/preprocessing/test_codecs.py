@@ -1,16 +1,15 @@
 """Tests for versatil.data.preprocessing.codecs module."""
+
 import asyncio
 from collections.abc import Callable
 
 import cv2
 import numpy as np
 import pytest
-
+from numcodecs import Blosc
 from zarr.core.array_spec import ArrayConfig, ArraySpec
 from zarr.core.buffer import NDBuffer, default_buffer_prototype
 from zarr.core.dtype import UInt8
-
-from numcodecs import Blosc
 
 from versatil.data.preprocessing.codecs import (
     WEBP_CODEC_NAME,
@@ -38,7 +37,6 @@ def array_spec_factory() -> Callable[..., ArraySpec]:
 
 
 class TestProtectiveSqueeze:
-
     @pytest.mark.parametrize(
         "input_shape, expected_shape",
         [
@@ -70,7 +68,6 @@ class TestProtectiveSqueeze:
 
 
 class TestWebPCodecInit:
-
     @pytest.mark.parametrize(
         "level",
         [1, 50, 99, 100],
@@ -94,7 +91,6 @@ class TestWebPCodecInit:
 
 
 class TestWebPCodecSerialization:
-
     def test_to_dict_includes_name_and_level(self):
         codec = WebPCodec(level=75)
 
@@ -132,7 +128,6 @@ class TestWebPCodecSerialization:
 
 
 class TestWebPCodecEncode:
-
     def test_encode_produces_non_empty_buffer(
         self,
         rng: np.random.Generator,
@@ -203,7 +198,6 @@ class TestWebPCodecEncode:
 
 
 class TestWebPCodecDecode:
-
     def test_decode_restores_original_shape(
         self,
         rng: np.random.Generator,
@@ -278,7 +272,6 @@ class TestWebPCodecDecode:
         compression_ratio = encoded_size / image.nbytes
         assert compression_ratio < max_compression_ratio
 
-
     @pytest.mark.parametrize(
         "level, max_compression_ratio, max_mean_absolute_error",
         [
@@ -298,7 +291,7 @@ class TestWebPCodecDecode:
         # Circle on black background: spatially correlated like a natural image
         spec = array_spec_factory(shape=(1, 64, 64, 3))
         y_grid, x_grid = np.mgrid[:64, :64]
-        circle_mask = ((y_grid - 32) ** 2 + (x_grid - 32) ** 2) < 20 ** 2
+        circle_mask = ((y_grid - 32) ** 2 + (x_grid - 32) ** 2) < 20**2
         image = np.zeros((1, 64, 64, 3), dtype=np.uint8)
         image[0, circle_mask] = 255
         nd_buffer = NDBuffer.from_ndarray_like(image)
@@ -323,7 +316,6 @@ class TestWebPCodecDecode:
 
 
 class TestWebPCodecVsBloscOnImages:
-
     def test_webp_compresses_much_better_than_blosc_with_low_error(
         self,
         rng: np.random.Generator,
@@ -338,9 +330,7 @@ class TestWebPCodecVsBloscOnImages:
         image[0, :, :, 1] = columns[None, :]
         image[0, :, :, 2] = 128
         noise = rng.integers(-10, 10, size=(128, 128, 3), dtype=np.int16)
-        image[0] = np.clip(
-            image[0].astype(np.int16) + noise, 0, 255
-        ).astype(np.uint8)
+        image[0] = np.clip(image[0].astype(np.int16) + noise, 0, 255).astype(np.uint8)
 
         nd_buffer = NDBuffer.from_ndarray_like(image)
         webp_codec = WebPCodec(level=99)
@@ -366,7 +356,6 @@ class TestWebPCodecVsBloscOnImages:
 
 
 class TestWebPCodecComputeEncodedSize:
-
     def test_raises_not_implemented(self):
         codec = WebPCodec(level=99)
 

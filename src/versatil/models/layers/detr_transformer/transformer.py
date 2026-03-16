@@ -128,4 +128,4 @@ class Transformer(nn.Module):
             memory_positional_encoding=source_positional_encoding,
             query_positional_encoding=target_positional_encoding,
         )
-        return output  # type: ignore[no-any-return]
+        return output

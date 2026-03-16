@@ -1,8 +1,8 @@
 """Tests for versatil.models.decoding.latent.prior.dit_prior module."""
+
 import re
 from collections.abc import Callable
-from contextlib import nullcontext as does_not_raise
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -11,12 +11,9 @@ import torch
 from versatil.models.decoding.constants import (
     DenoisingAlgorithm,
     LatentKey,
-    ODESolver,
 )
 from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from versatil.models.decoding.latent.prior.dit_prior import DiTPrior
-from versatil.models.layers.denoising.diffusion_process import SchedulerType
-
 
 LATENT_DIMENSION = 8
 EMBEDDING_DIMENSION = 16
@@ -79,7 +76,6 @@ def latent_tensor_factory(
 
 
 class TestDiTPriorInitialization:
-
     def test_inherits_from_prior_latent_encoder(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -87,10 +83,13 @@ class TestDiTPriorInitialization:
         prior = dit_prior_factory()
         assert isinstance(prior, PriorLatentEncoder)
 
-    @pytest.mark.parametrize("algorithm_type", [
-        DenoisingAlgorithm.FLOW_MATCHING.value,
-        DenoisingAlgorithm.DIFFUSION.value,
-    ])
+    @pytest.mark.parametrize(
+        "algorithm_type",
+        [
+            DenoisingAlgorithm.FLOW_MATCHING.value,
+            DenoisingAlgorithm.DIFFUSION.value,
+        ],
+    )
     @pytest.mark.parametrize("latent_dimension", [8, 16])
     @pytest.mark.parametrize("num_train_timesteps", [20, 50])
     def test_stores_configuration(
@@ -159,7 +158,6 @@ class TestDiTPriorInitialization:
 
 
 class TestDiTPriorFilterObservations:
-
     def test_excludes_specified_keys(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -184,7 +182,6 @@ class TestDiTPriorFilterObservations:
 
 
 class TestDiTPriorForwardFlowMatching:
-
     def test_returns_prediction_and_target_keys(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -239,7 +236,6 @@ class TestDiTPriorForwardFlowMatching:
 
 
 class TestDiTPriorForwardDiffusion:
-
     def test_returns_prediction_and_target_keys(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -311,13 +307,10 @@ class TestDiTPriorForwardDiffusion:
             observations=observations,
         )
         # The diffusion target is noise (random), so it should not equal the input latents
-        assert not torch.equal(
-            result[LatentKey.PRIOR_TARGET.value], target_latents
-        )
+        assert not torch.equal(result[LatentKey.PRIOR_TARGET.value], target_latents)
 
 
 class TestDiTPriorSamplePriorFlowMatching:
-
     def test_output_shape(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -378,7 +371,6 @@ class TestDiTPriorSamplePriorFlowMatching:
 
 
 class TestDiTPriorSamplePriorDiffusion:
-
     def test_output_shape(
         self,
         dit_prior_factory: Callable[..., DiTPrior],

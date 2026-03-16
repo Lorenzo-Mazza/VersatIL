@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.geometric_attention.spatial_decay module."""
+
 import math
 from collections.abc import Callable
 
@@ -35,7 +36,6 @@ def distance_matrix_1d_factory() -> Callable[..., torch.Tensor]:
 
 
 class TestSpatialDecayMaskConfiguration:
-
     @pytest.mark.parametrize("num_heads", [2, 8])
     @pytest.mark.parametrize("initial_decay", [3.0, 7.0])
     @pytest.mark.parametrize("decay_range", [1.0, 5.0])
@@ -52,7 +52,6 @@ class TestSpatialDecayMaskConfiguration:
 
 
 class TestPerHeadDecayComputation:
-
     def test_decay_rates_are_negative(self, spatial_decay_factory):
         mask = spatial_decay_factory(num_heads=4, initial_decay=5.0, decay_range=3.0)
         assert (mask.decay_rates < 0).all()
@@ -76,9 +75,7 @@ class TestPerHeadDecayComputation:
         # For num_heads=2, initial_decay=5.0, decay_range=3.0:
         # head 0: offset = 3.0 * 0 / 2 = 0.0 => log(1 - 2^(-5.0))
         # head 1: offset = 3.0 * 1 / 2 = 1.5 => log(1 - 2^(-6.5))
-        mask = spatial_decay_factory(
-            num_heads=2, initial_decay=5.0, decay_range=3.0
-        )
+        mask = spatial_decay_factory(num_heads=2, initial_decay=5.0, decay_range=3.0)
         expected_head_0 = math.log(1 - 2 ** (-5.0))
         expected_head_1 = math.log(1 - 2 ** (-6.5))
         assert torch.allclose(
@@ -89,7 +86,6 @@ class TestPerHeadDecayComputation:
 
 
 class TestDistanceMatrix2D:
-
     def test_self_distance_is_zero(self, distance_matrix_factory):
         distances = distance_matrix_factory(height=4, width=5)
         diagonal = torch.diagonal(distances)
@@ -131,7 +127,6 @@ class TestDistanceMatrix2D:
 
 
 class TestDistanceMatrix1D:
-
     def test_self_distance_is_zero(self, distance_matrix_1d_factory):
         distances = distance_matrix_1d_factory(length=5)
         diagonal = torch.diagonal(distances)
@@ -161,7 +156,6 @@ class TestDistanceMatrix1D:
 
 
 class TestSpatialDecayForwardFull:
-
     def test_output_is_single_element_tuple(self, spatial_decay_factory):
         mask = spatial_decay_factory(num_heads=4)
         result = mask(height=3, width=4)
@@ -212,9 +206,7 @@ class TestSpatialDecayForwardFull:
 
     def test_mask_value_equals_distance_times_decay_rate(self, spatial_decay_factory):
         # For a 2x2 grid with known decay rates, verify exact mask values
-        mask = spatial_decay_factory(
-            num_heads=2, initial_decay=5.0, decay_range=3.0
-        )
+        mask = spatial_decay_factory(num_heads=2, initial_decay=5.0, decay_range=3.0)
         (result,) = mask(height=2, width=2)
         decay_rate_head_0 = mask.decay_rates[0].item()
         # Position (0,0) to (1,1): Manhattan distance = 2
@@ -233,7 +225,6 @@ class TestSpatialDecayForwardFull:
 
 
 class TestSpatialDecayForwardSeparable:
-
     def test_output_is_two_element_tuple(self, spatial_decay_factory):
         mask = spatial_decay_factory(num_heads=4)
         result = mask(
@@ -276,9 +267,7 @@ class TestSpatialDecayForwardSeparable:
                 torch.zeros(4),
             )
 
-    def test_separable_closer_positions_have_higher_values(
-        self, spatial_decay_factory
-    ):
+    def test_separable_closer_positions_have_higher_values(self, spatial_decay_factory):
         mask = spatial_decay_factory(num_heads=4)
         height_mask, width_mask = mask(
             height=5,
@@ -293,9 +282,7 @@ class TestSpatialDecayForwardSeparable:
     def test_separable_mask_value_equals_1d_distance_times_decay_rate(
         self, spatial_decay_factory
     ):
-        mask = spatial_decay_factory(
-            num_heads=2, initial_decay=5.0, decay_range=3.0
-        )
+        mask = spatial_decay_factory(num_heads=2, initial_decay=5.0, decay_range=3.0)
         height_mask, width_mask = mask(
             height=4,
             width=3,

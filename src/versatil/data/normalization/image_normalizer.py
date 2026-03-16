@@ -77,7 +77,7 @@ def create_image_normalizer(
         )
         return SequentialNormalizer(normalizers=[stage1, stage2])
 
-    return stage1  # type: ignore[return-value]
+    return stage1
 
 
 def get_rgb_image_normalizer(

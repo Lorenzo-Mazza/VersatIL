@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.fusion.concat module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -10,6 +11,7 @@ from versatil.models.encoding.fusion.concat import ConcatFusion
 @pytest.fixture
 def concat_fusion_factory() -> Callable[..., ConcatFusion]:
     """Factory for ConcatFusion instances."""
+
     def factory(
         input_features: list[str] | None = None,
         output_name: str = "concat_fused",
@@ -22,11 +24,11 @@ def concat_fusion_factory() -> Callable[..., ConcatFusion]:
             output_name=output_name,
             hidden_dim=hidden_dim,
         )
+
     return factory
 
 
 class TestConcatFusionInitialization:
-
     def test_has_sequential_fusion_interface(
         self,
         concat_fusion_factory: Callable[..., ConcatFusion],
@@ -37,10 +39,13 @@ class TestConcatFusionInitialization:
         assert hasattr(module, "setup")
         assert hasattr(module, "get_output_specification")
 
-    @pytest.mark.parametrize("input_features", [
-        ["feat_a", "feat_b"],
-        ["feat_a", "feat_b", "feat_c"],
-    ])
+    @pytest.mark.parametrize(
+        "input_features",
+        [
+            ["feat_a", "feat_b"],
+            ["feat_a", "feat_b", "feat_c"],
+        ],
+    )
     @pytest.mark.parametrize("hidden_dim", [32, 128])
     @pytest.mark.parametrize("output_name", ["concat_fused", "my_output"])
     def test_stores_configuration(
@@ -61,7 +66,6 @@ class TestConcatFusionInitialization:
 
 
 class TestConcatFusionForward:
-
     def test_raises_if_projections_not_set_up(
         self,
         concat_fusion_factory: Callable[..., ConcatFusion],
@@ -124,22 +128,23 @@ class TestConcatFusionForward:
             input_features=feature_names,
             hidden_dim=hidden_dim,
         )
-        dims = {name: 32 for name in feature_names}
+        dims = dict.fromkeys(feature_names, 32)
         module.setup(feature_keys_to_dims=dims)
         features = [
-            input_tensor_factory(input_dimension=32)
-            for _ in range(num_features)
+            input_tensor_factory(input_dimension=32) for _ in range(num_features)
         ]
         output = module(features)
         assert output.shape[-1] == hidden_dim * num_features
 
 
 class TestConcatFusionGetOutputSpecification:
-
-    @pytest.mark.parametrize("num_features, hidden_dim, expected_dim", [
-        (2, 32, 64),
-        (3, 16, 48),
-    ])
+    @pytest.mark.parametrize(
+        "num_features, hidden_dim, expected_dim",
+        [
+            (2, 32, 64),
+            (3, 16, 48),
+        ],
+    )
     def test_output_dim_equals_hidden_dim_times_feature_count(
         self,
         concat_fusion_factory: Callable[..., ConcatFusion],

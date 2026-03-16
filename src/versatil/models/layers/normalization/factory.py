@@ -1,4 +1,5 @@
 """Normalization layers factory method."""
+
 import torch.nn as nn
 
 from versatil.models.layers import FrozenBatchNorm2d

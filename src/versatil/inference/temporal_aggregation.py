@@ -60,14 +60,12 @@ class TemporalAggregator:
         Returns:
             Dict mapping action key to averaged tensor of shape (dimension,).
         """
-        horizon_slice = slice(
-            self.timestep, self.timestep + self.prediction_horizon
-        )
+        horizon_slice = slice(self.timestep, self.timestep + self.prediction_horizon)
         self.populated_mask[[self.timestep], horizon_slice] = True
         for key, predictions in current_predictions.items():
-            self.action_histories[key][
-                [self.timestep], horizon_slice
-            ] = predictions.float()
+            self.action_histories[key][[self.timestep], horizon_slice] = (
+                predictions.float()
+            )
 
         actions_populated = self.populated_mask[:, self.timestep]
         num_populated = int(actions_populated.sum().item())
@@ -89,9 +87,7 @@ class TemporalAggregator:
         for tensor in self.action_histories.values():
             tensor.zero_()
 
-    def _compute_exponential_weights(
-        self, num_predictions: int
-    ) -> torch.Tensor:
+    def _compute_exponential_weights(self, num_predictions: int) -> torch.Tensor:
         """Compute normalized exponential weights.
 
         Args:
@@ -107,6 +103,4 @@ class TemporalAggregator:
             indices = indices[::-1]
         weights = np.exp(-self.exponential_decay * indices)
         weights = weights / weights.sum()
-        return (
-            torch.from_numpy(weights).to(self.device).float().unsqueeze(dim=1)
-        )
+        return torch.from_numpy(weights).to(self.device).float().unsqueeze(dim=1)

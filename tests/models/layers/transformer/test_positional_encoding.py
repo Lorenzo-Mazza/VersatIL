@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.transformer.positional_encoding module."""
+
 import re
 from collections.abc import Callable
 
@@ -7,9 +8,6 @@ import pytest
 import torch
 
 from versatil.models.layers.constants import PositionalEncodingType
-from versatil.models.layers.positional_encoding.learned import (
-    LearnedPositionalEncoding1D,
-)
 from versatil.models.layers.positional_encoding.rotary import (
     RotaryPositionalEncoding1D,
 )
@@ -56,7 +54,6 @@ def query_key_factory(
 
 
 class TestCreatePositionalEncoding:
-
     def test_sinusoidal_produces_additive_encoding(self):
         encoding = create_positional_encoding(
             encoding_type=PositionalEncodingType.SINUSOIDAL.value,
@@ -96,9 +93,7 @@ class TestCreatePositionalEncoding:
     def test_rope_without_num_heads_raises(self):
         with pytest.raises(
             ValueError,
-            match=re.escape(
-                "num_heads is required for RoPE positional encoding"
-            ),
+            match=re.escape("num_heads is required for RoPE positional encoding"),
         ):
             create_positional_encoding(
                 encoding_type=PositionalEncodingType.ROPE.value,
@@ -165,7 +160,6 @@ class TestCreatePositionalEncoding:
 
 
 class TestApplyRopePositionalEncoding:
-
     def test_output_shape_preserved(
         self,
         rope_encoding: RotaryPositionalEncoding1D,

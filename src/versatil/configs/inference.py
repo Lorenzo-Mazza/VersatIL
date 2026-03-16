@@ -1,4 +1,5 @@
 """Inference configuration."""
+
 from dataclasses import dataclass
 
 
@@ -10,4 +11,4 @@ class InferenceConfig:
     update_rate_hz: float = (
         3.0  # Frequency at which to update the policy during inference
     )
-    rotate_images: bool = False # Whether to rotate images of 180 degrees
+    rotate_images: bool = False  # Whether to rotate images of 180 degrees

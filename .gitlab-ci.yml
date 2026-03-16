@@ -1,0 +1,143 @@
+stages:
+  - lint
+  - test
+  - publish
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  HF_HOME: "$CI_PROJECT_DIR/.cache/huggingface"
+  TORCH_HOME: "$CI_PROJECT_DIR/.cache/torch"
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/.cache/uv"
+  CUDA_VISIBLE_DEVICES: ""
+
+# Reusable setup template
+.setup:
+  image: python:3.11-slim
+  before_script:
+    - pip install uv
+    - uv venv .venv
+    - source .venv/bin/activate
+    - uv pip install --extra-index-url https://download.pytorch.org/whl/cpu torch==2.4.0 torchaudio==2.4.0 torchvision==0.19.0
+    - uv pip install -e ".[dev]" --no-build-isolation-package flash-attn || uv pip install -e . --no-build-isolation-package flash-attn
+  cache:
+    key: "$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cache/pip
+      - .cache/huggingface
+      - .cache/torch
+      - .cache/uv
+      - .venv
+
+# ---------------------------------------------------------------------------
+# Lint stage
+# ---------------------------------------------------------------------------
+
+ruff-format:
+  stage: lint
+  image: python:3.11-slim
+  before_script:
+    - pip install ruff
+  script:
+    - ruff format --check src/ tests/
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+ruff-lint:
+  stage: lint
+  image: python:3.11-slim
+  before_script:
+    - pip install ruff
+  script:
+    - ruff check src/ tests/
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+# ---------------------------------------------------------------------------
+# Test stage
+# ---------------------------------------------------------------------------
+
+unit-tests:
+  stage: test
+  extends: .setup
+  script:
+    - python -m pytest tests/ -m "unit" --tb=short -q --junitxml=report-unit.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report-unit.xml
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+integration-tests:
+  stage: test
+  extends: .setup
+  script:
+    - python -m pytest tests/ -m "integration" --tb=short -q --junitxml=report-integration.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report-integration.xml
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: always
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: always
+    - if: $CI_COMMIT_BRANCH
+      when: manual
+      allow_failure: true
+
+e2e-tests:
+  stage: test
+  extends: .setup
+  timeout: 30 minutes
+  script:
+    - python -m pytest tests/endpoints/test_end_to_end.py -m "slow" --tb=short -q --junitxml=report-e2e.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report-e2e.xml
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: always
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: manual
+      allow_failure: true
+
+coverage:
+  stage: test
+  extends: .setup
+  before_script:
+    - !reference [.setup, before_script]
+    - uv pip install pytest-cov
+  script:
+    - python -m pytest tests/ -m "unit" --cov=versatil --cov-report=xml:coverage.xml --cov-report=term-missing -q
+  coverage: '/(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# ---------------------------------------------------------------------------
+# Publish stage
+# ---------------------------------------------------------------------------
+
+publish-pypi:
+  stage: publish
+  image: python:3.11-slim
+  before_script:
+    - pip install build twine
+  script:
+    - python -m build
+    - twine upload dist/* --non-interactive
+  variables:
+    TWINE_USERNAME: __token__
+    TWINE_PASSWORD: $PYPI_TOKEN
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/

@@ -8,14 +8,24 @@ import torch
 import torch.nn as nn
 from torchcfm.conditional_flow_matching import ConditionalFlowMatcher
 
+from versatil.models.decoding.constants import (
+    BetaSchedule,
+    DecoderOutputKey,
+    DenoisingAlgorithm,
+    LatentKey,
+    ODESolver,
+    PredictionType,
+)
+from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.denoising.diffusion_process import (
     DiffusionSchedulerConfig,
+    SchedulerType,
     add_noise_to_tensor,
     create_noise_scheduler,
     sample_random_timesteps,
     setup_inference_timesteps,
-    SchedulerType,
 )
 from versatil.models.layers.denoising.ode_solvers import integrate_ode
 from versatil.models.layers.diffusion_transformer.dit_decoder import (
@@ -32,16 +42,6 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
-from versatil.models.decoding.constants import (
-    BetaSchedule,
-    DecoderOutputKey,
-    DenoisingAlgorithm,
-    LatentKey,
-    ODESolver,
-    PredictionType,
-)
-from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 
 
 class DiTPrior(PriorLatentEncoder):
@@ -114,7 +114,6 @@ class DiTPrior(PriorLatentEncoder):
         self.exclude_keys = exclude_keys or []
 
         if algorithm_type == DenoisingAlgorithm.FLOW_MATCHING.value:
-
             self.flow_matcher = ConditionalFlowMatcher(sigma=sigma)
             self.ode_solver = ode_solver
             self.noise_scheduler = None

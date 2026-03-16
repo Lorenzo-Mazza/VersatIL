@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.encoders.conditional module."""
+
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
 
@@ -23,6 +24,7 @@ def concrete_conditional_encoder_factory(
     encoder_input_factory: Callable[..., EncoderInput],
 ) -> Callable[..., ConcreteConditionalEncoder]:
     """Factory for ConcreteConditionalEncoder instances."""
+
     def factory(
         keys: str | list[str] = "right",
         conditioning_key: str = "rgb_embedding",
@@ -40,15 +42,18 @@ def concrete_conditional_encoder_factory(
             frozen=frozen,
             device=device,
         )
+
     return factory
 
 
 class TestConditionalEncoderInitialization:
-
-    @pytest.mark.parametrize("conditioning_key, expectation", [
-        ("rgb_embedding", does_not_raise()),
-        (None, pytest.raises(ValueError, match="requires conditioning_key")),
-    ])
+    @pytest.mark.parametrize(
+        "conditioning_key, expectation",
+        [
+            ("rgb_embedding", does_not_raise()),
+            (None, pytest.raises(ValueError, match="requires conditioning_key")),
+        ],
+    )
     def test_conditioning_key_validation(
         self,
         encoder_input_factory: Callable[..., EncoderInput],

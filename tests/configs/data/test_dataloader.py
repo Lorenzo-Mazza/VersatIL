@@ -1,4 +1,5 @@
 """Tests for versatil.configs.data.dataloader module."""
+
 import pytest
 
 from versatil.configs.data.augmentations import AugmentationPipelineConfig
@@ -9,7 +10,6 @@ from versatil.data.constants import ImageNormalizationType, KinematicsNormalizat
 
 @pytest.mark.unit
 class TestDataLoaderConfig:
-
     @pytest.mark.parametrize("batch_size", [32, 128])
     @pytest.mark.parametrize("num_workers", [4, 16])
     @pytest.mark.parametrize("shuffle", [True, False])
@@ -24,9 +24,7 @@ class TestDataLoaderConfig:
     @pytest.mark.parametrize("image_height", [224, 480])
     @pytest.mark.parametrize("image_width", [224, 640])
     def test_stores_image_dimensions(self, image_height, image_width):
-        config = DataLoaderConfig(
-            image_height=image_height, image_width=image_width
-        )
+        config = DataLoaderConfig(image_height=image_height, image_width=image_width)
         assert config.image_height == image_height
         assert config.image_width == image_width
 
@@ -58,9 +56,7 @@ class TestDataLoaderConfig:
 
     @pytest.mark.parametrize("clamp_kinematics_range", [True, False])
     def test_stores_clamping_configuration(self, clamp_kinematics_range):
-        config = DataLoaderConfig(
-            clamp_kinematics_range=clamp_kinematics_range
-        )
+        config = DataLoaderConfig(clamp_kinematics_range=clamp_kinematics_range)
         assert config.clamp_kinematics_range == clamp_kinematics_range
 
     def test_tokenization_default_is_tokenization_config(self):
@@ -103,7 +99,5 @@ class TestDataLoaderConfig:
 
     @pytest.mark.parametrize("preload_data_in_memory", [True, False])
     def test_stores_preload_flag(self, preload_data_in_memory):
-        config = DataLoaderConfig(
-            preload_data_in_memory=preload_data_in_memory
-        )
+        config = DataLoaderConfig(preload_data_in_memory=preload_data_in_memory)
         assert config.preload_data_in_memory == preload_data_in_memory

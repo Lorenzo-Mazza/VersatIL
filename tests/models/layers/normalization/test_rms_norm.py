@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.normalization.rms_norm module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -26,7 +27,6 @@ def rms_norm_factory() -> Callable[..., RMSNorm]:
 
 
 class TestRMSNormInitialization:
-
     @pytest.mark.parametrize("normalized_shape", [32, 128])
     @pytest.mark.parametrize("elementwise_affine", [True, False])
     @pytest.mark.parametrize("eps", [1e-6, 1e-8])
@@ -62,7 +62,6 @@ class TestRMSNormInitialization:
 
 
 class TestRMSNormForward:
-
     @pytest.mark.parametrize("feature_dimension", [64, 128])
     def test_output_shape_matches_flat_input(
         self,
@@ -71,7 +70,8 @@ class TestRMSNormForward:
         feature_dimension: int,
     ):
         norm = rms_norm_factory(
-            normalized_shape=feature_dimension, elementwise_affine=True,
+            normalized_shape=feature_dimension,
+            elementwise_affine=True,
         )
         tensor = flat_tensor_factory(
             batch_size=2,
@@ -88,7 +88,8 @@ class TestRMSNormForward:
         embedding_dimension: int,
     ):
         norm = rms_norm_factory(
-            normalized_shape=embedding_dimension, elementwise_affine=True,
+            normalized_shape=embedding_dimension,
+            elementwise_affine=True,
         )
         tensor = sequence_tensor_factory(
             batch_size=4,
@@ -105,11 +106,12 @@ class TestRMSNormForward:
     ):
         feature_dimension = 256
         norm = rms_norm_factory(
-            normalized_shape=feature_dimension, elementwise_affine=False,
+            normalized_shape=feature_dimension,
+            elementwise_affine=False,
         )
         tensor = flat_tensor_factory(batch_size=4, feature_dimension=feature_dimension)
         output = norm(tensor)
-        rms_values = torch.sqrt(torch.mean(output ** 2, dim=-1))
+        rms_values = torch.sqrt(torch.mean(output**2, dim=-1))
         assert torch.allclose(rms_values, torch.ones_like(rms_values), atol=1e-4)
 
     def test_affine_weight_scales_rms(
@@ -119,13 +121,14 @@ class TestRMSNormForward:
     ):
         feature_dimension = 256
         norm = rms_norm_factory(
-            normalized_shape=feature_dimension, elementwise_affine=True,
+            normalized_shape=feature_dimension,
+            elementwise_affine=True,
         )
         norm.weight.data.fill_(2.0)
         tensor = flat_tensor_factory(batch_size=4, feature_dimension=feature_dimension)
         output = norm(tensor)
         # RMS-normalized input has RMS ≈ 1, multiplied by 2 gives RMS ≈ 2
-        rms_values = torch.sqrt(torch.mean(output ** 2, dim=-1))
+        rms_values = torch.sqrt(torch.mean(output**2, dim=-1))
         assert torch.allclose(rms_values, torch.full_like(rms_values, 2.0), atol=1e-2)
 
     def test_different_eps_affects_near_zero_input(
@@ -134,10 +137,14 @@ class TestRMSNormForward:
     ):
         feature_dimension = 64
         norm_small_eps = rms_norm_factory(
-            normalized_shape=feature_dimension, eps=1e-6, elementwise_affine=False,
+            normalized_shape=feature_dimension,
+            eps=1e-6,
+            elementwise_affine=False,
         )
         norm_large_eps = rms_norm_factory(
-            normalized_shape=feature_dimension, eps=1.0, elementwise_affine=False,
+            normalized_shape=feature_dimension,
+            eps=1.0,
+            elementwise_affine=False,
         )
         # Near-zero input where eps dominates the denominator
         tensor = torch.full((2, feature_dimension), 1e-8)
@@ -152,7 +159,8 @@ class TestRMSNormForward:
     ):
         feature_dimension = 64
         norm = rms_norm_factory(
-            normalized_shape=feature_dimension, elementwise_affine=True,
+            normalized_shape=feature_dimension,
+            elementwise_affine=True,
         )
         tensor = flat_tensor_factory(batch_size=2, feature_dimension=feature_dimension)
         tensor.requires_grad_(True)

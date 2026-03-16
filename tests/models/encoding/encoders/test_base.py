@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.encoders.base module."""
+
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
 from unittest.mock import patch
@@ -7,7 +8,11 @@ import pytest
 import torch
 import torch.nn as nn
 
-from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput, EncodingMixin
+from versatil.models.encoding.encoders.base import (
+    EncoderInput,
+    EncoderOutput,
+    EncodingMixin,
+)
 
 
 class ConcreteEncodingMixin(EncodingMixin):
@@ -37,6 +42,7 @@ def concrete_encoder_factory(
     encoder_input_factory: Callable[..., EncoderInput],
 ) -> Callable[..., ConcreteEncodingMixin]:
     """Factory for ConcreteEncodingMixin instances."""
+
     def factory(
         keys: str | list[str] = "left",
         pretrained: bool = False,
@@ -50,15 +56,18 @@ def concrete_encoder_factory(
             frozen=frozen,
             device=device,
         )
+
     return factory
 
 
 class TestEncoderOutput:
-
-    @pytest.mark.parametrize("features, expected_is_multi_output", [
-        (["embedding"], False),
-        (["language", "visual"], True),
-    ])
+    @pytest.mark.parametrize(
+        "features, expected_is_multi_output",
+        [
+            (["embedding"], False),
+            (["language", "visual"], True),
+        ],
+    )
     def test_is_multi_output_property(
         self,
         features: list[str],
@@ -66,17 +75,19 @@ class TestEncoderOutput:
     ):
         output = EncoderOutput(
             features=features,
-            dimensions={feature: 64 for feature in features},
+            dimensions=dict.fromkeys(features, 64),
         )
         assert output.is_multi_output == expected_is_multi_output
 
 
 class TestEncoderInputPostInit:
-
-    @pytest.mark.parametrize("keys, expected_keys", [
-        ("left", ["left"]),
-        (["left", "right"], ["left", "right"]),
-    ])
+    @pytest.mark.parametrize(
+        "keys, expected_keys",
+        [
+            ("left", ["left"]),
+            (["left", "right"], ["left", "right"]),
+        ],
+    )
     def test_normalizes_keys_to_list(
         self,
         keys: str | list[str],
@@ -87,11 +98,17 @@ class TestEncoderInputPostInit:
 
 
 class TestEncoderInputValidation:
-
-    @pytest.mark.parametrize("keys, required, expectation", [
-        (["left", "right"], ["left"], does_not_raise()),
-        (["left"], ["left", "right"], pytest.raises(ValueError, match="Missing required")),
-    ])
+    @pytest.mark.parametrize(
+        "keys, required, expectation",
+        [
+            (["left", "right"], ["left"], does_not_raise()),
+            (
+                ["left"],
+                ["left", "right"],
+                pytest.raises(ValueError, match="Missing required"),
+            ),
+        ],
+    )
     def test_required_keys_validation(
         self,
         encoder_input_factory: Callable[..., EncoderInput],
@@ -103,11 +120,22 @@ class TestEncoderInputValidation:
         with expectation:
             input_specification.validate()
 
-    @pytest.mark.parametrize("keys, one_of_groups, expectation", [
-        (["left"], [["left", "right"]], does_not_raise()),
-        (["left", "right"], [["left", "right"]], pytest.raises(ValueError, match="Exactly one")),
-        (["depth"], [["left", "right"]], pytest.raises(ValueError, match="Exactly one")),
-    ])
+    @pytest.mark.parametrize(
+        "keys, one_of_groups, expectation",
+        [
+            (["left"], [["left", "right"]], does_not_raise()),
+            (
+                ["left", "right"],
+                [["left", "right"]],
+                pytest.raises(ValueError, match="Exactly one"),
+            ),
+            (
+                ["depth"],
+                [["left", "right"]],
+                pytest.raises(ValueError, match="Exactly one"),
+            ),
+        ],
+    )
     def test_one_of_groups_validation(
         self,
         encoder_input_factory: Callable[..., EncoderInput],
@@ -115,15 +143,24 @@ class TestEncoderInputValidation:
         one_of_groups: list[list[str]],
         expectation,
     ):
-        input_specification = encoder_input_factory(keys=keys, one_of_groups=one_of_groups)
+        input_specification = encoder_input_factory(
+            keys=keys, one_of_groups=one_of_groups
+        )
         with expectation:
             input_specification.validate()
 
-    @pytest.mark.parametrize("keys, at_least_one_of_groups, expectation", [
-        (["left"], [["left", "right"]], does_not_raise()),
-        (["left", "right"], [["left", "right"]], does_not_raise()),
-        (["depth"], [["left", "right"]], pytest.raises(ValueError, match="At least one")),
-    ])
+    @pytest.mark.parametrize(
+        "keys, at_least_one_of_groups, expectation",
+        [
+            (["left"], [["left", "right"]], does_not_raise()),
+            (["left", "right"], [["left", "right"]], does_not_raise()),
+            (
+                ["depth"],
+                [["left", "right"]],
+                pytest.raises(ValueError, match="At least one"),
+            ),
+        ],
+    )
     def test_at_least_one_of_groups_validation(
         self,
         encoder_input_factory: Callable[..., EncoderInput],
@@ -138,10 +175,17 @@ class TestEncoderInputValidation:
         with expectation:
             input_specification.validate()
 
-    @pytest.mark.parametrize("conditioning_key, conditioning_required, expectation", [
-        ("rgb_embedding", ["rgb_embedding"], does_not_raise()),
-        ("rgb_embedding", ["missing_key"], pytest.raises(ValueError, match="Missing required conditioning")),
-    ])
+    @pytest.mark.parametrize(
+        "conditioning_key, conditioning_required, expectation",
+        [
+            ("rgb_embedding", ["rgb_embedding"], does_not_raise()),
+            (
+                "rgb_embedding",
+                ["missing_key"],
+                pytest.raises(ValueError, match="Missing required conditioning"),
+            ),
+        ],
+    )
     def test_conditioning_required_validation(
         self,
         encoder_input_factory: Callable[..., EncoderInput],
@@ -156,10 +200,17 @@ class TestEncoderInputValidation:
         with expectation:
             input_specification.validate()
 
-    @pytest.mark.parametrize("conditioning_key, conditioning_one_of_groups, expectation", [
-        ("rgb_embedding", [["rgb_embedding", "depth_embedding"]], does_not_raise()),
-        ("other_key", [["rgb_embedding", "depth_embedding"]], pytest.raises(ValueError, match="Exactly one")),
-    ])
+    @pytest.mark.parametrize(
+        "conditioning_key, conditioning_one_of_groups, expectation",
+        [
+            ("rgb_embedding", [["rgb_embedding", "depth_embedding"]], does_not_raise()),
+            (
+                "other_key",
+                [["rgb_embedding", "depth_embedding"]],
+                pytest.raises(ValueError, match="Exactly one"),
+            ),
+        ],
+    )
     def test_conditioning_one_of_groups_validation(
         self,
         encoder_input_factory: Callable[..., EncoderInput],
@@ -185,7 +236,6 @@ class TestEncoderInputValidation:
 
 
 class TestEncodingMixinInitialization:
-
     @pytest.mark.parametrize("pretrained", [True, False])
     @pytest.mark.parametrize("frozen", [True, False])
     @pytest.mark.parametrize("keys", ["left", ["left", "right"]])
@@ -208,10 +258,13 @@ class TestEncodingMixinInitialization:
         expected_keys = [keys] if isinstance(keys, str) else keys
         assert encoder.input_specification.keys == expected_keys
 
-    @pytest.mark.parametrize("cuda_available, expected_device_type", [
-        (False, "cpu"),
-        (True, "cuda"),
-    ])
+    @pytest.mark.parametrize(
+        "cuda_available, expected_device_type",
+        [
+            (False, "cpu"),
+            (True, "cuda"),
+        ],
+    )
     def test_device_defaults_based_on_cuda_availability(
         self,
         encoder_input_factory: Callable[..., EncoderInput],
@@ -245,7 +298,6 @@ class TestEncodingMixinInitialization:
 
 
 class TestEncodingMixinFreezeWeights:
-
     def test_sets_requires_grad_false_for_all_parameters(
         self,
         concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
@@ -259,7 +311,6 @@ class TestEncodingMixinFreezeWeights:
 
 
 class TestEncodingMixinGetVocabSize:
-
     def test_returns_none_by_default(
         self,
         concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],

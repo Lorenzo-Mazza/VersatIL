@@ -1,9 +1,11 @@
 """Tests for versatil.models.layers.diffusion_transformer.mmdit_transformer module."""
+
 from collections.abc import Callable
 
 import pytest
 import torch
 
+from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import PositionalEncodingType
 from versatil.models.layers.diffusion_transformer.mmdit_transformer import (
@@ -11,12 +13,9 @@ from versatil.models.layers.diffusion_transformer.mmdit_transformer import (
 )
 from versatil.models.layers.normalization.constants import NormalizationType
 
-from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
-
 
 @pytest.fixture
 def mmdit_transformer_factory() -> Callable[..., MMDiTTransformer]:
-
     def factory(
         number_of_layers: int = 1,
         embedding_dimension: int = 32,
@@ -62,7 +61,6 @@ def mmdit_transformer_factory() -> Callable[..., MMDiTTransformer]:
 
 
 class TestMMDiTTransformerInitialization:
-
     @pytest.mark.parametrize("number_of_layers", [1, 2])
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     def test_stores_configuration(
@@ -123,7 +121,6 @@ class TestMMDiTTransformerInitialization:
 
 
 class TestMMDiTTransformerForward:
-
     @pytest.mark.parametrize(
         "batch_size, encoder_sequence_length, decoder_sequence_length, embedding_dimension, output_dimension",
         [
@@ -163,7 +160,11 @@ class TestMMDiTTransformerForward:
             encoder_hidden_states=encoder_hidden,
         )
         expected_output_dim = output_dimension or embedding_dimension
-        assert output.shape == (batch_size, decoder_sequence_length, expected_output_dim)
+        assert output.shape == (
+            batch_size,
+            decoder_sequence_length,
+            expected_output_dim,
+        )
 
     def test_returns_only_action_predictions(
         self,

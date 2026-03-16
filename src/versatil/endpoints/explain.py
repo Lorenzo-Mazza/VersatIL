@@ -3,7 +3,9 @@
 This module provides functionality to generate visual explanations for model predictions
 using various interpretability techniques (GradCAM, saliency maps, integrated gradients).
 """
+
 import argparse
+import logging
 import os
 from pathlib import Path
 
@@ -15,10 +17,9 @@ import pandas as pd
 import torch
 from albumentations.pytorch import ToTensorV2
 from omegaconf import OmegaConf
-import logging
 
-from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import Cameras
+from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.explain.constants import ExplanationType
 from versatil.explain.explainer import show_cam_on_image
 from versatil.training.lightning_policy import LightningPolicy
@@ -141,9 +142,9 @@ class ModelExplainer:
         Returns:
             Dictionary of observation tensors
         """
-        assert (
-            self.dataset is not None
-        ), "Dataset must be loaded before getting observations"
+        assert self.dataset is not None, (
+            "Dataset must be loaded before getting observations"
+        )
         df = self.dataset.iloc[self.timestep : self.timestep + self.observation_horizon]
         obs = {}
 

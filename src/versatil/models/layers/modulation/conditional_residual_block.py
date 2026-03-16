@@ -1,4 +1,5 @@
 """Conditional Residual Block 1D Module originally used in the Diffusion Policy U-Net architecture."""
+
 from torch import nn
 
 from versatil.models.layers import ConditionalModulation

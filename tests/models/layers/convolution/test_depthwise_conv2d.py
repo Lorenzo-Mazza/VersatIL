@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.convolution.depthwise_conv2d module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -29,7 +30,6 @@ def depthwise_conv2d_factory() -> Callable[..., DepthwiseConv2D]:
 
 
 class TestDepthwiseConv2DInitialization:
-
     @pytest.mark.parametrize("dimension", [16, 32])
     @pytest.mark.parametrize("kernel_size", [3, 5])
     @pytest.mark.parametrize("stride", [1, 2])
@@ -57,7 +57,6 @@ class TestDepthwiseConv2DInitialization:
 
 
 class TestDepthwiseConv2DForward:
-
     @pytest.mark.parametrize("dimension", [16, 32])
     @pytest.mark.parametrize("height, width", [(8, 8), (12, 16)])
     def test_output_shape_with_same_padding(

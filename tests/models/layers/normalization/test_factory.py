@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.normalization.factory module."""
+
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -29,15 +30,12 @@ def norm_input_factory(
             shape = (batch_size, channels, height, width)
         else:
             shape = (batch_size, sequence_length, channels)
-        return torch.from_numpy(
-            rng.standard_normal(shape).astype(np.float32)
-        )
+        return torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
 
     return factory
 
 
 class TestCreateNormalizationLayer:
-
     @pytest.mark.parametrize(
         "normalization_type, spatial",
         [
@@ -87,9 +85,7 @@ class TestCreateNormalizationLayer:
                 None,
                 pytest.raises(
                     ValueError,
-                    match=re.escape(
-                        "condition_dim is required for ada_ln / ada_rms"
-                    ),
+                    match=re.escape("condition_dim is required for ada_ln / ada_rms"),
                 ),
             ),
             (
@@ -97,9 +93,7 @@ class TestCreateNormalizationLayer:
                 None,
                 pytest.raises(
                     ValueError,
-                    match=re.escape(
-                        "condition_dim is required for ada_ln / ada_rms"
-                    ),
+                    match=re.escape("condition_dim is required for ada_ln / ada_rms"),
                 ),
             ),
             (NormalizationType.ADALN.value, 32, does_not_raise()),
@@ -186,7 +180,9 @@ class TestCreateNormalizationLayer:
             dimension=dimension,
         )
         tensor = norm_input_factory(
-            batch_size=2, channels=dimension, spatial=True,
+            batch_size=2,
+            channels=dimension,
+            spatial=True,
         )
         output = layer(tensor)
         assert torch.allclose(output, tensor, atol=1e-4)

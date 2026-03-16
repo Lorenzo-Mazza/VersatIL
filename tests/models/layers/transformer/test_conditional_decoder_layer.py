@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.transformer.conditional_decoder_layer module."""
+
 import re
 from collections.abc import Callable
 
@@ -15,7 +16,9 @@ from versatil.models.layers.transformer.conditional_decoder_layer import (
 
 
 @pytest.fixture
-def conditional_decoder_layer_factory() -> Callable[..., ConditionalTransformerDecoderLayer]:
+def conditional_decoder_layer_factory() -> Callable[
+    ..., ConditionalTransformerDecoderLayer
+]:
     """Factory for ConditionalTransformerDecoderLayer modules."""
 
     def factory(
@@ -55,13 +58,14 @@ def conditional_decoder_layer_factory() -> Callable[..., ConditionalTransformerD
 
 
 class TestConditionalDecoderLayerInitialization:
-
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("condition_dimension", [16, 32])
     @pytest.mark.parametrize("use_cross_attention", [True, False])
     def test_stores_configuration(
         self,
-        conditional_decoder_layer_factory: Callable[..., ConditionalTransformerDecoderLayer],
+        conditional_decoder_layer_factory: Callable[
+            ..., ConditionalTransformerDecoderLayer
+        ],
         embedding_dimension: int,
         condition_dimension: int,
         use_cross_attention: bool,
@@ -77,7 +81,9 @@ class TestConditionalDecoderLayerInitialization:
 
     def test_modulation_layers_created_for_self_attention_and_ffn(
         self,
-        conditional_decoder_layer_factory: Callable[..., ConditionalTransformerDecoderLayer],
+        conditional_decoder_layer_factory: Callable[
+            ..., ConditionalTransformerDecoderLayer
+        ],
     ):
         layer = conditional_decoder_layer_factory(use_cross_attention=False)
         assert layer.self_attention_modulation is not None
@@ -85,14 +91,18 @@ class TestConditionalDecoderLayerInitialization:
 
     def test_cross_attention_modulation_created_when_enabled(
         self,
-        conditional_decoder_layer_factory: Callable[..., ConditionalTransformerDecoderLayer],
+        conditional_decoder_layer_factory: Callable[
+            ..., ConditionalTransformerDecoderLayer
+        ],
     ):
         layer = conditional_decoder_layer_factory(use_cross_attention=True)
         assert layer.cross_attention_modulation is not None
 
     def test_cross_attention_modulation_none_when_disabled(
         self,
-        conditional_decoder_layer_factory: Callable[..., ConditionalTransformerDecoderLayer],
+        conditional_decoder_layer_factory: Callable[
+            ..., ConditionalTransformerDecoderLayer
+        ],
     ):
         layer = conditional_decoder_layer_factory(use_cross_attention=False)
         assert layer.cross_attention_modulation is None
@@ -103,7 +113,9 @@ class TestConditionalDecoderLayerInitialization:
     )
     def test_activation_variants(
         self,
-        conditional_decoder_layer_factory: Callable[..., ConditionalTransformerDecoderLayer],
+        conditional_decoder_layer_factory: Callable[
+            ..., ConditionalTransformerDecoderLayer
+        ],
         activation: str,
     ):
         layer = conditional_decoder_layer_factory(activation=activation)
@@ -111,17 +123,20 @@ class TestConditionalDecoderLayerInitialization:
 
     def test_feedforward_last_layer_has_initialization_flag(
         self,
-        conditional_decoder_layer_factory: Callable[..., ConditionalTransformerDecoderLayer],
+        conditional_decoder_layer_factory: Callable[
+            ..., ConditionalTransformerDecoderLayer
+        ],
     ):
         layer = conditional_decoder_layer_factory()
         assert layer.feedforward_network[-1].SQUARE_ROOT_WEIGHT is True
 
 
 class TestConditionalDecoderLayerForward:
-
     def test_output_shape_with_cross_attention(
         self,
-        conditional_decoder_layer_factory: Callable[..., ConditionalTransformerDecoderLayer],
+        conditional_decoder_layer_factory: Callable[
+            ..., ConditionalTransformerDecoderLayer
+        ],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
@@ -147,7 +162,9 @@ class TestConditionalDecoderLayerForward:
 
     def test_output_shape_without_cross_attention(
         self,
-        conditional_decoder_layer_factory: Callable[..., ConditionalTransformerDecoderLayer],
+        conditional_decoder_layer_factory: Callable[
+            ..., ConditionalTransformerDecoderLayer
+        ],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
@@ -169,7 +186,9 @@ class TestConditionalDecoderLayerForward:
 
     def test_identity_init_conditioning_has_no_effect_at_initialization(
         self,
-        conditional_decoder_layer_factory: Callable[..., ConditionalTransformerDecoderLayer],
+        conditional_decoder_layer_factory: Callable[
+            ..., ConditionalTransformerDecoderLayer
+        ],
         rng: np.random.Generator,
     ):
         layer = conditional_decoder_layer_factory(
@@ -184,25 +203,19 @@ class TestConditionalDecoderLayerForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((2, 4, 32)).astype(np.float32)
         )
-        condition_a = torch.from_numpy(
-            rng.standard_normal((2, 16)).astype(np.float32)
-        )
-        condition_b = torch.from_numpy(
-            rng.standard_normal((2, 16)).astype(np.float32)
-        )
-        output_a = layer(
-            hidden_states=hidden_states, condition=condition_a
-        )
-        output_b = layer(
-            hidden_states=hidden_states, condition=condition_b
-        )
+        condition_a = torch.from_numpy(rng.standard_normal((2, 16)).astype(np.float32))
+        condition_b = torch.from_numpy(rng.standard_normal((2, 16)).astype(np.float32))
+        output_a = layer(hidden_states=hidden_states, condition=condition_a)
+        output_b = layer(hidden_states=hidden_states, condition=condition_b)
         # With identity init (zero weights), modulation has no effect so
         # different conditions should produce the same output
         assert torch.allclose(output_a, output_b, atol=1e-6)
 
     def test_different_conditions_produce_different_outputs_after_training(
         self,
-        conditional_decoder_layer_factory: Callable[..., ConditionalTransformerDecoderLayer],
+        conditional_decoder_layer_factory: Callable[
+            ..., ConditionalTransformerDecoderLayer
+        ],
         rng: np.random.Generator,
     ):
         layer = conditional_decoder_layer_factory(
@@ -217,23 +230,17 @@ class TestConditionalDecoderLayerForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((2, 4, 32)).astype(np.float32)
         )
-        condition_a = torch.from_numpy(
-            rng.standard_normal((2, 16)).astype(np.float32)
-        )
-        condition_b = torch.from_numpy(
-            rng.standard_normal((2, 16)).astype(np.float32)
-        )
-        output_a = layer(
-            hidden_states=hidden_states, condition=condition_a
-        )
-        output_b = layer(
-            hidden_states=hidden_states, condition=condition_b
-        )
+        condition_a = torch.from_numpy(rng.standard_normal((2, 16)).astype(np.float32))
+        condition_b = torch.from_numpy(rng.standard_normal((2, 16)).astype(np.float32))
+        output_a = layer(hidden_states=hidden_states, condition=condition_a)
+        output_b = layer(hidden_states=hidden_states, condition=condition_b)
         assert not torch.allclose(output_a, output_b, atol=1e-5)
 
     def test_cross_attention_without_features_raises(
         self,
-        conditional_decoder_layer_factory: Callable[..., ConditionalTransformerDecoderLayer],
+        conditional_decoder_layer_factory: Callable[
+            ..., ConditionalTransformerDecoderLayer
+        ],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
@@ -249,9 +256,7 @@ class TestConditionalDecoderLayerForward:
         condition = condition_factory(batch_size=2, condition_dim=16)
         with pytest.raises(
             ValueError,
-            match=re.escape(
-                "encoded_features required when use_cross_attention=True"
-            ),
+            match=re.escape("encoded_features required when use_cross_attention=True"),
         ):
             layer(
                 hidden_states=hidden_states,
@@ -261,7 +266,9 @@ class TestConditionalDecoderLayerForward:
 
     def test_different_encoded_features_produce_different_output(
         self,
-        conditional_decoder_layer_factory: Callable[..., ConditionalTransformerDecoderLayer],
+        conditional_decoder_layer_factory: Callable[
+            ..., ConditionalTransformerDecoderLayer
+        ],
         rng: np.random.Generator,
     ):
         layer = conditional_decoder_layer_factory(
@@ -275,15 +282,9 @@ class TestConditionalDecoderLayerForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((2, 4, 32)).astype(np.float32)
         )
-        condition = torch.from_numpy(
-            rng.standard_normal((2, 16)).astype(np.float32)
-        )
-        memory_a = torch.from_numpy(
-            rng.standard_normal((2, 6, 32)).astype(np.float32)
-        )
-        memory_b = torch.from_numpy(
-            rng.standard_normal((2, 6, 32)).astype(np.float32)
-        )
+        condition = torch.from_numpy(rng.standard_normal((2, 16)).astype(np.float32))
+        memory_a = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
+        memory_b = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
         output_a = layer(
             hidden_states=hidden_states,
             condition=condition,
@@ -298,7 +299,9 @@ class TestConditionalDecoderLayerForward:
 
     def test_self_attention_mask_affects_output(
         self,
-        conditional_decoder_layer_factory: Callable[..., ConditionalTransformerDecoderLayer],
+        conditional_decoder_layer_factory: Callable[
+            ..., ConditionalTransformerDecoderLayer
+        ],
         rng: np.random.Generator,
         attention_mask_factory: Callable[..., torch.Tensor],
     ):
@@ -314,9 +317,7 @@ class TestConditionalDecoderLayerForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((2, 4, 32)).astype(np.float32)
         )
-        condition = torch.from_numpy(
-            rng.standard_normal((2, 16)).astype(np.float32)
-        )
+        condition = torch.from_numpy(rng.standard_normal((2, 16)).astype(np.float32))
         causal_mask = attention_mask_factory(
             batch_size=2, query_length=4, key_length=4, causal=True
         )

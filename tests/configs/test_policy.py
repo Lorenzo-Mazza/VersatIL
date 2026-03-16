@@ -1,4 +1,5 @@
 """Tests for versatil.configs.policy module."""
+
 import dataclasses
 
 import pytest
@@ -17,7 +18,6 @@ from versatil.models.policy import Policy
 
 @pytest.mark.unit
 class TestPolicyConfig:
-
     def test_target_points_to_policy_class(self):
         config = PolicyConfig()
         assert config._target_ == "versatil.models.policy.Policy"
@@ -72,7 +72,6 @@ class TestPolicyConfig:
 
 @pytest.mark.unit
 class TestPolicyInstantiation:
-
     def test_policy_instantiates_with_real_configs(self):
         observation_space = ObservationSpaceConfig()
         action_space = ActionSpaceConfig()

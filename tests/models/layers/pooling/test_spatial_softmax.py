@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.pooling.spatial_softmax module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -10,6 +11,7 @@ from versatil.models.layers.pooling.spatial_softmax import SpatialSoftmax
 @pytest.fixture
 def spatial_softmax_factory() -> Callable[..., SpatialSoftmax]:
     """Factory for SpatialSoftmax instances."""
+
     def factory(
         height: int = 8,
         width: int = 8,
@@ -24,11 +26,11 @@ def spatial_softmax_factory() -> Callable[..., SpatialSoftmax]:
             temperature=temperature,
             learnable_temperature=learnable_temperature,
         )
+
     return factory
 
 
 class TestSpatialSoftmaxInitialization:
-
     @pytest.mark.parametrize("height", [8, 16])
     @pytest.mark.parametrize("width", [8, 12])
     @pytest.mark.parametrize("channel", [16, 32])
@@ -82,9 +84,7 @@ class TestSpatialSoftmaxInitialization:
         param_names = {name for name, _ in module.named_parameters()}
         assert "temperature" in param_names
         assert module.temperature.requires_grad is True
-        assert torch.allclose(
-            module.temperature, torch.tensor([temperature])
-        )
+        assert torch.allclose(module.temperature, torch.tensor([temperature]))
 
     def test_non_learnable_temperature_is_buffer(
         self,
@@ -103,13 +103,10 @@ class TestSpatialSoftmaxInitialization:
         assert "temperature" not in param_names
         buffers = dict(module.named_buffers())
         assert "temperature" in buffers
-        assert torch.allclose(
-            module.temperature, torch.tensor([temperature])
-        )
+        assert torch.allclose(module.temperature, torch.tensor([temperature]))
 
 
 class TestSpatialSoftmaxForward:
-
     @pytest.mark.parametrize("batch_size", [1, 4])
     @pytest.mark.parametrize("channel", [8, 32])
     def test_output_shape(
@@ -158,13 +155,22 @@ class TestSpatialSoftmaxForward:
     ):
         height, width, channel = 8, 8, 16
         low_temperature = spatial_softmax_factory(
-            height=height, width=width, channel=channel, temperature=0.1,
+            height=height,
+            width=width,
+            channel=channel,
+            temperature=0.1,
         )
         high_temperature = spatial_softmax_factory(
-            height=height, width=width, channel=channel, temperature=10.0,
+            height=height,
+            width=width,
+            channel=channel,
+            temperature=10.0,
         )
         tensor = nchw_tensor_factory(
-            batch_size=2, channels=channel, height=height, width=width,
+            batch_size=2,
+            channels=channel,
+            height=height,
+            width=width,
         )
         output_low = low_temperature(tensor)
         output_high = high_temperature(tensor)
@@ -179,10 +185,16 @@ class TestSpatialSoftmaxForward:
         tensor = torch.zeros(1, channel, height, width)
         tensor[0, 0, 0, 0] = 10.0
         low_temperature = spatial_softmax_factory(
-            height=height, width=width, channel=channel, temperature=0.01,
+            height=height,
+            width=width,
+            channel=channel,
+            temperature=0.01,
         )
         high_temperature = spatial_softmax_factory(
-            height=height, width=width, channel=channel, temperature=100.0,
+            height=height,
+            width=width,
+            channel=channel,
+            temperature=100.0,
         )
         output_low = low_temperature(tensor)
         output_high = high_temperature(tensor)

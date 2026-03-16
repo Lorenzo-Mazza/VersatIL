@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.positional_encoding.learned module."""
+
 import re
 from collections.abc import Callable
 
@@ -15,6 +16,7 @@ from versatil.models.layers.positional_encoding.learned import (
 @pytest.fixture
 def learned_1d_factory() -> Callable[..., LearnedPositionalEncoding1D]:
     """Factory for LearnedPositionalEncoding1D instances."""
+
     def factory(
         embedding_dimension: int = 64,
         position_source: str = PositionSource.TENSOR_INDICES.value,
@@ -25,12 +27,14 @@ def learned_1d_factory() -> Callable[..., LearnedPositionalEncoding1D]:
             position_source=position_source,
             maximum_length=maximum_length,
         )
+
     return factory
 
 
 @pytest.fixture
 def learned_2d_factory() -> Callable[..., LearnedPositionalEncoding2D]:
     """Factory for LearnedPositionalEncoding2D instances."""
+
     def factory(
         embedding_dimension: int = 64,
         max_height: int = 50,
@@ -41,11 +45,11 @@ def learned_2d_factory() -> Callable[..., LearnedPositionalEncoding2D]:
             max_height=max_height,
             max_width=max_width,
         )
+
     return factory
 
 
 class TestLearnedPositionalEncoding1D:
-
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("maximum_length", [50, 100])
     def test_stores_configuration(
@@ -83,10 +87,13 @@ class TestLearnedPositionalEncoding1D:
         # Verify the encoding is learnable (has requires_grad=True weights)
         assert module.learned_encoding.weight.requires_grad is True
 
-    @pytest.mark.parametrize("batch_size, sequence_length, embedding_dimension", [
-        (2, 10, 64),
-        (4, 20, 128),
-    ])
+    @pytest.mark.parametrize(
+        "batch_size, sequence_length, embedding_dimension",
+        [
+            (2, 10, 64),
+            (4, 20, 128),
+        ],
+    )
     def test_output_shape_tensor_indices(
         self,
         learned_1d_factory: Callable[..., LearnedPositionalEncoding1D],
@@ -114,7 +121,9 @@ class TestLearnedPositionalEncoding1D:
     ):
         module = learned_1d_factory(embedding_dimension=64, maximum_length=100)
         tensor = sequence_tensor_factory(
-            batch_size=1, sequence_length=10, embedding_dimension=64,
+            batch_size=1,
+            sequence_length=10,
+            embedding_dimension=64,
         )
         output = module(tensor)
         encoding_pos_0 = output[0, 0]
@@ -140,12 +149,14 @@ class TestLearnedPositionalEncoding1D:
 
 
 class TestLearnedPositionalEncoding2D:
-
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
-    @pytest.mark.parametrize("max_height, max_width", [
-        (10, 10),
-        (50, 50),
-    ])
+    @pytest.mark.parametrize(
+        "max_height, max_width",
+        [
+            (10, 10),
+            (50, 50),
+        ],
+    )
     def test_stores_configuration(
         self,
         embedding_dimension: int,
@@ -214,10 +225,13 @@ class TestLearnedPositionalEncoding2D:
         assert module.row_encoding.weight.requires_grad is True
         assert module.col_encoding.weight.requires_grad is True
 
-    @pytest.mark.parametrize("batch_size, embedding_dimension, height, width", [
-        (2, 64, 8, 8),
-        (4, 128, 4, 6),
-    ])
+    @pytest.mark.parametrize(
+        "batch_size, embedding_dimension, height, width",
+        [
+            (2, 64, 8, 8),
+            (4, 128, 4, 6),
+        ],
+    )
     def test_output_shape(
         self,
         learned_2d_factory: Callable[..., LearnedPositionalEncoding2D],

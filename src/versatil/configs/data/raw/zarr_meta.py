@@ -1,6 +1,6 @@
 """Configurations for the raw dataset metadata used to construct a zarr store for fast parallel access.
- `dtype` across all configs refers to zarr v3 storage data type.
- zarr v3 allowed dtypes are defined here https://zarr-specs.readthedocs.io/en/latest/v3/data-types/index.html
+`dtype` across all configs refers to zarr v3 storage data type.
+zarr v3 allowed dtypes are defined here https://zarr-specs.readthedocs.io/en/latest/v3/data-types/index.html
 """
 
 from dataclasses import dataclass, field

@@ -1,4 +1,5 @@
 """Tests for versatil.configs.data.raw.zarr_meta module."""
+
 import pytest
 from hydra.utils import instantiate
 from omegaconf import MISSING
@@ -9,7 +10,6 @@ from versatil.configs.data.raw.zarr_meta import DatasetMetadataConfig
 
 @pytest.mark.unit
 class TestDatasetMetadataConfig:
-
     def test_target_points_to_dataset_metadata(self):
         config = DatasetMetadataConfig()
         assert config._target_ == "versatil.data.raw.zarr_meta.DatasetMetadata"
@@ -25,7 +25,6 @@ class TestDatasetMetadataConfig:
 
 @pytest.mark.unit
 class TestDatasetMetadataInstantiation:
-
     def test_dataset_metadata_instantiates_with_observations(self):
         config = DatasetMetadataConfig(
             observations={

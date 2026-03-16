@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.pooling.pooling_head module."""
+
 import re
 from collections.abc import Callable
 
@@ -18,15 +19,17 @@ from versatil.models.layers.pooling.pooling_head import (
 
 
 class TestCreatePoolingHeadFactory:
-
-    @pytest.mark.parametrize("pooling_method, expected_type", [
-        (PoolingMethod.SPATIAL_SOFTMAX.value, SpatialSoftmaxPooling),
-        (PoolingMethod.AVERAGE.value, GlobalAveragePooling),
-        (PoolingMethod.MAX.value, MaxPooling),
-        (PoolingMethod.DEFAULT.value, MaxPooling),
-        (PoolingMethod.NONE.value, IdentityPooling),
-        (PoolingMethod.LEARNED_AGGREGATION.value, LearnedAggregationPooling),
-    ])
+    @pytest.mark.parametrize(
+        "pooling_method, expected_type",
+        [
+            (PoolingMethod.SPATIAL_SOFTMAX.value, SpatialSoftmaxPooling),
+            (PoolingMethod.AVERAGE.value, GlobalAveragePooling),
+            (PoolingMethod.MAX.value, MaxPooling),
+            (PoolingMethod.DEFAULT.value, MaxPooling),
+            (PoolingMethod.NONE.value, IdentityPooling),
+            (PoolingMethod.LEARNED_AGGREGATION.value, LearnedAggregationPooling),
+        ],
+    )
     def test_returns_correct_type_for_pooling_method(
         self,
         pooling_method: str,
@@ -68,7 +71,6 @@ class TestCreatePoolingHeadFactory:
 
 
 class TestSpatialSoftmaxPooling:
-
     @pytest.mark.parametrize("channels", [8, 16])
     def test_output_dim(self, channels: int):
         head = SpatialSoftmaxPooling(
@@ -100,7 +102,6 @@ class TestSpatialSoftmaxPooling:
 
 
 class TestGlobalAveragePooling:
-
     @pytest.mark.parametrize("channels", [8, 32])
     def test_output_dim(self, channels: int):
         head = GlobalAveragePooling()
@@ -124,14 +125,13 @@ class TestGlobalAveragePooling:
     def test_forward_computes_spatial_mean(self):
         # Construct a tensor with known channel means across spatial dims
         head = GlobalAveragePooling()
-        tensor = torch.tensor([[[[1.0, 3.0], [5.0, 7.0]]]]) # (1, 1, 2, 2)
+        tensor = torch.tensor([[[[1.0, 3.0], [5.0, 7.0]]]])  # (1, 1, 2, 2)
         output = head(tensor)
         expected_mean = (1.0 + 3.0 + 5.0 + 7.0) / 4.0
         assert torch.allclose(output, torch.tensor([[expected_mean]]))
 
 
 class TestMaxPooling:
-
     @pytest.mark.parametrize("channels", [8, 32])
     def test_output_dim(self, channels: int):
         head = MaxPooling()
@@ -154,13 +154,12 @@ class TestMaxPooling:
 
     def test_forward_returns_spatial_maximum(self):
         head = MaxPooling()
-        tensor = torch.tensor([[[[1.0, 3.0], [5.0, 7.0]]]]) # (1, 1, 2, 2)
+        tensor = torch.tensor([[[[1.0, 3.0], [5.0, 7.0]]]])  # (1, 1, 2, 2)
         output = head(tensor)
         assert torch.allclose(output, torch.tensor([[7.0]]))
 
 
 class TestIdentityPooling:
-
     def test_output_dim_returns_channels_and_spatial_dims(self):
         channels = 16
         head = IdentityPooling(channels=channels)
@@ -185,7 +184,6 @@ class TestIdentityPooling:
 
 
 class TestLearnedAggregationPooling:
-
     @pytest.mark.parametrize("channels", [16, 32])
     def test_output_dim(self, channels: int):
         head = LearnedAggregationPooling(channels=channels)

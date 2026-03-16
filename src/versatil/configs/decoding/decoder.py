@@ -1,12 +1,13 @@
 """Configuration classes for different action decoder architectures."""
+
 from dataclasses import dataclass, field
 from typing import Any
 
 from omegaconf import MISSING
 
-from versatil.configs.decoding.action_head import MixtureOfExpertsHeadConfig
 from versatil.configs.data.task import ActionSpaceConfig, ObservationSpaceConfig
-from versatil.models.decoding.constants import MoERoutingType, DiTType, GMMInitStrategy
+from versatil.configs.decoding.action_head import MixtureOfExpertsHeadConfig
+from versatil.models.decoding.constants import DiTType, GMMInitStrategy, MoERoutingType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import (
     AttentionType,
@@ -20,14 +21,14 @@ class DecodingNetworkConfig:
     """Base architecture configuration."""
 
     _target_: str = MISSING
-    action_heads: dict[
-        str, Any
-    ] | None = None  # Any means ActionHeadConfig | MixtureOfExpertsHeadConfig, but custom union type aliases don't work well with omegaconf
+    action_heads: dict[str, Any] | None = (
+        None  # Any means ActionHeadConfig | MixtureOfExpertsHeadConfig, but custom union type aliases don't work well with omegaconf
+    )
     input_keys: list[str] = MISSING
-    observation_space: ObservationSpaceConfig = "${policy.observation_space}"  # type: ignore[assignment]
-    action_space: ActionSpaceConfig = "${policy.action_space}"  # type: ignore[assignment]
-    observation_horizon: int = "${policy.observation_horizon}"  # type: ignore[assignment]
-    prediction_horizon: int = "${policy.prediction_horizon}"  # type: ignore[assignment]
+    observation_space: ObservationSpaceConfig = "${policy.observation_space}"
+    action_space: ActionSpaceConfig = "${policy.action_space}"
+    observation_horizon: int = "${policy.observation_horizon}"
+    prediction_horizon: int = "${policy.prediction_horizon}"
     device: str = "${policy.device}"
 
 
@@ -76,9 +77,7 @@ class DiscreteDETRActionTransformerConfig(DecodingNetworkConfig):
     Note: Requires tokenizer to be set at runtime via set_tokenizer().
     """
 
-    _target_: str = (
-        "versatil.models.decoding.decoders.factory.discrete_detr_action_transformer.DiscreteDETRActionTransformer"
-    )
+    _target_: str = "versatil.models.decoding.decoders.factory.discrete_detr_action_transformer.DiscreteDETRActionTransformer"
     max_seq_len: int = 512  # Maximum token sequence length to predict
     embedding_dimension: int = 256
     number_of_heads: int = 8  # Number of attention heads
@@ -111,9 +110,7 @@ class GPTActionTransformerConfig(DecodingNetworkConfig):
     Note: Requires tokenizer to be set at runtime via set_tokenizer().
     """
 
-    _target_: str = (
-        "versatil.models.decoding.decoders.factory.gpt_action_transformer.GPTActionTransformer"
-    )
+    _target_: str = "versatil.models.decoding.decoders.factory.gpt_action_transformer.GPTActionTransformer"
     max_seq_len: int = 512  # Maximum sequence length for GPT (features + action tokens)
     embedding_dimension: int = 256
     number_of_heads: int = 8  # Number of query attention heads
@@ -174,9 +171,7 @@ class MixtureOfDensitiesActionTransformerConfig(DecodingNetworkConfig):
     a gating network to predict mixture weights.
     """
 
-    _target_: str = (
-        "versatil.models.decoding.decoders.factory.mode_act.MixtureOfDensitiesActionTransformer"
-    )
+    _target_: str = "versatil.models.decoding.decoders.factory.mode_act.MixtureOfDensitiesActionTransformer"
     embedding_dimension: int = 256
     number_of_heads: int = 8
     number_of_key_value_heads: int | None = None

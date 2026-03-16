@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.encoders.rgb.cnn module."""
+
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -6,7 +7,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
-from transformers import TimmBackbone, TimmBackboneConfig
 
 from versatil.data.constants import RGB_CAMERAS
 from versatil.models.encoding.encoders.constants import (
@@ -17,15 +17,11 @@ from versatil.models.encoding.encoders.constants import (
 )
 from versatil.models.encoding.encoders.rgb.cnn import CNNEncoder
 
-
 CNN_BACKBONES = [
-    e for e in RGBBackboneType
-    if "vit" not in e.value and "dino" not in e.value
+    e for e in RGBBackboneType if "vit" not in e.value and "dino" not in e.value
 ]
 
-CNN_VALID_BACKBONES = [
-    e.value for e in RGBBackboneType if "vit" not in e.value
-]
+CNN_VALID_BACKBONES = [e.value for e in RGBBackboneType if "vit" not in e.value]
 
 
 def _mock_build_backbone(self):
@@ -43,6 +39,7 @@ def _mock_setup_pooling(self):
 @pytest.fixture
 def cnn_encoder_factory() -> Callable[..., CNNEncoder]:
     """Factory for CNNEncoder with mocked backbone and pooling."""
+
     def factory(
         input_keys: str | list[str] = "left",
         backbone: str = RGBBackboneType.RESNET18.value,
@@ -63,44 +60,56 @@ def cnn_encoder_factory() -> Callable[..., CNNEncoder]:
                 pretrained=pretrained,
                 frozen=frozen,
             )
+
     return factory
 
 
 class TestCNNEncoderInitialization:
-
-    @pytest.mark.parametrize("backbone, expectation", [
-        (RGBBackboneType.RESNET18.value, does_not_raise()),
-        (RGBBackboneType.RESNET50.value, does_not_raise()),
-        ("invalid_backbone", pytest.raises(
-            ValueError,
-            match=re.escape(
-                f"Invalid backbone 'invalid_backbone'. Must be one of: {CNN_VALID_BACKBONES}"
+    @pytest.mark.parametrize(
+        "backbone, expectation",
+        [
+            (RGBBackboneType.RESNET18.value, does_not_raise()),
+            (RGBBackboneType.RESNET50.value, does_not_raise()),
+            (
+                "invalid_backbone",
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        f"Invalid backbone 'invalid_backbone'. Must be one of: {CNN_VALID_BACKBONES}"
+                    ),
+                ),
             ),
-        )),
-    ])
+        ],
+    )
     def test_backbone_validation(
         self,
         backbone: str,
         expectation,
     ):
-        with expectation:
-            with (
-                patch.object(CNNEncoder, "_build_backbone", _mock_build_backbone),
-                patch.object(CNNEncoder, "_setup_pooling", _mock_setup_pooling),
-            ):
-                CNNEncoder(
-                    input_keys="left",
-                    backbone=backbone,
-                )
+        with (
+            expectation,
+            patch.object(CNNEncoder, "_build_backbone", _mock_build_backbone),
+            patch.object(CNNEncoder, "_setup_pooling", _mock_setup_pooling),
+        ):
+            CNNEncoder(
+                input_keys="left",
+                backbone=backbone,
+            )
 
-    @pytest.mark.parametrize("input_keys, expectation", [
-        ("left", does_not_raise()),
-        ("right", does_not_raise()),
-        (["left", "right"], pytest.raises(
-            ValueError,
-            match=re.escape(f"Exactly one from {RGB_CAMERAS} required, got"),
-        )),
-    ])
+    @pytest.mark.parametrize(
+        "input_keys, expectation",
+        [
+            ("left", does_not_raise()),
+            ("right", does_not_raise()),
+            (
+                ["left", "right"],
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(f"Exactly one from {RGB_CAMERAS} required, got"),
+                ),
+            ),
+        ],
+    )
     def test_input_keys_validation(
         self,
         cnn_encoder_factory: Callable[..., CNNEncoder],
@@ -120,18 +129,27 @@ class TestCNNEncoderInitialization:
         assert hasattr(encoder, "input_specification")
 
     @pytest.mark.parametrize("input_keys", ["left", "right"])
-    @pytest.mark.parametrize("backbone", [
-        RGBBackboneType.RESNET18.value,
-        RGBBackboneType.RESNET34.value,
-    ])
-    @pytest.mark.parametrize("pooling_method", [
-        PoolingMethod.AVERAGE.value,
-        PoolingMethod.NONE.value,
-    ])
-    @pytest.mark.parametrize("batch_norm_handling", [
-        BatchNormHandling.FROZEN.value,
-        BatchNormHandling.DEFAULT.value,
-    ])
+    @pytest.mark.parametrize(
+        "backbone",
+        [
+            RGBBackboneType.RESNET18.value,
+            RGBBackboneType.RESNET34.value,
+        ],
+    )
+    @pytest.mark.parametrize(
+        "pooling_method",
+        [
+            PoolingMethod.AVERAGE.value,
+            PoolingMethod.NONE.value,
+        ],
+    )
+    @pytest.mark.parametrize(
+        "batch_norm_handling",
+        [
+            BatchNormHandling.FROZEN.value,
+            BatchNormHandling.DEFAULT.value,
+        ],
+    )
     def test_stores_configuration(
         self,
         cnn_encoder_factory: Callable[..., CNNEncoder],
@@ -155,11 +173,13 @@ class TestCNNEncoderInitialization:
 
 
 class TestCNNEncoderForward:
-
-    @pytest.mark.parametrize("time_steps, expected_ndim", [
-        (None, 2),
-        (3, 3),
-    ])
+    @pytest.mark.parametrize(
+        "time_steps, expected_ndim",
+        [
+            (None, 2),
+            (3, 3),
+        ],
+    )
     def test_output_shape_with_and_without_time(
         self,
         cnn_encoder_factory: Callable[..., CNNEncoder],
@@ -172,7 +192,8 @@ class TestCNNEncoderForward:
         encoder = cnn_encoder_factory()
         mock_pooling = MagicMock()
         mock_pooling.return_value = torch.zeros(
-            batch_size * (time_steps or 1), feature_dimension,
+            batch_size * (time_steps or 1),
+            feature_dimension,
         )
         encoder.pooling_head = mock_pooling
         mock_backbone_output = MagicMock()
@@ -214,7 +235,6 @@ class TestCNNEncoderForward:
 
 
 class TestCNNEncoderGetOutputSpecification:
-
     def test_returns_rgb_feature_with_correct_dimension(
         self,
         cnn_encoder_factory: Callable[..., CNNEncoder],
@@ -222,11 +242,12 @@ class TestCNNEncoderGetOutputSpecification:
         encoder = cnn_encoder_factory()
         specification = encoder.get_output_specification()
         assert specification.features == [EncoderOutputKeys.RGB.value]
-        assert specification.dimensions[EncoderOutputKeys.RGB.value] == encoder.output_dim
+        assert (
+            specification.dimensions[EncoderOutputKeys.RGB.value] == encoder.output_dim
+        )
 
 
 class TestCNNEncoderIntegration:
-
     @pytest.mark.integration
     @pytest.mark.parametrize("backbone", [b.value for b in CNN_BACKBONES])
     def test_forward_pass_per_backbone(
@@ -273,11 +294,14 @@ class TestCNNEncoderIntegration:
             assert features.shape == (batch_size, encoder.output_dim)
 
     @pytest.mark.integration
-    @pytest.mark.parametrize("batch_norm_handling", [
-        BatchNormHandling.FROZEN.value,
-        BatchNormHandling.DEFAULT.value,
-        BatchNormHandling.CONVERT_TO_GROUPNORM.value,
-    ])
+    @pytest.mark.parametrize(
+        "batch_norm_handling",
+        [
+            BatchNormHandling.FROZEN.value,
+            BatchNormHandling.DEFAULT.value,
+            BatchNormHandling.CONVERT_TO_GROUPNORM.value,
+        ],
+    )
     def test_batch_norm_handling_variants(
         self,
         image_input_factory: Callable[..., dict[str, torch.Tensor]],
@@ -294,10 +318,13 @@ class TestCNNEncoderIntegration:
         assert EncoderOutputKeys.RGB.value in output
 
     @pytest.mark.integration
-    @pytest.mark.parametrize("frozen, expected_requires_grad", [
-        (False, True),
-        (True, False),
-    ])
+    @pytest.mark.parametrize(
+        "frozen, expected_requires_grad",
+        [
+            (False, True),
+            (True, False),
+        ],
+    )
     def test_frozen_flag_controls_gradients(
         self,
         frozen: bool,
@@ -314,7 +341,6 @@ class TestCNNEncoderIntegration:
 
 
 class TestCNNEncoderBuildBackbone:
-
     def test_invalid_batch_norm_handling_raises(self):
         invalid_handling = "invalid_batch_norm_handling"
 
@@ -326,9 +352,7 @@ class TestCNNEncoderBuildBackbone:
             patch.object(CNNEncoder, "_setup_pooling", _mock_setup_pooling_only),
             pytest.raises(
                 ValueError,
-                match=re.escape(
-                    f"Unknown batch norm handling: {invalid_handling}"
-                ),
+                match=re.escape(f"Unknown batch norm handling: {invalid_handling}"),
             ),
         ):
             CNNEncoder(

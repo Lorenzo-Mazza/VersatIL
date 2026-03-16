@@ -1,4 +1,5 @@
 """Tests for versatil.data.raw.schemas.custom.libero module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -84,7 +85,9 @@ def libero_demo_group_factory(rng: np.random.Generator) -> Callable:
             arr_mock = MagicMock()
             arr_mock.__getitem__ = MagicMock(return_value=value)
             arr_mock.astype = MagicMock(
-                return_value=value.astype(str) if value.dtype.kind in ("U", "S", "O") else value
+                return_value=value.astype(str)
+                if value.dtype.kind in ("U", "S", "O")
+                else value
             )
             obs_group[key] = arr_mock
 
@@ -110,7 +113,6 @@ def libero_demo_group_factory(rng: np.random.Generator) -> Callable:
 
 
 class TestLiberoSchemaInit:
-
     def test_wrong_dataset_type_raises(
         self,
         valid_libero_metadata: DatasetMetadata,
@@ -201,7 +203,6 @@ class TestLiberoSchemaInit:
 
 
 class TestLiberoSchemaGetDemoNames:
-
     def test_returns_list_of_demo_keys(
         self,
         valid_libero_metadata: DatasetMetadata,
@@ -215,10 +216,10 @@ class TestLiberoSchemaGetDemoNames:
         mock_data_group = MagicMock()
         mock_data_group.keys.return_value = ["demo_0", "demo_1", "demo_2"]
 
-        with patch(
-            "versatil.data.raw.schemas.custom.libero.h5py.File"
-        ) as mock_file:
-            mock_file.return_value.__enter__ = MagicMock(return_value={"data": mock_data_group})
+        with patch("versatil.data.raw.schemas.custom.libero.h5py.File") as mock_file:
+            mock_file.return_value.__enter__ = MagicMock(
+                return_value={"data": mock_data_group}
+            )
             mock_file.return_value.__exit__ = MagicMock(return_value=False)
 
             result = schema.get_demo_names("/data/task.hdf5")
@@ -227,7 +228,6 @@ class TestLiberoSchemaGetDemoNames:
 
 
 class TestLiberoSchemaExtractEpisode:
-
     def test_skips_camera_metadata_in_obs_loop(
         self,
         rng: np.random.Generator,
@@ -243,7 +243,9 @@ class TestLiberoSchemaExtractEpisode:
         )
         demo_group = libero_demo_group_factory(
             obs_arrays={
-                Cameras.LEFT.value: rng.integers(0, 255, size=(5, 128, 128, 3), dtype=np.uint8),
+                Cameras.LEFT.value: rng.integers(
+                    0, 255, size=(5, 128, 128, 3), dtype=np.uint8
+                ),
                 "ee_pos": rng.standard_normal((5, 3)).astype(np.float32),
                 "gripper_states": rng.integers(0, 2, size=(5, 2)).astype(np.float32),
             },
@@ -264,7 +266,9 @@ class TestLiberoSchemaExtractEpisode:
         self,
         rng: np.random.Generator,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
         libero_demo_group_factory: Callable,
@@ -311,7 +315,9 @@ class TestLiberoSchemaExtractEpisode:
 
         demo_group = libero_demo_group_factory(
             obs_arrays={
-                Cameras.LEFT.value: rng.integers(0, 255, size=(3, 64, 64, 3), dtype=np.uint8),
+                Cameras.LEFT.value: rng.integers(
+                    0, 255, size=(3, 64, 64, 3), dtype=np.uint8
+                ),
                 "ee_pos": rng.standard_normal((3, 3)).astype(np.float32),
             },
             actions_array=rng.standard_normal((3, 7)).astype(np.float32),
@@ -332,7 +338,9 @@ class TestLiberoSchemaExtractEpisode:
         self,
         rng: np.random.Generator,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
         libero_demo_group_factory: Callable,
@@ -375,7 +383,9 @@ class TestLiberoSchemaExtractEpisode:
             obs_arrays={
                 "ee_pos": mock_position,
                 "ee_ori": mock_orientation,
-                Cameras.LEFT.value: rng.integers(0, 255, size=(4, 64, 64, 3), dtype=np.uint8),
+                Cameras.LEFT.value: rng.integers(
+                    0, 255, size=(4, 64, 64, 3), dtype=np.uint8
+                ),
             },
             actions_array=rng.standard_normal((4, 7)).astype(np.float32),
         )
@@ -410,7 +420,9 @@ class TestLiberoSchemaExtractEpisode:
         mock_actions = rng.standard_normal((5, 7)).astype(np.float32)
         demo_group = libero_demo_group_factory(
             obs_arrays={
-                Cameras.LEFT.value: rng.integers(0, 255, size=(5, 128, 128, 3), dtype=np.uint8),
+                Cameras.LEFT.value: rng.integers(
+                    0, 255, size=(5, 128, 128, 3), dtype=np.uint8
+                ),
                 "ee_pos": rng.standard_normal((5, 3)).astype(np.float32),
                 "gripper_states": rng.integers(0, 2, size=(5, 2)).astype(np.float32),
             },
@@ -424,9 +436,7 @@ class TestLiberoSchemaExtractEpisode:
         )
 
         assert data["action"].shape == (5, 3)
-        np.testing.assert_array_almost_equal(
-            data["action"], mock_actions[:, 0:3]
-        )
+        np.testing.assert_array_almost_equal(data["action"], mock_actions[:, 0:3])
 
     @pytest.mark.parametrize(
         "camera_key, image_shape, expected_dtype",
@@ -600,7 +610,9 @@ class TestLiberoSchemaExtractEpisode:
             "task_description": mock_string_data,
             Cameras.LEFT.value: MagicMock(
                 __getitem__=MagicMock(
-                    return_value=rng.integers(0, 255, size=(2, 64, 64, 3), dtype=np.uint8)
+                    return_value=rng.integers(
+                        0, 255, size=(2, 64, 64, 3), dtype=np.uint8
+                    )
                 )
             ),
         }
@@ -666,7 +678,9 @@ class TestLiberoSchemaExtractEpisode:
 
         demo_group = libero_demo_group_factory(
             obs_arrays={
-                Cameras.LEFT.value: rng.integers(0, 255, size=(3, 64, 64, 3), dtype=np.uint8),
+                Cameras.LEFT.value: rng.integers(
+                    0, 255, size=(3, 64, 64, 3), dtype=np.uint8
+                ),
             },
             actions_array=rng.standard_normal((3, 7)).astype(np.float32),
         )
@@ -681,7 +695,6 @@ class TestLiberoSchemaExtractEpisode:
 
 
 class TestLiberoSchemaGetEpisodeLength:
-
     def test_uses_actions_key_when_present(
         self,
         valid_libero_metadata: DatasetMetadata,
@@ -724,9 +737,11 @@ class TestLiberoSchemaGetEpisodeLength:
         obs_group.__iter__ = MagicMock(return_value=iter(["ee_pos"]))
 
         demo_group = MagicMock()
-        demo_group.__getitem__ = MagicMock(side_effect=lambda k: {
-            "obs": obs_group,
-        }[k])
+        demo_group.__getitem__ = MagicMock(
+            side_effect=lambda k: {
+                "obs": obs_group,
+            }[k]
+        )
         demo_group.__contains__ = MagicMock(return_value=False)
 
         result = schema._get_episode_length(demo_group)
@@ -752,9 +767,11 @@ class TestLiberoSchemaGetEpisodeLength:
         obs_group.__iter__ = MagicMock(return_value=iter(["ee_pos"]))
 
         demo_group = MagicMock()
-        demo_group.__getitem__ = MagicMock(side_effect=lambda k: {
-            "obs": obs_group,
-        }[k])
+        demo_group.__getitem__ = MagicMock(
+            side_effect=lambda k: {
+                "obs": obs_group,
+            }[k]
+        )
         demo_group.__contains__ = MagicMock(return_value=False)
 
         result = schema._get_episode_length(demo_group)
@@ -763,7 +780,6 @@ class TestLiberoSchemaGetEpisodeLength:
 
 
 class TestLiberoSchemaGetLanguageFromFilename:
-
     @pytest.mark.parametrize(
         "hdf5_path, expected",
         [
@@ -780,7 +796,6 @@ class TestLiberoSchemaGetLanguageFromFilename:
 
 
 class TestLiberoSchemaGetRequiredZarrKeys:
-
     def test_includes_language_key_when_not_in_metadata(
         self,
         valid_libero_metadata: DatasetMetadata,
@@ -844,7 +859,6 @@ class TestLiberoSchemaGetRequiredZarrKeys:
 
 
 class TestLiberoSchemaGetZarrArraySpecs:
-
     def test_includes_language_spec_when_not_in_base(
         self,
         valid_libero_metadata: DatasetMetadata,

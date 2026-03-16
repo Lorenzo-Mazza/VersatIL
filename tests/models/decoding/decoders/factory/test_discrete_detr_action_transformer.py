@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.decoders.factory.discrete_detr_action_transformer module."""
+
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock
@@ -16,7 +17,6 @@ from versatil.models.decoding.decoders.factory.discrete_detr_action_transformer 
 )
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer.transformer import Transformer
-
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 2
@@ -94,7 +94,6 @@ def detr_decoder_factory(
 
 
 class TestDiscreteDETRInitialization:
-
     def test_inherits_from_action_decoder(
         self,
         detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
@@ -133,9 +132,7 @@ class TestDiscreteDETRInitialization:
         action_space = mock_action_space_factory(position_dim=POSITION_DIM)
         observation_space = mock_observation_space_factory()
         wrong_action_heads = {
-            "position_action": action_head_factory(
-                input_dim=EMBEDDING_DIMENSION
-            ),
+            "position_action": action_head_factory(input_dim=EMBEDDING_DIMENSION),
         }
         with pytest.raises(
             ValueError,
@@ -168,10 +165,13 @@ class TestDiscreteDETRInitialization:
         assert isinstance(decoder.temperature, nn.Parameter)
         assert decoder.temperature.item() == pytest.approx(2.0)
 
-    @pytest.mark.parametrize("learnable_temperature, expected_requires_grad", [
-        (True, True),
-        (False, False),
-    ])
+    @pytest.mark.parametrize(
+        "learnable_temperature, expected_requires_grad",
+        [
+            (True, True),
+            (False, False),
+        ],
+    )
     def test_learnable_temperature(
         self,
         detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
@@ -218,9 +218,7 @@ class TestDiscreteDETRInitialization:
         )
 
 
-
 class TestDiscreteDETRSetTokenizer:
-
     def test_raises_without_tokenizer(
         self,
         detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
@@ -311,7 +309,6 @@ class TestDiscreteDETRSetTokenizer:
 
 
 class TestDiscreteDETRForward:
-
     def test_training_returns_logits(
         self,
         detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],
@@ -411,7 +408,6 @@ class TestDiscreteDETRForward:
 
 
 class TestDiscreteDETRDecodeActions:
-
     def test_output_shape(
         self,
         detr_decoder_factory: Callable[..., DiscreteDETRActionTransformer],

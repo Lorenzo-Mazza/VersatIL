@@ -1,4 +1,5 @@
 """Tests for versatil.data.preprocessing.replay_buffer module."""
+
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -33,7 +34,9 @@ def numpy_buffer_factory(rng: np.random.Generator) -> Callable[..., ReplayBuffer
         buffer = ReplayBuffer.create_empty_numpy()
         for _ in range(num_episodes):
             episode = {
-                "position": rng.standard_normal((episode_length, data_dim)).astype(np.float32),
+                "position": rng.standard_normal((episode_length, data_dim)).astype(
+                    np.float32
+                ),
                 "gripper": rng.integers(0, 2, (episode_length, 1)).astype(np.float32),
             }
             buffer.add_episode(data=episode)
@@ -43,7 +46,9 @@ def numpy_buffer_factory(rng: np.random.Generator) -> Callable[..., ReplayBuffer
 
 
 @pytest.fixture
-def zarr_buffer_factory(rng: np.random.Generator, tmp_path) -> Callable[..., ReplayBuffer]:
+def zarr_buffer_factory(
+    rng: np.random.Generator, tmp_path
+) -> Callable[..., ReplayBuffer]:
     """Factory for creating zarr-backed ReplayBuffer with episodes."""
 
     def factory(
@@ -54,7 +59,9 @@ def zarr_buffer_factory(rng: np.random.Generator, tmp_path) -> Callable[..., Rep
         buffer = ReplayBuffer.create_empty_zarr()
         for _ in range(num_episodes):
             episode = {
-                "position": rng.standard_normal((episode_length, data_dim)).astype(np.float32),
+                "position": rng.standard_normal((episode_length, data_dim)).astype(
+                    np.float32
+                ),
                 "gripper": rng.integers(0, 2, (episode_length, 1)).astype(np.float32),
             }
             buffer.add_episode(data=episode)
@@ -64,13 +71,30 @@ def zarr_buffer_factory(rng: np.random.Generator, tmp_path) -> Callable[..., Rep
 
 
 class TestCheckChunksCompatible:
-
-    @pytest.mark.parametrize("chunks, shape, expectation", [
-        ((10, 3), (100, 3), does_not_raise()),
-        ((10,), (100, 3), pytest.raises(ValueError, match="Chunks dimensionality 1 does not match shape dimensionality 2")),
-        ((0, 3), (100, 3), pytest.raises(ValueError, match="Chunk size must be positive, got 0")),
-        ((-1, 3), (100, 3), pytest.raises(ValueError, match="Chunk size must be positive, got -1")),
-    ])
+    @pytest.mark.parametrize(
+        "chunks, shape, expectation",
+        [
+            ((10, 3), (100, 3), does_not_raise()),
+            (
+                (10,),
+                (100, 3),
+                pytest.raises(
+                    ValueError,
+                    match="Chunks dimensionality 1 does not match shape dimensionality 2",
+                ),
+            ),
+            (
+                (0, 3),
+                (100, 3),
+                pytest.raises(ValueError, match="Chunk size must be positive, got 0"),
+            ),
+            (
+                (-1, 3),
+                (100, 3),
+                pytest.raises(ValueError, match="Chunk size must be positive, got -1"),
+            ),
+        ],
+    )
     def test_chunk_shape_validation(self, chunks, shape, expectation):
         with expectation:
             check_chunks_compatible(chunks=chunks, shape=shape)
@@ -81,7 +105,6 @@ class TestCheckChunksCompatible:
 
 
 class TestGetOptimalChunks:
-
     def test_returns_tuple_matching_shape_dimensions(self):
         chunks = get_optimal_chunks(shape=(1000, 100), dtype=np.float32)
 
@@ -89,14 +112,18 @@ class TestGetOptimalChunks:
 
     def test_respects_max_chunk_length(self):
         chunks = get_optimal_chunks(
-            shape=(10000, 3), dtype=np.float32, max_chunk_length=50,
+            shape=(10000, 3),
+            dtype=np.float32,
+            max_chunk_length=50,
         )
 
         assert chunks[0] <= 50
 
     def test_small_array_gets_single_chunk(self):
         chunks = get_optimal_chunks(
-            shape=(10, 3), dtype=np.float32, target_chunk_bytes=2e6,
+            shape=(10, 3),
+            dtype=np.float32,
+            target_chunk_bytes=2e6,
         )
 
         # 10 * 3 * 4 = 120 bytes << 2MB target → should chunk entire array
@@ -104,7 +131,6 @@ class TestGetOptimalChunks:
 
 
 class TestReplayBufferCreation:
-
     def test_create_empty_numpy(self):
         buffer = ReplayBuffer.create_empty_numpy()
 
@@ -121,7 +147,6 @@ class TestReplayBufferCreation:
 
 
 class TestReplayBufferAddEpisode:
-
     @pytest.mark.parametrize("backend", ["numpy", "zarr"])
     def test_add_episode_increments_counts(
         self,
@@ -152,16 +177,21 @@ class TestReplayBufferAddEpisode:
             else ReplayBuffer.create_empty_zarr()
         )
 
-        buffer.add_episode(data={"position": rng.standard_normal((5, 3)).astype(np.float32)})
-        buffer.add_episode(data={"position": rng.standard_normal((7, 3)).astype(np.float32)})
+        buffer.add_episode(
+            data={"position": rng.standard_normal((5, 3)).astype(np.float32)}
+        )
+        buffer.add_episode(
+            data={"position": rng.standard_normal((7, 3)).astype(np.float32)}
+        )
 
         assert buffer.n_episodes == 2
         assert buffer.n_steps == 12
 
 
 class TestReplayBufferDataAccess:
-
-    @pytest.mark.parametrize("backend_fixture", ["numpy_buffer_factory", "zarr_buffer_factory"])
+    @pytest.mark.parametrize(
+        "backend_fixture", ["numpy_buffer_factory", "zarr_buffer_factory"]
+    )
     def test_getitem_returns_data_array(
         self,
         backend_fixture: str,
@@ -174,7 +204,9 @@ class TestReplayBufferDataAccess:
 
         assert position.shape == (10, 3)
 
-    @pytest.mark.parametrize("backend_fixture", ["numpy_buffer_factory", "zarr_buffer_factory"])
+    @pytest.mark.parametrize(
+        "backend_fixture", ["numpy_buffer_factory", "zarr_buffer_factory"]
+    )
     def test_contains_returns_true_for_existing_key(
         self,
         backend_fixture: str,
@@ -186,7 +218,9 @@ class TestReplayBufferDataAccess:
         assert "position" in buffer
         assert "nonexistent" not in buffer
 
-    @pytest.mark.parametrize("backend_fixture", ["numpy_buffer_factory", "zarr_buffer_factory"])
+    @pytest.mark.parametrize(
+        "backend_fixture", ["numpy_buffer_factory", "zarr_buffer_factory"]
+    )
     def test_keys_returns_all_data_keys(
         self,
         backend_fixture: str,
@@ -199,7 +233,6 @@ class TestReplayBufferDataAccess:
 
 
 class TestReplayBufferEpisodeAccess:
-
     def test_get_episode_returns_correct_data(
         self,
         numpy_buffer_factory: Callable[..., ReplayBuffer],
@@ -226,9 +259,15 @@ class TestReplayBufferEpisodeAccess:
         rng: np.random.Generator,
     ):
         buffer = ReplayBuffer.create_empty_numpy()
-        buffer.add_episode(data={"position": rng.standard_normal((5, 3)).astype(np.float32)})
-        buffer.add_episode(data={"position": rng.standard_normal((8, 3)).astype(np.float32)})
-        buffer.add_episode(data={"position": rng.standard_normal((3, 3)).astype(np.float32)})
+        buffer.add_episode(
+            data={"position": rng.standard_normal((5, 3)).astype(np.float32)}
+        )
+        buffer.add_episode(
+            data={"position": rng.standard_normal((8, 3)).astype(np.float32)}
+        )
+        buffer.add_episode(
+            data={"position": rng.standard_normal((3, 3)).astype(np.float32)}
+        )
 
         np.testing.assert_array_equal(buffer.episode_lengths, [5, 8, 3])
 
@@ -247,8 +286,12 @@ class TestReplayBufferEpisodeAccess:
         rng: np.random.Generator,
     ):
         buffer = ReplayBuffer.create_empty_numpy()
-        buffer.add_episode(data={"position": rng.standard_normal((3, 2)).astype(np.float32)})
-        buffer.add_episode(data={"position": rng.standard_normal((4, 2)).astype(np.float32)})
+        buffer.add_episode(
+            data={"position": rng.standard_normal((3, 2)).astype(np.float32)}
+        )
+        buffer.add_episode(
+            data={"position": rng.standard_normal((4, 2)).astype(np.float32)}
+        )
 
         episode_indices = buffer.get_episode_idxs()
 
@@ -268,8 +311,9 @@ class TestReplayBufferEpisodeAccess:
 
 
 class TestReplayBufferDropAndPopEpisode:
-
-    @pytest.mark.parametrize("backend_fixture", ["numpy_buffer_factory", "zarr_buffer_factory"])
+    @pytest.mark.parametrize(
+        "backend_fixture", ["numpy_buffer_factory", "zarr_buffer_factory"]
+    )
     def test_drop_episode_removes_last(
         self,
         backend_fixture: str,
@@ -283,7 +327,9 @@ class TestReplayBufferDropAndPopEpisode:
         assert buffer.n_episodes == 2
         assert buffer.n_steps == 10
 
-    @pytest.mark.parametrize("backend_fixture", ["numpy_buffer_factory", "zarr_buffer_factory"])
+    @pytest.mark.parametrize(
+        "backend_fixture", ["numpy_buffer_factory", "zarr_buffer_factory"]
+    )
     def test_pop_episode_returns_and_removes(
         self,
         backend_fixture: str,
@@ -298,10 +344,13 @@ class TestReplayBufferDropAndPopEpisode:
         assert "position" in episode
         assert episode["position"].shape[0] == 5
 
-    @pytest.mark.parametrize("num_episodes, expectation", [
-        (1, does_not_raise()),
-        (0, pytest.raises(ValueError, match="empty buffer")),
-    ])
+    @pytest.mark.parametrize(
+        "num_episodes, expectation",
+        [
+            (1, does_not_raise()),
+            (0, pytest.raises(ValueError, match="empty buffer")),
+        ],
+    )
     def test_drop_episode_validation(
         self,
         rng: np.random.Generator,
@@ -317,10 +366,13 @@ class TestReplayBufferDropAndPopEpisode:
         with expectation:
             buffer.drop_episode()
 
-    @pytest.mark.parametrize("num_episodes, expectation", [
-        (1, does_not_raise()),
-        (0, pytest.raises(ValueError, match="empty buffer")),
-    ])
+    @pytest.mark.parametrize(
+        "num_episodes, expectation",
+        [
+            (1, does_not_raise()),
+            (0, pytest.raises(ValueError, match="empty buffer")),
+        ],
+    )
     def test_pop_episode_validation(
         self,
         rng: np.random.Generator,
@@ -338,7 +390,6 @@ class TestReplayBufferDropAndPopEpisode:
 
 
 class TestReplayBufferSaveAndLoad:
-
     def test_save_and_load_roundtrip(
         self,
         numpy_buffer_factory: Callable[..., ReplayBuffer],
@@ -374,7 +425,6 @@ class TestReplayBufferSaveAndLoad:
 
 
 class TestReplayBufferRepr:
-
     def test_numpy_repr(
         self,
         numpy_buffer_factory: Callable[..., ReplayBuffer],
@@ -397,7 +447,6 @@ class TestReplayBufferRepr:
 
 
 class TestReplayBufferResolveCompressor:
-
     def test_default_returns_lz4(self):
         compressor = ReplayBuffer.resolve_compressor("default")
 
@@ -417,7 +466,6 @@ class TestReplayBufferResolveCompressor:
 
 
 class TestIsUint8ImageArray:
-
     def test_4d_uint8_returns_true(self, rng: np.random.Generator):
         array = rng.integers(0, 255, (10, 32, 32, 3), dtype=np.uint8)
 
@@ -440,7 +488,6 @@ class TestIsUint8ImageArray:
 
 
 class TestGetSerializerCodec:
-
     def test_returns_none_for_blosc_compressed_array(self, rng: np.random.Generator):
         group = zarr.open_group(store=MemoryStore(), mode="w")
         data = rng.standard_normal((10, 3)).astype(np.float32)
@@ -468,21 +515,25 @@ class TestGetSerializerCodec:
 
 
 class TestCreateZarrDataArray:
-
     def test_blosc_codec_preserves_chunks(self, rng: np.random.Generator):
         group = zarr.open_group(store=MemoryStore(), mode="w")
         data = rng.standard_normal((10, 3)).astype(np.float32)
         codec = BloscCodec(cname="lz4", clevel=5, shuffle=BloscShuffle.noshuffle)
 
         array = _create_zarr_data_array(
-            group=group, name="test", chunks=(5, 3), codec=codec, data=data,
+            group=group,
+            name="test",
+            chunks=(5, 3),
+            codec=codec,
+            data=data,
         )
 
         assert array.shape == (10, 3)
         assert array.chunks == (5, 3)
 
     def test_webp_codec_overrides_chunks_to_single_image(
-        self, rng: np.random.Generator,
+        self,
+        rng: np.random.Generator,
     ):
         group = zarr.open_group(store=MemoryStore(), mode="w")
         image_data = rng.integers(0, 255, (5, 32, 32, 3), dtype=np.uint8)
@@ -503,7 +554,11 @@ class TestCreateZarrDataArray:
         data = rng.standard_normal((10, 3)).astype(np.float32)
 
         array = _create_zarr_data_array(
-            group=group, name="test", chunks=(5, 3), codec=None, data=data,
+            group=group,
+            name="test",
+            chunks=(5, 3),
+            codec=None,
+            data=data,
         )
 
         assert array.shape == (10, 3)
@@ -526,7 +581,6 @@ class TestCreateZarrDataArray:
 
 
 class TestRechunkRecompressArray:
-
     def test_returns_same_array_when_unchanged(self, rng: np.random.Generator):
         group = zarr.open_group(store=MemoryStore(), mode="w")
         codec = BloscCodec(cname="lz4", clevel=5, shuffle=BloscShuffle.noshuffle)
@@ -544,7 +598,9 @@ class TestRechunkRecompressArray:
         group.create_array("test", data=data, chunks=(10, 3), compressors=codec)
 
         result = rechunk_recompress_array(
-            group=group, name="test", chunk_length=5,
+            group=group,
+            name="test",
+            chunk_length=5,
         )
 
         assert result.chunks == (5, 3)
@@ -557,7 +613,9 @@ class TestRechunkRecompressArray:
         group.create_array("test", data=data, chunks=(10, 3), compressors=old_codec)
 
         result = rechunk_recompress_array(
-            group=group, name="test", compressor=new_codec,
+            group=group,
+            name="test",
+            compressor=new_codec,
         )
 
         assert result.compressors[-1].cname.value == "zstd"
@@ -569,14 +627,15 @@ class TestRechunkRecompressArray:
         group.create_array("test", data=data, chunks=(10, 3), compressors=codec)
 
         result = rechunk_recompress_array(
-            group=group, name="test", chunks=(5, 3),
+            group=group,
+            name="test",
+            chunks=(5, 3),
         )
 
         np.testing.assert_array_almost_equal(result[:], data)
 
 
 class TestReplayBufferCreateFromGroup:
-
     def test_creates_empty_buffer_when_data_missing(self):
         group = zarr.open_group(store=MemoryStore(), mode="w")
 
@@ -586,7 +645,8 @@ class TestReplayBufferCreateFromGroup:
         assert buffer.n_episodes == 0
 
     def test_loads_existing_buffer_when_data_present(
-        self, rng: np.random.Generator,
+        self,
+        rng: np.random.Generator,
     ):
         buffer = ReplayBuffer.create_empty_zarr()
         episode = {"position": rng.standard_normal((5, 3)).astype(np.float32)}
@@ -599,7 +659,6 @@ class TestReplayBufferCreateFromGroup:
 
 
 class TestReplayBufferUpdateMeta:
-
     def test_numpy_backend_updates_dict(
         self,
         numpy_buffer_factory: Callable[..., ReplayBuffer],
@@ -645,7 +704,6 @@ class TestReplayBufferUpdateMeta:
 
 
 class TestReplayBufferValuesAndItems:
-
     @pytest.mark.parametrize(
         "backend_fixture",
         ["numpy_buffer_factory", "zarr_buffer_factory"],
@@ -681,7 +739,6 @@ class TestReplayBufferValuesAndItems:
 
 
 class TestReplayBufferChunkSize:
-
     def test_zarr_returns_chunk_size(
         self,
         zarr_buffer_factory: Callable[..., ReplayBuffer],
@@ -703,7 +760,6 @@ class TestReplayBufferChunkSize:
 
 
 class TestReplayBufferExtend:
-
     def test_extend_is_alias_for_add_episode(
         self,
         rng: np.random.Generator,
@@ -718,7 +774,6 @@ class TestReplayBufferExtend:
 
 
 class TestReplayBufferGetStepsSlice:
-
     def test_returns_sliced_data(
         self,
         numpy_buffer_factory: Callable[..., ReplayBuffer],
@@ -753,7 +808,6 @@ class TestReplayBufferGetStepsSlice:
 
 
 class TestReplayBufferGetAndSetChunks:
-
     def test_get_chunks_returns_dict(
         self,
         zarr_buffer_factory: Callable[..., ReplayBuffer],
@@ -796,7 +850,6 @@ class TestReplayBufferGetAndSetChunks:
 
 
 class TestReplayBufferGetAndSetCompressors:
-
     def test_get_compressors_returns_dict(
         self,
         zarr_buffer_factory: Callable[..., ReplayBuffer],
@@ -839,37 +892,44 @@ class TestReplayBufferGetAndSetCompressors:
 
 
 class TestResolveArrayChunks:
-
     def test_dict_with_matching_key(self, rng: np.random.Generator):
         array = rng.standard_normal((20, 3)).astype(np.float32)
 
         result = ReplayBuffer._resolve_array_chunks(
-            chunks={"position": (5, 3)}, key="position", array=array,
+            chunks={"position": (5, 3)},
+            key="position",
+            array=array,
         )
 
         assert result == (5, 3)
 
     def test_dict_without_key_falls_back_to_optimal(
-        self, rng: np.random.Generator,
+        self,
+        rng: np.random.Generator,
     ):
         array = rng.standard_normal((20, 3)).astype(np.float32)
 
         result = ReplayBuffer._resolve_array_chunks(
-            chunks={}, key="position", array=array,
+            chunks={},
+            key="position",
+            array=array,
         )
 
         assert isinstance(result, tuple)
         assert len(result) == 2
 
     def test_dict_without_key_uses_zarr_array_chunks(
-        self, rng: np.random.Generator,
+        self,
+        rng: np.random.Generator,
     ):
         group = zarr.open_group(store=MemoryStore(), mode="w")
         data = rng.standard_normal((20, 3)).astype(np.float32)
         group.create_array("test", data=data, chunks=(7, 3))
 
         result = ReplayBuffer._resolve_array_chunks(
-            chunks={}, key="test", array=group["test"],
+            chunks={},
+            key="test",
+            array=group["test"],
         )
 
         assert result == (7, 3)
@@ -878,38 +938,45 @@ class TestResolveArrayChunks:
         array = rng.standard_normal((20, 3)).astype(np.float32)
 
         result = ReplayBuffer._resolve_array_chunks(
-            chunks=(10, 3), key="position", array=array,
+            chunks=(10, 3),
+            key="position",
+            array=array,
         )
 
         assert result == (10, 3)
 
     def test_unsupported_type_raises_type_error(
-        self, rng: np.random.Generator,
+        self,
+        rng: np.random.Generator,
     ):
         array = rng.standard_normal((20, 3)).astype(np.float32)
 
         with pytest.raises(
             TypeError,
-            match=re.escape(f"Unsupported chunks type {type(5)}"),
+            match=re.escape(f"Unsupported chunks type {int}"),
         ):
             ReplayBuffer._resolve_array_chunks(
-                chunks=5, key="position", array=array,
+                chunks=5,
+                key="position",
+                array=array,
             )
 
 
 class TestResolveArrayCompressor:
-
     def test_dict_with_matching_key(self, rng: np.random.Generator):
         array = rng.standard_normal((20, 3)).astype(np.float32)
 
         result = ReplayBuffer._resolve_array_compressor(
-            compressors={"position": "disk"}, key="position", array=array,
+            compressors={"position": "disk"},
+            key="position",
+            array=array,
         )
 
         assert result.cname.value == "zstd"
 
     def test_dict_without_key_uses_zarr_array_compressor(
-        self, rng: np.random.Generator,
+        self,
+        rng: np.random.Generator,
     ):
         group = zarr.open_group(store=MemoryStore(), mode="w")
         codec = BloscCodec(cname="zstd", clevel=5, shuffle=BloscShuffle.bitshuffle)
@@ -917,40 +984,51 @@ class TestResolveArrayCompressor:
         group.create_array("test", data=data, chunks=(10, 3), compressors=codec)
 
         result = ReplayBuffer._resolve_array_compressor(
-            compressors={}, key="test", array=group["test"],
+            compressors={},
+            key="test",
+            array=group["test"],
         )
 
         assert result.cname.value == "zstd"
 
     def test_string_compressor_resolved_globally(
-        self, rng: np.random.Generator,
+        self,
+        rng: np.random.Generator,
     ):
         array = rng.standard_normal((20, 3)).astype(np.float32)
 
         result = ReplayBuffer._resolve_array_compressor(
-            compressors="default", key="position", array=array,
+            compressors="default",
+            key="position",
+            array=array,
         )
 
         assert result.cname.value == "lz4"
 
     def test_uint8_image_array_returns_webp_codec(
-        self, rng: np.random.Generator,
+        self,
+        rng: np.random.Generator,
     ):
         image_array = rng.integers(0, 255, (10, 32, 32, 3), dtype=np.uint8)
 
         result = ReplayBuffer._resolve_array_compressor(
-            compressors={}, key="image", array=image_array,
+            compressors={},
+            key="image",
+            array=image_array,
         )
 
         assert isinstance(result, WebPCodec)
 
     def test_non_image_array_defaults_to_lz4(
-        self, rng: np.random.Generator,
+        self,
+        rng: np.random.Generator,
     ):
         array = rng.standard_normal((20, 3)).astype(np.float32)
 
         result = ReplayBuffer._resolve_array_compressor(
-            compressors={}, key="position", array=array,
+            compressors={},
+            key="position",
+            array=array,
         )
 
         assert isinstance(result, BloscCodec)
@@ -958,7 +1036,6 @@ class TestResolveArrayCompressor:
 
 
 class TestReplayBufferAddEpisodeErrors:
-
     def test_empty_data_raises(self):
         buffer = ReplayBuffer.create_empty_numpy()
 
@@ -966,7 +1043,8 @@ class TestReplayBufferAddEpisodeErrors:
             buffer.add_episode(data={})
 
     def test_inconsistent_episode_lengths_raises(
-        self, rng: np.random.Generator,
+        self,
+        rng: np.random.Generator,
     ):
         buffer = ReplayBuffer.create_empty_numpy()
         episode = {
@@ -978,7 +1056,8 @@ class TestReplayBufferAddEpisodeErrors:
             buffer.add_episode(data=episode)
 
     def test_mismatched_shape_on_second_episode_raises(
-        self, rng: np.random.Generator,
+        self,
+        rng: np.random.Generator,
     ):
         buffer = ReplayBuffer.create_empty_numpy()
         buffer.add_episode(
@@ -992,7 +1071,6 @@ class TestReplayBufferAddEpisodeErrors:
 
 
 class TestReplayBufferCopyFromStoreToZarr:
-
     def test_copy_to_zarr_store_preserves_data(
         self,
         numpy_buffer_factory: Callable[..., ReplayBuffer],
@@ -1032,7 +1110,6 @@ class TestReplayBufferCopyFromStoreToZarr:
 
 
 class TestReplayBufferSaveToStore:
-
     def test_save_zarr_buffer_to_store(
         self,
         zarr_buffer_factory: Callable[..., ReplayBuffer],
@@ -1085,7 +1162,6 @@ class TestReplayBufferSaveToStore:
 
 
 class TestReplayBufferCopyFromPathDeprecated:
-
     def test_backend_numpy_triggers_warning(
         self,
         numpy_buffer_factory: Callable[..., ReplayBuffer],
@@ -1096,7 +1172,8 @@ class TestReplayBufferCopyFromPathDeprecated:
         buffer.save_to_path(zarr_path=save_path)
 
         copied = ReplayBuffer.copy_from_path(
-            zarr_path=save_path, backend="numpy",
+            zarr_path=save_path,
+            backend="numpy",
         )
 
         assert copied.backend == "numpy"

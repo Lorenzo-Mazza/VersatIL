@@ -1,20 +1,19 @@
 """Tests for versatil.models.layers.diffusion_transformer.dit_block_transformer module."""
+
 from collections.abc import Callable
 
 import pytest
 import torch
 
+from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.diffusion_transformer.dit_block_transformer import DiTBlock
 from versatil.models.layers.normalization.constants import NormalizationType
 
-from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
-
 
 @pytest.fixture
 def dit_block_factory() -> Callable[..., DiTBlock]:
-
     def factory(
         number_of_encoder_layers: int = 1,
         number_of_decoder_layers: int = 1,
@@ -64,7 +63,6 @@ def dit_block_factory() -> Callable[..., DiTBlock]:
 
 
 class TestDiTBlockInitialization:
-
     @pytest.mark.parametrize("number_of_encoder_layers", [1, 2])
     @pytest.mark.parametrize("number_of_decoder_layers", [1, 3])
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
@@ -108,7 +106,6 @@ class TestDiTBlockInitialization:
 
 
 class TestDiTBlockForward:
-
     @pytest.mark.parametrize(
         "batch_size, encoder_sequence_length, decoder_sequence_length, embedding_dimension, output_dimension",
         [
@@ -149,7 +146,11 @@ class TestDiTBlockForward:
         )
         expected_output_dim = output_dimension or embedding_dimension
         assert encoder_output_mean.shape == (batch_size, embedding_dimension)
-        assert decoder_output.shape == (batch_size, decoder_sequence_length, expected_output_dim)
+        assert decoder_output.shape == (
+            batch_size,
+            decoder_sequence_length,
+            expected_output_dim,
+        )
 
     def test_encoder_cache_bypasses_encoder(
         self,

@@ -1,4 +1,5 @@
 """Mixture of Experts (MoE) decoder for action prediction."""
+
 import copy
 
 import torch
@@ -95,7 +96,7 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
             experts.append(expert)
         return experts
 
-    def forward(  # type: ignore[override]
+    def forward(
         self,
         features: dict[str, torch.Tensor],
         actions: dict[str, torch.Tensor] | None = None,

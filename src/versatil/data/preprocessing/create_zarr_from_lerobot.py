@@ -32,9 +32,7 @@ def create_replay_buffer_from_lerobot(schema: LeRobotDatasetSchemaV30) -> None:
     cameras = schema.metadata.cameras
     if cameras:
         first_cam = next(iter(cameras.values()))
-        resizer = A.Resize(
-            height=first_cam.image_height, width=first_cam.image_width
-        )
+        resizer = A.Resize(height=first_cam.image_height, width=first_cam.image_width)
         depth_resizer = A.Resize(
             height=first_cam.image_height,
             width=first_cam.image_width,

@@ -1,4 +1,5 @@
 """Shared fixtures for decoding tests."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -95,9 +96,9 @@ def spatial_feature_factory(
             feature_keys = ["rgb_features"]
         return {
             key: torch.from_numpy(
-                rng.standard_normal(
-                    (batch_size, channels, height, width)
-                ).astype(np.float32)
+                rng.standard_normal((batch_size, channels, height, width)).astype(
+                    np.float32
+                )
             )
             for key in feature_keys
         }
@@ -120,9 +121,7 @@ def flat_feature_factory(
             feature_keys = ["rgb_features"]
         return {
             key: torch.from_numpy(
-                rng.standard_normal(
-                    (batch_size, feature_dim)
-                ).astype(np.float32)
+                rng.standard_normal((batch_size, feature_dim)).astype(np.float32)
             )
             for key in feature_keys
         }
@@ -202,7 +201,12 @@ def temporal_flat_feature_factory(
         return {
             key: torch.from_numpy(
                 rng.standard_normal(
-                    (batch_size, observation_horizon, sequence_length, feature_dimension)
+                    (
+                        batch_size,
+                        observation_horizon,
+                        sequence_length,
+                        feature_dimension,
+                    )
                 ).astype(np.float32)
             )
             for key in feature_keys

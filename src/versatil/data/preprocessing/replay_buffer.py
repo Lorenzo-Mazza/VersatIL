@@ -1,3 +1,4 @@
+import logging
 import math
 import numbers
 import os
@@ -10,7 +11,6 @@ from zarr.codecs import BloscCodec, BloscShuffle
 from zarr.storage import LocalStore, MemoryStore
 
 from versatil.data.preprocessing.codecs import WebPCodec
-import logging
 
 WEBP_QUALITY = 99
 
@@ -273,11 +273,11 @@ class ReplayBuffer:
         for required_key in ("data", "meta"):
             if required_key not in root:
                 raise ValueError(f"Root must contain a '{required_key}' group.")
-        if "episode_ends" not in root["meta"]:  # type: ignore[operator]
+        if "episode_ends" not in root["meta"]:
             raise ValueError("Meta group must contain 'episode_ends'.")
-        for key in root["data"]:  # type: ignore[union-attr]
-            value = root["data"][key]  # type: ignore[index]
-            expected_length = root["meta"]["episode_ends"][-1]  # type: ignore[union-attr, index]
+        for key in root["data"]:
+            value = root["data"][key]
+            expected_length = root["meta"]["episode_ends"][-1]
             if value.shape[0] != expected_length:
                 raise ValueError(
                     f"Data array '{key}' has length {value.shape[0]} but episode_ends indicates {expected_length}."
@@ -390,39 +390,39 @@ class ReplayBuffer:
         root = None
         if store is None:
             meta = {}
-            for key in src_root["meta"]:  # type: ignore[union-attr]
-                value = src_root["meta"][key]  # type: ignore[index]
+            for key in src_root["meta"]:
+                value = src_root["meta"][key]
                 if isinstance(value, zarr.Group):
                     continue
-                if value.shape == ():  # type: ignore[union-attr]
+                if value.shape == ():
                     meta[key] = np.array(value)
                 else:
-                    meta[key] = value[:]  # type: ignore[index, assignment]
+                    meta[key] = value[:]
             if keys is None:
-                keys = src_root["data"].keys()  # type: ignore[union-attr]
+                keys = src_root["data"].keys()
             data = {}
             for key in keys:
                 arr = src_root["data"][key]
-                data[key] = arr[:]  # type: ignore[index]
+                data[key] = arr[:]
             root = {"meta": meta, "data": data}
         else:
-            root = zarr.open_group(store=store, mode="w")  # type: ignore[assignment]
-            meta_group = root.create_group("meta", overwrite=True)  # type: ignore[union-attr]
-            for key in src_root["meta"]:  # type: ignore[union-attr]
-                value = src_root["meta"][key]  # type: ignore[index]
+            root = zarr.open_group(store=store, mode="w")
+            meta_group = root.create_group("meta", overwrite=True)
+            for key in src_root["meta"]:
+                value = src_root["meta"][key]
                 if isinstance(value, zarr.Group):
                     continue
                 _ = meta_group.create_array(
                     name=key,
-                    data=value[:] if value.shape != () else np.array(value),  # type: ignore[union-attr, index]
-                    chunks=value.shape,  # type: ignore[union-attr]
+                    data=value[:] if value.shape != () else np.array(value),
+                    chunks=value.shape,
                     compressors=None,
                 )
             # Manually copy data
             # TODO: update when issue is closed on https://github.com/zarr-developers/zarr-python/issues/2407
-            data_group = root.create_group("data", overwrite=True)  # type: ignore[union-attr]
+            data_group = root.create_group("data", overwrite=True)
             if keys is None:
-                keys = src_root["data"].keys()  # type: ignore[union-attr]
+                keys = src_root["data"].keys()
             for key in keys:
                 value = src_root["data"][key]
                 cks = cls._resolve_array_chunks(chunks=chunks, key=key, array=value)
@@ -432,11 +432,11 @@ class ReplayBuffer:
                 _ = _create_zarr_data_array(
                     group=data_group,
                     name=key,
-                    data=value[:],  # type: ignore[index]
+                    data=value[:],
                     chunks=cks,
                     codec=cpr,
                 )
-        buffer = cls(root=root)  # type: ignore[arg-type]
+        buffer = cls(root=root)
         return buffer
 
     @classmethod
@@ -501,15 +501,15 @@ class ReplayBuffer:
             data_to_save = value[:] if isinstance(value, zarr.Array) else value
             _ = meta_group.create_array(
                 name=key,
-                data=data_to_save,  # type: ignore[arg-type]
+                data=data_to_save,
                 chunks=value.shape,
                 compressors=None,
             )
         # Manually copy data
         # TODO: update when issue is closed on https://github.com/zarr-developers/zarr-python/issues/2407
         data_group = root.create_group("data", overwrite=True)
-        for key in self.root["data"]:  # type: ignore[union-attr]
-            value = self.root["data"][key]  # type: ignore[index]
+        for key in self.root["data"]:
+            value = self.root["data"][key]
             cks = self._resolve_array_chunks(chunks=chunks, key=key, array=value)
             cpr = self._resolve_array_compressor(
                 compressors=compressors, key=key, array=value
@@ -518,7 +518,7 @@ class ReplayBuffer:
             _ = _create_zarr_data_array(
                 group=data_group,
                 name=key,
-                data=data_to_save,  # type: ignore[arg-type]
+                data=data_to_save,
                 chunks=cks,
                 codec=cpr,
             )
@@ -726,7 +726,7 @@ class ReplayBuffer:
         """String representation: Zarr tree or default repr."""
         if self.backend == "zarr":
             try:
-                return str(self.root.tree())  # type: ignore[union-attr]
+                return str(self.root.tree())
             except ImportError:
                 # 'rich' library not installed, fall back to simple repr
                 return f"<ReplayBuffer zarr backend: {self.n_episodes} episodes, {self.n_steps} steps>"

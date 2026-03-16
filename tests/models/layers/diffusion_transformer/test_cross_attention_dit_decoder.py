@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.diffusion_transformer.cross_attention_dit_decoder module."""
+
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -16,7 +17,6 @@ from versatil.models.layers.normalization.constants import NormalizationType
 
 @pytest.fixture
 def cross_decoder_factory() -> Callable[..., CrossConditioningDecoder]:
-
     def factory(
         number_of_layers: int = 2,
         embedding_dimension: int = 32,
@@ -60,7 +60,6 @@ def cross_decoder_factory() -> Callable[..., CrossConditioningDecoder]:
 
 
 class TestCrossConditioningDecoderInitialization:
-
     @pytest.mark.parametrize("number_of_layers", [1, 3])
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     def test_stores_configuration(
@@ -108,7 +107,6 @@ class TestCrossConditioningDecoderInitialization:
 
 
 class TestCrossConditioningDecoderForward:
-
     @pytest.mark.parametrize(
         "batch_size, decoder_sequence_length, encoder_sequence_length, embedding_dimension",
         [
@@ -150,7 +148,11 @@ class TestCrossConditioningDecoderForward:
             conditioning_embedding=conditioning,
             encoder_hidden_states=encoder_hidden,
         )
-        assert output.shape == (batch_size, decoder_sequence_length, embedding_dimension)
+        assert output.shape == (
+            batch_size,
+            decoder_sequence_length,
+            embedding_dimension,
+        )
 
     def test_different_encoder_context_produces_different_outputs(
         self,
@@ -243,7 +245,6 @@ class TestCrossConditioningDecoderForward:
 
 
 class TestCrossConditioningDecoderExpandPaddingMask:
-
     @pytest.mark.parametrize(
         "batch_size, query_length, key_length",
         [

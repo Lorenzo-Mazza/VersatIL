@@ -1,21 +1,20 @@
 """Tests for versatil.models.layers.diffusion_transformer.dit_decoder_layer module."""
+
 from collections.abc import Callable
 
 import pytest
 import torch
 
+from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.diffusion_transformer.dit_decoder_layer import DecoderLayer
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.swiglu import SwiGLU
 
-from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
-
 
 @pytest.fixture
 def decoder_layer_factory() -> Callable[..., DecoderLayer]:
-
     def factory(
         embedding_dimension: int = 32,
         timestep_dimension: int = 32,
@@ -51,9 +50,10 @@ def decoder_layer_factory() -> Callable[..., DecoderLayer]:
 
 
 class TestDecoderLayerInitialization:
-
     @pytest.mark.parametrize("use_gating", [True, False])
-    @pytest.mark.parametrize("activation", [ActivationFunction.SILU.value, ActivationFunction.SWIGLU.value])
+    @pytest.mark.parametrize(
+        "activation", [ActivationFunction.SILU.value, ActivationFunction.SWIGLU.value]
+    )
     def test_stores_configuration(
         self,
         decoder_layer_factory: Callable[..., DecoderLayer],
@@ -84,7 +84,6 @@ class TestDecoderLayerInitialization:
 
 
 class TestDecoderLayerForward:
-
     @pytest.mark.parametrize(
         "batch_size, sequence_length, embedding_dimension",
         [

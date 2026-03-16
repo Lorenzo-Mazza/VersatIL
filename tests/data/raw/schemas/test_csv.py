@@ -1,4 +1,5 @@
 """Tests for versatil.data.raw.schemas.csv module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -24,7 +25,6 @@ class ConcreteCsvSchema(CsvDatasetSchema):
 
 
 class TestCsvDatasetSchemaInit:
-
     @pytest.mark.parametrize(
         "dataset_folders",
         [
@@ -134,7 +134,6 @@ class TestCsvDatasetSchemaInit:
 
 
 class TestCsvDatasetSchemaAbstract:
-
     def test_cannot_instantiate_abstract_class(self):
         with pytest.raises(TypeError, match="abstract method"):
             CsvDatasetSchema(

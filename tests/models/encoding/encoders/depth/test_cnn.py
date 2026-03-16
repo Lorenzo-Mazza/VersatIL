@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.encoders.depth.cnn module."""
+
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
@@ -15,10 +16,8 @@ from versatil.models.encoding.encoders.constants import (
 )
 from versatil.models.encoding.encoders.depth.cnn import DepthCNNEncoder
 
-
 CNN_BACKBONES = [
-    e for e in RGBBackboneType
-    if "vit" not in e.value and "dino" not in e.value
+    e for e in RGBBackboneType if "vit" not in e.value and "dino" not in e.value
 ]
 
 
@@ -37,6 +36,7 @@ def _mock_setup_pooling(self):
 @pytest.fixture
 def depth_cnn_encoder_factory() -> Callable[..., DepthCNNEncoder]:
     """Factory for DepthCNNEncoder with mocked backbone and pooling."""
+
     def factory(
         input_keys: str | list[str] = Cameras.DEPTH.value,
         backbone: str = RGBBackboneType.RESNET18.value,
@@ -57,23 +57,32 @@ def depth_cnn_encoder_factory() -> Callable[..., DepthCNNEncoder]:
                 pretrained=pretrained,
                 frozen=frozen,
             )
+
     return factory
 
 
 class TestDepthCNNEncoderInitialization:
-
-    @pytest.mark.parametrize("backbone", [
-        RGBBackboneType.RESNET18.value,
-        RGBBackboneType.RESNET34.value,
-    ])
-    @pytest.mark.parametrize("pooling_method", [
-        PoolingMethod.AVERAGE.value,
-        PoolingMethod.NONE.value,
-    ])
-    @pytest.mark.parametrize("batch_norm_handling", [
-        BatchNormHandling.FROZEN.value,
-        BatchNormHandling.DEFAULT.value,
-    ])
+    @pytest.mark.parametrize(
+        "backbone",
+        [
+            RGBBackboneType.RESNET18.value,
+            RGBBackboneType.RESNET34.value,
+        ],
+    )
+    @pytest.mark.parametrize(
+        "pooling_method",
+        [
+            PoolingMethod.AVERAGE.value,
+            PoolingMethod.NONE.value,
+        ],
+    )
+    @pytest.mark.parametrize(
+        "batch_norm_handling",
+        [
+            BatchNormHandling.FROZEN.value,
+            BatchNormHandling.DEFAULT.value,
+        ],
+    )
     def test_stores_configuration(
         self,
         depth_cnn_encoder_factory: Callable[..., DepthCNNEncoder],
@@ -101,12 +110,12 @@ class TestDepthCNNEncoderInitialization:
         assert hasattr(encoder, "input_specification")
 
     def test_requires_depth_in_input_keys(self):
-        with pytest.raises(ValueError, match="Missing required inputs"):
-            with (
-                patch.object(DepthCNNEncoder, "_build_backbone", _mock_build_backbone),
-                patch.object(DepthCNNEncoder, "_setup_pooling", _mock_setup_pooling),
-            ):
-                DepthCNNEncoder(input_keys="left")
+        with (
+            pytest.raises(ValueError, match="Missing required inputs"),
+            patch.object(DepthCNNEncoder, "_build_backbone", _mock_build_backbone),
+            patch.object(DepthCNNEncoder, "_setup_pooling", _mock_setup_pooling),
+        ):
+            DepthCNNEncoder(input_keys="left")
 
     def test_input_specification_requires_depth_camera(
         self,
@@ -117,11 +126,13 @@ class TestDepthCNNEncoderInitialization:
 
 
 class TestDepthCNNEncoderForward:
-
-    @pytest.mark.parametrize("time_steps, expected_ndim", [
-        (None, 2),
-        (3, 3),
-    ])
+    @pytest.mark.parametrize(
+        "time_steps, expected_ndim",
+        [
+            (None, 2),
+            (3, 3),
+        ],
+    )
     def test_output_shape_with_and_without_time(
         self,
         depth_cnn_encoder_factory: Callable[..., DepthCNNEncoder],
@@ -134,7 +145,8 @@ class TestDepthCNNEncoderForward:
         encoder = depth_cnn_encoder_factory()
         mock_pooling = MagicMock()
         mock_pooling.return_value = torch.zeros(
-            batch_size * (time_steps or 1), feature_dimension,
+            batch_size * (time_steps or 1),
+            feature_dimension,
         )
         encoder.pooling_head = mock_pooling
         mock_backbone_output = MagicMock()
@@ -195,7 +207,6 @@ class TestDepthCNNEncoderForward:
 
 
 class TestDepthCNNEncoderGetOutputSpecification:
-
     def test_returns_depth_feature_with_correct_dimension(
         self,
         depth_cnn_encoder_factory: Callable[..., DepthCNNEncoder],
@@ -203,11 +214,13 @@ class TestDepthCNNEncoderGetOutputSpecification:
         encoder = depth_cnn_encoder_factory()
         specification = encoder.get_output_specification()
         assert specification.features == [EncoderOutputKeys.DEPTH.value]
-        assert specification.dimensions[EncoderOutputKeys.DEPTH.value] == encoder.output_dim
+        assert (
+            specification.dimensions[EncoderOutputKeys.DEPTH.value]
+            == encoder.output_dim
+        )
 
 
 class TestDepthCNNEncoderIntegration:
-
     @pytest.mark.integration
     @pytest.mark.parametrize("backbone", [b.value for b in CNN_BACKBONES])
     def test_forward_pass_per_backbone(
@@ -260,11 +273,14 @@ class TestDepthCNNEncoderIntegration:
             assert features.shape == (batch_size, encoder.output_dim)
 
     @pytest.mark.integration
-    @pytest.mark.parametrize("batch_norm_handling", [
-        BatchNormHandling.FROZEN.value,
-        BatchNormHandling.DEFAULT.value,
-        BatchNormHandling.CONVERT_TO_GROUPNORM.value,
-    ])
+    @pytest.mark.parametrize(
+        "batch_norm_handling",
+        [
+            BatchNormHandling.FROZEN.value,
+            BatchNormHandling.DEFAULT.value,
+            BatchNormHandling.CONVERT_TO_GROUPNORM.value,
+        ],
+    )
     def test_batch_norm_handling_variants(
         self,
         image_input_factory: Callable[..., dict[str, torch.Tensor]],
@@ -285,10 +301,13 @@ class TestDepthCNNEncoderIntegration:
         assert EncoderOutputKeys.DEPTH.value in output
 
     @pytest.mark.integration
-    @pytest.mark.parametrize("frozen, expected_requires_grad", [
-        (False, True),
-        (True, False),
-    ])
+    @pytest.mark.parametrize(
+        "frozen, expected_requires_grad",
+        [
+            (False, True),
+            (True, False),
+        ],
+    )
     def test_frozen_flag_controls_gradients(
         self,
         frozen: bool,
@@ -305,7 +324,6 @@ class TestDepthCNNEncoderIntegration:
 
 
 class TestDepthCNNEncoderBuildBackbone:
-
     def test_invalid_batch_norm_handling_raises(self):
         invalid_handling = "invalid_batch_norm_handling"
 
@@ -314,14 +332,10 @@ class TestDepthCNNEncoderBuildBackbone:
             self_inner.output_dim = self_inner.feature_dim
 
         with (
-            patch.object(
-                DepthCNNEncoder, "_setup_pooling", _mock_setup_pooling_only
-            ),
+            patch.object(DepthCNNEncoder, "_setup_pooling", _mock_setup_pooling_only),
             pytest.raises(
                 ValueError,
-                match=re.escape(
-                    f"Unknown batch norm handling: {invalid_handling}"
-                ),
+                match=re.escape(f"Unknown batch norm handling: {invalid_handling}"),
             ),
         ):
             DepthCNNEncoder(

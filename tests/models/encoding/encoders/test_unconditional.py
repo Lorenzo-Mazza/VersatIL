@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.encoders.unconditional module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -22,6 +23,7 @@ def concrete_encoder_factory(
     encoder_input_factory: Callable[..., EncoderInput],
 ) -> Callable[..., ConcreteEncoder]:
     """Factory for ConcreteEncoder instances."""
+
     def factory(
         keys: str | list[str] = "left",
         pretrained: bool = False,
@@ -35,11 +37,11 @@ def concrete_encoder_factory(
             frozen=frozen,
             device=device,
         )
+
     return factory
 
 
 class TestEncoderInitialization:
-
     def test_has_encoding_mixin_interface(
         self,
         concrete_encoder_factory: Callable[..., ConcreteEncoder],

@@ -120,7 +120,7 @@ class LightningPolicy(pl.LightningModule):
         )
         self.val_metrics.reset()
 
-    def configure_optimizers(self) -> dict[str, Any]:  # type: ignore[override]
+    def configure_optimizers(self) -> dict[str, Any]:
         """Configure optimizers and learning rate schedulers.
 
         Uses Hydra's get_class() to resolve optimizer from config.target_class.
@@ -213,10 +213,10 @@ class LightningPolicy(pl.LightningModule):
         if self.total_training_steps is not None:
             total_steps = self.total_training_steps
         else:
-            total_steps = self.trainer.estimated_stepping_batches  # type: ignore[assignment]
+            total_steps = self.trainer.estimated_stepping_batches
 
         scheduler = get_scheduler(
-            self.training_config.lr_schedule,  # type: ignore[arg-type]
+            self.training_config.lr_schedule,
             optimizer=optimizer,
             num_warmup_steps=self.training_config.lr_warmup_steps,
             num_training_steps=total_steps,

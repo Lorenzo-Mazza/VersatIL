@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.geometric_attention.depth_decay module."""
+
 from collections.abc import Callable
 
 import numpy as np
@@ -71,18 +72,18 @@ def decay_rates_factory(
     def factory(
         num_heads: int = 4,
     ) -> torch.Tensor:
-        rates = -torch.abs(
-            torch.from_numpy(
-                rng.standard_normal((num_heads,)).astype(np.float32)
+        rates = (
+            -torch.abs(
+                torch.from_numpy(rng.standard_normal((num_heads,)).astype(np.float32))
             )
-        ) - 0.1
+            - 0.1
+        )
         return rates
 
     return factory
 
 
 class TestDepthAwareDecayMaskConfiguration:
-
     @pytest.mark.parametrize("num_heads", [2, 8])
     def test_stores_configuration(self, depth_decay_factory, num_heads):
         mask = depth_decay_factory(num_heads=num_heads)
@@ -90,7 +91,6 @@ class TestDepthAwareDecayMaskConfiguration:
 
 
 class TestDepthDifferenceMatrix:
-
     def test_self_difference_is_zero_with_nonuniform_depth(self, depth_map_factory):
         # Non-uniform depth: diagonal should still be zero (position vs itself)
         depth_map = depth_map_factory(batch_size=2, height=3, width=3)
@@ -167,7 +167,6 @@ class TestDepthDifferenceMatrix:
 
 
 class TestDepthDifference1D:
-
     def test_height_axis_detects_height_varying_depth(
         self, height_varying_depth_map_factory
     ):
@@ -248,7 +247,6 @@ class TestDepthDifference1D:
 
 
 class TestDepthDecayForwardFull:
-
     def test_output_is_single_element_tuple(
         self, depth_decay_factory, depth_map_factory, decay_rates_factory
     ):
@@ -269,13 +267,17 @@ class TestDepthDecayForwardFull:
         [(2, 4, 3, 5), (1, 8, 4, 4)],
     )
     def test_full_mask_shape(
-        self, depth_decay_factory, depth_map_factory, decay_rates_factory,
-        batch_size, num_heads, height, width
+        self,
+        depth_decay_factory,
+        depth_map_factory,
+        decay_rates_factory,
+        batch_size,
+        num_heads,
+        height,
+        width,
     ):
         mask = depth_decay_factory(num_heads=num_heads)
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
         decay_rates = decay_rates_factory(num_heads=num_heads)
         (result,) = mask(
             depth_map=depth_map,
@@ -308,7 +310,7 @@ class TestDepthDecayForwardFull:
         batch_size = 1
         height, width = 4, 4
         depth_map = torch.ones(batch_size, 1, height, width)
-        depth_map[:, :, :, width // 2:] = 5.0
+        depth_map[:, :, :, width // 2 :] = 5.0
 
         mask = depth_decay_factory(num_heads=4)
         decay_rates = decay_rates_factory(num_heads=4)
@@ -388,7 +390,6 @@ class TestDepthDecayForwardFull:
 
 
 class TestDepthDecayForwardSeparable:
-
     def test_output_is_two_element_tuple(
         self, depth_decay_factory, depth_map_factory, decay_rates_factory
     ):
@@ -409,13 +410,17 @@ class TestDepthDecayForwardSeparable:
         [(2, 4, 3, 5), (1, 6, 4, 4)],
     )
     def test_separable_mask_shapes(
-        self, depth_decay_factory, depth_map_factory, decay_rates_factory,
-        batch_size, num_heads, height, width,
+        self,
+        depth_decay_factory,
+        depth_map_factory,
+        decay_rates_factory,
+        batch_size,
+        num_heads,
+        height,
+        width,
     ):
         mask = depth_decay_factory(num_heads=num_heads)
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
         decay_rates = decay_rates_factory(num_heads=num_heads)
         height_mask, width_mask = mask(
             depth_map=depth_map,
@@ -424,12 +429,8 @@ class TestDepthDecayForwardSeparable:
             decay_rates=decay_rates,
             decomposition_mode=AttentionDecompositionMode.SEPARABLE.value,
         )
-        assert height_mask.shape == (
-            batch_size, num_heads, width, height, height
-        )
-        assert width_mask.shape == (
-            batch_size, num_heads, height, width, width
-        )
+        assert height_mask.shape == (batch_size, num_heads, width, height, height)
+        assert width_mask.shape == (batch_size, num_heads, height, width, width)
 
     def test_uniform_depth_produces_zero_separable_masks(
         self, depth_decay_factory, uniform_depth_map_factory, decay_rates_factory

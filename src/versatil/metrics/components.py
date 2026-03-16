@@ -1,4 +1,5 @@
 """Individual loss components for action prediction tasks."""
+
 import logging
 import math
 
@@ -150,10 +151,10 @@ class GripperLoss(BaseLoss):
         self.mse_weight = mse_weight
         self.register_buffer("pos_weight", pos_weight)
         resolved_metadata = resolve_dict_keys(dict(actions_metadata))
-        if key not in resolved_metadata.keys():
+        if key not in resolved_metadata:
             raise ValueError(
                 f"{key} is not available to the action space. Can't compute gripper loss. "
-                f"Available keys: {list(resolved_metadata.keys())}"
+                f"Available keys: {list(resolved_metadata)}"
             )
         meta = resolved_metadata[key]
         if isinstance(meta, GripperActionMetadata):
@@ -410,8 +411,10 @@ class KLDivergenceLoss(BaseLoss):
         prior = torch.distributions.Normal(mu_prior, std_prior)
         kld = torch.distributions.kl_divergence(posterior, prior).sum(dim=-1)
         if kld.min() < 0:
-            logging.warning(msg=f"Warning: Negative KL divergence encountered: min={kld.min().item():.4f}"
-                            f"per_dim_kl: min={kld.min().item():.4f}, max={kld.max().item():.4f}")
+            logging.warning(
+                msg=f"Warning: Negative KL divergence encountered: min={kld.min().item():.4f}"
+                f"per_dim_kl: min={kld.min().item():.4f}, max={kld.max().item():.4f}"
+            )
         kld_mean = kld.mean()
         component_losses = {MetricKey.KL_DIVERGENCE.value: kld_mean}
         total_loss = self.weight * kld_mean
@@ -421,9 +424,9 @@ class KLDivergenceLoss(BaseLoss):
                 mu_prior.pow(2) + logvar_prior.exp() - logvar_prior - 1
             ).sum(dim=-1)
             prior_kl_mean = prior_kl.mean()
-            component_losses[
-                MetricKey.HYPERPRIOR_KL_REGULARIZATION.value
-            ] = prior_kl_mean
+            component_losses[MetricKey.HYPERPRIOR_KL_REGULARIZATION.value] = (
+                prior_kl_mean
+            )
             total_loss = total_loss + self.prior_regularization_weight * prior_kl_mean
 
         metadata = {
@@ -511,7 +514,7 @@ class BinaryKLDivergenceLoss(BaseLoss):
                 latent_codes, dim=-1
             ).flatten()  # (B*token_len,)
             unique_codes = torch.unique(code_indices).numel()
-            total_codes = 2 ** self.latent_bits
+            total_codes = 2**self.latent_bits
             usage_pct = unique_codes / total_codes
             all_component_losses[MetricKey.LATENT_CODE_USAGE.value] = usage_pct
 
@@ -622,7 +625,6 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         Returns:
             LossOutput with MMD loss.
         """
-        is_mixture_prior = LatentKey.PRIOR_LOG_PROB.value in predictions
         required_keys = self.get_required_keys()
         if not all(k in predictions for k in required_keys):
             raise ValueError(
@@ -662,9 +664,9 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             prior_mmd_sq = k_pp_reg.mean() + k_ss.mean() - 2 * k_ps.mean()
             prior_mmd_sq = torch.clamp(prior_mmd_sq, min=0.0)
 
-            component_losses[
-                MetricKey.HYPERPRIOR_MMD_REGULARIZATION.value
-            ] = prior_mmd_sq
+            component_losses[MetricKey.HYPERPRIOR_MMD_REGULARIZATION.value] = (
+                prior_mmd_sq
+            )
             total_loss = total_loss + self.prior_regularization_weight * prior_mmd_sq
 
         metadata = {MetadataKey.POSTERIOR_Z.value: z_posterior}
@@ -1061,7 +1063,9 @@ class ActionTokenLoss(BaseLoss):
         target_tokens = targets[SampleKey.TOKENIZED_ACTIONS.value]  # (B, num_tokens)
         token_sequence_dim = 1
         vocabulary_size_dim = 2
-        logits = pred_logits.transpose(token_sequence_dim, vocabulary_size_dim)  # (B, vocab_size, num_tokens)
+        logits = pred_logits.transpose(
+            token_sequence_dim, vocabulary_size_dim
+        )  # (B, vocab_size, num_tokens)
         ce_loss = F.cross_entropy(
             logits,
             target_tokens,
@@ -1201,11 +1205,11 @@ class GaussianMixtureNLLoss(BaseLoss):
         super().__init__()
         self.action_keys = action_keys
         self.weight = weight
-        self.per_key_weights = per_key_weights or {k: 1.0 for k in action_keys}
+        self.per_key_weights = per_key_weights or dict.fromkeys(action_keys, 1.0)
         self.learned_variance = learned_variance
         self.min_variance = min_variance
         if not learned_variance:
-            self.sigmas = sigmas or {k: 0.5 for k in action_keys}
+            self.sigmas = sigmas or dict.fromkeys(action_keys, 0.5)
 
     def get_required_keys(self) -> set[str]:
         """Get required target keys."""
@@ -1240,16 +1244,24 @@ class GaussianMixtureNLLoss(BaseLoss):
                 logvar_key = f"{action_key}_{DecoderOutputKey.LOGVAR.value}"
                 means = predictions[mean_key]  # (B, T, K, D)
                 logvars = predictions[logvar_key]  # (B, T, K, D)
-                nll = self._compute_learned_variance_nll(target, mixing_probs, means, logvars)
+                nll = self._compute_learned_variance_nll(
+                    target, mixing_probs, means, logvars
+                )
             else:
                 means = predictions[action_key]  # (B, T, K, D)
                 sigma = self.sigmas.get(action_key, 0.5)
-                nll = self._compute_fixed_variance_nll(target, mixing_probs, means, sigma)
+                nll = self._compute_fixed_variance_nll(
+                    target, mixing_probs, means, sigma
+                )
             nll_reduced = reduce_loss_with_padding(nll, is_pad, reduction="mean")
             key_weight = self.per_key_weights.get(action_key, 1.0)
-            component_losses[f"{action_key}_{MetricKey.GAUSSIAN_MIXTURE_NLL.value}"] = nll_reduced
+            component_losses[f"{action_key}_{MetricKey.GAUSSIAN_MIXTURE_NLL.value}"] = (
+                nll_reduced
+            )
             total_loss = total_loss + key_weight * nll_reduced
-        return LossOutput(total_loss=self.weight * total_loss, component_losses=component_losses)
+        return LossOutput(
+            total_loss=self.weight * total_loss, component_losses=component_losses
+        )
 
     def _compute_learned_variance_nll(
         self,
@@ -1263,9 +1275,11 @@ class GaussianMixtureNLLoss(BaseLoss):
         logvars = logvars.clamp(min=math.log(self.min_variance))
         target = target.unsqueeze(2)  # (B, T, 1, D)
         difference = target - means  # (B, T, K, D)
-        scaled_squared_error = (difference ** 2) * torch.exp(-logvars)  # (B, T, K, D)
+        scaled_squared_error = (difference**2) * torch.exp(-logvars)  # (B, T, K, D)
         log_normalization = -0.5 * action_dimension * math.log(2 * math.pi)
-        log_gaussian = log_normalization - 0.5 * (logvars + scaled_squared_error).sum(dim=-1)
+        log_gaussian = log_normalization - 0.5 * (logvars + scaled_squared_error).sum(
+            dim=-1
+        )
         if mixing_probs.dim() == 2:
             mixing_probs = mixing_probs.unsqueeze(1)  # (B, 1, K)
         log_mixing_weights = torch.log(mixing_probs + 1e-8)  # (B, T, K)
@@ -1282,7 +1296,7 @@ class GaussianMixtureNLLoss(BaseLoss):
         """Compute NLL with fixed variance (sigma parameter)."""
         target = target.unsqueeze(2)  # (B, T, 1, D)
         difference = target - means  # (B, T, K, D)
-        log_gaussian = -0.5 * (difference ** 2).sum(-1) / (sigma ** 2)  # (B, T, K)
+        log_gaussian = -0.5 * (difference**2).sum(-1) / (sigma**2)  # (B, T, K)
         if mixing_probs.dim() == 2:
             mixing_probs = mixing_probs.unsqueeze(1)  # (B, 1, K)
         log_mixing_weights = torch.log(mixing_probs + 1e-8)  # (B, T, K)
@@ -1326,10 +1340,10 @@ class GripperMixtureNLLoss(BaseLoss):
         self.sigma = sigma
         self.min_variance = min_variance
         resolved_metadata = resolve_dict_keys(dict(actions_metadata))
-        if key not in resolved_metadata.keys():
+        if key not in resolved_metadata:
             raise ValueError(
                 f"{key} is not available to the action space. Can't compute gripper NLL loss. "
-                f"Available keys: {list(resolved_metadata.keys())}"
+                f"Available keys: {list(resolved_metadata)}"
             )
         meta = resolved_metadata[key]
         if isinstance(meta, GripperActionMetadata):
@@ -1373,7 +1387,9 @@ class GripperMixtureNLLoss(BaseLoss):
             LossOutput with gripper NLL.
         """
         if self.key not in targets:
-            raise ValueError(f"Targets must contain '{self.key}' for GripperMixtureNLLoss.")
+            raise ValueError(
+                f"Targets must contain '{self.key}' for GripperMixtureNLLoss."
+            )
         target = targets[self.key]
         mixing_probs = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]
         if mixing_probs.dim() == 2:
@@ -1406,7 +1422,10 @@ class GripperMixtureNLLoss(BaseLoss):
         log_probability = F.logsigmoid(expert_logits)  # (B, T, K)
         log_one_minus_probability = F.logsigmoid(-expert_logits)  # (B, T, K)
         target_expanded = target.unsqueeze(-1)  # (B, T, 1)
-        log_bernoulli = target_expanded * log_probability + (1 - target_expanded) * log_one_minus_probability
+        log_bernoulli = (
+            target_expanded * log_probability
+            + (1 - target_expanded) * log_one_minus_probability
+        )
         return log_bernoulli  # (B, T, K)
 
     def _compute_continuous_log_component(
@@ -1420,14 +1439,16 @@ class GripperMixtureNLLoss(BaseLoss):
             means = predictions[mean_key]  # (B, T, K, D)
             logvars = predictions[logvar_key].clamp(min=math.log(self.min_variance))
             difference = target_expanded - means
-            scaled_squared_error = (difference ** 2) * torch.exp(-logvars)
+            scaled_squared_error = (difference**2) * torch.exp(-logvars)
             action_dimension = target.shape[-1]
             log_normalization = -0.5 * action_dimension * math.log(2 * math.pi)
-            return log_normalization - 0.5 * (logvars + scaled_squared_error).sum(dim=-1)
+            return log_normalization - 0.5 * (logvars + scaled_squared_error).sum(
+                dim=-1
+            )
         else:
             means = predictions[self.key]  # (B, T, K, D)
             difference = target_expanded - means
-            return -0.5 * (difference ** 2).sum(dim=-1) / (self.sigma ** 2)  # (B, T, K)
+            return -0.5 * (difference**2).sum(dim=-1) / (self.sigma**2)  # (B, T, K)
 
 
 class MoELoss(BaseLoss):
@@ -1635,8 +1656,8 @@ class VICLatentLoss(BaseLoss):
         return LossOutput(
             total_loss=total_loss,
             component_losses={
-                MetricKey.COVARIANCE_LOSS.value: self.covariance_weight * covariance_loss,
+                MetricKey.COVARIANCE_LOSS.value: self.covariance_weight
+                * covariance_loss,
                 MetricKey.VARIANCE_LOSS.value: self.variance_weight * variance_loss,
             },
         )
-

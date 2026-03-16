@@ -1,4 +1,5 @@
 """Tests for versatil.workspace module."""
+
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -16,22 +17,22 @@ from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
 
 from versatil.configs.experiment import ExperimentConfig
-from versatil.configs.training import TrainingConfig, AdamWConfig
+from versatil.configs.training import AdamWConfig, TrainingConfig
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.metrics import MoELoss
-from versatil.models.policy import Policy
 from versatil.models.decoding.algorithm import VariationalAlgorithm
 from versatil.models.decoding.decoders.factory.free_action_transformer import (
     FreeActionTransformer,
 )
 from versatil.models.decoding.decoders.factory.phase_act import PhaseACT
+from versatil.models.policy import Policy
 from versatil.training.callbacks import (
     ConfusionMatrixCallback,
     EMACallback,
-    GradientNormCallback,
-    ReduceLROnPlateauCallback,
     ExpertUsageCallback,
+    GradientNormCallback,
     LatentVisualizationCallback,
+    ReduceLROnPlateauCallback,
     ResumableEarlyStopping,
 )
 from versatil.training.lightning_policy import LightningPolicy
@@ -194,10 +195,12 @@ def original_yaml_config_factory() -> Callable[..., OmegaConf]:
     """Factory for OmegaConf YAML config objects."""
 
     def factory(name: str = "test_experiment") -> OmegaConf:
-        yaml_config = OmegaConf.create({
-            "experiment": {"name": name},
-            "training": {"optimizer": {"lr": 1e-4}},
-        })
+        yaml_config = OmegaConf.create(
+            {
+                "experiment": {"name": name},
+                "training": {"optimizer": {"lr": 1e-4}},
+            }
+        )
         return yaml_config
 
     return factory
@@ -232,9 +235,7 @@ def workspace_factory(
         mock_hydra_cfg = MagicMock()
         mock_hydra_cfg.job.config_name = config_name
 
-        with patch(
-            "versatil.workspace.HydraConfig.get", return_value=mock_hydra_cfg
-        ):
+        with patch("versatil.workspace.HydraConfig.get", return_value=mock_hydra_cfg):
             workspace = Workspace(
                 config=config,
                 original_yaml_config=yaml_config,
@@ -246,7 +247,6 @@ def workspace_factory(
 
 @pytest.mark.unit
 class TestWorkspaceInitialization:
-
     def test_experiment_name_combines_config_name_and_experiment_name(
         self, workspace_factory
     ):
@@ -294,15 +294,17 @@ class TestWorkspaceInitialization:
 
     def test_seed_is_set_during_init(self, workspace_factory):
         seed = 123
-        with patch("versatil.workspace.torch.manual_seed") as mock_manual_seed, \
-             patch("versatil.workspace.np.random.seed") as mock_np_seed:
+        with (
+            patch("versatil.workspace.torch.manual_seed") as mock_manual_seed,
+            patch("versatil.workspace.np.random.seed") as mock_np_seed,
+        ):
             workspace_factory(experiment_kwargs={"seed": seed})
 
             mock_manual_seed.assert_called_once_with(seed)
             mock_np_seed.assert_called_once_with(seed)
 
     def test_config_saved_during_init(self, workspace_factory, tmp_path):
-        workspace = workspace_factory(
+        workspace_factory(
             experiment_kwargs={"name": "save_test"},
             config_name="cfg",
         )
@@ -322,10 +324,7 @@ class TestWorkspaceInitialization:
 
 @pytest.mark.unit
 class TestSaveConfig:
-
-    def test_saves_resolved_yaml_to_output_directory(
-        self, workspace_factory, tmp_path
-    ):
+    def test_saves_resolved_yaml_to_output_directory(self, workspace_factory, tmp_path):
         workspace = workspace_factory(
             experiment_kwargs={"name": "save_cfg"},
             config_name="base",
@@ -340,13 +339,14 @@ class TestSaveConfig:
 
 @pytest.mark.unit
 class TestSetSeed:
-
     def test_cuda_seed_set_when_cuda_available(self, workspace_factory):
         # torch.manual_seed internally calls torch.cuda.manual_seed_all once,
         # and workspace._set_seed calls it again explicitly when CUDA is available,
         # resulting in two calls total.
-        with patch("versatil.workspace.torch.cuda.is_available", return_value=True), \
-             patch("versatil.workspace.torch.cuda.manual_seed_all") as mock_cuda_seed:
+        with (
+            patch("versatil.workspace.torch.cuda.is_available", return_value=True),
+            patch("versatil.workspace.torch.cuda.manual_seed_all") as mock_cuda_seed,
+        ):
             workspace_factory(experiment_kwargs={"seed": 99})
 
             assert mock_cuda_seed.call_count == 2
@@ -356,8 +356,10 @@ class TestSetSeed:
         # torch.manual_seed internally calls torch.cuda.manual_seed_all once
         # even when CUDA is unavailable. The workspace skips the explicit call
         # but the internal call from torch.manual_seed still happens.
-        with patch("versatil.workspace.torch.cuda.is_available", return_value=False), \
-             patch("versatil.workspace.torch.cuda.manual_seed_all") as mock_cuda_seed:
+        with (
+            patch("versatil.workspace.torch.cuda.is_available", return_value=False),
+            patch("versatil.workspace.torch.cuda.manual_seed_all") as mock_cuda_seed,
+        ):
             workspace_factory(experiment_kwargs={"seed": 99})
 
             # Only the internal call from torch.manual_seed, not the explicit one
@@ -366,7 +368,6 @@ class TestSetSeed:
 
 @pytest.mark.unit
 class TestCreateLogger:
-
     def test_returns_none_when_wandb_disabled(self, workspace_factory):
         workspace = workspace_factory(
             experiment_kwargs={"use_wandb": False},
@@ -438,7 +439,6 @@ class TestCreateLogger:
 
 @pytest.mark.unit
 class TestCreateStrategy:
-
     def test_returns_auto_when_not_distributed(self, workspace_factory):
         workspace = workspace_factory(
             experiment_kwargs={"distributed": False},
@@ -478,7 +478,6 @@ class TestCreateStrategy:
 
 @pytest.mark.unit
 class TestCreateCallbacks:
-
     def test_always_includes_checkpoint_gradient_norm_and_lr_monitor(
         self, workspace_factory, mock_workspace_policy_factory
     ):
@@ -654,9 +653,7 @@ class TestCreateCallbacks:
         workspace.policy = policy
         workspace.val_loader = None
 
-        with patch(
-            "versatil.workspace.StochasticWeightAveraging"
-        ) as mock_swa_cls:
+        with patch("versatil.workspace.StochasticWeightAveraging") as mock_swa_cls:
             mock_swa_cls.return_value = MagicMock(spec=StochasticWeightAveraging)
             workspace._create_callbacks()
 
@@ -778,9 +775,7 @@ class TestCreateCallbacks:
         workspace.policy = policy
         workspace.val_loader = MagicMock()
 
-        with patch(
-            "versatil.workspace.ReduceLROnPlateauCallback"
-        ) as mock_reduce_cls:
+        with patch("versatil.workspace.ReduceLROnPlateauCallback") as mock_reduce_cls:
             mock_reduce_cls.return_value = MagicMock(spec=ReduceLROnPlateauCallback)
             workspace._create_callbacks()
 
@@ -805,9 +800,7 @@ class TestCreateCallbacks:
         workspace.policy = policy
         workspace.val_loader = None
 
-        with patch(
-            "versatil.workspace.ReduceLROnPlateauCallback"
-        ) as mock_reduce_cls:
+        with patch("versatil.workspace.ReduceLROnPlateauCallback") as mock_reduce_cls:
             mock_reduce_cls.return_value = MagicMock(spec=ReduceLROnPlateauCallback)
             workspace._create_callbacks()
 
@@ -878,8 +871,7 @@ class TestCreateCallbacks:
         latest_checkpoints = [
             cb
             for cb in callbacks
-            if isinstance(cb, ModelCheckpoint)
-            and "latest" in (cb.filename or "")
+            if isinstance(cb, ModelCheckpoint) and "latest" in (cb.filename or "")
         ]
         assert len(latest_checkpoints) == 1
         assert latest_checkpoints[0]._save_on_train_epoch_end is True
@@ -897,8 +889,7 @@ class TestCreateCallbacks:
         latest_checkpoints = [
             cb
             for cb in callbacks
-            if isinstance(cb, ModelCheckpoint)
-            and "latest" in (cb.filename or "")
+            if isinstance(cb, ModelCheckpoint) and "latest" in (cb.filename or "")
         ]
         assert len(latest_checkpoints) == 1
         assert latest_checkpoints[0]._save_on_train_epoch_end is False
@@ -906,7 +897,6 @@ class TestCreateCallbacks:
 
 @pytest.mark.unit
 class TestSetupTrainer:
-
     def test_trainer_uses_gpu_accelerator_for_cuda_device(
         self, workspace_factory, mock_workspace_policy_factory
     ):
@@ -1023,10 +1013,12 @@ class TestSetupTrainer:
         workspace.policy = policy
         workspace.val_loader = None
 
-        with patch("versatil.workspace.pl.Trainer"), \
-             patch(
-                 "versatil.workspace.torch.set_float32_matmul_precision"
-             ) as mock_set_precision:
+        with (
+            patch("versatil.workspace.pl.Trainer"),
+            patch(
+                "versatil.workspace.torch.set_float32_matmul_precision"
+            ) as mock_set_precision,
+        ):
             workspace._setup_trainer()
 
             mock_set_precision.assert_called_once_with("high")
@@ -1042,10 +1034,12 @@ class TestSetupTrainer:
         workspace.policy = policy
         workspace.val_loader = None
 
-        with patch("versatil.workspace.pl.Trainer"), \
-             patch(
-                 "versatil.workspace.torch.set_float32_matmul_precision"
-             ) as mock_set_precision:
+        with (
+            patch("versatil.workspace.pl.Trainer"),
+            patch(
+                "versatil.workspace.torch.set_float32_matmul_precision"
+            ) as mock_set_precision,
+        ):
             workspace._setup_trainer()
 
             mock_set_precision.assert_not_called()
@@ -1089,7 +1083,6 @@ class TestSetupTrainer:
 
 @pytest.mark.unit
 class TestSetupPolicy:
-
     def test_sets_normalizer_tokenizer_and_thresholds_on_policy(
         self, workspace_factory, mock_workspace_policy_factory
     ):
@@ -1141,10 +1134,10 @@ class TestSetupPolicy:
 
         workspace.config.policy = policy
 
-        with patch.object(workspace, "_initialize_lazy_modules"), \
-             patch(
-                 "versatil.workspace.LightningPolicy"
-             ) as mock_lightning_cls:
+        with (
+            patch.object(workspace, "_initialize_lazy_modules"),
+            patch("versatil.workspace.LightningPolicy") as mock_lightning_cls,
+        ):
             mock_lightning_cls.return_value = MagicMock(spec=LightningPolicy)
             workspace._setup_policy()
 
@@ -1159,10 +1152,7 @@ class TestSetupPolicy:
 
 @pytest.mark.unit
 class TestInitializeLazyModules:
-
-    def test_raises_runtime_error_when_train_loader_is_none(
-        self, workspace_factory
-    ):
+    def test_raises_runtime_error_when_train_loader_is_none(self, workspace_factory):
         workspace = workspace_factory()
         workspace.train_loader = None
 
@@ -1172,9 +1162,7 @@ class TestInitializeLazyModules:
         ):
             workspace._initialize_lazy_modules()
 
-    def test_raises_runtime_error_when_train_loader_is_empty(
-        self, workspace_factory
-    ):
+    def test_raises_runtime_error_when_train_loader_is_empty(self, workspace_factory):
         workspace = workspace_factory()
         mock_loader = MagicMock()
         mock_loader.__len__ = MagicMock(return_value=0)
@@ -1186,9 +1174,7 @@ class TestInitializeLazyModules:
         ):
             workspace._initialize_lazy_modules()
 
-    def test_performs_forward_pass_in_eval_mode_then_restores_train_mode(
-        self, workspace_factory
-    ):
+    def test_performs_forward_pass_in_train_mode(self, workspace_factory):
         workspace = workspace_factory(experiment_kwargs={"device": "cpu"})
 
         mock_batch = {"obs": torch.zeros(2, 3)}
@@ -1203,25 +1189,26 @@ class TestInitializeLazyModules:
         with patch("versatil.workspace.to_device", return_value=mock_batch):
             workspace._initialize_lazy_modules()
 
-        mock_lightning_policy.eval.assert_called_once()
+        mock_lightning_policy.eval.assert_not_called()
         mock_lightning_policy.training_step.assert_called_once_with(mock_batch, 0)
         mock_lightning_policy.train.assert_called_once()
 
 
 @pytest.mark.unit
 class TestLoadCheckpoint:
-
     def test_raises_runtime_error_when_policy_is_none(self, workspace_factory):
         workspace = workspace_factory()
         workspace.policy = None
         workspace.lightning_policy = MagicMock()
 
-        with patch("versatil.workspace.torch.load", return_value={"state_dict": {}}):
-            with pytest.raises(
+        with (
+            patch("versatil.workspace.torch.load", return_value={"state_dict": {}}),
+            pytest.raises(
                 RuntimeError,
                 match="Policy must be initialized before loading checkpoint",
-            ):
-                workspace.load_checkpoint("/fake/path.ckpt")
+            ),
+        ):
+            workspace.load_checkpoint("/fake/path.ckpt")
 
     def test_raises_runtime_error_when_lightning_policy_is_none(
         self, workspace_factory
@@ -1230,12 +1217,14 @@ class TestLoadCheckpoint:
         workspace.policy = MagicMock()
         workspace.lightning_policy = None
 
-        with patch("versatil.workspace.torch.load", return_value={"state_dict": {}}):
-            with pytest.raises(
+        with (
+            patch("versatil.workspace.torch.load", return_value={"state_dict": {}}),
+            pytest.raises(
                 RuntimeError,
                 match="LightningPolicy must be initialized before loading checkpoint",
-            ):
-                workspace.load_checkpoint("/fake/path.ckpt")
+            ),
+        ):
+            workspace.load_checkpoint("/fake/path.ckpt")
 
     def test_raises_value_error_for_unrecognized_checkpoint_format(
         self, workspace_factory
@@ -1244,14 +1233,14 @@ class TestLoadCheckpoint:
         workspace.policy = MagicMock()
         workspace.lightning_policy = MagicMock()
 
-        with patch(
-            "versatil.workspace.torch.load", return_value={"weights": {}}
-        ):
-            with pytest.raises(
+        with (
+            patch("versatil.workspace.torch.load", return_value={"weights": {}}),
+            pytest.raises(
                 ValueError,
                 match="Checkpoint format not recognized",
-            ):
-                workspace.load_checkpoint("/fake/path.ckpt")
+            ),
+        ):
+            workspace.load_checkpoint("/fake/path.ckpt")
 
     def test_loads_state_dict_into_lightning_policy(self, workspace_factory):
         workspace = workspace_factory()
@@ -1281,22 +1270,23 @@ class TestLoadCheckpoint:
         tokenizer_dir.mkdir(parents=True, exist_ok=True)
 
         mock_tokenizer = MagicMock()
-        with patch(
-            "versatil.workspace.torch.load",
-            return_value={"state_dict": {}},
-        ), patch(
-            "versatil.workspace.Tokenizer.from_pretrained",
-            return_value=mock_tokenizer,
-        ) as mock_from_pretrained:
+        with (
+            patch(
+                "versatil.workspace.torch.load",
+                return_value={"state_dict": {}},
+            ),
+            patch(
+                "versatil.workspace.Tokenizer.from_pretrained",
+                return_value=mock_tokenizer,
+            ) as mock_from_pretrained,
+        ):
             workspace.load_checkpoint("/fake/path.ckpt")
 
         mock_from_pretrained.assert_called_once()
         workspace.policy.set_tokenizer.assert_called_once_with(mock_tokenizer)
         assert workspace.tokenizer == mock_tokenizer
 
-    def test_sets_tokenizer_to_none_when_path_does_not_exist(
-        self, workspace_factory
-    ):
+    def test_sets_tokenizer_to_none_when_path_does_not_exist(self, workspace_factory):
         workspace = workspace_factory()
         workspace.policy = MagicMock()
         workspace.lightning_policy = MagicMock()
@@ -1309,9 +1299,7 @@ class TestLoadCheckpoint:
 
         assert workspace.tokenizer is None
 
-    def test_loads_checkpoint_with_correct_map_location(
-        self, workspace_factory
-    ):
+    def test_loads_checkpoint_with_correct_map_location(self, workspace_factory):
         workspace = workspace_factory(experiment_kwargs={"device": "cpu"})
         workspace.policy = MagicMock()
         workspace.lightning_policy = MagicMock()
@@ -1331,7 +1319,6 @@ class TestLoadCheckpoint:
 
 @pytest.mark.unit
 class TestPredict:
-
     def test_raises_runtime_error_when_lightning_policy_is_none(
         self, workspace_factory
     ):
@@ -1434,19 +1421,19 @@ class TestPredict:
 
 @pytest.mark.unit
 class TestRun:
-
     def test_run_orchestrates_full_workflow(
         self, workspace_factory, mock_workspace_policy_factory
     ):
         policy = mock_workspace_policy_factory()
         workspace = workspace_factory(policy=policy)
 
-        with patch.object(workspace, "_create_logger", return_value=None) as mock_logger, \
-             patch.object(workspace, "_setup_data") as mock_data, \
-             patch.object(workspace, "_setup_policy") as mock_policy_setup, \
-             patch.object(workspace, "_setup_trainer") as mock_trainer_setup, \
-             patch.object(workspace, "_tune_hyperparameters") as mock_tune:
-
+        with (
+            patch.object(workspace, "_create_logger", return_value=None) as mock_logger,
+            patch.object(workspace, "_setup_data") as mock_data,
+            patch.object(workspace, "_setup_policy") as mock_policy_setup,
+            patch.object(workspace, "_setup_trainer") as mock_trainer_setup,
+            patch.object(workspace, "_tune_hyperparameters") as mock_tune,
+        ):
             mock_lightning_policy = MagicMock()
             workspace.lightning_policy = mock_lightning_policy
             workspace.train_loader = MagicMock()
@@ -1479,12 +1466,13 @@ class TestRun:
             policy=policy,
         )
 
-        with patch.object(workspace, "_create_logger", return_value=None), \
-             patch.object(workspace, "_setup_data"), \
-             patch.object(workspace, "_setup_policy"), \
-             patch.object(workspace, "_setup_trainer"), \
-             patch.object(workspace, "_tune_hyperparameters"):
-
+        with (
+            patch.object(workspace, "_create_logger", return_value=None),
+            patch.object(workspace, "_setup_data"),
+            patch.object(workspace, "_setup_policy"),
+            patch.object(workspace, "_setup_trainer"),
+            patch.object(workspace, "_tune_hyperparameters"),
+        ):
             workspace.lightning_policy = MagicMock()
             workspace.train_loader = MagicMock()
             workspace.val_loader = MagicMock()
@@ -1508,12 +1496,13 @@ class TestRun:
             policy=policy,
         )
 
-        with patch.object(workspace, "_create_logger", return_value=None), \
-             patch.object(workspace, "_setup_data"), \
-             patch.object(workspace, "_setup_policy"), \
-             patch.object(workspace, "_setup_trainer"), \
-             patch.object(workspace, "_tune_hyperparameters"):
-
+        with (
+            patch.object(workspace, "_create_logger", return_value=None),
+            patch.object(workspace, "_setup_data"),
+            patch.object(workspace, "_setup_policy"),
+            patch.object(workspace, "_setup_trainer"),
+            patch.object(workspace, "_tune_hyperparameters"),
+        ):
             workspace.lightning_policy = MagicMock()
             workspace.train_loader = MagicMock()
             workspace.val_loader = MagicMock()
@@ -1537,12 +1526,13 @@ class TestRun:
         mock_train_loader = MagicMock()
         mock_val_loader = MagicMock()
 
-        with patch.object(workspace, "_create_logger", return_value=None), \
-             patch.object(workspace, "_setup_data"), \
-             patch.object(workspace, "_setup_policy"), \
-             patch.object(workspace, "_setup_trainer"), \
-             patch.object(workspace, "_tune_hyperparameters"):
-
+        with (
+            patch.object(workspace, "_create_logger", return_value=None),
+            patch.object(workspace, "_setup_data"),
+            patch.object(workspace, "_setup_policy"),
+            patch.object(workspace, "_setup_trainer"),
+            patch.object(workspace, "_tune_hyperparameters"),
+        ):
             mock_lightning = MagicMock()
             workspace.lightning_policy = mock_lightning
             workspace.train_loader = mock_train_loader
@@ -1557,7 +1547,6 @@ class TestRun:
 
 @pytest.mark.unit
 class TestTuneHyperparameters:
-
     def test_skips_tuning_when_tune_lr_disabled(self, workspace_factory):
         workspace = workspace_factory(training_kwargs={"tune_lr": False})
 
@@ -1611,8 +1600,10 @@ class TestTuneHyperparameters:
         mock_lr_result.suggestion.return_value = 0.0042
         mock_tuner.lr_find.return_value = mock_lr_result
 
-        with patch("versatil.workspace.Tuner", return_value=mock_tuner), \
-             patch.object(workspace, "save_config"):
+        with (
+            patch("versatil.workspace.Tuner", return_value=mock_tuner),
+            patch.object(workspace, "save_config"),
+        ):
             workspace._tune_hyperparameters()
 
         assert workspace.config.training.optimizer.lr == 0.0042
@@ -1628,8 +1619,10 @@ class TestTuneHyperparameters:
         mock_lr_result.suggestion.return_value = 0.001
         mock_tuner.lr_find.return_value = mock_lr_result
 
-        with patch("versatil.workspace.Tuner", return_value=mock_tuner), \
-             patch.object(workspace, "save_config") as mock_save:
+        with (
+            patch("versatil.workspace.Tuner", return_value=mock_tuner),
+            patch.object(workspace, "save_config") as mock_save,
+        ):
             workspace._tune_hyperparameters()
 
             mock_save.assert_called_once()
@@ -1637,7 +1630,6 @@ class TestTuneHyperparameters:
 
 @pytest.mark.unit
 class TestSetupData:
-
     @patch("versatil.workspace.get_dataloaders")
     @patch("versatil.workspace.plt")
     def test_stores_normalizer_and_tokenizer(
@@ -1648,9 +1640,7 @@ class TestSetupData:
 
         mock_train_loader = MagicMock()
         mock_train_loader.dataset.__len__ = MagicMock(return_value=100)
-        mock_train_loader.dataset.action_processor.plot_action_magnitude_distribution.return_value = (
-            None
-        )
+        mock_train_loader.dataset.action_processor.plot_action_magnitude_distribution.return_value = None
         mock_train_loader.dataset.action_processor.denoising_thresholds = {}
 
         mock_val_loader = MagicMock()
@@ -1683,9 +1673,7 @@ class TestSetupData:
 
         mock_train_loader = MagicMock()
         mock_train_loader.dataset.__len__ = MagicMock(return_value=100)
-        mock_train_loader.dataset.action_processor.plot_action_magnitude_distribution.return_value = (
-            None
-        )
+        mock_train_loader.dataset.action_processor.plot_action_magnitude_distribution.return_value = None
         mock_train_loader.dataset.action_processor.denoising_thresholds = {}
 
         mock_get_dataloaders.return_value = (
@@ -1712,9 +1700,7 @@ class TestSetupData:
         mock_tokenizer = MagicMock()
         mock_train_loader = MagicMock()
         mock_train_loader.dataset.__len__ = MagicMock(return_value=100)
-        mock_train_loader.dataset.action_processor.plot_action_magnitude_distribution.return_value = (
-            None
-        )
+        mock_train_loader.dataset.action_processor.plot_action_magnitude_distribution.return_value = None
         mock_train_loader.dataset.action_processor.denoising_thresholds = {}
 
         mock_get_dataloaders.return_value = (
@@ -1728,9 +1714,7 @@ class TestSetupData:
         workspace._setup_data()
 
         expected_tokenizer_path = workspace.output_dir / "tokenizer"
-        mock_tokenizer.save_pretrained.assert_called_once_with(
-            expected_tokenizer_path
-        )
+        mock_tokenizer.save_pretrained.assert_called_once_with(expected_tokenizer_path)
 
     @patch("versatil.workspace.get_dataloaders")
     @patch("versatil.workspace.wandb")
@@ -1744,9 +1728,7 @@ class TestSetupData:
         mock_fig = MagicMock()
         mock_train_loader = MagicMock()
         mock_train_loader.dataset.__len__ = MagicMock(return_value=100)
-        mock_train_loader.dataset.action_processor.plot_action_magnitude_distribution.return_value = (
-            mock_fig
-        )
+        mock_train_loader.dataset.action_processor.plot_action_magnitude_distribution.return_value = mock_fig
         mock_train_loader.dataset.action_processor.denoising_thresholds = {}
 
         mock_get_dataloaders.return_value = (
@@ -1774,9 +1756,7 @@ class TestSetupData:
         expected_thresholds = {"position": 0.01, "orientation": 0.005}
         mock_train_loader = MagicMock()
         mock_train_loader.dataset.__len__ = MagicMock(return_value=100)
-        mock_train_loader.dataset.action_processor.plot_action_magnitude_distribution.return_value = (
-            None
-        )
+        mock_train_loader.dataset.action_processor.plot_action_magnitude_distribution.return_value = None
         mock_train_loader.dataset.action_processor.denoising_thresholds = (
             expected_thresholds
         )
@@ -1796,19 +1776,19 @@ class TestSetupData:
 
 @pytest.mark.unit
 class TestWorkspaceStateGuards:
-
     def test_run_raises_when_trainer_is_none(
         self, workspace_factory, mock_workspace_policy_factory
     ):
         policy = mock_workspace_policy_factory()
         workspace = workspace_factory(policy=policy)
 
-        with patch.object(workspace, "_create_logger", return_value=None), \
-             patch.object(workspace, "_setup_data"), \
-             patch.object(workspace, "_setup_policy"), \
-             patch.object(workspace, "_setup_trainer"), \
-             patch.object(workspace, "_tune_hyperparameters"):
-
+        with (
+            patch.object(workspace, "_create_logger", return_value=None),
+            patch.object(workspace, "_setup_data"),
+            patch.object(workspace, "_setup_policy"),
+            patch.object(workspace, "_setup_trainer"),
+            patch.object(workspace, "_tune_hyperparameters"),
+        ):
             workspace.lightning_policy = MagicMock()
             workspace.train_loader = MagicMock()
             workspace.val_loader = MagicMock()
@@ -1820,9 +1800,7 @@ class TestWorkspaceStateGuards:
             ):
                 workspace.run()
 
-    def test_predict_raises_when_policy_is_none(
-        self, workspace_factory
-    ):
+    def test_predict_raises_when_policy_is_none(self, workspace_factory):
         workspace = workspace_factory()
         workspace.lightning_policy = MagicMock()
         workspace.policy = None
@@ -1834,9 +1812,7 @@ class TestWorkspaceStateGuards:
         ):
             workspace.predict({"obs": torch.zeros(2, 3)})
 
-    def test_tune_hyperparameters_raises_when_trainer_is_none(
-        self, workspace_factory
-    ):
+    def test_tune_hyperparameters_raises_when_trainer_is_none(self, workspace_factory):
         workspace = workspace_factory(training_kwargs={"tune_lr": True})
         workspace.trainer = None
         workspace.lightning_policy = MagicMock()

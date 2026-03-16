@@ -1,7 +1,7 @@
 """torch.nn.Module to construct an input feature vector to use as conditioner for a U-Net."""
 
 import torch
-from torch import nn as nn
+from torch import nn
 
 from versatil.data.constants import SampleKey
 from versatil.models.decoding.constants import DecoderOutputKey

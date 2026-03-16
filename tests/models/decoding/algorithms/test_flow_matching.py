@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.algorithm.flow_matching module."""
+
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -21,6 +22,7 @@ from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 @pytest.fixture
 def flow_matching_factory() -> Callable[..., FlowMatching]:
     """Factory for FlowMatching instances."""
+
     def factory(
         sigma: float = 0.0,
         num_inference_steps: int = 10,
@@ -43,11 +45,11 @@ def flow_matching_factory() -> Callable[..., FlowMatching]:
             beta_beta=beta_beta,
             max_timestep=max_timestep,
         )
+
     return factory
 
 
 class TestFlowMatchingInitialization:
-
     def test_inherits_from_decoding_algorithm(
         self,
         flow_matching_factory: Callable[..., FlowMatching],
@@ -56,15 +58,21 @@ class TestFlowMatchingInitialization:
         assert isinstance(fm, DecodingAlgorithm)
 
     @pytest.mark.parametrize("num_inference_steps", [5, 20])
-    @pytest.mark.parametrize("ode_solver", [
-        ODESolver.EULER.value,
-        ODESolver.HEUN.value,
-    ])
+    @pytest.mark.parametrize(
+        "ode_solver",
+        [
+            ODESolver.EULER.value,
+            ODESolver.HEUN.value,
+        ],
+    )
     @pytest.mark.parametrize("sigma", [0.0, 0.1])
-    @pytest.mark.parametrize("timestep_sampler", [
-        TimestepSampler.BETA.value,
-        TimestepSampler.UNIFORM.value,
-    ])
+    @pytest.mark.parametrize(
+        "timestep_sampler",
+        [
+            TimestepSampler.BETA.value,
+            TimestepSampler.UNIFORM.value,
+        ],
+    )
     @pytest.mark.parametrize("logit_mean", [0.0, 0.5])
     @pytest.mark.parametrize("logit_std", [0.5, 1.0])
     @pytest.mark.parametrize("beta_alpha", [1.0, 1.5])
@@ -104,20 +112,23 @@ class TestFlowMatchingInitialization:
         assert fm.max_timestep == max_timestep
         assert isinstance(fm.flow_matcher, ConditionalFlowMatcher)
 
-    @pytest.mark.parametrize("ode_solver, expectation", [
-        (ODESolver.EULER.value, does_not_raise()),
-        (ODESolver.RK4.value, does_not_raise()),
-        (
-            "invalid_solver",
-            pytest.raises(
-                ValueError,
-                match=re.escape(
-                    f"Unknown ODE solver: invalid_solver. "
-                    f"Expected one of {[e.value for e in ODESolver]}"
+    @pytest.mark.parametrize(
+        "ode_solver, expectation",
+        [
+            (ODESolver.EULER.value, does_not_raise()),
+            (ODESolver.RK4.value, does_not_raise()),
+            (
+                "invalid_solver",
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        f"Unknown ODE solver: invalid_solver. "
+                        f"Expected one of {[e.value for e in ODESolver]}"
+                    ),
                 ),
             ),
-        ),
-    ])
+        ],
+    )
     def test_ode_solver_validation(
         self,
         ode_solver: str,
@@ -126,20 +137,23 @@ class TestFlowMatchingInitialization:
         with expectation:
             FlowMatching(ode_solver=ode_solver)
 
-    @pytest.mark.parametrize("timestep_sampler, expectation", [
-        (TimestepSampler.BETA.value, does_not_raise()),
-        (TimestepSampler.UNIFORM.value, does_not_raise()),
-        (
-            "invalid_sampler",
-            pytest.raises(
-                ValueError,
-                match=re.escape(
-                    f"Unknown timestep sampler: invalid_sampler. "
-                    f"Expected one of {[e.value for e in TimestepSampler]}"
+    @pytest.mark.parametrize(
+        "timestep_sampler, expectation",
+        [
+            (TimestepSampler.BETA.value, does_not_raise()),
+            (TimestepSampler.UNIFORM.value, does_not_raise()),
+            (
+                "invalid_sampler",
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        f"Unknown timestep sampler: invalid_sampler. "
+                        f"Expected one of {[e.value for e in TimestepSampler]}"
+                    ),
                 ),
             ),
-        ),
-    ])
+        ],
+    )
     def test_timestep_sampler_validation(
         self,
         timestep_sampler: str,
@@ -150,7 +164,6 @@ class TestFlowMatchingInitialization:
 
 
 class TestFlowMatchingForward:
-
     def test_raises_without_actions(
         self,
         flow_matching_factory: Callable[..., FlowMatching],
@@ -193,7 +206,9 @@ class TestFlowMatchingForward:
             SampleKey.IS_PAD_ACTION.value,
         }
         assert set(result.keys()) == expected_keys
-        assert set(result[DecoderOutputKey.TARGET_VELOCITY.value].keys()) == {"position_action"}
+        assert set(result[DecoderOutputKey.TARGET_VELOCITY.value].keys()) == {
+            "position_action"
+        }
         if include_padding_mask:
             assert result[SampleKey.IS_PAD_ACTION.value] is not None
         else:
@@ -210,7 +225,9 @@ class TestFlowMatchingForward:
         mock_network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         actions = action_dictionary_factory(
-            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
         )
         mock_network.return_value = {"position_action": torch.zeros(2, 8, 3)}
         fm.forward(network=mock_network, features=features, actions=actions)
@@ -227,16 +244,17 @@ class TestFlowMatchingForward:
         fm = flow_matching_factory()
         action_keys = ["gripper_action", "position_action"]
         mock_network = mock_action_decoder_factory(
-            action_keys=action_keys, prediction_dimension=3,
+            action_keys=action_keys,
+            prediction_dimension=3,
         )
         features = feature_dictionary_factory()
         actions = action_dictionary_factory(
-            action_keys=action_keys, prediction_horizon=8, action_dimension=3,
+            action_keys=action_keys,
+            prediction_horizon=8,
+            action_dimension=3,
             include_padding_mask=True,
         )
-        mock_network.return_value = {
-            key: torch.zeros(2, 8, 3) for key in action_keys
-        }
+        mock_network.return_value = {key: torch.zeros(2, 8, 3) for key in action_keys}
         result = fm.forward(network=mock_network, features=features, actions=actions)
         target_velocity = result[DecoderOutputKey.TARGET_VELOCITY.value]
         noise = result[DecoderOutputKey.NOISE.value]
@@ -246,7 +264,6 @@ class TestFlowMatchingForward:
 
 
 class TestFlowMatchingPredict:
-
     def test_predict_returns_exact_action_keys(
         self,
         flow_matching_factory: Callable[..., FlowMatching],
@@ -313,7 +330,8 @@ class TestFlowMatchingPredict:
         fm = flow_matching_factory(num_inference_steps=2)
         action_keys = ["gripper_action", "position_action"]
         mock_network = mock_action_decoder_factory(
-            action_keys=action_keys, prediction_dimension=3,
+            action_keys=action_keys,
+            prediction_dimension=3,
         )
         features = feature_dictionary_factory()
         # Total flat dim: 2 keys * 8 horizon * 3 dim = 48

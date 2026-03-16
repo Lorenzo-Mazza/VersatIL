@@ -32,7 +32,10 @@ class ViTEncoder(Encoder):
         valid_backbones = [
             e.value
             for e in RGBBackboneType
-            if not any(x in e.value for x in ["efficientnet", "resnet", "edgenext", "mobilenet"])
+            if not any(
+                x in e.value
+                for x in ["efficientnet", "resnet", "edgenext", "mobilenet"]
+            )
         ]
         if backbone not in valid_backbones:
             raise ValueError(

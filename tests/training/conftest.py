@@ -1,4 +1,5 @@
 """Shared fixtures for versatil.training tests."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock, Mock
 
@@ -9,7 +10,6 @@ import torch
 from versatil.configs.training import (
     AdamWConfig,
     OptimizerConfig,
-    ParameterGroupConfig,
     TrainingConfig,
 )
 from versatil.models.policy import Policy
@@ -52,9 +52,7 @@ def mock_policy_factory(rng: np.random.Generator) -> Callable[..., Mock]:
             weight_data = torch.from_numpy(
                 rng.standard_normal((8, 4)).astype(np.float32)
             )
-            bias_data = torch.from_numpy(
-                rng.standard_normal((8,)).astype(np.float32)
-            )
+            bias_data = torch.from_numpy(rng.standard_normal((8,)).astype(np.float32))
             weight = torch.nn.Parameter(weight_data)
             bias = torch.nn.Parameter(bias_data)
             named_parameters = [("layer.weight", weight), ("layer.bias", bias)]

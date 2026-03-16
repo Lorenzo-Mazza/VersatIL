@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.encoders.rgb.conditional_cnn module."""
+
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -18,7 +19,6 @@ from versatil.models.encoding.encoders.constants import (
 from versatil.models.encoding.encoders.rgb.conditional_cnn import (
     ConditionalCNNEncoder,
 )
-
 
 CONDITIONAL_CNN_BACKBONES = list(ConditionalCNNEncoder.BACKBONE_CONFIGS.keys())
 
@@ -44,6 +44,7 @@ def _mock_setup_pooling(self):
 @pytest.fixture
 def conditional_cnn_factory() -> Callable[..., ConditionalCNNEncoder]:
     """Factory for ConditionalCNNEncoder with mocked backbone and pooling."""
+
     def factory(
         input_keys: str | list[str] = "left",
         condition_key: str = "language_instruction",
@@ -76,6 +77,7 @@ def conditional_cnn_factory() -> Callable[..., ConditionalCNNEncoder]:
                 pretrained=pretrained,
                 frozen=frozen,
             )
+
     return factory
 
 
@@ -84,6 +86,7 @@ def conditioning_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:
     """Factory for conditioning tensors."""
+
     def factory(
         batch_size: int = 2,
         condition_dim: int = 64,
@@ -93,57 +96,67 @@ def conditioning_factory(
             shape = (batch_size, time_steps, condition_dim)
         else:
             shape = (batch_size, condition_dim)
-        return torch.from_numpy(
-            rng.standard_normal(shape).astype(np.float32)
-        )
+        return torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
+
     return factory
 
 
 class TestConditionalCNNEncoderInitialization:
-
-    @pytest.mark.parametrize("backbone, expectation", [
-        (RGBBackboneType.RESNET18.value, does_not_raise()),
-        (RGBBackboneType.RESNET34.value, does_not_raise()),
-        ("invalid_backbone", pytest.raises(ValueError, match="not supported")),
-    ])
+    @pytest.mark.parametrize(
+        "backbone, expectation",
+        [
+            (RGBBackboneType.RESNET18.value, does_not_raise()),
+            (RGBBackboneType.RESNET34.value, does_not_raise()),
+            ("invalid_backbone", pytest.raises(ValueError, match="not supported")),
+        ],
+    )
     def test_backbone_validation(
         self,
         backbone: str,
         expectation,
     ):
-        with expectation:
-            with (
-                patch.object(
-                    ConditionalCNNEncoder,
-                    "_build_filmed_backbone",
-                    _mock_build_filmed_backbone,
-                ),
-                patch.object(
-                    ConditionalCNNEncoder,
-                    "_setup_pooling",
-                    _mock_setup_pooling,
-                ),
-            ):
-                ConditionalCNNEncoder(
-                    input_keys="left",
-                    condition_key="language_instruction",
-                    condition_dim=64,
-                    backbone=backbone,
-                )
+        with (
+            expectation,
+            patch.object(
+                ConditionalCNNEncoder,
+                "_build_filmed_backbone",
+                _mock_build_filmed_backbone,
+            ),
+            patch.object(
+                ConditionalCNNEncoder,
+                "_setup_pooling",
+                _mock_setup_pooling,
+            ),
+        ):
+            ConditionalCNNEncoder(
+                input_keys="left",
+                condition_key="language_instruction",
+                condition_dim=64,
+                backbone=backbone,
+            )
 
     @pytest.mark.parametrize("input_keys", ["left", "right"])
-    @pytest.mark.parametrize("backbone", [
-        RGBBackboneType.RESNET18.value,
-        RGBBackboneType.RESNET34.value,
-    ])
-    @pytest.mark.parametrize("pooling_method", [
-        PoolingMethod.SPATIAL_SOFTMAX.value,
-        PoolingMethod.AVERAGE.value,
-    ])
-    @pytest.mark.parametrize("batch_norm_handling", [
-        BatchNormHandling.FROZEN.value,
-        BatchNormHandling.DEFAULT.value,
-    ])
+    @pytest.mark.parametrize(
+        "backbone",
+        [
+            RGBBackboneType.RESNET18.value,
+            RGBBackboneType.RESNET34.value,
+        ],
+    )
+    @pytest.mark.parametrize(
+        "pooling_method",
+        [
+            PoolingMethod.SPATIAL_SOFTMAX.value,
+            PoolingMethod.AVERAGE.value,
+        ],
+    )
+    @pytest.mark.parametrize(
+        "batch_norm_handling",
+        [
+            BatchNormHandling.FROZEN.value,
+            BatchNormHandling.DEFAULT.value,
+        ],
+    )
     @pytest.mark.parametrize("condition_dim", [64, 128])
     def test_stores_configuration(
         self,
@@ -179,11 +192,14 @@ class TestConditionalCNNEncoderInitialization:
         assert hasattr(encoder, "condition_key")
         assert hasattr(encoder, "input_specification")
 
-    @pytest.mark.parametrize("input_keys, expectation", [
-        ("left", does_not_raise()),
-        ("right", does_not_raise()),
-        (["left", "right"], pytest.raises(ValueError, match="Exactly one from")),
-    ])
+    @pytest.mark.parametrize(
+        "input_keys, expectation",
+        [
+            ("left", does_not_raise()),
+            ("right", does_not_raise()),
+            (["left", "right"], pytest.raises(ValueError, match="Exactly one from")),
+        ],
+    )
     def test_input_keys_validation(
         self,
         conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
@@ -195,11 +211,13 @@ class TestConditionalCNNEncoderInitialization:
 
 
 class TestConditionalCNNEncoderForward:
-
-    @pytest.mark.parametrize("time_steps, expected_ndim", [
-        (None, 2),
-        (3, 3),
-    ])
+    @pytest.mark.parametrize(
+        "time_steps, expected_ndim",
+        [
+            (None, 2),
+            (3, 3),
+        ],
+    )
     def test_output_shape_with_and_without_time(
         self,
         conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
@@ -317,7 +335,6 @@ class TestConditionalCNNEncoderForward:
 
 
 class TestConditionalCNNEncoderGetOutputSpecification:
-
     def test_returns_rgb_feature_with_correct_dimension(
         self,
         conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
@@ -326,13 +343,11 @@ class TestConditionalCNNEncoderGetOutputSpecification:
         specification = encoder.get_output_specification()
         assert specification.features == [EncoderOutputKeys.RGB.value]
         assert (
-            specification.dimensions[EncoderOutputKeys.RGB.value]
-            == encoder.output_dim
+            specification.dimensions[EncoderOutputKeys.RGB.value] == encoder.output_dim
         )
 
 
 class TestConditionalCNNEncoderIntegration:
-
     @pytest.mark.integration
     @pytest.mark.parametrize("backbone", CONDITIONAL_CNN_BACKBONES)
     def test_forward_pass_per_backbone(
@@ -396,11 +411,14 @@ class TestConditionalCNNEncoderIntegration:
             assert features.shape == (batch_size, encoder.output_dim)
 
     @pytest.mark.integration
-    @pytest.mark.parametrize("batch_norm_handling", [
-        BatchNormHandling.FROZEN.value,
-        BatchNormHandling.DEFAULT.value,
-        BatchNormHandling.CONVERT_TO_GROUPNORM.value,
-    ])
+    @pytest.mark.parametrize(
+        "batch_norm_handling",
+        [
+            BatchNormHandling.FROZEN.value,
+            BatchNormHandling.DEFAULT.value,
+            BatchNormHandling.CONVERT_TO_GROUPNORM.value,
+        ],
+    )
     def test_batch_norm_handling_variants(
         self,
         image_input_factory: Callable[..., dict[str, torch.Tensor]],
@@ -427,10 +445,13 @@ class TestConditionalCNNEncoderIntegration:
         assert EncoderOutputKeys.RGB.value in output
 
     @pytest.mark.integration
-    @pytest.mark.parametrize("frozen, expected_requires_grad", [
-        (False, True),
-        (True, False),
-    ])
+    @pytest.mark.parametrize(
+        "frozen, expected_requires_grad",
+        [
+            (False, True),
+            (True, False),
+        ],
+    )
     def test_frozen_flag_controls_gradients(
         self,
         frozen: bool,
@@ -449,7 +470,6 @@ class TestConditionalCNNEncoderIntegration:
 
 
 class TestConditionalCNNEncoderApplyBatchNormHandling:
-
     def test_invalid_batch_norm_handling_raises(self):
         invalid_handling = "invalid_batch_norm_handling"
 
@@ -465,9 +485,7 @@ class TestConditionalCNNEncoderApplyBatchNormHandling:
             ),
             pytest.raises(
                 ValueError,
-                match=re.escape(
-                    f"Unknown batch norm handling: {invalid_handling}"
-                ),
+                match=re.escape(f"Unknown batch norm handling: {invalid_handling}"),
             ),
         ):
             ConditionalCNNEncoder(
@@ -481,7 +499,6 @@ class TestConditionalCNNEncoderApplyBatchNormHandling:
 
 
 class TestConditionalCNNEncoderCopyPretrainedWeights:
-
     @pytest.mark.integration
     def test_pretrained_weights_are_copied_to_filmed_blocks(self):
         encoder = ConditionalCNNEncoder(

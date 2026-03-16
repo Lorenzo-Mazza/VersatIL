@@ -1,8 +1,9 @@
 """Abstract base class for latent prior networks."""
+
 import abc
 
 import torch
-from torch import nn as nn
+from torch import nn
 
 
 class PriorLatentEncoder(nn.Module, abc.ABC):

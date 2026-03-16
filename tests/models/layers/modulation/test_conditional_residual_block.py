@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.modulation.conditional_residual_block module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -35,7 +36,6 @@ def residual_block_factory() -> Callable[..., ConditionalResidualBlock1D]:
 
 
 class TestConditionalResidualBlock1DInitialization:
-
     @pytest.mark.parametrize("input_channels", [16, 32])
     @pytest.mark.parametrize("output_channels", [32, 64])
     @pytest.mark.parametrize("condition_dimension", [32, 64])
@@ -66,7 +66,9 @@ class TestConditionalResidualBlock1DInitialization:
             output_channels=output_channels,
         )
         tensor = conv1d_tensor_factory(
-            batch_size=2, channels=input_channels, sequence_length=20,
+            batch_size=2,
+            channels=input_channels,
+            sequence_length=20,
         )
         with torch.no_grad():
             residual_output = module.residual_convolution(tensor)
@@ -79,10 +81,13 @@ class TestConditionalResidualBlock1DInitialization:
     ):
         channels = 16
         module = residual_block_factory(
-            input_channels=channels, output_channels=channels,
+            input_channels=channels,
+            output_channels=channels,
         )
         tensor = conv1d_tensor_factory(
-            batch_size=2, channels=channels, sequence_length=20,
+            batch_size=2,
+            channels=channels,
+            sequence_length=20,
         )
         with torch.no_grad():
             residual_output = module.residual_convolution(tensor)
@@ -91,7 +96,6 @@ class TestConditionalResidualBlock1DInitialization:
 
 
 class TestConditionalResidualBlock1DForward:
-
     @pytest.mark.parametrize(
         "input_channels, output_channels",
         [
@@ -130,14 +134,18 @@ class TestConditionalResidualBlock1DForward:
         condition_factory: Callable[..., torch.Tensor],
     ):
         module = residual_block_factory(
-            input_channels=16, output_channels=16, condition_dimension=32,
+            input_channels=16,
+            output_channels=16,
+            condition_dimension=32,
         )
         # Set modulator weights to nonzero so conditioning has effect
         for layer in module.modulator.projection.modules():
             if hasattr(layer, "weight"):
                 nn.init.xavier_uniform_(layer.weight)
         tensor = conv1d_tensor_factory(
-            batch_size=2, channels=16, sequence_length=20,
+            batch_size=2,
+            channels=16,
+            sequence_length=20,
         )
         condition_a = condition_factory(batch_size=2, condition_dim=32)
         condition_b = condition_factory(batch_size=2, condition_dim=32)
@@ -154,10 +162,14 @@ class TestConditionalResidualBlock1DForward:
     ):
         channels = 16
         module = residual_block_factory(
-            input_channels=channels, output_channels=channels, condition_dimension=32,
+            input_channels=channels,
+            output_channels=channels,
+            condition_dimension=32,
         )
         tensor = conv1d_tensor_factory(
-            batch_size=2, channels=channels, sequence_length=20,
+            batch_size=2,
+            channels=channels,
+            sequence_length=20,
         )
         condition = condition_factory(batch_size=2, condition_dim=32)
         with torch.no_grad():
@@ -211,7 +223,9 @@ class TestConditionalResidualBlock1DForward:
                 if hasattr(layer, "weight"):
                     nn.init.xavier_uniform_(layer.weight)
         tensor = conv1d_tensor_factory(
-            batch_size=2, channels=channels, sequence_length=20,
+            batch_size=2,
+            channels=channels,
+            sequence_length=20,
         )
         condition = condition_factory(batch_size=2, condition_dim=32)
         with torch.no_grad():

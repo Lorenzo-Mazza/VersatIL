@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.transformer.bidirectional_decoder module."""
+
 import re
 from collections.abc import Callable
 
@@ -57,7 +58,6 @@ def bidirectional_decoder_factory() -> Callable[..., BidirectionalDecoder]:
 
 
 class TestBidirectionalDecoderInitialization:
-
     @pytest.mark.parametrize("number_of_layers", [1, 3])
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("number_of_heads", [4, 8])
@@ -139,7 +139,6 @@ class TestBidirectionalDecoderInitialization:
 
 
 class TestBidirectionalDecoderForward:
-
     def test_output_shape(
         self,
         bidirectional_decoder_factory: Callable[..., BidirectionalDecoder],
@@ -154,9 +153,7 @@ class TestBidirectionalDecoderForward:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=8, embedding_dimension=32
         )
-        output = decoder(
-            hidden_states=hidden_states, encoded_features=memory
-        )
+        output = decoder(hidden_states=hidden_states, encoded_features=memory)
         assert output.shape == (2, 5, 32)
 
     def test_bidirectional_all_positions_see_all_positions(
@@ -174,12 +171,8 @@ class TestBidirectionalDecoderForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((1, 4, 32)).astype(np.float32)
         )
-        memory = torch.from_numpy(
-            rng.standard_normal((1, 6, 32)).astype(np.float32)
-        )
-        output_original = decoder(
-            hidden_states=hidden_states, encoded_features=memory
-        )
+        memory = torch.from_numpy(rng.standard_normal((1, 6, 32)).astype(np.float32))
+        output_original = decoder(hidden_states=hidden_states, encoded_features=memory)
         # Modify the last position with a large perturbation
         modified_hidden_states = hidden_states.clone()
         modified_hidden_states[0, 3, :] *= 100.0
@@ -207,9 +200,7 @@ class TestBidirectionalDecoderForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((2, 4, 32)).astype(np.float32)
         )
-        memory = torch.from_numpy(
-            rng.standard_normal((2, 6, 32)).astype(np.float32)
-        )
+        memory = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
         query_mask = padding_mask_factory(
             batch_size=2, sequence_length=4, padded_positions=[[2, 3], []]
         )
@@ -218,12 +209,8 @@ class TestBidirectionalDecoderForward:
             encoded_features=memory,
             query_padding_mask=query_mask,
         )
-        output_unmasked = decoder(
-            hidden_states=hidden_states, encoded_features=memory
-        )
-        assert not torch.allclose(
-            output_masked[0], output_unmasked[0], atol=1e-5
-        )
+        output_unmasked = decoder(hidden_states=hidden_states, encoded_features=memory)
+        assert not torch.allclose(output_masked[0], output_unmasked[0], atol=1e-5)
 
     def test_memory_padding_mask_affects_output(
         self,
@@ -238,9 +225,7 @@ class TestBidirectionalDecoderForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((2, 4, 32)).astype(np.float32)
         )
-        memory = torch.from_numpy(
-            rng.standard_normal((2, 6, 32)).astype(np.float32)
-        )
+        memory = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
         memory_mask = padding_mask_factory(
             batch_size=2, sequence_length=6, padded_positions=[[4, 5], []]
         )
@@ -249,12 +234,8 @@ class TestBidirectionalDecoderForward:
             encoded_features=memory,
             memory_padding_mask=memory_mask,
         )
-        output_unmasked = decoder(
-            hidden_states=hidden_states, encoded_features=memory
-        )
-        assert not torch.allclose(
-            output_masked[0], output_unmasked[0], atol=1e-5
-        )
+        output_unmasked = decoder(hidden_states=hidden_states, encoded_features=memory)
+        assert not torch.allclose(output_masked[0], output_unmasked[0], atol=1e-5)
 
     def test_different_memory_produces_different_output(
         self,
@@ -270,18 +251,10 @@ class TestBidirectionalDecoderForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((2, 4, 32)).astype(np.float32)
         )
-        memory_a = torch.from_numpy(
-            rng.standard_normal((2, 6, 32)).astype(np.float32)
-        )
-        memory_b = torch.from_numpy(
-            rng.standard_normal((2, 6, 32)).astype(np.float32)
-        )
-        output_a = decoder(
-            hidden_states=hidden_states, encoded_features=memory_a
-        )
-        output_b = decoder(
-            hidden_states=hidden_states, encoded_features=memory_b
-        )
+        memory_a = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
+        memory_b = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
+        output_a = decoder(hidden_states=hidden_states, encoded_features=memory_a)
+        output_b = decoder(hidden_states=hidden_states, encoded_features=memory_b)
         assert not torch.allclose(output_a, output_b, atol=1e-5)
 
     def test_with_sinusoidal_positional_encoding(
@@ -301,9 +274,7 @@ class TestBidirectionalDecoderForward:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=8, embedding_dimension=32
         )
-        output = decoder(
-            hidden_states=hidden_states, encoded_features=memory
-        )
+        output = decoder(hidden_states=hidden_states, encoded_features=memory)
         assert output.shape == (2, 5, 32)
 
     def test_with_rope_positional_encoding(
@@ -323,14 +294,11 @@ class TestBidirectionalDecoderForward:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=8, embedding_dimension=32
         )
-        output = decoder(
-            hidden_states=hidden_states, encoded_features=memory
-        )
+        output = decoder(hidden_states=hidden_states, encoded_features=memory)
         assert output.shape == (2, 5, 32)
 
 
 class TestBidirectionalDecoderExpandPaddingMask:
-
     def test_expands_to_four_dimensions(
         self,
         padding_mask_factory: Callable[..., torch.Tensor],

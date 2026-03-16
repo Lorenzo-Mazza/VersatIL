@@ -1,16 +1,17 @@
 """Shared fixtures for free_transformer layer tests."""
+
 from collections.abc import Callable
 
 import pytest
 
+from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.free_transformer.binary_mapper import BinaryMapper
 from versatil.models.layers.free_transformer.free_transformer import (
     FreeTransformer,
     FreeTransformerLatentEncoder,
     LatentConditionedDecoderLayer,
 )
-from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.constants import NormalizationType
 
 
@@ -31,9 +32,9 @@ def binary_mapper_factory() -> Callable[..., BinaryMapper]:
 
 
 @pytest.fixture
-def latent_conditioned_decoder_layer_factory() -> (
-    Callable[..., LatentConditionedDecoderLayer]
-):
+def latent_conditioned_decoder_layer_factory() -> Callable[
+    ..., LatentConditionedDecoderLayer
+]:
     """Factory for LatentConditionedDecoderLayer instances."""
 
     def factory(

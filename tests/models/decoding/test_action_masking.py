@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.action_masking module."""
+
 from collections.abc import Callable
 
 import numpy as np
@@ -13,20 +14,19 @@ def token_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:
     """Factory for token embedding tensors."""
+
     def factory(
         batch_size: int = 2,
         sequence_length: int = 4,
         embedding_dim: int = 32,
     ) -> torch.Tensor:
         shape = (batch_size, sequence_length, embedding_dim)
-        return torch.from_numpy(
-            rng.standard_normal(shape).astype(np.float32)
-        )
+        return torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
+
     return factory
 
 
 class TestMakeAttentionMask:
-
     def test_output_shapes(
         self,
         token_factory: Callable[..., torch.Tensor],
@@ -127,11 +127,14 @@ class TestMakeAttentionMask:
         assert key_mask[:, 2].all()
         assert not key_mask[:, 0].any()
 
-    @pytest.mark.parametrize("prefix_len, action_len", [
-        (1, 1),
-        (8, 16),
-        (4, 4),
-    ])
+    @pytest.mark.parametrize(
+        "prefix_len, action_len",
+        [
+            (1, 1),
+            (8, 16),
+            (4, 4),
+        ],
+    )
     def test_different_sequence_lengths(
         self,
         token_factory: Callable[..., torch.Tensor],

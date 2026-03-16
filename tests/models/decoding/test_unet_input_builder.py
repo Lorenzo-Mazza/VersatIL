@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.unet_input_builder module."""
+
 import re
 from collections.abc import Callable
 
@@ -29,7 +30,6 @@ def unet_input_builder_factory() -> Callable[..., UNetInputBuilder]:
 
 
 class TestUNetInputBuilderInitialization:
-
     @pytest.mark.parametrize("embedding_dim", [32, 64])
     @pytest.mark.parametrize("has_time_dim", [True, False])
     def test_stores_configuration(
@@ -48,7 +48,6 @@ class TestUNetInputBuilderInitialization:
 
 
 class TestUNetInputBuilderFeatureFiltering:
-
     def test_excludes_padding_mask_keys(
         self,
         unet_input_builder_factory: Callable[..., UNetInputBuilder],
@@ -59,7 +58,9 @@ class TestUNetInputBuilderFeatureFiltering:
         builder = unet_input_builder_factory(embedding_dim=embedding_dim)
         captured_keys: list[str] = []
 
-        def capturing_projection(features: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        def capturing_projection(
+            features: dict[str, torch.Tensor],
+        ) -> dict[str, torch.Tensor]:
             captured_keys.extend(features.keys())
             return features
 
@@ -70,7 +71,8 @@ class TestUNetInputBuilderFeatureFiltering:
         )
         padding_mask_key = f"rgb_features_{EncoderOutputKeys.PADDING_MASK.value}"
         features[padding_mask_key] = input_tensor_factory(
-            batch_size=2, input_dimension=1,
+            batch_size=2,
+            input_dimension=1,
         ).squeeze(-1)
         result = builder(features)
         assert padding_mask_key not in captured_keys
@@ -87,7 +89,9 @@ class TestUNetInputBuilderFeatureFiltering:
         builder = unet_input_builder_factory(embedding_dim=embedding_dim)
         captured_keys: list[str] = []
 
-        def capturing_projection(features: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        def capturing_projection(
+            features: dict[str, torch.Tensor],
+        ) -> dict[str, torch.Tensor]:
             captured_keys.extend(features.keys())
             return features
 
@@ -105,7 +109,6 @@ class TestUNetInputBuilderFeatureFiltering:
 
 
 class TestUNetInputBuilderFeatureShapes:
-
     def test_2d_flat_feature_kept_as_is(
         self,
         unet_input_builder_factory: Callable[..., UNetInputBuilder],
@@ -165,7 +168,10 @@ class TestUNetInputBuilderFeatureShapes:
         input_value = features["temporal_seq_feature"]
         result = builder(features)
         assert isinstance(result, torch.Tensor)
-        assert result.shape == (2, observation_horizon * sequence_length * embedding_dim)
+        assert result.shape == (
+            2,
+            observation_horizon * sequence_length * embedding_dim,
+        )
         assert torch.equal(result, input_value.reshape(2, -1))
 
     def test_4d_spatial_without_time_dim_raises(
@@ -244,7 +250,6 @@ class TestUNetInputBuilderFeatureShapes:
 
 
 class TestUNetInputBuilderCLSToken:
-
     def test_cls_token_appended_at_end(
         self,
         unet_input_builder_factory: Callable[..., UNetInputBuilder],
@@ -274,7 +279,6 @@ class TestUNetInputBuilderCLSToken:
 
 
 class TestUNetInputBuilderMultipleFeatures:
-
     def test_features_concatenated_in_sorted_order(
         self,
         unet_input_builder_factory: Callable[..., UNetInputBuilder],
@@ -332,7 +336,6 @@ class TestUNetInputBuilderMultipleFeatures:
 
 
 class TestUNetInputBuilderReturnValue:
-
     def test_empty_features_returns_none(
         self,
         unet_input_builder_factory: Callable[..., UNetInputBuilder],

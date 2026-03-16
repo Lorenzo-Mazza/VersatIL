@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.fusion.attention module."""
+
 import re
 from collections.abc import Callable
 
@@ -11,6 +12,7 @@ from versatil.models.encoding.fusion.attention import AttentionFusion
 @pytest.fixture
 def attention_fusion_factory() -> Callable[..., AttentionFusion]:
     """Factory for AttentionFusion instances."""
+
     def factory(
         input_features: list[str] | None = None,
         output_name: str = "attention_fused",
@@ -33,11 +35,11 @@ def attention_fusion_factory() -> Callable[..., AttentionFusion]:
             use_residual=use_residual,
             use_norm=use_norm,
         )
+
     return factory
 
 
 class TestAttentionFusionInitialization:
-
     def test_has_sequential_fusion_interface(
         self,
         attention_fusion_factory: Callable[..., AttentionFusion],
@@ -102,7 +104,6 @@ class TestAttentionFusionInitialization:
 
 
 class TestAttentionFusionForward:
-
     def test_raises_if_projections_not_set_up(
         self,
         attention_fusion_factory: Callable[..., AttentionFusion],
@@ -264,15 +265,12 @@ class TestAttentionFusionForward:
         ]
         with pytest.raises(
             RuntimeError,
-            match=re.escape(
-                "Norms should be initialized when use_norm is True"
-            ),
+            match=re.escape("Norms should be initialized when use_norm is True"),
         ):
             module(features)
 
 
 class TestAttentionFusionGetOutputSpecification:
-
     @pytest.mark.parametrize("hidden_dim", [32, 128])
     def test_output_dim_equals_hidden_dim(
         self,

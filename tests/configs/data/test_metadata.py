@@ -1,4 +1,5 @@
 """Tests for versatil.configs.data.metadata module."""
+
 import importlib
 
 import pytest
@@ -28,7 +29,6 @@ from versatil.data.constants import (
 
 @pytest.mark.unit
 class TestObservationMetadataConfig:
-
     def test_target_points_to_observation_metadata(self):
         config = ObservationMetadataConfig()
         assert config._target_ == "versatil.data.metadata.ObservationMetadata"
@@ -44,7 +44,6 @@ class TestObservationMetadataConfig:
 
 @pytest.mark.unit
 class TestPositionObservationMetadataConfig:
-
     def test_target_points_to_position_observation_metadata(self):
         config = PositionObservationMetadataConfig()
         assert config._target_ == "versatil.data.metadata.PositionObservationMetadata"
@@ -60,10 +59,11 @@ class TestPositionObservationMetadataConfig:
 
 @pytest.mark.unit
 class TestOrientationObservationMetadataConfig:
-
     def test_target_points_to_orientation_observation_metadata(self):
         config = OrientationObservationMetadataConfig()
-        assert config._target_ == "versatil.data.metadata.OrientationObservationMetadata"
+        assert (
+            config._target_ == "versatil.data.metadata.OrientationObservationMetadata"
+        )
 
     def test_frame_default_is_robot_base_string(self):
         config = OrientationObservationMetadataConfig()
@@ -76,7 +76,6 @@ class TestOrientationObservationMetadataConfig:
 
 @pytest.mark.unit
 class TestGripperObservationMetadataConfig:
-
     def test_target_points_to_gripper_observation_metadata(self):
         config = GripperObservationMetadataConfig()
         assert config._target_ == "versatil.data.metadata.GripperObservationMetadata"
@@ -92,7 +91,6 @@ class TestGripperObservationMetadataConfig:
 
 @pytest.mark.unit
 class TestCameraMetadataConfig:
-
     def test_target_points_to_camera_metadata(self):
         config = CameraMetadataConfig()
         assert config._target_ == "versatil.data.metadata.CameraMetadata"
@@ -111,7 +109,6 @@ class TestCameraMetadataConfig:
 
 @pytest.mark.unit
 class TestPrecomputedActionMetadataConfig:
-
     def test_target_points_to_precomputed_action_metadata(self):
         config = PrecomputedActionMetadataConfig()
         assert config._target_ == "versatil.data.metadata.PrecomputedActionMetadata"
@@ -125,7 +122,6 @@ class TestPrecomputedActionMetadataConfig:
 
 @pytest.mark.unit
 class TestPositionActionMetadataConfig:
-
     def test_target_points_to_position_action_metadata(self):
         config = PositionActionMetadataConfig()
         assert config._target_ == "versatil.data.metadata.PositionActionMetadata"
@@ -141,7 +137,6 @@ class TestPositionActionMetadataConfig:
 
 @pytest.mark.unit
 class TestOrientationActionMetadataConfig:
-
     def test_target_points_to_orientation_action_metadata(self):
         config = OrientationActionMetadataConfig()
         assert config._target_ == "versatil.data.metadata.OrientationActionMetadata"
@@ -154,7 +149,6 @@ class TestOrientationActionMetadataConfig:
 
 @pytest.mark.unit
 class TestGripperActionMetadataConfig:
-
     def test_target_points_to_gripper_action_metadata(self):
         config = GripperActionMetadataConfig()
         assert config._target_ == "versatil.data.metadata.GripperActionMetadata"
@@ -167,7 +161,6 @@ class TestGripperActionMetadataConfig:
 
 @pytest.mark.unit
 class TestOnTheFlyActionMetadataConfig:
-
     def test_target_points_to_on_the_fly_action_metadata(self):
         config = OnTheFlyActionMetadataConfig()
         assert config._target_ == "versatil.data.metadata.OnTheFlyActionMetadata"
@@ -180,7 +173,6 @@ class TestOnTheFlyActionMetadataConfig:
 
 @pytest.mark.unit
 class TestActionMetadataConfig:
-
     def test_target_points_to_action_metadata(self):
         config = ActionMetadataConfig()
         assert config._target_ == "versatil.data.metadata.ActionMetadata"
@@ -196,7 +188,6 @@ class TestActionMetadataConfig:
 
 @pytest.mark.unit
 class TestMetadataInstantiation:
-
     def test_observation_metadata_instantiates(self):
         config = ObservationMetadataConfig(
             raw_data_column_keys=["col_a", "col_b"],
@@ -249,8 +240,14 @@ class TestMetadataInstantiation:
     @pytest.mark.parametrize(
         "config_class, expected_class_name",
         [
-            (lambda: PositionObservationMetadataConfig(), "PositionObservationMetadata"),
-            (lambda: OrientationObservationMetadataConfig(), "OrientationObservationMetadata"),
+            (
+                lambda: PositionObservationMetadataConfig(),
+                "PositionObservationMetadata",
+            ),
+            (
+                lambda: OrientationObservationMetadataConfig(),
+                "OrientationObservationMetadata",
+            ),
             (lambda: GripperObservationMetadataConfig(), "GripperObservationMetadata"),
             (lambda: PositionActionMetadataConfig(), "PositionActionMetadata"),
             (lambda: OrientationActionMetadataConfig(), "OrientationActionMetadata"),
@@ -258,7 +255,9 @@ class TestMetadataInstantiation:
             (lambda: OnTheFlyActionMetadataConfig(), "OnTheFlyActionMetadata"),
         ],
     )
-    def test_target_resolves_to_importable_class(self, config_class, expected_class_name):
+    def test_target_resolves_to_importable_class(
+        self, config_class, expected_class_name
+    ):
         config = config_class()
         target = config._target_
         module_path, class_name = target.rsplit(".", 1)

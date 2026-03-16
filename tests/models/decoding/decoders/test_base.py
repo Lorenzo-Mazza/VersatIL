@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.decoders.base module."""
+
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -34,6 +35,7 @@ class TokenizedConcreteDecoder(ConcreteDecoder):
 @pytest.fixture
 def decoder_input_factory() -> Callable[..., DecoderInput]:
     """Factory for DecoderInput instances."""
+
     def factory(
         keys: list[str] | None = None,
         required_types: list[str] | None = None,
@@ -62,6 +64,7 @@ def decoder_input_factory() -> Callable[..., DecoderInput]:
             conditioning_required=conditioning_required,
             conditioning_one_of_groups=conditioning_one_of_groups,
         )
+
     return factory
 
 
@@ -88,6 +91,7 @@ def concrete_decoder_factory(
     mock_action_head_factory: Callable[..., MagicMock],
 ) -> Callable[..., ConcreteDecoder]:
     """Factory for ConcreteDecoder instances with configurable dependencies."""
+
     def factory(
         decoder_input: DecoderInput | None = None,
         action_space: MagicMock | None = None,
@@ -122,11 +126,11 @@ def concrete_decoder_factory(
             observation_horizon=observation_horizon,
             prediction_horizon=prediction_horizon,
         )
+
     return factory
 
 
 class TestDecoderInputInitialization:
-
     @pytest.mark.parametrize("keys", [["rgb", "depth"], ["proprio"]])
     @pytest.mark.parametrize("requires_actions", [True, False])
     @pytest.mark.parametrize("conditioning_key", [None, "language"])
@@ -146,10 +150,21 @@ class TestDecoderInputInitialization:
         assert decoder_input.requires_actions is requires_actions
         assert decoder_input.conditioning_key == conditioning_key
 
-    @pytest.mark.parametrize("conditioning_required, expectation", [
-        (["language"], does_not_raise()),
-        (["language", "depth_cond"], pytest.raises(ValueError, match=re.escape(f"Missing required conditioning for decoder input: {{'depth_cond'}}"))),
-    ])
+    @pytest.mark.parametrize(
+        "conditioning_required, expectation",
+        [
+            (["language"], does_not_raise()),
+            (
+                ["language", "depth_cond"],
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Missing required conditioning for decoder input: {'depth_cond'}"
+                    ),
+                ),
+            ),
+        ],
+    )
     def test_conditioning_required_validation(
         self,
         conditioning_required: list[str],
@@ -162,10 +177,21 @@ class TestDecoderInputInitialization:
                 conditioning_required=conditioning_required,
             )
 
-    @pytest.mark.parametrize("one_of_groups, expectation", [
-        ([["language", "other"]], does_not_raise()),
-        ([["other1", "other2"]], pytest.raises(ValueError, match=re.escape("Exactly one from ['other1', 'other2'] required for decoder input conditioning"))),
-    ])
+    @pytest.mark.parametrize(
+        "one_of_groups, expectation",
+        [
+            ([["language", "other"]], does_not_raise()),
+            (
+                [["other1", "other2"]],
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Exactly one from ['other1', 'other2'] required for decoder input conditioning"
+                    ),
+                ),
+            ),
+        ],
+    )
     def test_conditioning_one_of_groups_validation(
         self,
         one_of_groups: list[list[str]],
@@ -180,14 +206,30 @@ class TestDecoderInputInitialization:
 
 
 class TestDecoderInputValidateFeatureTypes:
-
-    @pytest.mark.parametrize("required_type, feature_dim, expectation", [
-        (FeatureType.FLAT.value, 64, does_not_raise()),
-        (FeatureType.SEQUENTIAL.value, (10, 64), does_not_raise()),
-        (FeatureType.SPATIAL.value, (512, 7, 7), does_not_raise()),
-        (FeatureType.FLAT.value, (512, 7, 7), pytest.raises(ValueError, match=f"requires at least one input feature of type '{FeatureType.FLAT.value}'")),
-        (FeatureType.SPATIAL.value, 64, pytest.raises(ValueError, match=f"requires at least one input feature of type '{FeatureType.SPATIAL.value}'")),
-    ])
+    @pytest.mark.parametrize(
+        "required_type, feature_dim, expectation",
+        [
+            (FeatureType.FLAT.value, 64, does_not_raise()),
+            (FeatureType.SEQUENTIAL.value, (10, 64), does_not_raise()),
+            (FeatureType.SPATIAL.value, (512, 7, 7), does_not_raise()),
+            (
+                FeatureType.FLAT.value,
+                (512, 7, 7),
+                pytest.raises(
+                    ValueError,
+                    match=f"requires at least one input feature of type '{FeatureType.FLAT.value}'",
+                ),
+            ),
+            (
+                FeatureType.SPATIAL.value,
+                64,
+                pytest.raises(
+                    ValueError,
+                    match=f"requires at least one input feature of type '{FeatureType.SPATIAL.value}'",
+                ),
+            ),
+        ],
+    )
     def test_required_type_validation(
         self,
         decoder_input_factory: Callable[..., DecoderInput],
@@ -204,12 +246,36 @@ class TestDecoderInputValidateFeatureTypes:
                 available_features_to_dims={"feat": feature_dim},
             )
 
-    @pytest.mark.parametrize("raises_for_type, feature_dim, expectation", [
-        (FeatureType.SPATIAL.value, 64, does_not_raise()),
-        (FeatureType.SPATIAL.value, (512, 7, 7), pytest.raises(ValueError, match="Decoder architecture cannot accept spatial features as input.")),
-        (FeatureType.SEQUENTIAL.value, (10, 64), pytest.raises(ValueError, match="Decoder architecture cannot accept sequential features as input.")),
-        (FeatureType.FLAT.value, 64, pytest.raises(ValueError, match="Decoder architecture cannot accept flat features as input.")),
-    ])
+    @pytest.mark.parametrize(
+        "raises_for_type, feature_dim, expectation",
+        [
+            (FeatureType.SPATIAL.value, 64, does_not_raise()),
+            (
+                FeatureType.SPATIAL.value,
+                (512, 7, 7),
+                pytest.raises(
+                    ValueError,
+                    match="Decoder architecture cannot accept spatial features as input.",
+                ),
+            ),
+            (
+                FeatureType.SEQUENTIAL.value,
+                (10, 64),
+                pytest.raises(
+                    ValueError,
+                    match="Decoder architecture cannot accept sequential features as input.",
+                ),
+            ),
+            (
+                FeatureType.FLAT.value,
+                64,
+                pytest.raises(
+                    ValueError,
+                    match="Decoder architecture cannot accept flat features as input.",
+                ),
+            ),
+        ],
+    )
     def test_raises_for_type_validation(
         self,
         decoder_input_factory: Callable[..., DecoderInput],
@@ -228,18 +294,19 @@ class TestDecoderInputValidateFeatureTypes:
 
 
 class TestActionDecoderInterface:
-
     def test_supports_tokenized_actions_default_false(self):
         assert ActionDecoder.supports_tokenized_actions is False
 
 
 class TestActionDecoderProperties:
-
-    @pytest.mark.parametrize("observation_horizon, expected", [
-        (1, False),
-        (2, True),
-        (3, True),
-    ])
+    @pytest.mark.parametrize(
+        "observation_horizon, expected",
+        [
+            (1, False),
+            (2, True),
+            (3, True),
+        ],
+    )
     def test_has_history(
         self,
         concrete_decoder_factory: Callable[..., ConcreteDecoder],
@@ -268,10 +335,13 @@ class TestActionDecoderProperties:
         decoder = concrete_decoder_factory(action_space=action_space)
         assert decoder.use_gripper_actions is True
 
-    @pytest.mark.parametrize("has_gripper, gripper_dim, expected", [
-        (False, 0, None),
-        (True, 1, 1),
-    ])
+    @pytest.mark.parametrize(
+        "has_gripper, gripper_dim, expected",
+        [
+            (False, 0, None),
+            (True, 1, 1),
+        ],
+    )
     def test_gripper_dim(
         self,
         concrete_decoder_factory: Callable[..., ConcreteDecoder],
@@ -292,14 +362,19 @@ class TestActionDecoderProperties:
         concrete_decoder_factory: Callable[..., ConcreteDecoder],
         mock_action_space_factory: Callable[..., MagicMock],
     ):
-        action_space = mock_action_space_factory(has_orientation=True, orientation_dim=4)
+        action_space = mock_action_space_factory(
+            has_orientation=True, orientation_dim=4
+        )
         decoder = concrete_decoder_factory(action_space=action_space)
         assert decoder.use_orientation_actions is True
 
-    @pytest.mark.parametrize("has_orientation, orientation_dim, expected", [
-        (False, 0, None),
-        (True, 4, 4),
-    ])
+    @pytest.mark.parametrize(
+        "has_orientation, orientation_dim, expected",
+        [
+            (False, 0, None),
+            (True, 4, 4),
+        ],
+    )
     def test_orientation_dim(
         self,
         concrete_decoder_factory: Callable[..., ConcreteDecoder],
@@ -315,10 +390,13 @@ class TestActionDecoderProperties:
         decoder = concrete_decoder_factory(action_space=action_space)
         assert decoder.orientation_dim == expected
 
-    @pytest.mark.parametrize("position_dim, expected", [
-        (0, None),
-        (3, 3),
-    ])
+    @pytest.mark.parametrize(
+        "position_dim, expected",
+        [
+            (0, None),
+            (3, 3),
+        ],
+    )
     def test_position_dim(
         self,
         concrete_decoder_factory: Callable[..., ConcreteDecoder],
@@ -334,7 +412,6 @@ class TestActionDecoderProperties:
 
 
 class TestActionDecoderSetTokenizer:
-
     def test_non_tokenized_decoder_ignores_tokenizer(
         self,
         concrete_decoder_factory: Callable[..., ConcreteDecoder],
@@ -349,7 +426,10 @@ class TestActionDecoderSetTokenizer:
         concrete_decoder_factory: Callable[..., ConcreteDecoder],
     ):
         decoder = concrete_decoder_factory(tokenized=True)
-        with pytest.raises(ValueError, match="Tokenizer must be provided for tokenized action decoders."):
+        with pytest.raises(
+            ValueError,
+            match="Tokenizer must be provided for tokenized action decoders.",
+        ):
             decoder.set_tokenizer(tokenizer=None)
 
     def test_tokenized_decoder_stores_tokenizer(
@@ -365,7 +445,6 @@ class TestActionDecoderSetTokenizer:
 
 
 class TestActionDecoderSetNormalizer:
-
     def test_stores_normalizer(
         self,
         concrete_decoder_factory: Callable[..., ConcreteDecoder],
@@ -377,7 +456,6 @@ class TestActionDecoderSetNormalizer:
 
 
 class TestActionDecoderValidateActionHeads:
-
     def test_missing_head_raises(
         self,
         concrete_decoder_factory: Callable[..., ConcreteDecoder],
@@ -471,7 +549,6 @@ class TestActionDecoderValidateActionHeads:
 
 
 class TestActionDecoderSetActionHeadDimensions:
-
     def test_sets_dims_from_action_metadata(
         self,
         mock_action_space_factory: Callable[..., MagicMock],

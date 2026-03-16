@@ -1,4 +1,5 @@
 """Lightweight geometry-aware RGBD encoder."""
+
 import logging
 
 import torch
@@ -6,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import LayerNorm
 
-from versatil.data.constants import Cameras, RGB_CAMERAS
+from versatil.data.constants import RGB_CAMERAS, Cameras
 from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
@@ -154,7 +155,7 @@ class LightGeometricEncoder(Encoder):
                 feature_channels=self.embedding_dimension,
                 spatial_height=H_patches,
                 spatial_width=W_patches,
-            ).to(self.device)
+            ).to(features.device)
 
         pooled_features = self.pooling_head(features)
         if has_time:

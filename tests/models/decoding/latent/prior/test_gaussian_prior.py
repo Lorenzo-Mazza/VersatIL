@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.latent.prior.gaussian_prior module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -12,6 +13,7 @@ from versatil.models.decoding.latent.prior.gaussian_prior import GaussianPrior
 @pytest.fixture
 def gaussian_prior_factory() -> Callable[..., GaussianPrior]:
     """Factory for GaussianPrior instances."""
+
     def factory(
         latent_dimension: int = 32,
         device: str = "cpu",
@@ -22,11 +24,11 @@ def gaussian_prior_factory() -> Callable[..., GaussianPrior]:
             device=device,
             infer_constant_prior=infer_constant_prior,
         )
+
     return factory
 
 
 class TestGaussianPriorInitialization:
-
     def test_inherits_from_prior_latent_encoder(
         self,
         gaussian_prior_factory: Callable[..., GaussianPrior],
@@ -51,7 +53,6 @@ class TestGaussianPriorInitialization:
 
 
 class TestGaussianPriorForward:
-
     def test_returns_prior_keys(
         self,
         gaussian_prior_factory: Callable[..., GaussianPrior],
@@ -61,7 +62,8 @@ class TestGaussianPriorForward:
         latent_dimension = 32
         prior = gaussian_prior_factory(latent_dimension=latent_dimension)
         target_latents = input_tensor_factory(
-            batch_size=2, input_dimension=latent_dimension,
+            batch_size=2,
+            input_dimension=latent_dimension,
         )
         observations = feature_dictionary_factory(batch_size=2)
         result = prior.forward(
@@ -87,7 +89,8 @@ class TestGaussianPriorForward:
         latent_dimension = 32
         prior = gaussian_prior_factory(latent_dimension=latent_dimension)
         target_latents = input_tensor_factory(
-            batch_size=2, input_dimension=latent_dimension,
+            batch_size=2,
+            input_dimension=latent_dimension,
         )
         observations = feature_dictionary_factory(batch_size=2)
         result = prior.forward(
@@ -105,7 +108,8 @@ class TestGaussianPriorForward:
         latent_dimension = 32
         prior = gaussian_prior_factory(latent_dimension=latent_dimension)
         target_latents = input_tensor_factory(
-            batch_size=2, input_dimension=latent_dimension,
+            batch_size=2,
+            input_dimension=latent_dimension,
         )
         observations = feature_dictionary_factory(batch_size=2)
         result = prior.forward(
@@ -124,7 +128,8 @@ class TestGaussianPriorForward:
         latent_dimension = 16
         prior = gaussian_prior_factory(latent_dimension=latent_dimension)
         target_latents = input_tensor_factory(
-            batch_size=batch_size, input_dimension=latent_dimension,
+            batch_size=batch_size,
+            input_dimension=latent_dimension,
         )
         observations = feature_dictionary_factory(batch_size=batch_size)
         result = prior.forward(
@@ -132,12 +137,17 @@ class TestGaussianPriorForward:
             observations=observations,
         )
         assert result[LatentKey.PRIOR_MU.value].shape == (batch_size, latent_dimension)
-        assert result[LatentKey.PRIOR_LOGVAR.value].shape == (batch_size, latent_dimension)
-        assert result[LatentKey.PRIOR_LATENT.value].shape == (batch_size, latent_dimension)
+        assert result[LatentKey.PRIOR_LOGVAR.value].shape == (
+            batch_size,
+            latent_dimension,
+        )
+        assert result[LatentKey.PRIOR_LATENT.value].shape == (
+            batch_size,
+            latent_dimension,
+        )
 
 
 class TestGaussianPriorSamplePrior:
-
     @pytest.mark.parametrize("batch_size", [1, 4])
     @pytest.mark.parametrize("latent_dimension", [16, 64])
     def test_sample_shape(

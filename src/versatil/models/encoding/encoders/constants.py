@@ -68,12 +68,13 @@ class BatchNormHandling(str, enum.Enum):
 class LanguageEncoderType(str, enum.Enum):
     """Available language encoders."""
 
-    BERT_BASE = "bert-base-uncased"  
-    DISTILBERT_BASE = "distilbert-base-uncased" 
+    BERT_BASE = "bert-base-uncased"
+    DISTILBERT_BASE = "distilbert-base-uncased"
     MINI_LM_L6 = "sentence-transformers/all-MiniLM-L6-v2"
     GEMMA_2B = "google/gemma-2b"
     QWEN_2_1_5B = "Qwen/Qwen2-1.5B"
-    ALBERT_BASE = "albert-base-v2" 
+    ALBERT_BASE = "albert-base-v2"
+
 
 class EncoderOutputKeys(str, enum.Enum):
     """Types of encoder output keys to use for extracting an output feature from an encoder."""

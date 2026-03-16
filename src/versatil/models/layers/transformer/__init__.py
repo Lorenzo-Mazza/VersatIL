@@ -1,5 +1,6 @@
 """Transformer layers package, with custom Flash Attention implementation, cache support and modular layer customization."""
 
+from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.transformer.attention import CachedAttention
 from versatil.models.layers.transformer.autoregressive_decoder import GPTDecoder
 from versatil.models.layers.transformer.bidirectional_decoder import (
@@ -20,7 +21,6 @@ from versatil.models.layers.transformer.kv_cache import (
     initialize_decoder_cache,
     update_layer_cache,
 )
-from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.transformer.positional_encoding import (
     apply_rope_positional_encoding,
     create_positional_encoding,

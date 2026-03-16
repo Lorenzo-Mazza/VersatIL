@@ -10,7 +10,6 @@ from versatil.data.tokenization.binning_tokenizer import BinningTokenizer
 
 
 class TestBinningTokenizerInit:
-
     @pytest.mark.parametrize("num_bins", [8, 16, 32, 256])
     def test_stores_num_bins(self, binning_tokenizer_factory, num_bins):
         tokenizer = binning_tokenizer_factory(num_bins=num_bins)
@@ -34,7 +33,6 @@ class TestBinningTokenizerInit:
 
 
 class TestBinningTokenizerFit:
-
     def test_sets_is_fitted_true(self, fitted_binning_tokenizer_factory):
         tokenizer = fitted_binning_tokenizer_factory()
         assert tokenizer._is_fitted is True
@@ -51,9 +49,7 @@ class TestBinningTokenizerFit:
         tokenizer.fit(data)
         assert tokenizer.bin_edges.shape == (num_dimensions, num_bins - 1)
 
-    def test_bin_edges_are_sorted_per_dimension(
-        self, rng, binning_tokenizer_factory
-    ):
+    def test_bin_edges_are_sorted_per_dimension(self, rng, binning_tokenizer_factory):
         tokenizer = binning_tokenizer_factory(num_bins=16)
         data = rng.standard_normal((100, 3)).astype(np.float32)
         tokenizer.fit(data)
@@ -76,7 +72,9 @@ class TestBinningTokenizerFit:
     def test_fit_logs_info(self, rng, binning_tokenizer_factory):
         tokenizer = binning_tokenizer_factory(num_bins=8)
         data = rng.standard_normal((50, 3)).astype(np.float32)
-        with patch("versatil.data.tokenization.binning_tokenizer.logging") as mock_logging:
+        with patch(
+            "versatil.data.tokenization.binning_tokenizer.logging"
+        ) as mock_logging:
             tokenizer.fit(data)
             mock_logging.info.assert_called_once()
             log_message = mock_logging.info.call_args[0][0]
@@ -86,7 +84,6 @@ class TestBinningTokenizerFit:
 
 
 class TestBinningTokenizerEncode:
-
     def test_encode_raises_when_not_fitted(self, binning_tokenizer_factory):
         tokenizer = binning_tokenizer_factory()
         data = np.zeros((5, 3), dtype=np.float32)
@@ -144,7 +141,6 @@ class TestBinningTokenizerEncode:
 
 
 class TestBinningTokenizerDecode:
-
     def test_decode_raises_when_not_fitted(self, binning_tokenizer_factory):
         tokenizer = binning_tokenizer_factory()
         tokens = torch.zeros((5, 3), dtype=torch.long)
@@ -190,14 +186,11 @@ class TestBinningTokenizerDecode:
         data = rng.standard_normal((50, 3)).astype(np.float32)
         tokens = tokenizer.encode(data)
         decoded = tokenizer.decode(tokens)
-        max_error = torch.abs(
-            decoded - torch.tensor(data, dtype=torch.float32)
-        ).max()
+        max_error = torch.abs(decoded - torch.tensor(data, dtype=torch.float32)).max()
         assert max_error < 0.5
 
 
 class TestBinningTokenizerGetBinCenters:
-
     def test_first_bin_center_extrapolated_below_first_edge(
         self, fitted_binning_tokenizer_factory
     ):
@@ -238,7 +231,6 @@ class TestBinningTokenizerGetBinCenters:
 
 
 class TestBinningTokenizerTo:
-
     def test_to_updates_device(self, fitted_binning_tokenizer_factory, device):
         tokenizer = fitted_binning_tokenizer_factory()
         tokenizer.to(device)
@@ -261,7 +253,6 @@ class TestBinningTokenizerTo:
 
 
 class TestBinningTokenizerStateDict:
-
     def test_state_dict_keys(self, fitted_binning_tokenizer_factory):
         tokenizer = fitted_binning_tokenizer_factory()
         state = tokenizer.state_dict()
@@ -285,7 +276,9 @@ class TestBinningTokenizerStateDict:
         state = tokenizer.state_dict()
         assert state["is_fitted"] is True
 
-    def test_state_dict_bin_edges_always_on_cpu(self, fitted_binning_tokenizer_factory, device):
+    def test_state_dict_bin_edges_always_on_cpu(
+        self, fitted_binning_tokenizer_factory, device
+    ):
         tokenizer = fitted_binning_tokenizer_factory(device=device)
         state = tokenizer.state_dict()
         assert state["bin_edges"].device.type == "cpu"
@@ -298,7 +291,6 @@ class TestBinningTokenizerStateDict:
 
 
 class TestBinningTokenizerLoadStateDict:
-
     def test_load_state_dict_restores_num_bins(self, fitted_binning_tokenizer_factory):
         original = fitted_binning_tokenizer_factory(num_bins=32, num_dimensions=3)
         state = original.state_dict()
@@ -306,18 +298,14 @@ class TestBinningTokenizerLoadStateDict:
         restored.load_state_dict(state)
         assert restored.num_bins == 32
 
-    def test_load_state_dict_restores_is_fitted(
-        self, fitted_binning_tokenizer_factory
-    ):
+    def test_load_state_dict_restores_is_fitted(self, fitted_binning_tokenizer_factory):
         original = fitted_binning_tokenizer_factory()
         state = original.state_dict()
         restored = BinningTokenizer(num_bins=8)
         restored.load_state_dict(state)
         assert restored._is_fitted is True
 
-    def test_load_state_dict_restores_bin_edges(
-        self, fitted_binning_tokenizer_factory
-    ):
+    def test_load_state_dict_restores_bin_edges(self, fitted_binning_tokenizer_factory):
         original = fitted_binning_tokenizer_factory(num_bins=16, num_dimensions=3)
         state = original.state_dict()
         restored = BinningTokenizer(num_bins=8)
@@ -332,9 +320,7 @@ class TestBinningTokenizerLoadStateDict:
         assert restored.bin_edges is None
         assert restored._is_fitted is False
 
-    def test_loaded_tokenizer_can_encode(
-        self, fitted_binning_tokenizer_factory, rng
-    ):
+    def test_loaded_tokenizer_can_encode(self, fitted_binning_tokenizer_factory, rng):
         original = fitted_binning_tokenizer_factory(num_bins=16, num_dimensions=3)
         state = original.state_dict()
         restored = BinningTokenizer(num_bins=8)

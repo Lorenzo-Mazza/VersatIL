@@ -1,4 +1,5 @@
 """Preprocessing test fixtures shared across create_zarr test modules."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock
 

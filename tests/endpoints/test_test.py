@@ -1,8 +1,11 @@
 """Tests for versatil.endpoints.test module."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
+
+from versatil.endpoints.test import main
 
 
 @pytest.mark.unit
@@ -18,8 +21,6 @@ def test_main_creates_policy_loader_with_parsed_args(
     mock_action_transport_class,
     mock_client_class,
 ):
-    from versatil.endpoints.test import main
-
     mock_parse_args.return_value = MagicMock(
         checkpoint_path="/tmp/ckpt",
         checkpoint_name="best.ckpt",
@@ -72,8 +73,6 @@ def test_main_defaults_to_cuda_when_available(
     mock_action_transport_class,
     mock_client_class,
 ):
-    from versatil.endpoints.test import main
-
     mock_parse_args.return_value = MagicMock(
         checkpoint_path="/tmp/ckpt",
         checkpoint_name="last.ckpt",
@@ -107,8 +106,6 @@ def test_main_calls_shutdown_even_on_keyboard_interrupt(
     mock_action_transport_class,
     mock_client_class,
 ):
-    from versatil.endpoints.test import main
-
     mock_parse_args.return_value = MagicMock(
         checkpoint_path="/tmp/ckpt",
         checkpoint_name="last.ckpt",

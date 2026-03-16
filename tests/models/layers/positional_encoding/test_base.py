@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.positional_encoding.base module."""
+
 import re
 from collections.abc import Callable
 
@@ -9,7 +10,6 @@ from versatil.models.layers.positional_encoding.base import (
     DenominatorMode,
     OrderingMode,
     PositionSource,
-    PositionalEncoding1D,
     add_positional_encoding,
 )
 from versatil.models.layers.positional_encoding.sinusoidal import (
@@ -18,7 +18,6 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
 
 
 class TestPositionSourceEnum:
-
     def test_has_tensor_indices_member(self):
         assert PositionSource.TENSOR_INDICES.value == "tensor_indices"
 
@@ -33,7 +32,6 @@ class TestPositionSourceEnum:
 
 
 class TestDenominatorModeEnum:
-
     def test_has_half_member(self):
         assert DenominatorMode.HALF.value == "half"
 
@@ -45,7 +43,6 @@ class TestDenominatorModeEnum:
 
 
 class TestOrderingModeEnum:
-
     def test_has_interleave_sin_cos_member(self):
         assert OrderingMode.INTERLEAVE_SIN_COS.value == "interleave_sin_cos"
 
@@ -57,14 +54,16 @@ class TestOrderingModeEnum:
 
 
 class TestAddPositionalEncoding:
-
     def test_returns_source_unchanged_when_encoding_is_none(
         self,
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
-        source = sequence_tensor_factory(batch_size=2, sequence_length=10, embedding_dimension=64)
+        source = sequence_tensor_factory(
+            batch_size=2, sequence_length=10, embedding_dimension=64
+        )
         result = add_positional_encoding(
-            source=source, positional_encoding=None,
+            source=source,
+            positional_encoding=None,
         )
         assert torch.equal(result, source)
 
@@ -73,13 +72,18 @@ class TestAddPositionalEncoding:
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         source = sequence_tensor_factory(
-            batch_size=2, sequence_length=10, embedding_dimension=64,
+            batch_size=2,
+            sequence_length=10,
+            embedding_dimension=64,
         )
         encoding = sequence_tensor_factory(
-            batch_size=2, sequence_length=10, embedding_dimension=64,
+            batch_size=2,
+            sequence_length=10,
+            embedding_dimension=64,
         )
         result = add_positional_encoding(
-            source=source, positional_encoding=encoding,
+            source=source,
+            positional_encoding=encoding,
         )
         expected = source + encoding
         assert torch.allclose(result, expected, atol=1e-7)
@@ -89,19 +93,23 @@ class TestAddPositionalEncoding:
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         source = sequence_tensor_factory(
-            batch_size=4, sequence_length=20, embedding_dimension=128,
+            batch_size=4,
+            sequence_length=20,
+            embedding_dimension=128,
         )
         encoding = sequence_tensor_factory(
-            batch_size=4, sequence_length=20, embedding_dimension=128,
+            batch_size=4,
+            sequence_length=20,
+            embedding_dimension=128,
         )
         result = add_positional_encoding(
-            source=source, positional_encoding=encoding,
+            source=source,
+            positional_encoding=encoding,
         )
         assert result.shape == source.shape
 
 
 class TestPositionalEncoding1DInit:
-
     def test_precompute_with_none_maximum_length_raises(self):
         with pytest.raises(
             ValueError,
@@ -136,7 +144,6 @@ class TestPositionalEncoding1DInit:
 
 
 class TestPositionalEncoding1DForward:
-
     def test_tensor_indices_with_precompute(
         self,
         sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
@@ -207,13 +214,13 @@ class TestPositionalEncoding1DForward:
             precompute_encodings=False,
         )
         tensor = sequence_tensor_factory(
-            batch_size=2, sequence_length=10, embedding_dimension=64,
+            batch_size=2,
+            sequence_length=10,
+            embedding_dimension=64,
         )
         with pytest.raises(
             ValueError,
-            match=re.escape(
-                f"Unsupported position_source for 1D: {invalid_source}"
-            ),
+            match=re.escape(f"Unsupported position_source for 1D: {invalid_source}"),
         ):
             module(tensor)
 
@@ -230,7 +237,9 @@ class TestPositionalEncoding1DForward:
             maximum_length=100,
         )
         tensor = sequence_tensor_factory(
-            batch_size=3, sequence_length=10, embedding_dimension=embedding_dimension,
+            batch_size=3,
+            sequence_length=10,
+            embedding_dimension=embedding_dimension,
         )
         output = module(tensor)
         # All batch elements should have the same positional encoding
@@ -255,16 +264,20 @@ class TestPositionalEncoding1DForward:
             maximum_length=100,
         )
         full_tensor = sequence_tensor_factory(
-            batch_size=2, sequence_length=full_sequence_length, embedding_dimension=embedding_dimension,
+            batch_size=2,
+            sequence_length=full_sequence_length,
+            embedding_dimension=embedding_dimension,
         )
         sub_tensor = sequence_tensor_factory(
-            batch_size=2, sequence_length=sub_sequence_length, embedding_dimension=embedding_dimension,
+            batch_size=2,
+            sequence_length=sub_sequence_length,
+            embedding_dimension=embedding_dimension,
         )
         full_output = module(full_tensor)
         offset_output = module(sub_tensor, offset=offset)
         # Encodings with offset should match the corresponding slice from full sequence
         assert torch.allclose(
-            full_output[:, offset:offset + sub_sequence_length, :],
+            full_output[:, offset : offset + sub_sequence_length, :],
             offset_output,
             atol=1e-6,
         )
@@ -282,7 +295,9 @@ class TestPositionalEncoding1DForward:
             maximum_length=100,
         )
         tensor = sequence_tensor_factory(
-            batch_size=2, sequence_length=10, embedding_dimension=embedding_dimension,
+            batch_size=2,
+            sequence_length=10,
+            embedding_dimension=embedding_dimension,
         )
         output_default = module(tensor)
         output_explicit = module(tensor, offset=0)

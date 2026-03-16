@@ -1,4 +1,5 @@
 """Tests for versatil.configs.decoding.decoder module."""
+
 import pytest
 from hydra.utils import instantiate
 from omegaconf import MISSING, OmegaConf, flag_override
@@ -51,7 +52,6 @@ def _instantiate_decoder_config(config, action_heads=None):
 
 @pytest.mark.unit
 class TestDecodingNetworkConfig:
-
     def test_target_defaults_to_missing(self):
         config = DecodingNetworkConfig(input_keys=["features"])
         assert config._target_ == MISSING
@@ -75,7 +75,6 @@ class TestDecodingNetworkConfig:
 
 @pytest.mark.unit
 class TestACTConfig:
-
     def test_target_points_to_act(self):
         config = ACTConfig(input_keys=["features"])
         assert config._target_ == "versatil.models.decoding.decoders.factory.act.ACT"
@@ -107,7 +106,6 @@ class TestACTConfig:
 
 @pytest.mark.unit
 class TestPhaseACTConfig:
-
     def test_target_points_to_phase_act(self):
         config = PhaseACTConfig(input_keys=["features"])
         assert (
@@ -126,7 +124,6 @@ class TestPhaseACTConfig:
 
 @pytest.mark.unit
 class TestGPTActionTransformerConfig:
-
     def test_target_points_to_gpt_action_transformer(self):
         config = GPTActionTransformerConfig(input_keys=["features"])
         assert (
@@ -164,7 +161,6 @@ class TestGPTActionTransformerConfig:
 
 @pytest.mark.unit
 class TestDiscreteDETRActionTransformerConfig:
-
     def test_target_points_to_discrete_detr(self):
         config = DiscreteDETRActionTransformerConfig(input_keys=["features"])
         assert (
@@ -179,7 +175,6 @@ class TestDiscreteDETRActionTransformerConfig:
 
 @pytest.mark.unit
 class TestActionTransformerConfig:
-
     def test_target_points_to_action_transformer(self):
         config = ActionTransformerConfig(input_keys=["features"])
         assert (
@@ -194,20 +189,15 @@ class TestActionTransformerConfig:
 
 @pytest.mark.unit
 class TestMixtureOfDensitiesActionTransformerConfig:
-
     def test_target_points_to_mode_act(self):
-        config = MixtureOfDensitiesActionTransformerConfig(
-            input_keys=["features"]
-        )
+        config = MixtureOfDensitiesActionTransformerConfig(input_keys=["features"])
         assert (
             config._target_
             == "versatil.models.decoding.decoders.factory.mode_act.MixtureOfDensitiesActionTransformer"
         )
 
     def test_gmm_init_strategy_default_is_kmeans_plus_plus_string(self):
-        config = MixtureOfDensitiesActionTransformerConfig(
-            input_keys=["features"]
-        )
+        config = MixtureOfDensitiesActionTransformerConfig(input_keys=["features"])
         assert config.gmm_init_strategy == GMMInitStrategy.KMEANS_PLUS_PLUS.value
 
     @pytest.mark.parametrize("num_mixture_components", [4, 16])
@@ -221,13 +211,9 @@ class TestMixtureOfDensitiesActionTransformerConfig:
 
 @pytest.mark.unit
 class TestLACTConfig:
-
     def test_target_points_to_lact(self):
         config = LACTConfig(input_keys=["features"], latent_dimension=32)
-        assert (
-            config._target_
-            == "versatil.models.decoding.decoders.factory.lact.LACT"
-        )
+        assert config._target_ == "versatil.models.decoding.decoders.factory.lact.LACT"
 
     def test_latent_dimension_required(self):
         config = LACTConfig(input_keys=["features"])
@@ -236,7 +222,6 @@ class TestLACTConfig:
 
 @pytest.mark.unit
 class TestFreeActionTransformerConfig:
-
     def test_target_points_to_free_action_transformer(self):
         config = FreeActionTransformerConfig(input_keys=["features"])
         assert (
@@ -254,7 +239,6 @@ class TestFreeActionTransformerConfig:
 
 @pytest.mark.unit
 class TestMoEFreeActionTransformerConfig:
-
     def test_target_points_to_moe_free_action_transformer(self):
         config = MoEFreeActionTransformerConfig(input_keys=["features"])
         assert (
@@ -269,13 +253,9 @@ class TestMoEFreeActionTransformerConfig:
 
 @pytest.mark.unit
 class TestMixtureOfExpertsDecoderConfig:
-
     def test_target_points_to_moe_decoder(self):
         config = MixtureOfExpertsDecoderConfig(input_keys=["features"])
-        assert (
-            config._target_
-            == "versatil.models.decoding.decoders.moe.MoEDecoder"
-        )
+        assert config._target_ == "versatil.models.decoding.decoders.moe.MoEDecoder"
 
     def test_routing_type_default_is_soft_string(self):
         config = MixtureOfExpertsDecoderConfig(input_keys=["features"])
@@ -290,7 +270,6 @@ class TestMixtureOfExpertsDecoderConfig:
 
 @pytest.mark.unit
 class TestDiTBlockActionTransformerConfig:
-
     def test_target_points_to_dit_block_action_transformer(self):
         config = DiTBlockActionTransformerConfig(input_keys=["features"])
         assert (
@@ -301,7 +280,6 @@ class TestDiTBlockActionTransformerConfig:
 
 @pytest.mark.unit
 class TestDiffusionActionTransformerConfig:
-
     def test_target_points_to_diffusion_action_transformer(self):
         config = DiffusionActionTransformerConfig(input_keys=["features"])
         assert (
@@ -316,7 +294,6 @@ class TestDiffusionActionTransformerConfig:
 
 @pytest.mark.unit
 class TestConditionalActionUNetConfig:
-
     def test_target_points_to_conditional_action_unet(self):
         config = ConditionalActionUNetConfig(input_keys=["features"])
         assert (
@@ -331,7 +308,6 @@ class TestConditionalActionUNetConfig:
 
 @pytest.mark.unit
 class TestDecoderInstantiation:
-
     ACTION_LOGITS_HEAD = {
         DecoderOutputKey.ACTION_LOGITS.value: ActionHeadConfig(input_dim=256)
     }
@@ -393,7 +369,5 @@ class TestDecoderInstantiation:
         ],
     )
     def test_instantiates_decoder(self, config, expected_class_name, action_heads):
-        instance = _instantiate_decoder_config(
-            config=config, action_heads=action_heads
-        )
+        instance = _instantiate_decoder_config(config=config, action_heads=action_heads)
         assert type(instance).__name__ == expected_class_name

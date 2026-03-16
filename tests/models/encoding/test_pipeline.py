@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.pipeline module."""
+
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -14,7 +15,6 @@ from versatil.models.encoding.pipeline import EncodingPipeline
 
 
 class TestSetupEncoders:
-
     def test_registers_unconditional_encoder_in_encoders_dict(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
@@ -72,7 +72,6 @@ class TestSetupEncoders:
 
 
 class TestSetupFusionModules:
-
     def test_resolves_input_feature_names(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
@@ -136,17 +135,23 @@ class TestSetupFusionModules:
 
 
 class TestResolveFeatureName:
-
-    @pytest.mark.parametrize("selector, expected_result, expectation", [
-        ("vlm.language", "vlm_language", does_not_raise()),
-        ("vlm.nonexistent", None, pytest.raises(
-            ValueError,
-            match=re.escape(
-                "Invalid output_selector 'nonexistent' for 'vlm. "
-                "Available: ['language', 'visual']'"
+    @pytest.mark.parametrize(
+        "selector, expected_result, expectation",
+        [
+            ("vlm.language", "vlm_language", does_not_raise()),
+            (
+                "vlm.nonexistent",
+                None,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Invalid output_selector 'nonexistent' for 'vlm. "
+                        "Available: ['language', 'visual']'"
+                    ),
+                ),
             ),
-        )),
-    ])
+        ],
+    )
     def test_dot_notation_resolution(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
@@ -199,12 +204,13 @@ class TestResolveFeatureName:
     ):
         encoder = encoder_mock_factory()
         pipeline = EncodingPipeline(encoders={"rgb": encoder})
-        result = pipeline._resolve_feature_name(input_specification="some_fusion_output")
+        result = pipeline._resolve_feature_name(
+            input_specification="some_fusion_output"
+        )
         assert result == "some_fusion_output"
 
 
 class TestValidatePipeline:
-
     def test_raises_for_duplicate_encoder_output_keys(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
@@ -221,16 +227,22 @@ class TestValidatePipeline:
         ):
             EncodingPipeline(encoders={"rgb": encoder})
 
-    @pytest.mark.parametrize("condition_key, expectation", [
-        ("rgb_embedding", does_not_raise()),
-        ("nonexistent_feature", pytest.raises(
-            ValueError,
-            match=re.escape(
-                "Condition key 'nonexistent_feature' for encoder 'film' "
-                "not available. Available: {'rgb_embedding'}"
+    @pytest.mark.parametrize(
+        "condition_key, expectation",
+        [
+            ("rgb_embedding", does_not_raise()),
+            (
+                "nonexistent_feature",
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Condition key 'nonexistent_feature' for encoder 'film' "
+                        "not available. Available: {'rgb_embedding'}"
+                    ),
+                ),
             ),
-        )),
-    ])
+        ],
+    )
     def test_conditional_encoder_condition_key_validation(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
@@ -292,7 +304,6 @@ class TestValidatePipeline:
 
 
 class TestFlattenObservationDict:
-
     def test_flat_dict_returns_unchanged(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
@@ -313,8 +324,12 @@ class TestFlattenObservationDict:
     ):
         encoder = encoder_mock_factory()
         pipeline = EncodingPipeline(encoders={"rgb": encoder})
-        image_tensor = torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32))
-        proprio_tensor = torch.from_numpy(rng.standard_normal((2, 7)).astype(np.float32))
+        image_tensor = torch.from_numpy(
+            rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+        )
+        proprio_tensor = torch.from_numpy(
+            rng.standard_normal((2, 7)).astype(np.float32)
+        )
         observation = {
             "left": image_tensor,
             "robot_proprio_state": {"proprio_camera_frame": proprio_tensor},
@@ -327,7 +342,6 @@ class TestFlattenObservationDict:
 
 
 class TestForward:
-
     def test_encodes_observations_with_correct_input_keys(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
@@ -348,7 +362,9 @@ class TestForward:
         encoder_mock_factory: Callable[..., MagicMock],
         rng: np.random.Generator,
     ):
-        feature_tensor = torch.from_numpy(rng.standard_normal((2, 64)).astype(np.float32))
+        feature_tensor = torch.from_numpy(
+            rng.standard_normal((2, 64)).astype(np.float32)
+        )
         encoder = encoder_mock_factory(
             input_keys=["left"],
             forward_return={"embedding": feature_tensor},
@@ -368,9 +384,11 @@ class TestForward:
     ):
         encoder = encoder_mock_factory(input_keys=["left"])
         pipeline = EncodingPipeline(encoders={"rgb": encoder})
-        observation = {"right": torch.from_numpy(
-            rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
-        )}
+        observation = {
+            "right": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            )
+        }
         result = pipeline.forward(observation=observation)
         encoder.assert_not_called()
         mock_logging.warning.assert_called_once()
@@ -382,8 +400,12 @@ class TestForward:
         fusion_module_mock_factory: Callable[..., MagicMock],
         rng: np.random.Generator,
     ):
-        feature_tensor = torch.from_numpy(rng.standard_normal((2, 64)).astype(np.float32))
-        fused_tensor = torch.from_numpy(rng.standard_normal((2, 128)).astype(np.float32))
+        feature_tensor = torch.from_numpy(
+            rng.standard_normal((2, 64)).astype(np.float32)
+        )
+        fused_tensor = torch.from_numpy(
+            rng.standard_normal((2, 128)).astype(np.float32)
+        )
         encoder = encoder_mock_factory(
             input_keys=["left"],
             forward_return={"embedding": feature_tensor},
@@ -411,15 +433,19 @@ class TestForward:
     ):
         encoder_a = encoder_mock_factory(
             input_keys=["left"],
-            forward_return={"embedding": torch.from_numpy(
-                rng.standard_normal((2, 64)).astype(np.float32)
-            )},
+            forward_return={
+                "embedding": torch.from_numpy(
+                    rng.standard_normal((2, 64)).astype(np.float32)
+                )
+            },
         )
         encoder_b = encoder_mock_factory(
             input_keys=["right"],
-            forward_return={"embedding": torch.from_numpy(
-                rng.standard_normal((2, 64)).astype(np.float32)
-            )},
+            forward_return={
+                "embedding": torch.from_numpy(
+                    rng.standard_normal((2, 64)).astype(np.float32)
+                )
+            },
         )
         fusion = fusion_module_mock_factory(
             input_features=["a", "b"],
@@ -433,8 +459,12 @@ class TestForward:
             fusion_stages=[fusion],
         )
         observation = {
-            "left": torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32)),
-            "right": torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32)),
+            "left": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            ),
+            "right": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            ),
         }
         result = pipeline.forward(observation=observation)
         assert "fused" in result
@@ -450,9 +480,11 @@ class TestForward:
             output_features=["embedding", "extra"],
             output_dimensions={"embedding": 64, "extra": 32},
             input_keys=["left"],
-            forward_return={"embedding": torch.from_numpy(
-                rng.standard_normal((2, 64)).astype(np.float32)
-            )},
+            forward_return={
+                "embedding": torch.from_numpy(
+                    rng.standard_normal((2, 64)).astype(np.float32)
+                )
+            },
         )
         pipeline = EncodingPipeline(encoders={"rgb": encoder})
         image = torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32))
@@ -509,14 +541,20 @@ class TestForward:
         film = conditional_encoder_mock_factory(
             input_keys=["right"],
             condition_key="rgb_embedding",
-            forward_return={"embedding": torch.from_numpy(
-                rng.standard_normal((2, 64)).astype(np.float32)
-            )},
+            forward_return={
+                "embedding": torch.from_numpy(
+                    rng.standard_normal((2, 64)).astype(np.float32)
+                )
+            },
         )
         pipeline = EncodingPipeline(encoders={"rgb": rgb, "film": film})
         observation = {
-            "left": torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32)),
-            "right": torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32)),
+            "left": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            ),
+            "right": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            ),
         }
         pipeline.forward(observation=observation)
         film.assert_called_once()
@@ -539,14 +577,20 @@ class TestForward:
             output_dimensions={"embedding": 64, "extra": 32},
             input_keys=["right"],
             condition_key="rgb_embedding",
-            forward_return={"embedding": torch.from_numpy(
-                rng.standard_normal((2, 64)).astype(np.float32)
-            )},
+            forward_return={
+                "embedding": torch.from_numpy(
+                    rng.standard_normal((2, 64)).astype(np.float32)
+                )
+            },
         )
         pipeline = EncodingPipeline(encoders={"rgb": rgb, "film": film})
         observation = {
-            "left": torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32)),
-            "right": torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32)),
+            "left": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            ),
+            "right": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            ),
         }
         result = pipeline.forward(observation=observation)
         assert "film_embedding" in result
@@ -562,9 +606,11 @@ class TestForward:
     ):
         rgb = encoder_mock_factory(
             input_keys=["left"],
-            forward_return={"embedding": torch.from_numpy(
-                rng.standard_normal((2, 64)).astype(np.float32)
-            )},
+            forward_return={
+                "embedding": torch.from_numpy(
+                    rng.standard_normal((2, 64)).astype(np.float32)
+                )
+            },
         )
         film = conditional_encoder_mock_factory(
             input_keys=["depth"],
@@ -572,7 +618,9 @@ class TestForward:
         )
         pipeline = EncodingPipeline(encoders={"rgb": rgb, "film": film})
         observation = {
-            "left": torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32)),
+            "left": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            ),
         }
         pipeline.forward(observation=observation)
         film.assert_not_called()
@@ -580,7 +628,6 @@ class TestForward:
 
 
 class TestFlattenEncoderFeatureNames:
-
     def test_returns_prefixed_feature_names(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
@@ -606,7 +653,6 @@ class TestFlattenEncoderFeatureNames:
 
 
 class TestGetFeatureNames:
-
     def test_includes_encoder_and_fusion_features(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
@@ -636,7 +682,6 @@ class TestGetFeatureNames:
 
 
 class TestGetFinalFeatureNames:
-
     def test_excludes_consumed_features(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
@@ -677,7 +722,6 @@ class TestGetFinalFeatureNames:
 
 
 class TestGetFeaturesToDimensions:
-
     def test_returns_all_feature_dimensions(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
@@ -701,7 +745,6 @@ class TestGetFeaturesToDimensions:
 
 
 class TestGetFinalFeaturesToDimensions:
-
     def test_excludes_consumed_feature_dimensions(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
@@ -726,7 +769,6 @@ class TestGetFinalFeaturesToDimensions:
 
 
 class TestSetTokenizer:
-
     def test_raises_when_encoder_requires_tokenized_but_no_tokenizer(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
@@ -759,16 +801,23 @@ class TestSetTokenizer:
         ):
             pipeline.set_tokenizer(tokenizer=tokenizer)
 
-    @pytest.mark.parametrize("encoder_vocab_size, data_vocab_size, expectation", [
-        (50000, 50000, does_not_raise()),
-        (50000, 30000, pytest.raises(
-            ValueError,
-            match=re.escape(
-                "Vocab size mismatch: Observation tokenizer has vocab_size=30000, "
-                "but encoder 'language' expects vocab_size=50000. "
+    @pytest.mark.parametrize(
+        "encoder_vocab_size, data_vocab_size, expectation",
+        [
+            (50000, 50000, does_not_raise()),
+            (
+                50000,
+                30000,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Vocab size mismatch: Observation tokenizer has vocab_size=30000, "
+                        "but encoder 'language' expects vocab_size=50000. "
+                    ),
+                ),
             ),
-        )),
-    ])
+        ],
+    )
     def test_unconditional_encoder_vocab_size_validation(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
@@ -841,16 +890,23 @@ class TestSetTokenizer:
         ):
             pipeline.set_tokenizer(tokenizer=tokenizer)
 
-    @pytest.mark.parametrize("encoder_vocab_size, data_vocab_size, expectation", [
-        (50000, 50000, does_not_raise()),
-        (50000, 30000, pytest.raises(
-            ValueError,
-            match=re.escape(
-                "Vocab size mismatch: Observation tokenizer has vocab_size=30000, "
-                "but encoder 'film' expects vocab_size=50000. "
+    @pytest.mark.parametrize(
+        "encoder_vocab_size, data_vocab_size, expectation",
+        [
+            (50000, 50000, does_not_raise()),
+            (
+                50000,
+                30000,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Vocab size mismatch: Observation tokenizer has vocab_size=30000, "
+                        "but encoder 'film' expects vocab_size=50000. "
+                    ),
+                ),
             ),
-        )),
-    ])
+        ],
+    )
     def test_conditional_encoder_vocab_size_validation(
         self,
         encoder_mock_factory: Callable[..., MagicMock],
@@ -876,7 +932,6 @@ class TestSetTokenizer:
 
 
 class TestRepr:
-
     def test_contains_encoder_names(
         self,
         encoder_mock_factory: Callable[..., MagicMock],

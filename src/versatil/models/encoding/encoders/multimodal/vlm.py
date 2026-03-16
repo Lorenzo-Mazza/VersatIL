@@ -1,11 +1,10 @@
 import logging
 
 import torch
-from transformers import AutoModel, AutoConfig, AutoImageProcessor
+from transformers import AutoConfig, AutoImageProcessor, AutoModel
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 from versatil.data.constants import (
-    Cameras,
     RGB_CAMERAS,
     SampleKey,
 )
@@ -13,8 +12,8 @@ from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from versatil.models.encoding.encoders.constants import (
     AttentionImplementation,
     EncoderOutputKeys,
-    PoolingMethod,
     ImageTextModelType,
+    PoolingMethod,
 )
 from versatil.models.encoding.encoders.unconditional import Encoder
 from versatil.models.layers import LearnedAggregation
@@ -204,7 +203,7 @@ class VLMEncoder(Encoder):
             )
         return text_input_ids, language_mask
 
-    def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:  # type: ignore[override]
+    def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         images = inputs[self.camera_key]
         if not isinstance(images, torch.Tensor):
             raise ValueError("images must be a tensor")

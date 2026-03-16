@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.decoders.factory.action_transformer module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -11,6 +12,7 @@ from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.action_transformer import (
     ActionTransformer,
 )
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -20,8 +22,6 @@ from versatil.models.layers.positional_encoding.learned import (
 from versatil.models.layers.transformer.bidirectional_decoder import (
     BidirectionalDecoder,
 )
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
-
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 2
@@ -102,7 +102,6 @@ def action_transformer_factory(
 
 
 class TestActionTransformerInitialization:
-
     def test_inherits_from_action_decoder(
         self,
         action_transformer_factory: Callable[..., ActionTransformer],
@@ -112,8 +111,13 @@ class TestActionTransformerInitialization:
 
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("number_of_layers", [1, 2])
-    @pytest.mark.parametrize("activation", [ActivationFunction.GELU.value, ActivationFunction.SWIGLU.value])
-    @pytest.mark.parametrize("normalization_type", [NormalizationType.LAYER_NORM.value, NormalizationType.RMS_NORM.value])
+    @pytest.mark.parametrize(
+        "activation", [ActivationFunction.GELU.value, ActivationFunction.SWIGLU.value]
+    )
+    @pytest.mark.parametrize(
+        "normalization_type",
+        [NormalizationType.LAYER_NORM.value, NormalizationType.RMS_NORM.value],
+    )
     def test_stores_configuration(
         self,
         action_transformer_factory: Callable[..., ActionTransformer],
@@ -179,7 +183,6 @@ class TestActionTransformerInitialization:
 
 
 class TestActionTransformerForward:
-
     def test_output_keys_match_action_heads(
         self,
         action_transformer_factory: Callable[..., ActionTransformer],
@@ -299,11 +302,13 @@ class TestActionTransformerForward:
 
 
 class TestActionTransformerTemporalObservation:
-
-    @pytest.mark.parametrize("observation_horizon, expects_temporal_pe", [
-        (1, False),
-        (3, True),
-    ])
+    @pytest.mark.parametrize(
+        "observation_horizon, expects_temporal_pe",
+        [
+            (1, False),
+            (3, True),
+        ],
+    )
     def test_temporal_pe_created_based_on_observation_horizon(
         self,
         action_transformer_factory: Callable[..., ActionTransformer],
@@ -316,4 +321,3 @@ class TestActionTransformerTemporalObservation:
             assert isinstance(layer, LearnedPositionalEncoding1D)
         else:
             assert layer is None
-

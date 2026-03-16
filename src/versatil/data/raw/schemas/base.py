@@ -11,12 +11,11 @@ from typing import Any
 import albumentations as A
 import numpy as np
 
-from versatil.data.raw.zarr_meta import DatasetMetadata
 from versatil.data.metadata import (
     CameraMetadata,
     ObservationMetadata,
-    PrecomputedActionMetadata,
 )
+from versatil.data.raw.zarr_meta import DatasetMetadata
 
 
 class DatasetSchema(abc.ABC):

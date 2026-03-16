@@ -1,6 +1,7 @@
 """Tests for versatil.data.episodic_dataset module."""
+
 from collections.abc import Callable
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import numpy as np
 import pytest
@@ -57,7 +58,9 @@ def mock_dataloader_config() -> Callable[..., DataLoaderConfig]:
 
 
 @pytest.fixture
-def mock_replay_buffer_for_dataset(rng: np.random.Generator) -> Callable[..., MagicMock]:
+def mock_replay_buffer_for_dataset(
+    rng: np.random.Generator,
+) -> Callable[..., MagicMock]:
     """Factory for mock ReplayBuffer used in EpisodicDataset."""
 
     def factory(
@@ -69,9 +72,9 @@ def mock_replay_buffer_for_dataset(rng: np.random.Generator) -> Callable[..., Ma
     ) -> MagicMock:
         buffer = MagicMock()
         total_steps = num_episodes * timesteps_per_episode
-        episode_ends = np.array([
-            (i + 1) * timesteps_per_episode for i in range(num_episodes)
-        ])
+        episode_ends = np.array(
+            [(i + 1) * timesteps_per_episode for i in range(num_episodes)]
+        )
 
         buffer.n_episodes = num_episodes
         buffer.n_steps = total_steps
@@ -89,9 +92,9 @@ def mock_replay_buffer_for_dataset(rng: np.random.Generator) -> Callable[..., Ma
         if extra_keys:
             for key in extra_keys:
                 if key not in data:
-                    data[key] = rng.standard_normal(
-                        (total_steps, proprio_dim)
-                    ).astype(np.float32)
+                    data[key] = rng.standard_normal((total_steps, proprio_dim)).astype(
+                        np.float32
+                    )
 
         def getitem(key):
             if key in data:
@@ -151,25 +154,30 @@ def episodic_dataset_factory(
             downsample_factor=downsample_factor,
             preload_data_in_memory=preload_data_in_memory,
         )
-        extra_keys = list(set(
-            observation_space.get_required_zarr_keys()
-            + action_space.get_required_zarr_keys()
-        ))
+        extra_keys = list(
+            set(
+                observation_space.get_required_zarr_keys()
+                + action_space.get_required_zarr_keys()
+            )
+        )
         buffer = mock_replay_buffer_for_dataset(
             num_episodes=num_episodes,
             timesteps_per_episode=timesteps_per_episode,
             extra_keys=extra_keys,
         )
 
-        with patch(
-            "versatil.data.episodic_dataset.ReplayBuffer"
-        ) as mock_replay_buffer_class, patch(
-            "versatil.data.episodic_dataset.AugmentationPipeline"
+        with (
+            patch(
+                "versatil.data.episodic_dataset.ReplayBuffer"
+            ) as mock_replay_buffer_class,
+            patch("versatil.data.episodic_dataset.AugmentationPipeline"),
         ):
             mock_replay_buffer_class.create_from_path.return_value = buffer
             mock_replay_buffer_class.copy_from_path.return_value = buffer
             mock_replay_buffer_class.create_empty_numpy.return_value = MagicMock(
-                n_episodes=0, n_steps=0, episode_ends=np.array([]),
+                n_episodes=0,
+                n_steps=0,
+                episode_ends=np.array([]),
             )
 
             dataset = EpisodicDataset(
@@ -188,7 +196,6 @@ def episodic_dataset_factory(
 
 
 class TestEpisodicDatasetInit:
-
     @pytest.mark.parametrize(
         "pred_horizon, obs_horizon",
         [(4, 2), (8, 3), (16, 1)],
@@ -200,7 +207,8 @@ class TestEpisodicDatasetInit:
         obs_horizon: int,
     ):
         dataset = episodic_dataset_factory(
-            pred_horizon=pred_horizon, obs_horizon=obs_horizon,
+            pred_horizon=pred_horizon,
+            obs_horizon=obs_horizon,
         )
         assert dataset.pred_horizon == pred_horizon
         assert dataset.obs_horizon == obs_horizon
@@ -217,7 +225,9 @@ class TestEpisodicDatasetInit:
     def test_stores_observation_space(
         self,
         episodic_dataset_factory: Callable[..., EpisodicDataset],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
     ):
         metadata = {"position": position_observation_metadata_factory()}
         dataset = episodic_dataset_factory(observations_metadata=metadata)
@@ -251,10 +261,11 @@ class TestEpisodicDatasetInit:
         config = mock_dataloader_config(preload_data_in_memory=False)
         buffer = mock_replay_buffer_for_dataset()
 
-        with patch(
-            "versatil.data.episodic_dataset.ReplayBuffer"
-        ) as mock_replay_buffer_class, patch(
-            "versatil.data.episodic_dataset.AugmentationPipeline"
+        with (
+            patch(
+                "versatil.data.episodic_dataset.ReplayBuffer"
+            ) as mock_replay_buffer_class,
+            patch("versatil.data.episodic_dataset.AugmentationPipeline"),
         ):
             mock_replay_buffer_class.create_from_path.return_value = buffer
             EpisodicDataset(
@@ -277,10 +288,11 @@ class TestEpisodicDatasetInit:
         config = mock_dataloader_config(preload_data_in_memory=True)
         buffer = mock_replay_buffer_for_dataset()
 
-        with patch(
-            "versatil.data.episodic_dataset.ReplayBuffer"
-        ) as mock_replay_buffer_class, patch(
-            "versatil.data.episodic_dataset.AugmentationPipeline"
+        with (
+            patch(
+                "versatil.data.episodic_dataset.ReplayBuffer"
+            ) as mock_replay_buffer_class,
+            patch("versatil.data.episodic_dataset.AugmentationPipeline"),
         ):
             mock_replay_buffer_class.copy_from_path.return_value = buffer
             EpisodicDataset(
@@ -297,12 +309,16 @@ class TestEpisodicDatasetInit:
         self,
         observation_space_factory: Callable[..., ObservationSpace],
         action_space_factory: Callable[..., ActionSpace],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         mock_dataloader_config: Callable[..., DataLoaderConfig],
     ):
-        observation_space = observation_space_factory(observations_metadata={
-            "missing_key": position_observation_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                "missing_key": position_observation_metadata_factory(),
+            }
+        )
         config = mock_dataloader_config()
         buffer = MagicMock()
         buffer.n_episodes = 5
@@ -312,10 +328,11 @@ class TestEpisodicDatasetInit:
         )
         buffer.keys.return_value = []
 
-        with patch(
-            "versatil.data.episodic_dataset.ReplayBuffer"
-        ) as mock_replay_buffer_class, patch(
-            "versatil.data.episodic_dataset.AugmentationPipeline"
+        with (
+            patch(
+                "versatil.data.episodic_dataset.ReplayBuffer"
+            ) as mock_replay_buffer_class,
+            patch("versatil.data.episodic_dataset.AugmentationPipeline"),
         ):
             mock_replay_buffer_class.create_from_path.return_value = buffer
             with pytest.raises(KeyError, match="Missing required keys"):
@@ -337,7 +354,6 @@ class TestEpisodicDatasetInit:
 
 
 class TestEpisodicDatasetLen:
-
     @pytest.mark.parametrize(
         "num_episodes, timesteps_per_episode",
         [(3, 10), (5, 20), (10, 5)],
@@ -356,7 +372,6 @@ class TestEpisodicDatasetLen:
 
 
 class TestEpisodicDatasetGetItem:
-
     @pytest.mark.parametrize("idx", [0, 2, 5])
     def test_pipeline_forwards_data_through_all_stages(
         self,
@@ -385,7 +400,9 @@ class TestEpisodicDatasetGetItem:
         dataset.sampler.sample_sequence.assert_called_once_with(idx)
 
         # action_processor received the sampler output
-        action_call_kwargs = dataset.action_processor.compute_sample_actions.call_args[1]
+        action_call_kwargs = dataset.action_processor.compute_sample_actions.call_args[
+            1
+        ]
         assert action_call_kwargs["padded_data"] is padded_data
 
         # build_sample received all pipeline outputs
@@ -413,7 +430,8 @@ class TestEpisodicDatasetGetItem:
         expected_end: int,
     ):
         dataset = episodic_dataset_factory(
-            obs_horizon=obs_horizon, pred_horizon=pred_horizon,
+            obs_horizon=obs_horizon,
+            pred_horizon=pred_horizon,
         )
         dataset.sampler.sample_sequence = MagicMock(return_value={})
         dataset.action_processor.compute_sample_actions = MagicMock(
@@ -424,13 +442,14 @@ class TestEpisodicDatasetGetItem:
         result = dataset[0]
 
         assert result == {}
-        action_call_kwargs = dataset.action_processor.compute_sample_actions.call_args[1]
+        action_call_kwargs = dataset.action_processor.compute_sample_actions.call_args[
+            1
+        ]
         assert action_call_kwargs["action_slice_start"] == expected_start
         assert action_call_kwargs["action_slice_end"] == expected_end
 
 
 class TestCreateEpisodeMask:
-
     @pytest.mark.parametrize("train", [True, False])
     def test_train_and_val_masks_are_disjoint(
         self,
@@ -438,16 +457,26 @@ class TestCreateEpisodeMask:
         train: bool,
     ):
         dataset_train = episodic_dataset_factory(
-            train=True, num_episodes=10, val_ratio=0.2,
+            train=True,
+            num_episodes=10,
+            val_ratio=0.2,
         )
         dataset_val = episodic_dataset_factory(
-            train=False, num_episodes=10, val_ratio=0.2,
+            train=False,
+            num_episodes=10,
+            val_ratio=0.2,
         )
         train_mask = dataset_train._create_episode_mask(
-            val_ratio=0.2, total_ratio=1.0, train=True, seed=42,
+            val_ratio=0.2,
+            total_ratio=1.0,
+            train=True,
+            seed=42,
         )
         val_mask = dataset_val._create_episode_mask(
-            val_ratio=0.2, total_ratio=1.0, train=False, seed=42,
+            val_ratio=0.2,
+            total_ratio=1.0,
+            train=False,
+            seed=42,
         )
         # No overlap
         assert not np.any(np.logical_and(train_mask, val_mask))
@@ -458,7 +487,10 @@ class TestCreateEpisodeMask:
     ):
         dataset = episodic_dataset_factory(num_episodes=20)
         mask = dataset._create_episode_mask(
-            val_ratio=0.0, total_ratio=0.5, train=True, seed=42,
+            val_ratio=0.0,
+            total_ratio=0.5,
+            train=True,
+            seed=42,
         )
         assert np.sum(mask) <= 10
 
@@ -468,14 +500,16 @@ class TestCreateEpisodeMask:
     ):
         dataset = episodic_dataset_factory(num_episodes=20)
         mask = dataset._create_episode_mask(
-            val_ratio=0.0, total_ratio=1.0, train=True, seed=42,
+            val_ratio=0.0,
+            total_ratio=1.0,
+            train=True,
+            seed=42,
             max_train_episodes=5,
         )
         assert np.sum(mask) <= 5
 
 
 class TestSetupEpisodeIndices:
-
     def test_selected_episode_indices_excludes_empty_episodes(
         self,
         episodic_dataset_factory: Callable[..., EpisodicDataset],
@@ -495,7 +529,6 @@ class TestSetupEpisodeIndices:
 
 
 class TestSetNormalizerAndTokenizer:
-
     def test_set_normalizer_updates_sample_builder(
         self,
         episodic_dataset_factory: Callable[..., EpisodicDataset],
@@ -524,7 +557,6 @@ class TestSetNormalizerAndTokenizer:
 
 
 class TestGetGripperPositiveClassImbalanceWeight:
-
     def test_raises_when_no_gripper_actions(
         self,
         episodic_dataset_factory: Callable[..., EpisodicDataset],
@@ -538,10 +570,12 @@ class TestGetGripperPositiveClassImbalanceWeight:
         episodic_dataset_factory: Callable[..., EpisodicDataset],
         gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
     ):
-        dataset = episodic_dataset_factory(actions_metadata={
-            "gripper_1": gripper_action_metadata_factory(),
-            "gripper_2": gripper_action_metadata_factory(),
-        })
+        dataset = episodic_dataset_factory(
+            actions_metadata={
+                "gripper_1": gripper_action_metadata_factory(),
+                "gripper_2": gripper_action_metadata_factory(),
+            }
+        )
         with pytest.raises(ValueError, match="single gripper action"):
             dataset.get_gripper_positive_class_imbalance_weight()
 
@@ -550,11 +584,13 @@ class TestGetGripperPositiveClassImbalanceWeight:
         episodic_dataset_factory: Callable[..., EpisodicDataset],
         gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
     ):
-        dataset = episodic_dataset_factory(actions_metadata={
-            "gripper": gripper_action_metadata_factory(
-                gripper_type=GripperType.CONTINUOUS.value,
-            ),
-        })
+        dataset = episodic_dataset_factory(
+            actions_metadata={
+                "gripper": gripper_action_metadata_factory(
+                    gripper_type=GripperType.CONTINUOUS.value,
+                ),
+            }
+        )
         with pytest.raises(ValueError, match="binary grippers"):
             dataset.get_gripper_positive_class_imbalance_weight()
 
@@ -563,11 +599,13 @@ class TestGetGripperPositiveClassImbalanceWeight:
         episodic_dataset_factory: Callable[..., EpisodicDataset],
         gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
     ):
-        dataset = episodic_dataset_factory(actions_metadata={
-            ProprioKey.GRIPPER_STATE.value: gripper_action_metadata_factory(
-                gripper_type=GripperType.BINARY.value,
-            ),
-        })
+        dataset = episodic_dataset_factory(
+            actions_metadata={
+                ProprioKey.GRIPPER_STATE.value: gripper_action_metadata_factory(
+                    gripper_type=GripperType.BINARY.value,
+                ),
+            }
+        )
         # Mock the replay buffer to return known gripper data
         gripper_data = np.array([[1], [0], [0], [0], [1]], dtype=np.float32)
         dataset.replay_buffer.__getitem__ = MagicMock(
@@ -588,11 +626,13 @@ class TestGetGripperPositiveClassImbalanceWeight:
         gripper_source = gripper_observation_metadata_factory(
             gripper_type=GripperType.BINARY.value,
         )
-        dataset = episodic_dataset_factory(actions_metadata={
-            ProprioKey.GRIPPER_STATE.value: on_the_fly_action_metadata_factory(
-                source_metadata=gripper_source,
-            ),
-        })
+        dataset = episodic_dataset_factory(
+            actions_metadata={
+                ProprioKey.GRIPPER_STATE.value: on_the_fly_action_metadata_factory(
+                    source_metadata=gripper_source,
+                ),
+            }
+        )
         gripper_data = np.array([[1], [1], [1], [0]], dtype=np.float32)
         dataset.replay_buffer.__getitem__ = MagicMock(
             side_effect=lambda key: gripper_data,
@@ -607,28 +647,39 @@ class TestGetGripperPositiveClassImbalanceWeight:
         self,
         episodic_dataset_factory: Callable[..., EpisodicDataset],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
     ):
         gripper_source = gripper_observation_metadata_factory()
-        dataset = episodic_dataset_factory(actions_metadata={
-            ProprioKey.GRIPPER_STATE.value: on_the_fly_action_metadata_factory(
-                source_metadata=gripper_source,
-            ),
-        })
+        dataset = episodic_dataset_factory(
+            actions_metadata={
+                ProprioKey.GRIPPER_STATE.value: on_the_fly_action_metadata_factory(
+                    source_metadata=gripper_source,
+                ),
+            }
+        )
         bad_otf = on_the_fly_action_metadata_factory(
             source_metadata=position_observation_metadata_factory(),
         )
         gripper_actions_value = {ProprioKey.GRIPPER_STATE.value: bad_otf}
-        with patch.object(
-            ActionSpace, "gripper_actions", new_callable=PropertyMock,
-            return_value=gripper_actions_value,
-        ), patch.object(
-            ActionSpace, "has_gripper_actions", new_callable=PropertyMock,
-            return_value=True,
+        with (
+            patch.object(
+                ActionSpace,
+                "gripper_actions",
+                new_callable=PropertyMock,
+                return_value=gripper_actions_value,
+            ),
+            patch.object(
+                ActionSpace,
+                "has_gripper_actions",
+                new_callable=PropertyMock,
+                return_value=True,
+            ),
+            pytest.raises(TypeError, match="Expected GripperObservationMetadata"),
         ):
-            with pytest.raises(TypeError, match="Expected GripperObservationMetadata"):
-                dataset.get_gripper_positive_class_imbalance_weight()
+            dataset.get_gripper_positive_class_imbalance_weight()
 
     def test_raises_for_unsupported_metadata_type(
         self,
@@ -637,26 +688,34 @@ class TestGetGripperPositiveClassImbalanceWeight:
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
     ):
         gripper_source = gripper_observation_metadata_factory()
-        dataset = episodic_dataset_factory(actions_metadata={
-            ProprioKey.GRIPPER_STATE.value: on_the_fly_action_metadata_factory(
-                source_metadata=gripper_source,
-            ),
-        })
+        dataset = episodic_dataset_factory(
+            actions_metadata={
+                ProprioKey.GRIPPER_STATE.value: on_the_fly_action_metadata_factory(
+                    source_metadata=gripper_source,
+                ),
+            }
+        )
         unsupported_meta = MagicMock()
         gripper_actions_value = {ProprioKey.GRIPPER_STATE.value: unsupported_meta}
-        with patch.object(
-            ActionSpace, "gripper_actions", new_callable=PropertyMock,
-            return_value=gripper_actions_value,
-        ), patch.object(
-            ActionSpace, "has_gripper_actions", new_callable=PropertyMock,
-            return_value=True,
+        with (
+            patch.object(
+                ActionSpace,
+                "gripper_actions",
+                new_callable=PropertyMock,
+                return_value=gripper_actions_value,
+            ),
+            patch.object(
+                ActionSpace,
+                "has_gripper_actions",
+                new_callable=PropertyMock,
+                return_value=True,
+            ),
+            pytest.raises(ValueError, match="Unsupported gripper action metadata"),
         ):
-            with pytest.raises(ValueError, match="Unsupported gripper action metadata"):
-                dataset.get_gripper_positive_class_imbalance_weight()
+            dataset.get_gripper_positive_class_imbalance_weight()
 
 
 class TestGetNormalizerAndTokenizer:
-
     def test_delegates_to_transform_builder(
         self,
         episodic_dataset_factory: Callable[..., EpisodicDataset],
@@ -701,7 +760,8 @@ class TestGetNormalizerAndTokenizer:
         ) as mock_builder_class:
             mock_builder_instance = MagicMock()
             mock_builder_instance.create_normalizer_and_tokenizer.return_value = (
-                MagicMock(), None,
+                MagicMock(),
+                None,
             )
             mock_builder_class.return_value = mock_builder_instance
 
@@ -722,7 +782,6 @@ class TestGetNormalizerAndTokenizer:
 
 
 class TestApplyDownsampling:
-
     @pytest.mark.parametrize("downsample_factor", [2, 3, 5])
     def test_downsampling_reduces_episode_length(
         self,
@@ -749,7 +808,9 @@ class TestApplyDownsampling:
         with patch(
             "versatil.data.episodic_dataset.ReplayBuffer"
         ) as mock_replay_buffer_class:
-            mock_replay_buffer_class.create_empty_numpy.return_value = mock_subsampled_buffer
+            mock_replay_buffer_class.create_empty_numpy.return_value = (
+                mock_subsampled_buffer
+            )
             dataset._apply_downsampling(
                 episode_mask=episode_mask,
                 downsample_step=downsample_factor,
@@ -770,7 +831,6 @@ class TestApplyDownsampling:
 
 @pytest.mark.integration
 class TestEpisodicDatasetWithRealData:
-
     @pytest.mark.parametrize(
         "num_episodes, timesteps_per_episode",
         [(3, 15), (5, 20), (8, 10)],
@@ -899,12 +959,16 @@ class TestEpisodicDatasetWithRealData:
         real_dataset_factory: Callable[..., EpisodicDataset],
     ):
         train_dataset = real_dataset_factory(
-            num_episodes=10, timesteps_per_episode=20,
-            train=True, val_ratio=0.3,
+            num_episodes=10,
+            timesteps_per_episode=20,
+            train=True,
+            val_ratio=0.3,
         )
         val_dataset = real_dataset_factory(
-            num_episodes=10, timesteps_per_episode=20,
-            train=False, val_ratio=0.3,
+            num_episodes=10,
+            timesteps_per_episode=20,
+            train=False,
+            val_ratio=0.3,
         )
 
         assert len(train_dataset) > 0

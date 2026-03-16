@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.encoders.rgb.vit module."""
+
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -19,17 +20,14 @@ from versatil.models.encoding.encoders.constants import (
 )
 from versatil.models.encoding.encoders.rgb.vit import ViTEncoder
 
-
-VIT_BACKBONES = [
-    e
-    for e in RGBBackboneType
-    if "vit" in e.value or "dino" in e.value
-]
+VIT_BACKBONES = [e for e in RGBBackboneType if "vit" in e.value or "dino" in e.value]
 
 VIT_VALID_BACKBONES = [
     e.value
     for e in RGBBackboneType
-    if not any(x in e.value for x in ["efficientnet", "resnet", "edgenext", "mobilenet"])
+    if not any(
+        x in e.value for x in ["efficientnet", "resnet", "edgenext", "mobilenet"]
+    )
 ]
 
 FEATURE_DIM = 768
@@ -51,6 +49,7 @@ def _mock_setup_feature_extractor(self):
 @pytest.fixture
 def vit_encoder_factory() -> Callable[..., ViTEncoder]:
     """Factory for ViTEncoder with mocked backbone and feature extractor."""
+
     def factory(
         input_keys: str | list[str] = "left",
         backbone: str = RGBBackboneType.DINOV2_VITB14.value,
@@ -73,8 +72,8 @@ def vit_encoder_factory() -> Callable[..., ViTEncoder]:
                 pretrained=pretrained,
                 frozen=frozen,
             )
-    return factory
 
+    return factory
 
 
 @pytest.fixture
@@ -82,71 +81,87 @@ def mock_backbone_output_factory(
     rng: np.random.Generator,
 ) -> Callable[..., TimmWrapperModelOutput]:
     """Factory for mock TimmWrapperModelOutput with last_hidden_state."""
+
     def factory(
         batch_size: int = 2,
         sequence_length: int = SEQUENCE_LENGTH + 1,
         feature_dim: int = FEATURE_DIM,
     ) -> TimmWrapperModelOutput:
         hidden_state = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, sequence_length, feature_dim)
-            ).astype(np.float32)
+            rng.standard_normal((batch_size, sequence_length, feature_dim)).astype(
+                np.float32
+            )
         )
         return TimmWrapperModelOutput(last_hidden_state=hidden_state)
+
     return factory
 
 
 class TestViTEncoderInitialization:
-
-    @pytest.mark.parametrize("backbone, expectation", [
-        (RGBBackboneType.DINOV2_VITB14.value, does_not_raise()),
-        (RGBBackboneType.VIT_BASE.value, does_not_raise()),
-        (RGBBackboneType.DINOV2_VITS14.value, does_not_raise()),
-        (RGBBackboneType.RESNET18.value, pytest.raises(
-            ValueError,
-            match=re.escape(
-                f"Invalid backbone '{RGBBackboneType.RESNET18.value}'. "
-                f"Must be one Vision Transformer of the following: {VIT_VALID_BACKBONES}"
+    @pytest.mark.parametrize(
+        "backbone, expectation",
+        [
+            (RGBBackboneType.DINOV2_VITB14.value, does_not_raise()),
+            (RGBBackboneType.VIT_BASE.value, does_not_raise()),
+            (RGBBackboneType.DINOV2_VITS14.value, does_not_raise()),
+            (
+                RGBBackboneType.RESNET18.value,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        f"Invalid backbone '{RGBBackboneType.RESNET18.value}'. "
+                        f"Must be one Vision Transformer of the following: {VIT_VALID_BACKBONES}"
+                    ),
+                ),
             ),
-        )),
-        ("invalid_backbone", pytest.raises(
-            ValueError,
-            match=re.escape(
-                f"Invalid backbone 'invalid_backbone'. "
-                f"Must be one Vision Transformer of the following: {VIT_VALID_BACKBONES}"
+            (
+                "invalid_backbone",
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        f"Invalid backbone 'invalid_backbone'. "
+                        f"Must be one Vision Transformer of the following: {VIT_VALID_BACKBONES}"
+                    ),
+                ),
             ),
-        )),
-    ])
+        ],
+    )
     def test_backbone_validation(
         self,
         backbone: str,
         expectation,
     ):
-        with expectation:
-            with (
-                patch.object(ViTEncoder, "_build_backbone", _mock_build_backbone),
-                patch.object(
-                    ViTEncoder,
-                    "_setup_feature_extractor",
-                    _mock_setup_feature_extractor,
-                ),
-            ):
-                ViTEncoder(
-                    input_keys="left",
-                    pretrained=False,
-                    frozen=False,
-                    pooling_method=PoolingMethod.DEFAULT.value,
-                    backbone=backbone,
-                )
+        with (
+            expectation,
+            patch.object(ViTEncoder, "_build_backbone", _mock_build_backbone),
+            patch.object(
+                ViTEncoder,
+                "_setup_feature_extractor",
+                _mock_setup_feature_extractor,
+            ),
+        ):
+            ViTEncoder(
+                input_keys="left",
+                pretrained=False,
+                frozen=False,
+                pooling_method=PoolingMethod.DEFAULT.value,
+                backbone=backbone,
+            )
 
-    @pytest.mark.parametrize("input_keys, expectation", [
-        ("left", does_not_raise()),
-        ("right", does_not_raise()),
-        (["left", "right"], pytest.raises(
-            ValueError,
-            match=re.escape(f"Exactly one from {RGB_CAMERAS} required, got"),
-        )),
-    ])
+    @pytest.mark.parametrize(
+        "input_keys, expectation",
+        [
+            ("left", does_not_raise()),
+            ("right", does_not_raise()),
+            (
+                ["left", "right"],
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(f"Exactly one from {RGB_CAMERAS} required, got"),
+                ),
+            ),
+        ],
+    )
     def test_input_keys_validation(
         self,
         vit_encoder_factory: Callable[..., ViTEncoder],
@@ -166,14 +181,20 @@ class TestViTEncoderInitialization:
         assert hasattr(encoder, "input_specification")
 
     @pytest.mark.parametrize("input_keys", ["left", "right"])
-    @pytest.mark.parametrize("backbone", [
-        RGBBackboneType.DINOV2_VITS14.value,
-        RGBBackboneType.DINOV2_VITB14.value,
-    ])
-    @pytest.mark.parametrize("pooling_method", [
-        PoolingMethod.DEFAULT.value,
-        PoolingMethod.NONE.value,
-    ])
+    @pytest.mark.parametrize(
+        "backbone",
+        [
+            RGBBackboneType.DINOV2_VITS14.value,
+            RGBBackboneType.DINOV2_VITB14.value,
+        ],
+    )
+    @pytest.mark.parametrize(
+        "pooling_method",
+        [
+            PoolingMethod.DEFAULT.value,
+            PoolingMethod.NONE.value,
+        ],
+    )
     def test_stores_configuration(
         self,
         vit_encoder_factory: Callable[..., ViTEncoder],
@@ -191,7 +212,6 @@ class TestViTEncoderInitialization:
         assert encoder.pooling_method == pooling_method
         assert encoder.feature_dim == FEATURE_DIM
         assert encoder.input_specification.keys == expected_keys
-
 
     def test_none_pooling_sets_output_dim_to_tuple(self):
         with patch.object(ViTEncoder, "_build_backbone", _mock_build_backbone):
@@ -217,7 +237,6 @@ class TestViTEncoderInitialization:
 
 
 class TestViTEncoderExtractFeatures:
-
     def test_default_pooling_returns_cls_token(
         self,
         vit_encoder_factory: Callable[..., ViTEncoder],
@@ -303,11 +322,13 @@ class TestViTEncoderExtractFeatures:
 
 
 class TestViTEncoderForward:
-
-    @pytest.mark.parametrize("time_steps, expected_ndim", [
-        (None, 2),
-        (3, 3),
-    ])
+    @pytest.mark.parametrize(
+        "time_steps, expected_ndim",
+        [
+            (None, 2),
+            (3, 3),
+        ],
+    )
     def test_output_shape_with_and_without_time(
         self,
         vit_encoder_factory: Callable[..., ViTEncoder],
@@ -373,7 +394,6 @@ class TestViTEncoderForward:
 
 
 class TestViTEncoderGetOutputSpecification:
-
     def test_returns_rgb_feature_with_correct_dimension(
         self,
         vit_encoder_factory: Callable[..., ViTEncoder],
@@ -381,7 +401,9 @@ class TestViTEncoderGetOutputSpecification:
         encoder = vit_encoder_factory()
         specification = encoder.get_output_specification()
         assert specification.features == [EncoderOutputKeys.RGB.value]
-        assert specification.dimensions[EncoderOutputKeys.RGB.value] == encoder.output_dim
+        assert (
+            specification.dimensions[EncoderOutputKeys.RGB.value] == encoder.output_dim
+        )
 
     def test_output_specification_features_list_length(
         self,
@@ -394,7 +416,6 @@ class TestViTEncoderGetOutputSpecification:
 
 
 class TestViTEncoderIntegration:
-
     @pytest.mark.integration
     @pytest.mark.parametrize("backbone", [b.value for b in VIT_BACKBONES])
     def test_forward_pass_per_backbone(
@@ -443,10 +464,13 @@ class TestViTEncoderIntegration:
             assert features.shape == (batch_size, encoder.output_dim)
 
     @pytest.mark.integration
-    @pytest.mark.parametrize("frozen, expected_requires_grad", [
-        (False, True),
-        (True, False),
-    ])
+    @pytest.mark.parametrize(
+        "frozen, expected_requires_grad",
+        [
+            (False, True),
+            (True, False),
+        ],
+    )
     def test_frozen_flag_controls_gradients(
         self,
         frozen: bool,

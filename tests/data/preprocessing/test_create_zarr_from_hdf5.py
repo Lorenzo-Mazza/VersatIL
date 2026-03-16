@@ -1,4 +1,5 @@
 """Tests for versatil.data.preprocessing.create_zarr_from_hdf5 module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -14,7 +15,6 @@ from versatil.data.preprocessing.create_zarr_from_hdf5 import (
 
 
 class TestCountHdf5Episodes:
-
     def test_single_file_counts_demos(
         self,
         mock_schema_factory: Callable[..., MagicMock],
@@ -58,7 +58,6 @@ class TestCountHdf5Episodes:
 
 
 class TestIterHdf5Episodes:
-
     @patch("versatil.data.preprocessing.create_zarr_from_hdf5.h5py.File")
     def test_yields_one_episode_per_demo(
         self,
@@ -111,9 +110,7 @@ class TestIterHdf5Episodes:
             )
         )
 
-        accessed_keys = [
-            c.args[0] for c in mock_file.__getitem__.call_args_list
-        ]
+        accessed_keys = [c.args[0] for c in mock_file.__getitem__.call_args_list]
         assert accessed_keys == ["data/demo_1", "data/demo_2", "data/demo_10"]
 
     @patch("versatil.data.preprocessing.create_zarr_from_hdf5.h5py.File")
@@ -214,9 +211,10 @@ class TestIterHdf5Episodes:
 
 
 class TestCreateReplayBufferFromHdf5:
-
     @patch("versatil.data.preprocessing.create_zarr_from_hdf5.A.Resize")
-    @patch("versatil.data.preprocessing.create_zarr_from_hdf5.create_zarr_replay_buffer")
+    @patch(
+        "versatil.data.preprocessing.create_zarr_from_hdf5.create_zarr_replay_buffer"
+    )
     @patch("versatil.data.preprocessing.create_zarr_from_hdf5.h5py.File")
     def test_cameras_present_creates_resize_transforms(
         self,
@@ -243,10 +241,14 @@ class TestCreateReplayBufferFromHdf5:
         assert mock_resize_class.call_count == 2
         mock_resize_class.assert_any_call(height=96, width=128)
         mock_resize_class.assert_any_call(
-            height=96, width=128, interpolation=cv2.INTER_NEAREST,
+            height=96,
+            width=128,
+            interpolation=cv2.INTER_NEAREST,
         )
 
-    @patch("versatil.data.preprocessing.create_zarr_from_hdf5.create_zarr_replay_buffer")
+    @patch(
+        "versatil.data.preprocessing.create_zarr_from_hdf5.create_zarr_replay_buffer"
+    )
     def test_no_cameras_creates_noop_transforms(
         self,
         mock_create_zarr,
@@ -261,7 +263,9 @@ class TestCreateReplayBufferFromHdf5:
 
         mock_create_zarr.assert_called_once()
 
-    @patch("versatil.data.preprocessing.create_zarr_from_hdf5.create_zarr_replay_buffer")
+    @patch(
+        "versatil.data.preprocessing.create_zarr_from_hdf5.create_zarr_replay_buffer"
+    )
     def test_total_episodes_passed_as_sum_of_all_demos(
         self,
         mock_create_zarr,
@@ -281,7 +285,9 @@ class TestCreateReplayBufferFromHdf5:
         call_kwargs = mock_create_zarr.call_args
         assert call_kwargs.kwargs["total_episodes"] == 3
 
-    @patch("versatil.data.preprocessing.create_zarr_from_hdf5.create_zarr_replay_buffer")
+    @patch(
+        "versatil.data.preprocessing.create_zarr_from_hdf5.create_zarr_replay_buffer"
+    )
     def test_schema_passed_through_to_create_zarr(
         self,
         mock_create_zarr,

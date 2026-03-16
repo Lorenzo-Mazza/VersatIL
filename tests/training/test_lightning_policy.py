@@ -1,4 +1,5 @@
 """Tests for versatil.training.lightning_policy module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock, Mock, patch
 
@@ -39,7 +40,6 @@ def lightning_policy_factory(
 
 @pytest.mark.unit
 class TestLightningPolicyInitialization:
-
     def test_stores_policy_reference(
         self,
         mock_policy_factory: Callable,
@@ -91,7 +91,6 @@ class TestLightningPolicyInitialization:
 
 @pytest.mark.unit
 class TestTrainingStep:
-
     def test_calls_policy_compute_loss_with_batch(
         self,
         mock_policy_factory: Callable,
@@ -178,7 +177,6 @@ class TestTrainingStep:
 
 @pytest.mark.unit
 class TestValidationStep:
-
     def test_calls_policy_compute_loss_with_batch(
         self,
         mock_policy_factory: Callable,
@@ -262,7 +260,6 @@ class TestValidationStep:
 
 @pytest.mark.unit
 class TestOnTrainEpochEnd:
-
     def test_resets_train_metrics_after_logging(
         self,
         mock_policy_factory: Callable,
@@ -315,7 +312,6 @@ class TestOnTrainEpochEnd:
 
 @pytest.mark.unit
 class TestOnValidationEpochEnd:
-
     def test_resets_val_metrics_after_logging(
         self,
         mock_policy_factory: Callable,
@@ -361,7 +357,6 @@ class TestOnValidationEpochEnd:
 
 @pytest.mark.unit
 class TestForward:
-
     def test_delegates_to_policy_predict_action(
         self,
         mock_policy_factory: Callable,
@@ -391,7 +386,6 @@ class TestForward:
 
 @pytest.mark.unit
 class TestConfigureOptimizers:
-
     def test_returns_optimizer_without_scheduler_when_no_lr_schedule(
         self,
         lightning_policy_factory: Callable,
@@ -412,9 +406,7 @@ class TestConfigureOptimizers:
         training_config_factory: Callable,
         mock_trainer_factory: Callable,
     ):
-        config = training_config_factory(
-            lr_schedule="cosine", lr_warmup_steps=50
-        )
+        config = training_config_factory(lr_schedule="cosine", lr_warmup_steps=50)
         lightning_policy = lightning_policy_factory(
             training_config=config,
             total_training_steps=1000,
@@ -434,9 +426,7 @@ class TestConfigureOptimizers:
         lightning_policy_factory: Callable,
         training_config_factory: Callable,
     ):
-        config = training_config_factory(
-            lr_schedule="linear", lr_warmup_steps=10
-        )
+        config = training_config_factory(lr_schedule="linear", lr_warmup_steps=10)
         total_steps = 500
         lightning_policy = lightning_policy_factory(
             training_config=config,
@@ -454,9 +444,7 @@ class TestConfigureOptimizers:
         training_config_factory: Callable,
         mock_trainer_factory: Callable,
     ):
-        config = training_config_factory(
-            lr_schedule="cosine", lr_warmup_steps=10
-        )
+        config = training_config_factory(lr_schedule="cosine", lr_warmup_steps=10)
         lightning_policy = lightning_policy_factory(
             training_config=config,
             total_training_steps=None,
@@ -488,7 +476,6 @@ class TestConfigureOptimizers:
 
 @pytest.mark.unit
 class TestCreateParameterGroups:
-
     def test_single_group_when_no_param_groups_configured(
         self,
         mock_policy_factory: Callable,
@@ -524,11 +511,13 @@ class TestCreateParameterGroups:
         )
 
         policy = MagicMock()
-        policy.named_parameters.return_value = iter([
-            ("encoder.layer.weight", encoder_weight),
-            ("decoder.layer.weight", decoder_weight),
-            ("head.bias", other_weight),
-        ])
+        policy.named_parameters.return_value = iter(
+            [
+                ("encoder.layer.weight", encoder_weight),
+                ("decoder.layer.weight", decoder_weight),
+                ("head.bias", other_weight),
+            ]
+        )
         policy.parameters.return_value = iter(
             [encoder_weight, decoder_weight, other_weight]
         )
@@ -583,10 +572,12 @@ class TestCreateParameterGroups:
         )
 
         policy = MagicMock()
-        policy.named_parameters.return_value = iter([
-            ("trainable.weight", trainable),
-            ("frozen.weight", frozen),
-        ])
+        policy.named_parameters.return_value = iter(
+            [
+                ("trainable.weight", trainable),
+                ("frozen.weight", frozen),
+            ]
+        )
         policy.parameters.return_value = iter([trainable, frozen])
 
         param_groups = [
@@ -619,9 +610,11 @@ class TestCreateParameterGroups:
         )
 
         policy = MagicMock()
-        policy.named_parameters.return_value = iter([
-            ("encoder.weight", weight),
-        ])
+        policy.named_parameters.return_value = iter(
+            [
+                ("encoder.weight", weight),
+            ]
+        )
         policy.parameters.return_value = iter([weight])
 
         param_groups = [
@@ -646,7 +639,6 @@ class TestCreateParameterGroups:
 
 @pytest.mark.unit
 class TestDataloaderAccessors:
-
     def test_train_dataloader_returns_stored_value(
         self,
         lightning_policy_factory: Callable,

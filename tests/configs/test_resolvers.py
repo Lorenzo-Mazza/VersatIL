@@ -1,4 +1,5 @@
 """Tests for versatil.configs resolver registration."""
+
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -47,7 +48,6 @@ from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.training.constants import Float32MatmulPrecision, PrecisionType
 
-
 register_resolvers()
 
 
@@ -95,7 +95,6 @@ ENUM_RESOLVER_CASES = [
 
 @pytest.mark.unit
 class TestEnumResolvers:
-
     @pytest.mark.parametrize(
         "resolver_name, member_name, expected_value",
         ENUM_RESOLVER_CASES,
@@ -113,13 +112,15 @@ class TestEnumResolvers:
             _ = cfg.invalid
 
     def test_resolver_works_inside_list(self):
-        cfg = OmegaConf.create({
-            "camera_keys": [
-                "${cameras:LEFT}",
-                "${cameras:RIGHT}",
-                "${cameras:DEPTH}",
-            ]
-        })
+        cfg = OmegaConf.create(
+            {
+                "camera_keys": [
+                    "${cameras:LEFT}",
+                    "${cameras:RIGHT}",
+                    "${cameras:DEPTH}",
+                ]
+            }
+        )
         assert cfg.camera_keys == [
             Cameras.LEFT.value,
             Cameras.RIGHT.value,
@@ -127,27 +128,30 @@ class TestEnumResolvers:
         ]
 
     def test_resolver_works_in_nested_config(self):
-        cfg = OmegaConf.create({
-            "task": {
-                "cameras": ["${cameras:LEFT}"],
-                "gripper_type": "${gripper:BINARY}",
+        cfg = OmegaConf.create(
+            {
+                "task": {
+                    "cameras": ["${cameras:LEFT}"],
+                    "gripper_type": "${gripper:BINARY}",
+                }
             }
-        })
+        )
         assert cfg.task.cameras == [Cameras.LEFT.value]
         assert cfg.task.gripper_type == GripperType.BINARY.value
 
     def test_resolver_combined_with_omegaconf_interpolation(self):
-        cfg = OmegaConf.create({
-            "default_camera": "${cameras:LEFT}",
-            "selected_camera": "${default_camera}",
-        })
+        cfg = OmegaConf.create(
+            {
+                "default_camera": "${cameras:LEFT}",
+                "selected_camera": "${default_camera}",
+            }
+        )
         assert cfg.default_camera == Cameras.LEFT.value
         assert cfg.selected_camera == Cameras.LEFT.value
 
 
 @pytest.mark.unit
 class TestPathResolvers:
-
     def test_env_resolver_reads_environment_variable(self):
         with patch.dict(os.environ, {"TEST_VAR": "test_value"}):
             cfg = OmegaConf.create({"val": "${env:TEST_VAR}"})

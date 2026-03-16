@@ -1,4 +1,5 @@
 """Tests for versatil.configs.encoding.pipeline module."""
+
 import pytest
 from hydra.utils import instantiate
 from omegaconf import MISSING
@@ -10,7 +11,6 @@ from versatil.models.encoding.pipeline import EncodingPipeline
 
 @pytest.mark.unit
 class TestEncodingPipelineConfig:
-
     def test_target_points_to_encoding_pipeline(self):
         config = EncodingPipelineConfig(encoders={})
         assert config._target_ == "versatil.models.encoding.pipeline.EncodingPipeline"
@@ -26,7 +26,6 @@ class TestEncodingPipelineConfig:
 
 @pytest.mark.unit
 class TestEncodingPipelineInstantiation:
-
     def test_empty_pipeline_instantiates(self):
         config = EncodingPipelineConfig(encoders={})
         instance = instantiate(config)

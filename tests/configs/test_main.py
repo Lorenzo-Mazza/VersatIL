@@ -1,19 +1,19 @@
 """Tests for versatil.configs.main module."""
+
 import dataclasses
 
 import pytest
 
+from versatil.configs.data.task import TaskSpaceConfig
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.inference import InferenceConfig
 from versatil.configs.main import MainConfig
 from versatil.configs.policy import PolicyConfig
-from versatil.configs.data.task import TaskSpaceConfig
 from versatil.configs.training import TrainingConfig
 
 
 @pytest.mark.unit
 class TestMainConfig:
-
     def test_has_all_expected_fields(self):
         field_names = {f.name for f in dataclasses.fields(MainConfig)}
         expected = {

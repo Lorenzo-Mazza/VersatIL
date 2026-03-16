@@ -1,4 +1,5 @@
 """Tests for versatil.metrics.components module."""
+
 import math
 import re
 
@@ -13,7 +14,6 @@ from versatil.data.metadata import (
     GripperObservationMetadata,
     OnTheFlyActionMetadata,
 )
-from versatil.metrics.base import LossOutput
 from versatil.metrics.components import (
     ActionTokenLoss,
     BinaryKLDivergenceLoss,
@@ -82,11 +82,14 @@ class TestRegressionLossInit:
         loss = RegressionLoss(action_keys=["position", "orientation"])
         assert loss.action_keys == ["position", "orientation"]
 
-    @pytest.mark.parametrize("mse_weight, l1_weight, huber_weight", [
-        (1.0, 0.0, 0.0),
-        (0.0, 1.0, 0.0),
-        (0.5, 0.3, 0.2),
-    ])
+    @pytest.mark.parametrize(
+        "mse_weight, l1_weight, huber_weight",
+        [
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.5, 0.3, 0.2),
+        ],
+    )
     def test_stores_loss_weights(self, mse_weight, l1_weight, huber_weight):
         loss = RegressionLoss(
             action_keys=["position"],
@@ -141,7 +144,9 @@ class TestRegressionLossForward:
             huber_delta=delta,
         )
         output = loss(predictions, targets)
-        expected = F.huber_loss(predictions["position"], targets["position"], delta=delta)
+        expected = F.huber_loss(
+            predictions["position"], targets["position"], delta=delta
+        )
         assert output.total_loss.item() == pytest.approx(expected.item())
 
     def test_per_key_weights_scale_loss(self):
@@ -245,7 +250,9 @@ class TestGripperLossInit:
 @pytest.mark.unit
 class TestGripperLossGetRequiredKeys:
     def test_returns_gripper_key(self, binary_gripper_metadata_factory):
-        loss = GripperLoss(key="gripper", actions_metadata=binary_gripper_metadata_factory())
+        loss = GripperLoss(
+            key="gripper", actions_metadata=binary_gripper_metadata_factory()
+        )
         assert loss.get_required_keys() == {"gripper"}
 
 
@@ -409,8 +416,12 @@ class TestKLDivergenceLossForwardClosedForm:
 
     def test_kl_is_positive_for_different_distributions(self, rng):
         batch_size, latent_dim = 4, 8
-        mu_post = torch.from_numpy(rng.standard_normal((batch_size, latent_dim)).astype(np.float32))
-        logvar_post = torch.from_numpy(rng.standard_normal((batch_size, latent_dim)).astype(np.float32))
+        mu_post = torch.from_numpy(
+            rng.standard_normal((batch_size, latent_dim)).astype(np.float32)
+        )
+        logvar_post = torch.from_numpy(
+            rng.standard_normal((batch_size, latent_dim)).astype(np.float32)
+        )
         mu_prior = torch.zeros(batch_size, latent_dim)
         logvar_prior = torch.zeros(batch_size, latent_dim)
         z = mu_post + torch.exp(0.5 * logvar_post)
@@ -470,7 +481,10 @@ class TestKLDivergenceLossForwardClosedForm:
         output_no_reg = loss_no_reg(predictions, {})
         output_with_reg = loss_with_reg(predictions, {})
         assert output_with_reg.total_loss.item() > output_no_reg.total_loss.item()
-        assert MetricKey.HYPERPRIOR_KL_REGULARIZATION.value in output_with_reg.component_losses
+        assert (
+            MetricKey.HYPERPRIOR_KL_REGULARIZATION.value
+            in output_with_reg.component_losses
+        )
 
     def test_metadata_includes_latent_variables(self):
         batch_size, latent_dim = 2, 4
@@ -503,9 +517,11 @@ class TestKLDivergenceLossForwardWithLogProb:
         logvar = torch.zeros(batch_size, latent_dim)
         z = torch.zeros(batch_size, latent_dim)
         # log_prob of z under N(0,I) prior
-        prior_log_prob = torch.distributions.Normal(
-            torch.zeros(latent_dim), torch.ones(latent_dim)
-        ).log_prob(z).sum(dim=-1)
+        prior_log_prob = (
+            torch.distributions.Normal(torch.zeros(latent_dim), torch.ones(latent_dim))
+            .log_prob(z)
+            .sum(dim=-1)
+        )
         predictions = {
             LatentKey.POSTERIOR_MU.value: mu,
             LatentKey.POSTERIOR_LOGVAR.value: logvar,
@@ -533,9 +549,9 @@ class TestBinaryKLDivergenceLossForward:
         loss = BinaryKLDivergenceLoss(weight=1.0, entropy_weight=0.0, free_bits=0.0)
         predictions = {DecoderOutputKey.BINARY_LOGITS.value: logits}
         output = loss(predictions, {})
-        assert output.component_losses[MetricKey.RAW_KL_DIVERGENCE.value].item() == pytest.approx(
-            0.0, abs=1e-5
-        )
+        assert output.component_losses[
+            MetricKey.RAW_KL_DIVERGENCE.value
+        ].item() == pytest.approx(0.0, abs=1e-5)
 
     def test_extreme_logits_produce_positive_kl(self):
         logits = 10.0 * torch.ones(4, 3, 8)  # sigmoid(10) ≈ 1
@@ -547,12 +563,14 @@ class TestBinaryKLDivergenceLossForward:
     def test_free_bits_clamps_kl(self):
         logits = torch.zeros(4, 3, 8)  # KL ≈ 0
         free_bits = 1.0
-        loss = BinaryKLDivergenceLoss(weight=1.0, entropy_weight=0.0, free_bits=free_bits)
+        loss = BinaryKLDivergenceLoss(
+            weight=1.0, entropy_weight=0.0, free_bits=free_bits
+        )
         predictions = {DecoderOutputKey.BINARY_LOGITS.value: logits}
         output = loss(predictions, {})
-        assert output.component_losses[MetricKey.CLAMPED_KL_DIVERGENCE.value].item() == pytest.approx(
-            0.0, abs=1e-5
-        )
+        assert output.component_losses[
+            MetricKey.CLAMPED_KL_DIVERGENCE.value
+        ].item() == pytest.approx(0.0, abs=1e-5)
 
     @pytest.mark.parametrize("free_bits", [0.5, 1.0, 2.0])
     def test_free_bits_reduces_effective_kl_below_threshold(self, free_bits):
@@ -568,8 +586,12 @@ class TestBinaryKLDivergenceLossForward:
         output_no_free = loss_no_free(predictions, {})
         output_with_free = loss_with_free(predictions, {})
 
-        raw_kl = output_no_free.component_losses[MetricKey.RAW_KL_DIVERGENCE.value].item()
-        clamped_kl = output_with_free.component_losses[MetricKey.CLAMPED_KL_DIVERGENCE.value].item()
+        raw_kl = output_no_free.component_losses[
+            MetricKey.RAW_KL_DIVERGENCE.value
+        ].item()
+        clamped_kl = output_with_free.component_losses[
+            MetricKey.CLAMPED_KL_DIVERGENCE.value
+        ].item()
         # Raw KL should exceed free_bits for extreme logits
         assert raw_kl > free_bits
         # Clamped KL = mean(max(0, kl_per_token - free_bits)) < raw_kl
@@ -628,7 +650,9 @@ class TestMaximumMeanDiscrepancyLossForward:
         assert output.total_loss.item() == pytest.approx(0.0, abs=0.01)
 
     def test_different_samples_produce_larger_mmd(self, rng):
-        z_posterior = torch.from_numpy(rng.standard_normal((32, 8)).astype(np.float32)) + 5.0
+        z_posterior = (
+            torch.from_numpy(rng.standard_normal((32, 8)).astype(np.float32)) + 5.0
+        )
         z_prior = torch.from_numpy(rng.standard_normal((32, 8)).astype(np.float32))
         predictions = {
             LatentKey.POSTERIOR_LATENT.value: z_posterior,
@@ -640,17 +664,26 @@ class TestMaximumMeanDiscrepancyLossForward:
 
     def test_prior_regularization_penalizes_non_standard_prior(self, rng):
         z_posterior = torch.from_numpy(rng.standard_normal((32, 8)).astype(np.float32))
-        z_prior = torch.from_numpy(rng.standard_normal((32, 8)).astype(np.float32)) + 5.0
+        z_prior = (
+            torch.from_numpy(rng.standard_normal((32, 8)).astype(np.float32)) + 5.0
+        )
         predictions = {
             LatentKey.POSTERIOR_LATENT.value: z_posterior,
             LatentKey.PRIOR_LATENT.value: z_prior,
         }
-        loss_no_reg = MaximumMeanDiscrepancyLoss(weight=1.0, prior_regularization_weight=0.0)
-        loss_with_reg = MaximumMeanDiscrepancyLoss(weight=1.0, prior_regularization_weight=1.0)
+        loss_no_reg = MaximumMeanDiscrepancyLoss(
+            weight=1.0, prior_regularization_weight=0.0
+        )
+        loss_with_reg = MaximumMeanDiscrepancyLoss(
+            weight=1.0, prior_regularization_weight=1.0
+        )
         output_no_reg = loss_no_reg(predictions, {})
         output_with_reg = loss_with_reg(predictions, {})
         assert output_with_reg.total_loss.item() >= output_no_reg.total_loss.item()
-        assert MetricKey.HYPERPRIOR_MMD_REGULARIZATION.value in output_with_reg.component_losses
+        assert (
+            MetricKey.HYPERPRIOR_MMD_REGULARIZATION.value
+            in output_with_reg.component_losses
+        )
 
     def test_raises_when_prior_missing_and_not_fixed(self):
         loss = MaximumMeanDiscrepancyLoss(use_fixed_gaussian_as_prior=False)
@@ -661,7 +694,9 @@ class TestMaximumMeanDiscrepancyLossForward:
         ):
             loss(predictions, {})
 
-    @pytest.mark.parametrize("kernel_type", [KernelType.RBF.value, KernelType.IMQ.value])
+    @pytest.mark.parametrize(
+        "kernel_type", [KernelType.RBF.value, KernelType.IMQ.value]
+    )
     def test_accepts_different_kernel_types(self, rng, kernel_type):
         z = torch.from_numpy(rng.standard_normal((16, 4)).astype(np.float32))
         predictions = {
@@ -711,9 +746,7 @@ class TestBinaryMaximumMeanDiscrepancyLossForward:
         assert output_uniform.total_loss.item() < output_extreme.total_loss.item()
 
     def test_metadata_contains_posterior_z(self, rng):
-        logits = torch.from_numpy(
-            rng.standard_normal((8, 4, 16)).astype(np.float32)
-        )
+        logits = torch.from_numpy(rng.standard_normal((8, 4, 16)).astype(np.float32))
         predictions = {DecoderOutputKey.BINARY_LOGITS.value: logits}
         loss = BinaryMaximumMeanDiscrepancyLoss(weight=1.0)
         output = loss(predictions, {})
@@ -723,9 +756,7 @@ class TestBinaryMaximumMeanDiscrepancyLossForward:
 
     @pytest.mark.parametrize("weight", [1.0, 3.0, 0.5])
     def test_weight_scales_total_loss_relative_to_component(self, rng, weight):
-        logits = torch.from_numpy(
-            rng.standard_normal((8, 4, 16)).astype(np.float32)
-        )
+        logits = torch.from_numpy(rng.standard_normal((8, 4, 16)).astype(np.float32))
         predictions = {DecoderOutputKey.BINARY_LOGITS.value: logits}
         loss = BinaryMaximumMeanDiscrepancyLoss(weight=weight)
         output = loss(predictions, {})
@@ -842,7 +873,9 @@ class TestPhaseClassificationLossForward:
 
     def test_random_predictions_produce_higher_loss(self, rng):
         batch_size, horizon, num_phases = 4, 5, 3
-        logits_data = rng.standard_normal((batch_size, horizon, num_phases)).astype(np.float32)
+        logits_data = rng.standard_normal((batch_size, horizon, num_phases)).astype(
+            np.float32
+        )
         logits = torch.from_numpy(logits_data)
         labels = torch.zeros(batch_size, horizon, dtype=torch.long)
         predictions = {"phase_label": logits}
@@ -858,7 +891,9 @@ class TestPhaseClassificationLossForward:
 
     def test_entropy_regularization_subtracts_from_loss(self, rng):
         batch_size, horizon, num_phases = 4, 5, 3
-        logits_data = rng.standard_normal((batch_size, horizon, num_phases)).astype(np.float32)
+        logits_data = rng.standard_normal((batch_size, horizon, num_phases)).astype(
+            np.float32
+        )
         logits = torch.from_numpy(logits_data)
         labels = torch.zeros(batch_size, horizon, dtype=torch.long)
         predictions = {"phase_label": logits}
@@ -880,7 +915,10 @@ class TestPhaseClassificationLossForward:
         logits[:, :, 0] = 100.0
         labels = torch.zeros(batch_size, horizon, 1, dtype=torch.long)  # (B, T, 1)
         loss = PhaseClassificationLoss(
-            key="phase_label", cross_entropy_weight=1.0, entropy_weight=0.0, label_smoothing=0.0,
+            key="phase_label",
+            cross_entropy_weight=1.0,
+            entropy_weight=0.0,
+            label_smoothing=0.0,
         )
         output = loss({"phase_label": logits}, {"phase_label": labels})
         assert output.total_loss.item() < 0.01
@@ -924,12 +962,16 @@ class TestActionTokenLossForward:
         loss = ActionTokenLoss(label_smoothing=0.0)
         output = loss(predictions, targets)
         assert output.total_loss.item() < 0.01
-        assert output.component_losses[MetricKey.TOKEN_ACCURACY.value].item() == pytest.approx(1.0)
+        assert output.component_losses[
+            MetricKey.TOKEN_ACCURACY.value
+        ].item() == pytest.approx(1.0)
 
     def test_random_predictions_have_low_accuracy(self, rng):
         vocab_size = 100
         batch_size, horizon = 4, 10
-        logits_data = rng.standard_normal((batch_size, horizon, vocab_size)).astype(np.float32)
+        logits_data = rng.standard_normal((batch_size, horizon, vocab_size)).astype(
+            np.float32
+        )
         logits = torch.from_numpy(logits_data)
         target_tokens = torch.zeros(batch_size, horizon, dtype=torch.long)
         predictions = {DecoderOutputKey.ACTION_LOGITS.value: logits}
@@ -941,7 +983,9 @@ class TestActionTokenLossForward:
     def test_perplexity_is_exp_of_cross_entropy(self, rng):
         vocab_size = 10
         batch_size, horizon = 2, 4
-        logits_data = rng.standard_normal((batch_size, horizon, vocab_size)).astype(np.float32)
+        logits_data = rng.standard_normal((batch_size, horizon, vocab_size)).astype(
+            np.float32
+        )
         logits = torch.from_numpy(logits_data)
         target_tokens = torch.zeros(batch_size, horizon, dtype=torch.long)
         predictions = {DecoderOutputKey.ACTION_LOGITS.value: logits}
@@ -1063,7 +1107,9 @@ class TestGaussianMixtureNLLossForward:
         target = torch.ones(batch_size, horizon, action_dim)
         means = torch.zeros(batch_size, horizon, num_experts, action_dim)
         means[:, :, 0] = 1.0  # Expert 0 = perfect match
-        logvars = -2.0 * torch.ones(batch_size, horizon, num_experts, action_dim)  # small variance
+        logvars = -2.0 * torch.ones(
+            batch_size, horizon, num_experts, action_dim
+        )  # small variance
         routing_weights = torch.tensor([[0.99, 0.01]])  # heavily weight expert 0
         predictions = {
             "position_mean": means,
@@ -1096,7 +1142,9 @@ class TestGaussianMixtureNLLossForward:
 
     def test_weight_scales_output(self, rng):
         batch_size, horizon, num_experts, action_dim = 2, 3, 2, 2
-        target_data = rng.standard_normal((batch_size, horizon, action_dim)).astype(np.float32)
+        target_data = rng.standard_normal((batch_size, horizon, action_dim)).astype(
+            np.float32
+        )
         target = torch.from_numpy(target_data)
         means = torch.zeros(batch_size, horizon, num_experts, action_dim)
         routing_weights = torch.ones(1, num_experts) / num_experts
@@ -1105,8 +1153,12 @@ class TestGaussianMixtureNLLossForward:
             DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
         }
         targets = {"position": target}
-        loss_w1 = GaussianMixtureNLLoss(action_keys=["position"], weight=1.0, learned_variance=False)
-        loss_w2 = GaussianMixtureNLLoss(action_keys=["position"], weight=2.0, learned_variance=False)
+        loss_w1 = GaussianMixtureNLLoss(
+            action_keys=["position"], weight=1.0, learned_variance=False
+        )
+        loss_w2 = GaussianMixtureNLLoss(
+            action_keys=["position"], weight=2.0, learned_variance=False
+        )
         output_w1 = loss_w1(predictions, targets)
         output_w2 = loss_w2(predictions, targets)
         assert output_w2.total_loss.item() == pytest.approx(
@@ -1134,7 +1186,9 @@ class TestGripperMixtureNLLossInit:
 class TestGripperMixtureNLLossForward:
     def test_binary_gripper_produces_finite_loss(self, binary_gripper_metadata_factory):
         metadata = binary_gripper_metadata_factory()
-        loss = GripperMixtureNLLoss(key="gripper", actions_metadata=metadata, weight=1.0)
+        loss = GripperMixtureNLLoss(
+            key="gripper", actions_metadata=metadata, weight=1.0
+        )
         batch_size, horizon, num_experts = 2, 3, 2
         expert_logits = torch.zeros(batch_size, horizon, num_experts)
         routing_weights = torch.tensor([[0.5, 0.5]])
@@ -1147,7 +1201,9 @@ class TestGripperMixtureNLLossForward:
         assert output.total_loss.isfinite()
         assert MetricKey.GRIPPER_NLL.value in output.component_losses
 
-    def test_continuous_gripper_fixed_variance(self, continuous_gripper_metadata_factory):
+    def test_continuous_gripper_fixed_variance(
+        self, continuous_gripper_metadata_factory
+    ):
         metadata = continuous_gripper_metadata_factory()
         loss = GripperMixtureNLLoss(
             key="gripper",
@@ -1211,7 +1267,9 @@ class TestMoELossForward:
         predictions = {
             "position": torch.ones(batch_size, horizon, action_dim),
             DecoderOutputKey.ROUTING_WEIGHTS.value: torch.softmax(
-                torch.from_numpy(rng.standard_normal((batch_size, num_experts)).astype(np.float32)),
+                torch.from_numpy(
+                    rng.standard_normal((batch_size, num_experts)).astype(np.float32)
+                ),
                 dim=-1,
             ),
         }
@@ -1246,7 +1304,9 @@ class TestMoELossForward:
 @pytest.mark.unit
 class TestMetadataPassthroughGetRequiredKeys:
     def test_returns_target_keys(self):
-        loss = MetadataPassthrough(keys_mapping={"phase_label": "phase_label", "extra": "extra_meta"})
+        loss = MetadataPassthrough(
+            keys_mapping={"phase_label": "phase_label", "extra": "extra_meta"}
+        )
         assert loss.get_required_keys() == {"phase_label", "extra"}
 
 

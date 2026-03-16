@@ -33,8 +33,8 @@ class MMDKernel(nn.Module, abc.ABC):
             x = x.view(-1, x.size(-1))
         if y.dim() > 2:
             y = y.view(-1, y.size(-1))
-        xx = (x ** 2).sum(-1, keepdim=True)  # (N, 1)
-        yy = (y ** 2).sum(-1, keepdim=True).t()  # (1, M)
+        xx = (x**2).sum(-1, keepdim=True)  # (N, 1)
+        yy = (y**2).sum(-1, keepdim=True).t()  # (1, M)
         xy = torch.mm(x, y.t())  # (N, M)
         dist_sq = xx + yy - 2 * xy
         return torch.clamp(dist_sq, min=1e-10)
@@ -54,7 +54,7 @@ class MMDKernel(nn.Module, abc.ABC):
         if points.dim() > 2:
             points = points.view(-1, points.size(-1))
         device = points.device
-        norms = (points ** 2).sum(-1)
+        norms = (points**2).sum(-1)
         dist_sq = (
             norms.unsqueeze(0) + norms.unsqueeze(1) - 2 * torch.mm(points, points.t())
         )
@@ -177,9 +177,7 @@ class KernelType(str, enum.Enum):
     RBF = "rbf"
     IMQ = "imq"
 
-    def to_kernel(
-        self, bandwidth_multipliers: list[float] | None = None
-    ) -> MMDKernel:
+    def to_kernel(self, bandwidth_multipliers: list[float] | None = None) -> MMDKernel:
         """Instantiate the corresponding kernel.
 
         Args:

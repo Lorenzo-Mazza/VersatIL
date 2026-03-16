@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.positional_encoding.sinusoidal module."""
+
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -20,6 +21,7 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
 @pytest.fixture
 def sinusoidal_2d_factory() -> Callable[..., SinusoidalPositionalEncoding2D]:
     """Factory for SinusoidalPositionalEncoding2D instances."""
+
     def factory(
         embedding_dimension: int = 64,
         temperature: float = 10000.0,
@@ -36,11 +38,11 @@ def sinusoidal_2d_factory() -> Callable[..., SinusoidalPositionalEncoding2D]:
             mlp_hidden_dimensions=mlp_hidden_dimensions,
             mlp_activation=mlp_activation,
         )
+
     return factory
 
 
 class TestSinusoidalPositionalEncoding1DInit:
-
     def test_odd_embedding_dimension_raises(self):
         with pytest.raises(
             ValueError,
@@ -50,10 +52,13 @@ class TestSinusoidalPositionalEncoding1DInit:
 
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("temperature", [10000.0, 5000.0])
-    @pytest.mark.parametrize("ordering_mode", [
-        OrderingMode.INTERLEAVE_SIN_COS.value,
-        OrderingMode.CAT_COS_SIN.value,
-    ])
+    @pytest.mark.parametrize(
+        "ordering_mode",
+        [
+            OrderingMode.INTERLEAVE_SIN_COS.value,
+            OrderingMode.CAT_COS_SIN.value,
+        ],
+    )
     def test_stores_configuration(
         self,
         embedding_dimension: int,
@@ -83,7 +88,9 @@ class TestSinusoidalPositionalEncoding1DInit:
         )
         # Buffer should be (1, maximum_length, embedding_dimension)
         assert module.precomputed_encodings.shape == (
-            1, maximum_length, embedding_dimension
+            1,
+            maximum_length,
+            embedding_dimension,
         )
 
     def test_no_precomputed_buffer_when_precomputed_false(
@@ -99,14 +106,20 @@ class TestSinusoidalPositionalEncoding1DInit:
         buffers = dict(module.named_buffers())
         assert "precomputed_encodings" not in buffers
 
-    @pytest.mark.parametrize("denominator_mode, expectation", [
-        (DenominatorMode.HALF.value, does_not_raise()),
-        (DenominatorMode.HALF_MINUS_ONE.value, does_not_raise()),
-        ("invalid_mode", pytest.raises(
-            ValueError,
-            match=re.escape("Invalid denominator_mode: invalid_mode"),
-        )),
-    ])
+    @pytest.mark.parametrize(
+        "denominator_mode, expectation",
+        [
+            (DenominatorMode.HALF.value, does_not_raise()),
+            (DenominatorMode.HALF_MINUS_ONE.value, does_not_raise()),
+            (
+                "invalid_mode",
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("Invalid denominator_mode: invalid_mode"),
+                ),
+            ),
+        ],
+    )
     def test_denominator_mode_validation(
         self,
         denominator_mode: str,
@@ -132,11 +145,13 @@ class TestSinusoidalPositionalEncoding1DInit:
 
 
 class TestSinusoidalPositionalEncoding1DForward:
-
-    @pytest.mark.parametrize("batch_size, sequence_length, embedding_dimension", [
-        (2, 10, 64),
-        (4, 20, 128),
-    ])
+    @pytest.mark.parametrize(
+        "batch_size, sequence_length, embedding_dimension",
+        [
+            (2, 10, 64),
+            (4, 20, 128),
+        ],
+    )
     def test_output_shape_tensor_indices(
         self,
         sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
@@ -181,7 +196,9 @@ class TestSinusoidalPositionalEncoding1DForward:
     ):
         module = sinusoidal_1d_factory(embedding_dimension=64)
         tensor = sequence_tensor_factory(
-            batch_size=1, sequence_length=10, embedding_dimension=64,
+            batch_size=1,
+            sequence_length=10,
+            embedding_dimension=64,
         )
         output = module(tensor)
         encoding_pos_0 = output[0, 0]
@@ -205,7 +222,9 @@ class TestSinusoidalPositionalEncoding1DForward:
             precompute_encodings=False,
         )
         tensor = sequence_tensor_factory(
-            batch_size=2, sequence_length=sequence_length, embedding_dimension=embedding_dimension,
+            batch_size=2,
+            sequence_length=sequence_length,
+            embedding_dimension=embedding_dimension,
         )
         output_precomputed = precomputed(tensor)
         output_non_precomputed = non_precomputed(tensor)
@@ -213,11 +232,13 @@ class TestSinusoidalPositionalEncoding1DForward:
 
 
 class TestCreateEncodingTable:
-
-    @pytest.mark.parametrize("number_of_positions, embedding_dimension", [
-        (10, 64),
-        (50, 128),
-    ])
+    @pytest.mark.parametrize(
+        "number_of_positions, embedding_dimension",
+        [
+            (10, 64),
+            (50, 128),
+        ],
+    )
     def test_output_shape(
         self,
         number_of_positions: int,
@@ -240,7 +261,6 @@ class TestCreateEncodingTable:
 
 
 class TestSinusoidalPositionalEncoding2D:
-
     def test_odd_embedding_dimension_raises(self):
         with pytest.raises(
             ValueError,
@@ -248,10 +268,13 @@ class TestSinusoidalPositionalEncoding2D:
         ):
             SinusoidalPositionalEncoding2D(embedding_dimension=63)
 
-    @pytest.mark.parametrize("batch_size, embedding_dimension, height, width", [
-        (2, 64, 8, 8),
-        (4, 128, 4, 6),
-    ])
+    @pytest.mark.parametrize(
+        "batch_size, embedding_dimension, height, width",
+        [
+            (2, 64, 8, 8),
+            (4, 128, 4, 6),
+        ],
+    )
     def test_output_shape(
         self,
         sinusoidal_2d_factory: Callable[..., SinusoidalPositionalEncoding2D],
@@ -290,7 +313,10 @@ class TestSinusoidalPositionalEncoding2D:
     ):
         module = sinusoidal_2d_factory(embedding_dimension=64)
         tensor = nchw_tensor_factory(
-            batch_size=1, channels=64, height=4, width=4,
+            batch_size=1,
+            channels=64,
+            height=4,
+            width=4,
         )
         output = module(tensor)
         encoding_00 = output[0, :, 0, 0]
@@ -305,13 +331,18 @@ class TestSinusoidalPositionalEncoding2D:
         embedding_dimension = 64
         height, width = 8, 8
         normalized = sinusoidal_2d_factory(
-            embedding_dimension=embedding_dimension, normalize=True,
+            embedding_dimension=embedding_dimension,
+            normalize=True,
         )
         unnormalized = sinusoidal_2d_factory(
-            embedding_dimension=embedding_dimension, normalize=False,
+            embedding_dimension=embedding_dimension,
+            normalize=False,
         )
         tensor = nchw_tensor_factory(
-            batch_size=1, channels=embedding_dimension, height=height, width=width,
+            batch_size=1,
+            channels=embedding_dimension,
+            height=height,
+            width=width,
         )
         output_normalized = normalized(tensor)
         output_unnormalized = unnormalized(tensor)
@@ -324,13 +355,20 @@ class TestSinusoidalPositionalEncoding2D:
     ):
         embedding_dimension = 64
         module = sinusoidal_2d_factory(
-            embedding_dimension=embedding_dimension, normalize=True,
+            embedding_dimension=embedding_dimension,
+            normalize=True,
         )
         small_tensor = nchw_tensor_factory(
-            batch_size=1, channels=embedding_dimension, height=4, width=4,
+            batch_size=1,
+            channels=embedding_dimension,
+            height=4,
+            width=4,
         )
         large_tensor = nchw_tensor_factory(
-            batch_size=1, channels=embedding_dimension, height=8, width=8,
+            batch_size=1,
+            channels=embedding_dimension,
+            height=8,
+            width=8,
         )
         output_small = module(small_tensor)
         output_large = module(large_tensor)
@@ -344,7 +382,6 @@ class TestSinusoidalPositionalEncoding2D:
 
 
 class TestSinusoidalPositionalEncoding1DInvalidOrderingMode:
-
     def test_invalid_ordering_mode_raises_on_compute(self):
         invalid_ordering = "invalid_ordering"
         module = SinusoidalPositionalEncoding1D(
@@ -363,7 +400,6 @@ class TestSinusoidalPositionalEncoding1DInvalidOrderingMode:
 
 
 class TestSinusoidalPositionalEncoding1DMlpPostProcessing:
-
     def test_mlp_changes_output_dimension(
         self,
         sinusoidal_1d_factory: Callable[..., SinusoidalPositionalEncoding1D],
@@ -442,7 +478,6 @@ class TestSinusoidalPositionalEncoding1DMlpPostProcessing:
 
 
 class TestSinusoidalPositionalEncoding2DMlpPostProcessing:
-
     def test_mlp_changes_2d_output_dimension(
         self,
         sinusoidal_2d_factory: Callable[..., SinusoidalPositionalEncoding2D],

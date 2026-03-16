@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.decoders.factory.conditional_action_unet module."""
+
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock
@@ -12,7 +13,6 @@ from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.conditional_action_unet import (
     ConditionalActionUNet,
 )
-
 
 EMBEDDING_DIMENSION = 32
 DOWN_DIMENSIONS = [32, 64]
@@ -84,10 +84,7 @@ def unet_decoder_factory(
     return factory
 
 
-
-
 class TestConditionalActionUNetInitialization:
-
     def test_inherits_from_action_decoder(
         self,
         unet_decoder_factory: Callable[..., ConditionalActionUNet],
@@ -162,7 +159,9 @@ class TestConditionalActionUNetInitialization:
         action_space = mock_action_space_factory(position_dim=POSITION_DIM)
         observation_space = mock_observation_space_factory()
         head_with_blocks = ActionHead(input_dim=EMBEDDING_DIMENSION)
-        head_with_blocks.blocks = torch.nn.ModuleList([torch.nn.Linear(EMBEDDING_DIMENSION, EMBEDDING_DIMENSION)])
+        head_with_blocks.blocks = torch.nn.ModuleList(
+            [torch.nn.Linear(EMBEDDING_DIMENSION, EMBEDDING_DIMENSION)]
+        )
         action_heads = {"position_action": head_with_blocks}
         decoder = ConditionalActionUNet(
             input_keys=["rgb_features"],
@@ -181,7 +180,6 @@ class TestConditionalActionUNetInitialization:
 
 
 class TestConditionalActionUNetForward:
-
     def test_raises_without_actions(
         self,
         unet_decoder_factory: Callable[..., ConditionalActionUNet],
@@ -295,10 +293,26 @@ class TestConditionalActionUNetForward:
             },
         )
         output = decoder(features=features, actions=actions)
-        assert set(output.keys()) == {"position_action", "orientation_action", "gripper_action"}
-        assert output["position_action"].shape == (BATCH_SIZE, PREDICTION_HORIZON, position_dim)
-        assert output["orientation_action"].shape == (BATCH_SIZE, PREDICTION_HORIZON, orientation_dim)
-        assert output["gripper_action"].shape == (BATCH_SIZE, PREDICTION_HORIZON, gripper_dim)
+        assert set(output.keys()) == {
+            "position_action",
+            "orientation_action",
+            "gripper_action",
+        }
+        assert output["position_action"].shape == (
+            BATCH_SIZE,
+            PREDICTION_HORIZON,
+            position_dim,
+        )
+        assert output["orientation_action"].shape == (
+            BATCH_SIZE,
+            PREDICTION_HORIZON,
+            orientation_dim,
+        )
+        assert output["gripper_action"].shape == (
+            BATCH_SIZE,
+            PREDICTION_HORIZON,
+            gripper_dim,
+        )
 
     def test_zero_init_modulation_makes_output_timestep_independent(
         self,
@@ -314,9 +328,7 @@ class TestConditionalActionUNetForward:
         features_t0[DecoderOutputKey.TIMESTEP.value] = torch.zeros(
             BATCH_SIZE, dtype=torch.long
         )
-        features_t99 = {
-            key: tensor.clone() for key, tensor in features_t0.items()
-        }
+        features_t99 = {key: tensor.clone() for key, tensor in features_t0.items()}
         features_t99[DecoderOutputKey.TIMESTEP.value] = torch.full(
             (BATCH_SIZE,), 99, dtype=torch.long
         )

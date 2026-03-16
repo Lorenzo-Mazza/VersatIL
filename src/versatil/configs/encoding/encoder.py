@@ -1,13 +1,14 @@
 """Configuration classes for observation encoders of different data modalities."""
+
 from dataclasses import dataclass, field
 
 from omegaconf import MISSING
 
 from versatil.data.constants import Cameras
 from versatil.models.encoding.encoders.constants import (
+    BatchNormHandling,
     LanguageEncoderType,
     PoolingMethod,
-    BatchNormHandling,
 )
 from versatil.models.layers.activation import ActivationFunction
 

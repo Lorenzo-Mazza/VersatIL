@@ -7,7 +7,6 @@ This provides the same functionality as the old BehavioralCloning with latent_en
 but with a cleaner compositional design.
 """
 
-
 import torch
 
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
@@ -51,7 +50,7 @@ class BehavioralCloning(DecodingAlgorithm):
                 - 'gripper_action': Predicted gripper actions if used (B, T, D_grip)
                 - Additional architecture-specific outputs (e.g., 'is_pad')
         """
-        return network(features=features, actions=actions)  # type: ignore[no-any-return]
+        return network(features=features, actions=actions)
 
     def predict(
         self,
@@ -71,4 +70,4 @@ class BehavioralCloning(DecodingAlgorithm):
                 - 'orientation_action': Predicted orientation actions if used (B, T, D_ori)
                 - 'gripper_action': Predicted gripper actions if used (B, T, D_grip)
         """
-        return network(features=features, actions=None)  # type: ignore[no-any-return]
+        return network(features=features, actions=None)

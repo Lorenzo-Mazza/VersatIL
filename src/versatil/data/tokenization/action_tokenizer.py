@@ -2,8 +2,8 @@
 
 import logging
 import os
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -20,7 +20,7 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 class ActionTokenizer:
     """Action tokenizer with FAST and language vocabulary mapping support.
-    
+
     Note:
         FAST (Frequency-space Action Sequence Tokenization) provides efficient tokenization
         of multidimensional continuous action sequences into discrete tokens.
@@ -335,10 +335,14 @@ class ActionTokenizer:
 
         if arr.ndim == 2:
             # Single chunk (T, D)
-            return self.encode_chunk(action_chunk=action_chunks, is_pad_mask=is_pad_mask)
+            return self.encode_chunk(
+                action_chunk=action_chunks, is_pad_mask=is_pad_mask
+            )
         elif arr.ndim == 3:
             # Batch (N, T, D)
-            return self.encode_batch(action_chunks=action_chunks, is_pad_mask=is_pad_mask)
+            return self.encode_batch(
+                action_chunks=action_chunks, is_pad_mask=is_pad_mask
+            )
         else:
             raise ValueError(f"Expected 2D or 3D input, got shape {arr.shape}")
 
@@ -364,7 +368,9 @@ class ActionTokenizer:
         else:
             tokens_arr = tokens
 
-        valid_mask = (tokens_arr != self.pad_token_id) & (tokens_arr != self.eos_token_id)
+        valid_mask = (tokens_arr != self.pad_token_id) & (
+            tokens_arr != self.eos_token_id
+        )
         valid_tokens = tokens_arr[valid_mask]
         if self.language_tokenizer is not None:
             fast_tokens = self._unmap_language_to_fast_vocab(valid_tokens)
@@ -404,7 +410,9 @@ class ActionTokenizer:
         tokens_list_of_lists = []
         for i in range(tokens_arr.shape[0]):
             sample_tokens = tokens_arr[i]
-            valid_mask = (sample_tokens != self.pad_token_id) & (sample_tokens != self.eos_token_id)
+            valid_mask = (sample_tokens != self.pad_token_id) & (
+                sample_tokens != self.eos_token_id
+            )
             valid_tokens = sample_tokens[valid_mask]
             if self.language_tokenizer is not None:
                 valid_tokens = self._unmap_language_to_fast_vocab(valid_tokens)
@@ -511,7 +519,7 @@ class ActionTokenizer:
         self.fast_vocab_size = state_dict["fast_vocab_size"]
         self.num_special_tokens_to_skip = state_dict["num_special_tokens_to_skip"]
         self.vocab_size = state_dict["vocab_size"]
-        self.eos_token_id = state_dict.get("eos_token_id", None)
+        self.eos_token_id = state_dict.get("eos_token_id")
         self._is_fitted = state_dict["is_fitted"]
 
     @classmethod

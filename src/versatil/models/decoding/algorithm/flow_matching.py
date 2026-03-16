@@ -202,9 +202,7 @@ class FlowMatching(DecodingAlgorithm):
                 flat_action_size = flat_action_dimensions[current_key]
                 current_trajectory[current_key] = z[
                     :, offset : offset + flat_action_size
-                ].view(
-                    shapes[current_key]
-                )  # (B, H, D_k)
+                ].view(shapes[current_key])  # (B, H, D_k)
                 offset += flat_action_size
             features_with_time = {**features, DecoderOutputKey.TIMESTEP.value: t}
             velocities = network(
@@ -227,9 +225,7 @@ class FlowMatching(DecodingAlgorithm):
             flat_action_dimension = shapes[key][1] * shapes[key][2]
             result[key] = stacked_final[
                 :, current_offset : current_offset + flat_action_dimension
-            ].view(
-                shapes[key]
-            )  # (B, H, D_k)
+            ].view(shapes[key])  # (B, H, D_k)
             current_offset += flat_action_dimension
 
         if isinstance(network, DiTBlockActionTransformer):

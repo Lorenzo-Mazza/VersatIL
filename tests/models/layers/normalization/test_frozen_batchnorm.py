@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.normalization.frozen_batchnorm module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -20,7 +21,6 @@ def frozen_batchnorm_factory() -> Callable[..., FrozenBatchNorm2d]:
 
 
 class TestFrozenBatchNorm2dInitialization:
-
     @pytest.mark.parametrize("dimension", [8, 32])
     def test_registers_buffers_with_correct_values(
         self,
@@ -46,7 +46,6 @@ class TestFrozenBatchNorm2dInitialization:
 
 
 class TestFrozenBatchNorm2dForward:
-
     def test_default_stats_act_like_identity(
         self,
         frozen_batchnorm_factory: Callable[..., FrozenBatchNorm2d],
@@ -116,7 +115,6 @@ class TestFrozenBatchNorm2dForward:
 
 
 class TestFrozenBatchNorm2dLoadState:
-
     def test_load_state_dict_strips_num_batches_tracked_and_loads_values(
         self,
         frozen_batchnorm_factory: Callable[..., FrozenBatchNorm2d],

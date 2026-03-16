@@ -2,13 +2,13 @@
 
 import numpy as np
 import torch
-
 from versatil_constants.shared import (
     ActionComponent,
     ActionMetadataField,
     BinaryGripperRange,
     GripperType,
 )
+
 from versatil.data.metadata import (
     ActionMetadata,
     GripperActionMetadata,
@@ -58,9 +58,7 @@ class ActionPostprocessor:
         for key, metadata in self.action_space.actions_metadata.items():
             if not metadata.requires_prediction_head:
                 continue
-            value = (
-                action_dict[key].cpu().detach().float().numpy().flatten()
-            )
+            value = action_dict[key].cpu().detach().float().numpy().flatten()
             if metadata.action_type == ActionComponent.GRIPPER.value:
                 value = self._postprocess_gripper_action(
                     raw_value=value, action_meta=metadata
@@ -78,24 +76,16 @@ class ActionPostprocessor:
             Dict mapping ActionComponent value to metadata entry.
         """
         metadata: dict[str, dict[str, str | int]] = {}
-        for key, action_meta in self.action_space.actions_metadata.items():
+        for _key, action_meta in self.action_space.actions_metadata.items():
             if not action_meta.requires_prediction_head:
                 continue
             entry: dict[str, str | int] = {
                 ActionMetadataField.DIMENSION.value: action_meta.prediction_dimension,
             }
-            self._add_action_type_metadata(
-                action_meta=action_meta, entry=entry
-            )
-            self._add_frame_metadata(
-                action_meta=action_meta, entry=entry
-            )
-            self._add_orientation_metadata(
-                action_meta=action_meta, entry=entry
-            )
-            self._add_gripper_metadata(
-                action_meta=action_meta, entry=entry
-            )
+            self._add_action_type_metadata(action_meta=action_meta, entry=entry)
+            self._add_frame_metadata(action_meta=action_meta, entry=entry)
+            self._add_orientation_metadata(action_meta=action_meta, entry=entry)
+            self._add_gripper_metadata(action_meta=action_meta, entry=entry)
             metadata[action_meta.action_type] = entry
         return metadata
 
@@ -119,10 +109,11 @@ class ActionPostprocessor:
         if isinstance(action_meta, GripperActionMetadata):
             gripper_type = action_meta.gripper_type
             binary_range = action_meta.binary_gripper_range
-        elif isinstance(action_meta, OnTheFlyActionMetadata):
-            if isinstance(action_meta.source_metadata, GripperObservationMetadata):
-                gripper_type = action_meta.source_metadata.gripper_type
-                binary_range = action_meta.source_metadata.binary_gripper_range
+        elif isinstance(action_meta, OnTheFlyActionMetadata) and isinstance(
+            action_meta.source_metadata, GripperObservationMetadata
+        ):
+            gripper_type = action_meta.source_metadata.gripper_type
+            binary_range = action_meta.source_metadata.binary_gripper_range
 
         if gripper_type == GripperType.BINARY.value:
             probability = 1.0 / (1.0 + np.exp(-raw_value[0]))
@@ -137,7 +128,9 @@ class ActionPostprocessor:
     ) -> None:
         """Add action computation method (delta or next_timestep) to metadata."""
         if isinstance(action_meta, OnTheFlyActionMetadata):
-            entry[ActionMetadataField.ACTION_TYPE.value] = action_meta.computation_method
+            entry[ActionMetadataField.ACTION_TYPE.value] = (
+                action_meta.computation_method
+            )
 
     @staticmethod
     def _add_frame_metadata(
@@ -146,12 +139,11 @@ class ActionPostprocessor:
         """Add coordinate frame to metadata entry if available."""
         if isinstance(action_meta, (PositionActionMetadata, OrientationActionMetadata)):
             entry[ActionMetadataField.FRAME.value] = action_meta.frame
-        elif isinstance(action_meta, OnTheFlyActionMetadata):
-            if isinstance(
-                action_meta.source_metadata,
-                (PositionObservationMetadata, OrientationObservationMetadata),
-            ):
-                entry[ActionMetadataField.FRAME.value] = action_meta.source_metadata.frame
+        elif isinstance(action_meta, OnTheFlyActionMetadata) and isinstance(
+            action_meta.source_metadata,
+            (PositionObservationMetadata, OrientationObservationMetadata),
+        ):
+            entry[ActionMetadataField.FRAME.value] = action_meta.source_metadata.frame
 
     @staticmethod
     def _add_orientation_metadata(
@@ -162,11 +154,12 @@ class ActionPostprocessor:
             entry[ActionMetadataField.ORIENTATION_REPRESENTATION.value] = (
                 action_meta.orientation_representation
             )
-        elif isinstance(action_meta, OnTheFlyActionMetadata):
-            if isinstance(action_meta.source_metadata, OrientationObservationMetadata):
-                entry[ActionMetadataField.ORIENTATION_REPRESENTATION.value] = (
-                    action_meta.source_metadata.orientation_representation
-                )
+        elif isinstance(action_meta, OnTheFlyActionMetadata) and isinstance(
+            action_meta.source_metadata, OrientationObservationMetadata
+        ):
+            entry[ActionMetadataField.ORIENTATION_REPRESENTATION.value] = (
+                action_meta.source_metadata.orientation_representation
+            )
 
     @staticmethod
     def _add_gripper_metadata(

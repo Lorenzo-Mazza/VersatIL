@@ -26,15 +26,16 @@ Each architecture has corresponding decoder and layer classes:
     - MMDiT: MMDiTDecoder, MMDiTLayer (with JointAttention)
 """
 
+from versatil.models.layers.diffusion_transformer.cross_attention_dit import (
+    CrossAttentionDiT,
+)
 from versatil.models.layers.diffusion_transformer.cross_attention_dit_decoder import (
     CrossConditioningDecoder,
 )
 from versatil.models.layers.diffusion_transformer.cross_attention_dit_layer import (
     CrossConditioningDecoderLayer,
 )
-from versatil.models.layers.diffusion_transformer.cross_attention_dit import (
-    CrossAttentionDiT,
-)
+from versatil.models.layers.diffusion_transformer.dit_block_transformer import DiTBlock
 from versatil.models.layers.diffusion_transformer.dit_decoder import (
     DiffusionTransformerDecoder,
 )
@@ -49,7 +50,6 @@ from versatil.models.layers.diffusion_transformer.mmdit_transformer import (
     MMDiTTransformer,
 )
 from versatil.models.layers.diffusion_transformer.query_key_norm import QueryKeyNorm
-from versatil.models.layers.diffusion_transformer.dit_block_transformer import DiTBlock
 
 __all__ = [
     "CrossAttentionDiT",

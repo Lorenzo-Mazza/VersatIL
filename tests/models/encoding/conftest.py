@@ -1,4 +1,5 @@
 """Encoding package test fixtures: mock factories for encoder and fusion dependencies."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -6,7 +7,11 @@ import numpy as np
 import pytest
 import torch
 
-from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput, EncodingMixin
+from versatil.models.encoding.encoders.base import (
+    EncoderInput,
+    EncoderOutput,
+    EncodingMixin,
+)
 from versatil.models.encoding.encoders.conditional import ConditionalEncoder
 from versatil.models.encoding.fusion.base import FusionModule
 
@@ -14,6 +19,7 @@ from versatil.models.encoding.fusion.base import FusionModule
 @pytest.fixture
 def encoder_mock_factory(rng: np.random.Generator) -> Callable[..., MagicMock]:
     """Factory for mock encoders compatible with EncodingPipeline setup."""
+
     def factory(
         output_features: list[str] | None = None,
         output_dimensions: dict[str, int | tuple[int, ...]] | None = None,
@@ -26,7 +32,7 @@ def encoder_mock_factory(rng: np.random.Generator) -> Callable[..., MagicMock]:
         if output_features is None:
             output_features = ["embedding"]
         if output_dimensions is None:
-            output_dimensions = {feat: 64 for feat in output_features}
+            output_dimensions = dict.fromkeys(output_features, 64)
         if input_keys is None:
             input_keys = ["left"]
         encoder = MagicMock(spec=EncodingMixin)
@@ -42,14 +48,17 @@ def encoder_mock_factory(rng: np.random.Generator) -> Callable[..., MagicMock]:
         if forward_return is None:
             forward_return = {
                 feat: torch.from_numpy(
-                    rng.standard_normal((batch_size, dim) if isinstance(dim, int) else (batch_size, *dim)).astype(
-                        np.float32
-                    )
+                    rng.standard_normal(
+                        (batch_size, dim)
+                        if isinstance(dim, int)
+                        else (batch_size, *dim)
+                    ).astype(np.float32)
                 )
                 for feat, dim in output_dimensions.items()
             }
         encoder.return_value = forward_return
         return encoder
+
     return factory
 
 
@@ -58,6 +67,7 @@ def conditional_encoder_mock_factory(
     rng: np.random.Generator,
 ) -> Callable[..., MagicMock]:
     """Factory for mock conditional encoders compatible with EncodingPipeline setup."""
+
     def factory(
         output_features: list[str] | None = None,
         output_dimensions: dict[str, int | tuple[int, ...]] | None = None,
@@ -69,7 +79,7 @@ def conditional_encoder_mock_factory(
         if output_features is None:
             output_features = ["embedding"]
         if output_dimensions is None:
-            output_dimensions = {feat: 64 for feat in output_features}
+            output_dimensions = dict.fromkeys(output_features, 64)
         if input_keys is None:
             input_keys = ["right"]
         encoder = MagicMock(spec=ConditionalEncoder)
@@ -87,14 +97,17 @@ def conditional_encoder_mock_factory(
         if forward_return is None:
             forward_return = {
                 feat: torch.from_numpy(
-                    rng.standard_normal((batch_size, dim) if isinstance(dim, int) else (batch_size, *dim)).astype(
-                        np.float32
-                    )
+                    rng.standard_normal(
+                        (batch_size, dim)
+                        if isinstance(dim, int)
+                        else (batch_size, *dim)
+                    ).astype(np.float32)
                 )
                 for feat, dim in output_dimensions.items()
             }
         encoder.return_value = forward_return
         return encoder
+
     return factory
 
 
@@ -103,6 +116,7 @@ def fusion_module_mock_factory(
     rng: np.random.Generator,
 ) -> Callable[..., MagicMock]:
     """Factory for mock fusion modules compatible with EncodingPipeline setup."""
+
     def factory(
         input_features: list[str] | None = None,
         output_name: str = "fused",
@@ -122,4 +136,5 @@ def fusion_module_mock_factory(
             )
         fusion.return_value = forward_return
         return fusion
+
     return factory

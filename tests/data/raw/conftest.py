@@ -1,16 +1,11 @@
 """Raw data package test fixtures: metadata factories and resizer helpers."""
+
 from collections.abc import Callable
 
 import albumentations as A
 import pytest
 
-from versatil.data.constants import (
-    CoordinateSystem,
-    OrientationRepresentation,
-)
 from versatil.data.metadata import (
-    OrientationActionMetadata,
-    PositionActionMetadata,
     PrecomputedActionMetadata,
 )
 from versatil.data.raw.zarr_meta import DatasetMetadata

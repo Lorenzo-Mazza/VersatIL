@@ -1,4 +1,5 @@
 """Shared fixtures for denoising layer tests."""
+
 from collections.abc import Callable
 
 import pytest
@@ -103,23 +104,31 @@ def ddim_scheduler_factory(
 
 
 @pytest.fixture
-def velocity_field_factory() -> Callable[..., Callable[[torch.Tensor, torch.Tensor], torch.Tensor]]:
+def velocity_field_factory() -> Callable[
+    ..., Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+]:
     def factory(
         field_type: str = "constant",
         constant_velocity: float = 1.0,
     ) -> Callable[[torch.Tensor, torch.Tensor], torch.Tensor]:
         match field_type:
             case "constant":
+
                 def velocity_fn(z: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
                     return torch.full_like(z, constant_velocity)
+
                 return velocity_fn
             case "linear":
+
                 def velocity_fn(z: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
                     return z
+
                 return velocity_fn
             case "time_dependent":
+
                 def velocity_fn(z: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
                     return t.unsqueeze(-1).expand_as(z)
+
                 return velocity_fn
             case _:
                 raise ValueError(f"Unknown field_type: {field_type}")

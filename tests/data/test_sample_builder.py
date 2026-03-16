@@ -1,4 +1,5 @@
 """Tests for versatil.data.sample_builder module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -64,12 +65,14 @@ def sample_builder_factory(
 
 
 class TestSampleBuilderInitialization:
-
-    @pytest.mark.parametrize("obs_horizon,pred_horizon,action_backward_shift", [
-        (1, 4, 0),
-        (3, 8, 1),
-        (5, 16, 2),
-    ])
+    @pytest.mark.parametrize(
+        "obs_horizon,pred_horizon,action_backward_shift",
+        [
+            (1, 4, 0),
+            (3, 8, 1),
+            (5, 16, 2),
+        ],
+    )
     def test_stores_horizon_parameters(
         self,
         sample_builder_factory: Callable[..., SampleBuilder],
@@ -103,7 +106,6 @@ class TestSampleBuilderInitialization:
 
 
 class TestGetSampleImages:
-
     def test_processes_rgb_image_with_augmentation_and_channel_reorder(
         self,
         sample_builder_factory: Callable[..., SampleBuilder],
@@ -120,7 +122,10 @@ class TestGetSampleImages:
         )
         # (T, H, W, C) uint8 images — 4 timesteps, take obs_horizon=2 starting at shift=0
         padded_images = rng.integers(
-            0, 256, (4, 8, 8, 3), dtype=np.uint8,
+            0,
+            256,
+            (4, 8, 8, 3),
+            dtype=np.uint8,
         )
         padded_data = {Cameras.LEFT.value: padded_images}
 
@@ -264,14 +269,16 @@ class TestGetSampleImages:
 
 
 class TestSliceObservationTensor:
-
-    @pytest.mark.parametrize("dtype,expected_torch_dtype", [
-        ("float32", torch.float32),
-        ("float64", torch.float32),
-        ("int32", torch.int64),
-        ("int64", torch.int64),
-        ("bool", torch.int64),
-    ])
+    @pytest.mark.parametrize(
+        "dtype,expected_torch_dtype",
+        [
+            ("float32", torch.float32),
+            ("float64", torch.float32),
+            ("int32", torch.int64),
+            ("int64", torch.int64),
+            ("bool", torch.int64),
+        ],
+    )
     def test_converts_to_correct_torch_dtype(
         self,
         sample_builder_factory: Callable[..., SampleBuilder],
@@ -285,7 +292,9 @@ class TestSliceObservationTensor:
         padded_data = {"value": np.array([[1], [2], [3], [4]], dtype=np.float32)}
 
         result = builder._slice_observation_tensor(
-            key="value", padded_data=padded_data, metadata=metadata,
+            key="value",
+            padded_data=padded_data,
+            metadata=metadata,
         )
 
         assert result.dtype == expected_torch_dtype
@@ -305,7 +314,9 @@ class TestSliceObservationTensor:
         padded_data = {"label": np.array([["a"], ["b"], ["c"], ["d"]])}
 
         result = builder._slice_observation_tensor(
-            key="label", padded_data=padded_data, metadata=metadata,
+            key="label",
+            padded_data=padded_data,
+            metadata=metadata,
         )
 
         assert isinstance(result, list)
@@ -323,7 +334,9 @@ class TestSliceObservationTensor:
 
         with pytest.raises(ValueError, match="Unsupported custom observation dtype"):
             builder._slice_observation_tensor(
-                key="value", padded_data=padded_data, metadata=metadata,
+                key="value",
+                padded_data=padded_data,
+                metadata=metadata,
             )
 
     def test_slices_with_correct_obs_horizon_and_shift(
@@ -345,19 +358,23 @@ class TestSliceObservationTensor:
         padded_data = {"value": np.array([[10], [20], [30], [40]], dtype=np.float32)}
 
         result = builder._slice_observation_tensor(
-            key="value", padded_data=padded_data, metadata=metadata,
+            key="value",
+            padded_data=padded_data,
+            metadata=metadata,
         )
 
         torch.testing.assert_close(result, torch.tensor([[20.0], [30.0]]))
 
 
 class TestSliceActionData:
-
-    @pytest.mark.parametrize("dtype,expected_torch_dtype", [
-        ("float32", torch.float32),
-        ("int32", torch.int64),
-        ("bool", torch.int64),
-    ])
+    @pytest.mark.parametrize(
+        "dtype,expected_torch_dtype",
+        [
+            ("float32", torch.float32),
+            ("int32", torch.int64),
+            ("bool", torch.int64),
+        ],
+    )
     def test_converts_to_correct_torch_dtype(
         self,
         dtype: str,
@@ -368,7 +385,9 @@ class TestSliceActionData:
         action_data = {"action": np.array([[1], [2], [3]], dtype=np.float32)}
 
         result = SampleBuilder._slice_action_data(
-            key="action", action_data=action_data, metadata=metadata,
+            key="action",
+            action_data=action_data,
+            metadata=metadata,
         )
 
         assert result.dtype == expected_torch_dtype
@@ -385,7 +404,9 @@ class TestSliceActionData:
         action_data = {"label": np.array([["open"], ["close"]])}
 
         result = SampleBuilder._slice_action_data(
-            key="label", action_data=action_data, metadata=metadata,
+            key="label",
+            action_data=action_data,
+            metadata=metadata,
         )
 
         assert isinstance(result, list)
@@ -403,7 +424,6 @@ class TestSliceActionData:
 
 
 class TestComputeActionPaddingMask:
-
     def test_delta_actions_pad_when_either_position_invalid(
         self,
         sample_builder_factory: Callable[..., SampleBuilder],
@@ -421,7 +441,8 @@ class TestComputeActionPaddingMask:
         sampler_indices = np.array([[0, 6, 1, 4]])
 
         mask = builder._compute_action_padding_mask(
-            start_idx=0, sampler_indices=sampler_indices,
+            start_idx=0,
+            sampler_indices=sampler_indices,
         )
 
         assert mask.dtype == torch.bool
@@ -439,7 +460,9 @@ class TestComputeActionPaddingMask:
         self,
         sample_builder_factory: Callable[..., SampleBuilder],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
     ):
         builder = sample_builder_factory(
             actions_metadata={
@@ -454,7 +477,8 @@ class TestComputeActionPaddingMask:
         sampler_indices = np.array([[0, 6, 1, 4]])
 
         mask = builder._compute_action_padding_mask(
-            start_idx=0, sampler_indices=sampler_indices,
+            start_idx=0,
+            sampler_indices=sampler_indices,
         )
 
         # For absolute: only next position (pos+1) must be in [1, 4)
@@ -479,14 +503,14 @@ class TestComputeActionPaddingMask:
         sampler_indices = np.array([[0, 20, 0, 20]])
 
         mask = builder._compute_action_padding_mask(
-            start_idx=0, sampler_indices=sampler_indices,
+            start_idx=0,
+            sampler_indices=sampler_indices,
         )
 
         assert mask.shape == (8,)
 
 
 class TestGetActionSliceStart:
-
     def test_returns_obs_horizon_minus_one(
         self,
         sample_builder_factory: Callable[..., SampleBuilder],
@@ -497,7 +521,6 @@ class TestGetActionSliceStart:
 
 
 class TestNormalizeAndTokenizeSample:
-
     def test_applies_normalizer_when_present(
         self,
         sample_builder_factory: Callable[..., SampleBuilder],
@@ -555,12 +578,13 @@ class TestNormalizeAndTokenizeSample:
 
 
 class TestBuildSample:
-
     def test_assembles_observations_actions_and_padding_mask(
         self,
         sample_builder_factory: Callable[..., SampleBuilder],
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
         rng: np.random.Generator,
     ):

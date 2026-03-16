@@ -1,4 +1,5 @@
 """Tests for versatil.data.raw.zarr_meta module."""
+
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
 from unittest.mock import patch
@@ -28,7 +29,6 @@ from versatil.data.raw.zarr_meta import DatasetMetadata
 
 
 class TestDatasetMetadataPostInit:
-
     def test_empty_observations_and_actions_succeeds(
         self,
         dataset_metadata_factory: Callable[..., DatasetMetadata],
@@ -40,11 +40,17 @@ class TestDatasetMetadataPostInit:
 
     def test_overlapping_keys_raises(
         self,
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
     ):
         shared_key = "shared_key"
-        observations = {shared_key: position_observation_metadata_factory(dimension=3, frame=CoordinateSystem.ROBOT_BASE.value)}
+        observations = {
+            shared_key: position_observation_metadata_factory(
+                dimension=3, frame=CoordinateSystem.ROBOT_BASE.value
+            )
+        }
         actions = {
             shared_key: precomputed_action_metadata_factory(
                 storage_dimension=7, prediction_dimension=3
@@ -56,10 +62,16 @@ class TestDatasetMetadataPostInit:
 
     def test_disjoint_keys_succeeds(
         self,
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
     ):
-        observations = {"position": position_observation_metadata_factory(dimension=3, frame=CoordinateSystem.ROBOT_BASE.value)}
+        observations = {
+            "position": position_observation_metadata_factory(
+                dimension=3, frame=CoordinateSystem.ROBOT_BASE.value
+            )
+        }
         actions = {
             "action": precomputed_action_metadata_factory(
                 storage_dimension=7, prediction_dimension=3
@@ -84,10 +96,16 @@ class TestDatasetMetadataPostInit:
         self,
         dict_name: str,
         call_index: int,
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
     ):
-        observations = {"pos": position_observation_metadata_factory(dimension=3, frame=CoordinateSystem.ROBOT_BASE.value)}
+        observations = {
+            "pos": position_observation_metadata_factory(
+                dimension=3, frame=CoordinateSystem.ROBOT_BASE.value
+            )
+        }
         actions = {
             "act": precomputed_action_metadata_factory(
                 storage_dimension=7, prediction_dimension=3
@@ -119,20 +137,19 @@ class TestDatasetMetadataPostInit:
         """
         observations = {
             Cameras.LEFT.value: camera_metadata_factory(camera_key=Cameras.LEFT.value),
-            Cameras.RIGHT.value: camera_metadata_factory(camera_key=Cameras.RIGHT.value),
+            Cameras.RIGHT.value: camera_metadata_factory(
+                camera_key=Cameras.RIGHT.value
+            ),
         }
         metadata = dataset_metadata_factory(observations=observations)
 
         camera_keys = [
-            k
-            for k, v in metadata.observations.items()
-            if isinstance(v, CameraMetadata)
+            k for k, v in metadata.observations.items() if isinstance(v, CameraMetadata)
         ]
         assert len(camera_keys) == len(set(camera_keys))
 
 
 class TestDatasetMetadataObservationProperties:
-
     @pytest.mark.parametrize(
         "property_name, expected_key, expected_type",
         [
@@ -168,16 +185,18 @@ class TestDatasetMetadataObservationProperties:
         orientation_repr: str,
         gripper_range: str,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
-        orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
+        orientation_observation_metadata_factory: Callable[
+            ..., OrientationObservationMetadata
+        ],
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         observations = {
             Cameras.LEFT.value: camera_metadata_factory(camera_key=Cameras.LEFT.value),
-            "position": position_observation_metadata_factory(
-                dimension=3, frame=frame
-            ),
+            "position": position_observation_metadata_factory(dimension=3, frame=frame),
             "orientation": orientation_observation_metadata_factory(
                 dimension=1, frame=frame, orientation_representation=orientation_repr
             ),
@@ -225,15 +244,23 @@ class TestDatasetMetadataObservationProperties:
 
     def test_proprioceptive_observations_includes_position_orientation_gripper(
         self,
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
-        orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
+        orientation_observation_metadata_factory: Callable[
+            ..., OrientationObservationMetadata
+        ],
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
         camera_metadata_factory: Callable[..., CameraMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         observations = {
-            "position": position_observation_metadata_factory(dimension=3, frame=CoordinateSystem.ROBOT_BASE.value),
-            "orientation": orientation_observation_metadata_factory(dimension=1, frame=CoordinateSystem.ROBOT_BASE.value),
+            "position": position_observation_metadata_factory(
+                dimension=3, frame=CoordinateSystem.ROBOT_BASE.value
+            ),
+            "orientation": orientation_observation_metadata_factory(
+                dimension=1, frame=CoordinateSystem.ROBOT_BASE.value
+            ),
             "gripper": gripper_observation_metadata_factory(
                 gripper_type=GripperType.BINARY.value,
                 binary_gripper_range=BinaryGripperRange.ZERO_ONE.value,
@@ -269,7 +296,9 @@ class TestDatasetMetadataObservationProperties:
 
     def test_custom_observations_returns_base_observation_metadata_only(
         self,
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         camera_metadata_factory: Callable[..., CameraMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
@@ -282,7 +311,9 @@ class TestDatasetMetadataObservationProperties:
         )
         observations = {
             "custom": custom_observation,
-            "position": position_observation_metadata_factory(dimension=3, frame=CoordinateSystem.ROBOT_BASE.value),
+            "position": position_observation_metadata_factory(
+                dimension=3, frame=CoordinateSystem.ROBOT_BASE.value
+            ),
             Cameras.LEFT.value: camera_metadata_factory(camera_key=Cameras.LEFT.value),
         }
         metadata = dataset_metadata_factory(observations=observations)
@@ -293,7 +324,6 @@ class TestDatasetMetadataObservationProperties:
 
 
 class TestDatasetMetadataActionProperties:
-
     @pytest.mark.parametrize(
         "property_name, expected_key, expected_type",
         [
@@ -361,7 +391,12 @@ class TestDatasetMetadataActionProperties:
 
     @pytest.mark.parametrize(
         "property_name",
-        ["position_actions", "orientation_actions", "gripper_actions", "custom_actions"],
+        [
+            "position_actions",
+            "orientation_actions",
+            "gripper_actions",
+            "custom_actions",
+        ],
         ids=["position", "orientation", "gripper", "custom"],
     )
     def test_action_property_empty_when_no_matching_type(
@@ -411,7 +446,6 @@ class TestDatasetMetadataActionProperties:
 
 
 class TestDatasetMetadataUtilityMethods:
-
     @pytest.mark.parametrize(
         "num_observations, num_actions, expected_total",
         [
@@ -432,12 +466,16 @@ class TestDatasetMetadataUtilityMethods:
         num_observations: int,
         num_actions: int,
         expected_total: int,
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         observations = {
-            f"obs_{i}": position_observation_metadata_factory(dimension=3, frame=CoordinateSystem.ROBOT_BASE.value)
+            f"obs_{i}": position_observation_metadata_factory(
+                dimension=3, frame=CoordinateSystem.ROBOT_BASE.value
+            )
             for i in range(num_observations)
         }
         actions = {
@@ -467,7 +505,9 @@ class TestDatasetMetadataUtilityMethods:
         num_other_obs: int,
         expected_camera_count: int,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         camera_enum_values = [Cameras.LEFT.value, Cameras.RIGHT.value]
@@ -477,7 +517,9 @@ class TestDatasetMetadataUtilityMethods:
                 camera_key=camera_enum_values[i]
             )
         for i in range(num_other_obs):
-            observations[f"obs_{i}"] = position_observation_metadata_factory(dimension=3, frame=CoordinateSystem.ROBOT_BASE.value)
+            observations[f"obs_{i}"] = position_observation_metadata_factory(
+                dimension=3, frame=CoordinateSystem.ROBOT_BASE.value
+            )
         metadata = dataset_metadata_factory(observations=observations)
 
         assert len(metadata.get_camera_keys()) == expected_camera_count
@@ -503,8 +545,12 @@ class TestDatasetMetadataUtilityMethods:
         orientation_dim: int,
         gripper_dim: int,
         expected_total: int,
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
-        orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
+        orientation_observation_metadata_factory: Callable[
+            ..., OrientationObservationMetadata
+        ],
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
@@ -588,9 +634,7 @@ class TestDatasetMetadataUtilityMethods:
         action = precomputed_action_metadata_factory(
             storage_dimension=7, prediction_dimension=3
         )
-        metadata = dataset_metadata_factory(
-            precomputed_actions={"pos_action": action}
-        )
+        metadata = dataset_metadata_factory(precomputed_actions={"pos_action": action})
 
         assert metadata.get_precomputed_action("pos_action") is action
 
@@ -598,18 +642,20 @@ class TestDatasetMetadataUtilityMethods:
         self,
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
-        metadata = dataset_metadata_factory(
-            observations={}, precomputed_actions={}
-        )
+        metadata = dataset_metadata_factory(observations={}, precomputed_actions={})
 
         assert metadata.get_precomputed_action("nonexistent") is None
 
     def test_get_observation_existing_key(
         self,
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
-        observation = position_observation_metadata_factory(dimension=3, frame=CoordinateSystem.ROBOT_BASE.value)
+        observation = position_observation_metadata_factory(
+            dimension=3, frame=CoordinateSystem.ROBOT_BASE.value
+        )
         metadata = dataset_metadata_factory(observations={"position": observation})
 
         assert metadata.get_observation("position") is observation
@@ -618,9 +664,7 @@ class TestDatasetMetadataUtilityMethods:
         self,
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
-        metadata = dataset_metadata_factory(
-            observations={}, precomputed_actions={}
-        )
+        metadata = dataset_metadata_factory(observations={}, precomputed_actions={})
 
         assert metadata.get_observation("nonexistent") is None
 
@@ -637,16 +681,19 @@ class TestDatasetMetadataUtilityMethods:
         key: str,
         key_present: bool,
         expected: bool,
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         observations = {}
         if key_present:
-            observations[key] = position_observation_metadata_factory(dimension=3, frame=CoordinateSystem.ROBOT_BASE.value)
+            observations[key] = position_observation_metadata_factory(
+                dimension=3, frame=CoordinateSystem.ROBOT_BASE.value
+            )
         metadata = dataset_metadata_factory(observations=observations)
 
         assert metadata.has_observation(key) is expected
-
 
     @pytest.mark.parametrize(
         "dict_key, raw_key, expectation",

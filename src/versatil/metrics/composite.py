@@ -1,6 +1,5 @@
 """Composite loss class that combine multiple loss components."""
 
-
 import torch
 import torch.nn as nn
 

@@ -1,7 +1,8 @@
 """Constants and enums for training configuration."""
-import torch
 
 from enum import Enum
+
+import torch
 
 
 class PrecisionType(str, Enum):

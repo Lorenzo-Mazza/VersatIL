@@ -29,9 +29,7 @@ class SocketObservationTransport:
             server_address=server_address, server_port=server_port
         )
 
-    def receive(
-        self, requested_keys: list[str], compression_type: str
-    ) -> dict:
+    def receive(self, requested_keys: list[str], compression_type: str) -> dict:
         """Request observations from the server.
 
         Args:

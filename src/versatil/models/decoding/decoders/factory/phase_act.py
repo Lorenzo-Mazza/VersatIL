@@ -5,7 +5,6 @@ The phase classifier head produces routing logits that are used to route
 position and gripper predictions through phase-specific expert networks.
 """
 
-
 import torch
 
 from versatil.common.omegaconf_ops import resolve_dict_keys
@@ -108,7 +107,7 @@ class PhaseACT(ACT):
         resolved_metadata = resolve_dict_keys(dict(self.action_space.actions_metadata))
         phase_metadata = resolved_metadata[self.phase_routing_key]
         num_phases = phase_metadata.prediction_dimension
-        for key, head in self.action_heads.items():
+        for _key, head in self.action_heads.items():
             if isinstance(head, MoEHead) and not head.is_initialized:
                 head.set_num_experts(num_phases)
 
@@ -154,9 +153,9 @@ class PhaseACT(ACT):
                 predictions[DecoderOutputKey.ROUTING_WEIGHTS.value] = output[
                     DecoderOutputKey.ROUTING_WEIGHTS.value
                 ]  # This will be overwritten but is the same for all MoE heads
-                predictions[
-                    f"{action_key}_{DecoderOutputKey.EXPERT_OUTPUTS.value}"
-                ] = output[DecoderOutputKey.EXPERT_OUTPUTS.value]
+                predictions[f"{action_key}_{DecoderOutputKey.EXPERT_OUTPUTS.value}"] = (
+                    output[DecoderOutputKey.EXPERT_OUTPUTS.value]
+                )
             else:
                 predictions[action_key] = head(action_embeddings)
         return predictions

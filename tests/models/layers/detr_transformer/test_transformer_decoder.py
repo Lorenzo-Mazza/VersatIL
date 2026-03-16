@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.detr_transformer.transformer_decoder module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -18,7 +19,6 @@ TARGET_LENGTH = 6
 
 
 class TestTransformerDecoderLayerInitialization:
-
     @pytest.mark.parametrize("embedding_dimension", [EMBEDDING_DIMENSION, 128])
     @pytest.mark.parametrize("number_of_heads", [NUMBER_OF_HEADS, 8])
     @pytest.mark.parametrize("normalize_before", [False, True])
@@ -49,10 +49,13 @@ class TestTransformerDecoderLayerInitialization:
         assert layer.normalization2.normalized_shape == (EMBEDDING_DIMENSION,)
         assert layer.normalization3.normalized_shape == (EMBEDDING_DIMENSION,)
 
-    @pytest.mark.parametrize("activation", [
-        ActivationFunction.RELU.value,
-        ActivationFunction.GELU.value,
-    ])
+    @pytest.mark.parametrize(
+        "activation",
+        [
+            ActivationFunction.RELU.value,
+            ActivationFunction.GELU.value,
+        ],
+    )
     def test_standard_activation_creates_feedforward_linear1(
         self,
         decoder_layer_factory: Callable[..., TransformerDecoderLayer],
@@ -73,7 +76,6 @@ class TestTransformerDecoderLayerInitialization:
 
 
 class TestTransformerDecoderLayerForward:
-
     def test_output_shape(
         self,
         decoder_layer_factory: Callable[..., TransformerDecoderLayer],
@@ -261,11 +263,14 @@ class TestTransformerDecoderLayerForward:
         )
         assert not torch.allclose(output_without, output_with)
 
-    @pytest.mark.parametrize("activation", [
-        ActivationFunction.RELU.value,
-        ActivationFunction.GELU.value,
-        ActivationFunction.SWIGLU.value,
-    ])
+    @pytest.mark.parametrize(
+        "activation",
+        [
+            ActivationFunction.RELU.value,
+            ActivationFunction.GELU.value,
+            ActivationFunction.SWIGLU.value,
+        ],
+    )
     def test_forward_with_different_activations(
         self,
         decoder_layer_factory: Callable[..., TransformerDecoderLayer],
@@ -329,9 +334,7 @@ class TestTransformerDecoderLayerForward:
             output_causal[:, 0, :], output_modified[:, 0, :], atol=1e-5
         )
         # But later tokens that CAN see the modified position should change
-        assert not torch.allclose(
-            output_causal[:, -1, :], output_modified[:, -1, :]
-        )
+        assert not torch.allclose(output_causal[:, -1, :], output_modified[:, -1, :])
 
     def test_normalization_placement_produces_different_outputs(
         self,
@@ -402,7 +405,6 @@ class TestTransformerDecoderLayerForward:
 
 
 class TestTransformerDecoderInitialization:
-
     @pytest.mark.parametrize("number_of_layers", [1, 3])
     def test_stores_number_of_layers(
         self,
@@ -429,11 +431,12 @@ class TestTransformerDecoderInitialization:
         decoder = transformer_decoder_factory(number_of_layers=2)
         original_weight = decoder.layers[1].normalization1.weight.data.clone()
         decoder.layers[0].normalization1.weight.data.fill_(999.0)
-        assert torch.allclose(decoder.layers[1].normalization1.weight.data, original_weight)
+        assert torch.allclose(
+            decoder.layers[1].normalization1.weight.data, original_weight
+        )
 
 
 class TestTransformerDecoderForward:
-
     def test_output_shape_without_intermediate(
         self,
         transformer_decoder_factory: Callable[..., TransformerDecoder],
@@ -523,9 +526,7 @@ class TestTransformerDecoderForward:
         output_intermediate = decoder_intermediate(target=target, memory=memory)
         output_final = decoder_final(target=target, memory=memory)
         # Last intermediate layer output should match final output
-        assert torch.allclose(
-            output_intermediate[-1], output_final[0], atol=1e-5
-        )
+        assert torch.allclose(output_intermediate[-1], output_final[0], atol=1e-5)
 
     def test_intermediate_layers_differ(
         self,

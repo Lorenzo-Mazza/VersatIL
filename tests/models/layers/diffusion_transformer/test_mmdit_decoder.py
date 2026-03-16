@@ -1,21 +1,20 @@
 """Tests for versatil.models.layers.diffusion_transformer.mmdit_decoder module."""
+
 import math
 from collections.abc import Callable
 
 import pytest
 import torch
 
+from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import PositionalEncodingType
 from versatil.models.layers.diffusion_transformer.mmdit_decoder import MMDiTDecoder
 from versatil.models.layers.normalization.constants import NormalizationType
 
-from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
-
 
 @pytest.fixture
 def mmdit_decoder_factory() -> Callable[..., MMDiTDecoder]:
-
     def factory(
         number_of_layers: int = 2,
         embedding_dimension: int = 32,
@@ -59,7 +58,6 @@ def mmdit_decoder_factory() -> Callable[..., MMDiTDecoder]:
 
 
 class TestMMDiTDecoderInitialization:
-
     @pytest.mark.parametrize("number_of_layers", [1, 3])
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("number_of_heads", [4, 8])
@@ -274,7 +272,6 @@ class TestMMDiTDecoderInitialization:
 
 
 class TestMMDiTDecoderForward:
-
     @pytest.mark.parametrize(
         "batch_size, observation_length, action_length, embedding_dimension",
         [
@@ -538,7 +535,7 @@ class TestMMDiTDecoderForward:
         )
         # RMSNorm produces outputs with controlled magnitude; the RMS of
         # each feature vector should be approximately 1.0
-        rms_obs = torch.sqrt(torch.mean(output_obs ** 2, dim=-1))
+        rms_obs = torch.sqrt(torch.mean(output_obs**2, dim=-1))
         assert torch.allclose(rms_obs, torch.ones_like(rms_obs), atol=0.2)
 
     def test_padding_masks_affect_output(

@@ -1,4 +1,5 @@
 """Tests for versatil.configs.encoding.encoder module."""
+
 import importlib
 
 import pytest
@@ -24,13 +25,12 @@ from versatil.models.encoding.encoders.constants import (
     LanguageEncoderType,
     PoolingMethod,
 )
-from versatil.models.layers.activation import ActivationFunction
 from versatil.models.encoding.encoders.proprioceptive.base import ProprioceptiveEncoder
+from versatil.models.layers.activation import ActivationFunction
 
 
 @pytest.mark.unit
 class TestEncoderConfig:
-
     def test_target_defaults_to_missing(self):
         config = EncoderConfig()
         assert config._target_ == MISSING
@@ -51,36 +51,26 @@ class TestEncoderConfig:
 
 @pytest.mark.unit
 class TestCNNEncoderConfig:
-
     def test_target_points_to_cnn_encoder(self):
-        config = CNNEncoderConfig(
-            input_keys=["left"], backbone="timm/resnet18.a1_in1k"
-        )
+        config = CNNEncoderConfig(input_keys=["left"], backbone="timm/resnet18.a1_in1k")
         assert config._target_ == "versatil.models.encoding.encoders.rgb.cnn.CNNEncoder"
 
     def test_pooling_method_default_is_none_string(self):
-        config = CNNEncoderConfig(
-            input_keys=["left"], backbone="timm/resnet18.a1_in1k"
-        )
+        config = CNNEncoderConfig(input_keys=["left"], backbone="timm/resnet18.a1_in1k")
         assert config.pooling_method == PoolingMethod.NONE.value
 
     def test_batch_norm_handling_default_is_frozen_string(self):
-        config = CNNEncoderConfig(
-            input_keys=["left"], backbone="timm/resnet18.a1_in1k"
-        )
+        config = CNNEncoderConfig(input_keys=["left"], backbone="timm/resnet18.a1_in1k")
         assert config.batch_norm_handling == BatchNormHandling.FROZEN.value
 
     def test_inherits_from_image_encoder_config(self):
-        config = CNNEncoderConfig(
-            input_keys=["left"], backbone="timm/resnet18.a1_in1k"
-        )
+        config = CNNEncoderConfig(input_keys=["left"], backbone="timm/resnet18.a1_in1k")
         assert isinstance(config, ImageEncoderConfig)
         assert isinstance(config, EncoderConfig)
 
 
 @pytest.mark.unit
 class TestConditionalCNNEncoderConfig:
-
     def test_target_points_to_conditional_cnn_encoder(self):
         config = ConditionalCNNEncoderConfig(
             input_keys=["left"],
@@ -112,7 +102,6 @@ class TestConditionalCNNEncoderConfig:
 
 @pytest.mark.unit
 class TestViTEncoderConfig:
-
     def test_target_defaults_to_missing(self):
         config = ViTEncoderConfig(input_keys=["left"])
         assert config._target_ == MISSING
@@ -124,27 +113,21 @@ class TestViTEncoderConfig:
 
 @pytest.mark.unit
 class TestDepthCNNEncoderConfig:
-
     def test_target_points_to_depth_cnn_encoder(self):
-        config = DepthCNNEncoderConfig(
-            input_keys=["depth"], backbone="resnet18"
-        )
+        config = DepthCNNEncoderConfig(input_keys=["depth"], backbone="resnet18")
         assert (
             config._target_
             == "versatil.models.encoding.encoders.depth.cnn.DepthCNNEncoder"
         )
 
     def test_image_dimensions_required(self):
-        config = DepthCNNEncoderConfig(
-            input_keys=["depth"], backbone="resnet18"
-        )
+        config = DepthCNNEncoderConfig(input_keys=["depth"], backbone="resnet18")
         assert config.image_height == MISSING
         assert config.image_width == MISSING
 
 
 @pytest.mark.unit
 class TestDFormerEncoderConfig:
-
     def test_target_points_to_dformer_encoder(self):
         config = DFormerEncoderConfig()
         assert (
@@ -160,7 +143,6 @@ class TestDFormerEncoderConfig:
 
 @pytest.mark.unit
 class TestLightGeometricEncoderConfig:
-
     def test_target_points_to_light_geometric_encoder(self):
         config = LightGeometricEncoderConfig()
         assert (
@@ -180,7 +162,6 @@ class TestLightGeometricEncoderConfig:
 
 @pytest.mark.unit
 class TestProprioEncoderConfig:
-
     def test_target_points_to_proprioceptive_encoder(self):
         config = ProprioEncoderConfig(input_keys=["proprio"])
         assert (
@@ -195,7 +176,6 @@ class TestProprioEncoderConfig:
 
 @pytest.mark.unit
 class TestVLMEncoderConfig:
-
     def test_target_points_to_vlm_encoder(self):
         config = VLMEncoderConfig(input_keys=["left"], model_name="clip")
         assert (
@@ -210,7 +190,6 @@ class TestVLMEncoderConfig:
 
 @pytest.mark.unit
 class TestLanguageEncoderConfig:
-
     def test_target_points_to_language_encoder(self):
         config = LanguageEncoderConfig()
         assert (
@@ -229,7 +208,6 @@ class TestLanguageEncoderConfig:
 
 @pytest.mark.unit
 class TestEncoderInstantiation:
-
     def test_proprio_encoder_instantiates(self):
         config = ProprioEncoderConfig(
             input_keys=["proprio"],
@@ -243,20 +221,42 @@ class TestEncoderInstantiation:
 
 @pytest.mark.integration
 class TestEncoderTargetResolutionIntegration:
-
     @pytest.mark.parametrize(
         "config_class, expected_class_name",
         [
-            (lambda: CNNEncoderConfig(input_keys=["left"], backbone="timm/resnet18.a1_in1k"), "CNNEncoder"),
-            (lambda: ConditionalCNNEncoderConfig(input_keys=["left"], backbone="timm/resnet18.a1_in1k", condition_key="lang", condition_dim=512), "ConditionalCNNEncoder"),
-            (lambda: DepthCNNEncoderConfig(input_keys=["depth"], backbone="resnet18"), "DepthCNNEncoder"),
+            (
+                lambda: CNNEncoderConfig(
+                    input_keys=["left"], backbone="timm/resnet18.a1_in1k"
+                ),
+                "CNNEncoder",
+            ),
+            (
+                lambda: ConditionalCNNEncoderConfig(
+                    input_keys=["left"],
+                    backbone="timm/resnet18.a1_in1k",
+                    condition_key="lang",
+                    condition_dim=512,
+                ),
+                "ConditionalCNNEncoder",
+            ),
+            (
+                lambda: DepthCNNEncoderConfig(
+                    input_keys=["depth"], backbone="resnet18"
+                ),
+                "DepthCNNEncoder",
+            ),
             (lambda: DFormerEncoderConfig(), "DFormerEncoder"),
             (lambda: LightGeometricEncoderConfig(), "LightGeometricEncoder"),
-            (lambda: VLMEncoderConfig(input_keys=["left"], model_name="clip"), "VLMEncoder"),
+            (
+                lambda: VLMEncoderConfig(input_keys=["left"], model_name="clip"),
+                "VLMEncoder",
+            ),
             (lambda: LanguageEncoderConfig(), "LanguageEncoder"),
         ],
     )
-    def test_target_resolves_to_importable_class(self, config_class, expected_class_name):
+    def test_target_resolves_to_importable_class(
+        self, config_class, expected_class_name
+    ):
         config = config_class()
         target = config._target_
         module_path, class_name = target.rsplit(".", 1)

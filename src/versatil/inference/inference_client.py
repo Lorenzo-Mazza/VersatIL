@@ -8,10 +8,14 @@ from typing import Any
 
 import numpy as np
 import torch
-
-from tso_robotics_sockets import CompressionType, InferenceResponseKey, ServerStatus, TransportKey
-
+from tso_robotics_sockets import (
+    CompressionType,
+    InferenceResponseKey,
+    ServerStatus,
+    TransportKey,
+)
 from versatil_constants.shared import ObsKey
+
 from versatil.inference.action_postprocessor import ActionPostprocessor
 from versatil.inference.observation_buffer import ObservationBuffer
 from versatil.inference.observation_preprocessor import ObservationPreprocessor
@@ -83,9 +87,7 @@ class InferenceClient:
         self.has_language = (
             ObsKey.LANGUAGE.value in observation_space.observations_metadata
         )
-        self.all_observation_keys = list(
-            observation_space.observations_metadata.keys()
-        )
+        self.all_observation_keys = list(observation_space.observations_metadata.keys())
         self.action_keys_to_dimensions = {
             key: metadata.prediction_dimension
             for key, metadata in action_space.actions_metadata.items()
@@ -146,8 +148,8 @@ class InferenceClient:
             preprocessing_start = time.time()
 
         self._handle_reset_signal(response=response)
-        per_environment_observations = (
-            self.observation_preprocessor.parse_response(response=response)
+        per_environment_observations = self.observation_preprocessor.parse_response(
+            response=response
         )
         self._update_environment_states(
             per_environment_observations=per_environment_observations
@@ -160,9 +162,7 @@ class InferenceClient:
             preprocessing_duration = time.time() - preprocessing_start
             inference_start = time.time()
 
-        actions_by_environment = (
-            self._get_actions_for_ready_environments()
-        )
+        actions_by_environment = self._get_actions_for_ready_environments()
 
         if self.timing_log:
             inference_duration = time.time() - inference_start
@@ -263,9 +263,9 @@ class InferenceClient:
                 self.environment_states[environment_index] = (
                     self._create_environment_state()
                 )
-            self.environment_states[
-                environment_index
-            ].observation_buffer.add(observations=observations)
+            self.environment_states[environment_index].observation_buffer.add(
+                observations=observations
+            )
 
     def _remove_inactive_environments(
         self,
@@ -278,9 +278,7 @@ class InferenceClient:
         """
         active_indices = set(per_environment_observations.keys())
         inactive_indices = [
-            index
-            for index in self.environment_states
-            if index not in active_indices
+            index for index in self.environment_states if index not in active_indices
         ]
         for index in inactive_indices:
             del self.environment_states[index]
@@ -339,9 +337,7 @@ class InferenceClient:
                 )
             )
             for camera_key in self.camera_keys:
-                camera_batches[camera_key].append(
-                    camera_tensors[camera_key]
-                )
+                camera_batches[camera_key].append(camera_tensors[camera_key])
 
             for key in self.proprioceptive_keys:
                 proprioceptive_tensor = torch.tensor(
@@ -357,19 +353,13 @@ class InferenceClient:
 
         observation_dict: dict[str, Any] = {}
         for camera_key in self.camera_keys:
-            observation_dict[camera_key] = torch.stack(
-                camera_batches[camera_key]
-            )
+            observation_dict[camera_key] = torch.stack(camera_batches[camera_key])
         for key in self.proprioceptive_keys:
-            observation_dict[key] = torch.stack(
-                proprioceptive_batches[key]
-            )
+            observation_dict[key] = torch.stack(proprioceptive_batches[key])
         if self.has_language:
             observation_dict[ObsKey.LANGUAGE.value] = language_batch
 
-        action_dict = self.policy_loader.run_inference(
-            obs_dict=observation_dict
-        )
+        action_dict = self.policy_loader.run_inference(obs_dict=observation_dict)
 
         return self._distribute_actions(
             action_dict=action_dict, ready_indices=ready_indices
@@ -397,10 +387,7 @@ class InferenceClient:
             }
             state = self.environment_states[environment_index]
 
-            if (
-                self.temporal_aggregation
-                and state.temporal_aggregator is not None
-            ):
+            if self.temporal_aggregation and state.temporal_aggregator is not None:
                 averaged = state.temporal_aggregator.store_and_average(
                     current_predictions=environment_predictions
                 )
@@ -409,8 +396,7 @@ class InferenceClient:
                 )
             else:
                 single_step = {
-                    key: tensor[0]
-                    for key, tensor in environment_predictions.items()
+                    key: tensor[0] for key, tensor in environment_predictions.items()
                 }
                 actions_by_environment[environment_index] = (
                     self.action_postprocessor.format_action(action_dict=single_step)

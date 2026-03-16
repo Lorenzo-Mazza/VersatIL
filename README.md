@@ -183,6 +183,9 @@ mamba activate versatil
 
 # 3. Install dependencies with uv
 UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
+
+# 4. Install pre-commit hooks (linting + type checking on every commit)
+pre-commit install
 ```
 
 NB: The above installation requires a machine with a GPU with CUDA installed.
@@ -479,7 +482,7 @@ pytest -m "not slow"       # Skip slow tests
 
 - **Docstrings**: Google-style, concise (avoid LLM patterns like numbered lists or excessive words)
 - **Type hints**: Required for all function signatures
-- **Formatter**: Black (line length 88, Python 3.11)
+- **Formatter/Linter**: [Ruff](https://docs.astral.sh/ruff/) (line length 88, Python 3.11)
 - **No inline imports**: All imports at module top
 - **Minimal comments**: Only for tensor shapes or non-obvious logic
 - **Variables**: Use English words, avoid abbreviations
@@ -492,11 +495,19 @@ pytest -m "not slow"       # Skip slow tests
 
 ```bash
 # Format code
-black src/ tests/
+ruff format src/ tests/
 
 # Check formatting
-black --check src/ tests/
+ruff format --check src/ tests/
+
+# Lint
+ruff check src/ tests/
+
+# Lint and auto-fix
+ruff check --fix src/ tests/
 ```
+
+Pre-commit hooks run ruff automatically on every `git commit`.
 
 ---
 

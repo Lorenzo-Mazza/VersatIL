@@ -1,4 +1,5 @@
 """Tests for versatil.configs.data.tokenizer module."""
+
 import pytest
 
 from versatil.configs.data.tokenizer import (
@@ -12,7 +13,6 @@ from versatil.models.encoding.encoders.constants import LanguageEncoderType
 
 @pytest.mark.unit
 class TestObservationTokenizationConfig:
-
     def test_tokenizer_model_default_is_gemma_2b_string(self):
         config = ObservationTokenizationConfig()
         assert config.tokenizer_model == LanguageEncoderType.GEMMA_2B.value
@@ -38,16 +38,13 @@ class TestObservationTokenizationConfig:
 
 @pytest.mark.unit
 class TestActionTokenizationConfig:
-
     def test_tokenizer_chain_default_contains_fast(self):
         config = ActionTokenizationConfig()
         assert config.tokenizer_chain == [TokenizerType.FAST.value]
 
     @pytest.mark.parametrize("use_pretrained_fast", [True, False])
     def test_stores_pretrained_fast_flag(self, use_pretrained_fast):
-        config = ActionTokenizationConfig(
-            use_pretrained_fast=use_pretrained_fast
-        )
+        config = ActionTokenizationConfig(use_pretrained_fast=use_pretrained_fast)
         assert config.use_pretrained_fast == use_pretrained_fast
 
     def test_language_tokenizer_model_default_is_none(self):
@@ -65,7 +62,6 @@ class TestActionTokenizationConfig:
 
 @pytest.mark.unit
 class TestTokenizationConfig:
-
     @pytest.mark.parametrize("tokenize_observations", [True, False])
     @pytest.mark.parametrize("tokenize_actions", [True, False])
     def test_stores_tokenization_flags(self, tokenize_observations, tokenize_actions):

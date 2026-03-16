@@ -1,4 +1,5 @@
 """Configuration for feature fusion modules."""
+
 from dataclasses import dataclass
 
 from omegaconf import MISSING

@@ -1,8 +1,8 @@
 """Tests for versatil.models.decoding.transformer_input_builder module."""
+
 import re
 from collections.abc import Callable
 
-import numpy as np
 import pytest
 import torch
 
@@ -75,7 +75,6 @@ def sinusoidal_pe_2d_factory() -> Callable[..., SinusoidalPositionalEncoding2D]:
 
 
 class TestTransformerInputBuilderInitialization:
-
     @pytest.mark.parametrize("embedding_dim", [32, 64])
     @pytest.mark.parametrize("has_time_dim", [True, False])
     @pytest.mark.parametrize("use_camera_embeddings", [True, False])
@@ -98,10 +97,13 @@ class TestTransformerInputBuilderInitialization:
         else:
             assert builder.camera_embeddings is None
 
-    @pytest.mark.parametrize("exclude_keys, expected", [
-        (None, set()),
-        (["key_a", "key_b"], {"key_a", "key_b"}),
-    ])
+    @pytest.mark.parametrize(
+        "exclude_keys, expected",
+        [
+            (None, set()),
+            (["key_a", "key_b"], {"key_a", "key_b"}),
+        ],
+    )
     def test_exclude_keys_converted_to_set(
         self,
         transformer_input_builder_factory: Callable[..., TransformerInputBuilder],
@@ -220,7 +222,6 @@ class TestTransformerInputBuilderInitialization:
 
 
 class TestTransformerInputBuilderFeatureFiltering:
-
     def test_excludes_padding_mask_keys(
         self,
         transformer_input_builder_factory: Callable[..., TransformerInputBuilder],
@@ -235,7 +236,9 @@ class TestTransformerInputBuilderFeatureFiltering:
         )
         captured_keys: list[str] = []
 
-        def capturing_projection(features: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        def capturing_projection(
+            features: dict[str, torch.Tensor],
+        ) -> dict[str, torch.Tensor]:
             captured_keys.extend(features.keys())
             return features
 
@@ -247,7 +250,8 @@ class TestTransformerInputBuilderFeatureFiltering:
         )
         padding_mask_key = f"rgb_features_{EncoderOutputKeys.PADDING_MASK.value}"
         features[padding_mask_key] = input_tensor_factory(
-            batch_size=2, input_dimension=height * width,
+            batch_size=2,
+            input_dimension=height * width,
         )
         tokens, _, _ = builder(features)
         assert padding_mask_key not in captured_keys
@@ -267,7 +271,9 @@ class TestTransformerInputBuilderFeatureFiltering:
         )
         captured_keys: list[str] = []
 
-        def capturing_projection(features: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        def capturing_projection(
+            features: dict[str, torch.Tensor],
+        ) -> dict[str, torch.Tensor]:
             captured_keys.extend(features.keys())
             return features
 
@@ -297,7 +303,9 @@ class TestTransformerInputBuilderFeatureFiltering:
         )
         captured_keys: list[str] = []
 
-        def capturing_projection(features: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        def capturing_projection(
+            features: dict[str, torch.Tensor],
+        ) -> dict[str, torch.Tensor]:
             captured_keys.extend(features.keys())
             return features
 
@@ -323,7 +331,6 @@ class TestTransformerInputBuilderFeatureFiltering:
 
 
 class TestTransformerInputBuilderFeatureShapes:
-
     def test_2d_flat_feature_produces_single_token(
         self,
         transformer_input_builder_factory: Callable[..., TransformerInputBuilder],
@@ -436,7 +443,9 @@ class TestTransformerInputBuilderFeatureShapes:
         assert isinstance(tokens, torch.Tensor)
         assert tokens.shape == (2, observation_horizon * sequence_length, embedding_dim)
 
-    @pytest.mark.parametrize("observation_horizon, height, width", [(2, 4, 4), (3, 7, 7)])
+    @pytest.mark.parametrize(
+        "observation_horizon, height, width", [(2, 4, 4), (3, 7, 7)]
+    )
     def test_5d_temporal_spatial_feature(
         self,
         transformer_input_builder_factory: Callable[..., TransformerInputBuilder],
@@ -477,13 +486,14 @@ class TestTransformerInputBuilderFeatureShapes:
         features = {feature_name: bad_tensor}
         with pytest.raises(
             ValueError,
-            match=re.escape(f"Feature '{feature_name}' has unsupported shape {bad_tensor.shape}"),
+            match=re.escape(
+                f"Feature '{feature_name}' has unsupported shape {bad_tensor.shape}"
+            ),
         ):
             builder(features)
 
 
 class TestTransformerInputBuilderPaddingMask:
-
     def test_no_padding_returns_none_mask(
         self,
         transformer_input_builder_factory: Callable[..., TransformerInputBuilder],
@@ -547,10 +557,12 @@ class TestTransformerInputBuilderPaddingMask:
             sequence_length=sequence_length,
             feature_dimension=embedding_dim,
         )
-        input_mask = torch.tensor([
-            [True, False, False, True],
-            [False, True, False, False],
-        ])
+        input_mask = torch.tensor(
+            [
+                [True, False, False, True],
+                [False, True, False, False],
+            ]
+        )
         features["seq_feature_padding_mask"] = input_mask
         _, _, padding_mask = builder(features)
         assert isinstance(padding_mask, torch.Tensor)
@@ -580,7 +592,10 @@ class TestTransformerInputBuilderPaddingMask:
         )
         # 3D mask (B, T, Seq) should be reshaped to (B, T*Seq)
         input_mask = torch.ones(
-            batch_size, observation_horizon, sequence_length, dtype=torch.bool,
+            batch_size,
+            observation_horizon,
+            sequence_length,
+            dtype=torch.bool,
         )
         features["temporal_seq_feature_padding_mask"] = input_mask
         _, _, padding_mask = builder(features)
@@ -606,7 +621,9 @@ class TestTransformerInputBuilderPaddingMask:
         # 4D mask is unsupported
         feature_name = "flat_feature"
         mask_ndim = 4
-        features[f"{feature_name}_padding_mask"] = torch.zeros(2, 3, 4, 5, dtype=torch.bool)
+        features[f"{feature_name}_padding_mask"] = torch.zeros(
+            2, 3, 4, 5, dtype=torch.bool
+        )
         with pytest.raises(
             ValueError,
             match=f"Padding masks not supported for spatial features, got {mask_ndim} for {feature_name}",
@@ -634,10 +651,12 @@ class TestTransformerInputBuilderPaddingMask:
             feature_dimension=embedding_dim,
             feature_keys=["action_embedding"],
         )
-        action_pad_mask = torch.tensor([
-            [True, False, False, True],
-            [False, True, False, False],
-        ])
+        action_pad_mask = torch.tensor(
+            [
+                [True, False, False, True],
+                [False, True, False, False],
+            ]
+        )
         features[SampleKey.IS_PAD_ACTION.value] = action_pad_mask
         _, _, padding_mask = builder(features)
         assert isinstance(padding_mask, torch.Tensor)
@@ -646,7 +665,6 @@ class TestTransformerInputBuilderPaddingMask:
 
 
 class TestTransformerInputBuilderPositionalEncodings:
-
     def test_no_pe_layers_returns_none(
         self,
         transformer_input_builder_factory: Callable[..., TransformerInputBuilder],
@@ -753,13 +771,15 @@ class TestTransformerInputBuilderPositionalEncodings:
         _, positional_encodings, _ = builder(features)
         assert isinstance(positional_encodings, torch.Tensor)
         assert positional_encodings.shape == (
-            2, observation_horizon * height * width, embedding_dim,
+            2,
+            observation_horizon * height * width,
+            embedding_dim,
         )
         # Temporal PE should make tokens at the same spatial position but different
         # time steps have different PE (frame 0 vs frame 1 at spatial position 0)
         tokens_per_frame = height * width
         frame_0_pe = positional_encodings[:, :tokens_per_frame, :]
-        frame_1_pe = positional_encodings[:, tokens_per_frame:2 * tokens_per_frame, :]
+        frame_1_pe = positional_encodings[:, tokens_per_frame : 2 * tokens_per_frame, :]
         assert not torch.equal(frame_0_pe, frame_1_pe)
 
     def test_spatial_pe_with_flat_tokens_zero_padded(
@@ -794,7 +814,7 @@ class TestTransformerInputBuilderPositionalEncodings:
         assert isinstance(positional_encodings, torch.Tensor)
         assert positional_encodings.shape == (2, total_sequence_length, embedding_dim)
         # Flat portion (last token) should be all zeros
-        flat_pe_portion = positional_encodings[:, height * width:, :]
+        flat_pe_portion = positional_encodings[:, height * width :, :]
         assert torch.all(flat_pe_portion == 0.0)
 
     def test_spatial_pe_with_flat_pe_for_flat_tokens(
@@ -831,12 +851,11 @@ class TestTransformerInputBuilderPositionalEncodings:
         assert isinstance(positional_encodings, torch.Tensor)
         assert positional_encodings.shape == (2, total_sequence_length, embedding_dim)
         # Flat portion should NOT be all zeros (flat PE was applied)
-        flat_pe_portion = positional_encodings[:, height * width:, :]
+        flat_pe_portion = positional_encodings[:, height * width :, :]
         assert not torch.all(flat_pe_portion == 0.0)
 
 
 class TestTransformerInputBuilderCLSToken:
-
     def test_cls_token_appended_at_end(
         self,
         transformer_input_builder_factory: Callable[..., TransformerInputBuilder],
@@ -897,7 +916,6 @@ class TestTransformerInputBuilderCLSToken:
 
 
 class TestTransformerInputBuilderCameraEmbeddings:
-
     def test_camera_embeddings_disabled_pe_identical(
         self,
         transformer_input_builder_factory: Callable[..., TransformerInputBuilder],
@@ -923,8 +941,8 @@ class TestTransformerInputBuilderCameraEmbeddings:
         _, positional_encodings, _ = builder(features)
         assert isinstance(positional_encodings, torch.Tensor)
         # Without camera embeddings, both cameras get identical spatial PE
-        left_pe = positional_encodings[:, :height * width, :]
-        right_pe = positional_encodings[:, height * width:, :]
+        left_pe = positional_encodings[:, : height * width, :]
+        right_pe = positional_encodings[:, height * width :, :]
         assert torch.equal(left_pe, right_pe)
 
     def test_camera_embeddings_added_to_spatial_pe(
@@ -953,13 +971,12 @@ class TestTransformerInputBuilderCameraEmbeddings:
         total_tokens = 2 * height * width
         assert positional_encodings.shape == (2, total_tokens, embedding_dim)
         # Camera embeddings make PE different for each camera's tokens
-        left_pe = positional_encodings[:, :height * width, :]
-        right_pe = positional_encodings[:, height * width:, :]
+        left_pe = positional_encodings[:, : height * width, :]
+        right_pe = positional_encodings[:, height * width :, :]
         assert not torch.equal(left_pe, right_pe)
 
 
 class TestTransformerInputBuilderMultipleFeatures:
-
     def test_multiple_spatial_features_concatenated(
         self,
         transformer_input_builder_factory: Callable[..., TransformerInputBuilder],
@@ -993,8 +1010,8 @@ class TestTransformerInputBuilderMultipleFeatures:
         # Sorted order: "depth" before "rgb" — verify by value
         expected_depth = depth_features["depth"].flatten(2).transpose(1, 2)
         expected_rgb = rgb_features["rgb"].flatten(2).transpose(1, 2)
-        assert torch.equal(tokens[:, :height_1 * width_1, :], expected_depth)
-        assert torch.equal(tokens[:, height_1 * width_1:, :], expected_rgb)
+        assert torch.equal(tokens[:, : height_1 * width_1, :], expected_depth)
+        assert torch.equal(tokens[:, height_1 * width_1 :, :], expected_rgb)
 
     def test_mixed_spatial_and_flat_features(
         self,
@@ -1027,7 +1044,7 @@ class TestTransformerInputBuilderMultipleFeatures:
         assert tokens.shape == (2, height * width + 1, embedding_dim)
         # Verify spatial tokens come first by checking the flat token at the end
         expected_spatial = spatial_value.flatten(2).transpose(1, 2)
-        assert torch.equal(tokens[:, :height * width, :], expected_spatial)
+        assert torch.equal(tokens[:, : height * width, :], expected_spatial)
         assert torch.equal(tokens[:, -1, :], flat_value)
 
     def test_features_processed_in_sorted_order(
@@ -1060,4 +1077,3 @@ class TestTransformerInputBuilderMultipleFeatures:
         # Sorted order: a_feature first, z_feature second
         assert torch.equal(tokens[:, 0, :], a_value)
         assert torch.equal(tokens[:, 1, :], z_value)
-

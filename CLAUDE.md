@@ -15,6 +15,9 @@ VersatIL: Imitation Learning framework for robotic manipulation. The codebase pr
 mamba env create -f environment.yml
 mamba activate versatil
 UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
+
+# Install pre-commit hooks (required for all contributors)
+pre-commit install
 ```
 
 Requirements: Python 3.11+, CUDA 12.4+

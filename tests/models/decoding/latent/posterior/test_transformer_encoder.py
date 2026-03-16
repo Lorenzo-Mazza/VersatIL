@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.latent.posterior.transformer_encoder module."""
+
 import logging
 from collections.abc import Callable
 from unittest.mock import patch
@@ -19,6 +20,7 @@ from versatil.models.decoding.latent.posterior.transformer_encoder import (
 @pytest.fixture
 def vae_encoder_factory() -> Callable[..., VAETransformerEncoder]:
     """Factory for VAETransformerEncoder instances."""
+
     def factory(
         embedding_dimension: int = 64,
         latent_dimension: int = 16,
@@ -45,11 +47,11 @@ def vae_encoder_factory() -> Callable[..., VAETransformerEncoder]:
             min_logvar=min_logvar,
             exclude_keys=exclude_keys,
         )
+
     return factory
 
 
 class TestVAETransformerEncoderInitialization:
-
     def test_inherits_from_posterior_latent_encoder(
         self,
         vae_encoder_factory: Callable[..., VAETransformerEncoder],
@@ -76,10 +78,13 @@ class TestVAETransformerEncoderInitialization:
         assert encoder.latent_dimension == latent_dimension
         assert encoder.deterministic is deterministic
 
-    @pytest.mark.parametrize("deterministic, expected_multiplier", [
-        (True, 1),
-        (False, 2),
-    ])
+    @pytest.mark.parametrize(
+        "deterministic, expected_multiplier",
+        [
+            (True, 1),
+            (False, 2),
+        ],
+    )
     def test_projection_dim_depends_on_deterministic(
         self,
         vae_encoder_factory: Callable[..., VAETransformerEncoder],
@@ -91,11 +96,13 @@ class TestVAETransformerEncoderInitialization:
             latent_dimension=latent_dimension,
             deterministic=deterministic,
         )
-        assert encoder.latent_projection.out_features == latent_dimension * expected_multiplier
+        assert (
+            encoder.latent_projection.out_features
+            == latent_dimension * expected_multiplier
+        )
 
 
 class TestVAETransformerEncoderEncode:
-
     def test_deterministic_returns_exact_keys(
         self,
         vae_encoder_factory: Callable[..., VAETransformerEncoder],
@@ -167,9 +174,18 @@ class TestVAETransformerEncoderEncode:
             feature_dimension=embedding_dimension,
         )
         result = encoder.encode(actions=actions, observations=features)
-        assert result[LatentKey.POSTERIOR_LATENT.value].shape == (batch_size, latent_dimension)
-        assert result[LatentKey.POSTERIOR_MU.value].shape == (batch_size, latent_dimension)
-        assert result[LatentKey.POSTERIOR_LOGVAR.value].shape == (batch_size, latent_dimension)
+        assert result[LatentKey.POSTERIOR_LATENT.value].shape == (
+            batch_size,
+            latent_dimension,
+        )
+        assert result[LatentKey.POSTERIOR_MU.value].shape == (
+            batch_size,
+            latent_dimension,
+        )
+        assert result[LatentKey.POSTERIOR_LOGVAR.value].shape == (
+            batch_size,
+            latent_dimension,
+        )
 
     def test_min_logvar_clamps_logvar(
         self,
@@ -264,7 +280,6 @@ class TestVAETransformerEncoderEncode:
 
 
 class TestVAETransformerEncoderForward:
-
     def test_forward_delegates_to_encode(
         self,
         vae_encoder_factory: Callable[..., VAETransformerEncoder],

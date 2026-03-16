@@ -2,9 +2,10 @@
 A collection of utilities for working with nested tensor structures consisting
 of numpy arrays and torch tensors.
 """
+
 import collections
 import functools
-from typing import Dict, Callable, List
+from collections.abc import Callable
 
 import numpy as np
 import torch
@@ -12,9 +13,9 @@ from torch import nn
 
 
 def dict_apply(
-    x: Dict[str, torch.Tensor], func: Callable[[torch.Tensor], torch.Tensor]
-) -> Dict[str, torch.Tensor]:
-    result = dict()
+    x: dict[str, torch.Tensor], func: Callable[[torch.Tensor], torch.Tensor]
+) -> dict[str, torch.Tensor]:
+    result = {}
     for key, value in x.items():
         if isinstance(value, dict):
             result[key] = dict_apply(value, func)
@@ -33,9 +34,9 @@ def pad_remaining_dims(x, target):
 
 
 def dict_apply_split(
-    x: Dict[str, torch.Tensor],
-    split_func: Callable[[torch.Tensor], Dict[str, torch.Tensor]],
-) -> Dict[str, torch.Tensor]:
+    x: dict[str, torch.Tensor],
+    split_func: Callable[[torch.Tensor], dict[str, torch.Tensor]],
+) -> dict[str, torch.Tensor]:
     results = collections.defaultdict(dict)
     for key, value in x.items():
         result = split_func(value)
@@ -45,11 +46,11 @@ def dict_apply_split(
 
 
 def dict_apply_reduce(
-    x: List[Dict[str, torch.Tensor]],
-    reduce_func: Callable[[List[torch.Tensor]], torch.Tensor],
-) -> Dict[str, torch.Tensor]:
-    result = dict()
-    for key in x[0].keys():
+    x: list[dict[str, torch.Tensor]],
+    reduce_func: Callable[[list[torch.Tensor]], torch.Tensor],
+) -> dict[str, torch.Tensor]:
+    result = {}
+    for key in x[0]:
         result[key] = reduce_func([x_[key] for x_ in x])
     return result
 
@@ -617,13 +618,9 @@ def reshape_dimensions_single(x, begin_axis, end_axis, target_dims):
         y (torch.Tensor): reshaped tensor
     """
     if begin_axis > end_axis:
-        raise ValueError(
-            f"begin_axis ({begin_axis}) must be <= end_axis ({end_axis})"
-        )
+        raise ValueError(f"begin_axis ({begin_axis}) must be <= end_axis ({end_axis})")
     if begin_axis < 0:
-        raise ValueError(
-            f"begin_axis ({begin_axis}) must be >= 0"
-        )
+        raise ValueError(f"begin_axis ({begin_axis}) must be >= 0")
     if end_axis >= len(x.shape):
         raise ValueError(
             f"end_axis ({end_axis}) must be < number of dimensions ({len(x.shape)})"
@@ -660,10 +657,16 @@ def reshape_dimensions(x, begin_axis, end_axis, target_dims):
     return recursive_dict_list_tuple_apply(
         x,
         {
-            torch.Tensor: lambda x, b=begin_axis, e=end_axis, t=target_dims: reshape_dimensions_single(
+            torch.Tensor: lambda x,
+            b=begin_axis,
+            e=end_axis,
+            t=target_dims: reshape_dimensions_single(
                 x, begin_axis=b, end_axis=e, target_dims=t
             ),
-            np.ndarray: lambda x, b=begin_axis, e=end_axis, t=target_dims: reshape_dimensions_single(
+            np.ndarray: lambda x,
+            b=begin_axis,
+            e=end_axis,
+            t=target_dims: reshape_dimensions_single(
                 x, begin_axis=b, end_axis=e, target_dims=t
             ),
             type(None): lambda x: x,
@@ -844,9 +847,7 @@ def gather_along_dim_with_dim_single(x, target_dim, source_dim, indices):
         y (torch.Tensor): gathered tensor, with dimension @target_dim indexed out
     """
     if len(indices.shape) != 1:
-        raise ValueError(
-            f"indices must be 1D, got shape {indices.shape}"
-        )
+        raise ValueError(f"indices must be 1D, got shape {indices.shape}")
     if x.shape[source_dim] != indices.shape[0]:
         raise ValueError(
             f"x.shape[{source_dim}] ({x.shape[source_dim]}) must match "
@@ -887,9 +888,10 @@ def gather_along_dim_with_dim(x, target_dim, source_dim, indices):
     """
     return map_tensor(
         x,
-        lambda y, t=target_dim, s=source_dim, i=indices: gather_along_dim_with_dim_single(
-            y, t, s, i
-        ),
+        lambda y,
+        t=target_dim,
+        s=source_dim,
+        i=indices: gather_along_dim_with_dim_single(y, t, s, i),
     )
 
 
@@ -945,13 +947,9 @@ def pad_sequence_single(seq, padding, batched=False, pad_same=True, pad_values=N
             f"seq must be np.ndarray or torch.Tensor, got {type(seq).__name__}"
         )
     if not pad_same and pad_values is None:
-        raise ValueError(
-            "pad_values must be provided when pad_same is False"
-        )
+        raise ValueError("pad_values must be provided when pad_same is False")
     if pad_values is not None and not isinstance(pad_values, float):
-        raise TypeError(
-            f"pad_values must be a float, got {type(pad_values).__name__}"
-        )
+        raise TypeError(f"pad_values must be a float, got {type(pad_values).__name__}")
     repeat_func = np.repeat if isinstance(seq, np.ndarray) else torch.repeat_interleave
     concat_func = np.concatenate if isinstance(seq, np.ndarray) else torch.cat
     ones_like_func = np.ones_like if isinstance(seq, np.ndarray) else torch.ones_like
@@ -961,21 +959,15 @@ def pad_sequence_single(seq, padding, batched=False, pad_same=True, pad_values=N
     end_pad = []
 
     if padding[0] > 0:
-        if batched:
-            first_element = seq[:, [0]]
-        else:
-            first_element = seq[[0]]
-        pad = first_element if pad_same else ones_like_func(first_element) * pad_values  # type: ignore[arg-type]
-        begin_pad.append(repeat_func(pad, padding[0], seq_dim))  # type: ignore[arg-type]
+        first_element = seq[:, [0]] if batched else seq[[0]]
+        pad = first_element if pad_same else ones_like_func(first_element) * pad_values
+        begin_pad.append(repeat_func(pad, padding[0], seq_dim))
     if padding[1] > 0:
-        if batched:
-            last_element = seq[:, [-1]]
-        else:
-            last_element = seq[[-1]]
-        pad = last_element if pad_same else ones_like_func(last_element) * pad_values  # type: ignore[arg-type]
-        end_pad.append(repeat_func(pad, padding[1], seq_dim))  # type: ignore[arg-type]
+        last_element = seq[:, [-1]] if batched else seq[[-1]]
+        pad = last_element if pad_same else ones_like_func(last_element) * pad_values
+        end_pad.append(repeat_func(pad, padding[1], seq_dim))
 
-    return concat_func(begin_pad + [seq] + end_pad, seq_dim)  # type: ignore[arg-type]
+    return concat_func(begin_pad + [seq] + end_pad, seq_dim)
 
 
 def pad_sequence(seq, padding, batched=False, pad_same=True, pad_values=None):
@@ -996,12 +988,16 @@ def pad_sequence(seq, padding, batched=False, pad_same=True, pad_values=None):
     return recursive_dict_list_tuple_apply(
         seq,
         {
-            torch.Tensor: lambda x, p=padding, b=batched, ps=pad_same, pv=pad_values: pad_sequence_single(
-                x, p, b, ps, pv
-            ),
-            np.ndarray: lambda x, p=padding, b=batched, ps=pad_same, pv=pad_values: pad_sequence_single(
-                x, p, b, ps, pv
-            ),
+            torch.Tensor: lambda x,
+            p=padding,
+            b=batched,
+            ps=pad_same,
+            pv=pad_values: pad_sequence_single(x, p, b, ps, pv),
+            np.ndarray: lambda x,
+            p=padding,
+            b=batched,
+            ps=pad_same,
+            pv=pad_values: pad_sequence_single(x, p, b, ps, pv),
             type(None): lambda x: x,
         },
     )
@@ -1068,9 +1064,7 @@ def list_of_flat_dict_to_dict_of_list(list_of_dict):
         dict_of_list (dict): dictionary of lists
     """
     if not isinstance(list_of_dict, list):
-        raise TypeError(
-            f"Expected a list, got {type(list_of_dict).__name__}"
-        )
+        raise TypeError(f"Expected a list, got {type(list_of_dict).__name__}")
     dic: collections.OrderedDict[str, list] = collections.OrderedDict()
     for i in range(len(list_of_dict)):
         for k in list_of_dict[i]:
@@ -1113,9 +1107,7 @@ def flatten_nested_dict_list(d, parent_key="", sep="_", item_key=""):
         new_key = parent_key + sep + item_key if len(parent_key) > 0 else item_key
         for k, v in d.items():
             if not isinstance(k, str):
-                raise TypeError(
-                    f"Dict keys must be strings, got {type(k).__name__}"
-                )
+                raise TypeError(f"Dict keys must be strings, got {type(k).__name__}")
             items.extend(flatten_nested_dict_list(v, new_key, sep=sep, item_key=k))
         return items
     else:
@@ -1172,7 +1164,9 @@ def get_module_by_path(module: nn.Module, path: list[int | str]) -> nn.Module:
     Returns:
         nn.Module: The module at the specified path.
     """
-    return functools.reduce(lambda m, p: m[p] if isinstance(p, int) else getattr(m, p), path, module)  # type: ignore[index]
+    return functools.reduce(
+        lambda m, p: m[p] if isinstance(p, int) else getattr(m, p), path, module
+    )
 
 
 def set_module_by_path(

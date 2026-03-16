@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.transformer.encoder module."""
+
 import re
 from collections.abc import Callable
 
@@ -55,7 +56,6 @@ def encoder_factory() -> Callable[..., TransformerEncoder]:
 
 
 class TestTransformerEncoderInitialization:
-
     @pytest.mark.parametrize("number_of_layers", [1, 4])
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("number_of_heads", [4, 8])
@@ -96,9 +96,7 @@ class TestTransformerEncoderInitialization:
         encoder_factory: Callable[..., TransformerEncoder],
         positional_encoding_type: str,
     ):
-        encoder = encoder_factory(
-            positional_encoding_type=positional_encoding_type
-        )
+        encoder = encoder_factory(positional_encoding_type=positional_encoding_type)
         assert encoder.positional_encoding is not None
 
     def test_rope_positional_encoding_created(
@@ -143,14 +141,11 @@ class TestTransformerEncoderInitialization:
     def test_head_dimension_computed(
         self, encoder_factory: Callable[..., TransformerEncoder]
     ):
-        encoder = encoder_factory(
-            embedding_dimension=64, number_of_heads=8
-        )
+        encoder = encoder_factory(embedding_dimension=64, number_of_heads=8)
         assert encoder.head_dimension == 8
 
 
 class TestTransformerEncoderForward:
-
     def test_output_shape(
         self,
         encoder_factory: Callable[..., TransformerEncoder],
@@ -183,9 +178,7 @@ class TestTransformerEncoderForward:
             sequence_length=4,
             padded_positions=[[2, 3], []],
         )
-        output_with_mask = encoder(
-            hidden_states=hidden_states, padding_mask=mask
-        )
+        output_with_mask = encoder(hidden_states=hidden_states, padding_mask=mask)
         output_without_mask = encoder(hidden_states=hidden_states)
         # Batch 0 should differ (has padding), batch 1 output may or may not differ
         assert not torch.allclose(
@@ -256,7 +249,6 @@ class TestTransformerEncoderForward:
 
 
 class TestTransformerEncoderExpandPaddingMask:
-
     def test_expands_to_four_dimensions(
         self,
         padding_mask_factory: Callable[..., torch.Tensor],

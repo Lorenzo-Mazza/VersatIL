@@ -1,4 +1,5 @@
 """Shared fixtures for decoder factory integration tests."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -102,9 +103,7 @@ def flat_features_with_timestep_factory(
             if timestep_shape is None:
                 timestep_shape = (batch_size,)
             features[DecoderOutputKey.TIMESTEP.value] = torch.from_numpy(
-                rng.integers(
-                    low=0, high=100, size=timestep_shape
-                ).astype(np.int64)
+                rng.integers(low=0, high=100, size=timestep_shape).astype(np.int64)
             )
         return features
 
@@ -126,9 +125,9 @@ def noisy_actions_factory(
             action_keys_to_dims = {"position_action": 3}
         return {
             key: torch.from_numpy(
-                rng.standard_normal(
-                    (batch_size, prediction_horizon, dim)
-                ).astype(np.float32)
+                rng.standard_normal((batch_size, prediction_horizon, dim)).astype(
+                    np.float32
+                )
             )
             for key, dim in action_keys_to_dims.items()
         }

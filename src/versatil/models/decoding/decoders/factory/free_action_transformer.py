@@ -10,25 +10,25 @@ and generates action tokens in autoregressive manner.
 import torch
 from torch import nn
 
-from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import SampleKey
+from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import Tokenizer
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_masking import make_attention_mask
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 from versatil.models.decoding.decoders import ActionDecoder, DecoderInput
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.constants import PositionalEncodingType, AttentionType
+from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.free_transformer.free_transformer import FreeTransformer
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
 from versatil.models.layers.positional_encoding.sinusoidal import (
-    SinusoidalPositionalEncoding2D,
     SinusoidalPositionalEncoding1D,
+    SinusoidalPositionalEncoding2D,
 )
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
 
 class FreeActionTransformer(ActionDecoder):
@@ -289,7 +289,9 @@ class FreeActionTransformer(ActionDecoder):
             return_latent_embeddings=True,
         )  # (B, query_len, D), (B, query_len, 2**latent_dim), None
         # Shift alignment: grabs outputs from the last feature to the penultimate action so step t predicts target t+1.
-        action_outputs = decoder_output[:, prefix_len - 1 : -1, :] # (B, action_token_len, D)
+        action_outputs = decoder_output[
+            :, prefix_len - 1 : -1, :
+        ]  # (B, action_token_len, D)
         logits = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value](
             action_outputs
         )  # (B, action_token_len, vocab_size)

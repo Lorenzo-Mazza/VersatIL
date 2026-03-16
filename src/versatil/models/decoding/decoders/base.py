@@ -6,8 +6,8 @@ import torch.nn as nn
 
 from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.data.normalization.normalizer import LinearNormalizer
-from versatil.data.task import ObservationSpace, ActionSpace
-from versatil.data.tokenization import Tokenizer, ActionTokenizer
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.tokenization import ActionTokenizer, Tokenizer
 from versatil.models.decoding.constants import FeatureType
 
 
@@ -243,7 +243,11 @@ class ActionDecoder(nn.Module, ABC):
     @property
     def position_dim(self) -> int | None:
         """Get the position dimension if used."""
-        return self.action_space.position_dim if self.action_space.has_position_actions else None
+        return (
+            self.action_space.position_dim
+            if self.action_space.has_position_actions
+            else None
+        )
 
     def validate_action_heads(self):
         """Validate that action heads match the action space configuration.

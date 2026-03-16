@@ -1,4 +1,5 @@
 """Tests for versatil.configs.encoding.fusion module."""
+
 import pytest
 from hydra.utils import instantiate
 from omegaconf import MISSING
@@ -16,7 +17,6 @@ from versatil.models.layers.activation import ActivationFunction
 
 @pytest.mark.unit
 class TestFusionConfig:
-
     def test_all_required_fields_default_to_missing(self):
         config = FusionConfig()
         assert config._target_ == MISSING
@@ -27,7 +27,6 @@ class TestFusionConfig:
 
 @pytest.mark.unit
 class TestConcatFusionConfig:
-
     def test_target_points_to_concat_fusion(self):
         config = ConcatFusionConfig(
             input_features=["a", "b"], output_name="fused", hidden_dim=256
@@ -43,12 +42,14 @@ class TestConcatFusionConfig:
 
 @pytest.mark.unit
 class TestAttentionFusionConfig:
-
     def test_target_points_to_attention_fusion(self):
         config = AttentionFusionConfig(
             input_features=["a", "b"], output_name="fused", hidden_dim=256
         )
-        assert config._target_ == "versatil.models.encoding.fusion.attention.AttentionFusion"
+        assert (
+            config._target_
+            == "versatil.models.encoding.fusion.attention.AttentionFusion"
+        )
 
     @pytest.mark.parametrize("num_heads", [4, 8])
     @pytest.mark.parametrize("dropout", [0.0, 0.1])
@@ -66,7 +67,6 @@ class TestAttentionFusionConfig:
 
 @pytest.mark.unit
 class TestMLPFusionConfig:
-
     def test_target_points_to_mlp_fusion(self):
         config = MLPFusionConfig(
             input_features=["a", "b"],
@@ -88,12 +88,13 @@ class TestMLPFusionConfig:
 
 @pytest.mark.unit
 class TestSpatialFusionConfig:
-
     def test_target_points_to_spatial_fusion(self):
         config = SpatialFusionConfig(
             input_features=["a", "b"], output_name="fused", hidden_dim=256
         )
-        assert config._target_ == "versatil.models.encoding.fusion.spatial.SpatialFusion"
+        assert (
+            config._target_ == "versatil.models.encoding.fusion.spatial.SpatialFusion"
+        )
 
     def test_concat_dim_default_is_width_string(self):
         config = SpatialFusionConfig(
@@ -104,10 +105,11 @@ class TestSpatialFusionConfig:
 
 @pytest.mark.unit
 class TestFusionInstantiation:
-
     def test_concat_fusion_instantiates(self):
         config = ConcatFusionConfig(
-            input_features=["rgb", "depth"], output_name="fused", hidden_dim=256,
+            input_features=["rgb", "depth"],
+            output_name="fused",
+            hidden_dim=256,
         )
         instance = instantiate(config)
         assert instance.output_name == "fused"
@@ -115,16 +117,20 @@ class TestFusionInstantiation:
 
     def test_attention_fusion_instantiates(self):
         config = AttentionFusionConfig(
-            input_features=["rgb", "depth"], output_name="fused",
-            hidden_dim=256, num_heads=8,
+            input_features=["rgb", "depth"],
+            output_name="fused",
+            hidden_dim=256,
+            num_heads=8,
         )
         instance = instantiate(config)
         assert instance.hidden_dim == 256
 
     def test_mlp_fusion_instantiates(self):
         config = MLPFusionConfig(
-            input_features=["rgb", "depth"], output_name="fused",
-            hidden_dim=256, mlp_hidden_dims=[512, 256],
+            input_features=["rgb", "depth"],
+            output_name="fused",
+            hidden_dim=256,
+            mlp_hidden_dims=[512, 256],
         )
         instance = instantiate(config)
         assert instance.hidden_dim == 256

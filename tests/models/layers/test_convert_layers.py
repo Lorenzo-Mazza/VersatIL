@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.convert_layers module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -86,7 +87,6 @@ def model_with_none_module_factory() -> Callable[..., nn.Sequential]:
 
 
 class TestComputeNumGroups:
-
     @pytest.mark.parametrize(
         "num_channels, expected_groups",
         [
@@ -120,7 +120,6 @@ class TestComputeNumGroups:
 
 
 class TestConvertLayers:
-
     @pytest.mark.parametrize("channels", [64, 128])
     def test_converted_model_produces_valid_output(
         self,
@@ -247,7 +246,6 @@ class TestConvertLayers:
 
 
 class TestReplaceBatchnormWithGroupnorm:
-
     def test_converts_all_batchnorm_variants(
         self,
         nchw_tensor_factory: Callable[..., torch.Tensor],

@@ -1,4 +1,5 @@
 """Tests for versatil.inference.observation_preprocessor module."""
+
 import logging
 from collections.abc import Callable
 from unittest.mock import patch
@@ -6,12 +7,12 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import torch
-
 from tso_robotics_sockets import CompressionType
-from versatil.data.constants import Cameras
-from versatil.inference.observation_preprocessor import ObservationPreprocessor
 from versatil_constants.shared import ObsKey
 from versatil_constants.tso import TSOProprioKey
+
+from versatil.data.constants import Cameras
+from versatil.inference.observation_preprocessor import ObservationPreprocessor
 
 
 @pytest.fixture
@@ -51,9 +52,7 @@ def rgb_image_factory(rng: np.random.Generator) -> Callable[..., np.ndarray]:
         width: int = 16,
         channels: int = 3,
     ) -> np.ndarray:
-        return rng.integers(
-            0, 256, size=(height, width, channels), dtype=np.uint8
-        )
+        return rng.integers(0, 256, size=(height, width, channels), dtype=np.uint8)
 
     return factory
 
@@ -124,10 +123,8 @@ def multi_environment_response_factory(
         for camera_key in camera_keys:
             response[camera_key] = {}
             for environment_index in range(environment_count):
-                response[camera_key][str(environment_index)] = (
-                    rgb_image_factory(
-                        height=image_height, width=image_width
-                    )
+                response[camera_key][str(environment_index)] = rgb_image_factory(
+                    height=image_height, width=image_width
                 )
         for key in proprioceptive_keys:
             response[key] = {}
@@ -136,9 +133,7 @@ def multi_environment_response_factory(
         if language is not None:
             response[ObsKey.LANGUAGE.value] = {}
             for environment_index in range(environment_count):
-                response[ObsKey.LANGUAGE.value][
-                    str(environment_index)
-                ] = language
+                response[ObsKey.LANGUAGE.value][str(environment_index)] = language
         return response
 
     return factory
@@ -146,7 +141,6 @@ def multi_environment_response_factory(
 
 @pytest.mark.unit
 class TestObservationPreprocessorInitialization:
-
     @pytest.mark.parametrize("rotate_images", [True, False])
     @pytest.mark.parametrize("has_language", [True, False])
     @pytest.mark.parametrize(
@@ -186,15 +180,11 @@ class TestObservationPreprocessorInitialization:
             Cameras.RIGHT.value,
         ]
 
-    def test_depth_registered_as_mask_in_albumentations(
-        self, preprocessor_factory
-    ):
+    def test_depth_registered_as_mask_in_albumentations(self, preprocessor_factory):
         preprocessor = preprocessor_factory(
             camera_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
         )
-        additional_targets = (
-            preprocessor.image_transform.additional_targets
-        )
+        additional_targets = preprocessor.image_transform.additional_targets
         assert additional_targets[Cameras.DEPTH.value] == "mask"
 
     def test_second_rgb_camera_registered_as_additional_image(
@@ -203,15 +193,12 @@ class TestObservationPreprocessorInitialization:
         preprocessor = preprocessor_factory(
             camera_keys=[Cameras.LEFT.value, Cameras.RIGHT.value],
         )
-        additional_targets = (
-            preprocessor.image_transform.additional_targets
-        )
+        additional_targets = preprocessor.image_transform.additional_targets
         assert additional_targets[Cameras.RIGHT.value] == "image"
 
 
 @pytest.mark.unit
 class TestParseResponse:
-
     def test_single_environment_detected_when_camera_value_is_array(
         self,
         preprocessor_factory,
@@ -262,7 +249,6 @@ class TestParseResponse:
 
 @pytest.mark.unit
 class TestParseSingleEnvironment:
-
     def test_decompresses_camera_images(
         self,
         preprocessor_factory,
@@ -284,9 +270,7 @@ class TestParseSingleEnvironment:
             mock_decompress.assert_called_once_with(
                 b"compressed_data", method=CompressionType.RAW.value
             )
-            np.testing.assert_array_equal(
-                result[0][Cameras.LEFT.value], image
-            )
+            np.testing.assert_array_equal(result[0][Cameras.LEFT.value], image)
 
     def test_decompress_called_with_correct_compression_type(
         self,
@@ -361,9 +345,7 @@ class TestParseSingleEnvironment:
             response = {Cameras.LEFT.value: b"data"}
             result = preprocessor._parse_single_environment(response=response)
 
-            np.testing.assert_array_equal(
-                result[0][Cameras.LEFT.value], image
-            )
+            np.testing.assert_array_equal(result[0][Cameras.LEFT.value], image)
 
     def test_proprioceptive_keys_cast_to_float32(
         self,
@@ -474,7 +456,6 @@ class TestParseSingleEnvironment:
 
 @pytest.mark.unit
 class TestParseMultiEnvironment:
-
     def test_parses_multiple_environments(
         self,
         preprocessor_factory,
@@ -504,12 +485,8 @@ class TestParseMultiEnvironment:
             result = preprocessor._parse_multi_environment(response=response)
 
             assert set(result.keys()) == {0, 1}
-            np.testing.assert_array_equal(
-                result[0][Cameras.LEFT.value], image_0
-            )
-            np.testing.assert_array_equal(
-                result[1][Cameras.LEFT.value], image_1
-            )
+            np.testing.assert_array_equal(result[0][Cameras.LEFT.value], image_0)
+            np.testing.assert_array_equal(result[1][Cameras.LEFT.value], image_1)
 
     def test_rotation_applied_per_environment(
         self,
@@ -558,12 +535,8 @@ class TestParseMultiEnvironment:
             }
             result = preprocessor._parse_multi_environment(response=response)
 
-            np.testing.assert_allclose(
-                result[0][proprio_key], [1.0, 2.0]
-            )
-            np.testing.assert_allclose(
-                result[1][proprio_key], [3.0, 4.0]
-            )
+            np.testing.assert_allclose(result[0][proprio_key], [1.0, 2.0])
+            np.testing.assert_allclose(result[1][proprio_key], [3.0, 4.0])
 
     def test_language_per_environment(
         self,
@@ -640,16 +613,13 @@ class TestParseMultiEnvironment:
 
 @pytest.mark.unit
 class TestTransformCameraObservations:
-
     def test_empty_camera_keys_returns_empty_dict(
         self,
         preprocessor_factory,
     ):
         preprocessor = preprocessor_factory(camera_keys=[])
 
-        result = preprocessor.transform_camera_observations(
-            recent_observations={}
-        )
+        result = preprocessor.transform_camera_observations(recent_observations={})
 
         assert result == {}
 
@@ -711,9 +681,7 @@ class TestTransformCameraObservations:
             image_width=8,
         )
         # Depth image with values > 1.0 (e.g., millimeter range)
-        depth_image = depth_image_factory(
-            height=16, width=16, max_depth=500.0
-        )
+        depth_image = depth_image_factory(height=16, width=16, max_depth=500.0)
         recent_observations = {Cameras.DEPTH.value: [depth_image]}
 
         result = preprocessor.transform_camera_observations(
@@ -739,9 +707,7 @@ class TestTransformCameraObservations:
             depth_clamp_range=(depth_min, depth_max),
         )
         # Depth with values outside clamp range
-        depth_image = depth_image_factory(
-            height=16, width=16, max_depth=500.0
-        )
+        depth_image = depth_image_factory(height=16, width=16, max_depth=500.0)
         recent_observations = {Cameras.DEPTH.value: [depth_image]}
 
         result = preprocessor.transform_camera_observations(
@@ -763,9 +729,7 @@ class TestTransformCameraObservations:
             image_width=8,
             depth_clamp_range=None,
         )
-        depth_image = depth_image_factory(
-            height=16, width=16, max_depth=500.0
-        )
+        depth_image = depth_image_factory(height=16, width=16, max_depth=500.0)
         recent_observations = {Cameras.DEPTH.value: [depth_image]}
 
         result = preprocessor.transform_camera_observations(
@@ -864,10 +828,7 @@ class TestTransformCameraObservations:
             image_width=8,
         )
         timestep_count = 3
-        images = [
-            rgb_image_factory(height=16, width=16)
-            for _ in range(timestep_count)
-        ]
+        images = [rgb_image_factory(height=16, width=16) for _ in range(timestep_count)]
         recent_observations = {Cameras.LEFT.value: images}
 
         result = preprocessor.transform_camera_observations(
@@ -935,7 +896,6 @@ class TestTransformCameraObservations:
 
 @pytest.mark.unit
 class TestNormalizeImageTensor:
-
     def test_uint8_divided_by_255(self):
         image = torch.tensor([[[0, 128, 255]]], dtype=torch.uint8)
 
@@ -951,9 +911,7 @@ class TestNormalizeImageTensor:
         image = torch.tensor([[[0.0, 128.0, 255.0]]])
 
         with caplog.at_level(logging.WARNING):
-            result = ObservationPreprocessor._normalize_image_tensor(
-                image=image
-            )
+            result = ObservationPreprocessor._normalize_image_tensor(image=image)
 
         torch.testing.assert_close(
             result,
@@ -966,9 +924,7 @@ class TestNormalizeImageTensor:
         image = torch.tensor([[[0.0, 0.5, 1.0]]])
 
         with caplog.at_level(logging.WARNING):
-            result = ObservationPreprocessor._normalize_image_tensor(
-                image=image
-            )
+            result = ObservationPreprocessor._normalize_image_tensor(image=image)
 
         torch.testing.assert_close(result, image)
         assert "already in [0, 1] range" in caplog.text
@@ -977,8 +933,6 @@ class TestNormalizeImageTensor:
         image = torch.zeros(1, 3, 4, 4)
 
         with caplog.at_level(logging.WARNING):
-            result = ObservationPreprocessor._normalize_image_tensor(
-                image=image
-            )
+            result = ObservationPreprocessor._normalize_image_tensor(image=image)
 
         torch.testing.assert_close(result, image)
