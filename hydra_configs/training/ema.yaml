@@ -17,17 +17,17 @@ optimizer:
       params_pattern: "encoding_pipeline.encoders.*.backbone"
 
 clip_gradient_norm: false
-clip_max_norm: 1.0
 
 lr_schedule: null
-lr_warmup_steps: 1000
 
-use_ema: false
+use_ema: true
+ema_power: 0.75
 
+# Stochastic Weight Averaging (SWA)
 swa_lrs: null  # Set to a float (e.g., 0.05) to enable SWA
 swa_epoch_start: 0.8  # Start SWA at 80% of training
 swa_annealing_epochs: 10  # Anneal LR over 10 epochs
 
 tune_lr: false  # Automatically find optimal learning rate
 
-early_stopping_patience: 20
+early_stopping_patience: 50
