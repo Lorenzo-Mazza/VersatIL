@@ -36,7 +36,7 @@ ruff-format:
   stage: lint
   image: python:3.11-slim
   before_script:
-    - pip install ruff
+    - pip install ruff==0.14.3
   script:
     - ruff format --check src/ tests/
   rules:
@@ -47,7 +47,7 @@ ruff-lint:
   stage: lint
   image: python:3.11-slim
   before_script:
-    - pip install ruff
+    - pip install ruff==0.14.3
   script:
     - ruff check src/ tests/
   rules:
