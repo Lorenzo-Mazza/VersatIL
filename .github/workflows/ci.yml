@@ -63,7 +63,7 @@ jobs:
       - name: Run unit tests with coverage
         run: |
           source .venv/bin/activate
-          python -m pytest tests/ -m "unit" --cov=versatil --cov-report=xml:coverage.xml --cov-report=term-missing -q --junitxml=report-unit.xml
+          python -m pytest tests/ -m "unit and not requires_gpu" --cov=versatil --cov-report=xml:coverage.xml --cov-report=term-missing -q --junitxml=report-unit.xml
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4
