@@ -4,7 +4,7 @@
 
 These guidelines define how tests in this codebase must be written.
 
-**Package status:** `tests/data/` and `tests/models/` are fully up-to-date and guideline-compliant. All source modules with testable logic have corresponding test files. Use any test in these packages as reference.
+**Package status:** All test packages (`tests/data/`, `tests/models/`, `tests/configs/`, `tests/metrics/`, `tests/training/`, `tests/inference/`, `tests/common/`, `tests/hydra_configs/`) are fully up-to-date, guideline-compliant, and passing. Almost all source modules with testable logic have corresponding test files. Use any test in these packages as reference.
 
 Reference implementations:
 - `tests/data/augmentation/test_augmentation_pipeline.py` — mocking and factory fixtures
