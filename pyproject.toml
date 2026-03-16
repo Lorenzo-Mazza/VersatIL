@@ -95,6 +95,11 @@ filterwarnings = [
     "ignore:.*are not valid for transform.*:UserWarning",
     "ignore:ShiftScaleRotate is a special case.*:UserWarning",
     "ignore:Initializing zero-element tensors.*:UserWarning",
+    "ignore:.*weights_only=False.*:FutureWarning",
+    "ignore:.*tensorboardX.*:UserWarning",
+    "ignore:.*Checkpoint directory.*:UserWarning",
+    "ignore:.*does not have many workers.*:UserWarning",
+    "ignore:.*number of training batches.*is smaller than.*:UserWarning",
 ]
 testpaths = ["tests"]
 python_files = "test_*.py"

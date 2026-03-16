@@ -592,7 +592,17 @@ class TestLanguageEncoderIntegration:
     @pytest.mark.integration
     @pytest.mark.parametrize(
         "model_name",
-        [encoder_type.value for encoder_type in LanguageEncoderType],
+        [
+            pytest.param(
+                encoder_type.value,
+                marks=pytest.mark.skipif(
+                    encoder_type
+                    in (LanguageEncoderType.GEMMA_2B, LanguageEncoderType.QWEN_2_1_5B),
+                    reason=f"{encoder_type.value} requires HuggingFace authentication",
+                ),
+            )
+            for encoder_type in LanguageEncoderType
+        ],
     )
     def test_forward_pass_per_model(
         self,
