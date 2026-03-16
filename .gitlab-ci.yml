@@ -22,18 +22,21 @@ variables:
       VERSATIL_ZARR_DIR=/tmp/versatil/zarr
       VERSATIL_PRETRAINED_DIR=/tmp/versatil/pretrained
       EOF
-    - uv venv .venv
-    - source .venv/bin/activate
-    - uv pip install --extra-index-url https://download.pytorch.org/whl/cpu torch==2.4.0 torchaudio==2.4.0 torchvision==0.19.0
+    - |
+      if [ ! -x .venv/bin/python ]; then
+        rm -rf .venv
+        uv venv .venv
+        source .venv/bin/activate
+        uv pip install --extra-index-url https://download.pytorch.org/whl/cpu torch==2.4.0 torchaudio==2.4.0 torchvision==0.19.0
+      else
+        source .venv/bin/activate
+      fi
     - uv sync --no-install-package flash-attn
   cache:
     key: "$CI_COMMIT_REF_SLUG"
     paths:
-      - .cache/pip
-      - .cache/huggingface
-      - .cache/torch
-      - .cache/uv
-      - .venv
+      - .cache/
+      - .venv/
 
 ruff-format:
   stage: lint
@@ -57,36 +60,26 @@ ruff-lint:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH
 
-unit-tests:
+tests:
   stage: test
   extends: .setup
   script:
-    - python -m pytest tests/ -m "unit and not requires_gpu" --tb=short -q --junitxml=report-unit.xml
-  artifacts:
-    when: always
-    reports:
-      junit: report-unit.xml
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH
-
-integration-tests:
-  stage: test
-  extends: .setup
-  script:
+    - uv pip install pytest-cov
+    - python -m pytest tests/ -m "unit and not requires_gpu" --cov=versatil --cov-report=xml:coverage.xml --cov-report=term-missing --tb=short -q --junitxml=report-unit.xml
     - python -m pytest tests/ -m "integration" --tb=short -q --junitxml=report-integration.xml
+  coverage: '/(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
   artifacts:
     when: always
     reports:
-      junit: report-integration.xml
+      junit:
+        - report-unit.xml
+        - report-integration.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      when: always
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      when: always
     - if: $CI_COMMIT_BRANCH
-      when: manual
-      allow_failure: true
 
 e2e-tests:
   stage: test
@@ -104,24 +97,6 @@ e2e-tests:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: manual
       allow_failure: true
-
-coverage:
-  stage: test
-  extends: .setup
-  before_script:
-    - !reference [.setup, before_script]
-    - uv pip install pytest-cov
-  script:
-    - python -m pytest tests/ -m "unit and not requires_gpu" --cov=versatil --cov-report=xml:coverage.xml --cov-report=term-missing -q
-  coverage: '/(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
-  artifacts:
-    reports:
-      coverage_report:
-        coverage_format: cobertura
-        path: coverage.xml
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 publish-pypi:
   stage: publish
