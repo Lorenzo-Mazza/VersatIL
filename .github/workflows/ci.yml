@@ -45,12 +45,20 @@ jobs:
           path: ~/.cache/huggingface
           key: hf-models-${{ hashFiles('pyproject.toml') }}
           restore-keys: hf-models-
+      - name: Create .env for CI
+        run: |
+          cat > .env << 'EOF'
+          VERSATIL_CACHE_DIR=/tmp/versatil/cache
+          VERSATIL_CHECKPOINT_DIR=/tmp/versatil/checkpoints
+          VERSATIL_ZARR_DIR=/tmp/versatil/zarr
+          VERSATIL_PRETRAINED_DIR=/tmp/versatil/pretrained
+          EOF
       - name: Install dependencies
         run: |
           uv venv .venv
           source .venv/bin/activate
           uv pip install --extra-index-url https://download.pytorch.org/whl/cpu torch==2.4.0 torchaudio==2.4.0 torchvision==0.19.0
-          uv pip install -e . --exclude flash-attn
+          uv sync --no-install-package flash-attn
           uv pip install pytest-cov
       - name: Run unit tests with coverage
         run: |
@@ -84,12 +92,20 @@ jobs:
           path: ~/.cache/huggingface
           key: hf-models-${{ hashFiles('pyproject.toml') }}
           restore-keys: hf-models-
+      - name: Create .env for CI
+        run: |
+          cat > .env << 'EOF'
+          VERSATIL_CACHE_DIR=/tmp/versatil/cache
+          VERSATIL_CHECKPOINT_DIR=/tmp/versatil/checkpoints
+          VERSATIL_ZARR_DIR=/tmp/versatil/zarr
+          VERSATIL_PRETRAINED_DIR=/tmp/versatil/pretrained
+          EOF
       - name: Install dependencies
         run: |
           uv venv .venv
           source .venv/bin/activate
           uv pip install --extra-index-url https://download.pytorch.org/whl/cpu torch==2.4.0 torchaudio==2.4.0 torchvision==0.19.0
-          uv pip install -e . --exclude flash-attn
+          uv sync --no-install-package flash-attn
       - name: Run integration tests
         run: |
           source .venv/bin/activate
@@ -118,12 +134,20 @@ jobs:
           path: ~/.cache/huggingface
           key: hf-models-${{ hashFiles('pyproject.toml') }}
           restore-keys: hf-models-
+      - name: Create .env for CI
+        run: |
+          cat > .env << 'EOF'
+          VERSATIL_CACHE_DIR=/tmp/versatil/cache
+          VERSATIL_CHECKPOINT_DIR=/tmp/versatil/checkpoints
+          VERSATIL_ZARR_DIR=/tmp/versatil/zarr
+          VERSATIL_PRETRAINED_DIR=/tmp/versatil/pretrained
+          EOF
       - name: Install dependencies
         run: |
           uv venv .venv
           source .venv/bin/activate
           uv pip install --extra-index-url https://download.pytorch.org/whl/cpu torch==2.4.0 torchaudio==2.4.0 torchvision==0.19.0
-          uv pip install -e . --exclude flash-attn
+          uv sync --no-install-package flash-attn
       - name: Run e2e tests
         run: |
           source .venv/bin/activate
