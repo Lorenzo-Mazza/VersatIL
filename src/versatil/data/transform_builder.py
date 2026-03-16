@@ -242,7 +242,7 @@ class TransformBuilder:
             Dictionary with min, max, mean, std statistics (on clipped data if winsorized)
         """
         depth_array = self.replay_buffer[camera_key]
-        n_frames = len(depth_array)
+        n_frames = depth_array.shape[0]
         total_pixels = depth_array.size
         p_lower, p_upper = None, None
         if winsorize and self.depth_winsorize_quantiles:

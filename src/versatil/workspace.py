@@ -459,10 +459,9 @@ class Workspace:
         device = torch.device(self.config.experiment.device)
         batch = to_device(batch, device)
         self.lightning_policy.to(device)
-        self.lightning_policy.eval()
+        self.lightning_policy.train()
         with torch.no_grad():
             _ = self.lightning_policy.training_step(batch, 0)
-        self.lightning_policy.train()
         logging.info("Lazy modules initialized successfully")
 
     def _tune_hyperparameters(self):
