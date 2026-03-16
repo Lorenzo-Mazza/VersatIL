@@ -18,7 +18,7 @@ variables:
     - uv venv .venv
     - source .venv/bin/activate
     - uv pip install --extra-index-url https://download.pytorch.org/whl/cpu torch==2.4.0 torchaudio==2.4.0 torchvision==0.19.0
-    - uv pip install -e ".[dev]" --no-build-isolation-package flash-attn || uv pip install -e . --no-build-isolation-package flash-attn
+    - uv pip install -e . --exclude flash-attn
   cache:
     key: "$CI_COMMIT_REF_SLUG"
     paths:
@@ -27,10 +27,6 @@ variables:
       - .cache/torch
       - .cache/uv
       - .venv
-
-# ---------------------------------------------------------------------------
-# Lint stage
-# ---------------------------------------------------------------------------
 
 ruff-format:
   stage: lint
@@ -53,10 +49,6 @@ ruff-lint:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH
-
-# ---------------------------------------------------------------------------
-# Test stage
-# ---------------------------------------------------------------------------
 
 unit-tests:
   stage: test
@@ -123,10 +115,6 @@ coverage:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-
-# ---------------------------------------------------------------------------
-# Publish stage
-# ---------------------------------------------------------------------------
 
 publish-pypi:
   stage: publish
