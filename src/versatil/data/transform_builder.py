@@ -80,14 +80,13 @@ class TransformBuilder:
         self.min_kinematics_range = min_kinematics_range
 
     def create_normalizer_and_tokenizer(
-        self, device: torch.device | None = None, **kwargs
+        self, device: torch.device | None = None,
     ) -> tuple[LinearNormalizer, Tokenizer | None]:
         """Create and fit normalizer and optionally tokenizer to data.
         Pipeline: Raw data → Winsorize → Normalize → Tokenize
 
         Args:
             device: Target device for tensors
-            **kwargs: Additional arguments for normalizer fitting
 
         Returns:
             Tuple of (normalizer, tokenizer) where tokenizer is None if not configured
@@ -113,7 +112,6 @@ class TransformBuilder:
             action_data=valid_action_data,
             action_meta=action_meta,
             device=device,
-            **kwargs,
         )
         tokenizer = None
         if self.tokenization_config and (
@@ -151,7 +149,6 @@ class TransformBuilder:
         action_meta: dict[str, ActionMetadata],
         device: torch.device | None = None,
         winsorize_depth: bool = True,
-        **kwargs,
     ) -> LinearNormalizer:
         """Create and fit normalizer for this dataset.
 
@@ -160,7 +157,6 @@ class TransformBuilder:
             action_meta: Action metadata for fitting
             device: Target device for tensors
             winsorize_depth: Apply winsorization to depth values
-            **kwargs: Additional arguments for normalizer fitting
 
         Returns:
             Fitted LinearNormalizer instance
@@ -196,7 +192,6 @@ class TransformBuilder:
             clamp_range=self.clamp_kinematics_range,
             min_std=self.min_kinematics_std,
             min_range=self.min_kinematics_range,
-            **kwargs,
         )
         self._setup_image_normalizers(normalizer, device, winsorize_depth)
         self._log_normalized_proprio_stats(normalizer, data_to_normalize)

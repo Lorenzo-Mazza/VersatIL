@@ -5,8 +5,7 @@ import torch.nn as nn
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey
-from versatil.models.constants import FeatureType
+from versatil.models.decoding.constants import DecoderOutputKey, FeatureType
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer import Transformer
@@ -219,7 +218,7 @@ class DiscreteDETRActionTransformer(ActionDecoder):
             positional_encodings=pos_encodings,
             padding_mask=padding_mask,
         )
-        if self.train():
+        if self.training:
             head = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value]
             logits = head(action_embeddings)  # (B, max_seq_len, vocab_size)
             return {

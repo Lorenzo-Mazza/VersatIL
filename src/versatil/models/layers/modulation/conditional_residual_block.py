@@ -20,10 +20,10 @@ class ConditionalResidualBlock1D(nn.Module):
         self.blocks = nn.ModuleList(
             [
                 Conv1dBlock(
-                    input_channels, output_channels, kernel_size, n_groups=num_groups
+                    input_channels, output_channels, kernel_size, num_groups=num_groups
                 ),
                 Conv1dBlock(
-                    output_channels, output_channels, kernel_size, n_groups=num_groups
+                    output_channels, output_channels, kernel_size, num_groups=num_groups
                 ),
             ]
         )

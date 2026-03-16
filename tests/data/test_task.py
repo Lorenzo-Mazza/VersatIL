@@ -1,472 +1,765 @@
-"""Tests for task space module (ActionSpace, ObservationSpace, TaskSpace)."""
-import pytest
+"""Tests for versatil.data.task module."""
+from collections.abc import Callable
 from unittest.mock import MagicMock
+
+import pytest
+
 from versatil.data.constants import (
+    ActionComputationMethod,
     Cameras,
+    CoordinateSystem,
     GripperType,
     ObsKey,
     OrientationRepresentation,
-    ProprioKey,
+)
+from versatil.data.metadata import (
+    ActionMetadata,
+    CameraMetadata,
+    GripperActionMetadata,
+    GripperObservationMetadata,
+    ObservationMetadata,
+    OnTheFlyActionMetadata,
+    OrientationObservationMetadata,
+    PositionObservationMetadata,
 )
 from versatil.data.task import ActionSpace, ObservationSpace, TaskSpace
 
 
 @pytest.fixture
-def action_space_factory():
-    """Factory for creating ActionSpace instances."""
-    def factory(**kwargs):
-        defaults = {
-            'has_position': True,
-            'position_dim': 3,
-            'has_orientation': False,
-            'orientation_dim': 0,
-            'orientation_repr': OrientationRepresentation.ROLL.value,
-            'has_gripper': True,
-            'gripper_type': GripperType.BINARY.value,
-            'gripper_dim': 1,
-            'use_gripper_class_weights': False,
-            'predict_in_camera_frame': True,
-            'deltas_as_actions': False,
-            'denoise_actions': True,
-            'predict_task_phases': False,
-            'number_of_phases': 5,
-        }
-        defaults.update(kwargs)
-        return ActionSpace(**defaults)
-    return factory
+def position_on_the_fly(
+    position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+    on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+) -> OnTheFlyActionMetadata:
+    """On-the-fly position action (3D, delta, robot base frame)."""
+    return on_the_fly_action_metadata_factory(
+        source_metadata=position_observation_metadata_factory(dimension=3),
+    )
 
 
 @pytest.fixture
-def observation_space_factory():
-    """Factory for creating ObservationSpace instances."""
-    def factory(**kwargs):
-        defaults = {
-            'use_proprioceptive_data': False,
-            'use_proprio_base_frame': False,
-            'use_proprio_camera_frame': False,
-            'use_gripper_state': False,
-            'gripper_type': GripperType.BINARY.value,
-            'camera_keys': None,
-            'use_language': False,
-            'custom_obs_keys_to_column_names': None,
-        }
-        defaults.update(kwargs)
-        return ObservationSpace(**defaults)
-    return factory
+def orientation_on_the_fly(
+    orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+    on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+) -> OnTheFlyActionMetadata:
+    """On-the-fly orientation action (1D roll, delta)."""
+    return on_the_fly_action_metadata_factory(
+        source_metadata=orientation_observation_metadata_factory(dimension=1),
+    )
 
 
 @pytest.fixture
-def task_space_factory(action_space_factory, observation_space_factory):
-    """Factory for creating TaskSpace instances."""
-    def factory(**kwargs):
-        defaults = {
-            'dataset_schema': MagicMock(),
-            'dataloader': MagicMock(),
-            'action_space': action_space_factory(),
-            'observation_space': observation_space_factory(),
-            'observation_horizon': 1,
-            'prediction_horizon': 16,
-        }
-        defaults.update(kwargs)
-        return TaskSpace(**defaults)
-    return factory
+def precomputed_gripper(
+    gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
+) -> GripperActionMetadata:
+    """Precomputed binary gripper action (1D)."""
+    return gripper_action_metadata_factory(prediction_dimension=1)
 
 
-@pytest.mark.unit
-class TestActionSpace:
-    """Test ActionSpace initialization and methods."""
+@pytest.fixture
+def mixed_action_space(
+    action_space_factory: Callable[..., ActionSpace],
+    position_on_the_fly: OnTheFlyActionMetadata,
+    precomputed_gripper: GripperActionMetadata,
+) -> ActionSpace:
+    """Action space with both on-the-fly position and precomputed gripper."""
+    return action_space_factory(actions_metadata={
+        "position": position_on_the_fly,
+        "gripper": precomputed_gripper,
+    })
 
-    def test_init_defaults(self, action_space_factory):
-        """Test ActionSpace initialization with default values."""
+
+def _make_mock_schema(
+    zarr_keys: list[str],
+    observations: dict = None,
+) -> MagicMock:
+    """Create a mock DatasetSchema with given zarr keys and observations."""
+    schema = MagicMock()
+    schema.get_required_zarr_keys.return_value = zarr_keys
+    schema.metadata = MagicMock()
+    schema.metadata.observations = observations or {}
+    schema.metadata.get_observation = lambda key: (observations or {}).get(key)
+    return schema
+
+
+class TestActionSpaceInitialization:
+
+    @pytest.mark.parametrize("denoise_actions", [True, False])
+    def test_denoise_actions_stored(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        denoise_actions: bool,
+    ):
+        action_space = action_space_factory(denoise_actions=denoise_actions)
+        assert action_space.denoise_actions is denoise_actions
+
+    @pytest.mark.parametrize("denoising_percentile", [5.0, 15.0, 50.0])
+    def test_denoising_percentile_stored(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        denoising_percentile: float,
+    ):
+        action_space = action_space_factory(denoising_percentile=denoising_percentile)
+        assert action_space.denoising_percentile == denoising_percentile
+
+    @pytest.mark.parametrize("use_gripper_class_weights", [True, False])
+    def test_use_gripper_class_weights_stored(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        use_gripper_class_weights: bool,
+    ):
+        action_space = action_space_factory(
+            use_gripper_class_weights=use_gripper_class_weights,
+        )
+        assert action_space.use_gripper_class_weights is use_gripper_class_weights
+
+
+class TestActionSpacePropertyFiltering:
+
+    def test_on_the_fly_actions_filters_correctly(
+        self,
+        mixed_action_space: ActionSpace,
+    ):
+        result = mixed_action_space.on_the_fly_actions
+        assert "position" in result
+        assert "gripper" not in result
+
+    def test_precomputed_actions_filters_correctly(
+        self,
+        mixed_action_space: ActionSpace,
+    ):
+        result = mixed_action_space.precomputed_actions
+        assert "gripper" in result
+        assert "position" not in result
+
+    def test_position_actions_includes_on_the_fly_from_position_source(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        position_on_the_fly: OnTheFlyActionMetadata,
+    ):
+        action_space = action_space_factory(actions_metadata={
+            "position": position_on_the_fly,
+        })
+
+        assert "position" in action_space.position_actions
+
+    def test_position_actions_excludes_on_the_fly_from_orientation_source(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        orientation_on_the_fly: OnTheFlyActionMetadata,
+    ):
+        action_space = action_space_factory(actions_metadata={
+            "orientation": orientation_on_the_fly,
+        })
+
+        assert len(action_space.position_actions) == 0
+
+    def test_orientation_actions_includes_on_the_fly_from_orientation_source(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        orientation_on_the_fly: OnTheFlyActionMetadata,
+    ):
+        action_space = action_space_factory(actions_metadata={
+            "orientation": orientation_on_the_fly,
+        })
+
+        assert "orientation" in action_space.orientation_actions
+
+    def test_gripper_actions_includes_on_the_fly_from_gripper_source(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+    ):
+        gripper_source = gripper_observation_metadata_factory(
+            gripper_type=GripperType.CONTINUOUS.value,
+        )
+        gripper_on_the_fly = on_the_fly_action_metadata_factory(
+            source_metadata=gripper_source,
+        )
+
+        action_space = action_space_factory(actions_metadata={
+            "gripper": gripper_on_the_fly,
+        })
+
+        assert "gripper" in action_space.gripper_actions
+
+    def test_gripper_actions_includes_precomputed_gripper(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        precomputed_gripper: GripperActionMetadata,
+    ):
+        action_space = action_space_factory(actions_metadata={
+            "gripper": precomputed_gripper,
+        })
+
+        assert "gripper" in action_space.gripper_actions
+
+    def test_empty_metadata_returns_empty_for_all_properties(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+    ):
         action_space = action_space_factory()
 
-        assert action_space.has_position is True
+        assert len(action_space.on_the_fly_actions) == 0
+        assert len(action_space.precomputed_actions) == 0
+        assert len(action_space.position_actions) == 0
+        assert len(action_space.orientation_actions) == 0
+        assert len(action_space.gripper_actions) == 0
+
+
+class TestActionSpaceDimensions:
+
+    def test_position_dim_from_on_the_fly(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        position_on_the_fly: OnTheFlyActionMetadata,
+    ):
+        action_space = action_space_factory(actions_metadata={
+            "position": position_on_the_fly,
+        })
+
         assert action_space.position_dim == 3
-        assert action_space.has_orientation is False
-        assert action_space.orientation_dim == 0
-        assert action_space.has_gripper is True
+
+    def test_orientation_dim_from_on_the_fly(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+    ):
+        quaternion_source = orientation_observation_metadata_factory(
+            dimension=4,
+            orientation_representation=OrientationRepresentation.QUATERNION.value,
+            raw_data_column_keys=["w", "x", "y", "z"],
+        )
+        action_space = action_space_factory(actions_metadata={
+            "orientation": on_the_fly_action_metadata_factory(
+                source_metadata=quaternion_source,
+            ),
+        })
+
+        assert action_space.orientation_dim == 4
+
+    def test_gripper_dim_from_precomputed(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        precomputed_gripper: GripperActionMetadata,
+    ):
+        action_space = action_space_factory(actions_metadata={
+            "gripper": precomputed_gripper,
+        })
+
         assert action_space.gripper_dim == 1
-        assert action_space.predict_in_camera_frame is True
-        assert action_space.deltas_as_actions is False
-        assert action_space.predict_task_phases is False
-        assert action_space.number_of_phases == 5
 
-    def test_init_custom_values(self, action_space_factory):
-        """Test ActionSpace initialization with custom values."""
-        action_space = action_space_factory(
-            has_orientation=True,
-            orientation_dim=3,
-            orientation_repr=OrientationRepresentation.EULER.value,
-            predict_in_camera_frame=False,
-            task_has_phases=True,
+    def test_get_total_action_dim_sums_all_prediction_dimensions(
+        self,
+        mixed_action_space: ActionSpace,
+        orientation_on_the_fly: OnTheFlyActionMetadata,
+        action_space_factory: Callable[..., ActionSpace],
+        position_on_the_fly: OnTheFlyActionMetadata,
+        precomputed_gripper: GripperActionMetadata,
+    ):
+        action_space = action_space_factory(actions_metadata={
+            "position": position_on_the_fly,
+            "orientation": orientation_on_the_fly,
+            "gripper": precomputed_gripper,
+        })
+
+        assert action_space.get_total_action_dim() == 3 + 1 + 1
+
+    def test_get_total_action_dim_excludes_non_prediction_head_actions(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        position_on_the_fly: OnTheFlyActionMetadata,
+    ):
+        auxiliary_action = ActionMetadata(
+            prediction_dimension=5,
+            is_numerical=True,
+            needs_normalization=False,
+            dtype="int32",
+            is_precomputed=True,
+            requires_prediction_head=False,
         )
 
-        assert action_space.has_orientation is True
-        assert action_space.orientation_dim == 3
-        assert action_space.orientation_repr == OrientationRepresentation.EULER.value
-        assert action_space.predict_in_camera_frame is False
-        assert action_space.predict_task_phases is True
-
-    @pytest.mark.parametrize("has_pos,pos_dim,has_ori,ori_dim,has_grip,grip_dim,has_phases,n_phases,expected", [
-        (True, 3, False, 0, True, 1, False, 5, 4),
-        (True, 3, True, 3, True, 1, False, 5, 7),
-        (True, 3, True, 4, True, 1, False, 5, 8),
-        (True, 3, False, 0, False, 0, False, 5, 3),
-        (False, 0, True, 3, True, 1, False, 5, 4),
-        (True, 3, True, 3, True, 1, True, 5, 12),
-        (True, 3, True, 3, True, 1, True, 3, 10),
-        (False, 0, False, 0, False, 0, True, 7, 7),
-    ])
-    def test_get_total_action_dim(self, action_space_factory, has_pos, pos_dim, has_ori, ori_dim,
-                                   has_grip, grip_dim, has_phases, n_phases, expected):
-        """Test total action dimension calculation."""
-        action_space = action_space_factory(
-            has_position=has_pos,
-            position_dim=pos_dim,
-            has_orientation=has_ori,
-            orientation_dim=ori_dim,
-            has_gripper=has_grip,
-            gripper_dim=grip_dim,
-            task_has_phases=has_phases,
-            number_of_phases=n_phases,
-        )
-
-        assert action_space.get_total_action_dim() == expected
-
-
-    def test_get_required_zarr_keys_camera_frame(self, action_space_factory):
-        """Test required zarr keys for camera frame prediction."""
-        action_space = action_space_factory(
-            has_position=True,
-            has_gripper=True,
-            predict_in_camera_frame=True,
-        )
-
-        keys = action_space.get_required_zarr_keys()
-
-        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in keys
-        assert ProprioKey.GRIPPER_STATE.value in keys
-        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value not in keys
-
-    def test_get_required_zarr_keys_robot_frame(self, action_space_factory):
-        """Test required zarr keys for robot frame prediction."""
-        action_space = action_space_factory(
-            has_position=True,
-            has_gripper=True,
-            predict_in_camera_frame=False,
-        )
-
-        keys = action_space.get_required_zarr_keys()
-
-        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in keys
-        assert ProprioKey.GRIPPER_STATE.value in keys
-        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value not in keys
-
-    def test_get_required_zarr_keys_with_phases(self, action_space_factory):
-        """Test required zarr keys include phase labels."""
-        action_space = action_space_factory(
-            has_position=True,
-            task_has_phases=True,
-        )
-
-        keys = action_space.get_required_zarr_keys()
-
-        assert ObsKey.PHASE_LABEL.value in keys
-
-    def test_get_required_zarr_keys_no_position_no_gripper(self, action_space_factory):
-        """Test required zarr keys when no position or gripper."""
-        action_space = action_space_factory(
-            has_position=False,
-            has_gripper=False,
-        )
-
-        keys = action_space.get_required_zarr_keys()
-
-        assert len(keys) == 0
-
-
-@pytest.mark.unit
-class TestObservationSpace:
-    """Test ObservationSpace initialization and methods."""
-
-    def test_init_defaults(self, observation_space_factory):
-        """Test ObservationSpace initialization with default values."""
-        obs_space = observation_space_factory()
-
-        assert obs_space.use_proprioceptive_data is False
-        assert obs_space.use_proprio_base_frame is False
-        assert obs_space.use_proprio_camera_frame is False
-        assert obs_space.use_gripper_state is False
-        assert obs_space.camera_keys == []
-        assert obs_space.use_language is False
-        assert obs_space.custom_obs_keys == []
-
-    def test_init_with_cameras(self, observation_space_factory):
-        """Test ObservationSpace initialization with camera keys."""
-        obs_space = observation_space_factory(
-            camera_keys=[Cameras.LEFT.value, Cameras.RIGHT.value]
-        )
-
-        assert len(obs_space.camera_keys) == 2
-        assert Cameras.LEFT.value in obs_space.camera_keys
-        assert Cameras.RIGHT.value in obs_space.camera_keys
-
-    def test_init_with_language(self, observation_space_factory):
-        """Test ObservationSpace initialization with language."""
-        obs_space = observation_space_factory(use_language=True)
-
-        assert obs_space.use_language is True
-
-    def test_get_required_zarr_keys_cameras_only(self, observation_space_factory):
-        """Test required zarr keys with only cameras."""
-        obs_space = observation_space_factory(
-            camera_keys=[Cameras.LEFT.value, Cameras.DEPTH.value]
-        )
-
-        keys = obs_space.get_required_zarr_keys()
-
-        assert Cameras.LEFT.value in keys
-        assert Cameras.DEPTH.value in keys
-        assert len(keys) == 2
-
-    def test_get_required_zarr_keys_proprio_base_frame(self, observation_space_factory):
-        """Test required zarr keys with proprioception in robot frame."""
-        obs_space = observation_space_factory(
-            use_proprioceptive_data=True,
-            use_proprio_base_frame=True,
-        )
-
-        keys = obs_space.get_required_zarr_keys()
-
-        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in keys
-        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value not in keys
-
-    def test_get_required_zarr_keys_proprio_camera_frame(self, observation_space_factory):
-        """Test required zarr keys with proprioception in camera frame."""
-        obs_space = observation_space_factory(
-            use_proprioceptive_data=True,
-            use_proprio_camera_frame=True,
-        )
-
-        keys = obs_space.get_required_zarr_keys()
-
-        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in keys
-        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value not in keys
-
-    def test_get_required_zarr_keys_with_language(self, observation_space_factory):
-        """Test required zarr keys include language."""
-        obs_space = observation_space_factory(use_language=True)
-
-        keys = obs_space.get_required_zarr_keys()
-
-        assert ObsKey.LANGUAGE.value in keys
-
-    def test_get_required_zarr_keys_with_gripper_state(self, observation_space_factory):
-        """Test required zarr keys include gripper state."""
-        obs_space = observation_space_factory(use_gripper_state=True)
-
-        keys = obs_space.get_required_zarr_keys()
-
-        assert ProprioKey.GRIPPER_STATE.value in keys
-
-    def test_get_required_zarr_keys_with_custom_obs(self, observation_space_factory):
-        """Test required zarr keys include custom observations."""
-        obs_space = observation_space_factory(
-            custom_obs_keys=['force_sensor', 'tactile_sensor']
-        )
-
-        keys = obs_space.get_required_zarr_keys()
-
-        assert 'force_sensor' in keys
-        assert 'tactile_sensor' in keys
-
-    def test_get_required_zarr_keys_all_modalities(self, observation_space_factory):
-        """Test required zarr keys with all modalities enabled."""
-        obs_space = observation_space_factory(
-            camera_keys=[Cameras.LEFT.value],
-            use_proprio_base_frame=True,
-            use_gripper_state=True,
-            use_language=True,
-            custom_obs_keys=['force'],
-        )
-
-        keys = obs_space.get_required_zarr_keys()
-
-        assert Cameras.LEFT.value in keys
-        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in keys
-        assert ProprioKey.GRIPPER_STATE.value in keys
-        assert ObsKey.LANGUAGE.value in keys
-        assert 'force' in keys
-        assert len(keys) == 5
-
-
-@pytest.mark.unit
-class TestTaskSpace:
-    """Test TaskSpace initialization and validation."""
-
-    def test_init_defaults(self, task_space_factory):
-        """Test TaskSpace initialization with default values."""
-        task_space = task_space_factory()
-
-        assert task_space.observation_horizon == 1
-        assert task_space.prediction_horizon == 16
-        assert task_space.dataset_schema is not None
-        assert task_space.dataloader is not None
-        assert task_space.action_space is not None
-        assert task_space.observation_space is not None
-
-    def test_init_custom_horizons(self, task_space_factory):
-        """Test TaskSpace initialization with custom horizons."""
-        task_space = task_space_factory(
-            observation_horizon=3,
-            prediction_horizon=32,
-        )
-
-        assert task_space.observation_horizon == 3
-        assert task_space.prediction_horizon == 32
-
-    def test_validation_invalid_observation_horizon(self, task_space_factory):
-        """Test validation fails for invalid observation_horizon."""
-        task_space = task_space_factory(observation_horizon=0)
-
-        with pytest.raises(ValueError, match="observation_horizon must be >= 1"):
-            task_space.__post_init__()
-
-    def test_validation_invalid_prediction_horizon(self, task_space_factory):
-        """Test validation fails for invalid prediction_horizon."""
-        task_space = task_space_factory(prediction_horizon=-5)
-
-        with pytest.raises(ValueError, match="prediction_horizon must be >= 1"):
-            task_space.__post_init__()
-
-    @pytest.mark.parametrize("ori_dim", [2, 5, 10])
-    def test_validation_invalid_orientation_dim(self, task_space_factory, action_space_factory, ori_dim):
-        """Test validation fails for invalid orientation_dim."""
-        action_space = action_space_factory(has_orientation=True, orientation_dim=ori_dim)
-        task_space = task_space_factory(action_space=action_space)
-
-        with pytest.raises(ValueError, match="orientation_dim must be one of"):
-            task_space.__post_init__()
-
-    @pytest.mark.parametrize("ori_dim", [1, 3, 4])
-    def test_validation_valid_orientation_dim(self, task_space_factory, action_space_factory, ori_dim):
-        """Test validation passes for valid orientation_dim."""
-        action_space = action_space_factory(has_orientation=True, orientation_dim=ori_dim)
-        task_space = task_space_factory(action_space=action_space)
-
-        task_space.__post_init__()
-
-    def test_validation_proprio_without_frame_fails(self, task_space_factory, observation_space_factory):
-        """Test validation fails when use_proprioceptive_data but no frame specified."""
-        obs_space = observation_space_factory(
-            use_proprioceptive_data=True,
-            use_proprio_base_frame=False,
-            use_proprio_camera_frame=False,
-        )
-        task_space = task_space_factory(observation_space=obs_space)
-
-        with pytest.raises(ValueError, match="one of.*use_proprio_base_frame or use_proprio_camera_frame"):
-            task_space.__post_init__()
-
-    def test_validation_proprio_with_base_frame_passes(self, task_space_factory, observation_space_factory):
-        """Test validation passes when use_proprioceptive_data with base frame."""
-        obs_space = observation_space_factory(
-            use_proprioceptive_data=True,
-            use_proprio_base_frame=True,
-        )
-        task_space = task_space_factory(observation_space=obs_space)
-
-        task_space.__post_init__()
-
-    def test_validation_proprio_with_camera_frame_passes(self, task_space_factory, observation_space_factory):
-        """Test validation passes when use_proprioceptive_data with camera frame."""
-        obs_space = observation_space_factory(
-            use_proprioceptive_data=True,
-            use_proprio_camera_frame=True,
-        )
-        task_space = task_space_factory(observation_space=obs_space)
-
-        task_space.__post_init__()
-
-    def test_validation_invalid_camera_key_fails(self, task_space_factory, observation_space_factory):
-        """Test validation fails for invalid camera key."""
-        obs_space = observation_space_factory(camera_keys=['invalid_camera'])
-        task_space = task_space_factory(observation_space=obs_space)
-
-        with pytest.raises(ValueError, match="Invalid camera key"):
-            task_space.__post_init__()
-
-    @pytest.mark.parametrize("camera_key", [Cameras.LEFT.value, Cameras.RIGHT.value, Cameras.DEPTH.value])
-    def test_validation_valid_camera_keys_pass(self, task_space_factory, observation_space_factory, camera_key):
-        """Test validation passes for valid camera keys."""
-        obs_space = observation_space_factory(camera_keys=[camera_key])
-        task_space = task_space_factory(observation_space=obs_space)
-
-        task_space.__post_init__()
-
-
-@pytest.mark.unit
-class TestActionSpaceIntegration:
-    """Integration tests for ActionSpace with various configurations."""
-
-    def test_position_only_action_space(self, action_space_factory):
-        """Test action space with only position."""
-        action_space = action_space_factory(
-            has_position=True,
-            has_orientation=False,
-            has_gripper=False,
-        )
+        action_space = action_space_factory(actions_metadata={
+            "position": position_on_the_fly,
+            "phase_label": auxiliary_action,
+        })
 
         assert action_space.get_total_action_dim() == 3
-        keys = action_space.get_required_zarr_keys()
-        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in keys
 
-    def test_full_action_space_with_phases(self, action_space_factory):
-        """Test action space with all components including phases."""
-        action_space = action_space_factory(
-            has_position=True,
-            position_dim=3,
-            has_orientation=True,
-            orientation_dim=4,
-            has_gripper=True,
-            gripper_dim=1,
-            task_has_phases=True,
-            number_of_phases=3,
+    def test_empty_metadata_has_zero_dims(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+    ):
+        action_space = action_space_factory()
+
+        assert action_space.position_dim == 0
+        assert action_space.orientation_dim == 0
+        assert action_space.gripper_dim == 0
+        assert action_space.get_total_action_dim() == 0
+
+
+class TestActionSpaceBooleanProperties:
+
+    def test_has_on_the_fly_actions(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        position_on_the_fly: OnTheFlyActionMetadata,
+    ):
+        action_space = action_space_factory(actions_metadata={
+            "position": position_on_the_fly,
+        })
+
+        assert action_space.has_on_the_fly_actions
+        assert not action_space.has_precomputed_actions
+
+    def test_has_precomputed_actions(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        precomputed_gripper: GripperActionMetadata,
+    ):
+        action_space = action_space_factory(actions_metadata={
+            "gripper": precomputed_gripper,
+        })
+
+        assert action_space.has_precomputed_actions
+        assert not action_space.has_on_the_fly_actions
+
+    def test_has_delta_actions_true_when_delta_method(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        position_on_the_fly: OnTheFlyActionMetadata,
+    ):
+        action_space = action_space_factory(actions_metadata={
+            "position": position_on_the_fly,
+        })
+
+        assert action_space.has_delta_actions
+
+    def test_has_delta_actions_false_when_next_timestep(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+    ):
+        action_space = action_space_factory(actions_metadata={
+            "position": on_the_fly_action_metadata_factory(
+                source_metadata=position_observation_metadata_factory(),
+                computation_method=ActionComputationMethod.NEXT_TIMESTEP.value,
+            ),
+        })
+
+        assert not action_space.has_delta_actions
+
+    def test_task_has_phases_when_phase_label_key_present(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+    ):
+        phase_metadata = ActionMetadata(
+            prediction_dimension=5,
+            is_numerical=True,
+            needs_normalization=False,
+            dtype="int32",
+            is_precomputed=True,
+        )
+        action_space = action_space_factory(actions_metadata={
+            ObsKey.PHASE_LABEL.value: phase_metadata,
+        })
+
+        assert action_space.task_has_phases
+
+    def test_task_has_phases_false_when_no_phase_label(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        position_on_the_fly: OnTheFlyActionMetadata,
+    ):
+        action_space = action_space_factory(actions_metadata={
+            "position": position_on_the_fly,
+        })
+
+        assert not action_space.task_has_phases
+
+
+class TestActionSpaceZarrKeys:
+
+    def test_get_required_zarr_keys_returns_all_metadata_keys(
+        self,
+        mixed_action_space: ActionSpace,
+    ):
+        keys = mixed_action_space.get_required_zarr_keys()
+        assert set(keys) == {"position", "gripper"}
+
+
+class TestObservationSpacePropertyFiltering:
+
+    def test_cameras_filters_camera_metadata(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+    ):
+        observation_space = observation_space_factory(observations_metadata={
+            Cameras.LEFT.value: camera_metadata_factory(camera_key=Cameras.LEFT.value),
+            "position": position_observation_metadata_factory(),
+        })
+
+        assert Cameras.LEFT.value in observation_space.cameras
+        assert "position" not in observation_space.cameras
+
+    def test_position_observations_filters_correctly(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+    ):
+        observation_space = observation_space_factory(observations_metadata={
+            "position": position_observation_metadata_factory(),
+            "orientation": orientation_observation_metadata_factory(),
+        })
+
+        assert "position" in observation_space.position_observations
+        assert "orientation" not in observation_space.position_observations
+
+    def test_proprioceptive_observations_includes_all_proprio_types(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+        gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+    ):
+        observation_space = observation_space_factory(observations_metadata={
+            "position": position_observation_metadata_factory(),
+            "orientation": orientation_observation_metadata_factory(),
+            "gripper": gripper_observation_metadata_factory(),
+            Cameras.LEFT.value: camera_metadata_factory(),
+        })
+
+        proprio = observation_space.proprioceptive_observations
+        assert set(proprio.keys()) == {"position", "orientation", "gripper"}
+
+    def test_custom_observations_excludes_proprio_and_cameras(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+    ):
+        custom = ObservationMetadata(
+            raw_data_column_keys=["feature_1", "feature_2"],
+            dimension=2,
+            dtype="float32",
+            is_numerical=True,
+            needs_normalization=True,
+        )
+        observation_space = observation_space_factory(observations_metadata={
+            "custom_feature": custom,
+            "position": position_observation_metadata_factory(),
+            Cameras.LEFT.value: camera_metadata_factory(),
+        })
+
+        result = observation_space.custom_observations
+        assert "custom_feature" in result
+        assert "position" not in result
+        assert Cameras.LEFT.value not in result
+
+
+class TestObservationSpaceBooleanProperties:
+
+    def test_has_cameras(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+    ):
+        observation_space = observation_space_factory(observations_metadata={
+            Cameras.LEFT.value: camera_metadata_factory(),
+        })
+
+        assert observation_space.has_cameras
+
+    def test_has_gripper_state(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
+    ):
+        observation_space = observation_space_factory(observations_metadata={
+            "gripper": gripper_observation_metadata_factory(),
+        })
+
+        assert observation_space.has_gripper_state
+
+    def test_has_proprioceptive_state(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+    ):
+        observation_space = observation_space_factory(observations_metadata={
+            "position": position_observation_metadata_factory(),
+        })
+
+        assert observation_space.has_proprioceptive_state
+
+    def test_has_proprioceptive_position(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+    ):
+        observation_space = observation_space_factory(observations_metadata={
+            "position": position_observation_metadata_factory(),
+        })
+
+        assert observation_space.has_proprioceptive_position
+
+    def test_has_proprioceptive_orientation(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+    ):
+        observation_space = observation_space_factory(observations_metadata={
+            "orientation": orientation_observation_metadata_factory(),
+        })
+
+        assert observation_space.has_proprioceptive_orientation
+
+    def test_empty_observations_all_false(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+    ):
+        observation_space = observation_space_factory()
+
+        assert not observation_space.has_cameras
+        assert not observation_space.has_gripper_state
+        assert not observation_space.has_proprioceptive_state
+        assert not observation_space.has_proprioceptive_position
+        assert not observation_space.has_proprioceptive_orientation
+
+
+class TestObservationSpaceZarrKeys:
+
+    def test_get_required_zarr_keys_returns_all_metadata_keys(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+    ):
+        observation_space = observation_space_factory(observations_metadata={
+            Cameras.LEFT.value: camera_metadata_factory(),
+            "position": position_observation_metadata_factory(),
+        })
+
+        keys = observation_space.get_required_zarr_keys()
+        assert set(keys) == {Cameras.LEFT.value, "position"}
+
+
+class TestTaskSpaceInitialization:
+
+    def test_all_components_stored(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        observation_space_factory: Callable[..., ObservationSpace],
+    ):
+        schema = _make_mock_schema(zarr_keys=[])
+        dataloader = MagicMock()
+        action_space = action_space_factory()
+        observation_space = observation_space_factory()
+
+        task_space = TaskSpace(
+            dataset_schema=schema,
+            dataloader=dataloader,
+            action_space=action_space,
+            observation_space=observation_space,
+            prediction_horizon=32,
+            observation_horizon=4,
         )
 
-        assert action_space.get_total_action_dim() == 11
-        keys = action_space.get_required_zarr_keys()
-        assert ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value in keys
-        assert ProprioKey.GRIPPER_STATE.value in keys
-        assert ObsKey.PHASE_LABEL.value in keys
+        assert task_space.dataset_schema is schema
+        assert task_space.dataloader is dataloader
+        assert task_space.action_space is action_space
+        assert task_space.observation_space is observation_space
+        assert task_space.prediction_horizon == 32
+        assert task_space.observation_horizon == 4
 
 
-@pytest.mark.unit
-class TestObservationSpaceIntegration:
-    """Integration tests for ObservationSpace with various configurations."""
+class TestTaskSpaceValidation:
 
-    def test_minimal_observation_space(self, observation_space_factory):
-        """Test minimal observation space with single camera."""
-        obs_space = observation_space_factory(camera_keys=[Cameras.LEFT.value])
-
-        keys = obs_space.get_required_zarr_keys()
-        assert len(keys) == 1
-        assert Cameras.LEFT.value in keys
-
-    def test_multimodal_observation_space(self, observation_space_factory):
-        """Test observation space with multiple modalities."""
-        obs_space = observation_space_factory(
-            camera_keys=[Cameras.LEFT.value, Cameras.RIGHT.value, Cameras.DEPTH.value],
-            use_proprio_base_frame=True,
-            use_gripper_state=True,
-            use_language=True,
+    def test_valid_on_the_fly_action_passes(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        observation_space_factory: Callable[..., ObservationSpace],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+    ):
+        position_observation = position_observation_metadata_factory()
+        on_the_fly = on_the_fly_action_metadata_factory(
+            source_metadata=position_observation,
         )
 
-        keys = obs_space.get_required_zarr_keys()
-        assert Cameras.LEFT.value in keys
-        assert Cameras.RIGHT.value in keys
-        assert Cameras.DEPTH.value in keys
-        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in keys
-        assert ProprioKey.GRIPPER_STATE.value in keys
-        assert ObsKey.LANGUAGE.value in keys
-        assert len(keys) == 6
+        schema = _make_mock_schema(
+            zarr_keys=["proprio_robot_frame", Cameras.LEFT.value],
+            observations={"proprio_robot_frame": position_observation},
+        )
+
+        task_space = TaskSpace(
+            dataset_schema=schema,
+            dataloader=MagicMock(),
+            action_space=action_space_factory(actions_metadata={
+                "proprio_robot_frame": on_the_fly,
+            }),
+            observation_space=observation_space_factory(observations_metadata={
+                Cameras.LEFT.value: camera_metadata_factory(),
+            }),
+        )
+
+        assert task_space.prediction_horizon == 16
+        assert task_space.observation_horizon == 1
+
+    def test_on_the_fly_action_missing_from_schema_raises(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        observation_space_factory: Callable[..., ObservationSpace],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+    ):
+        schema = _make_mock_schema(zarr_keys=[])
+
+        with pytest.raises(ValueError, match="doesn't exist in dataset schema"):
+            TaskSpace(
+                dataset_schema=schema,
+                dataloader=MagicMock(),
+                action_space=action_space_factory(actions_metadata={
+                    "proprio_robot_frame": on_the_fly_action_metadata_factory(),
+                }),
+                observation_space=observation_space_factory(),
+            )
+
+    def test_on_the_fly_action_metadata_mismatch_raises(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        observation_space_factory: Callable[..., ObservationSpace],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+    ):
+        # Task expects robot_base frame, schema has camera frame
+        task_observation = position_observation_metadata_factory(
+            frame=CoordinateSystem.ROBOT_BASE.value,
+        )
+        schema_observation = position_observation_metadata_factory(
+            frame=CoordinateSystem.CAMERA.value,
+        )
+        on_the_fly = on_the_fly_action_metadata_factory(
+            source_metadata=task_observation,
+        )
+
+        schema = _make_mock_schema(
+            zarr_keys=["position"],
+            observations={"position": schema_observation},
+        )
+
+        with pytest.raises(ValueError, match="metadata mismatch"):
+            TaskSpace(
+                dataset_schema=schema,
+                dataloader=MagicMock(),
+                action_space=action_space_factory(actions_metadata={
+                    "position": on_the_fly,
+                }),
+                observation_space=observation_space_factory(),
+            )
+
+    def test_precomputed_action_missing_from_schema_raises(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        observation_space_factory: Callable[..., ObservationSpace],
+        gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
+    ):
+        schema = _make_mock_schema(zarr_keys=[])
+
+        with pytest.raises(ValueError, match="not found in dataset schema"):
+            TaskSpace(
+                dataset_schema=schema,
+                dataloader=MagicMock(),
+                action_space=action_space_factory(actions_metadata={
+                    "gripper_action": gripper_action_metadata_factory(),
+                }),
+                observation_space=observation_space_factory(),
+            )
+
+    def test_observation_missing_from_schema_raises(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        observation_space_factory: Callable[..., ObservationSpace],
+        camera_metadata_factory: Callable[..., CameraMetadata],
+    ):
+        schema = _make_mock_schema(zarr_keys=[])
+
+        with pytest.raises(ValueError, match="not found in dataset schema"):
+            TaskSpace(
+                dataset_schema=schema,
+                dataloader=MagicMock(),
+                action_space=action_space_factory(),
+                observation_space=observation_space_factory(observations_metadata={
+                    Cameras.LEFT.value: camera_metadata_factory(),
+                }),
+            )
+
+    def test_observation_metadata_mismatch_raises(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        observation_space_factory: Callable[..., ObservationSpace],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+    ):
+        # Task expects 3D position, schema stores 6D
+        task_observation = position_observation_metadata_factory(dimension=3)
+        schema_observation = position_observation_metadata_factory(
+            dimension=6,
+            raw_data_column_keys=["a", "b", "c", "d", "e", "f"],
+        )
+
+        schema = _make_mock_schema(
+            zarr_keys=["position"],
+            observations={"position": schema_observation},
+        )
+
+        with pytest.raises(ValueError, match="metadata mismatch"):
+            TaskSpace(
+                dataset_schema=schema,
+                dataloader=MagicMock(),
+                action_space=action_space_factory(),
+                observation_space=observation_space_factory(observations_metadata={
+                    "position": task_observation,
+                }),
+            )
+
+    @pytest.mark.parametrize("observation_horizon", [0, -1])
+    def test_invalid_observation_horizon_raises(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        observation_space_factory: Callable[..., ObservationSpace],
+        observation_horizon: int,
+    ):
+        schema = _make_mock_schema(zarr_keys=[])
+
+        with pytest.raises(ValueError, match="observation_horizon must be >= 1"):
+            TaskSpace(
+                dataset_schema=schema,
+                dataloader=MagicMock(),
+                action_space=action_space_factory(),
+                observation_space=observation_space_factory(),
+                observation_horizon=observation_horizon,
+            )
+
+    @pytest.mark.parametrize("prediction_horizon", [0, -1])
+    def test_invalid_prediction_horizon_raises(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        observation_space_factory: Callable[..., ObservationSpace],
+        prediction_horizon: int,
+    ):
+        schema = _make_mock_schema(zarr_keys=[])
+
+        with pytest.raises(ValueError, match="prediction_horizon must be >= 1"):
+            TaskSpace(
+                dataset_schema=schema,
+                dataloader=MagicMock(),
+                action_space=action_space_factory(),
+                observation_space=observation_space_factory(),
+                prediction_horizon=prediction_horizon,
+            )

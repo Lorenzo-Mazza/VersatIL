@@ -31,13 +31,12 @@ class GaussianPrior(PriorLatentEncoder):
         """Initialize Gaussian prior."""
         super().__init__(latent_dimension=latent_dimension, device=device)
         self.infer_constant_prior = infer_constant_prior
-        self.device = device
         self.to(torch.device(device))
 
     def sample_prior(
         self,
         batch_size: int,
-        observations: torch.Tensor | None = None,
+        observations: dict[str, torch.Tensor] | None = None,
     ) -> torch.Tensor:
         """Sample latent variable from standard multivariate (z dimensional) Gaussian N(0, I).
 
@@ -58,7 +57,7 @@ class GaussianPrior(PriorLatentEncoder):
     def forward(
         self,
         target_latents: torch.Tensor,
-        observations: torch.Tensor,
+        observations: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Forward pass for a fixed Gaussian prior, returning zero mu and unit logvar."""
         mu = torch.zeros_like(target_latents, device=self.device)

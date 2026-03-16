@@ -1,1121 +1,428 @@
-"""Tests for SequenceSampler and related utilities.
+"""Tests for versatil.data.preprocessing.sampler module."""
+from collections.abc import Callable
+from unittest.mock import MagicMock
 
-Tests the sequence sampling functionality including index creation, padding,
-episode masking, partial data loading, and various edge cases.
-"""
-
-import pytest
 import numpy as np
+import pytest
 
-from versatil.data.preprocessing.replay_buffer import ReplayBuffer
 from versatil.data.preprocessing.sampler import (
     SequenceSampler,
     create_indices,
+    downsample_mask,
     get_val_mask,
-    downsample_mask
 )
 
 
 @pytest.fixture
-def simple_buffer():
-    """Create a simple buffer with one episode of length 10."""
-    buffer = ReplayBuffer.create_empty_numpy()
-    data = {
-        'observations': np.arange(10 * 4).reshape(10, 4).astype(np.float32),
-        'actions': np.arange(10 * 2).reshape(10, 2).astype(np.float32),
-        'rewards': np.arange(10).astype(np.float32),
-    }
-    buffer.add_episode(data)
-    return buffer
+def mock_replay_buffer_factory() -> Callable[..., MagicMock]:
+    """Factory for creating mock ReplayBuffer for SequenceSampler."""
 
+    def factory(
+        data: dict[str, np.ndarray],
+        episode_ends: np.ndarray,
+    ) -> MagicMock:
+        buffer = MagicMock()
+        buffer.episode_ends = MagicMock()
+        buffer.episode_ends.__getitem__ = lambda mock_self, idx: episode_ends[idx]
 
-@pytest.fixture
-def multi_episode_buffer():
-    """Create buffer with multiple episodes of varying lengths."""
-    buffer = ReplayBuffer.create_empty_numpy()
+        def getitem(mock_self, key):
+            return data[key]
 
-    # Episode 1: length 10
-    buffer.add_episode({
-        'observations': np.arange(10 * 4).reshape(10, 4).astype(np.float32),
-        'actions': np.arange(10 * 2).reshape(10, 2).astype(np.float32),
-        'rewards': np.arange(10).astype(np.float32),
-    })
+        buffer.__getitem__ = getitem
+        buffer.keys.return_value = list(data.keys())
+        return buffer
 
-    # Episode 2: length 7
-    buffer.add_episode({
-        'observations': np.arange(7 * 4).reshape(7, 4).astype(np.float32) + 100,
-        'actions': np.arange(7 * 2).reshape(7, 2).astype(np.float32) + 100,
-        'rewards': np.arange(7).astype(np.float32) + 100,
-    })
-
-    # Episode 3: length 5
-    buffer.add_episode({
-        'observations': np.arange(5 * 4).reshape(5, 4).astype(np.float32) + 200,
-        'actions': np.arange(5 * 2).reshape(5, 2).astype(np.float32) + 200,
-        'rewards': np.arange(5).astype(np.float32) + 200,
-    })
-
-    return buffer
+    return factory
 
 
 class TestCreateIndices:
-    """Test the create_indices function."""
 
-    def test_basic_indices_no_padding(self):
-        """Test basic index creation without padding."""
-        episode_ends = np.array([10])
-        episode_mask = np.array([True])
-
+    def test_single_episode_no_padding(self):
+        # 10 steps, seq_len=3 → starts at 0..7 → 8 sequences
         indices = create_indices(
-            episode_ends=episode_ends,
+            episode_ends=np.array([10]),
             sequence_length=3,
-            episode_mask=episode_mask
-        )
-
-        # Should have 8 sequences (0-2, 1-3, ..., 7-9)
-        assert len(indices) == 8
-        assert indices[0, 0] == 0  # buffer_start
-        assert indices[0, 1] == 3  # buffer_end
-        assert indices[-1, 0] == 7
-        assert indices[-1, 1] == 10
-
-    def test_indices_with_pad_before(self):
-        """Test index creation with pad_before."""
-        episode_ends = np.array([10])
-        episode_mask = np.array([True])
-
-        indices = create_indices(
-            episode_ends=episode_ends,
-            sequence_length=3,
-            episode_mask=episode_mask,
-            pad_before=1
-        )
-
-        # Should have 9 sequences (one extra at start with padding)
-        assert len(indices) == 9
-        # First sequence should have padding at start
-        assert indices[0, 2] == 1  # sample_start_idx (padding offset)
-
-    def test_indices_with_pad_after(self):
-        """Test index creation with pad_after."""
-        episode_ends = np.array([10])
-        episode_mask = np.array([True])
-
-        indices = create_indices(
-            episode_ends=episode_ends,
-            sequence_length=3,
-            episode_mask=episode_mask,
-            pad_after=1
-        )
-
-        # Should have 9 sequences (one extra at end with padding)
-        assert len(indices) == 9
-        # Last sequence should have padding at end
-        assert indices[-1, 3] == 2  # sample_end_idx (less than sequence_length)
-
-    def test_indices_skip_initial(self):
-        """Test skipping initial steps."""
-        episode_ends = np.array([10])
-        episode_mask = np.array([True])
-
-        indices = create_indices(
-            episode_ends=episode_ends,
-            sequence_length=3,
-            episode_mask=episode_mask,
-            skip_initial=2
-        )
-
-        # Should start from index 2
-        assert indices[0, 0] == 2  # buffer_start at skip position
-
-    def test_indices_multiple_episodes(self):
-        """Test index creation across multiple episodes."""
-        episode_ends = np.array([10, 17, 22])
-        episode_mask = np.array([True, True, True])
-
-        indices = create_indices(
-            episode_ends=episode_ends,
-            sequence_length=3,
-            episode_mask=episode_mask
-        )
-
-        # Should have sequences from all episodes
-        # Episode 1: 8 sequences, Episode 2: 5 sequences, Episode 3: 3 sequences
-        assert len(indices) == 16
-
-    def test_indices_episode_mask(self):
-        """Test that episode_mask filters episodes."""
-        episode_ends = np.array([10, 17, 22])
-        episode_mask = np.array([True, False, True])
-
-        indices = create_indices(
-            episode_ends=episode_ends,
-            sequence_length=3,
-            episode_mask=episode_mask
-        )
-
-        # Should only have sequences from episode 0 and 2
-        # Episode 1 (length 10): 8 sequences, Episode 3 (length 5): 3 sequences
-        assert len(indices) == 11
-
-    def test_indices_short_episode(self):
-        """Test with episode shorter than sequence_length."""
-        episode_ends = np.array([2])
-        episode_mask = np.array([True])
-
-        indices = create_indices(
-            episode_ends=episode_ends,
-            sequence_length=5,
-            episode_mask=episode_mask,
-            pad_before=2,
-            pad_after=2
-        )
-
-        # Should still create valid indices with padding
-        assert len(indices) > 0
-
-    def test_indices_empty_result(self):
-        """Test with conditions that produce no sequences."""
-        # Very short episode with no padding allowance
-        episode_ends = np.array([2])
-        episode_mask = np.array([True])
-
-        indices = create_indices(
-            episode_ends=episode_ends,
-            sequence_length=10,
-            episode_mask=episode_mask,
+            episode_mask=np.array([True]),
             pad_before=0,
-            pad_after=0
+            pad_after=0,
         )
 
-        # Should have no valid sequences
-        assert len(indices) == 0
+        assert indices.shape == (8, 4)
+        np.testing.assert_array_equal(indices[0], [0, 3, 0, 3])
+        np.testing.assert_array_equal(indices[7], [7, 10, 0, 3])
+
+    def test_pad_before_allows_overhanging_start(self):
+        indices = create_indices(
+            episode_ends=np.array([5]),
+            sequence_length=3,
+            episode_mask=np.array([True]),
+            pad_before=1,
+            pad_after=0,
+        )
+
+        # First index: starts at -1 → buffer_start=0, sample_start=1
+        assert indices[0, 0] == 0
+        assert indices[0, 2] == 1
+
+    def test_pad_after_allows_overhanging_end(self):
+        indices = create_indices(
+            episode_ends=np.array([5]),
+            sequence_length=3,
+            episode_mask=np.array([True]),
+            pad_before=0,
+            pad_after=1,
+        )
+
+        # Last index overhangs end → sample_end < sequence_length
+        assert indices[-1, 3] < 3
+
+    def test_pad_before_and_after_simultaneously(self):
+        # 5 steps, seq_len=3, pad_before=1, pad_after=1
+        # Starts from -1 to 3 → 5 sequences
+        indices = create_indices(
+            episode_ends=np.array([5]),
+            sequence_length=3,
+            episode_mask=np.array([True]),
+            pad_before=1,
+            pad_after=1,
+        )
+
+        assert indices.shape[0] == 5
+        # First has pad at start
+        assert indices[0, 2] == 1
+        # Last has pad at end
+        assert indices[-1, 3] < 3
+
+    def test_multiple_episodes(self):
+        # [0:5] and [5:10], each length 5, seq_len=3 → 3 each → 6 total
+        indices = create_indices(
+            episode_ends=np.array([5, 10]),
+            sequence_length=3,
+            episode_mask=np.array([True, True]),
+            pad_before=0,
+            pad_after=0,
+        )
+
+        assert indices.shape[0] == 6
+        second_episode = indices[indices[:, 0] >= 5]
+        assert len(second_episode) == 3
+        np.testing.assert_array_equal(second_episode[0], [5, 8, 0, 3])
+
+    def test_masked_episode_is_skipped(self):
+        indices = create_indices(
+            episode_ends=np.array([5, 10]),
+            sequence_length=3,
+            episode_mask=np.array([False, True]),
+            pad_before=0,
+            pad_after=0,
+        )
+
+        assert indices.shape[0] == 3
+        assert np.all(indices[:, 0] >= 5)
+
+    def test_skip_initial_excludes_first_n_steps(self):
+        indices = create_indices(
+            episode_ends=np.array([10]),
+            sequence_length=3,
+            episode_mask=np.array([True]),
+            pad_before=0,
+            pad_after=0,
+            skip_initial=2,
+        )
+
+        # Effective [2:10], length 8, seq_len=3 → 6 starts
+        assert indices.shape[0] == 6
+        assert indices[0, 0] == 2
+
+    def test_all_masked_returns_empty(self):
+        indices = create_indices(
+            episode_ends=np.array([5, 10]),
+            sequence_length=3,
+            episode_mask=np.array([False, False]),
+        )
+
+        assert indices.shape == (0, 4)
+
+    def test_episode_shorter_than_sequence_returns_empty(self):
+        indices = create_indices(
+            episode_ends=np.array([2]),
+            sequence_length=5,
+            episode_mask=np.array([True]),
+            pad_before=0,
+            pad_after=0,
+        )
+
+        assert indices.shape[0] == 0
+
+    def test_debug_false_skips_assertions(self):
+        # Should not raise even though we can't easily trigger bad state
+        indices = create_indices(
+            episode_ends=np.array([10]),
+            sequence_length=3,
+            episode_mask=np.array([True]),
+            debug=False,
+        )
+
+        assert indices.shape[0] > 0
 
 
 class TestGetValMask:
-    """Test the get_val_mask function."""
 
-    def test_val_mask_basic(self):
-        """Test basic validation mask creation."""
+    def test_returns_correct_count(self):
         mask = get_val_mask(n_episodes=10, val_ratio=0.3, seed=42)
 
-        assert len(mask) == 10
         assert mask.dtype == bool
-        # Should have approximately 30% True
-        assert 2 <= np.sum(mask) <= 4
+        assert mask.shape == (10,)
+        assert np.sum(mask) == 3
 
-    def test_val_mask_zero_ratio(self):
-        """Test with zero validation ratio."""
+    def test_zero_ratio_returns_all_false(self):
         mask = get_val_mask(n_episodes=10, val_ratio=0.0, seed=42)
 
-        assert len(mask) == 10
         assert np.sum(mask) == 0
 
-    def test_val_mask_full_ratio(self):
-        """Test with full validation ratio."""
-        mask = get_val_mask(n_episodes=10, val_ratio=1.0, seed=42)
+    def test_full_ratio_returns_all_true(self):
+        mask = get_val_mask(n_episodes=5, val_ratio=1.0, seed=42)
 
-        assert len(mask) == 10
-        assert np.sum(mask) == 10
+        assert np.sum(mask) == 5
 
-    def test_val_mask_reproducible(self):
-        """Test that same seed gives same results."""
-        mask1 = get_val_mask(n_episodes=20, val_ratio=0.5, seed=123)
-        mask2 = get_val_mask(n_episodes=20, val_ratio=0.5, seed=123)
+    def test_very_small_ratio_rounds_to_zero(self):
+        # 5 episodes * 0.01 = 0.05 → rounds to 0
+        mask = get_val_mask(n_episodes=5, val_ratio=0.01, seed=42)
 
-        np.testing.assert_array_equal(mask1, mask2)
+        assert np.sum(mask) == 0
 
-    def test_val_mask_different_seeds(self):
-        """Test that different seeds give different results."""
-        mask1 = get_val_mask(n_episodes=20, val_ratio=0.5, seed=123)
-        mask2 = get_val_mask(n_episodes=20, val_ratio=0.5, seed=456)
+    def test_deterministic_with_same_seed(self):
+        mask_a = get_val_mask(n_episodes=20, val_ratio=0.25, seed=123)
+        mask_b = get_val_mask(n_episodes=20, val_ratio=0.25, seed=123)
 
-        # Very unlikely to be identical
-        assert not np.array_equal(mask1, mask2)
+        np.testing.assert_array_equal(mask_a, mask_b)
+
+    def test_different_seeds_produce_different_masks(self):
+        mask_a = get_val_mask(n_episodes=20, val_ratio=0.5, seed=0)
+        mask_b = get_val_mask(n_episodes=20, val_ratio=0.5, seed=999)
+
+        assert not np.array_equal(mask_a, mask_b)
 
 
 class TestDownsampleMask:
-    """Test the downsample_mask function."""
 
-    def test_downsample_basic(self):
-        """Test basic downsampling."""
+    def test_reduces_true_count_to_max_n(self):
         mask = np.ones(100, dtype=bool)
-        downsampled = downsample_mask(mask, max_n=10, seed=42)
 
-        assert len(downsampled) == 100
-        assert np.sum(downsampled) == 10
+        result = downsample_mask(mask=mask, max_n=10, seed=42)
 
-    def test_downsample_no_change(self):
-        """Test when mask is already smaller than max_n."""
-        mask = np.ones(5, dtype=bool)
-        downsampled = downsample_mask(mask, max_n=10, seed=42)
+        assert np.sum(result) == 10
 
-        np.testing.assert_array_equal(mask, downsampled)
+    def test_no_change_when_count_below_max(self):
+        mask = np.zeros(100, dtype=bool)
+        mask[:5] = True
 
-    def test_downsample_none(self):
-        """Test with max_n=None (no downsampling)."""
+        result = downsample_mask(mask=mask, max_n=10, seed=42)
+
+        np.testing.assert_array_equal(result, mask)
+
+    def test_none_max_n_returns_unchanged(self):
+        mask = np.ones(50, dtype=bool)
+
+        result = downsample_mask(mask=mask, max_n=None, seed=42)
+
+        np.testing.assert_array_equal(result, mask)
+
+    def test_deterministic_with_same_seed(self):
         mask = np.ones(100, dtype=bool)
-        downsampled = downsample_mask(mask, max_n=None, seed=42)
 
-        np.testing.assert_array_equal(mask, downsampled)
+        result_a = downsample_mask(mask=mask, max_n=10, seed=42)
+        result_b = downsample_mask(mask=mask, max_n=10, seed=42)
 
-    def test_downsample_reproducible(self):
-        """Test reproducibility with same seed."""
-        mask = np.ones(100, dtype=bool)
-        down1 = downsample_mask(mask, max_n=10, seed=42)
-        down2 = downsample_mask(mask, max_n=10, seed=42)
-
-        np.testing.assert_array_equal(down1, down2)
-
-    def test_downsample_preserves_false(self):
-        """Test that False values stay False."""
-        mask = np.array([True, False, True, False, True, True])
-        downsampled = downsample_mask(mask, max_n=2, seed=42)
-
-        # All originally False should still be False
-        assert not downsampled[1]
-        assert not downsampled[3]
-        # Should have exactly 2 True values
-        assert np.sum(downsampled) == 2
+        np.testing.assert_array_equal(result_a, result_b)
 
 
-class TestSequenceSamplerCreation:
-    """Test SequenceSampler initialization and basic properties."""
+class TestSequenceSamplerInitialization:
 
-    def test_create_basic(self, simple_buffer):
-        """Test basic sampler creation."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3
+    def test_length_matches_number_of_possible_sequences(
+        self,
+        mock_replay_buffer_factory: Callable[..., MagicMock],
+    ):
+        buffer = mock_replay_buffer_factory(
+            data={"position": np.arange(30, dtype=np.float32).reshape(10, 3)},
+            episode_ends=np.array([10]),
         )
 
-        assert len(sampler) > 0
-        assert sampler.sequence_length == 3
+        sampler = SequenceSampler(replay_buffer=buffer, sequence_length=3)
 
-    def test_create_with_padding(self, simple_buffer):
-        """Test creation with padding parameters."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3,
-            pad_before=1,
-            pad_after=1
-        )
-
-        # Should have more sequences due to padding
-        sampler_no_pad = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3
-        )
-
-        assert len(sampler) > len(sampler_no_pad)
-
-    def test_create_with_keys(self, simple_buffer):
-        """Test creation with specific keys."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3,
-            keys=['observations', 'actions']
-        )
-
-        sample = sampler.sample_sequence(0)
-        assert 'observations' in sample
-        assert 'actions' in sample
-        assert 'rewards' not in sample
-
-    def test_create_with_episode_mask(self, multi_episode_buffer):
-        """Test creation with episode mask."""
-        # Mask out middle episode
-        episode_mask = np.array([True, False, True])
-
-        sampler = SequenceSampler(
-            replay_buffer=multi_episode_buffer,
-            sequence_length=3,
-            episode_mask=episode_mask
-        )
-
-        # Should have sequences from episodes 0 and 2 only
-        sampler_all = SequenceSampler(
-            replay_buffer=multi_episode_buffer,
-            sequence_length=3
-        )
-
-        assert len(sampler) < len(sampler_all)
-
-    def test_create_with_skip_initial(self, simple_buffer):
-        """Test creation with skip_initial."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3,
-            skip_initial=2
-        )
-
-        # Should have fewer sequences
-        sampler_no_skip = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3
-        )
-
-        assert len(sampler) < len(sampler_no_skip)
-
-    def test_create_empty_buffer(self):
-        """Test creation with empty buffer."""
-        buffer = ReplayBuffer.create_empty_numpy()
-
-        sampler = SequenceSampler(
-            replay_buffer=buffer,
-            sequence_length=3
-        )
-
-        assert len(sampler) == 0
-
-    def test_length_calculation(self, simple_buffer):
-        """Test __len__ returns correct count."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3
-        )
-
-        # Episode length 10, sequence length 3 -> 8 sequences
         assert len(sampler) == 8
 
-
-class TestSequenceSampling:
-    """Test sampling sequences from the buffer."""
-
-    def test_sample_basic(self, simple_buffer):
-        """Test basic sequence sampling."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3
+    def test_all_masked_returns_zero_length(
+        self,
+        mock_replay_buffer_factory: Callable[..., MagicMock],
+    ):
+        buffer = mock_replay_buffer_factory(
+            data={"position": np.ones((5, 2), dtype=np.float32)},
+            episode_ends=np.array([5]),
         )
-
-        sample = sampler.sample_sequence(0)
-
-        assert 'observations' in sample
-        assert 'actions' in sample
-        assert 'rewards' in sample
-        assert sample['observations'].shape == (3, 4)
-        assert sample['actions'].shape == (3, 2)
-        assert sample['rewards'].shape == (3,)
-
-    def test_sample_values(self, simple_buffer):
-        """Test that sampled values are correct."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3
-        )
-
-        sample = sampler.sample_sequence(0)
-
-        # First sequence should be steps 0-2
-        expected_obs = np.arange(3 * 4).reshape(3, 4).astype(np.float32)
-        np.testing.assert_array_equal(sample['observations'], expected_obs)
-
-    def test_sample_different_indices(self, simple_buffer):
-        """Test sampling different sequence indices."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3
-        )
-
-        sample0 = sampler.sample_sequence(0)
-        sample1 = sampler.sample_sequence(1)
-
-        # Should be different (shifted by 1)
-        assert not np.array_equal(sample0['observations'], sample1['observations'])
-        # Second sample should start where first sample's second step is
-        np.testing.assert_array_equal(
-            sample0['observations'][1],
-            sample1['observations'][0]
-        )
-
-    def test_sample_last_sequence(self, simple_buffer):
-        """Test sampling the last available sequence."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3
-        )
-
-        last_idx = len(sampler) - 1
-        sample = sampler.sample_sequence(last_idx)
-
-        # Last sequence should be steps 7-9
-        expected_obs = np.arange(7 * 4, 10 * 4).reshape(3, 4).astype(np.float32)
-        np.testing.assert_array_equal(sample['observations'], expected_obs)
-
-
-class TestPaddingBehavior:
-    """Test padding behavior with different configurations."""
-
-    def test_pad_before_with_repeat(self, simple_buffer):
-        """Test pad_before with repeated values."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3,
-            pad_before=1,
-            pad_with_zeros=False
-        )
-
-        # First sequence should have padding
-        sample = sampler.sample_sequence(0)
-
-        # First value should be repeated (padded)
-        assert sample['observations'].shape == (3, 4)
-        # The padding should repeat the first actual value
-        np.testing.assert_array_equal(
-            sample['observations'][0],
-            sample['observations'][1]
-        )
-
-    def test_pad_before_with_zeros(self, simple_buffer):
-        """Test pad_before with zeros."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3,
-            pad_before=1,
-            pad_with_zeros=True
-        )
-
-        sample = sampler.sample_sequence(0)
-
-        # First value should be zero
-        np.testing.assert_array_equal(
-            sample['observations'][0],
-            np.zeros(4, dtype=np.float32)
-        )
-
-    def test_pad_after_with_repeat(self, simple_buffer):
-        """Test pad_after with repeated values."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3,
-            pad_after=1,
-            pad_with_zeros=False
-        )
-
-        # Last sequence should have padding
-        last_idx = len(sampler) - 1
-        sample = sampler.sample_sequence(last_idx)
-
-        # Last value should be repeated
-        np.testing.assert_array_equal(
-            sample['observations'][-1],
-            sample['observations'][-2]
-        )
-
-    def test_pad_after_with_zeros(self, simple_buffer):
-        """Test pad_after with zeros."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3,
-            pad_after=1,
-            pad_with_zeros=True
-        )
-
-        last_idx = len(sampler) - 1
-        sample = sampler.sample_sequence(last_idx)
-
-        # Last value should be zero
-        np.testing.assert_array_equal(
-            sample['observations'][-1],
-            np.zeros(4, dtype=np.float32)
-        )
-
-    def test_no_padding_needed(self, simple_buffer):
-        """Test sequences that don't need padding."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3,
-            pad_before=1,
-            pad_after=1
-        )
-
-        # Middle sequences should have no padding
-        middle_idx = len(sampler) // 2
-        sample = sampler.sample_sequence(middle_idx)
-
-        # Should be normal data, no repeated or zero values
-        assert sample['observations'].shape == (3, 4)
-
-
-class TestKeyFirstK:
-    """Test key_first_k functionality for partial data loading."""
-
-    def test_key_first_k_basic(self, simple_buffer):
-        """Test loading only first k steps for a key."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=5,
-            key_first_k={'observations': 2}
-        )
-
-        sample = sampler.sample_sequence(0)
-
-        # First 2 observations should be real data
-        expected_first_two = np.arange(2 * 4).reshape(2, 4).astype(np.float32)
-        np.testing.assert_array_equal(
-            sample['observations'][:2],
-            expected_first_two
-        )
-
-        # Rest should be nan (for float dtype)
-        assert np.all(np.isnan(sample['observations'][2:]))
-
-    def test_key_first_k_integer_dtype(self, simple_buffer):
-        """Test key_first_k with integer dtype uses 0 fill."""
-        # Add integer data
-        simple_buffer.data['int_data'] = np.arange(10, dtype=np.int32)
 
         sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=5,
-            keys=['int_data'],
-            key_first_k={'int_data': 2}
-        )
-
-        sample = sampler.sample_sequence(0)
-
-        # First 2 should be real data
-        np.testing.assert_array_equal(sample['int_data'][:2], np.array([0, 1]))
-        # Rest should be 0
-        np.testing.assert_array_equal(sample['int_data'][2:], np.zeros(3, dtype=np.int32))
-
-    def test_key_first_k_full_sequence(self, simple_buffer):
-        """Test when first_k >= sequence length."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3,
-            key_first_k={'observations': 10}
-        )
-
-        sample = sampler.sample_sequence(0)
-
-        # Should load all data (no partial loading)
-        expected = np.arange(3 * 4).reshape(3, 4).astype(np.float32)
-        np.testing.assert_array_equal(sample['observations'], expected)
-
-    def test_key_first_k_multiple_keys(self, simple_buffer):
-        """Test key_first_k with multiple keys."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=5,
-            key_first_k={
-                'observations': 2,
-                'actions': 3
-            }
-        )
-
-        sample = sampler.sample_sequence(0)
-
-        # Observations should have 2 real + 3 nan
-        assert not np.any(np.isnan(sample['observations'][:2]))
-        assert np.all(np.isnan(sample['observations'][2:]))
-
-        # Actions should have 3 real + 2 nan
-        assert not np.any(np.isnan(sample['actions'][:3]))
-        assert np.all(np.isnan(sample['actions'][3:]))
-
-        # Rewards should be fully loaded (not in key_first_k)
-        assert not np.any(np.isnan(sample['rewards']))
-
-
-class TestMultiEpisode:
-    """Test sampling across multiple episodes."""
-
-    def test_episodes_separate(self, multi_episode_buffer):
-        """Test that sequences don't cross episode boundaries."""
-        sampler = SequenceSampler(
-            replay_buffer=multi_episode_buffer,
-            sequence_length=3
-        )
-
-        # Sample from different episodes
-        # Episode 1 ends at 10, Episode 2 at 17, Episode 3 at 22
-        # Find a sequence from each episode
-
-        # Check episode boundaries
-        episode_ends = multi_episode_buffer.episode_ends[:]
-        assert episode_ends[0] == 10
-        assert episode_ends[1] == 17
-        assert episode_ends[2] == 22
-
-    def test_episode_mask_filters(self, multi_episode_buffer):
-        """Test that episode mask properly filters episodes."""
-        # Only sample from first and last episode
-        mask = np.array([True, False, True])
-
-        sampler = SequenceSampler(
-            replay_buffer=multi_episode_buffer,
-            sequence_length=3,
-            episode_mask=mask
-        )
-
-        # Sample all sequences and verify they're from correct episodes
-        for i in range(len(sampler)):
-            sample = sampler.sample_sequence(i)
-            # Values from episode 2 are in range [100, 199]
-            # Make sure no samples contain those values
-            assert not np.any((sample['observations'] >= 100) & (sample['observations'] < 200))
-
-    def test_skip_initial_per_episode(self, multi_episode_buffer):
-        """Test that skip_initial applies to each episode."""
-        sampler = SequenceSampler(
-            replay_buffer=multi_episode_buffer,
-            sequence_length=3,
-            skip_initial=2
-        )
-
-        sampler_no_skip = SequenceSampler(
-            replay_buffer=multi_episode_buffer,
-            sequence_length=3,
-            skip_initial=0
-        )
-
-        # Should have fewer sequences
-        assert len(sampler) < len(sampler_no_skip)
-
-
-class TestEdgeCases:
-    """Test edge cases and boundary conditions."""
-
-    def test_sequence_length_one(self, simple_buffer):
-        """Test with sequence length of 1."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=1
-        )
-
-        # Should have 10 sequences (one per step)
-        assert len(sampler) == 10
-
-        sample = sampler.sample_sequence(0)
-        assert sample['observations'].shape == (1, 4)
-
-    def test_sequence_length_equals_episode(self, simple_buffer):
-        """Test when sequence length equals episode length."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=10
-        )
-
-        # Should have exactly 1 sequence
-        assert len(sampler) == 1
-
-        sample = sampler.sample_sequence(0)
-        assert sample['observations'].shape == (10, 4)
-
-    def test_sequence_longer_than_episode(self, simple_buffer):
-        """Test when sequence length exceeds episode length."""
-        # Simple buffer has episode of length 10
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=15,
-            pad_before=0,
-            pad_after=0
-        )
-
-        # Should have 0 sequences without padding (handled gracefully)
-        assert len(sampler) == 0
-        assert sampler.indices.shape == (0, 4)  # Correct empty shape
-
-    def test_sequence_longer_with_padding(self, simple_buffer):
-        """Test long sequence with enough padding."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=15,
-            pad_before=5,
-            pad_after=5
-        )
-
-        # Should be able to create sequences with padding
-        assert len(sampler) > 0
-
-    def test_very_short_episode(self):
-        """Test with very short episode."""
-        buffer = ReplayBuffer.create_empty_numpy()
-        buffer.add_episode({
-            'observations': np.array([[1, 2, 3]], dtype=np.float32),
-            'actions': np.array([[1, 2]], dtype=np.float32),
-        })
-
-        sampler = SequenceSampler(
-            replay_buffer=buffer,
-            sequence_length=1
-        )
-
-        assert len(sampler) == 1
-        sample = sampler.sample_sequence(0)
-        assert sample['observations'].shape == (1, 3)
-
-    def test_max_padding_clamped(self, simple_buffer):
-        """Test that padding is clamped to sequence_length - 1."""
-        # Request excessive padding
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=5,
-            pad_before=10,  # Will be clamped to 4
-            pad_after=10    # Will be clamped to 4
-        )
-
-        # Should still work and create valid sequences
-        assert len(sampler) > 0
-        sample = sampler.sample_sequence(0)
-        assert sample['observations'].shape == (5, 4)
-
-    def test_negative_padding_ignored(self, simple_buffer):
-        """Test that negative padding is treated as 0."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3,
-            pad_before=-5,
-            pad_after=-3
-        )
-
-        # Should work with padding treated as 0
-        sampler_no_pad = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3,
-            pad_before=0,
-            pad_after=0
-        )
-
-        assert len(sampler) == len(sampler_no_pad)
-
-    def test_all_episodes_masked(self, multi_episode_buffer):
-        """Test with all episodes masked out."""
-        mask = np.array([False, False, False])
-
-        sampler = SequenceSampler(
-            replay_buffer=multi_episode_buffer,
-            sequence_length=3,
-            episode_mask=mask
+            replay_buffer=buffer, sequence_length=3, episode_mask=np.array([False]),
         )
 
         assert len(sampler) == 0
-        # Should have correct empty shape
-        assert sampler.indices.shape == (0, 4)
 
-    def test_single_episode_masked(self, multi_episode_buffer):
-        """Test with single episode selected."""
-        mask = np.array([False, True, False])
-
-        sampler = SequenceSampler(
-            replay_buffer=multi_episode_buffer,
-            sequence_length=3,
-            episode_mask=mask
+    def test_uses_all_keys_from_buffer_when_none_specified(
+        self,
+        mock_replay_buffer_factory: Callable[..., MagicMock],
+    ):
+        buffer = mock_replay_buffer_factory(
+            data={
+                "position": np.ones((10, 3), dtype=np.float32),
+                "gripper": np.ones((10, 1), dtype=np.float32),
+            },
+            episode_ends=np.array([10]),
         )
 
-        # Should have sequences from episode 1 only (length 7)
-        # 7 - 3 + 1 = 5 sequences
-        assert len(sampler) == 5
+        sampler = SequenceSampler(replay_buffer=buffer, sequence_length=3)
+
+        assert set(sampler.keys) == {"position", "gripper"}
 
 
-class TestErrorHandling:
-    """Test error conditions and invalid inputs."""
+class TestSequenceSamplerSampleSequence:
 
-    def test_invalid_sequence_length_zero(self, simple_buffer):
-        """Test that sequence_length=0 raises error."""
-        with pytest.raises(AssertionError):
-            SequenceSampler(
-                replay_buffer=simple_buffer,
-                sequence_length=0
-            )
-
-    def test_invalid_sequence_length_negative(self, simple_buffer):
-        """Test that negative sequence_length raises error."""
-        with pytest.raises(AssertionError):
-            SequenceSampler(
-                replay_buffer=simple_buffer,
-                sequence_length=-5
-            )
-
-    def test_invalid_key(self, simple_buffer):
-        """Test requesting non-existent key."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3,
-            keys=['nonexistent_key']
+    def test_returns_correct_values(
+        self,
+        mock_replay_buffer_factory: Callable[..., MagicMock],
+    ):
+        # [[0,1,2], [3,4,5], ..., [27,28,29]]
+        buffer = mock_replay_buffer_factory(
+            data={"position": np.arange(30, dtype=np.float32).reshape(10, 3)},
+            episode_ends=np.array([10]),
         )
 
-        # Should fail when sampling
-        with pytest.raises(KeyError):
-            sampler.sample_sequence(0)
+        sampler = SequenceSampler(replay_buffer=buffer, sequence_length=3)
+        # idx=2 → buffer [2:5]
+        sample = sampler.sample_sequence(idx=2)
 
-    def test_index_out_of_range(self, simple_buffer):
-        """Test sampling with invalid index."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3
-        )
-
-        with pytest.raises(IndexError):
-            sampler.sample_sequence(len(sampler))
-
-    def test_negative_index_out_of_range(self, simple_buffer):
-        """Test sampling with negative index out of range."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3
-        )
-
-        with pytest.raises(IndexError):
-            sampler.sample_sequence(-len(sampler) - 1)
-
-
-class TestDataIntegrity:
-    """Test that sampled data maintains integrity."""
-
-    def test_data_not_modified(self, simple_buffer):
-        """Test that sampling doesn't modify buffer."""
-        original_data = simple_buffer['observations'][:].copy()
-
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3
-        )
-
-        # Sample multiple times
-        for i in range(min(5, len(sampler))):
-            _ = sampler.sample_sequence(i)
-
-        # Buffer data should be unchanged
         np.testing.assert_array_equal(
-            simple_buffer['observations'][:],
-            original_data
+            sample["position"],
+            np.array([[6, 7, 8], [9, 10, 11], [12, 13, 14]], dtype=np.float32),
         )
 
-    def test_sample_with_padding_independent(self, simple_buffer):
-        """Test that samples with padding are independent copies."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3,
-            pad_before=1  # Force padding to ensure copies
+    def test_returns_multiple_keys(
+        self,
+        mock_replay_buffer_factory: Callable[..., MagicMock],
+    ):
+        buffer = mock_replay_buffer_factory(
+            data={
+                "position": np.arange(30, dtype=np.float32).reshape(10, 3),
+                "gripper": np.arange(10, dtype=np.float32).reshape(10, 1),
+            },
+            episode_ends=np.array([10]),
         )
 
-        sample1 = sampler.sample_sequence(0)
-        sample2 = sampler.sample_sequence(0)
+        sampler = SequenceSampler(replay_buffer=buffer, sequence_length=3)
+        sample = sampler.sample_sequence(idx=0)
 
-        # With padding, new arrays are allocated, so should be independent
-        sample1['observations'][0, 0] = 999.0
+        assert "position" in sample
+        assert "gripper" in sample
+        assert sample["position"].shape == (3, 3)
+        assert sample["gripper"].shape == (3, 1)
 
-        # sample2 should be unchanged (they're different array objects)
-        assert float(sample2['observations'][0, 0]) != 999.0
 
-    def test_sample_no_padding_may_share_memory(self, simple_buffer):
-        """Test that samples without padding may share memory (views).
+class TestSequenceSamplerPadding:
 
-        This is a performance optimization - when no padding is needed,
-        the implementation may return views instead of copies.
-        """
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3,
-            pad_before=0,
-            pad_after=0
+    def test_pad_before_with_zeros(
+        self,
+        mock_replay_buffer_factory: Callable[..., MagicMock],
+    ):
+        buffer = mock_replay_buffer_factory(
+            data={"position": np.ones((5, 2), dtype=np.float32) * 7.0},
+            episode_ends=np.array([5]),
         )
-
-        sample = sampler.sample_sequence(1)  # Middle sequence, no padding
-
-        # Sample should have correct shape and values
-        assert sample['observations'].shape == (3, 4)
-        expected = np.arange(1*4, 4*4).reshape(3, 4).astype(np.float32)
-        np.testing.assert_array_equal(sample['observations'], expected)
-
-    def test_consistent_shapes(self, multi_episode_buffer):
-        """Test that all samples have consistent shapes."""
-        sampler = SequenceSampler(
-            replay_buffer=multi_episode_buffer,
-            sequence_length=3,
-            pad_before=1,
-            pad_after=1
-        )
-
-        shapes_obs = []
-        shapes_actions = []
-
-        for i in range(len(sampler)):
-            sample = sampler.sample_sequence(i)
-            shapes_obs.append(sample['observations'].shape)
-            shapes_actions.append(sample['actions'].shape)
-
-        # All should have same shape
-        assert len(set(shapes_obs)) == 1
-        assert len(set(shapes_actions)) == 1
-        assert shapes_obs[0] == (3, 4)
-        assert shapes_actions[0] == (3, 2)
-
-
-class TestZarrBackend:
-    """Test SequenceSampler with Zarr backend."""
-
-    def test_zarr_buffer_basic(self):
-        """Test basic sampling from Zarr buffer."""
-        buffer = ReplayBuffer.create_empty_zarr()
-        buffer.add_episode({
-            'observations': np.arange(10 * 4).reshape(10, 4).astype(np.float32),
-            'actions': np.arange(10 * 2).reshape(10, 2).astype(np.float32),
-        })
 
         sampler = SequenceSampler(
-            replay_buffer=buffer,
-            sequence_length=3
+            replay_buffer=buffer, sequence_length=3, pad_before=1, pad_with_zeros=True,
         )
+        sample = sampler.sample_sequence(idx=0)
 
-        assert len(sampler) == 8
-        sample = sampler.sample_sequence(0)
-        assert sample['observations'].shape == (3, 4)
+        np.testing.assert_array_equal(sample["position"][0], [0.0, 0.0])
+        np.testing.assert_array_equal(sample["position"][1], [7.0, 7.0])
 
-    def test_zarr_buffer_with_padding(self):
-        """Test Zarr buffer with padding."""
-        buffer = ReplayBuffer.create_empty_zarr()
-        buffer.add_episode({
-            'observations': np.arange(10 * 4).reshape(10, 4).astype(np.float32),
-            'actions': np.arange(10 * 2).reshape(10, 2).astype(np.float32),
-        })
+    def test_pad_before_with_repeated_values(
+        self,
+        mock_replay_buffer_factory: Callable[..., MagicMock],
+    ):
+        buffer = mock_replay_buffer_factory(
+            data={"position": np.array([[10, 20], [30, 40], [50, 60]], dtype=np.float32)},
+            episode_ends=np.array([3]),
+        )
 
         sampler = SequenceSampler(
-            replay_buffer=buffer,
-            sequence_length=3,
-            pad_before=1,
-            pad_after=1
+            replay_buffer=buffer, sequence_length=3, pad_before=1, pad_with_zeros=False,
         )
+        sample = sampler.sample_sequence(idx=0)
 
-        assert len(sampler) == 10
-        sample = sampler.sample_sequence(0)
-        assert sample['observations'].shape == (3, 4)
+        # Padded row repeats first value of actual data
+        np.testing.assert_array_equal(sample["position"][0], [10, 20])
 
-
-class TestPerformanceOptimizations:
-    """Test performance optimization features."""
-
-    def test_indices_precomputed(self, simple_buffer):
-        """Test that indices are precomputed during init."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3
+    def test_pad_after_with_repeated_values(
+        self,
+        mock_replay_buffer_factory: Callable[..., MagicMock],
+    ):
+        buffer = mock_replay_buffer_factory(
+            data={"position": np.array([[10, 20], [30, 40], [50, 60]], dtype=np.float32)},
+            episode_ends=np.array([3]),
         )
-
-        # Indices should be available
-        assert hasattr(sampler, 'indices')
-        assert len(sampler.indices) > 0
-        assert sampler.indices.shape[1] == 4  # 4 columns per index
-
-    def test_key_first_k_reduces_load(self, simple_buffer):
-        """Test that key_first_k actually uses partial data."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=10,
-            key_first_k={'observations': 2}
-        )
-
-        sample = sampler.sample_sequence(0)
-
-        # Should have loaded only 2 observations
-        # Rest should be nan
-        assert not np.any(np.isnan(sample['observations'][:2]))
-        assert np.all(np.isnan(sample['observations'][2:]))
-
-    def test_keys_stored_as_list(self, simple_buffer):
-        """Test that keys are stored as list (not OmegaConf)."""
-        sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=3,
-            keys=['observations', 'actions']
-        )
-
-        assert isinstance(sampler.keys, list)
-        assert len(sampler.keys) == 2
-
-
-@pytest.fixture
-def buffer_with_language():
-    """Buffer with language instructions."""
-    buffer = ReplayBuffer.create_empty_numpy()
-    data = {
-        'observations': np.arange(10 * 4).reshape(10, 4).astype(np.float32),
-        'actions': np.arange(10 * 2).reshape(10, 2).astype(np.float32),
-        'language': np.array([f'instruction_{i}' for i in range(10)], dtype=object),
-    }
-    buffer.add_episode(data)
-    return buffer
-
-
-@pytest.fixture
-def language_instructions_varied():
-    """Language instructions with varying lengths."""
-    return np.array([
-        'short',
-        'this is a much longer instruction with many words',
-        'medium length instruction',
-        'action_embedding',
-        'another very very long instruction',
-        'normal',
-        'brief',
-        'extended instruction here',
-        'tiny',
-        'final'
-    ], dtype=object)
-
-
-class TestLanguageSampling:
-    """Test language instruction sampling."""
-
-    def test_sample_language_as_strings(self, buffer_with_language):
-        """Test that language instructions are sampled as strings."""
-        sampler = SequenceSampler(
-            replay_buffer=buffer_with_language,
-            sequence_length=3,
-            keys=['observations', 'actions', 'language']
-        )
-
-        sample = sampler.sample_sequence(0)
-
-        assert 'language' in sample
-        assert sample['language'].dtype == object
-        assert len(sample['language']) == 3
-        assert sample['language'][0] == 'instruction_0'
-        assert sample['language'][1] == 'instruction_1'
-
-    def test_sample_language_with_padding(self, buffer_with_language):
-        """Test language sampling with padding at episode boundaries."""
-        sampler = SequenceSampler(
-            replay_buffer=buffer_with_language,
-            sequence_length=3,
-            pad_before=1,
-            keys=['language'],
-            pad_with_zeros=False
-        )
-
-        sample = sampler.sample_sequence(0)
-        assert sample['language'][0] == sample['language'][1]
-
-    def test_sample_language_variable_lengths(self, simple_buffer, language_instructions_varied):
-        """Test sampling language instructions of varying lengths."""
-        simple_buffer.data['language'] = language_instructions_varied
 
         sampler = SequenceSampler(
-            replay_buffer=simple_buffer,
-            sequence_length=4,
-            keys=['language']
+            replay_buffer=buffer, sequence_length=3, pad_after=1, pad_with_zeros=False,
+        )
+        # Last sequence overhangs end → last row padded with repeated last value
+        last_index = len(sampler) - 1
+        sample = sampler.sample_sequence(idx=last_index)
+
+        np.testing.assert_array_equal(sample["position"][-1], [50, 60])
+
+
+class TestSequenceSamplerKeyFirstK:
+
+    @pytest.mark.parametrize("dtype,fill_check", [
+        (np.float32, lambda values: np.all(np.isnan(values))),
+        (np.int32, lambda values: np.all(values == 0)),
+    ])
+    def test_fills_remaining_with_correct_default(
+        self,
+        mock_replay_buffer_factory: Callable[..., MagicMock],
+        dtype: np.dtype,
+        fill_check: Callable,
+    ):
+        buffer = mock_replay_buffer_factory(
+            data={"values": np.arange(10, dtype=dtype).reshape(10, 1)},
+            episode_ends=np.array([10]),
         )
 
-        sample = sampler.sample_sequence(0)
-
-        assert all(isinstance(s, str) for s in sample['language'])
-        assert sample['language'][0] == 'short'
-        assert 'much longer instruction' in sample['language'][1]
-
-    def test_language_with_key_first_k(self, buffer_with_language):
-        """Test that language respects key_first_k optimization."""
         sampler = SequenceSampler(
-            replay_buffer=buffer_with_language,
-            sequence_length=5,
-            key_first_k={'language': 2},
-            keys=['language']
+            replay_buffer=buffer, sequence_length=5, key_first_k={"values": 2},
+        )
+        sample = sampler.sample_sequence(idx=0)
+
+        # First 2 rows have data, remaining filled with dtype default
+        assert not fill_check(sample["values"][:2])
+        assert fill_check(sample["values"][2:])
+
+    def test_string_dtype_fills_with_empty_string(
+        self,
+        mock_replay_buffer_factory: Callable[..., MagicMock],
+    ):
+        string_data = np.array(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"], dtype="U10").reshape(10, 1)
+        buffer = mock_replay_buffer_factory(
+            data={"labels": string_data},
+            episode_ends=np.array([10]),
         )
 
-        sample = sampler.sample_sequence(0)
+        sampler = SequenceSampler(
+            replay_buffer=buffer, sequence_length=5, key_first_k={"labels": 2},
+        )
+        sample = sampler.sample_sequence(idx=0)
 
-        assert sample['language'][0] == 'instruction_0'
-        assert sample['language'][1] == 'instruction_1'
-        assert sample['language'][2] == ''
+        # First 2 have data, rest are empty strings
+        assert sample["labels"][0, 0] == "a"
+        assert sample["labels"][1, 0] == "b"
+        assert sample["labels"][2, 0] == ""

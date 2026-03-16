@@ -1,188 +1,87 @@
-"""Tests for BehavioralCloning algorithm (pure, without variational inference).
-
-Note: For tests of BC with variational inference (latent variables), see test_variational.py
-which tests VariationalAlgorithm(BehavioralCloning(), VAE).
-"""
+"""Tests for versatil.models.decoding.algorithm.behavior_cloning module."""
+from collections.abc import Callable
+from unittest.mock import MagicMock
 
 import pytest
 import torch
-from unittest.mock import MagicMock
 
-from versatil.data.constants import ProprioceptiveType
-from versatil.models.decoding.constants import LatentKey
+from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
 
 
 @pytest.fixture
-def device():
-    """Device for testing."""
-    return "cpu"
+def bc_factory() -> Callable[..., BehavioralCloning]:
+    """Factory for BehavioralCloning instances."""
+    def factory() -> BehavioralCloning:
+        return BehavioralCloning()
+    return factory
 
 
-@pytest.fixture
-def batch_size():
-    """Batch size for testing."""
-    return 4
-
-
-@pytest.fixture
-def prediction_horizon():
-    """Prediction horizon."""
-    return 10
-
-
-@pytest.fixture
-def embedding_dimension():
-    """Embedding dimension."""
-    return 256
-
-
-@pytest.fixture
-def features_dict(batch_size, embedding_dimension, device):
-    """Sample features dictionary from encoding pipeline."""
-    return {
-        "rgb_features": torch.randn(batch_size, embedding_dimension, 7, 7, device=device),
-        "proprio_features": torch.randn(batch_size, 64, device=device),
-    }
-
-
-@pytest.fixture
-def actions_dict(batch_size, prediction_horizon, device):
-    """Sample action dictionary."""
-    return {
-        ProprioceptiveType.POSITION.value: torch.randn(batch_size, prediction_horizon, 3, device=device),
-        ProprioceptiveType.ORIENTATION.value: torch.randn(batch_size, prediction_horizon, 4, device=device),
-        ProprioceptiveType.GRIPPER.value: torch.randint(0, 2, (batch_size, prediction_horizon, 1), device=device).float(),
-    }
-
-
-@pytest.fixture
-def mock_decoder(batch_size, prediction_horizon):
-    """Mock decoder network."""
-    decoder = MagicMock()
-
-    def decoder_forward(features, actions):
-        batch_size = list(features.values())[0].shape[0]
-        return {
-            ProprioceptiveType.POSITION.value: torch.randn(batch_size, prediction_horizon, 3),
-            ProprioceptiveType.ORIENTATION.value: torch.randn(batch_size, prediction_horizon, 4),
-            ProprioceptiveType.GRIPPER.value: torch.randint(0, 2, (batch_size, prediction_horizon, 1)).float(),
-        }
-
-    decoder.side_effect = decoder_forward
-    return decoder
-
-
-@pytest.mark.unit
 class TestBehavioralCloningInitialization:
-    """Test BehavioralCloning initialization."""
 
-    def test_init_without_parameters(self):
-        """Test initialization without parameters (pure BC)."""
-        algorithm = BehavioralCloning()
+    def test_inherits_from_decoding_algorithm(
+        self,
+        bc_factory: Callable[..., BehavioralCloning],
+    ):
+        bc = bc_factory()
+        assert isinstance(bc, DecodingAlgorithm)
 
-        # Should not have latent_encoder anymore
-        assert not hasattr(algorithm, "latent_encoder")
 
-
-@pytest.mark.unit
 class TestBehavioralCloningForward:
-    """Test BehavioralCloning forward pass (training)."""
 
-    def test_forward_pure_bc(self, mock_decoder, features_dict, actions_dict):
-        """Test forward for pure BC (no latent variables)."""
-        algorithm = BehavioralCloning()
+    def test_delegates_to_network(
+        self,
+        bc_factory: Callable[..., BehavioralCloning],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        bc = bc_factory()
+        mock_network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+        )
+        bc.forward(network=mock_network, features=features, actions=actions)
+        mock_network.assert_called_once()
 
-        predictions = algorithm.forward(network=mock_decoder, features=features_dict, actions=actions_dict)
-
-        # Check decoder was called
-        mock_decoder.assert_called_once()
-
-        # Check predictions
-        assert ProprioceptiveType.POSITION.value in predictions
-        assert ProprioceptiveType.ORIENTATION.value in predictions
-        assert ProprioceptiveType.GRIPPER.value in predictions
-
-        # Should NOT have latent keys (pure BC)
-        assert LatentKey.POSTERIOR_LATENT.value not in predictions
-        assert LatentKey.POSTERIOR_MU.value not in predictions
-        assert LatentKey.POSTERIOR_LOGVAR.value not in predictions
-
-    def test_forward_passes_features_unchanged(self, mock_decoder, features_dict, actions_dict):
-        """Test that forward passes features unchanged to decoder."""
-        algorithm = BehavioralCloning()
-
-        algorithm.forward(network=mock_decoder, features=features_dict, actions=actions_dict)
-
-        # Check that decoder received original features unchanged
-        call_kwargs = mock_decoder.call_args.kwargs
-        passed_features = call_kwargs["features"]
-
-        # Should be the same feature keys
-        assert set(passed_features.keys()) == set(features_dict.keys())
-        assert "rgb_features" in passed_features
-        assert "proprio_features" in passed_features
+    def test_returns_network_output(
+        self,
+        bc_factory: Callable[..., BehavioralCloning],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        bc = bc_factory()
+        mock_network = mock_action_decoder_factory(action_keys = ["you_shall_not_pass"])
+        features = feature_dictionary_factory()
+        result = bc.forward(network=mock_network, features=features)
+        assert set(result.keys()) == {"you_shall_not_pass"}
 
 
-@pytest.mark.unit
 class TestBehavioralCloningPredict:
-    """Test BehavioralCloning predict (inference)."""
 
-    def test_predict_pure_bc(self, mock_decoder, features_dict):
-        """Test predict for pure BC."""
-        algorithm = BehavioralCloning()
+    def test_delegates_to_network_without_actions(
+        self,
+        bc_factory: Callable[..., BehavioralCloning],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        bc = bc_factory()
+        mock_network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        bc.predict(network=mock_network, features=features)
+        mock_network.assert_called_once()
+        call_kwargs = mock_network.call_args
+        assert call_kwargs.kwargs.get("actions") is None
 
-        predictions = algorithm.predict(network=mock_decoder, features=features_dict)
-
-        # Check decoder was called with actions=None
-        mock_decoder.assert_called_once()
-        call_args = mock_decoder.call_args
-        assert call_args[1]["actions"] is None
-
-        # Check predictions
-        assert ProprioceptiveType.POSITION.value in predictions
-        assert ProprioceptiveType.ORIENTATION.value in predictions
-        assert ProprioceptiveType.GRIPPER.value in predictions
-
-    def test_predict_passes_features_unchanged(self, mock_decoder, features_dict):
-        """Test that predict passes features unchanged to decoder."""
-        algorithm = BehavioralCloning()
-
-        algorithm.predict(network=mock_decoder, features=features_dict)
-
-        # Check that decoder received original features
-        call_args = mock_decoder.call_args
-        passed_features = call_args[0][0]  # First positional argument
-
-        # Should be the same feature keys
-        assert set(passed_features.keys()) == set(features_dict.keys())
-        assert "rgb_features" in passed_features
-        assert "proprio_features" in passed_features
-
-
-@pytest.mark.unit
-class TestBehavioralCloningDeterminism:
-    """Test BehavioralCloning determinism."""
-
-    def test_determinism_with_seed(self, features_dict, actions_dict, prediction_horizon):
-        """Test that BC is deterministic with same seed."""
-        algorithm = BehavioralCloning()
-
-        decoder = MagicMock()
-        decoder.return_value = {
-            ProprioceptiveType.POSITION.value: torch.randn(4, prediction_horizon, 3),
-        }
-
-        # Run twice with same seed
-        torch.manual_seed(42)
-        pred1 = algorithm.forward(network=decoder, features=features_dict, actions=actions_dict)
-
-        torch.manual_seed(42)
-        pred2 = algorithm.forward(network=decoder, features=features_dict, actions=actions_dict)
-
-        # Since BC is deterministic (no sampling), features should be identical
-        call1_features = decoder.call_args_list[0].kwargs["features"]
-        call2_features = decoder.call_args_list[1].kwargs["features"]
-
-        for key in call1_features:
-            assert torch.allclose(call1_features[key], call2_features[key])
+    def test_returns_network_output(
+        self,
+        bc_factory: Callable[..., BehavioralCloning],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        bc = bc_factory()
+        mock_network = mock_action_decoder_factory(action_keys = ["where_was_Gondor?"])
+        features = feature_dictionary_factory()
+        result = bc.predict(network=mock_network, features=features)
+        assert set(result.keys()) == {"where_was_Gondor?"}

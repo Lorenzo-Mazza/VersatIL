@@ -185,7 +185,7 @@ class DiffusionActionTransformer(ActionDecoder):
             case _:
                 raise ValueError(
                     f"Unsupported diffusion_transformer_type: {self.diffusion_transformer_type}. "
-                    f"Supported types: {[DiTType.CROSS_ATTENTION.value, DiTType.MMDIT.value]}"
+                    f"Supported types: {[DiTType.CROSS_ATTENTION.value, DiTType.MMDIT.value]}. "
                     f"Use DiTBlockActionTransformer for type {DiTType.DIT_BLOCK.value}."
                 )
 

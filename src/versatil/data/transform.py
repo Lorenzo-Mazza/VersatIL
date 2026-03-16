@@ -115,7 +115,7 @@ def tokenize_sample(
     tokenizer: Tokenizer,
     action_space: ActionSpace,
 ) -> dict[str, dict[str, torch.Tensor]]:
-    """Tokenize observations and actins according to the action space configuration."""
+    """Tokenize observations and actions according to the action space configuration."""
     if tokenizer.observation_tokenizer is not None:
         observation = sample[SampleKey.OBSERVATION.value]
         sample[SampleKey.OBSERVATION.value] = tokenize_observation(

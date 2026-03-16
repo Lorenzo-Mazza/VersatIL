@@ -26,12 +26,18 @@ def check_chunks_compatible(chunks: tuple[int, ...], shape: tuple[int, ...]):
         shape: Tuple of array shape dimensions.
 
     Raises:
-        AssertionError: If lengths differ, chunks are not positive integers, or not integral.
+        ValueError: If lengths differ or chunks are not positive.
+        TypeError: If chunks are not integral.
     """
-    assert len(shape) == len(chunks)
+    if len(shape) != len(chunks):
+        raise ValueError(
+            f"Chunks dimensionality {len(chunks)} does not match shape dimensionality {len(shape)}."
+        )
     for c in chunks:
-        assert isinstance(c, numbers.Integral)
-        assert c > 0
+        if not isinstance(c, numbers.Integral):
+            raise TypeError(f"Chunk size must be an integer, got {type(c)}.")
+        if c <= 0:
+            raise ValueError(f"Chunk size must be positive, got {c}.")
 
 
 def rechunk_recompress_array(
@@ -260,13 +266,22 @@ class ReplayBuffer:
 
         Args:
             root: Zarr Group or dict with 'data' and 'meta' substructures.
+
+        Raises:
+            ValueError: If root is missing required keys or data shapes are inconsistent.
         """
-        assert "data" in root
-        assert "meta" in root
-        assert "episode_ends" in root["meta"]  # type: ignore[operator]
+        for required_key in ("data", "meta"):
+            if required_key not in root:
+                raise ValueError(f"Root must contain a '{required_key}' group.")
+        if "episode_ends" not in root["meta"]:  # type: ignore[operator]
+            raise ValueError("Meta group must contain 'episode_ends'.")
         for key in root["data"]:  # type: ignore[union-attr]
             value = root["data"][key]  # type: ignore[index]
-            assert value.shape[0] == root["meta"]["episode_ends"][-1]  # type: ignore[union-attr, index]
+            expected_length = root["meta"]["episode_ends"][-1]  # type: ignore[union-attr, index]
+            if value.shape[0] != expected_length:
+                raise ValueError(
+                    f"Data array '{key}' has length {value.shape[0]} but episode_ends indicates {expected_length}."
+                )
         self.root = root
 
     @classmethod
@@ -403,10 +418,8 @@ class ReplayBuffer:
                     chunks=value.shape,  # type: ignore[union-attr]
                     compressors=None,
                 )
-
             # Manually copy data
             # TODO: update when issue is closed on https://github.com/zarr-developers/zarr-python/issues/2407
-
             data_group = root.create_group("data", overwrite=True)  # type: ignore[union-attr]
             if keys is None:
                 keys = src_root["data"].keys()  # type: ignore[union-attr]
@@ -492,7 +505,6 @@ class ReplayBuffer:
                 chunks=value.shape,
                 compressors=None,
             )
-
         # Manually copy data
         # TODO: update when issue is closed on https://github.com/zarr-developers/zarr-python/issues/2407
         data_group = root.create_group("data", overwrite=True)
@@ -791,22 +803,26 @@ class ReplayBuffer:
             compressors: Per-key or global for new arrays.
 
         Raises:
-            AssertionError: If empty data or inconsistent shapes/lengths.
+            ValueError: If empty data, inconsistent lengths, or mismatched shapes.
         """
         if chunks is None:
             chunks = {}
         if compressors is None:
             compressors = {}
-        assert len(data) > 0
+        if len(data) == 0:
+            raise ValueError("Episode data must not be empty.")
         is_zarr = self.backend == "zarr"
         curr_len = self.n_steps
         episode_length = None
-        for value in data.values():
-            assert len(value.shape) >= 1
+        for key, value in data.items():
+            if len(value.shape) < 1:
+                raise ValueError(f"Array '{key}' must be at least 1-dimensional.")
             if episode_length is None:
                 episode_length = len(value)
-            else:
-                assert episode_length == len(value)
+            elif episode_length != len(value):
+                raise ValueError(
+                    f"Inconsistent episode lengths: expected {episode_length}, got {len(value)} for key '{key}'."
+                )
         new_len = curr_len + episode_length
         for key in data:
             value = data[key]
@@ -834,7 +850,10 @@ class ReplayBuffer:
                     self.data[key] = arr
             else:
                 arr = self.data[key]
-                assert value.shape[1:] == arr.shape[1:]
+                if value.shape[1:] != arr.shape[1:]:
+                    raise ValueError(
+                        f"Shape mismatch for '{key}': existing {arr.shape[1:]}, got {value.shape[1:]}."
+                    )
                 if is_zarr:
                     # Convert to plain Python ints for zarr v3
                     arr.resize(tuple(int(x) for x in new_shape))
@@ -857,11 +876,12 @@ class ReplayBuffer:
         """Drops the last episode by resizing arrays backward.
 
         Raises:
-            AssertionError: If no episodes.
+            ValueError: If no episodes to drop.
         """
         is_zarr = self.backend == "zarr"
         episode_ends = self.episode_ends[:].copy()
-        assert len(episode_ends) > 0
+        if len(episode_ends) == 0:
+            raise ValueError("Cannot drop episode from an empty buffer.")
         start_idx = 0
         if len(episode_ends) > 1:
             start_idx = episode_ends[-2]
@@ -885,9 +905,10 @@ class ReplayBuffer:
             Dict of arrays for the episode.
 
         Raises:
-            AssertionError: If no episodes.
+            ValueError: If no episodes to pop.
         """
-        assert self.n_episodes > 0
+        if self.n_episodes == 0:
+            raise ValueError("Cannot pop episode from an empty buffer.")
         episode = self.get_episode(self.n_episodes - 1, copy=True)
         self.drop_episode()
         return episode
@@ -962,9 +983,10 @@ class ReplayBuffer:
             Dict of key to chunks tuple.
 
         Raises:
-            AssertionError: If not Zarr backend.
+            RuntimeError: If not Zarr backend.
         """
-        assert self.backend == "zarr"
+        if self.backend != "zarr":
+            raise RuntimeError("get_chunks is only supported on Zarr backend.")
         chunks = {}
         for key in self.data:
             value = self.data[key]
@@ -980,9 +1002,10 @@ class ReplayBuffer:
             chunks: Dict of key to new chunks tuple.
 
         Raises:
-            AssertionError: If not Zarr or invalid chunks.
+            RuntimeError: If not Zarr backend.
         """
-        assert self.backend == "zarr"
+        if self.backend != "zarr":
+            raise RuntimeError("set_chunks is only supported on Zarr backend.")
         for key in chunks:
             value = chunks[key]
             if key in self.data:
@@ -999,8 +1022,12 @@ class ReplayBuffer:
 
         Returns:
             Dict mapping key to BloscCodec, WebPCodec, or None.
+
+        Raises:
+            RuntimeError: If not Zarr backend.
         """
-        assert self.backend == "zarr"
+        if self.backend != "zarr":
+            raise RuntimeError("get_compressors is only supported on Zarr backend.")
         compressors = {}
         for key in self.data:
             array = self.data[key]
@@ -1019,9 +1046,10 @@ class ReplayBuffer:
             compressors: Dict of key to compressor/str.
 
         Raises:
-            AssertionError: If not Zarr.
+            RuntimeError: If not Zarr backend.
         """
-        assert self.backend == "zarr"
+        if self.backend != "zarr":
+            raise RuntimeError("set_compressors is only supported on Zarr backend.")
         for key, value in compressors.items():
             if key in self.data:
                 arr = self.data[key]

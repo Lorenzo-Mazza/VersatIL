@@ -194,7 +194,10 @@ class ObservationTokenizer:
                                 else " ".join(text_list)
                             )
                     else:
-                        assert isinstance(data, str)
+                        if not isinstance(data, str):
+                            raise TypeError(
+                                f"Expected str for language data, got {type(data)}"
+                            )
                         text = data
 
                     cleaned = text.lower().strip().replace("_", " ").replace("\n", " ")

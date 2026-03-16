@@ -135,7 +135,7 @@ class TransformerInputBuilder(nn.Module):
         action_padding_mask = features.get(SampleKey.IS_PAD_ACTION.value, None)
         clean_features = {
             k: v for k, v in features.items()
-            if not EncoderOutputKeys.PADDING_MASK.value in k
+            if EncoderOutputKeys.PADDING_MASK.value not in k
             and k != SampleKey.IS_PAD_ACTION.value
             and k not in self.exclude_keys
         }
@@ -266,7 +266,7 @@ class TransformerInputBuilder(nn.Module):
             positional_encodings = torch.cat(pe_list, dim=1) if pe_list else None  # (B, Total_Seq, Emb)
 
         padding_mask = torch.cat(spatial_mask_list + flat_mask_list, dim=1) # (B, Total_Seq)
-        if not padding_mask.any():
+        if not torch.compiler.is_compiling() and not padding_mask.any():
             padding_mask = None
         return tokens, positional_encodings, padding_mask
 

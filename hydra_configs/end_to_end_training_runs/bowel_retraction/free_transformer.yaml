@@ -11,7 +11,7 @@ defaults:
   - /task/observation_space: stereo_rgb_proprio
   - /training: gpt_decoder_default
   - /policy/encoding_pipeline: stereo_rgb_language_encoder
-  - /policy/decoder: free_transformer_decoder
+  - /policy/decoder: free_action_transformer
   - /policy/algorithm: behavioral_cloning
   - /policy/loss: tokenCE_binary_KL
   - /inference: default

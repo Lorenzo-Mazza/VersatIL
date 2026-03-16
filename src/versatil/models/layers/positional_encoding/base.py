@@ -173,9 +173,10 @@ class PositionalEncoding2D(PositionalEncoding, abc.ABC):
                 -1, self.embedding_dimension
             )
             encodings = self.mlp_network(encodings)
-            # Reshape back: [batch_size, embedding_dimension, height, width]
+            output_dimension = encodings.shape[-1]
+            # Reshape back: [batch_size, output_dimension, height, width]
             encodings = encodings.reshape(
-                batch_size, height, width, self.embedding_dimension
+                batch_size, height, width, output_dimension
             ).permute(0, 3, 1, 2)
         return encodings
 

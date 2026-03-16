@@ -274,7 +274,7 @@ class FreeActionTransformer(ActionDecoder):
         )  # (B, query_len, emb_dim)
         if full_token_sequence.shape[1] > self.max_seq_len:
             raise ValueError(
-                f"Input token length {full_token_sequence.shape[1]} >= max_seq_len {self.max_seq_len}. "
+                f"Input token length {full_token_sequence.shape[1]} > max_seq_len {self.max_seq_len}. "
                 "No room for any action tokens. "
                 "Consider increasing max_seq_len or reducing feature token count."
             )

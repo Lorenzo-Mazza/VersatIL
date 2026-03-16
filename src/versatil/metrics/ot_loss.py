@@ -64,7 +64,7 @@ class OptimalTransportLoss(BaseLoss):
             ) from e
 
         self.ot = SamplesLoss(
-            loss="sinkhorn", p=p, blur=epsilon ** 1/p
+            loss="sinkhorn", p=p, blur=epsilon ** (1 / p)
         )
 
     def get_required_keys(self) -> set[str]:

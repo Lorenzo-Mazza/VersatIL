@@ -1,0 +1,12 @@
+_target_: albumentations.Compose
+transforms:
+  - _target_: albumentations.ColorJitter
+    brightness: 0.1
+    contrast: 0.1
+    saturation: 0.1
+    hue: 0.05
+    p: 0.3
+  - _target_: albumentations.RandomBrightnessContrast
+    brightness_limit: 0.1
+    contrast_limit: 0.1
+    p: 0.3

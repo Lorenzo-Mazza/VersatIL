@@ -92,6 +92,7 @@ from versatil.configs.encoding.fusion import (
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.inference import InferenceConfig
 from versatil.configs.loss import (
+    ActionTokenLossConfig,
     BaseLossConfig,
     BinaryKLDivergenceLossConfig,
     BinaryMaximumMeanDiscrepancyLossConfig,
@@ -556,6 +557,7 @@ def register_configs():
         name="phase_classification",
         node=PhaseClassificationLossConfig,
     )
+    cs.store(group="policy/loss", name="token_loss", node=ActionTokenLossConfig)
     cs.store(group="policy/loss", name="moe_loss", node=MoELossConfig)
     cs.store(
         group="policy/loss",

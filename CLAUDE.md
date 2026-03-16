@@ -391,6 +391,8 @@ Additional standards:
 
 ## Testing
 
+**Before writing or modifying any test, read `tests/CLAUDE.md` for mandatory testing guidelines.**
+
 Test structure mirrors source code:
 ```
 tests/
@@ -491,7 +493,7 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 
 ## TODOs
 Fixes:
-- Update the tests, at the moment they are all legacy and broken.
+- Add input shape validation to `EncodingMixin` — all image encoders silently accept wrong-dimensioned tensors (e.g. no batch dim). Add a shared `_unpack_temporal` method that validates 4D/5D and handles the `(B*T, C, H, W)` reshape, replacing the duplicated `if img.dim() == 5` pattern in every encoder's `forward`.
 Extensions:
 - The explainer is buggy and hardcoded. It needs a refactoring to fit into the new architecture as modular component:
 The explain endpoint should be agnostic of the data format (right now it assumes CSV Schema).

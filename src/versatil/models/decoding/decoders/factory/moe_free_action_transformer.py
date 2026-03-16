@@ -4,6 +4,7 @@ import torch
 from torch import nn
 
 from versatil.data.constants import SampleKey
+from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import Tokenizer
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_heads.moe import MoEHead
@@ -29,13 +30,90 @@ class MoEFreeActionTransformer(FreeActionTransformer):
         3. Each expert specializes in different aspects of action prediction.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        action_heads: dict[str, ActionHead],
+        input_keys: list[str],
+        action_space: ActionSpace,
+        observation_space: ObservationSpace,
+        observation_horizon: int,
+        prediction_horizon: int,
+        device: str,
+        max_seq_len: int = 512,
+        embedding_dimension: int = 256,
+        number_of_heads: int = 8,
+        number_of_key_value_heads: int | None = None,
+        feedforward_dimension: int | None = None,
+        number_of_decoder_layers: int = 6,
+        number_of_encoder_layers: int = 1,
+        latent_bits: int = 16,
+        activation: str = "swiglu",
+        normalization_type: str = "rmsnorm",
+        attention_type: str = "mha",
+        dropout_rate: float = 0.1,
+        attention_dropout: float = 0.0,
+        positional_encoding_type: str | None = "rope",
+        temperature: float = 1.0,
+        learnable_temperature: bool = False,
+        deterministic: bool = True,
+        use_global_latent: bool = True,
+    ):
         """Initialize MoeFreeTransformer decoder.
 
         Args:
-            *args, **kwargs: Arguments passed to the base FreeTransformer decoder.
+            action_heads: Action heads for different action components.
+            input_keys: List of feature keys required from encoding pipeline.
+            action_space: Action space configuration.
+            observation_space: Observation space configuration.
+            observation_horizon: Number of observation timesteps.
+            prediction_horizon: Number of action timesteps to predict.
+            device: Device for computation.
+            max_seq_len: Maximum input token sequence length.
+            embedding_dimension: Model embedding dimension.
+            number_of_heads: Number of attention heads.
+            number_of_key_value_heads: Number of K/V heads for GQA.
+            feedforward_dimension: FFN hidden dimension.
+            number_of_decoder_layers: Total decoder layers.
+            number_of_encoder_layers: Number of latent encoder layers.
+            latent_bits: Number of bits for latent codes.
+            activation: Activation function name.
+            normalization_type: Normalization type name.
+            attention_type: Attention type name.
+            dropout_rate: Dropout probability.
+            attention_dropout: Attention dropout probability.
+            positional_encoding_type: Type of positional encoding.
+            temperature: Initial temperature for sampling.
+            learnable_temperature: If True, make temperature a learnable parameter.
+            deterministic: If True, use greedy decoding during inference.
+            use_global_latent: If True, use a single latent code for the entire action sequence.
         """
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            action_heads=action_heads,
+            input_keys=input_keys,
+            action_space=action_space,
+            observation_space=observation_space,
+            observation_horizon=observation_horizon,
+            prediction_horizon=prediction_horizon,
+            device=device,
+            max_seq_len=max_seq_len,
+            embedding_dimension=embedding_dimension,
+            number_of_heads=number_of_heads,
+            number_of_key_value_heads=number_of_key_value_heads,
+            feedforward_dimension=feedforward_dimension,
+            number_of_decoder_layers=number_of_decoder_layers,
+            number_of_encoder_layers=number_of_encoder_layers,
+            latent_bits=latent_bits,
+            activation=activation,
+            normalization_type=normalization_type,
+            attention_type=attention_type,
+            dropout_rate=dropout_rate,
+            attention_dropout=attention_dropout,
+            positional_encoding_type=positional_encoding_type,
+            temperature=temperature,
+            learnable_temperature=learnable_temperature,
+            deterministic=deterministic,
+            use_global_latent=use_global_latent,
+        )
         self.moe_action_head: MoEHead = self.action_heads[
             DecoderOutputKey.ACTION_LOGITS.value
         ]
@@ -44,7 +122,7 @@ class MoEFreeActionTransformer(FreeActionTransformer):
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
         if tokenizer is None or tokenizer.action_tokenizer is None:
             raise ValueError(
-                "FreeActionTransformer requires a tokenizer for tokenized action prediction."
+                "MoEFreeActionTransformer requires a tokenizer for tokenized action prediction."
             )
         device = self.temperature.device
         self.vocab_size = tokenizer.action_tokenizer.vocab_size
@@ -182,6 +260,7 @@ class MoEFreeActionTransformer(FreeActionTransformer):
                     decoder_cache=decoder_cache,
                     use_cache=True,
                     is_inference=True,
+                    return_latent_embeddings=True,
                 )
             last_output = decoder_output[:, -1:, :]  # (B, 1, embedding_dimension)
             gating_logits = self.expert_gating_projection(

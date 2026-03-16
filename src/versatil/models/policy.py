@@ -158,9 +158,7 @@ class Policy(nn.Module):
         Returns:
             Predicted actions (on same device as policy)
         """
-        obs_dict = to_device(
-            obs_dict, self.device
-        )  # Move nested observations to policy's device
+        obs_dict = to_device(obs_dict, device=self.device)
         normalized_obs = normalize_observation(
             observation=obs_dict,
             normalizer=self.normalizer,
@@ -183,11 +181,11 @@ class Policy(nn.Module):
                     "Action tokenizer not set. Cannot detokenize actions."
                 )
             normalized_actions = detokenize_actions(
-                action_tokens,
+                action_tokens=action_tokens,
                 action_tokenizer=self.tokenizer.action_tokenizer,
                 action_space=self.action_space,
             )
-            normalized_actions = to_device(normalized_actions, self.device)
+            normalized_actions = to_device(normalized_actions, device=self.device)
         else:
             normalized_actions = predictions
         actions = unnormalize_actions(

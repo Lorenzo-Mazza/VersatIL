@@ -99,7 +99,7 @@ class LearnedAggregationPooling(PoolingHead):
     def __init__(self, channels: int):
         super().__init__()
         self.channels = channels
-        self.pooling_head = LearnedAggregation(ni=channels)
+        self.pooling_head = LearnedAggregation(feature_dimension=channels)
 
     def get_output_dim(self, input_channels: int) -> int:
         return self.channels
@@ -142,4 +142,6 @@ def create_pooling_head(
             return LearnedAggregationPooling(feature_channels)
         case _:
             raise ValueError(
-                f"Unsupported pooling method: {pooling_method}.Supported: {[e.value for e in PoolingMethod]}" )
+                f"Unsupported pooling method: {pooling_method}. "
+                f"Supported: {[e.value for e in PoolingMethod]}"
+            )

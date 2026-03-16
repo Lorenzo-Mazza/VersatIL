@@ -1,6 +1,5 @@
 # @package _global_
-# FAST GPT Decoder with VAE Latent Variables for Bowel Retraction
-# Uses pure GPT-style autoregressive transformer with variational inference
+_target_: versatil.configs.main.MainConfig
 
 defaults:
   - /task: base

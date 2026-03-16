@@ -23,6 +23,7 @@ class ConditionalEncoder(EncodingMixin):
             frozen=frozen,
             device=device,
         )
+        self.condition_key = input_specification.conditioning_key
 
     @abstractmethod
     def forward(

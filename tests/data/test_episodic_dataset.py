@@ -1,1401 +1,955 @@
-import pytest
-import numpy as np
-import torch
-import tempfile
-import shutil
-from pathlib import Path
-from unittest.mock import MagicMock
-from torch.utils.data import DataLoader
+"""Tests for versatil.data.episodic_dataset module."""
+from collections.abc import Callable
+from unittest.mock import MagicMock, patch, PropertyMock
 
-from versatil.data.episodic_dataset import EpisodicDataset
-from versatil.data.preprocessing.replay_buffer import ReplayBuffer
+import numpy as np
+import pytest
+import torch
+
+from versatil.configs.data.dataloader import DataLoaderConfig
 from versatil.data.constants import (
     Cameras,
     GripperType,
-    ObsKey,
-    ProprioceptiveType,
     ProprioKey,
     SampleKey,
-    TokenizerType,
 )
-from versatil.configs.data.tokenizer import ObservationTokenizationConfig, ActionTokenizationConfig, TokenizationConfig
+from versatil.data.episodic_dataset import EpisodicDataset
+from versatil.data.metadata import (
+    GripperActionMetadata,
+    GripperObservationMetadata,
+    OnTheFlyActionMetadata,
+    PositionObservationMetadata,
+)
+from versatil.data.task import ActionSpace, ObservationSpace
 
 
 @pytest.fixture
-def temp_zarr_dir():
-    """Create temporary directory for zarr files."""
-    temp_dir = tempfile.mkdtemp()
-    yield temp_dir
-    shutil.rmtree(temp_dir)
+def mock_dataloader_config() -> Callable[..., DataLoaderConfig]:
+    """Factory for mock DataLoaderConfig."""
+
+    def factory(
+        val_ratio: float = 0.1,
+        total_ratio: float = 1.0,
+        downsample_factor: int = 1,
+        skip_initial_episode_steps: int = 0,
+        action_backward_shift: int = 1,
+        preload_data_in_memory: bool = False,
+        image_height: int = 64,
+        image_width: int = 64,
+    ) -> DataLoaderConfig:
+        config = MagicMock(spec=DataLoaderConfig)
+        config.val_ratio = val_ratio
+        config.total_ratio = total_ratio
+        config.downsample_factor = downsample_factor
+        config.skip_initial_episode_steps = skip_initial_episode_steps
+        config.action_backward_shift = action_backward_shift
+        config.preload_data_in_memory = preload_data_in_memory
+        config.image_height = image_height
+        config.image_width = image_width
+        config.color_augmentation = None
+        config.spatial_augmentation = None
+        config.kinematics_norm_type = "min_max"
+        config.image_norm_type = "zero_to_one"
+        config.depth_norm_type = "zero_to_one"
+        return config
+
+    return factory
 
 
 @pytest.fixture
-def action_config():
-    """Action space configuration."""
-    config = MagicMock()
-    config.predict_in_camera_frame = False
-    config.deltas_as_actions = True
-    config.has_gripper = True
-    config.has_position = True
-    config.has_orientation = True
-    config.task_has_phases = False
+def mock_replay_buffer_for_dataset(rng: np.random.Generator) -> Callable[..., MagicMock]:
+    """Factory for mock ReplayBuffer used in EpisodicDataset."""
 
-    config.gripper_type = GripperType.BINARY.value
-    config.position_dim = 3
-    config.orientation_dim = 4
-    config.gripper_dim = 1
-    config.orientation_repr = "quaternion"
-    config.denoise_actions = False
-    config.get_required_zarr_keys.return_value = [
-        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
-        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value,
-        ProprioKey.GRIPPER_STATE.value,
-    ]
-    return config
+    def factory(
+        num_episodes: int = 5,
+        timesteps_per_episode: int = 10,
+        proprio_dim: int = 7,
+        has_gripper: bool = True,
+        extra_keys: list[str] = None,
+    ) -> MagicMock:
+        buffer = MagicMock()
+        total_steps = num_episodes * timesteps_per_episode
+        episode_ends = np.array([
+            (i + 1) * timesteps_per_episode for i in range(num_episodes)
+        ])
 
+        buffer.n_episodes = num_episodes
+        buffer.n_steps = total_steps
+        type(buffer).episode_ends = PropertyMock(return_value=episode_ends)
 
-@pytest.fixture
-def observation_config():
-    """Observation space configuration."""
-    config = MagicMock()
-    config.camera_keys = [Cameras.LEFT.value, Cameras.RIGHT.value]
-    config.use_proprioceptive_data = True
-    config.use_proprio_base_frame = True
-    config.use_proprio_camera_frame = False
-    config.task_has_phases = False
-    config.use_language = False
-    config.get_required_zarr_keys.return_value = [
-        Cameras.LEFT.value,
-        Cameras.RIGHT.value,
-        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
-    ]
-    return config
-
-
-@pytest.fixture
-def observation_config_with_language():
-    """Observation space configuration with language enabled."""
-    config = MagicMock()
-    config.camera_keys = [Cameras.LEFT.value, Cameras.RIGHT.value]
-    config.use_proprioceptive_data = True
-    config.use_proprio_base_frame = True
-    config.use_proprio_camera_frame = False
-    config.task_has_phases = False
-    config.use_language = True
-    config.get_required_zarr_keys.return_value = [
-        Cameras.LEFT.value,
-        Cameras.RIGHT.value,
-        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
-        ObsKey.LANGUAGE.value,
-    ]
-    return config
-
-
-@pytest.fixture
-def dataloader_config():
-    """Dataloader configuration."""
-    config = MagicMock()
-    config.action_backward_shift = 0
-    config.kinematics_norm_type = "min_max"
-    config.image_norm_type = "imagenet"
-    config.depth_norm_type = "min_max"
-    config.color_augmentation = None
-    config.spatial_augmentation = None
-    config.rotation_augmentation = None
-    config.image_height = 224
-    config.image_width = 224
-    config.val_ratio = 0.1
-    config.total_ratio = 1.0
-    config.downsample_factor = 1
-    config.center_episode_start = False
-    config.skip_initial_episode_steps = 0
-    return config
-
-
-@pytest.fixture
-def simple_replay_buffer(temp_zarr_dir):
-    """Create a simple replay buffer with multiple episodes."""
-    zarr_path = Path(temp_zarr_dir) / "test_buffer.zarr"
-    buffer = ReplayBuffer.create_empty_zarr()
-
-    episode_lengths = [10, 15, 8]
-    for ep_len in episode_lengths:
-        episode = {
-            Cameras.LEFT.value: np.random.randint(0, 255, (ep_len, 32, 32, 3), dtype=np.uint8),
-            Cameras.RIGHT.value: np.random.randint(0, 255, (ep_len, 32, 32, 3), dtype=np.uint8),
-            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(ep_len, 7).astype(np.float32),
-            ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(ep_len, 7).astype(np.float32),
-            ProprioKey.GRIPPER_STATE.value: np.random.randint(0, 2, (ep_len, 1)).astype(np.float32),
+        data = {
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: rng.standard_normal(
+                (total_steps, proprio_dim)
+            ).astype(np.float32),
         }
-        buffer.add_episode(episode)
+        if has_gripper:
+            data[ProprioKey.GRIPPER_STATE.value] = rng.integers(
+                0, 2, (total_steps, 1)
+            ).astype(np.float32)
+        if extra_keys:
+            for key in extra_keys:
+                if key not in data:
+                    data[key] = rng.standard_normal(
+                        (total_steps, proprio_dim)
+                    ).astype(np.float32)
 
-    buffer.save_to_path(str(zarr_path))
-    return str(zarr_path)
+        def getitem(key):
+            if key in data:
+                return data[key]
+            raise KeyError(key)
 
+        buffer.__getitem__ = MagicMock(side_effect=getitem)
+        buffer.__contains__ = MagicMock(side_effect=lambda key: key in data)
+        buffer.keys.return_value = list(data.keys())
 
-@pytest.fixture
-def uncentered_replay_buffer(temp_zarr_dir):
-    """Replay buffer with known first position for centering tests."""
-    zarr_path = Path(temp_zarr_dir) / "uncentered.zarr"
-    buffer = ReplayBuffer.create_empty_zarr()
+        def get_episode(ep_idx):
+            start = ep_idx * timesteps_per_episode
+            end = (ep_idx + 1) * timesteps_per_episode
+            return {k: v[start:end] for k, v in data.items()}
 
-    first_pos = np.array([1.5, 2.5, 3.5])
-    episode = {
-        Cameras.LEFT.value: np.random.randint(0, 255, (5, 32, 32, 3), dtype=np.uint8),
-        Cameras.RIGHT.value: np.random.randint(0, 255, (5, 32, 32, 3), dtype=np.uint8),
-        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.vstack([
-            np.hstack([first_pos, np.random.randn(4)]),
-            np.random.randn(4, 7)
-        ]).astype(np.float32),
-        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(5, 7).astype(np.float32),
-        ProprioKey.GRIPPER_STATE.value: np.random.randint(0, 2, (5, 1)).astype(np.float32),
-    }
-    buffer.add_episode(episode)
-    buffer.save_to_path(str(zarr_path))
-    return str(zarr_path), first_pos
+        buffer.get_episode = MagicMock(side_effect=get_episode)
+        return buffer
 
-
-@pytest.fixture
-def gripper_imbalanced_buffer(temp_zarr_dir):
-    """Buffer with known gripper distribution (7 closed, 3 open)."""
-    zarr_path = Path(temp_zarr_dir) / "gripper_test.zarr"
-    buffer = ReplayBuffer.create_empty_zarr()
-
-    gripper_states = np.array([[1], [1], [1], [1], [1], [1], [1], [0], [0], [0]], dtype=np.float32)
-    episode = {
-        Cameras.LEFT.value: np.random.randint(0, 255, (10, 32, 32, 3), dtype=np.uint8),
-        Cameras.RIGHT.value: np.random.randint(0, 255, (10, 32, 32, 3), dtype=np.uint8),
-        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(10, 7).astype(np.float32),
-        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(10, 7).astype(np.float32),
-        ProprioKey.GRIPPER_STATE.value: gripper_states,
-    }
-    buffer.add_episode(episode)
-    buffer.save_to_path(str(zarr_path))
-    return str(zarr_path)
+    return factory
 
 
 @pytest.fixture
-def language_replay_buffer(temp_zarr_dir):
-    """Replay buffer with language instructions."""
-    zarr_path = Path(temp_zarr_dir) / "language_buffer.zarr"
-    buffer = ReplayBuffer.create_empty_zarr()
+def episodic_dataset_factory(
+    action_space_factory: Callable[..., ActionSpace],
+    observation_space_factory: Callable[..., ObservationSpace],
+    mock_dataloader_config: Callable[..., DataLoaderConfig],
+    mock_replay_buffer_for_dataset: Callable[..., MagicMock],
+) -> Callable[..., EpisodicDataset]:
+    """Factory for creating EpisodicDataset with mocked I/O."""
 
-    for ep_idx in range(2):
-        ep_len = 10
-        episode = {
-            Cameras.LEFT.value: np.random.randint(0, 255, (ep_len, 32, 32, 3), dtype=np.uint8),
-            Cameras.RIGHT.value: np.random.randint(0, 255, (ep_len, 32, 32, 3), dtype=np.uint8),
-            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(ep_len, 7).astype(np.float32),
-            ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(ep_len, 7).astype(np.float32),
-            ProprioKey.GRIPPER_STATE.value: np.random.randint(0, 2, (ep_len, 1)).astype(np.float32),
-            ObsKey.LANGUAGE.value: np.array([f'episode_{ep_idx}_instruction_{i}' for i in range(ep_len)], dtype=object),
-        }
-        buffer.add_episode(episode)
+    def factory(
+        actions_metadata: dict = None,
+        observations_metadata: dict = None,
+        num_episodes: int = 5,
+        timesteps_per_episode: int = 10,
+        pred_horizon: int = 4,
+        obs_horizon: int = 2,
+        train: bool = True,
+        seed: int = 42,
+        val_ratio: float = 0.1,
+        total_ratio: float = 1.0,
+        downsample_factor: int = 1,
+        preload_data_in_memory: bool = False,
+    ) -> EpisodicDataset:
+        if actions_metadata is None:
+            actions_metadata = {}
+        if observations_metadata is None:
+            observations_metadata = {}
 
-    buffer.save_to_path(str(zarr_path))
-    return str(zarr_path)
-
-
-@pytest.fixture
-def varlen_language_buffer(temp_zarr_dir):
-    """Buffer with variable-length language instructions."""
-    zarr_path = Path(temp_zarr_dir) / "varlen_buffer.zarr"
-    buffer = ReplayBuffer.create_empty_zarr()
-
-    instructions = [
-        'short',
-        'this is a very long instruction with many words that describes the task in detail',
-        'medium length instruction here',
-        'action_embedding',
-        'another lengthy instruction that explains what to do step by step',
-        'brief',
-        'normal',
-        'extended instruction with details',
-        'ok',
-        'final instruction'
-    ]
-
-    episode = {
-        Cameras.LEFT.value: np.random.randint(0, 255, (10, 32, 32, 3), dtype=np.uint8),
-        Cameras.RIGHT.value: np.random.randint(0, 255, (10, 32, 32, 3), dtype=np.uint8),
-        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(10, 7).astype(np.float32),
-        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(10, 7).astype(np.float32),
-        ProprioKey.GRIPPER_STATE.value: np.random.randint(0, 2, (10, 1)).astype(np.float32),
-        ObsKey.LANGUAGE.value: np.array(instructions, dtype=object),
-    }
-    buffer.add_episode(episode)
-    buffer.save_to_path(str(zarr_path))
-    return str(zarr_path)
-
-
-@pytest.fixture
-def long_language_buffer(temp_zarr_dir):
-    """Buffer with long episode for collation tests."""
-    zarr_path = Path(temp_zarr_dir) / "collation_buffer.zarr"
-    buffer = ReplayBuffer.create_empty_zarr()
-
-    episode = {
-        Cameras.LEFT.value: np.random.randint(0, 255, (20, 32, 32, 3), dtype=np.uint8),
-        Cameras.RIGHT.value: np.random.randint(0, 255, (20, 32, 32, 3), dtype=np.uint8),
-        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(20, 7).astype(np.float32),
-        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(20, 7).astype(np.float32),
-        ProprioKey.GRIPPER_STATE.value: np.random.randint(0, 2, (20, 1)).astype(np.float32),
-        ObsKey.LANGUAGE.value: np.array([f'instruction_{i}' for i in range(20)], dtype=object),
-    }
-    buffer.add_episode(episode)
-    buffer.save_to_path(str(zarr_path))
-    return str(zarr_path)
-
-
-@pytest.fixture
-def downsample_language_buffer(temp_zarr_dir):
-    """Buffer for testing language with downsampling."""
-    zarr_path = Path(temp_zarr_dir) / "downsample_lang.zarr"
-    buffer = ReplayBuffer.create_empty_zarr()
-
-    episode = {
-        Cameras.LEFT.value: np.random.randint(0, 255, (20, 32, 32, 3), dtype=np.uint8),
-        Cameras.RIGHT.value: np.random.randint(0, 255, (20, 32, 32, 3), dtype=np.uint8),
-        ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(20, 7).astype(np.float32),
-        ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.random.randn(20, 7).astype(np.float32),
-        ProprioKey.GRIPPER_STATE.value: np.random.randint(0, 2, (20, 1)).astype(np.float32),
-        ObsKey.LANGUAGE.value: np.array([f'step_{i}' for i in range(20)], dtype=object),
-    }
-    buffer.add_episode(episode)
-    buffer.save_to_path(str(zarr_path))
-    return str(zarr_path)
-
-
-class TestEpisodicDatasetInitialization:
-    """Test dataset initialization."""
-
-
-    def test_init_loads_replay_buffer(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that replay buffer is loaded from zarr path."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
+        action_space = action_space_factory(actions_metadata=actions_metadata)
+        observation_space = observation_space_factory(
+            observations_metadata=observations_metadata,
+        )
+        config = mock_dataloader_config(
+            val_ratio=val_ratio,
+            total_ratio=total_ratio,
+            downsample_factor=downsample_factor,
+            preload_data_in_memory=preload_data_in_memory,
+        )
+        extra_keys = list(set(
+            observation_space.get_required_zarr_keys()
+            + action_space.get_required_zarr_keys()
+        ))
+        buffer = mock_replay_buffer_for_dataset(
+            num_episodes=num_episodes,
+            timesteps_per_episode=timesteps_per_episode,
+            extra_keys=extra_keys,
         )
 
-        assert dataset.replay_buffer is not None
-        assert dataset.replay_buffer.n_episodes == 3
-        assert dataset.replay_buffer.n_steps == 33
+        with patch(
+            "versatil.data.episodic_dataset.ReplayBuffer"
+        ) as mock_replay_buffer_class, patch(
+            "versatil.data.episodic_dataset.AugmentationPipeline"
+        ):
+            mock_replay_buffer_class.create_from_path.return_value = buffer
+            mock_replay_buffer_class.copy_from_path.return_value = buffer
+            mock_replay_buffer_class.create_empty_numpy.return_value = MagicMock(
+                n_episodes=0, n_steps=0, episode_ends=np.array([]),
+            )
+
+            dataset = EpisodicDataset(
+                zarr_path="/fake/path.zarr",
+                action_space=action_space,
+                observation_space=observation_space,
+                dataloader_config=config,
+                pred_horizon=pred_horizon,
+                obs_horizon=obs_horizon,
+                train=train,
+                seed=seed,
+            )
+        return dataset
+
+    return factory
 
 
-    def test_init_stores_config_params(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that configuration parameters are stored."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
+class TestEpisodicDatasetInit:
+
+    @pytest.mark.parametrize(
+        "pred_horizon, obs_horizon",
+        [(4, 2), (8, 3), (16, 1)],
+    )
+    def test_stores_horizons(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        pred_horizon: int,
+        obs_horizon: int,
+    ):
+        dataset = episodic_dataset_factory(
+            pred_horizon=pred_horizon, obs_horizon=obs_horizon,
         )
+        assert dataset.pred_horizon == pred_horizon
+        assert dataset.obs_horizon == obs_horizon
 
-        assert dataset.pred_horizon == 4
-        assert dataset.obs_horizon == 3
-        assert dataset.action_backward_shift == 0
-        assert dataset.train is True
-        assert dataset.seed == 42
+    def test_stores_action_space(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+    ):
+        metadata = {"position": on_the_fly_action_metadata_factory()}
+        dataset = episodic_dataset_factory(actions_metadata=metadata)
+        assert "position" in dataset.action_space.actions_metadata
 
+    def test_stores_observation_space(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+    ):
+        metadata = {"position": position_observation_metadata_factory()}
+        dataset = episodic_dataset_factory(observations_metadata=metadata)
+        assert "position" in dataset.observation_space.observations_metadata
 
-    def test_init_creates_components(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that required components are initialized."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
+    @pytest.mark.parametrize("train", [True, False])
+    def test_stores_train_flag(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        train: bool,
+    ):
+        dataset = episodic_dataset_factory(train=train)
+        assert dataset.train is train
+
+    @pytest.mark.parametrize("seed", [42, 0, 123])
+    def test_stores_seed(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        seed: int,
+    ):
+        dataset = episodic_dataset_factory(seed=seed)
+        assert dataset.seed == seed
+
+    def test_uses_create_from_path_when_not_preloading(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        observation_space_factory: Callable[..., ObservationSpace],
+        mock_dataloader_config: Callable[..., DataLoaderConfig],
+        mock_replay_buffer_for_dataset: Callable[..., MagicMock],
+    ):
+        config = mock_dataloader_config(preload_data_in_memory=False)
+        buffer = mock_replay_buffer_for_dataset()
+
+        with patch(
+            "versatil.data.episodic_dataset.ReplayBuffer"
+        ) as mock_replay_buffer_class, patch(
+            "versatil.data.episodic_dataset.AugmentationPipeline"
+        ):
+            mock_replay_buffer_class.create_from_path.return_value = buffer
+            EpisodicDataset(
+                zarr_path="/fake/path.zarr",
+                action_space=action_space_factory(),
+                observation_space=observation_space_factory(),
+                dataloader_config=config,
+                pred_horizon=4,
+                obs_horizon=2,
+            )
+            mock_replay_buffer_class.create_from_path.assert_called_once()
+
+    def test_uses_copy_from_path_when_preloading(
+        self,
+        action_space_factory: Callable[..., ActionSpace],
+        observation_space_factory: Callable[..., ObservationSpace],
+        mock_dataloader_config: Callable[..., DataLoaderConfig],
+        mock_replay_buffer_for_dataset: Callable[..., MagicMock],
+    ):
+        config = mock_dataloader_config(preload_data_in_memory=True)
+        buffer = mock_replay_buffer_for_dataset()
+
+        with patch(
+            "versatil.data.episodic_dataset.ReplayBuffer"
+        ) as mock_replay_buffer_class, patch(
+            "versatil.data.episodic_dataset.AugmentationPipeline"
+        ):
+            mock_replay_buffer_class.copy_from_path.return_value = buffer
+            EpisodicDataset(
+                zarr_path="/fake/path.zarr",
+                action_space=action_space_factory(),
+                observation_space=observation_space_factory(),
+                dataloader_config=config,
+                pred_horizon=4,
+                obs_horizon=2,
+            )
+            mock_replay_buffer_class.copy_from_path.assert_called_once()
+
+    def test_raises_when_required_keys_missing(
+        self,
+        observation_space_factory: Callable[..., ObservationSpace],
+        action_space_factory: Callable[..., ActionSpace],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        mock_dataloader_config: Callable[..., DataLoaderConfig],
+    ):
+        observation_space = observation_space_factory(observations_metadata={
+            "missing_key": position_observation_metadata_factory(),
+        })
+        config = mock_dataloader_config()
+        buffer = MagicMock()
+        buffer.n_episodes = 5
+        buffer.n_steps = 50
+        type(buffer).episode_ends = PropertyMock(
+            return_value=np.array([10, 20, 30, 40, 50]),
         )
+        buffer.keys.return_value = []
 
-        assert dataset.action_processor is not None
-        assert dataset.augmentation_pipeline is not None
-        assert dataset.sample_builder is not None
-        assert dataset.sampler is not None
+        with patch(
+            "versatil.data.episodic_dataset.ReplayBuffer"
+        ) as mock_replay_buffer_class, patch(
+            "versatil.data.episodic_dataset.AugmentationPipeline"
+        ):
+            mock_replay_buffer_class.create_from_path.return_value = buffer
+            with pytest.raises(KeyError, match="Missing required keys"):
+                EpisodicDataset(
+                    zarr_path="/fake/path.zarr",
+                    action_space=action_space_factory(),
+                    observation_space=observation_space,
+                    dataloader_config=config,
+                    pred_horizon=4,
+                    obs_horizon=2,
+                )
+
+    def test_normalizer_initially_none(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        dataset = episodic_dataset_factory()
+        assert dataset.normalizer is None
 
 
-class TestEpisodeSplitting:
-    """Test train/val episode splitting."""
+class TestEpisodicDatasetLen:
 
-
-    def test_train_uses_non_val_episodes(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that training dataset excludes validation episodes."""
-        dataloader_config.val_ratio = 0.33
-
-        train_dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
+    @pytest.mark.parametrize(
+        "num_episodes, timesteps_per_episode",
+        [(3, 10), (5, 20), (10, 5)],
+    )
+    def test_length_delegates_to_sampler(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        num_episodes: int,
+        timesteps_per_episode: int,
+    ):
+        dataset = episodic_dataset_factory(
+            num_episodes=num_episodes,
+            timesteps_per_episode=timesteps_per_episode,
         )
-
-        val_dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=False,
-            seed=42,
-        )
-
-        train_mask = train_dataset.sampler.episode_mask
-        val_mask = val_dataset.sampler.episode_mask
-
-        assert not np.any(np.logical_and(train_mask, val_mask)), "Train and val should not overlap"
-        assert np.sum(train_mask) + np.sum(val_mask) == len(train_mask), "Should cover all episodes"
-        assert np.sum(train_mask) > 0, "Should have training episodes"
-        assert np.sum(val_mask) > 0, "Should have validation episodes"
-
-
-    def test_val_uses_val_episodes(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that validation dataset uses validation episodes."""
-        dataloader_config.val_ratio = 0.33
-
-        val_dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=False,
-            seed=42,
-        )
-
-        assert len(val_dataset.episode_ends) >= 1
-
-
-    def test_same_seed_produces_same_split(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test deterministic splitting with same seed."""
-        dataloader_config.val_ratio = 0.33
-
-        dataset1 = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        dataset2 = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        np.testing.assert_array_equal(dataset1.episode_ends, dataset2.episode_ends)
-
-
-    def test_different_seed_produces_different_split(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test different splits with different seeds."""
-        dataloader_config.val_ratio = 0.33
-
-        dataset1 = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        dataset2 = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=99,
-        )
-
-        assert len(dataset1.episode_ends) >= 1
-        assert len(dataset2.episode_ends) >= 1
-
-
-class TestDownsampling:
-    """Test episode downsampling."""
-
-
-    def test_downsample_reduces_steps(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that downsampling reduces total steps."""
-        dataloader_config.downsample_factor = 2
-
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        assert dataset.replay_buffer.n_steps < 33
-
-
-    def test_downsample_preserves_episode_count(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that downsampling preserves number of episodes."""
-        dataloader_config.downsample_factor = 2
-
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        assert dataset.replay_buffer.n_episodes == 3
-
-
-    def test_no_downsample_when_factor_1(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test no downsampling when factor is 1."""
-        dataloader_config.downsample_factor = 1
-
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        assert dataset.replay_buffer.n_steps == 33
-
-
-class TestCentering:
-    """Test episode centering at origin."""
-
-
-    def test_centering_zeros_first_positions(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that first position of each episode becomes zero."""
-        dataloader_config.center_episode_start = True
-
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        current_start = 0
-        for end in dataset.episode_ends:
-            first_obs = dataset.replay_buffer[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value][current_start]
-            first_pos = first_obs[:3]
-            assert np.allclose(first_pos, 0, atol=1e-6), f"First position not zero: {first_pos}"
-            current_start = end
-
-
-    def test_no_centering_when_disabled(self, uncentered_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that positions unchanged when centering disabled."""
-        zarr_path, first_pos = uncentered_replay_buffer
-        dataloader_config.center_episode_start = False
-
-        dataset = EpisodicDataset(
-            zarr_path=zarr_path,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        actual_first = dataset.replay_buffer[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value][0][:3]
-        np.testing.assert_allclose(actual_first, first_pos, rtol=1e-5)
-
-
-class TestSampler:
-    """Test sampler setup and indexing."""
-
-
-    def test_sampler_created_with_correct_length(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that sampler has correct sequence length."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        expected_seq_len = 3 + 4 # obs_horizon + pred_horizon
-        assert dataset.sampler.sequence_length == expected_seq_len
-
-
-    def test_sampler_respects_episode_boundaries(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that sampler indices don't cross episode boundaries."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        episode_boundaries = dataset.episode_ends[:]
-
-        for idx_row in dataset.sampler.indices:
-            buffer_start, buffer_end, _, _ = idx_row
-            episode_idx = np.searchsorted(episode_boundaries, buffer_start, side='right')
-            episode_end = episode_boundaries[episode_idx]
-            assert buffer_end <= episode_end, f"Sample crosses episode boundary: {buffer_start}-{buffer_end}, episode ends at {episode_end}"
-
-
-class TestDatasetLength:
-    """Test dataset length calculation."""
-
-
-    def test_overlapping_mode_length_equals_sampler_length(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test dataset length in overlapping mode."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
         assert len(dataset) == len(dataset.sampler)
 
 
+class TestEpisodicDatasetGetItem:
 
-class TestGetItem:
-    """Test sample retrieval."""
+    @pytest.mark.parametrize("idx", [0, 2, 5])
+    def test_pipeline_forwards_data_through_all_stages(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        idx: int,
+    ):
+        """Verify the full data flow: sampler → action_processor → build_sample → return."""
+        dataset = episodic_dataset_factory()
 
+        padded_data = {"proprio": np.ones((6, 3), dtype=np.float32)}
+        action_data = {"position": np.zeros((4, 3), dtype=np.float32)}
+        action_meta = {"position": MagicMock()}
+        expected_sample = {"observation": {"pos": torch.ones(3)}, "action": {}}
 
-    def test_getitem_returns_valid_sample(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that __getitem__ returns properly structured sample."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
+        dataset.sampler.sample_sequence = MagicMock(return_value=padded_data)
+        dataset.action_processor.compute_sample_actions = MagicMock(
+            return_value=(action_data, action_meta),
         )
+        dataset.sample_builder.build_sample = MagicMock(return_value=expected_sample)
 
-        if len(dataset) == 0:
-            pytest.skip("No valid samples in dataset")
+        result = dataset[idx]
 
-        sample = dataset[0]
+        assert result is expected_sample
 
-        assert isinstance(sample, dict)
-        assert SampleKey.OBSERVATION.value in sample
-        assert SampleKey.ACTION.value in sample
-        assert SampleKey.IS_PAD_ACTION.value in sample[SampleKey.ACTION.value]
-        assert ProprioceptiveType.POSITION.value in sample[SampleKey.ACTION.value]
-        assert ProprioceptiveType.ORIENTATION.value in sample[SampleKey.ACTION.value]
-        assert ProprioceptiveType.GRIPPER.value in sample[SampleKey.ACTION.value]
+        # sampler received the correct index
+        dataset.sampler.sample_sequence.assert_called_once_with(idx)
 
+        # action_processor received the sampler output
+        action_call_kwargs = dataset.action_processor.compute_sample_actions.call_args[1]
+        assert action_call_kwargs["padded_data"] is padded_data
 
-    def test_getitem_observation_has_correct_structure(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test observation structure."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
+        # build_sample received all pipeline outputs
+        build_call_kwargs = dataset.sample_builder.build_sample.call_args[1]
+        assert build_call_kwargs["padded_data"] is padded_data
+        assert build_call_kwargs["action_data"] is action_data
+        assert build_call_kwargs["action_meta"] is action_meta
+        assert build_call_kwargs["start_idx"] == idx
+        assert build_call_kwargs["sampler_indices"] is dataset.sampler.indices
+
+    @pytest.mark.parametrize(
+        "obs_horizon, pred_horizon, expected_start, expected_end",
+        [
+            (2, 4, 1, 5),
+            (3, 5, 2, 7),
+            (1, 8, 0, 8),
+        ],
+    )
+    def test_action_slice_computed_from_horizons(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        obs_horizon: int,
+        pred_horizon: int,
+        expected_start: int,
+        expected_end: int,
+    ):
+        dataset = episodic_dataset_factory(
+            obs_horizon=obs_horizon, pred_horizon=pred_horizon,
         )
-
-        if len(dataset) == 0:
-            pytest.skip("No valid samples in dataset")
-
-        sample = dataset[0]
-        obs = sample[SampleKey.OBSERVATION.value]
-
-        assert Cameras.LEFT.value in obs
-        assert Cameras.RIGHT.value in obs
-
-        left_img = obs[Cameras.LEFT.value]
-        assert left_img.shape[0] == 3
-        assert left_img.shape[1] == 3
-        assert left_img.ndim == 4
-
-
-    def test_getitem_actions_have_correct_shape(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test action shapes."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
+        dataset.sampler.sample_sequence = MagicMock(return_value={})
+        dataset.action_processor.compute_sample_actions = MagicMock(
+            return_value=({}, {}),
         )
+        dataset.sample_builder.build_sample = MagicMock(return_value={})
 
-        if len(dataset) == 0:
-            pytest.skip("No valid samples in dataset")
+        result = dataset[0]
 
-        sample = dataset[0]
-        assert SampleKey.ACTION.value in sample
-        assert sample[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape == (4, 3)
-        assert sample[SampleKey.ACTION.value][ProprioceptiveType.ORIENTATION.value].shape == (4, 4)
-        assert sample[SampleKey.ACTION.value][ProprioceptiveType.GRIPPER.value].shape == (4, 1)
-        assert sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].shape == (4,)
+        assert result == {}
+        action_call_kwargs = dataset.action_processor.compute_sample_actions.call_args[1]
+        assert action_call_kwargs["action_slice_start"] == expected_start
+        assert action_call_kwargs["action_slice_end"] == expected_end
 
 
-    def test_getitem_gripper_has_correct_dtype(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that binary gripper actions have long dtype."""
-        action_config.gripper_type = GripperType.BINARY.value
+class TestCreateEpisodeMask:
 
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
+    @pytest.mark.parametrize("train", [True, False])
+    def test_train_and_val_masks_are_disjoint(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        train: bool,
+    ):
+        dataset_train = episodic_dataset_factory(
+            train=True, num_episodes=10, val_ratio=0.2,
         )
-
-        if len(dataset) == 0:
-            pytest.skip("No valid samples in dataset")
-
-        sample = dataset[0]
-        assert SampleKey.ACTION.value in sample
-        assert sample[SampleKey.ACTION.value][ProprioceptiveType.GRIPPER.value].dtype == torch.long
-
-
-class TestActionComputation:
-    """Test action computation logic."""
-
-
-    def test_actions_use_robot_frame_when_configured(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that robot frame is used for action computation."""
-        action_config.predict_in_camera_frame = False
-
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
+        dataset_val = episodic_dataset_factory(
+            train=False, num_episodes=10, val_ratio=0.2,
         )
-
-        assert dataset.action_processor.predict_in_camera_frame is False
-
-
-    def test_actions_use_camera_frame_when_configured(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that camera frame is used for action computation."""
-        action_config.predict_in_camera_frame = True
-
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
+        train_mask = dataset_train._create_episode_mask(
+            val_ratio=0.2, total_ratio=1.0, train=True, seed=42,
         )
+        val_mask = dataset_val._create_episode_mask(
+            val_ratio=0.2, total_ratio=1.0, train=False, seed=42,
+        )
+        # No overlap
+        assert not np.any(np.logical_and(train_mask, val_mask))
 
-        assert dataset.action_processor.predict_in_camera_frame is True
+    def test_total_ratio_limits_episodes(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        dataset = episodic_dataset_factory(num_episodes=20)
+        mask = dataset._create_episode_mask(
+            val_ratio=0.0, total_ratio=0.5, train=True, seed=42,
+        )
+        assert np.sum(mask) <= 10
+
+    def test_max_train_episodes_limits_count(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        dataset = episodic_dataset_factory(num_episodes=20)
+        mask = dataset._create_episode_mask(
+            val_ratio=0.0, total_ratio=1.0, train=True, seed=42,
+            max_train_episodes=5,
+        )
+        assert np.sum(mask) <= 5
 
 
-class TestGripperImbalance:
-    """Test gripper class imbalance weight calculation."""
+class TestSetupEpisodeIndices:
+
+    def test_selected_episode_indices_excludes_empty_episodes(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        dataset = episodic_dataset_factory(num_episodes=5)
+        for idx in dataset.selected_episode_indices:
+            assert len(dataset.episode_indices[idx]) > 0
+
+    @pytest.mark.parametrize("num_episodes", [3, 5, 10])
+    def test_episode_indices_length_matches_num_episodes(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        num_episodes: int,
+    ):
+        dataset = episodic_dataset_factory(num_episodes=num_episodes)
+        assert len(dataset.episode_indices) == num_episodes
 
 
-    def test_gripper_imbalance_calculated_correctly(self, gripper_imbalanced_buffer, action_config, observation_config, dataloader_config):
-        """Test gripper imbalance weight calculation."""
-        action_config.has_gripper = True
+class TestSetNormalizerAndTokenizer:
 
-        dataset = EpisodicDataset(
-            zarr_path=gripper_imbalanced_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
+    def test_set_normalizer_updates_sample_builder(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        dataset = episodic_dataset_factory()
+        mock_normalizer = MagicMock()
+        dataset.set_normalizer(normalizer=mock_normalizer)
+        assert dataset.sample_builder.normalizer is mock_normalizer
+
+    def test_set_tokenizer_updates_sample_builder(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        dataset = episodic_dataset_factory()
+        mock_tokenizer = MagicMock()
+        dataset.set_tokenizer(tokenizer=mock_tokenizer)
+        assert dataset.sample_builder.tokenizer is mock_tokenizer
+
+    def test_set_tokenizer_accepts_none(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        dataset = episodic_dataset_factory()
+        dataset.set_tokenizer(tokenizer=None)
+        assert dataset.sample_builder.tokenizer is None
+
+
+class TestGetGripperPositiveClassImbalanceWeight:
+
+    def test_raises_when_no_gripper_actions(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        dataset = episodic_dataset_factory(actions_metadata={})
+        with pytest.raises(ValueError, match="Gripper actions are not being predicted"):
+            dataset.get_gripper_positive_class_imbalance_weight()
+
+    def test_raises_when_multiple_gripper_actions(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
+    ):
+        dataset = episodic_dataset_factory(actions_metadata={
+            "gripper_1": gripper_action_metadata_factory(),
+            "gripper_2": gripper_action_metadata_factory(),
+        })
+        with pytest.raises(ValueError, match="single gripper action"):
+            dataset.get_gripper_positive_class_imbalance_weight()
+
+    def test_raises_for_non_binary_gripper(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
+    ):
+        dataset = episodic_dataset_factory(actions_metadata={
+            "gripper": gripper_action_metadata_factory(
+                gripper_type=GripperType.CONTINUOUS.value,
+            ),
+        })
+        with pytest.raises(ValueError, match="binary grippers"):
+            dataset.get_gripper_positive_class_imbalance_weight()
+
+    def test_computes_correct_weight_for_binary_gripper(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
+    ):
+        dataset = episodic_dataset_factory(actions_metadata={
+            ProprioKey.GRIPPER_STATE.value: gripper_action_metadata_factory(
+                gripper_type=GripperType.BINARY.value,
+            ),
+        })
+        # Mock the replay buffer to return known gripper data
+        gripper_data = np.array([[1], [0], [0], [0], [1]], dtype=np.float32)
+        dataset.replay_buffer.__getitem__ = MagicMock(
+            side_effect=lambda key: gripper_data,
         )
 
         weight = dataset.get_gripper_positive_class_imbalance_weight()
 
-        expected = 3.0 / 7.0
-        assert np.isclose(weight, expected, rtol=1e-5)
+        # 2 positive, 3 negative → weight = 3/2 = 1.5
+        assert weight == pytest.approx(1.5)
 
-
-    def test_gripper_imbalance_raises_error_without_gripper(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test error when gripper not in action space."""
-        action_config.has_gripper = False
-
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
+    def test_on_the_fly_gripper_uses_source_metadata(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+        gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
+    ):
+        gripper_source = gripper_observation_metadata_factory(
+            gripper_type=GripperType.BINARY.value,
+        )
+        dataset = episodic_dataset_factory(actions_metadata={
+            ProprioKey.GRIPPER_STATE.value: on_the_fly_action_metadata_factory(
+                source_metadata=gripper_source,
+            ),
+        })
+        gripper_data = np.array([[1], [1], [1], [0]], dtype=np.float32)
+        dataset.replay_buffer.__getitem__ = MagicMock(
+            side_effect=lambda key: gripper_data,
         )
 
-        with pytest.raises(ValueError, match="Gripper actions are not being predicted"):
-            dataset.get_gripper_positive_class_imbalance_weight()
+        weight = dataset.get_gripper_positive_class_imbalance_weight()
+
+        # 3 positive, 1 negative → weight = 1/3
+        assert weight == pytest.approx(1.0 / 3.0)
+
+    def test_on_the_fly_raises_for_non_gripper_source_metadata(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
+    ):
+        gripper_source = gripper_observation_metadata_factory()
+        dataset = episodic_dataset_factory(actions_metadata={
+            ProprioKey.GRIPPER_STATE.value: on_the_fly_action_metadata_factory(
+                source_metadata=gripper_source,
+            ),
+        })
+        bad_otf = on_the_fly_action_metadata_factory(
+            source_metadata=position_observation_metadata_factory(),
+        )
+        gripper_actions_value = {ProprioKey.GRIPPER_STATE.value: bad_otf}
+        with patch.object(
+            ActionSpace, "gripper_actions", new_callable=PropertyMock,
+            return_value=gripper_actions_value,
+        ), patch.object(
+            ActionSpace, "has_gripper_actions", new_callable=PropertyMock,
+            return_value=True,
+        ):
+            with pytest.raises(TypeError, match="Expected GripperObservationMetadata"):
+                dataset.get_gripper_positive_class_imbalance_weight()
+
+    def test_raises_for_unsupported_metadata_type(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+    ):
+        gripper_source = gripper_observation_metadata_factory()
+        dataset = episodic_dataset_factory(actions_metadata={
+            ProprioKey.GRIPPER_STATE.value: on_the_fly_action_metadata_factory(
+                source_metadata=gripper_source,
+            ),
+        })
+        unsupported_meta = MagicMock()
+        gripper_actions_value = {ProprioKey.GRIPPER_STATE.value: unsupported_meta}
+        with patch.object(
+            ActionSpace, "gripper_actions", new_callable=PropertyMock,
+            return_value=gripper_actions_value,
+        ), patch.object(
+            ActionSpace, "has_gripper_actions", new_callable=PropertyMock,
+            return_value=True,
+        ):
+            with pytest.raises(ValueError, match="Unsupported gripper action metadata"):
+                dataset.get_gripper_positive_class_imbalance_weight()
 
 
-class TestIntegration:
-    """Integration tests."""
+class TestGetNormalizerAndTokenizer:
+
+    def test_delegates_to_transform_builder(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        dataset = episodic_dataset_factory()
+
+        mock_normalizer = MagicMock()
+        mock_tokenizer = MagicMock()
+
+        with patch(
+            "versatil.data.episodic_dataset.TransformBuilder"
+        ) as mock_builder_class:
+            mock_builder_instance = MagicMock()
+            mock_builder_instance.create_normalizer_and_tokenizer.return_value = (
+                mock_normalizer,
+                mock_tokenizer,
+            )
+            mock_builder_class.return_value = mock_builder_instance
+
+            normalizer, tokenizer = dataset.get_normalizer_and_tokenizer(
+                device=torch.device("cpu"),
+            )
+
+        assert normalizer is mock_normalizer
+        assert tokenizer is mock_tokenizer
+        mock_builder_class.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "winsorize_depth, winsorize_kinematics",
+        [(True, False), (False, True), (True, True)],
+    )
+    def test_passes_winsorization_config_to_builder(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        winsorize_depth: bool,
+        winsorize_kinematics: bool,
+    ):
+        dataset = episodic_dataset_factory()
+
+        with patch(
+            "versatil.data.episodic_dataset.TransformBuilder"
+        ) as mock_builder_class:
+            mock_builder_instance = MagicMock()
+            mock_builder_instance.create_normalizer_and_tokenizer.return_value = (
+                MagicMock(), None,
+            )
+            mock_builder_class.return_value = mock_builder_instance
+
+            dataset.get_normalizer_and_tokenizer(
+                winsorize_depth=winsorize_depth,
+                winsorize_kinematics=winsorize_kinematics,
+            )
+
+        call_kwargs = mock_builder_class.call_args[1]
+        if winsorize_depth:
+            assert call_kwargs["depth_winsorize_quantiles"] is not None
+        else:
+            assert call_kwargs["depth_winsorize_quantiles"] is None
+        if winsorize_kinematics:
+            assert call_kwargs["kinematics_winsorize_quantiles"] is not None
+        else:
+            assert call_kwargs["kinematics_winsorize_quantiles"] is None
 
 
-    def test_full_training_iteration(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test full iteration through dataset."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
+class TestApplyDownsampling:
+
+    @pytest.mark.parametrize("downsample_factor", [2, 3, 5])
+    def test_downsampling_reduces_episode_length(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        downsample_factor: int,
+    ):
+        dataset = episodic_dataset_factory(
+            num_episodes=3,
+            timesteps_per_episode=20,
+        )
+        original_episode = dataset.replay_buffer.get_episode(0)
+        first_key = next(iter(original_episode.keys()))
+        original_length = original_episode[first_key].shape[0]
+
+        mock_subsampled_buffer = MagicMock()
+        mock_subsampled_buffer.n_episodes = 3
+        mock_subsampled_buffer.n_steps = 30
+        type(mock_subsampled_buffer).episode_ends = PropertyMock(
+            return_value=np.array([10, 20, 30]),
         )
 
-        if len(dataset) == 0:
-            pytest.skip("No valid samples")
+        episode_mask = np.ones(3, dtype=bool)
 
-        for i in range(min(3, len(dataset))):
-            sample = dataset[i]
-            assert SampleKey.OBSERVATION.value in sample
-            assert SampleKey.ACTION.value in sample
-            assert ProprioceptiveType.POSITION.value in sample[SampleKey.ACTION.value]
-            assert SampleKey.IS_PAD_ACTION.value in sample[SampleKey.ACTION.value]
+        with patch(
+            "versatil.data.episodic_dataset.ReplayBuffer"
+        ) as mock_replay_buffer_class:
+            mock_replay_buffer_class.create_empty_numpy.return_value = mock_subsampled_buffer
+            dataset._apply_downsampling(
+                episode_mask=episode_mask,
+                downsample_step=downsample_factor,
+            )
 
-
-    def test_normalizer_creation(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that normalizer can be created."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        normalizer = dataset.get_normalizer()
-        assert normalizer is not None
-
-
-    def test_different_horizons(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test with different pred/obs horizons."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=8,
-            obs_horizon=5,
-            train=True,
-            seed=42,
-        )
-
-        if len(dataset) == 0:
-            pytest.skip("No valid samples")
-
-        sample = dataset[0]
-        assert SampleKey.ACTION.value in sample
-        assert sample[SampleKey.OBSERVATION.value][Cameras.LEFT.value].shape[0] == 5
-        assert sample[SampleKey.ACTION.value][ProprioceptiveType.POSITION.value].shape[0] == 8
-        assert sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value].shape[0] == 8
-
-
-class TestLanguageInDataset:
-    """Test language instruction integration in EpisodicDataset."""
-
-
-    def test_dataset_with_language_instructions(self, language_replay_buffer, action_config, observation_config_with_language, dataloader_config):
-        """Test dataset with language instructions enabled."""
-        dataset = EpisodicDataset(
-            zarr_path=language_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config_with_language,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        if len(dataset) == 0:
-            pytest.skip("No valid samples")
-
-        sample = dataset[0]
-
-        assert SampleKey.OBSERVATION.value in sample
-        assert ObsKey.LANGUAGE.value in sample[SampleKey.OBSERVATION.value]
-
-        lang_data = sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]
-        assert isinstance(lang_data, list)
-        assert len(lang_data) == 3
-
-        assert all(isinstance(s, str) for s in lang_data)
-        assert 'episode' in lang_data[0]
-        assert 'instruction' in lang_data[0]
-
-
-    def test_language_collation_in_dataloader(self, long_language_buffer, action_config, observation_config_with_language, dataloader_config):
-        """Test that language can be collated by DataLoader."""
-        dataset = EpisodicDataset(
-            zarr_path=long_language_buffer,
-            action_space=action_config,
-            observation_space=observation_config_with_language,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        if len(dataset) < 2:
-            pytest.skip("Not enough samples")
-
-        loader = DataLoader(dataset, batch_size=2, shuffle=False)
-        batch = next(iter(loader))
-
-        assert SampleKey.OBSERVATION.value in batch
-        assert ObsKey.LANGUAGE.value in batch[SampleKey.OBSERVATION.value]
-
-        batch_lang = batch[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]
-        assert isinstance(batch_lang, list)
-
-        # DataLoader collates by timestep, creating list of tuples
-        # Structure: [(batch_item_0_t0, batch_item_1_t0), (batch_item_0_t1, batch_item_1_t1), ...]
-        assert len(batch_lang) == 3  # obs_horizon
-
-        # Each timestep should have batch_size items
-        assert isinstance(batch_lang[0], tuple)
-        assert len(batch_lang[0]) == 2  # batch_size
-
-        # All items should be strings
-        for timestep in batch_lang:
-            assert all(isinstance(s, str) for s in timestep)
-
-
-    def test_language_with_variable_length_instructions(self, varlen_language_buffer, action_config, observation_config_with_language, dataloader_config):
-        """Test variable-length language instructions."""
-        dataset = EpisodicDataset(
-            zarr_path=varlen_language_buffer,
-            action_space=action_config,
-            observation_space=observation_config_with_language,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        if len(dataset) == 0:
-            pytest.skip("No valid samples")
-
-        sample = dataset[0]
-        lang_data = sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value]
-
-        # Verify language data is present and correctly formatted
-        assert isinstance(lang_data, list)
-        assert len(lang_data) == 3  # obs_horizon
-        assert all(isinstance(s, str) for s in lang_data)
-
-        # Check that we can handle strings (variable lengths work)
-        lengths = [len(s) for s in lang_data]
-        assert all(l > 0 for l in lengths), "All instructions should be non-empty"
-
-
-    def test_language_not_present_when_disabled(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that language is not in samples when disabled."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        if len(dataset) == 0:
-            pytest.skip("No valid samples")
-
-        sample = dataset[0]
-        assert ObsKey.LANGUAGE.value not in sample[SampleKey.OBSERVATION.value]
-
-
-    def test_language_with_downsampling(self, downsample_language_buffer, action_config, observation_config_with_language, dataloader_config):
-        """Test language instructions are preserved during downsampling."""
-        dataloader_config.downsample_factor = 2
-
-        dataset = EpisodicDataset(
-            zarr_path=downsample_language_buffer,
-            action_space=action_config,
-            observation_space=observation_config_with_language,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        if len(dataset) == 0:
-            pytest.skip("No valid samples after downsampling")
-
-        sample = dataset[0]
-        assert ObsKey.LANGUAGE.value in sample[SampleKey.OBSERVATION.value]
-        assert isinstance(sample[SampleKey.OBSERVATION.value][ObsKey.LANGUAGE.value], list)
+        # Verify add_episode was called for each selected episode
+        assert mock_subsampled_buffer.add_episode.call_count == 3
+        # Verify last frame is always included
+        for call in mock_subsampled_buffer.add_episode.call_args_list:
+            episode_data = call[0][0]
+            first_key = next(iter(episode_data.keys()))
+            indices_used = len(episode_data[first_key])
+            expected_indices = len(range(0, original_length, downsample_factor))
+            if (original_length - 1) % downsample_factor != 0:
+                expected_indices += 1
+            assert indices_used == expected_indices
 
 
 @pytest.mark.integration
-class TestNormalizerAndTokenizerIntegration:
-    """Test normalizer and tokenizer integration in EpisodicDataset."""
+class TestEpisodicDatasetWithRealData:
 
-    def test_get_normalizer_and_tokenizer_without_tokenization(
-        self, simple_replay_buffer, action_config, observation_config, dataloader_config
+    @pytest.mark.parametrize(
+        "num_episodes, timesteps_per_episode",
+        [(3, 15), (5, 20), (8, 10)],
+    )
+    def test_length_is_positive(
+        self,
+        real_dataset_factory: Callable[..., EpisodicDataset],
+        num_episodes: int,
+        timesteps_per_episode: int,
     ):
-        """Test getting normalizer and tokenizer when tokenization is disabled."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
+        dataset = real_dataset_factory(
+            num_episodes=num_episodes,
+            timesteps_per_episode=timesteps_per_episode,
         )
+        assert len(dataset) > 0
 
-        # Get normalizer and tokenizer without tokenization config
-        normalizer, tokenizer = dataset.get_normalizer_and_tokenizer(tokenization_config=None)
-
-        assert normalizer is not None
-        assert tokenizer is None
-
-    def test_get_normalizer_and_tokenizer_with_observation_tokenization(
-        self, language_replay_buffer, action_config, observation_config_with_language, dataloader_config
+    def test_getitem_returns_observation_and_action_dicts(
+        self,
+        real_dataset_factory: Callable[..., EpisodicDataset],
     ):
-        """Test getting normalizer and tokenizer with observation tokenization enabled."""
-        dataset = EpisodicDataset(
-            zarr_path=language_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config_with_language,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        # Create tokenization config
-        obs_tokenization = ObservationTokenizationConfig(
-            tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[ObsKey.LANGUAGE.value],
-            bin_continuous_data=False,
-            max_token_len=256,
-        )
-        tokenization_config = TokenizationConfig(
-            tokenize_observations=True,
-            tokenize_actions=False,
-            observation_tokenizer=obs_tokenization,
-        )
-
-        # Get normalizer and tokenizer
-        normalizer, tokenizer = dataset.get_normalizer_and_tokenizer(
-            tokenization_config=tokenization_config, device=torch.device("cpu")
-        )
-
-        assert normalizer is not None
-        assert tokenizer is not None
-        assert tokenizer.observation_tokenizer is not None
-        assert tokenizer.action_tokenizer is None
-        assert tokenizer.observation_vocab_size > 0
-
-    def test_get_normalizer_and_tokenizer_with_action_tokenization(
-        self, simple_replay_buffer, action_config, observation_config, dataloader_config
-    ):
-        """Test getting normalizer and tokenizer with action tokenization enabled."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        # Create tokenization config
-        action_tokenization = ActionTokenizationConfig(
-            tokenizer_chain=[TokenizerType.FAST.value],
-            use_pretrained_fast=True,
-        )
-        tokenization_config = TokenizationConfig(
-            tokenize_observations=False,
-            tokenize_actions=True,
-            action_tokenizer=action_tokenization,
-        )
-
-        # Get normalizer and tokenizer
-        normalizer, tokenizer = dataset.get_normalizer_and_tokenizer(
-            tokenization_config=tokenization_config, device=torch.device("cpu")
-        )
-
-        assert normalizer is not None
-        assert tokenizer is not None
-        assert tokenizer.observation_tokenizer is None
-        assert tokenizer.action_tokenizer is not None
-        assert tokenizer.action_vocab_size > 0
-
-    def test_set_normalizer(
-        self, simple_replay_buffer, action_config, observation_config, dataloader_config
-    ):
-        """Test setting normalizer on dataset."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        # Get normalizer
-        normalizer = dataset.get_normalizer()
-
-        # Set normalizer
-        dataset.set_normalizer(normalizer)
-
-        # Verify it's set on sample_builder
-        assert dataset.sample_builder.normalizer is normalizer
-
-    def test_set_tokenizer(
-        self, language_replay_buffer, action_config, observation_config_with_language, dataloader_config
-    ):
-        """Test setting tokenizer on dataset."""
-        dataset = EpisodicDataset(
-            zarr_path=language_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config_with_language,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        # Create tokenization config
-        obs_tokenization = ObservationTokenizationConfig(
-            tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[ObsKey.LANGUAGE.value],
-            bin_continuous_data=False,
-            max_token_len=256,
-        )
-        tokenization_config = TokenizationConfig(
-            tokenize_observations=True,
-            tokenize_actions=False,
-            observation_tokenizer=obs_tokenization,
-        )
-
-        # Get tokenizer
-        _, tokenizer = dataset.get_normalizer_and_tokenizer(
-            tokenization_config=tokenization_config, device=torch.device("cpu")
-        )
-
-        # Set tokenizer
-        dataset.set_tokenizer(tokenizer)
-
-        # Verify it's set on sample_builder
-        assert dataset.sample_builder.tokenizer is tokenizer
-
-    def test_sample_with_normalizer_and_tokenizer(
-        self, language_replay_buffer, action_config, observation_config_with_language, dataloader_config
-    ):
-        """Test that samples include tokenized data when tokenizer is set."""
-        dataset = EpisodicDataset(
-            zarr_path=language_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config_with_language,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
-        )
-
-        # Create tokenization config for both obs and actions
-        obs_tokenization = ObservationTokenizationConfig(
-            tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
-            observation_keys=[ObsKey.LANGUAGE.value],
-            bin_continuous_data=False,
-            max_token_len=256,
-        )
-        action_tokenization = ActionTokenizationConfig(
-            tokenizer_chain=[TokenizerType.FAST.value],
-            use_pretrained_fast=True,
-        )
-        tokenization_config = TokenizationConfig(
-            tokenize_observations=True,
-            tokenize_actions=True,
-            observation_tokenizer=obs_tokenization,
-            action_tokenizer=action_tokenization,
-        )
-
-        # Get normalizer and tokenizer
-        normalizer, tokenizer = dataset.get_normalizer_and_tokenizer(
-            tokenization_config=tokenization_config, device=torch.device("cpu")
-        )
-
-        # Set both
-        dataset.set_normalizer(normalizer)
-        dataset.set_tokenizer(tokenizer)
-
-        if len(dataset) == 0:
-            pytest.skip("No valid samples")
-
-        # Get sample
+        dataset = real_dataset_factory(num_episodes=3, timesteps_per_episode=20)
         sample = dataset[0]
 
-        # Verify tokenized data is present
-        assert SampleKey.TOKENIZED_OBSERVATIONS.value in sample[SampleKey.OBSERVATION.value]
-        assert SampleKey.IS_PAD_OBSERVATION.value in sample[SampleKey.OBSERVATION.value]
-        assert SampleKey.TOKENIZED_ACTIONS.value in sample[SampleKey.ACTION.value]
+        assert SampleKey.OBSERVATION.value in sample
+        assert SampleKey.ACTION.value in sample
 
-        # Verify dtypes
-        assert sample[SampleKey.OBSERVATION.value][SampleKey.TOKENIZED_OBSERVATIONS.value].dtype == torch.long
-        assert sample[SampleKey.OBSERVATION.value][SampleKey.IS_PAD_OBSERVATION.value].dtype == torch.bool
-        assert sample[SampleKey.ACTION.value][SampleKey.TOKENIZED_ACTIONS.value].dtype == torch.long
+    def test_observation_contains_expected_proprio_key(
+        self,
+        real_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        dataset = real_dataset_factory(num_episodes=3, timesteps_per_episode=20)
+        sample = dataset[0]
 
-@pytest.mark.unit
-class TestComputeSampleActionsSlicing:
-    """Test _compute_sample_actions slicing logic."""
+        observations = sample[SampleKey.OBSERVATION.value]
+        assert ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in observations
 
-    @pytest.mark.parametrize("obs_horizon,pred_horizon", [
-        (1, 4),
-        (3, 4),
-        (5, 10),
-        (1, 1),
-        (10, 1),
-    ])
-    def test_action_slicing_indices(self, simple_replay_buffer, action_config, observation_config, dataloader_config, obs_horizon, pred_horizon):
-        """Test that action slicing uses correct indices."""
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=pred_horizon,
+    @pytest.mark.parametrize(
+        "obs_horizon, position_dim",
+        [(2, 3), (3, 6), (1, 4)],
+    )
+    def test_proprio_observation_shape(
+        self,
+        real_dataset_factory: Callable[..., EpisodicDataset],
+        obs_horizon: int,
+        position_dim: int,
+    ):
+        dataset = real_dataset_factory(
+            num_episodes=3,
+            timesteps_per_episode=20,
             obs_horizon=obs_horizon,
-            train=True,
-            seed=42,
+            position_dim=position_dim,
+            orientation_dim=0,
+            has_gripper=False,
         )
+        sample = dataset[0]
+        proprio = sample[SampleKey.OBSERVATION.value][
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
+        ]
 
-        # Create known padded data
-        total_len = obs_horizon + pred_horizon
-        padded_data = {
-            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.arange(total_len * 7).reshape(total_len, 7).astype(np.float32),
-            ProprioKey.GRIPPER_STATE.value: np.arange(total_len).reshape(total_len, 1).astype(np.float32),
-        }
+        assert proprio.shape == (obs_horizon, position_dim)
+        assert proprio.dtype == torch.float32
 
-        # Compute actions
-        action_dict = dataset._compute_sample_actions(padded_data)
+    @pytest.mark.parametrize("pred_horizon", [2, 4, 8])
+    def test_action_shape_matches_pred_horizon(
+        self,
+        real_dataset_factory: Callable[..., EpisodicDataset],
+        pred_horizon: int,
+    ):
+        dataset = real_dataset_factory(
+            num_episodes=3,
+            timesteps_per_episode=30,
+            pred_horizon=pred_horizon,
+            position_dim=3,
+            orientation_dim=0,
+            has_gripper=False,
+        )
+        sample = dataset[0]
+        actions = sample[SampleKey.ACTION.value]
+        position_action = actions[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value]
 
-        # Verify we got pred_horizon actions
-        assert action_dict[ProprioceptiveType.POSITION.value].shape[0] == pred_horizon
-        if action_config.has_gripper:
-            assert action_dict[ProprioceptiveType.GRIPPER.value].shape[0] == pred_horizon
+        assert position_action.shape[0] == pred_horizon
 
-    def test_action_slicing_computes_correct_deltas(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that actions are computed from correct observation pairs."""
-        obs_horizon = 3
+    def test_action_padding_mask_present_and_correct_shape(
+        self,
+        real_dataset_factory: Callable[..., EpisodicDataset],
+    ):
         pred_horizon = 4
-        
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
+        dataset = real_dataset_factory(
+            num_episodes=3,
+            timesteps_per_episode=20,
             pred_horizon=pred_horizon,
+        )
+        sample = dataset[0]
+        is_pad = sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value]
+
+        assert is_pad.shape == (pred_horizon,)
+        assert is_pad.dtype == torch.bool
+
+    def test_camera_observation_shape(
+        self,
+        real_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        image_height = 16
+        image_width = 16
+        obs_horizon = 2
+        dataset = real_dataset_factory(
+            num_episodes=3,
+            timesteps_per_episode=20,
+            cameras=[Cameras.LEFT.value],
+            image_height=image_height,
+            image_width=image_width,
             obs_horizon=obs_horizon,
-            train=True,
-            seed=42,
+        )
+        sample = dataset[0]
+        image = sample[SampleKey.OBSERVATION.value][Cameras.LEFT.value]
+
+        # (obs_horizon, channels, height, width) after CHW conversion
+        assert image.shape == (obs_horizon, 3, image_height, image_width)
+        assert image.dtype == torch.float32
+        # Pixel values normalized to [0, 1]
+        assert image.min() >= 0.0
+        assert image.max() <= 1.0
+
+    def test_train_val_split_produces_disjoint_samples(
+        self,
+        real_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        train_dataset = real_dataset_factory(
+            num_episodes=10, timesteps_per_episode=20,
+            train=True, val_ratio=0.3,
+        )
+        val_dataset = real_dataset_factory(
+            num_episodes=10, timesteps_per_episode=20,
+            train=False, val_ratio=0.3,
         )
 
-        # Create sequential data where differences are easy to verify
-        total_len = obs_horizon + pred_horizon
-        sequential_positions = np.arange(total_len * 7).reshape(total_len, 7).astype(np.float32)
-        
-        padded_data = {
-            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: sequential_positions,
-            ProprioKey.GRIPPER_STATE.value: np.arange(total_len).reshape(total_len, 1).astype(np.float32),
-        }
+        assert len(train_dataset) > 0
+        assert len(val_dataset) > 0
+        assert len(train_dataset) + len(val_dataset) > 0
 
-        # For obs_horizon=3, pred_horizon=4:
-        # action_slice_start = 3 - 1 = 2
-        # action_slice_end = 2 + 4 = 6
-        # curr_obs should be indices [2, 3, 4, 5]
-        # next_obs should be indices [3, 4, 5, 6]
-        
-        action_dict = dataset._compute_sample_actions(padded_data)
-
-        # Verify we got the right number of actions
-        assert len(action_dict[ProprioceptiveType.POSITION.value]) == pred_horizon
-
-        # The action processor should compute deltas (next - curr)
-        # We can't verify exact values without knowing the action processor implementation,
-        # but we can verify the shapes are correct
-        assert action_dict[ProprioceptiveType.POSITION.value].shape == (pred_horizon, 3)
-
-    def test_gripper_action_slicing_aligned_with_position(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that gripper actions use same slicing as position actions."""
-        obs_horizon = 3
-        pred_horizon = 4
-        
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=pred_horizon,
-            obs_horizon=obs_horizon,
-            train=True,
-            seed=42,
+    def test_all_samples_accessible_without_error(
+        self,
+        real_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        dataset = real_dataset_factory(
+            num_episodes=3,
+            timesteps_per_episode=15,
+            pred_horizon=2,
+            obs_horizon=2,
         )
+        for idx in range(len(dataset)):
+            sample = dataset[idx]
+            assert SampleKey.OBSERVATION.value in sample
+            assert SampleKey.ACTION.value in sample
 
-        total_len = obs_horizon + pred_horizon
-        padded_data = {
-            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.arange(total_len * 7).reshape(total_len, 7).astype(np.float32),
-            ProprioKey.GRIPPER_STATE.value: np.arange(total_len).reshape(total_len, 1).astype(np.float32),
-        }
-
-        action_dict = dataset._compute_sample_actions(padded_data)
-
-        # Both should have pred_horizon timesteps
-        assert action_dict[ProprioceptiveType.POSITION.value].shape[0] == pred_horizon
-        assert action_dict[ProprioceptiveType.GRIPPER.value].shape[0] == pred_horizon
-
-    def test_action_uses_camera_frame_when_configured(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test that action computation uses camera frame when configured."""
-        action_config.predict_in_camera_frame = True
-        
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=4,
-            obs_horizon=3,
-            train=True,
-            seed=42,
+    def test_gripper_action_present_when_configured(
+        self,
+        real_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        dataset = real_dataset_factory(
+            num_episodes=3,
+            timesteps_per_episode=20,
+            has_gripper=True,
         )
+        sample = dataset[0]
+        actions = sample[SampleKey.ACTION.value]
 
-        total_len = 7
-        padded_data = {
-            ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value: np.arange(total_len * 7).reshape(total_len, 7).astype(np.float32),
-            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.zeros((total_len, 7), dtype=np.float32),  # Different values
-            ProprioKey.GRIPPER_STATE.value: np.arange(total_len).reshape(total_len, 1).astype(np.float32),
-        }
+        assert ProprioKey.GRIPPER_STATE.value in actions
 
-        action_dict = dataset._compute_sample_actions(padded_data)
-
-        # Should use camera frame data (non-zero) not robot frame (zeros)
-        # If implementation is correct, actions won't all be zero
-        assert action_dict[ProprioceptiveType.POSITION.value].shape == (4, 3)
-
-    def test_action_slicing_boundary_conditions(self, simple_replay_buffer, action_config, observation_config, dataloader_config):
-        """Test slicing doesn't go out of bounds."""
-        obs_horizon = 1
-        pred_horizon = 1
-        
-        dataset = EpisodicDataset(
-            zarr_path=simple_replay_buffer,
-            action_space=action_config,
-            observation_space=observation_config,
-            dataloader_config=dataloader_config,
-            pred_horizon=pred_horizon,
-            obs_horizon=obs_horizon,
-            train=True,
-            seed=42,
+    def test_gripper_class_imbalance_weight_with_real_data(
+        self,
+        real_dataset_factory: Callable[..., EpisodicDataset],
+    ):
+        dataset = real_dataset_factory(
+            num_episodes=5,
+            timesteps_per_episode=20,
+            has_gripper=True,
         )
+        weight = dataset.get_gripper_positive_class_imbalance_weight()
 
-        total_len = obs_horizon + pred_horizon
-        padded_data = {
-            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.arange(total_len * 7).reshape(total_len, 7).astype(np.float32),
-            ProprioKey.GRIPPER_STATE.value: np.arange(total_len).reshape(total_len, 1).astype(np.float32),
-        }
-
-        # Should not raise index error
-        action_dict = dataset._compute_sample_actions(padded_data)
-        
-        assert action_dict[ProprioceptiveType.POSITION.value].shape == (1, 3)
-        assert action_dict[ProprioceptiveType.GRIPPER.value].shape == (1, 1)
+        assert weight > 0.0
+        assert np.isfinite(weight)

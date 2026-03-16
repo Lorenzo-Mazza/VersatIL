@@ -71,4 +71,4 @@ class BehavioralCloning(DecodingAlgorithm):
                 - 'orientation_action': Predicted orientation actions if used (B, T, D_ori)
                 - 'gripper_action': Predicted gripper actions if used (B, T, D_grip)
         """
-        return network(features, actions=None)  # type: ignore[no-any-return]
+        return network(features=features, actions=None)  # type: ignore[no-any-return]

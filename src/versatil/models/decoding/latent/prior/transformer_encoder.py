@@ -40,7 +40,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         dropout_rate: float = 0.1,
         normalize_before: bool = False,
         use_proprioceptive: bool = False,
-        exclude_keys: list[str] = None,
+        exclude_keys: list[str] | None = None,
         learn_variance: bool = True,
         min_logvar: float | None = None,
         deterministic: bool = False,
@@ -56,18 +56,12 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
         self.observation_horizon = observation_horizon
-        self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
         self.feedforward_dimension = feedforward_dimension
         self.number_of_encoder_layers = number_of_encoder_layers
         self.activation = activation
         self.dropout_rate = dropout_rate
         self.normalize_before = normalize_before
-        self.latent_dimension = latent_dimension
-        self.use_proprioceptive = use_proprioceptive
-        self.prediction_horizon = prediction_horizon
-        self.observation_horizon = observation_horizon
-        self.device = device
         self.learn_variance = learn_variance
         self.encoder = TransformerEncoder(
             encoder_layer=TransformerEncoderLayer(
@@ -130,7 +124,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
             Dictionary of tensors (z, mu, logvar) with shape (B, latent_dim) for each.
         """
         input_observations = {
-            k: v for k, v in observations.items() if not (k in self.exclude_keys)
+            k: v for k, v in observations.items() if k not in self.exclude_keys
         }
 
         batch_size = list(input_observations.values())[0].size(0)

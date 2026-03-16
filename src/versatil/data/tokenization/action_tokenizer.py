@@ -331,10 +331,10 @@ class ActionTokenizer:
 
         if arr.ndim == 2:
             # Single chunk (T, D)
-            return self.encode_chunk(action_chunks, is_pad_mask)
+            return self.encode_chunk(action_chunk=action_chunks, is_pad_mask=is_pad_mask)
         elif arr.ndim == 3:
             # Batch (N, T, D)
-            return self.encode_batch(action_chunks)
+            return self.encode_batch(action_chunks=action_chunks, is_pad_mask=is_pad_mask)
         else:
             raise ValueError(f"Expected 2D or 3D input, got shape {arr.shape}")
 
@@ -369,7 +369,10 @@ class ActionTokenizer:
 
         if self.fast_processor is not None:
             decoded_actions = self.fast_processor.decode([fast_tokens.tolist()])
-            assert isinstance(decoded_actions, np.ndarray)
+            if not isinstance(decoded_actions, np.ndarray):
+                raise TypeError(
+                    f"Expected np.ndarray from FAST processor decode, got {type(decoded_actions)}"
+                )
             return decoded_actions[0]  # Return single chunk
 
         raise RuntimeError("Cannot decode without FAST processor")
@@ -405,7 +408,10 @@ class ActionTokenizer:
 
         if self.fast_processor is not None:
             decoded_actions = self.fast_processor.decode(tokens_list_of_lists)
-            assert isinstance(decoded_actions, np.ndarray)
+            if not isinstance(decoded_actions, np.ndarray):
+                raise TypeError(
+                    f"Expected np.ndarray from FAST processor decode, got {type(decoded_actions)}"
+                )
             return decoded_actions
 
         raise RuntimeError("Cannot decode without FAST processor")

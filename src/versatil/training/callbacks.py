@@ -671,8 +671,9 @@ class LatentVisualizationCallback(Callback):
         Returns:
             Matplotlib figure with latent space visualization.
         """
+        rng = np.random.default_rng(42)
         if z.shape[0] > self.max_samples:
-            idx = np.random.choice(z.shape[0], self.max_samples, replace=False)
+            idx = rng.choice(z.shape[0], self.max_samples, replace=False)
             z = z[idx]
             if phases is not None:
                 phases = phases[idx]
@@ -720,8 +721,9 @@ class LatentVisualizationCallback(Callback):
         Returns:
             Matplotlib figure with PCA projection.
         """
+        rng = np.random.default_rng(42)
         if z.shape[0] > self.max_samples:
-            idx = np.random.choice(z.shape[0], self.max_samples, replace=False)
+            idx = rng.choice(z.shape[0], self.max_samples, replace=False)
             z = z[idx]
             if phases is not None:
                 phases = phases[idx]

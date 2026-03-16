@@ -10,8 +10,8 @@ def make_attention_mask(
     """Compute attention mask with bidirectional prefix and causal actions.
 
     Args:
-        feature_tokens: Feature token embeddings (B, feat_token_len, emb_dim)
         action_tokens: Action token embeddings (B, action_token_len, emb_dim)
+        feature_tokens: Feature token embeddings (B, feat_token_len, emb_dim)
         feature_token_mask: Optional feature token mask (B, feat_token_len)
 
     Returns:

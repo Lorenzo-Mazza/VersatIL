@@ -1,329 +1,327 @@
-"""Tests for action-decoding algorithms (BC, Diffusion, Flow Matching)."""
+"""Tests for versatil.models.decoding.algorithm.flow_matching module."""
+import re
+from collections.abc import Callable
+from contextlib import nullcontext as does_not_raise
+from unittest.mock import MagicMock, patch
+
 import pytest
 import torch
-from typing import Dict, Optional
+from torchcfm.conditional_flow_matching import ConditionalFlowMatcher
 
+from versatil.data.constants import SampleKey
+from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.algorithm.flow_matching import FlowMatching
-from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
-from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.data.constants import (
-    Cameras,
-    GripperType,
-    OrientationRepresentation,
-    ProprioceptiveType,
+from versatil.models.decoding.constants import DecoderOutputKey, ODESolver
+from versatil.models.decoding.decoders.factory.dit_block_action_transformer import (
+    DiTBlockActionTransformer,
 )
-from versatil.models.decoding.constants import (
-    ODESolver,
-)
+from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 
 
-# Mock decoder for testing algorithms
-class MockActionDecoder(ActionDecoder):
-    """Mock action decoder for testing algorithms."""
+@pytest.fixture
+def flow_matching_factory() -> Callable[..., FlowMatching]:
+    """Factory for FlowMatching instances."""
+    def factory(
+        sigma: float = 0.0,
+        num_inference_steps: int = 10,
+        ode_solver: str = ODESolver.EULER.value,
+        timestep_sampler: str = TimestepSampler.BETA.value,
+        logit_mean: float = 0.0,
+        logit_std: float = 1.0,
+        beta_alpha: float = 1.5,
+        beta_beta: float = 1.0,
+        max_timestep: float = 0.999,
+    ) -> FlowMatching:
+        return FlowMatching(
+            sigma=sigma,
+            num_inference_steps=num_inference_steps,
+            ode_solver=ode_solver,
+            timestep_sampler=timestep_sampler,
+            logit_mean=logit_mean,
+            logit_std=logit_std,
+            beta_alpha=beta_alpha,
+            beta_beta=beta_beta,
+            max_timestep=max_timestep,
+        )
+    return factory
 
-    def __init__(
+
+class TestFlowMatchingInitialization:
+
+    def test_inherits_from_decoding_algorithm(
         self,
-        observation_space: ObservationSpace,
-        action_space: ActionSpace,
-        feature_dim: int = 128,
-        prediction_horizon: int = 10,
-        device: str = "cpu",
+        flow_matching_factory: Callable[..., FlowMatching],
     ):
-        """Initialize mock decoder."""
-        decoder_input = DecoderInput(keys=["features"])
+        fm = flow_matching_factory()
+        assert isinstance(fm, DecodingAlgorithm)
 
-        # Create simple action heads
-        from versatil.models.decoding.action_heads import ActionHead
-
-        action_heads = {}
-        if action_space.has_position:
-            action_heads[ProprioceptiveType.POSITION.value] = ActionHead(
-                input_dim=feature_dim,
-                output_dim=action_space.position_dim,
-                blocks=[],
-            )
-        if action_space.has_orientation:
-            action_heads[ProprioceptiveType.ORIENTATION.value] = ActionHead(
-                input_dim=feature_dim,
-                output_dim=action_space.orientation_dim,
-                blocks=[],
-            )
-        if action_space.has_gripper:
-            action_heads[ProprioceptiveType.GRIPPER.value] = ActionHead(
-                input_dim=feature_dim,
-                output_dim=action_space.gripper_dim,
-                blocks=[],
-            )
-
-        super().__init__(
-            decoder_input=decoder_input,
-            observation_space=observation_space,
-            action_space=action_space,
-            action_heads=action_heads,
-            device=device,
-            observation_horizon=1,
-            prediction_horizon=prediction_horizon,
-        )
-
-        self.feature_dim = feature_dim
-
-        # Create simple projection layers for mock predictions
-        self.feature_proj = torch.nn.Linear(feature_dim, feature_dim).to(self.device)
-
-    def forward(
+    @pytest.mark.parametrize("num_inference_steps", [5, 20])
+    @pytest.mark.parametrize("ode_solver", [
+        ODESolver.EULER.value,
+        ODESolver.HEUN.value,
+    ])
+    @pytest.mark.parametrize("sigma", [0.0, 0.1])
+    @pytest.mark.parametrize("timestep_sampler", [
+        TimestepSampler.BETA.value,
+        TimestepSampler.UNIFORM.value,
+    ])
+    @pytest.mark.parametrize("logit_mean", [0.0, 0.5])
+    @pytest.mark.parametrize("logit_std", [0.5, 1.0])
+    @pytest.mark.parametrize("beta_alpha", [1.0, 1.5])
+    @pytest.mark.parametrize("beta_beta", [0.5, 1.0])
+    @pytest.mark.parametrize("max_timestep", [0.99, 0.999])
+    def test_stores_configuration(
         self,
-        features: Dict[str, torch.Tensor],
-        actions: Optional[Dict[str, torch.Tensor]] = None,
-    ) -> Dict[str, torch.Tensor]:
-        """Mock forward pass."""
-        # Extract batch size from features
-        if "features" in features:
-            feature_tensor = features["features"]
+        flow_matching_factory: Callable[..., FlowMatching],
+        num_inference_steps: int,
+        ode_solver: str,
+        sigma: float,
+        timestep_sampler: str,
+        logit_mean: float,
+        logit_std: float,
+        beta_alpha: float,
+        beta_beta: float,
+        max_timestep: float,
+    ):
+        fm = flow_matching_factory(
+            num_inference_steps=num_inference_steps,
+            ode_solver=ode_solver,
+            sigma=sigma,
+            timestep_sampler=timestep_sampler,
+            logit_mean=logit_mean,
+            logit_std=logit_std,
+            beta_alpha=beta_alpha,
+            beta_beta=beta_beta,
+            max_timestep=max_timestep,
+        )
+        assert fm.num_inference_steps == num_inference_steps
+        assert fm.ode_solver == ode_solver
+        assert fm.timestep_sampler == timestep_sampler
+        assert fm.logit_mean == logit_mean
+        assert fm.logit_std == logit_std
+        assert fm.beta_alpha == beta_alpha
+        assert fm.beta_beta == beta_beta
+        assert fm.max_timestep == max_timestep
+        assert isinstance(fm.flow_matcher, ConditionalFlowMatcher)
+
+    @pytest.mark.parametrize("ode_solver, expectation", [
+        (ODESolver.EULER.value, does_not_raise()),
+        (ODESolver.RK4.value, does_not_raise()),
+        (
+            "invalid_solver",
+            pytest.raises(
+                ValueError,
+                match=re.escape(
+                    f"Unknown ODE solver: invalid_solver. "
+                    f"Expected one of {[e.value for e in ODESolver]}"
+                ),
+            ),
+        ),
+    ])
+    def test_ode_solver_validation(
+        self,
+        ode_solver: str,
+        expectation,
+    ):
+        with expectation:
+            FlowMatching(ode_solver=ode_solver)
+
+    @pytest.mark.parametrize("timestep_sampler, expectation", [
+        (TimestepSampler.BETA.value, does_not_raise()),
+        (TimestepSampler.UNIFORM.value, does_not_raise()),
+        (
+            "invalid_sampler",
+            pytest.raises(
+                ValueError,
+                match=re.escape(
+                    f"Unknown timestep sampler: invalid_sampler. "
+                    f"Expected one of {[e.value for e in TimestepSampler]}"
+                ),
+            ),
+        ),
+    ])
+    def test_timestep_sampler_validation(
+        self,
+        timestep_sampler: str,
+        expectation,
+    ):
+        with expectation:
+            FlowMatching(timestep_sampler=timestep_sampler)
+
+
+class TestFlowMatchingForward:
+
+    def test_raises_without_actions(
+        self,
+        flow_matching_factory: Callable[..., FlowMatching],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        fm = flow_matching_factory()
+        mock_network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        with pytest.raises(
+            ValueError,
+            match="Flow Matching algorithm requires actions during training",
+        ):
+            fm.forward(network=mock_network, features=features, actions=None)
+
+    @pytest.mark.parametrize("include_padding_mask", [True, False])
+    def test_output_contains_exact_keys(
+        self,
+        flow_matching_factory: Callable[..., FlowMatching],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        include_padding_mask: bool,
+    ):
+        fm = flow_matching_factory()
+        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+            include_padding_mask=include_padding_mask,
+        )
+        result = fm.forward(network=mock_network, features=features, actions=actions)
+        expected_keys = {
+            "position_action",
+            DecoderOutputKey.TARGET_VELOCITY.value,
+            DecoderOutputKey.NOISE.value,
+            DecoderOutputKey.TIMESTEP.value,
+            SampleKey.IS_PAD_ACTION.value,
+        }
+        assert set(result.keys()) == expected_keys
+        assert set(result[DecoderOutputKey.TARGET_VELOCITY.value].keys()) == {"position_action"}
+        if include_padding_mask:
+            assert result[SampleKey.IS_PAD_ACTION.value] is not None
         else:
-            feature_tensor = next(iter(features.values()))
-        batch_size = feature_tensor.shape[0]
+            assert result[SampleKey.IS_PAD_ACTION.value] is None
 
-        # Project features
-        projected = self.feature_proj(feature_tensor)
-
-        # Generate mock predictions
-        predictions = {}
-
-        if self.use_position_actions:
-            predictions[ProprioceptiveType.POSITION.value] = torch.randn(
-                batch_size,
-                self.prediction_horizon,
-                self.position_dim,
-                device=self.device,
-            )
-
-        if self.use_orientation_actions:
-            predictions[ProprioceptiveType.ORIENTATION.value] = torch.randn(
-                batch_size,
-                self.prediction_horizon,
-                self.orientation_dim,
-                device=self.device,
-            )
-
-        if self.use_gripper_actions:
-            predictions[ProprioceptiveType.GRIPPER.value] = torch.randn(
-                batch_size,
-                self.prediction_horizon,
-                self.gripper_dim,
-                device=self.device,
-            )
-
-        return predictions
-
-
-@pytest.fixture
-def device():
-    """Get available device."""
-    return "cuda" if torch.cuda.is_available() else "cpu"
-
-
-@pytest.fixture
-def batch_size():
-    """Default batch size."""
-    return 4
-
-
-@pytest.fixture
-def prediction_horizon():
-    """Default prediction horizon."""
-    return 10
-
-
-@pytest.fixture
-def feature_dim():
-    """Default feature dimension."""
-    return 128
-
-
-@pytest.fixture
-def action_space():
-    """Create default action space configuration."""
-    return ActionSpace(
-        has_position=True,
-        position_dim=3,
-        has_orientation=True,
-        orientation_dim=4,
-        orientation_repr=OrientationRepresentation.QUATERNION.value,
-        has_gripper=True,
-        gripper_type=GripperType.BINARY.value,
-        gripper_dim=1,
-        predict_in_camera_frame=False,
-        deltas_as_actions=False,
-    )
-
-
-@pytest.fixture
-def observation_space():
-    """Create default observation space configuration."""
-    return ObservationSpace(
-        use_proprioceptive_data=True,
-        use_proprio_base_frame=True,
-        use_proprio_camera_frame=False,
-        use_gripper_state=True,
-        gripper_type=GripperType.BINARY.value,
-        camera_keys=[Cameras.LEFT.value],
-        use_language=False,
-    )
-
-
-@pytest.fixture
-def mock_decoder(observation_space, action_space, feature_dim, prediction_horizon, device):
-    """Create mock decoder for testing."""
-    return MockActionDecoder(
-        observation_space=observation_space,
-        action_space=action_space,
-        feature_dim=feature_dim,
-        prediction_horizon=prediction_horizon,
-        device=device,
-    )
-
-
-@pytest.fixture
-def features(batch_size, feature_dim, device):
-    """Create mock features."""
-    return {
-        "features": torch.randn(batch_size, feature_dim, device=device),
-    }
-
-
-@pytest.fixture
-def actions(batch_size, prediction_horizon, action_space, device):
-    """Create mock actions."""
-    actions_dict = {}
-
-    if action_space.has_position:
-        actions_dict[ProprioceptiveType.POSITION.value] = torch.randn(
-            batch_size, prediction_horizon, action_space.position_dim, device=device
+    def test_network_receives_timestep_in_features(
+        self,
+        flow_matching_factory: Callable[..., FlowMatching],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        fm = flow_matching_factory()
+        mock_network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
         )
+        mock_network.return_value = {"position_action": torch.zeros(2, 8, 3)}
+        fm.forward(network=mock_network, features=features, actions=actions)
+        features_passed = mock_network.call_args.kwargs["features"]
+        assert DecoderOutputKey.TIMESTEP.value in features_passed
 
-    if action_space.has_orientation:
-        actions_dict[ProprioceptiveType.ORIENTATION.value] = torch.randn(
-            batch_size, prediction_horizon, action_space.orientation_dim, device=device
+    def test_forward_with_multiple_action_keys(
+        self,
+        flow_matching_factory: Callable[..., FlowMatching],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        fm = flow_matching_factory()
+        action_keys = ["gripper_action", "position_action"]
+        mock_network = mock_action_decoder_factory(
+            action_keys=action_keys, prediction_dimension=3,
         )
-
-    if action_space.has_gripper:
-        actions_dict[ProprioceptiveType.GRIPPER.value] = torch.randn(
-            batch_size, prediction_horizon, action_space.gripper_dim, device=device
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=action_keys, prediction_horizon=8, action_dimension=3,
+            include_padding_mask=True,
         )
+        mock_network.return_value = {
+            key: torch.zeros(2, 8, 3) for key in action_keys
+        }
+        result = fm.forward(network=mock_network, features=features, actions=actions)
+        target_velocity = result[DecoderOutputKey.TARGET_VELOCITY.value]
+        noise = result[DecoderOutputKey.NOISE.value]
+        for key in action_keys:
+            assert key in target_velocity
+            assert key in noise
 
-    return actions_dict
 
+class TestFlowMatchingPredict:
 
-@pytest.mark.unit
-class TestFlowMatching:
-    """Tests for Flow Matching algorithm."""
+    def test_predict_returns_exact_action_keys(
+        self,
+        flow_matching_factory: Callable[..., FlowMatching],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        fm = flow_matching_factory(num_inference_steps=2)
+        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
+        features = feature_dictionary_factory()
+        with patch(
+            "versatil.models.decoding.algorithm.flow_matching.integrate_ode",
+        ) as mock_integrate:
+            mock_integrate.return_value = torch.zeros(2, 8 * 3)
+            result = fm.predict(network=mock_network, features=features)
+        assert set(result.keys()) == {"position_action"}
 
-    @pytest.mark.parametrize("ode_solver", [
-        ODESolver.EULER.value,
-        ODESolver.HEUN.value,
-        ODESolver.RK4.value,
-    ])
-    def test_instantiation_solvers(self, ode_solver):
-        """Test that Flow Matching can be instantiated with all ODE solvers."""
-        algo = FlowMatching(ode_solver=ode_solver)
-        assert algo is not None
-        assert algo.ode_solver == ode_solver
+    def test_predict_output_shape(
+        self,
+        flow_matching_factory: Callable[..., FlowMatching],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        fm = flow_matching_factory(num_inference_steps=2)
+        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
+        features = feature_dictionary_factory()
+        with patch(
+            "versatil.models.decoding.algorithm.flow_matching.integrate_ode",
+        ) as mock_integrate:
+            mock_integrate.return_value = torch.zeros(2, 8 * 3)
+            result = fm.predict(network=mock_network, features=features)
+        assert result["position_action"].shape == (2, 8, 3)
 
-    def test_invalid_ode_solver(self):
-        """Test that invalid ODE solver raises error."""
-        with pytest.raises(ValueError, match="Unknown ODE solver"):
-            FlowMatching(ode_solver="invalid")
+    def test_predict_enables_and_disables_encoder_cache_for_dit_block(
+        self,
+        flow_matching_factory: Callable[..., FlowMatching],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        fm = flow_matching_factory(num_inference_steps=2)
+        mock_network = MagicMock()
+        # Make isinstance check pass for DiTBlockActionTransformer
+        mock_network.__class__ = DiTBlockActionTransformer
+        mock_network.action_space.actions_metadata = {
+            "position_action": MagicMock(
+                requires_prediction_head=True, prediction_dimension=3
+            ),
+        }
+        mock_network.prediction_horizon = 8
+        mock_network.return_value = {"position_action": torch.zeros(2, 8, 3)}
+        features = feature_dictionary_factory()
+        with patch(
+            "versatil.models.decoding.algorithm.flow_matching.integrate_ode",
+        ) as mock_integrate:
+            mock_integrate.return_value = torch.zeros(2, 8 * 3)
+            fm.predict(network=mock_network, features=features)
+        mock_network.enable_encoder_cache.assert_called_once()
+        mock_network.disable_encoder_cache.assert_called_once()
 
-    @pytest.mark.parametrize("sigma", [0.0, 0.001, 0.01, 0.1])
-    def test_sigma_values(self, sigma):
-        """Test different sigma values for conditional flow matching."""
-        algo = FlowMatching(sigma=sigma)
-        assert algo is not None
-        assert algo.flow_matcher.sigma == sigma
-
-    @pytest.mark.parametrize("num_inference_steps", [5, 10, 20, 50])
-    def test_inference_steps(self, num_inference_steps):
-        """Test different numbers of inference steps."""
-        algo = FlowMatching(num_inference_steps=num_inference_steps)
-        assert algo.num_inference_steps == num_inference_steps
-
-    def test_forward_pass(self, mock_decoder, features, actions):
-        """Test forward pass during training."""
-        algo = FlowMatching(sigma=0.0)
-        outputs = algo.forward(mock_decoder, features, actions)
-
-        # Check that outputs contain time and target velocity
-        assert "time" in outputs
-        assert "target_velocity" in outputs
-
-        # Check that time is in [0, 1]
-        time = outputs["time"]
-        assert torch.all(time >= 0.0)
-        assert torch.all(time <= 1.0)
-
-    @pytest.mark.parametrize("sigma", [0.0, 0.01])
-    def test_forward_with_sigma(self, mock_decoder, features, actions, sigma):
-        """Test forward pass with different sigma values."""
-        algo = FlowMatching(sigma=sigma)
-        outputs = algo.forward(mock_decoder, features, actions)
-
-        # Check that outputs contain required keys
-        assert "time" in outputs
-        assert "target_velocity" in outputs
-
-    def test_forward_requires_actions(self, mock_decoder, features):
-        """Test that forward pass requires actions."""
-        algo = FlowMatching()
-        with pytest.raises(ValueError, match="requires actions"):
-            algo.forward(mock_decoder, features, actions=None)
-
-    @pytest.mark.parametrize("ode_solver,num_steps", [
-        (ODESolver.EULER.value, 5),
-        (ODESolver.HEUN.value, 3),
-        (ODESolver.RK4.value, 2),
-    ])
-    def test_predict_with_solvers(self, mock_decoder, features, ode_solver, num_steps):
-        """Test prediction with all ODE solvers."""
-        algo = FlowMatching(
-            ode_solver=ode_solver,
-            num_inference_steps=num_steps,
+    def test_predict_with_multiple_action_keys(
+        self,
+        flow_matching_factory: Callable[..., FlowMatching],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        fm = flow_matching_factory(num_inference_steps=2)
+        action_keys = ["gripper_action", "position_action"]
+        mock_network = mock_action_decoder_factory(
+            action_keys=action_keys, prediction_dimension=3,
         )
-        outputs = algo.predict(mock_decoder, features)
-
-        # Check that outputs contain expected action keys
-        assert ProprioceptiveType.POSITION.value in outputs
-        assert ProprioceptiveType.ORIENTATION.value in outputs
-        assert ProprioceptiveType.GRIPPER.value in outputs
-
-        # Check output shapes
-        batch_size = features["features"].shape[0]
-        prediction_horizon = mock_decoder.prediction_horizon
-
-        assert outputs[ProprioceptiveType.POSITION.value].shape == (
-            batch_size,
-            prediction_horizon,
-            mock_decoder.position_dim,
-        )
-
-    @pytest.mark.parametrize("ode_solver", [
-        ODESolver.EULER.value,
-        ODESolver.HEUN.value,
-        ODESolver.RK4.value,
-    ])
-    def test_predict_all_solvers_detailed(self, mock_decoder, features, ode_solver):
-        """Test prediction with each solver individually with more detail."""
-        algo = FlowMatching(
-            ode_solver=ode_solver,
-            num_inference_steps=5,
-        )
-        outputs = algo.predict(mock_decoder, features)
-
-        # Check all action modalities
-        assert ProprioceptiveType.POSITION.value in outputs
-        assert ProprioceptiveType.ORIENTATION.value in outputs
-        assert ProprioceptiveType.GRIPPER.value in outputs
-
-        # Verify no NaN or Inf values
-        for key, value in outputs.items():
-            assert not torch.isnan(value).any(), f"NaN found in {key} for solver {ode_solver}"
-            assert not torch.isinf(value).any(), f"Inf found in {key} for solver {ode_solver}"
+        features = feature_dictionary_factory()
+        # Total flat dim: 2 keys * 8 horizon * 3 dim = 48
+        with patch(
+            "versatil.models.decoding.algorithm.flow_matching.integrate_ode",
+        ) as mock_integrate:
+            mock_integrate.return_value = torch.zeros(2, 8 * 3 * 2)
+            result = fm.predict(network=mock_network, features=features)
+        assert set(result.keys()) == set(action_keys)
+        for key in action_keys:
+            assert result[key].shape == (2, 8, 3)

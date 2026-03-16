@@ -98,3 +98,16 @@ class DecoderOutputKey(str, enum.Enum):
     CLASS_TOKEN = "cls_token"
     MEAN = "mean"
     LOGVAR = "logvar"
+
+
+class FeatureType(str, enum.Enum):
+    """Feature types for decoder validation.
+
+    - SPATIAL: (C, H, W) - image features from CNN/ViT
+    - SEQUENTIAL: (T, D) - sequence features from transformers
+    - FLAT: int or (D,) - pooled/embedded features
+    """
+
+    SPATIAL = "spatial"
+    SEQUENTIAL = "sequential"
+    FLAT = "flat"
