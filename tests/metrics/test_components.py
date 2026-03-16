@@ -554,6 +554,29 @@ class TestBinaryKLDivergenceLossForward:
             0.0, abs=1e-5
         )
 
+    @pytest.mark.parametrize("free_bits", [0.5, 1.0, 2.0])
+    def test_free_bits_reduces_effective_kl_below_threshold(self, free_bits):
+        # Extreme logits: sigmoid(5) close to 1 => large per-bit KL
+        logits = 5.0 * torch.ones(4, 3, 8)  # (B, T, H)
+        loss_no_free = BinaryKLDivergenceLoss(
+            weight=1.0, entropy_weight=0.0, free_bits=0.0
+        )
+        loss_with_free = BinaryKLDivergenceLoss(
+            weight=1.0, entropy_weight=0.0, free_bits=free_bits
+        )
+        predictions = {DecoderOutputKey.BINARY_LOGITS.value: logits}
+        output_no_free = loss_no_free(predictions, {})
+        output_with_free = loss_with_free(predictions, {})
+
+        raw_kl = output_no_free.component_losses[MetricKey.RAW_KL_DIVERGENCE.value].item()
+        clamped_kl = output_with_free.component_losses[MetricKey.CLAMPED_KL_DIVERGENCE.value].item()
+        # Raw KL should exceed free_bits for extreme logits
+        assert raw_kl > free_bits
+        # Clamped KL = mean(max(0, kl_per_token - free_bits)) < raw_kl
+        assert clamped_kl < raw_kl
+        # Mathematically: clamped = raw - free_bits (since all tokens have same KL)
+        assert clamped_kl == pytest.approx(raw_kl - free_bits, abs=1e-4)
+
     def test_raises_on_missing_key(self):
         loss = BinaryKLDivergenceLoss()
         with pytest.raises(
@@ -669,6 +692,48 @@ class TestBinaryMaximumMeanDiscrepancyLossForward:
         output = loss(predictions, {})
         # MMD can be slightly negative due to clamping, but result should be >= 0
         assert output.total_loss.item() >= -0.1
+
+    def test_uniform_logits_produce_smaller_mmd_than_extreme(self, rng):
+        # Uniform logits: sigmoid(0) = 0.5 => matches Bernoulli(0.5) prior
+        uniform_logits = torch.zeros(32, 4, 16)
+        # Extreme logits: sigmoid(10) close to 1 => deviates from prior
+        extreme_logits = 10.0 * torch.ones(32, 4, 16)
+        loss = BinaryMaximumMeanDiscrepancyLoss(weight=1.0)
+
+        output_uniform = loss(
+            {DecoderOutputKey.BINARY_LOGITS.value: uniform_logits}, {}
+        )
+        output_extreme = loss(
+            {DecoderOutputKey.BINARY_LOGITS.value: extreme_logits}, {}
+        )
+
+        # MMD for uniform should be much smaller (samples match prior)
+        assert output_uniform.total_loss.item() < output_extreme.total_loss.item()
+
+    def test_metadata_contains_posterior_z(self, rng):
+        logits = torch.from_numpy(
+            rng.standard_normal((8, 4, 16)).astype(np.float32)
+        )
+        predictions = {DecoderOutputKey.BINARY_LOGITS.value: logits}
+        loss = BinaryMaximumMeanDiscrepancyLoss(weight=1.0)
+        output = loss(predictions, {})
+        assert MetadataKey.POSTERIOR_Z.value in output.metadata
+        # Posterior z should have same shape as logits
+        assert output.metadata[MetadataKey.POSTERIOR_Z.value].shape == logits.shape
+
+    @pytest.mark.parametrize("weight", [1.0, 3.0, 0.5])
+    def test_weight_scales_total_loss_relative_to_component(self, rng, weight):
+        logits = torch.from_numpy(
+            rng.standard_normal((8, 4, 16)).astype(np.float32)
+        )
+        predictions = {DecoderOutputKey.BINARY_LOGITS.value: logits}
+        loss = BinaryMaximumMeanDiscrepancyLoss(weight=weight)
+        output = loss(predictions, {})
+        # total_loss = weight * mmd_component
+        mmd_component = output.component_losses[MetricKey.BINARY_MMD_LOSS.value].item()
+        assert output.total_loss.item() == pytest.approx(
+            weight * mmd_component, rel=1e-4
+        )
 
 
 @pytest.mark.unit

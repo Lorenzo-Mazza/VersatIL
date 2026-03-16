@@ -1,5 +1,7 @@
 """Tests for versatil.workspace module."""
 import os
+from collections.abc import Callable
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,6 +19,7 @@ from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.training import TrainingConfig, AdamWConfig
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.metrics import MoELoss
+from versatil.models.policy import Policy
 from versatil.models.decoding.algorithm import VariationalAlgorithm
 from versatil.models.decoding.decoders.factory.free_action_transformer import (
     FreeActionTransformer,
@@ -36,24 +39,26 @@ from versatil.workspace import Workspace
 
 
 @pytest.fixture
-def experiment_config_factory():
+def experiment_config_factory() -> Callable[..., MagicMock]:
+    """Factory for mock ExperimentConfig instances."""
+
     def factory(
-        name="test_experiment",
-        seed=42,
-        checkpoint_folder="/tmp/test_checkpoints",
-        resume_from=None,
-        use_wandb=False,
-        wandb_project=None,
-        wandb_entity=None,
-        device="cpu",
-        distributed=False,
-        precision="32",
-        float32_matmul_precision=None,
-        checkpoint_every=10,
-        val_every=1,
-        plot_every=200,
-        validate_loss_keys=True,
-    ):
+        name: str = "test_experiment",
+        seed: int = 42,
+        checkpoint_folder: str = "/tmp/test_checkpoints",
+        resume_from: str | None = None,
+        use_wandb: bool = False,
+        wandb_project: str | None = None,
+        wandb_entity: str | None = None,
+        device: str = "cpu",
+        distributed: bool = False,
+        precision: str = "32",
+        float32_matmul_precision: str | None = None,
+        checkpoint_every: int = 10,
+        val_every: int = 1,
+        plot_every: int = 200,
+        validate_loss_keys: bool = True,
+    ) -> MagicMock:
         config = MagicMock(spec=ExperimentConfig)
         config.name = name
         config.seed = seed
@@ -76,24 +81,26 @@ def experiment_config_factory():
 
 
 @pytest.fixture
-def mock_training_config_factory():
+def mock_training_config_factory() -> Callable[..., MagicMock]:
+    """Factory for mock TrainingConfig instances."""
+
     def factory(
-        num_epochs=10,
-        gradient_accumulate_every=1,
-        clip_gradient_norm=False,
-        clip_max_norm=0.1,
-        use_ema=False,
-        ema_power=0.75,
-        swa_lrs=None,
-        swa_epoch_start=0.5,
-        swa_annealing_epochs=10,
-        tune_lr=False,
-        early_stopping_patience=10,
-        reduce_lr_on_plateau=False,
-        reduce_lr_patience=10,
-        reduce_lr_cooldown=10,
-        lr=1e-4,
-    ):
+        num_epochs: int = 10,
+        gradient_accumulate_every: int = 1,
+        clip_gradient_norm: bool = False,
+        clip_max_norm: float = 0.1,
+        use_ema: bool = False,
+        ema_power: float = 0.75,
+        swa_lrs: float | None = None,
+        swa_epoch_start: float = 0.5,
+        swa_annealing_epochs: int = 10,
+        tune_lr: bool = False,
+        early_stopping_patience: int = 10,
+        reduce_lr_on_plateau: bool = False,
+        reduce_lr_patience: int = 10,
+        reduce_lr_cooldown: int = 10,
+        lr: float = 1e-4,
+    ) -> MagicMock:
         config = MagicMock(spec=TrainingConfig)
         config.num_epochs = num_epochs
         config.gradient_accumulate_every = gradient_accumulate_every
@@ -117,14 +124,15 @@ def mock_training_config_factory():
 
 
 @pytest.fixture
-def mock_workspace_policy_factory():
+def mock_workspace_policy_factory() -> Callable[..., MagicMock]:
+    """Factory for mock Policy instances with configurable decoder and algorithm."""
+
     def factory(
-        decoder_type=None,
-        algorithm_type=None,
-        has_moe_loss=False,
-    ):
-        policy = MagicMock()
-        policy.__class__.__name__ = "Policy"
+        decoder_type: str | None = None,
+        algorithm_type: str | None = None,
+        has_moe_loss: bool = False,
+    ) -> MagicMock:
+        policy = MagicMock(spec=Policy)
         policy.set_normalizer = MagicMock()
         policy.set_tokenizer = MagicMock()
         policy.set_denoising_thresholds = MagicMock()
@@ -158,12 +166,17 @@ def mock_workspace_policy_factory():
 
 
 @pytest.fixture
-def main_config_factory(experiment_config_factory, mock_training_config_factory):
+def main_config_factory(
+    experiment_config_factory: Callable[..., MagicMock],
+    mock_training_config_factory: Callable[..., MagicMock],
+) -> Callable[..., MagicMock]:
+    """Factory for mock MainConfig instances combining experiment and training configs."""
+
     def factory(
-        experiment_kwargs=None,
-        training_kwargs=None,
-        policy=None,
-    ):
+        experiment_kwargs: dict | None = None,
+        training_kwargs: dict | None = None,
+        policy: MagicMock | None = None,
+    ) -> MagicMock:
         experiment_kwargs = experiment_kwargs or {}
         training_kwargs = training_kwargs or {}
 
@@ -177,8 +190,10 @@ def main_config_factory(experiment_config_factory, mock_training_config_factory)
 
 
 @pytest.fixture
-def original_yaml_config_factory():
-    def factory(name="test_experiment"):
+def original_yaml_config_factory() -> Callable[..., OmegaConf]:
+    """Factory for OmegaConf YAML config objects."""
+
+    def factory(name: str = "test_experiment") -> OmegaConf:
         yaml_config = OmegaConf.create({
             "experiment": {"name": name},
             "training": {"optimizer": {"lr": 1e-4}},
@@ -190,16 +205,18 @@ def original_yaml_config_factory():
 
 @pytest.fixture
 def workspace_factory(
-    main_config_factory,
-    original_yaml_config_factory,
-    tmp_path,
-):
+    main_config_factory: Callable[..., MagicMock],
+    original_yaml_config_factory: Callable[..., OmegaConf],
+    tmp_path: Path,
+) -> Callable[..., Workspace]:
+    """Factory for Workspace instances with mocked Hydra config."""
+
     def factory(
-        experiment_kwargs=None,
-        training_kwargs=None,
-        policy=None,
-        config_name="test_config",
-    ):
+        experiment_kwargs: dict | None = None,
+        training_kwargs: dict | None = None,
+        policy: MagicMock | None = None,
+        config_name: str = "test_config",
+    ) -> Workspace:
         experiment_kwargs = experiment_kwargs or {}
         experiment_kwargs.setdefault("checkpoint_folder", str(tmp_path))
 

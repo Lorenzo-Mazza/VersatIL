@@ -302,6 +302,7 @@ class TestPolicyLoaderTokenizer:
         mock_config.policy.set_tokenizer.assert_called_once_with(
             mock_tokenizer
         )
+        mock_tokenizer.to.assert_called_once_with(torch.device("cpu"))
         assert loader.tokenizer == mock_tokenizer
 
 
@@ -578,6 +579,41 @@ class TestPolicyLoaderRunInference:
             obs_dict=mock_obs
         )
         assert torch.equal(result["position"], expected_result["position"])
+
+    @pytest.mark.parametrize(
+        "precision, expected_dtype",
+        [
+            (PrecisionType.BF16_MIXED.value, torch.bfloat16),
+            (PrecisionType.FP16_MIXED.value, torch.float16),
+            (PrecisionType.FP32.value, torch.float32),
+        ],
+    )
+    def test_run_inference_uses_correct_autocast_dtype(
+        self, policy_loader_factory, rng, precision, expected_dtype
+    ):
+        loader = policy_loader_factory(precision=precision)
+        captured_dtype = []
+
+        original_predict = loader._policy.predict_action
+
+        def capturing_predict(obs_dict):
+            captured_dtype.append(torch.get_autocast_dtype("cpu"))
+            return {"position": torch.from_numpy(
+                rng.standard_normal((1, 16, 3)).astype(np.float32)
+            )}
+
+        loader._policy.predict_action = capturing_predict
+
+        loader.run_inference(
+            obs_dict={
+                "dummy": torch.from_numpy(
+                    rng.standard_normal((1,)).astype(np.float32)
+                )
+            }
+        )
+
+        assert len(captured_dtype) == 1
+        assert captured_dtype[0] == expected_dtype
 
     def test_run_inference_produces_no_gradients(
         self, policy_loader_factory, rng

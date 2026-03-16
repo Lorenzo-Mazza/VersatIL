@@ -88,21 +88,26 @@ src/versatil/
 │   ├── experiment.py # Experiment tracking, checkpointing, WandB
 │   ├── training.py   # Optimizer, LR schedule, EMA, gradient clipping
 │   ├── policy.py     # Policy = encoding + decoder + loss
-│   ├── inference.py  # Inference-specific settings
-│   ├── task/         # Task definitions
+│   ├── inference.py  # Inference-specific settings (rotate_images, etc.)
+│   ├── loss.py       # Loss composition configs
+│   ├── data/         # Data configuration
 │   │   ├── task.py           # ActionSpace, ObservationSpace, TaskConfig
 │   │   ├── dataloader.py     # Batch size, num workers, augmentation config
-│   │   └── dataset/          # Dataset schema definitions
+│   │   ├── augmentations.py  # Augmentation pipeline config
+│   │   ├── metadata.py       # Metadata config dataclasses
+│   │   ├── tokenizer.py      # Tokenizer config
+│   │   └── raw/              # Raw dataset schema configs
+│   │       ├── schema.py
+│   │       └── zarr_meta.py
 │   ├── encoding/     # Encoder and fusion configs
 │   │   ├── pipeline.py       # EncodingPipelineConfig
 │   │   ├── encoder.py        # Base encoder configs
-│   │   ├── image.py          # Image encoder configs
 │   │   └── fusion.py         # Fusion module configs
-│   ├── decoding/     # Decoder configs
-│   │   ├── decoder.py        # DecoderConfig
-│   │   ├── algorithm.py      # Algorithm configs (Diffusion, FlowMatching, etc.)
-│   │   └── architecture.py   # Architecture configs (Transformer, MLP, etc.)
-│   └── loss.py       # Loss composition configs
+│   └── decoding/     # Decoder configs
+│       ├── decoder.py        # DecoderConfig
+│       ├── algorithm.py      # Algorithm configs (Diffusion, FlowMatching, Variational)
+│       ├── action_head.py    # Action head configs (single, gaussian, MoE)
+│       └── latent.py         # Latent variable configs (VAE, priors)
 │
 ├── models/           # Neural network implementations
 │   ├── policy.py             # Policy orchestrates encoding → decoding → loss
@@ -119,58 +124,102 @@ src/versatil/
 │   │   └── fusion/
 │   │       ├── base.py               # Base fusion interface
 │   │       ├── concat.py, mlp.py, attention.py
-│   │       ├── sequential.py, spatial.py
+│   │       └── sequential.py, spatial.py
 │   ├── decoding/
-│   │   ├── decoder.py        # Decoder: algorithm + architecture + heads
+│   │   ├── decoders/
+│   │   │   ├── base.py               # Base decoder with algorithm + architecture + heads
+│   │   │   └── factory/              # Pre-configured decoder factories (ACT, DiT, GPT, etc.)
 │   │   ├── algorithm/
-│   │   │   └── base.py               # Algorithm interface (forward/predict)
-│   │   └── architecture/
-│   │       ├── base.py               # Architecture + DecoderInput validation
-│   │       └── action_chunking_transformer.py
+│   │   │   ├── base.py               # Algorithm interface (forward/predict)
+│   │   │   ├── behavior_cloning.py
+│   │   │   ├── diffusion.py
+│   │   │   ├── flow_matching.py
+│   │   │   └── variational.py        # VariationalAlgorithm wrapper
+│   │   ├── action_heads/             # Action head implementations (single, gaussian, MoE)
+│   │   ├── action_masking.py
+│   │   └── constants.py
 │   ├── layers/               # Reusable layer implementations
-│   │   ├── transformer.py, mlp.py
-│   │   ├── positional_encoding/      # Sinusoidal, Learned, Rotary
-│   │   ├── pooling/                  # AttentionPooling, SpatialSoftmax
-│   │   ├── detr_transformer/         # DETR encoder/decoder
-│   │   ├── geometric_attention/      # Depth-aware attention mechanisms
-│   │   ├── conditional_modulation.py # FiLM layers
-│   │   └── ...
+│   │   ├── mlp.py, activation.py, swiglu.py, drop_path.py
+│   │   ├── transformer/             # Encoder/decoder layers, GPT, bidirectional, KV cache
+│   │   ├── positional_encoding/     # Sinusoidal, Learned, Rotary
+│   │   ├── pooling/                 # AttentionPooling, SpatialSoftmax
+│   │   ├── detr_transformer/        # DETR encoder/decoder
+│   │   ├── diffusion_transformer/   # DiT blocks, MMDiT, cross-attention DiT
+│   │   ├── geometric_attention/     # Depth-aware attention mechanisms
+│   │   ├── free_transformer/        # FreeTransformer, BinaryMapper
+│   │   ├── modulation/              # FiLM, AdaLN, conditional residual blocks
+│   │   ├── normalization/           # AdaNorm, RMSNorm, FrozenBatchNorm
+│   │   ├── denoising/              # Diffusion schedulers, ODE solvers, timestep sampling
+│   │   └── convolution/            # Conv1D, depthwise Conv2D
 │
 ├── data/             # Data loading and preprocessing
+│   ├── constants.py          # Data keys, enums (re-exports from versatil_constants)
+│   ├── metadata.py           # Observation/action metadata classes
+│   ├── task.py               # ActionSpace, ObservationSpace
 │   ├── episodic_dataset.py   # EpisodicDataset: loads from Zarr
 │   ├── dataloader.py         # get_dataloaders() factory
 │   ├── sample_builder.py     # SampleBuilder: constructs training samples
 │   ├── action_processor.py   # ActionProcessor: computes actions
-│   ├── augmentation_pipeline.py  # Image augmentation
+│   ├── transform.py          # Data transforms
+│   ├── transform_builder.py  # Transform pipeline builder
+│   ├── augmentation/         # Image augmentation pipeline
 │   ├── preprocessing/
-│   │   ├── replay_buffer.py  # ReplayBuffer: episode → Zarr
-│   │   ├── sampler.py        # Sampling strategies (uniform, balanced)
-│   │   └── create_zarr.py    # Zarr creation utilities
-│   ├── normalize/
+│   │   ├── replay_buffer.py          # ReplayBuffer: episode → Zarr
+│   │   ├── sampler.py                # Sampling strategies (uniform, balanced)
+│   │   ├── create_zarr_from_csv.py   # CSV → Zarr
+│   │   ├── create_zarr_from_hdf5.py  # HDF5 → Zarr (Libero/robomimic)
+│   │   └── create_zarr_from_lerobot.py # LeRobot → Zarr
+│   ├── normalization/
 │   │   ├── normalizer.py             # LinearNormalizer
-│   │   ├── normalizer_builder.py     # Build normalizer from dataset
 │   │   └── image_normalizer.py       # Image-specific normalization
-│   └── schemas/              # Dataset schema definitions
-│       ├── base.py
-│       └── bowel_retraction.py
+│   ├── tokenization/                 # Action/observation tokenization
+│   │   ├── tokenizer.py, action_tokenizer.py
+│   │   ├── binning_tokenizer.py, observation_tokenizer.py
+│   └── raw/                  # Raw dataset schemas and metadata
+│       ├── zarr_meta.py              # DatasetMetadata (camera mapping validation)
+│       └── schemas/                  # Per-format schema definitions (CSV, HDF5, LeRobot)
+│
+├── inference/        # Inference client and deployment
+│   ├── protocol.py           # ObservationTransport, ActionTransport (typing.Protocol)
+│   ├── socket_transport.py   # ZMQ socket transport implementations
+│   ├── inference_client.py   # Unified client: orchestrates observe → infer → act loop
+│   ├── observation_preprocessor.py  # Response parsing, image transforms, depth clamping
+│   ├── action_postprocessor.py      # Structured actions, gripper sigmoid, denoising
+│   ├── policy_loader.py     # Checkpoint loading, autocast inference, normalizer access
+│   ├── observation_buffer.py # Per-environment temporal observation buffer
+│   └── temporal_aggregation.py  # Exponential-weighted action averaging
+│
+├── metrics/          # Loss functions and metrics
+│   ├── base.py               # LossOutput dataclass
+│   ├── components.py         # Individual loss components (regression, classification)
+│   ├── composite.py          # ComposableLoss: weighted sum of components
+│   ├── kernels.py            # MMD kernels
+│   ├── ot_loss.py            # Optimal transport loss
+│   └── accumulators.py       # Metric accumulation for logging
+│
+├── training/         # Training infrastructure
+│   ├── lightning_policy.py   # LightningModule wrapping Policy
+│   ├── workspace.py          # Training workspace (checkpoint, logging, dataloaders)
+│   ├── constants.py          # PrecisionType, MAP_PRECISION_TO_DTYPE
+│   └── callbacks/            # Lightning callbacks
 │
 ├── common/           # Shared utilities
-│   ├── tensor_ops.py       # Tensor manipulation helpers
+│   ├── tensor_ops.py         # Tensor manipulation helpers
 │   ├── dict_of_tensor_mixin.py
 │   ├── module_attr_mixin.py
+│   ├── omegaconf_ops.py      # OmegaConf resolvers
 │   └── set_cache_dir.py      # HuggingFace cache directory
 │
-├── constants/        # Constants and enums
-│   ├── data.py               # Data keys, enums (OrientationRepresentation, GripperType, Cameras)
-│   ├── models/
-│   │   ├── encoders.py       # Encoder type constants
-│   │   ├── decoders.py       # Decoder constants, FeatureType enum
-│   │   ├── fusion.py         # Fusion type constants
-│   │   └── layers.py         # Layer type constants
-│   └── validator.py          # Validation error messages
+├── explain/          # Model explanation (GradCAM, etc.)
+│   ├── explainer.py
+│   └── constants.py
 │
-├── workspace.py      # TODO: Refactored training workspace (not implemented)
-└── loss.py           # TODO: Composable loss modules (not implemented)
+├── endpoints/        # Training and inference entry points
+│   ├── train.py              # Hydra training endpoint
+│   ├── test.py               # Inference/evaluation endpoint
+│   └── explain.py            # Explanation endpoint
+│
+└── validation.py     # Experiment config validation
 ```
 
 ### Key Architectural Concepts
@@ -358,6 +407,41 @@ Use `hydra.utils.instantiate()` to build objects from configs:
 encoder = instantiate(encoder_config)
 ```
 
+#### 7. Inference Architecture
+
+The inference package connects trained policies to environments (simulation or real robot) via pluggable transports.
+
+**Design**: `InferenceClient` orchestrates the loop. Preprocessing and postprocessing are separate classes.
+
+```
+ObservationTransport.receive()
+  → ObservationPreprocessor.parse_response()        # decompress, rotate, parse single/multi env
+  → ObservationPreprocessor.transform_camera_observations()  # albumentations, depth clamping, RGB normalization
+  → PolicyLoader.run_inference()                     # autocast + no_grad
+  → ActionPostprocessor.format_action()              # structured dict, gripper sigmoid, denoising
+  → ActionTransport.send()                           # structured actions + metadata
+```
+
+**Structured Actions**: Actions are sent as dicts keyed by `ActionComponent` (from `versatil_constants.shared`):
+```python
+{
+    "position": [dx, dy, dz],
+    "orientation": [roll],
+    "gripper": [1.0],
+}
+```
+Plus a separate `action_metadata` dict with `ActionMetadataField` entries (dimension, frame, orientation_representation, gripper_type, action_type).
+
+**Transport Protocols** (`protocol.py`): `ObservationTransport` and `ActionTransport` are `typing.Protocol` classes. `socket_transport.py` provides ZMQ implementations. Any transport (HTTP, shared memory, direct function call) can satisfy the protocol.
+
+**Key properties on PolicyLoader**:
+- `denoising_thresholds`: Per-action-key thresholds from policy checkpoint, zeroes small deltas
+- `depth_clamp_range`: Min/max from normalizer stats for depth images
+
+**External packages used**:
+- `tso-robotics-sockets`: Generic socket transport + protocol keys (`ServerRoute`, `InferenceRequestKey`, etc.)
+- `versatil-constants`: Shared domain constants (`ActionComponent`, `ActionMetadataField`, `TSOCamera`, `ObsKey`, etc.)
+
 ### Adding New Components
 
 **When adding new components**:
@@ -385,9 +469,10 @@ From `.github/copilot-instructions.md`:
 
 Additional standards:
 - Black formatter (line length 88, Python 3.11 target)
-- Use enums from `versatil.constants.data` for data keys
+- Shared domain constants (`ActionComponent`, `ActionMetadataField`, `ObsKey`, `GripperType`, `OrientationRepresentation`, etc.) come from the `versatil-constants` PyPI package. Import directly from `versatil_constants.shared`, `versatil_constants.tso`, `versatil_constants.libero`, or `versatil_constants.metaworld`. VersatIL-internal enums (`Cameras`, `ProprioceptiveType`, `TokenizerType`, etc.) live in `versatil.data.constants`.
+- Socket protocol keys (`ServerRoute`, `InferenceRequestKey`, `CompressionType`, etc.) come from the `tso-robotics-sockets` PyPI package.
 - Prefer dataclasses for configurations
-- Use `Dict[str, torch.Tensor]` for observation/action dictionaries
+- Use `dict[str, torch.Tensor]` for observation/action dictionaries
 
 ## Testing
 
@@ -396,14 +481,23 @@ Additional standards:
 Test structure mirrors source code:
 ```
 tests/
-├── conftest.py                      # Shared fixtures
+├── conftest.py                      # Shared fixtures (metadata factories, rng, device)
 ├── data/                            # Mirror versatil.data
 │   ├── test_episodic_dataset.py
 │   ├── normalize/
 │   └── preprocess/
-└── models/                          # Mirror versatil.models
-    ├── encoding/
-    └── layers/
+├── models/                          # Mirror versatil.models
+│   ├── encoding/
+│   └── layers/
+└── inference/                       # Mirror versatil.inference
+    ├── test_inference_client.py
+    ├── test_observation_preprocessor.py
+    ├── test_action_postprocessor.py
+    ├── test_socket_transport.py
+    ├── test_observation_buffer.py
+    ├── test_temporal_aggregation.py
+    ├── test_policy_loader.py
+    └── test_integration.py          # Real ZMQ socket end-to-end tests
 ```
 
 **Test markers** (`tests/pytest.in`):
@@ -493,7 +587,6 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 
 ## TODOs
 Fixes:
-- Update the tests, at the moment they are all legacy and broken.
 - Add input shape validation to `EncodingMixin` — all image encoders silently accept wrong-dimensioned tensors (e.g. no batch dim). Add a shared `_unpack_temporal` method that validates 4D/5D and handles the `(B*T, C, H, W)` reshape, replacing the duplicated `if img.dim() == 5` pattern in every encoder's `forward`.
 Extensions:
 - The explainer is buggy and hardcoded. It needs a refactoring to fit into the new architecture as modular component:

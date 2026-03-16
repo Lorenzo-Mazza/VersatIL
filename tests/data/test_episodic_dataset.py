@@ -328,12 +328,12 @@ class TestEpisodicDatasetInit:
                     obs_horizon=2,
                 )
 
-    def test_normalizer_initially_none(
+    def test_normalizer_not_set_before_set_normalizer_called(
         self,
         episodic_dataset_factory: Callable[..., EpisodicDataset],
     ):
         dataset = episodic_dataset_factory()
-        assert dataset.normalizer is None
+        assert dataset.sample_builder.normalizer is None
 
 
 class TestEpisodicDatasetLen:

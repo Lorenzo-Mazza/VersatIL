@@ -324,25 +324,6 @@ class TestOptimalTransportLossForward:
 
 
 @pytest.mark.unit
-class TestOptimalTransportLossBlurBug:
-    def test_blur_uses_correct_operator_precedence(self):
-        # BUG: In OptimalTransportLoss.__init__, line 67:
-        #   blur=epsilon ** 1/p
-        # Python parses this as (epsilon ** 1) / p = epsilon / p
-        # It should be epsilon ** (1/p) as in LatentOptimalTransportLoss (line 153).
-        # For epsilon=0.01, p=2:
-        #   Wrong: (0.01 ** 1) / 2 = 0.005
-        #   Correct: 0.01 ** (1/2) = 0.1
-        epsilon = 0.01
-        p = 2
-        wrong_blur = epsilon ** 1 / p  # 0.005
-        correct_blur = epsilon ** (1 / p)  # 0.1
-        assert wrong_blur == pytest.approx(0.005)
-        assert correct_blur == pytest.approx(0.1)
-        # These are not equal, confirming the bug
-        assert wrong_blur != pytest.approx(correct_blur)
-
-
 @pytest.mark.unit
 class TestLatentOptimalTransportLossInit:
     def test_raises_import_error_when_geomloss_missing(self):

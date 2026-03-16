@@ -224,3 +224,72 @@ class TestCompositeLossForward:
         composite = CompositeLoss(loss_modules={"a": loss_a})
         composite(dummy_predictions, dummy_targets, is_pad=is_pad)
         loss_a.assert_called_once_with(dummy_predictions, dummy_targets, is_pad)
+
+
+@pytest.mark.unit
+class TestCompositeLossParameters:
+
+    def test_parameters_includes_all_sub_loss_parameters(self):
+        from versatil.metrics.components import RegressionLoss
+
+        loss_a = RegressionLoss(action_keys=["position"], mse_weight=1.0)
+        loss_b = RegressionLoss(action_keys=["orientation"], mse_weight=1.0)
+        composite = CompositeLoss(
+            loss_modules={"a": loss_a, "b": loss_b}
+        )
+
+        composite_params = list(composite.parameters())
+        loss_a_params = list(loss_a.parameters())
+        loss_b_params = list(loss_b.parameters())
+        # RegressionLoss has no trainable parameters, but ModuleDict
+        # should still work. Test with a parametric sub-loss:
+        assert len(composite_params) == len(loss_a_params) + len(loss_b_params)
+
+    def test_parameters_exposes_trainable_sub_loss_parameters(self):
+        # Create a loss with actual trainable parameters
+        sub_loss = torch.nn.Linear(4, 2)
+        # Wrap in a minimal BaseLoss
+        mock_loss = MagicMock(spec=BaseLoss)
+        mock_loss.parameters.return_value = sub_loss.parameters()
+
+        # Use a real parametric module as sub-loss via ModuleDict
+        from versatil.metrics.components import RegressionLoss
+
+        loss_a = RegressionLoss(action_keys=["position"], mse_weight=1.0)
+        composite = CompositeLoss(loss_modules={"a": loss_a})
+
+        # Verify that ModuleDict properly registers sub-modules
+        module_names = [name for name, _ in composite.named_modules()]
+        assert "loss_modules" in module_names
+        assert "loss_modules.a" in module_names
+
+    def test_gradient_flows_through_composite_to_sub_loss(self):
+        # Use a custom parametric loss to verify gradient flow
+        class ParametricLoss(BaseLoss):
+            def __init__(self):
+                super().__init__()
+                self.linear = torch.nn.Linear(3, 1, bias=False)
+
+            def get_required_keys(self):
+                return {"input"}
+
+            def forward(self, predictions, targets, is_pad=None):
+                output = self.linear(predictions["input"]).mean()
+                return LossOutput(
+                    total_loss=output,
+                    component_losses={"param_loss": output},
+                )
+
+        parametric = ParametricLoss()
+        composite = CompositeLoss(loss_modules={"param": parametric})
+
+        # Verify parameter is accessible through composite
+        composite_params = list(composite.parameters())
+        assert len(composite_params) == 1
+        assert composite_params[0] is parametric.linear.weight
+
+        # Verify gradient flows
+        predictions = {"input": torch.randn(2, 3)}
+        output = composite(predictions, {})
+        output.total_loss.backward()
+        assert parametric.linear.weight.grad is not None

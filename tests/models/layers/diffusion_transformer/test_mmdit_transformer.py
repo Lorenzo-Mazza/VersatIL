@@ -135,7 +135,7 @@ class TestMMDiTTransformerForward:
         self,
         mmdit_transformer_factory: Callable[..., MMDiTTransformer],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
         batch_size: int,
         encoder_sequence_length: int,
         decoder_sequence_length: int,
@@ -156,7 +156,7 @@ class TestMMDiTTransformerForward:
             sequence_length=decoder_sequence_length,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=batch_size)
+        timesteps = continuous_timestep_factory(batch_size=batch_size)
         output = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
@@ -169,7 +169,7 @@ class TestMMDiTTransformerForward:
         self,
         mmdit_transformer_factory: Callable[..., MMDiTTransformer],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
         output_dimension = 7
@@ -187,7 +187,7 @@ class TestMMDiTTransformerForward:
             sequence_length=4,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=2)
+        timesteps = continuous_timestep_factory(batch_size=2)
         output = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
@@ -236,7 +236,7 @@ class TestMMDiTTransformerForward:
         self,
         mmdit_transformer_factory: Callable[..., MMDiTTransformer],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
         model = mmdit_transformer_factory(
@@ -250,7 +250,7 @@ class TestMMDiTTransformerForward:
             sequence_length=4,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=2)
+        timesteps = continuous_timestep_factory(batch_size=2)
         encoder_a = sequence_tensor_factory(
             batch_size=2,
             sequence_length=6,
@@ -277,7 +277,7 @@ class TestMMDiTTransformerForward:
         self,
         mmdit_transformer_factory: Callable[..., MMDiTTransformer],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
         model = mmdit_transformer_factory(
@@ -291,7 +291,7 @@ class TestMMDiTTransformerForward:
             sequence_length=6,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=2)
+        timesteps = continuous_timestep_factory(batch_size=2)
         decoder_a = sequence_tensor_factory(
             batch_size=2,
             sequence_length=4,
@@ -318,7 +318,7 @@ class TestMMDiTTransformerForward:
         self,
         mmdit_transformer_factory: Callable[..., MMDiTTransformer],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
         padding_mask_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
@@ -338,7 +338,7 @@ class TestMMDiTTransformerForward:
             sequence_length=4,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=2)
+        timesteps = continuous_timestep_factory(batch_size=2)
         output_no_mask = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
@@ -369,7 +369,7 @@ class TestMMDiTTransformerForward:
         self,
         mmdit_transformer_factory: Callable[..., MMDiTTransformer],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
         positional_encoding_type: str | None,
     ):
         embedding_dimension = 32
@@ -387,7 +387,7 @@ class TestMMDiTTransformerForward:
             sequence_length=4,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=2)
+        timesteps = continuous_timestep_factory(batch_size=2)
         output = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,
@@ -399,7 +399,7 @@ class TestMMDiTTransformerForward:
         self,
         mmdit_transformer_factory: Callable[..., MMDiTTransformer],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
         model = mmdit_transformer_factory(embedding_dimension=embedding_dimension)
@@ -413,7 +413,7 @@ class TestMMDiTTransformerForward:
             sequence_length=4,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=2)
+        timesteps = continuous_timestep_factory(batch_size=2)
         encoder_hidden.requires_grad_(True)
         decoder_hidden.requires_grad_(True)
         output = model(
@@ -431,7 +431,7 @@ class TestMMDiTTransformerForward:
         self,
         mmdit_transformer_factory: Callable[..., MMDiTTransformer],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        timestep_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
     ):
         # FinalPredictionLayer initializes output linear to zeros, so initial
         # output should be near zero regardless of input
@@ -451,7 +451,7 @@ class TestMMDiTTransformerForward:
             sequence_length=4,
             embedding_dimension=embedding_dimension,
         )
-        timesteps = timestep_factory(batch_size=2)
+        timesteps = continuous_timestep_factory(batch_size=2)
         output = model(
             decoder_hidden_states=decoder_hidden,
             timesteps=timesteps,

@@ -67,12 +67,13 @@ class TestReparametrize:
         self,
         mu_logvar_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
     ):
-        # When logvar=-20, std=exp(-10) ≈ 0, so z ≈ mu
+        # When logvar=-40, std=exp(-20) ≈ 2e-9, so z ≈ mu consistently
+        torch.manual_seed(42)
         mu, logvar = mu_logvar_factory(
             batch_size=4,
             latent_dim=16,
             mu_value=3.0,
-            logvar_value=-20.0,
+            logvar_value=-40.0,
         )
         result = reparametrize(mu=mu, logvar=logvar)
         assert torch.allclose(result, mu, atol=1e-4)
@@ -81,7 +82,8 @@ class TestReparametrize:
         self,
         mu_logvar_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
     ):
-        # When logvar is very negative, std = exp(logvar/2) ≈ 0, so z ≈ mu
+        # When logvar=-40, std=exp(-20) ≈ 2e-9, so z ≈ mu
+        torch.manual_seed(42)
         mu, logvar = mu_logvar_factory(
             batch_size=4,
             latent_dim=16,

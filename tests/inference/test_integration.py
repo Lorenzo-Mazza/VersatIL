@@ -1,5 +1,4 @@
 """Tests for versatil.inference integration module."""
-import re
 import threading
 from collections.abc import Callable
 from unittest.mock import MagicMock
@@ -360,9 +359,16 @@ class TestSocketProtocolEndToEnd:
     def test_structured_actions_sent_with_correct_components(
         self,
         socket_integration_client: InferenceClient,
+        mock_policy_loader: MagicMock,
     ):
         socket_integration_client.step()
-        # If no error, the server accepted the structured action format
+
+        # Verify that the client produced structured actions with the correct keys
+        # by inspecting the action_transport.send call via the mock
+        metadata = socket_integration_client.action_postprocessor.build_action_metadata()
+        assert ActionComponent.POSITION.value in metadata
+        assert ActionComponent.ORIENTATION.value in metadata
+        assert ActionComponent.GRIPPER.value in metadata
 
     def test_multi_step_episode_over_sockets(
         self,
@@ -401,13 +407,25 @@ class TestSocketProtocolEndToEnd:
         socket_integration_client: InferenceClient,
         mock_policy_loader: MagicMock,
     ):
+        collected_gripper_values = []
+
+        original_format_action = socket_integration_client.action_postprocessor.format_action
+
+        def capturing_format_action(action_dict):
+            result = original_format_action(action_dict=action_dict)
+            if ActionComponent.GRIPPER.value in result:
+                collected_gripper_values.append(result[ActionComponent.GRIPPER.value])
+            return result
+
+        socket_integration_client.action_postprocessor.format_action = capturing_format_action
+
         for _ in range(5):
             socket_integration_client.step()
 
-        # All calls should have produced 0.0 or 1.0 for binary gripper
-        for call in mock_policy_loader.run_inference.call_args_list:
-            obs_dict = call.kwargs["obs_dict"]
-            assert Cameras.LEFT.value in obs_dict
+        assert len(collected_gripper_values) == 5
+        for gripper_values in collected_gripper_values:
+            for value in gripper_values:
+                assert value in (0.0, 1.0), f"Expected 0.0 or 1.0, got {value}"
 
     def test_denoising_zeroes_small_actions_over_sockets(
         self,
@@ -444,7 +462,23 @@ class TestSocketProtocolEndToEnd:
             action_transport=socket_action_transport,
             compression_type=CompressionType.RAW.value,
         )
+
+        collected_actions = []
+
+        original_format_action = client.action_postprocessor.format_action
+
+        def capturing_format_action(action_dict):
+            result = original_format_action(action_dict=action_dict)
+            collected_actions.append(result)
+            return result
+
+        client.action_postprocessor.format_action = capturing_format_action
+
         client.step()
+
+        assert len(collected_actions) == 1
+        position_values = collected_actions[0][ActionComponent.POSITION.value]
+        assert all(value == 0.0 for value in position_values)
 
 
 @pytest.mark.integration
@@ -484,12 +518,30 @@ class TestTemporalAggregationIntegration:
             temporal_aggregation=True,
         )
 
+        collected_actions = []
+
+        original_format_action = client.action_postprocessor.format_action
+
+        def capturing_format_action(action_dict):
+            result = original_format_action(action_dict=action_dict)
+            collected_actions.append(result)
+            return result
+
+        client.action_postprocessor.format_action = capturing_format_action
+
         client.step()
         assert client.environment_states[0].temporal_aggregator.prediction_horizon == PREDICTION_HORIZON
 
         client.step()
         client.step()
         assert client.timestep == 3
+
+        # Verify temporal aggregation produces different values across steps
+        # because the incrementing_inference returns different prediction values
+        assert len(collected_actions) == 3
+        step_one_position = collected_actions[0][ActionComponent.POSITION.value]
+        step_three_position = collected_actions[2][ActionComponent.POSITION.value]
+        assert step_one_position != step_three_position
 
 
 @pytest.mark.integration

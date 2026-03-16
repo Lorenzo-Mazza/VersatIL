@@ -435,6 +435,22 @@ class TestParseSingleEnvironment:
 
         assert list(result.keys()) == [0]
 
+    def test_missing_proprioceptive_key_in_single_env(
+        self,
+        preprocessor_factory,
+    ):
+        proprio_key = TSOProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
+        preprocessor = preprocessor_factory(
+            camera_keys=[],
+            proprioceptive_keys=[proprio_key],
+        )
+        # Proprioceptive key configured but absent from response
+        response = {}
+
+        result = preprocessor._parse_single_environment(response=response)
+
+        assert proprio_key not in result[0]
+
     def test_missing_camera_key_skipped(
         self,
         preprocessor_factory,

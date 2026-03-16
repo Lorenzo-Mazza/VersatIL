@@ -16,7 +16,7 @@ class ConcreteModuleAttrMixin(ModuleAttrMixin):
 
 
 @pytest.fixture
-def mixin_factory():
+def module_attr_mixin_factory():
     """Factory for creating ConcreteModuleAttrMixin instances."""
 
     def factory(dimension: int = 4) -> ConcreteModuleAttrMixin:
@@ -27,35 +27,35 @@ def mixin_factory():
 
 @pytest.mark.unit
 class TestModuleAttrMixinDevice:
-    def test_reports_cpu_device(self, mixin_factory):
-        module = mixin_factory(dimension=8)
+    def test_reports_cpu_device(self, module_attr_mixin_factory):
+        module = module_attr_mixin_factory(dimension=8)
         assert module.device.type == "cpu"
 
     @pytest.mark.requires_gpu
-    def test_reports_cuda_device_after_move(self, mixin_factory):
-        module = mixin_factory(dimension=8).cuda()
+    def test_reports_cuda_device_after_move(self, module_attr_mixin_factory):
+        module = module_attr_mixin_factory(dimension=8).cuda()
         assert module.device.type == "cuda"
 
 
 @pytest.mark.unit
 class TestModuleAttrMixinDtype:
-    def test_reports_float32_dtype_by_default(self, mixin_factory):
-        module = mixin_factory(dimension=8)
+    def test_reports_float32_dtype_by_default(self, module_attr_mixin_factory):
+        module = module_attr_mixin_factory(dimension=8)
         assert module.dtype == torch.float32
 
-    def test_reports_float16_after_conversion(self, mixin_factory):
-        module = mixin_factory(dimension=8).half()
+    def test_reports_float16_after_conversion(self, module_attr_mixin_factory):
+        module = module_attr_mixin_factory(dimension=8).half()
         assert module.dtype == torch.float16
 
-    def test_reports_float64_after_conversion(self, mixin_factory):
-        module = mixin_factory(dimension=8).double()
+    def test_reports_float64_after_conversion(self, module_attr_mixin_factory):
+        module = module_attr_mixin_factory(dimension=8).double()
         assert module.dtype == torch.float64
 
 
 @pytest.mark.unit
 class TestModuleAttrMixinDummyVariable:
-    def test_dummy_variable_is_registered_parameter(self, mixin_factory):
-        module = mixin_factory(dimension=4)
+    def test_dummy_variable_is_registered_parameter(self, module_attr_mixin_factory):
+        module = module_attr_mixin_factory(dimension=4)
         parameter_names = [name for name, _ in module.named_parameters()]
         assert "_dummy_variable" in parameter_names
 

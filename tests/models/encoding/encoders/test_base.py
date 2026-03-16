@@ -187,29 +187,26 @@ class TestEncoderInputValidation:
 class TestEncodingMixinInitialization:
 
     @pytest.mark.parametrize("pretrained", [True, False])
-    def test_stores_pretrained_flag(
+    @pytest.mark.parametrize("frozen", [True, False])
+    @pytest.mark.parametrize("keys", ["left", ["left", "right"]])
+    def test_stores_configuration(
         self,
         concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
         pretrained: bool,
-    ):
-        encoder = concrete_encoder_factory(pretrained=pretrained)
-        assert encoder.pretrained == pretrained
-
-    @pytest.mark.parametrize("frozen", [True, False])
-    def test_stores_frozen_flag(
-        self,
-        concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
         frozen: bool,
+        keys: str | list[str],
     ):
-        encoder = concrete_encoder_factory(frozen=frozen)
+        encoder = concrete_encoder_factory(
+            pretrained=pretrained,
+            frozen=frozen,
+            keys=keys,
+            device="cpu",
+        )
+        assert encoder.pretrained == pretrained
         assert encoder.frozen == frozen
-
-    def test_stores_explicit_device(
-        self,
-        concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
-    ):
-        encoder = concrete_encoder_factory(device="cpu")
         assert encoder.device == torch.device("cpu")
+        expected_keys = [keys] if isinstance(keys, str) else keys
+        assert encoder.input_specification.keys == expected_keys
 
     @pytest.mark.parametrize("cuda_available, expected_device_type", [
         (False, "cpu"),
@@ -245,13 +242,6 @@ class TestEncodingMixinInitialization:
                 input_specification=invalid_specification,
                 device="cpu",
             )
-
-    def test_stores_input_specification(
-        self,
-        concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
-    ):
-        encoder = concrete_encoder_factory(keys=["left", "right"])
-        assert encoder.input_specification.keys == ["left", "right"]
 
 
 class TestEncodingMixinFreezeWeights:

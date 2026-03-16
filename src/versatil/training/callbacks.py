@@ -110,6 +110,13 @@ class EMACallback(Callback):
             for module, ema_module in zip(
                 pl_module.policy.modules(), self.ema_model.modules()
             ):
+                # Copy BatchNorm running stats (buffers, not parameters)
+                if isinstance(module, _BatchNorm):
+                    for buffer, ema_buffer in zip(
+                        module.buffers(), ema_module.buffers()
+                    ):
+                        ema_buffer.copy_(buffer)
+
                 for param, ema_param in zip(
                     module.parameters(recurse=False),
                     ema_module.parameters(recurse=False),
@@ -117,11 +124,8 @@ class EMACallback(Callback):
                     if isinstance(param, dict):
                         raise RuntimeError("Dict parameter not supported")
 
-                    if isinstance(module, _BatchNorm):
-                        # Copy batchnorm stats directly
-                        ema_param.copy_(param.to(dtype=ema_param.dtype).data)
-                    elif not param.requires_grad:
-                        # Copy frozen parameters directly
+                    if isinstance(module, _BatchNorm) or not param.requires_grad:
+                        # Copy batchnorm learnable params and frozen params directly
                         ema_param.copy_(param.to(dtype=ema_param.dtype).data)
                     else:
                         # EMA update: ema = decay * ema + (1 - decay) * param

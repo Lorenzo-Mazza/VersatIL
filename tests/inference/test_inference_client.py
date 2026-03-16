@@ -652,13 +652,37 @@ class TestCreateEnvironmentState:
     ):
         client = inference_client_factory(
             temporal_aggregation=False,
+            action_keys_to_dimensions={"position": 2},
             observation_horizon=2,
         )
 
         state = client._create_environment_state()
+        client.environment_states[0] = state
 
-        # Only the observation buffer is functional; no aggregator is created
         assert state.observation_buffer.buffer_size == 2
+
+        # Without aggregation, distribute_actions uses first timestep directly
+        client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
+        client.action_postprocessor.format_action.return_value = {
+            "position": [1.0, 2.0],
+        }
+
+        action_dict = {
+            "position": torch.tensor([
+                [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]],
+            ]),
+        }
+        result = client._distribute_actions(
+            action_dict=action_dict,
+            ready_indices=[0],
+        )
+
+        format_call = client.action_postprocessor.format_action.call_args
+        passed_dict = format_call.kwargs["action_dict"]
+        torch.testing.assert_close(
+            passed_dict["position"],
+            torch.tensor([1.0, 2.0]),
+        )
 
 
 @pytest.mark.unit
@@ -774,6 +798,73 @@ class TestGetActionsForReadyEnvironments:
         # language_batch is a list per environment; each entry is the
         # recent buffer contents (a list of strings per timestep)
         assert obs_dict[ObsKey.LANGUAGE.value] == [[language_instruction]]
+
+    def test_multiple_ready_environments_with_language(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+    ):
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            has_language=True,
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=4,
+            observation_horizon=1,
+        )
+        predicted_actions = torch.from_numpy(
+            rng.standard_normal((2, 4, 3)).astype(np.float32)
+        )
+        policy_loader.run_inference.return_value = {
+            "position": predicted_actions,
+        }
+
+        client = InferenceClient(
+            policy_loader=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=mock_action_transport,
+        )
+
+        instruction_env_0 = "pick up the red block"
+        instruction_env_1 = "place on the table"
+
+        state_0 = client._create_environment_state()
+        state_0.observation_buffer.add(
+            observations={
+                "left": rng.integers(0, 255, (64, 64, 3)).astype(np.uint8),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+                ObsKey.LANGUAGE.value: instruction_env_0,
+            }
+        )
+        client.environment_states[0] = state_0
+
+        state_1 = client._create_environment_state()
+        state_1.observation_buffer.add(
+            observations={
+                "left": rng.integers(0, 255, (64, 64, 3)).astype(np.uint8),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+                ObsKey.LANGUAGE.value: instruction_env_1,
+            }
+        )
+        client.environment_states[1] = state_1
+
+        result = client._get_actions_for_ready_environments()
+
+        policy_loader.run_inference.assert_called_once()
+        call_kwargs = policy_loader.run_inference.call_args.kwargs
+        obs_dict = call_kwargs["obs_dict"]
+
+        # Both environments batched together
+        assert obs_dict["left"].shape[0] == 2
+        assert obs_dict["proprio"].shape[0] == 2
+        assert obs_dict[ObsKey.LANGUAGE.value] == [
+            [instruction_env_0],
+            [instruction_env_1],
+        ]
+        assert 0 in result
+        assert 1 in result
 
 
 @pytest.mark.unit

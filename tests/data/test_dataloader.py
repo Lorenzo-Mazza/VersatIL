@@ -637,9 +637,9 @@ class TestGetDataloaders:
             config=config,
         )
 
-        assert train_loader is not None
-        assert normalizer is self.mock_normalizer
-        assert tokenizer is self.mock_tokenizer
+        assert train_loader.dataset is self.mock_train_dataset
+        assert normalizer.normalize == self.mock_normalizer.normalize
+        assert tokenizer.encode == self.mock_tokenizer.encode
 
     def test_creates_val_loader_when_val_ratio_positive(
         self, mock_hydra_config_factory
@@ -648,7 +648,7 @@ class TestGetDataloaders:
 
         _, val_loader, _, _, _ = get_dataloaders(config=config)
 
-        assert val_loader is not None
+        assert val_loader.dataset is self.mock_val_dataset
 
     def test_skips_validation_when_val_ratio_zero(self, mock_hydra_config_factory):
         config = mock_hydra_config_factory(val_ratio=0.0)

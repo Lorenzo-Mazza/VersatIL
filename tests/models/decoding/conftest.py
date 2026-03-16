@@ -6,19 +6,21 @@ import numpy as np
 import pytest
 import torch
 
+from versatil.data.metadata import ActionMetadata
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads.gaussian import GaussianHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
 
 
-class _MockActionMeta:
-    """Minimal mock for action metadata entries."""
-
-    def __init__(
-        self, requires_prediction_head: bool, prediction_dimension: int
-    ):
-        self.requires_prediction_head = requires_prediction_head
-        self.prediction_dimension = prediction_dimension
+def _make_action_meta(
+    requires_prediction_head: bool,
+    prediction_dimension: int,
+) -> MagicMock:
+    """Create a mock ActionMetadata with the given attributes."""
+    meta = MagicMock(spec=ActionMetadata)
+    meta.requires_prediction_head = requires_prediction_head
+    meta.prediction_dimension = prediction_dimension
+    return meta
 
 
 @pytest.fixture
@@ -33,20 +35,20 @@ def mock_action_space_factory() -> Callable[..., MagicMock]:
         gripper_dim: int = 0,
     ) -> MagicMock:
         metadata = {
-            "position_action": _MockActionMeta(
+            "position_action": _make_action_meta(
                 requires_prediction_head=True,
                 prediction_dimension=position_dim,
             ),
         }
         total_dim = position_dim
         if has_orientation:
-            metadata["orientation_action"] = _MockActionMeta(
+            metadata["orientation_action"] = _make_action_meta(
                 requires_prediction_head=True,
                 prediction_dimension=orientation_dim,
             )
             total_dim += orientation_dim
         if has_gripper:
-            metadata["gripper_action"] = _MockActionMeta(
+            metadata["gripper_action"] = _make_action_meta(
                 requires_prediction_head=True,
                 prediction_dimension=gripper_dim,
             )

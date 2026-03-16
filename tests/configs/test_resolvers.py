@@ -1,141 +1,111 @@
-"""Tests for versatil.common.omegaconf_ops module."""
+"""Tests for versatil.configs resolver registration."""
+import os
+from pathlib import Path
+from unittest.mock import patch
+
 import pytest
 from omegaconf import OmegaConf
 from omegaconf.errors import InterpolationResolutionError
 
-from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.configs import register_resolvers
 from versatil.data.constants import (
+    BinaryGripperRange,
     Cameras,
+    CoordinateSystem,
+    DatasetType,
     GripperType,
+    ImageNormalizationType,
+    KinematicsNormalizationType,
+    ObsKey,
     OrientationRepresentation,
+    ProprioKey,
+    RawCameraKey,
+    TokenizerType,
 )
-from versatil.models.encoding.encoders.constants import RGBBackboneType
+from versatil.metrics.constants import MetadataKey
+from versatil.metrics.kernels import KernelType
+from versatil.models.decoding.constants import (
+    DenoisingAlgorithm,
+    DiTType,
+    LatentKey,
+    MoERoutingType,
+)
+from versatil.models.encoding.encoders.constants import (
+    BatchNormHandling,
+    LanguageEncoderType,
+    PoolingMethod,
+    RGBBackboneType,
+)
+from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.constants import (
+    AttentionType,
+    ConditioningType,
+    PositionalEncodingType,
+)
+from versatil.models.layers.denoising.diffusion_process import SchedulerType
+from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
+from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.training.constants import Float32MatmulPrecision, PrecisionType
 
 
 register_resolvers()
 
 
-@pytest.mark.unit
-class TestResolveDictKeys:
-
-    def test_plain_string_keys_returned_unchanged(self):
-        input_dict = {"key_a": 1, "key_b": 2}
-        result = resolve_dict_keys(input_dict)
-        assert result == {"key_a": 1, "key_b": 2}
-
-    def test_non_string_keys_returned_unchanged(self):
-        input_dict = {42: "value", True: "other"}
-        result = resolve_dict_keys(input_dict)
-        assert result == {42: "value", True: "other"}
-
-    def test_nested_dict_values_resolved_recursively(self):
-        input_dict = {"outer": {"inner_key": "inner_value"}}
-        result = resolve_dict_keys(input_dict)
-        assert result["outer"]["inner_key"] == "inner_value"
-
-    def test_non_dict_values_preserved(self):
-        input_dict = {"key": [1, 2, 3], "key2": "string", "key3": 42}
-        result = resolve_dict_keys(input_dict)
-        assert result["key"] == [1, 2, 3]
-        assert result["key2"] == "string"
-        assert result["key3"] == 42
-
-    def test_empty_dict_returns_empty(self):
-        result = resolve_dict_keys({})
-        assert result == {}
-
-    def test_interpolation_key_resolved_via_registered_resolver(self):
-        input_dict = {"${cameras:LEFT}": "value"}
-        result = resolve_dict_keys(input_dict)
-        assert Cameras.LEFT.value in result
-        assert result[Cameras.LEFT.value] == "value"
-
-    def test_deeply_nested_dicts_resolved(self):
-        input_dict = {
-            "level1": {
-                "level2": {
-                    "level3": "deep_value"
-                }
-            }
-        }
-        result = resolve_dict_keys(input_dict)
-        assert result["level1"]["level2"]["level3"] == "deep_value"
-
-    def test_mixed_interpolation_and_plain_keys(self):
-        input_dict = {
-            "plain_key": "value1",
-            "${cameras:RIGHT}": "value2",
-        }
-        result = resolve_dict_keys(input_dict)
-        assert result["plain_key"] == "value1"
-        assert result[Cameras.RIGHT.value] == "value2"
-
-    def test_returns_new_dict_not_mutating_input(self):
-        input_dict = {"key": "value"}
-        result = resolve_dict_keys(input_dict)
-        assert result is not input_dict
-        result["new_key"] = "new_value"
-        assert "new_key" not in input_dict
+ENUM_RESOLVER_CASES = [
+    ("cameras", "LEFT", Cameras.LEFT.value),
+    ("cameras", "RIGHT", Cameras.RIGHT.value),
+    ("cameras", "DEPTH", Cameras.DEPTH.value),
+    ("raw_camera", "LEFT", RawCameraKey.LEFT.value),
+    ("gripper", "BINARY", GripperType.BINARY.value),
+    ("gripper", "CONTINUOUS", GripperType.CONTINUOUS.value),
+    ("orientation", "ROLL", OrientationRepresentation.ROLL.value),
+    ("orientation", "EULER", OrientationRepresentation.EULER.value),
+    ("rgb_backbone", "RESNET18", RGBBackboneType.RESNET18.value),
+    ("precision", "FP32", PrecisionType.FP32.value),
+    ("precision", "BF16_MIXED", PrecisionType.BF16_MIXED.value),
+    ("float32_matmul", "HIGHEST", Float32MatmulPrecision.HIGHEST.value),
+    ("batch_norm_handling", "FROZEN", BatchNormHandling.FROZEN.value),
+    ("pooling_method", "SPATIAL_SOFTMAX", PoolingMethod.SPATIAL_SOFTMAX.value),
+    ("language_model", "BERT_BASE", LanguageEncoderType.BERT_BASE.value),
+    ("activation_function", "RELU", ActivationFunction.RELU.value),
+    ("activation_function", "GELU", ActivationFunction.GELU.value),
+    ("normalization", "LAYER_NORM", NormalizationType.LAYER_NORM.value),
+    ("attention", "MULTI_HEAD", AttentionType.MULTI_HEAD.value),
+    ("pos_encoding", "SINUSOIDAL", PositionalEncodingType.SINUSOIDAL.value),
+    ("pos_encoding", "LEARNED", PositionalEncodingType.LEARNED.value),
+    ("tokenizer_type", "FAST", TokenizerType.FAST.value),
+    ("kinematics_norm_type", "MIN_MAX", KinematicsNormalizationType.MIN_MAX.value),
+    ("image_norm_type", "ZERO_TO_ONE", ImageNormalizationType.ZERO_TO_ONE.value),
+    ("obs_key", "LANGUAGE", ObsKey.LANGUAGE.value),
+    ("moe_routing_type", "SOFT", MoERoutingType.SOFT.value),
+    ("coordinate_system", "ROBOT_BASE", CoordinateSystem.ROBOT_BASE.value),
+    ("gripper_range", "ZERO_ONE", BinaryGripperRange.ZERO_ONE.value),
+    ("proprio_key", "GRIPPER_STATE", ProprioKey.GRIPPER_STATE.value),
+    ("latent_key", "POSTERIOR_LATENT", LatentKey.POSTERIOR_LATENT.value),
+    ("scheduler_type", "DDIM", SchedulerType.DDIM.value),
+    ("denoising_algorithm", "DIFFUSION", DenoisingAlgorithm.DIFFUSION.value),
+    ("conditioning_type", "ADALN", ConditioningType.ADALN.value),
+    ("metadata_key", "POSTERIOR_Z", MetadataKey.POSTERIOR_Z.value),
+    ("dit_type", "DIT_BLOCK", DiTType.DIT_BLOCK.value),
+    ("timestep_sampler", "UNIFORM", TimestepSampler.UNIFORM.value),
+    ("dataset_type", "LIBERO", DatasetType.LIBERO.value),
+    ("kernel_type", "RBF", KernelType.RBF.value),
+]
 
 
 @pytest.mark.unit
 class TestEnumResolvers:
 
-    def test_cameras_resolver_returns_enum_values(self):
-        cfg = OmegaConf.create({
-            "left": "${cameras:LEFT}",
-            "right": "${cameras:RIGHT}",
-            "depth": "${cameras:DEPTH}",
-        })
-        assert cfg.left == Cameras.LEFT.value
-        assert cfg.right == Cameras.RIGHT.value
-        assert cfg.depth == Cameras.DEPTH.value
-
-    def test_gripper_resolver_returns_enum_values(self):
-        cfg = OmegaConf.create({
-            "binary": "${gripper:BINARY}",
-            "continuous": "${gripper:CONTINUOUS}",
-        })
-        assert cfg.binary == GripperType.BINARY.value
-        assert cfg.continuous == GripperType.CONTINUOUS.value
-
-    def test_orientation_resolver_returns_enum_values(self):
-        cfg = OmegaConf.create({
-            "roll": "${orientation:ROLL}",
-            "euler": "${orientation:EULER}",
-            "quaternion": "${orientation:QUATERNION}",
-        })
-        assert cfg.roll == OrientationRepresentation.ROLL.value
-        assert cfg.euler == OrientationRepresentation.EULER.value
-        assert cfg.quaternion == OrientationRepresentation.QUATERNION.value
-
-    def test_rgb_backbone_resolver_returns_enum_values(self):
-        cfg = OmegaConf.create({
-            "resnet18": "${rgb_backbone:RESNET18}",
-            "dinov2_vits14": "${rgb_backbone:DINOV2_VITS14}",
-        })
-        assert cfg.resnet18 == RGBBackboneType.RESNET18.value
-        assert cfg.dinov2_vits14 == RGBBackboneType.DINOV2_VITS14.value
-
-    def test_precision_resolver_returns_enum_values(self):
-        cfg = OmegaConf.create({
-            "fp32": "${precision:FP32}",
-            "fp16_mixed": "${precision:FP16_MIXED}",
-            "bf16_mixed": "${precision:BF16_MIXED}",
-        })
-        assert cfg.fp32 == PrecisionType.FP32.value
-        assert cfg.fp16_mixed == PrecisionType.FP16_MIXED.value
-        assert cfg.bf16_mixed == PrecisionType.BF16_MIXED.value
-
-    def test_float32_matmul_resolver_returns_enum_values(self):
-        cfg = OmegaConf.create({
-            "highest": "${float32_matmul:HIGHEST}",
-            "medium": "${float32_matmul:MEDIUM}",
-        })
-        assert cfg.highest == Float32MatmulPrecision.HIGHEST.value
-        assert cfg.medium == Float32MatmulPrecision.MEDIUM.value
+    @pytest.mark.parametrize(
+        "resolver_name, member_name, expected_value",
+        ENUM_RESOLVER_CASES,
+        ids=[f"{r}:{m}" for r, m, _ in ENUM_RESOLVER_CASES],
+    )
+    def test_enum_resolver_returns_correct_value(
+        self, resolver_name, member_name, expected_value
+    ):
+        cfg = OmegaConf.create({"result": f"${{{resolver_name}:{member_name}}}"})
+        assert cfg.result == expected_value
 
     def test_invalid_enum_name_raises_interpolation_error(self):
         cfg = OmegaConf.create({"invalid": "${cameras:NONEXISTENT}"})
@@ -173,3 +143,62 @@ class TestEnumResolvers:
         })
         assert cfg.default_camera == Cameras.LEFT.value
         assert cfg.selected_camera == Cameras.LEFT.value
+
+
+@pytest.mark.unit
+class TestPathResolvers:
+
+    def test_env_resolver_reads_environment_variable(self):
+        with patch.dict(os.environ, {"TEST_VAR": "test_value"}):
+            cfg = OmegaConf.create({"val": "${env:TEST_VAR}"})
+            assert cfg.val == "test_value"
+
+    def test_env_resolver_returns_default_when_variable_missing(self):
+        with patch.dict(os.environ, {}, clear=True):
+            cfg = OmegaConf.create({"val": "${env:NONEXISTENT_VAR,fallback}"})
+            assert cfg.val == "fallback"
+
+    def test_checkpoint_dir_resolver_uses_env_variable(self):
+        with patch.dict(os.environ, {"VERSATIL_CHECKPOINT_DIR": "/data/checkpoints"}):
+            cfg = OmegaConf.create({"dir": "${checkpoint_dir:}"})
+            assert cfg.dir == "/data/checkpoints"
+
+    def test_checkpoint_dir_resolver_appends_subpath(self):
+        with patch.dict(os.environ, {"VERSATIL_CHECKPOINT_DIR": "/data/checkpoints"}):
+            cfg = OmegaConf.create({"dir": "${checkpoint_dir:experiment_1}"})
+            assert cfg.dir == str(Path("/data/checkpoints") / "experiment_1")
+
+    def test_checkpoint_dir_resolver_defaults_to_cwd(self):
+        with patch.dict(os.environ, {}, clear=True):
+            cfg = OmegaConf.create({"dir": "${checkpoint_dir:}"})
+            assert cfg.dir == "."
+
+    def test_zarr_dir_resolver_uses_env_variable(self):
+        with patch.dict(os.environ, {"VERSATIL_ZARR_DIR": "/data/zarr"}):
+            cfg = OmegaConf.create({"dir": "${zarr_dir:}"})
+            assert cfg.dir == "/data/zarr"
+
+    def test_zarr_dir_resolver_appends_subpath(self):
+        with patch.dict(os.environ, {"VERSATIL_ZARR_DIR": "/data/zarr"}):
+            cfg = OmegaConf.create({"dir": "${zarr_dir:my_dataset}"})
+            assert cfg.dir == str(Path("/data/zarr") / "my_dataset")
+
+    def test_cache_dir_resolver_uses_env_variable(self):
+        with patch.dict(os.environ, {"VERSATIL_CACHE_DIR": "/custom/cache"}):
+            cfg = OmegaConf.create({"dir": "${cache_dir:}"})
+            assert cfg.dir == "/custom/cache"
+
+    def test_cache_dir_resolver_defaults_to_home_cache(self):
+        with patch.dict(os.environ, {}, clear=True):
+            cfg = OmegaConf.create({"dir": "${cache_dir:}"})
+            assert cfg.dir == str(Path.home() / ".cache" / "versatil")
+
+    def test_pretrained_dir_resolver_uses_env_variable(self):
+        with patch.dict(os.environ, {"VERSATIL_PRETRAINED_DIR": "/models/pretrained"}):
+            cfg = OmegaConf.create({"dir": "${pretrained_dir:}"})
+            assert cfg.dir == "/models/pretrained"
+
+    def test_pretrained_dir_resolver_appends_subpath(self):
+        with patch.dict(os.environ, {"VERSATIL_PRETRAINED_DIR": "/models/pretrained"}):
+            cfg = OmegaConf.create({"dir": "${pretrained_dir:resnet}"})
+            assert cfg.dir == str(Path("/models/pretrained") / "resnet")

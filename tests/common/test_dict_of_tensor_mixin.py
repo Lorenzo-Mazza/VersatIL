@@ -30,7 +30,7 @@ def params_dict_factory(rng):
 
 
 @pytest.fixture
-def mixin_factory(params_dict_factory):
+def dict_of_tensor_mixin_factory(params_dict_factory):
     """Factory for creating DictOfTensorMixin instances."""
 
     def factory(
@@ -63,8 +63,8 @@ class TestDictOfTensorMixinInit:
 
 @pytest.mark.unit
 class TestDictOfTensorMixinDevice:
-    def test_device_matches_parameter_device(self, mixin_factory):
-        mixin = mixin_factory(keys=["weight"])
+    def test_device_matches_parameter_device(self, dict_of_tensor_mixin_factory):
+        mixin = dict_of_tensor_mixin_factory(keys=["weight"])
         assert mixin.device.type == "cpu"
 
 

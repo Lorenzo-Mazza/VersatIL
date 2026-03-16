@@ -53,7 +53,7 @@ def parse_args() -> argparse.Namespace:
         help="Port of the environment server.",
     )
     parser.add_argument(
-        "--temporal_agg",
+        "--temporal_aggregation",
         action="store_true",
         help="Enable temporal aggregation.",
     )
@@ -109,7 +109,7 @@ def main():
         policy_loader=policy_loader,
         observation_transport=observation_transport,
         action_transport=action_transport,
-        temporal_aggregation=args.temporal_agg,
+        temporal_aggregation=args.temporal_aggregation,
         timing_log=args.timing_log,
         update_rate_hz=args.update_frequency,
     )
