@@ -6,7 +6,7 @@ _target_: versatil.data.task.ObservationSpace
 observations_metadata:
   ${cameras:AGENTVIEW}:
     _target_: versatil.data.metadata.CameraMetadata
-    camera_key: ${cameras:IMAGE}
+    camera_key: ${raw_camera:IMAGE}
     dtype: uint8
     channels: 3
     image_width: 256
@@ -14,7 +14,7 @@ observations_metadata:
 
   ${cameras:EYE_IN_HAND}:
     _target_: versatil.data.metadata.CameraMetadata
-    camera_key: ${cameras:IMAGE_2}
+    camera_key: ${raw_camera:IMAGE_2}
     dtype: uint8
     channels: 3
     image_width: 256

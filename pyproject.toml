@@ -22,7 +22,6 @@ dependencies = [
   "h5py",
   "huggingface_hub",
   "hydra-core",
-  "imitation-learning-toolkit",
   "joblib==1.5.0",
   "matplotlib",
   "mypy",
@@ -51,6 +50,8 @@ dependencies = [
   "tqdm",
   "transformers==4.56.0",
   "triton==3.0.0",
+  "tso-robotics-sockets",
+  "versatil-constants",
   "wandb",
   "zarr",
 ]
@@ -64,7 +65,6 @@ explicit = true
 torch = { index = "pytorch" }
 torchaudio = { index = "pytorch" }
 torchvision = { index = "pytorch" }
-imitation-learning-toolkit = { git = "https://gitlab.com/nct_tso_public/imitation-learning-toolkit.git" }
 
 [tool.uv.extra-build-dependencies]
 flash-attn = ["setuptools", "psutil", "torch==2.4.0"]

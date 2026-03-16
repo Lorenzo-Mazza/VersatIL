@@ -467,7 +467,7 @@ class TestCameraMetadata:
             (Cameras.LEFT.value, does_not_raise()),
             (Cameras.RIGHT.value, does_not_raise()),
             (Cameras.DEPTH.value, does_not_raise()),
-            ("nonexistent_camera", pytest.raises(ValueError, match="has to be included in")),
+            ("nonexistent_camera", pytest.raises(ValueError, match="must be a valid raw camera key")),
         ],
     )
     def test_camera_key_validation(self, camera_key, expectation):

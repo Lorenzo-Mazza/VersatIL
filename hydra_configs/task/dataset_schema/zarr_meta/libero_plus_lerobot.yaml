@@ -37,7 +37,7 @@ observations:
 
   ${cameras:AGENTVIEW}:
     _target_: versatil.data.metadata.CameraMetadata
-    camera_key: ${cameras:FRONT}
+    camera_key: ${raw_camera:FRONT}
     dtype: uint8
     channels: 3
     image_width: 256
@@ -45,7 +45,7 @@ observations:
 
   ${cameras:EYE_IN_HAND}:
     _target_: versatil.data.metadata.CameraMetadata
-    camera_key: ${cameras:WRIST}
+    camera_key: ${raw_camera:WRIST}
     dtype: uint8
     channels: 3
     image_width: 256

@@ -49,68 +49,6 @@ def precomputed_action_metadata_factory() -> Callable[..., PrecomputedActionMeta
 
 
 @pytest.fixture
-def position_action_metadata_factory() -> Callable[..., PositionActionMetadata]:
-    """Factory for creating PositionActionMetadata instances."""
-
-    def factory(
-        frame: str = CoordinateSystem.ROBOT_BASE.value,
-        raw_data_column_keys: list[str] = None,
-        storage_dimension: int = 3,
-        prediction_dimension: int = 3,
-        needs_normalization: bool = True,
-        dtype: str = "float32",
-        slice_start: int = None,
-        slice_end: int = None,
-    ) -> PositionActionMetadata:
-        if raw_data_column_keys is None:
-            raw_data_column_keys = ["x", "y", "z"]
-        return PositionActionMetadata(
-            frame=frame,
-            raw_data_column_keys=raw_data_column_keys,
-            storage_dimension=storage_dimension,
-            prediction_dimension=prediction_dimension,
-            needs_normalization=needs_normalization,
-            dtype=dtype,
-            slice_start=slice_start,
-            slice_end=slice_end,
-        )
-
-    return factory
-
-
-@pytest.fixture
-def orientation_action_metadata_factory() -> Callable[..., OrientationActionMetadata]:
-    """Factory for creating OrientationActionMetadata instances."""
-
-    def factory(
-        frame: str = CoordinateSystem.ROBOT_BASE.value,
-        orientation_representation: str = OrientationRepresentation.ROLL.value,
-        raw_data_column_keys: list[str] = None,
-        storage_dimension: int = 1,
-        prediction_dimension: int = 1,
-        needs_normalization: bool = True,
-        dtype: str = "float32",
-        slice_start: int = None,
-        slice_end: int = None,
-    ) -> OrientationActionMetadata:
-        if raw_data_column_keys is None:
-            raw_data_column_keys = ["roll"]
-        return OrientationActionMetadata(
-            frame=frame,
-            orientation_representation=orientation_representation,
-            raw_data_column_keys=raw_data_column_keys,
-            storage_dimension=storage_dimension,
-            prediction_dimension=prediction_dimension,
-            needs_normalization=needs_normalization,
-            dtype=dtype,
-            slice_start=slice_start,
-            slice_end=slice_end,
-        )
-
-    return factory
-
-
-@pytest.fixture
 def dataset_metadata_factory() -> Callable[..., DatasetMetadata]:
     """Factory for creating DatasetMetadata instances."""
 

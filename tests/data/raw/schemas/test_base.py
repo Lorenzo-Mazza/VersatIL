@@ -169,7 +169,7 @@ class TestGetZarrArraySpecs:
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         observations = {
-            "cam": camera_metadata_factory(
+            camera_key: camera_metadata_factory(
                 camera_key=camera_key,
                 image_height=image_height,
                 image_width=image_width,
@@ -187,9 +187,9 @@ class TestGetZarrArraySpecs:
 
         specs = schema.get_zarr_array_specs()
 
-        assert specs["cam"]["shape"] == (0, image_height, image_width, channels)
-        assert specs["cam"]["chunks"] == (16, image_height, image_width, channels)
-        assert specs["cam"]["needs_compressor"] is True
+        assert specs[camera_key]["shape"] == (0, image_height, image_width, channels)
+        assert specs[camera_key]["chunks"] == (16, image_height, image_width, channels)
+        assert specs[camera_key]["needs_compressor"] is True
 
     @pytest.mark.parametrize(
         "dimension, frame",
@@ -333,7 +333,7 @@ class TestGetZarrArraySpecs:
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         observations = {
-            "camera": camera_metadata_factory(
+            Cameras.LEFT.value: camera_metadata_factory(
                 camera_key=Cameras.LEFT.value,
                 image_height=64,
                 image_width=64,
@@ -359,7 +359,7 @@ class TestGetZarrArraySpecs:
 
         specs = schema.get_zarr_array_specs()
 
-        assert set(specs.keys()) == {"camera", "position", "action"}
+        assert set(specs.keys()) == {Cameras.LEFT.value, "position", "action"}
 
     def test_empty_metadata_returns_empty_specs(
         self,
@@ -411,7 +411,7 @@ class TestGetZarrArraySpecs:
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         observations = {
-            "cam": camera_metadata_factory(
+            Cameras.LEFT.value: camera_metadata_factory(
                 camera_key=Cameras.LEFT.value,
                 image_height=64,
                 image_width=64,
@@ -429,4 +429,4 @@ class TestGetZarrArraySpecs:
 
         specs = schema.get_zarr_array_specs()
 
-        assert specs["cam"]["dtype"] == "uint8"
+        assert specs[Cameras.LEFT.value]["dtype"] == "uint8"

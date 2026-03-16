@@ -1,5 +1,6 @@
 """Tests for versatil.data.raw.zarr_meta module."""
 from collections.abc import Callable
+from contextlib import nullcontext as does_not_raise
 from unittest.mock import patch
 
 import pytest
@@ -10,6 +11,7 @@ from versatil.data.constants import (
     CoordinateSystem,
     GripperType,
     OrientationRepresentation,
+    RawCameraKey,
 )
 from versatil.data.metadata import (
     CameraMetadata,
@@ -134,7 +136,7 @@ class TestDatasetMetadataObservationProperties:
     @pytest.mark.parametrize(
         "property_name, expected_key, expected_type",
         [
-            ("cameras", "left_cam", CameraMetadata),
+            ("cameras", Cameras.LEFT.value, CameraMetadata),
             ("position_observations", "position", PositionObservationMetadata),
             ("orientation_observations", "orientation", OrientationObservationMetadata),
             ("gripper_observations", "gripper", GripperObservationMetadata),
@@ -172,7 +174,7 @@ class TestDatasetMetadataObservationProperties:
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         observations = {
-            "left_cam": camera_metadata_factory(camera_key=Cameras.LEFT.value),
+            Cameras.LEFT.value: camera_metadata_factory(camera_key=Cameras.LEFT.value),
             "position": position_observation_metadata_factory(
                 dimension=3, frame=frame
             ),
@@ -237,7 +239,7 @@ class TestDatasetMetadataObservationProperties:
                 binary_gripper_range=BinaryGripperRange.ZERO_ONE.value,
                 dimension=1,
             ),
-            "camera": camera_metadata_factory(camera_key=Cameras.LEFT.value),
+            Cameras.LEFT.value: camera_metadata_factory(camera_key=Cameras.LEFT.value),
         }
         metadata = dataset_metadata_factory(observations=observations)
 
@@ -258,7 +260,7 @@ class TestDatasetMetadataObservationProperties:
             needs_normalization=False,
         )
         observations = {
-            "camera": camera_metadata_factory(camera_key=Cameras.LEFT.value),
+            Cameras.LEFT.value: camera_metadata_factory(camera_key=Cameras.LEFT.value),
             "custom": custom_observation,
         }
         metadata = dataset_metadata_factory(observations=observations)
@@ -281,7 +283,7 @@ class TestDatasetMetadataObservationProperties:
         observations = {
             "custom": custom_observation,
             "position": position_observation_metadata_factory(dimension=3, frame=CoordinateSystem.ROBOT_BASE.value),
-            "camera": camera_metadata_factory(camera_key=Cameras.LEFT.value),
+            Cameras.LEFT.value: camera_metadata_factory(camera_key=Cameras.LEFT.value),
         }
         metadata = dataset_metadata_factory(observations=observations)
 
@@ -471,7 +473,7 @@ class TestDatasetMetadataUtilityMethods:
         camera_enum_values = [Cameras.LEFT.value, Cameras.RIGHT.value]
         observations = {}
         for i in range(num_cameras):
-            observations[f"cam_{i}"] = camera_metadata_factory(
+            observations[camera_enum_values[i]] = camera_metadata_factory(
                 camera_key=camera_enum_values[i]
             )
         for i in range(num_other_obs):
@@ -644,3 +646,45 @@ class TestDatasetMetadataUtilityMethods:
         metadata = dataset_metadata_factory(observations=observations)
 
         assert metadata.has_observation(key) is expected
+
+
+    @pytest.mark.parametrize(
+        "dict_key, raw_key, expectation",
+        [
+            (Cameras.LEFT.value, RawCameraKey.LEFT.value, does_not_raise()),
+            (Cameras.AGENTVIEW.value, RawCameraKey.IMAGE.value, does_not_raise()),
+            (Cameras.EYE_IN_HAND.value, RawCameraKey.IMAGE_2.value, does_not_raise()),
+            (Cameras.AGENTVIEW.value, RawCameraKey.FRONT.value, does_not_raise()),
+            (
+                Cameras.EYE_IN_HAND.value,
+                RawCameraKey.IMAGE.value,
+                pytest.raises(ValueError, match="which maps to"),
+            ),
+            (
+                Cameras.LEFT.value,
+                RawCameraKey.IMAGE_METAWORLD.value,
+                pytest.raises(ValueError, match="which maps to"),
+            ),
+        ],
+        ids=[
+            "tso_identity",
+            "libero_lerobot_agentview",
+            "libero_lerobot_eye_in_hand",
+            "libero_plus_front",
+            "mismatch_eye_in_hand_with_image",
+            "mismatch_left_with_metaworld",
+        ],
+    )
+    def test_camera_mapping_validation(
+        self,
+        dict_key: str,
+        raw_key: str,
+        expectation,
+        camera_metadata_factory: Callable[..., CameraMetadata],
+        dataset_metadata_factory: Callable[..., DatasetMetadata],
+    ):
+        observations = {
+            dict_key: camera_metadata_factory(camera_key=raw_key),
+        }
+        with expectation:
+            dataset_metadata_factory(observations=observations)

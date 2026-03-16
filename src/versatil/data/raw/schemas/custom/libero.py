@@ -114,7 +114,7 @@ class LiberoSchema(Hdf5DatasetSchema):
             data[zarr_key] = values
 
         for zarr_key, cam_metadata in self.metadata.cameras.items():
-            cam = cam_metadata.camera_key
+            cam = cam_metadata.raw_camera_key
             if cam not in obs_group:
                 raise ValueError(f"Camera key '{cam}' not found in HDF5 obs group")
             raw_images = obs_group[cam][:]
