@@ -1,5 +1,4 @@
 # @package _global_
-# Configuration for training a Cross-Attention Diffusion Transformer with flow matching on Libero dataset
 _target_: versatil.configs.main.MainConfig
 
 defaults:
@@ -10,12 +9,12 @@ defaults:
   - /task/dataloader: metaworld
   - /task/action_space: metaworld_mt50_precomputed
   - /task/observation_space: metaworld_mt50_rgb
-  - /training: ema
-  - /policy/encoding_pipeline: mono_rgb_language_encoder
-  - /policy/decoder: dit_cross_attention_transformer
-  - /policy/algorithm: flow_matching
-  - /policy/loss: regressionMSE_gripper
-  - /inference: default
+  - /training: default
+  - /policy/encoding_pipeline: mono_rgb_language_encoder_tiny
+  - /policy/decoder: action_transformer_language
+  - /policy/algorithm: behavioral_cloning
+  - /policy/loss: regression_continuous_gripper
+  - /inference: libero_lerobot
   - override /policy/decoder/heads@policy.decoder.action_heads: metaworld_mt50
   - _self_
 
@@ -33,10 +32,13 @@ experiment:
   checkpoint_every: 10
 
 training:
-  num_epochs: 200
-  early_stopping_patience: 100
+  num_epochs: 280
+  early_stopping_patience: 200
+  lr_schedule: null
   clip_gradient_norm: true
   clip_max_norm: 1.0
+
+
 
 policy:
   _target_: versatil.models.policy.Policy
@@ -46,24 +48,13 @@ policy:
   observation_horizon: ${task.observation_horizon}
   device: ${experiment.device}
   validate_loss_keys: true
-  loss:
-    loss_modules:
-      regression_loss:
-        action_keys:
-          - ${proprio_key:EE_POS_ACTION}
-      gripper_loss:
-        key: ${proprio_key:GRIPPER_STATE_ACTION}
-        bce_weight: 0.0
-        mse_weight: 0.05
-      trajectory_length:
-        action_key: ${proprio_key:EE_POS_ACTION}
   encoding_pipeline:
     encoders:
         left:
             input_keys:
               - ${cameras:AGENTVIEW}
         instruction:
-          model_name: ${language_model:BERT_BASE}
+          model_name: ${language_model:MINI_LM_L6}
   decoder:
       input_keys:
         - left_rgb
