@@ -19,7 +19,6 @@ from versatil.inference.inference_client import (
     EpisodeStatus,
     InferenceClient,
 )
-from versatil.inference.observation_buffer import ObservationBuffer
 from versatil.inference.observation_preprocessor import ObservationPreprocessor
 from versatil.inference.action_postprocessor import ActionPostprocessor
 from versatil.inference.policy_loader import PolicyLoader

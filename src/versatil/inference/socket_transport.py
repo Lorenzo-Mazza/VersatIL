@@ -1,14 +1,9 @@
 """Concrete transport implementations for inference client communication."""
 
 from tso_robotics_sockets import (
-    CompressionType,
     InferenceRequestKey,
-    InferenceResponseKey,
     ServerRoute,
-    ServerStatus,
     SocketClient,
-    TransportKey,
-    decompress_array,
 )
 
 
