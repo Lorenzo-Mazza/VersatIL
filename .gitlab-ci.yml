@@ -12,7 +12,7 @@ variables:
 
 # Reusable setup template
 .setup:
-  image: python:3.11-slim
+  image: python:3.11
   before_script:
     - pip install uv
     - |
@@ -37,7 +37,7 @@ variables:
 
 ruff-format:
   stage: lint
-  image: python:3.11-slim
+  image: python:3.11
   before_script:
     - pip install ruff==0.14.3
   script:
@@ -48,7 +48,7 @@ ruff-format:
 
 ruff-lint:
   stage: lint
-  image: python:3.11-slim
+  image: python:3.11
   before_script:
     - pip install ruff==0.14.3
   script:
@@ -125,7 +125,7 @@ coverage:
 
 publish-pypi:
   stage: publish
-  image: python:3.11-slim
+  image: python:3.11
   before_script:
     - pip install build twine
   script:
