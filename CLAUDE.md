@@ -13,7 +13,7 @@ VersatIL: Imitation Learning framework for robotic manipulation. The codebase pr
 ```bash
 # Create environment (Mamba recommended for faster installation)
 mamba env create -f environment.yml
-mamba activate surg-il
+mamba activate versatil
 UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
 ```
 
@@ -40,30 +40,37 @@ pytest -m "requires_gpu"   # GPU-required tests
 pytest -m "not slow"       # Skip slow tests
 ```
 
-### Training (Legacy Endpoints - Being Replaced)
+### Training
 
 ```bash
-# Current training endpoints (legacy - will be deprecated)
-python src/endpoints/diffusion_endpoint.py
-python src/endpoints/flow_matching_endpoint.py
-python src/endpoints/act_endpoint.py
-python src/endpoints/phase_act_endpoint.py
+# Train with an end-to-end config (Hydra)
+python -m versatil.endpoints.train --config-name end_to_end_training_runs/bowel_retraction/act
 
-# Training with custom JSON config
-python src/endpoints/start_training.py --custom_config_path="/path/to/config.json"
+# Override parameters from CLI
+python -m versatil.endpoints.train \
+    --config-name end_to_end_training_runs/bowel_retraction/act \
+    task.dataloader.batch_size=64 training.optimizer.lr=1e-4
 
-# Distributed training via SLURM
-sbatch run_distributed.sh  # Set export NCCL_P2P_DISABLE=1
+# Resume from checkpoint
+python -m versatil.endpoints.train \
+    --config-name end_to_end_training_runs/bowel_retraction/act \
+    experiment.resume_from=/path/to/checkpoint.ckpt
 ```
 
-### Code Formatting
+### Code Formatting and Linting
 
 ```bash
-# Format code with Black (line length 88, Python 3.11)
-black src/ tests/
+# Format code with Ruff (line length 88, Python 3.11)
+ruff format src/ tests/
 
 # Check formatting
-black --check src/ tests/
+ruff format --check src/ tests/
+
+# Lint
+ruff check src/ tests/
+
+# Lint and auto-fix
+ruff check --fix src/ tests/
 ```
 
 ## VersatIL Architecture (`src/versatil/`)
@@ -387,7 +394,7 @@ Raw Episodes (CSV)
 - **EpisodicDataset** (`src/versatil/data/episodic_dataset.py`): Loads temporal windows from Zarr
 - **SampleBuilder** (`src/versatil/data/sample_builder.py`): Constructs samples with obs/action
 - **ActionProcessor** (`src/versatil/data/action_processor.py`): Computes actions from proprioceptive data
-- **Normalizer** (`src/versatil/data/normalize/normalizer.py`): Per-key min-max normalization
+- **Normalizer** (`src/versatil/data/normalization/normalizer.py`): Per-key min-max normalization
 
 #### 6. Hydra Configuration System
 
@@ -453,7 +460,6 @@ Plus a separate `action_metadata` dict with `ActionMetadataField` entries (dimen
 
 ## Code Style Requirements
 
-From `.github/copilot-instructions.md`:
 - **Always use Google-style docstrings**: Keep concise, avoid LLM patterns (no numbered lists, no excessive words/examples)
 - **Add type hints to all function signatures**
 - **Never use inline imports** (all imports at module top)
@@ -468,7 +474,7 @@ From `.github/copilot-instructions.md`:
 - Avoid plain hardcoded strings. Use constant string values through Enum.value
 
 Additional standards:
-- Black formatter (line length 88, Python 3.11 target)
+- Ruff formatter and linter (line length 88, Python 3.11 target). Configuration in `pyproject.toml`.
 - Shared domain constants (`ActionComponent`, `ActionMetadataField`, `ObsKey`, `GripperType`, `OrientationRepresentation`, etc.) come from the `versatil-constants` PyPI package. Import directly from `versatil_constants.shared`, `versatil_constants.tso`, `versatil_constants.libero`, or `versatil_constants.metaworld`. VersatIL-internal enums (`Cameras`, `ProprioceptiveType`, `TokenizerType`, etc.) live in `versatil.data.constants`.
 - Socket protocol keys (`ServerRoute`, `InferenceRequestKey`, `CompressionType`, etc.) come from the `tso-robotics-sockets` PyPI package.
 - Prefer dataclasses for configurations
@@ -500,7 +506,7 @@ tests/
     └── test_integration.py          # Real ZMQ socket end-to-end tests
 ```
 
-**Test markers** (`tests/pytest.in`):
+**Test markers** (defined in `pyproject.toml`):
 - `@pytest.mark.unit`: Fast tests with mocked dependencies (default)
 - `@pytest.mark.integration`: Slower tests with real model downloads
 - `@pytest.mark.slow`: Very slow tests
@@ -563,12 +569,7 @@ Set `WANDB_API_KEY` environment variable. The workspace logs:
 
 ## Distributed Training (SLURM)
 
-Environment variables parsed by workspace:
-- `WORLD_SIZE`: Total processes
-- `SLURM_PROCID`: Global rank
-- `SLURM_GPUS_ON_NODE`: GPUs per node
-- `SLURM_CPUS_PER_TASK`: Workers per GPU
-
+Not yet supported. Needs to be re-integrated with the current workspace.
 Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 
 ## Common Pitfalls
@@ -589,14 +590,12 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 Fixes:
 - Add input shape validation to `EncodingMixin` — all image encoders silently accept wrong-dimensioned tensors (e.g. no batch dim). Add a shared `_unpack_temporal` method that validates 4D/5D and handles the `(B*T, C, H, W)` reshape, replacing the duplicated `if img.dim() == 5` pattern in every encoder's `forward`.
 Extensions:
-- The explainer is buggy and hardcoded. It needs a refactoring to fit into the new architecture as modular component:
-The explain endpoint should be agnostic of the data format (right now it assumes CSV Schema).
-- Distributed training needs to be re-integrated with the new workspace (currently broken).
+- The explainer is buggy and hardcoded. It needs a refactoring to fit into the new architecture as modular component: the explain endpoint should be agnostic of the data format (right now it assumes CSV Schema).
+- Distributed training needs to be re-integrated with the new workspace.
 - Quantize package needs to be developed.
 - Integrate history buffer of proprioceptive observation only + uniform masking for causal confusion (https://arxiv.org/pdf/1905.11979)
-- Verify compliance to ruff and introduce mypy and ruff in the ReadMe and in the codebase.
-- Introduce pre-commit hooks
-- Write proper changelog, etc.
+- Introduce pre-commit hooks.
+- Update README Code Style section to reference Ruff instead of Black.
 
 ## For future versions
 - **Implement LoRA config for parameter-efficient fine-tuning**:

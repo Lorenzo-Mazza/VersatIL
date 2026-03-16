@@ -79,6 +79,7 @@ def parse_args() -> argparse.Namespace:
 
 def main():
     """Main entry point for inference endpoint."""
+    logging.basicConfig(level=logging.INFO)
     args = parse_args()
     if args.device:
         device = torch.device(args.device)
