@@ -15,7 +15,7 @@ def _iter_lerobot_episodes(
     total_episodes: int,
     resizer: A.Resize | A.NoOp,
     depth_resizer: A.Resize | A.NoOp,
-) -> Generator[dict[str, np.ndarray], None, None]:
+) -> Generator[dict[str, np.ndarray]]:
     """Yield episode data dicts from a LeRobot dataset."""
     for episode_id in range(total_episodes):
         yield schema.extract_episode(
@@ -32,9 +32,7 @@ def create_replay_buffer_from_lerobot(schema: LeRobotDatasetSchemaV30) -> None:
     cameras = schema.metadata.cameras
     if cameras:
         first_cam = next(iter(cameras.values()))
-        resizer = A.Resize(
-            height=first_cam.image_height, width=first_cam.image_width
-        )
+        resizer = A.Resize(height=first_cam.image_height, width=first_cam.image_width)
         depth_resizer = A.Resize(
             height=first_cam.image_height,
             width=first_cam.image_width,

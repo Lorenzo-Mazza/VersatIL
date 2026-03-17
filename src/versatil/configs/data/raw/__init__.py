@@ -1,6 +1,6 @@
 from versatil.configs.data.raw.schema import (
-    DatasetSchemaConfig,
     CsvDatasetSchemaConfig,
+    DatasetSchemaConfig,
     Hdf5DatasetSchemaConfig,
     LeRobotDatasetSchemaConfig,
 )

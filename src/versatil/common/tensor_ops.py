@@ -2,6 +2,7 @@
 A collection of utilities for working with nested tensor structures consisting
 of numpy arrays and torch tensors.
 """
+
 import collections
 import functools
 from collections.abc import Callable
@@ -14,7 +15,7 @@ from torch import nn
 def dict_apply(
     x: dict[str, torch.Tensor], func: Callable[[torch.Tensor], torch.Tensor]
 ) -> dict[str, torch.Tensor]:
-    result = dict()
+    result = {}
     for key, value in x.items():
         if isinstance(value, dict):
             result[key] = dict_apply(value, func)
@@ -24,7 +25,11 @@ def dict_apply(
 
 
 def pad_remaining_dims(x, target):
-    assert x.shape == target.shape[: len(x.shape)]
+    if x.shape != target.shape[: len(x.shape)]:
+        raise ValueError(
+            f"Shape mismatch: x.shape {x.shape} is not a prefix of "
+            f"target.shape {target.shape}"
+        )
     return x.reshape(x.shape + (1,) * (len(target.shape) - len(x.shape)))
 
 
@@ -44,8 +49,8 @@ def dict_apply_reduce(
     x: list[dict[str, torch.Tensor]],
     reduce_func: Callable[[list[torch.Tensor]], torch.Tensor],
 ) -> dict[str, torch.Tensor]:
-    result = dict()
-    for key in x[0].keys():
+    result = {}
+    for key in x[0]:
         result[key] = reduce_func([x_[key] for x_ in x])
     return result
 
@@ -80,13 +85,17 @@ def replace_submodules(
             parent_module[int(k)] = tgt_module
         else:
             setattr(parent_module, k, tgt_module)
-    # verify that all BN are replaced
-    bn_list = [
+    # verify that all matching modules are replaced
+    remaining = [
         k.split(".")
         for k, m in root_module.named_modules(remove_duplicate=True)
         if predicate(m)
     ]
-    assert len(bn_list) == 0
+    if len(remaining) != 0:
+        raise RuntimeError(
+            f"Failed to replace all matching submodules. "
+            f"{len(remaining)} modules still match the predicate."
+        )
     return root_module
 
 
@@ -119,9 +128,21 @@ def recursive_dict_list_tuple_apply(x, type_func_dict):
     Returns:
         y (dict or list or tuple): new nested dict-list-tuple
     """
-    assert list not in type_func_dict
-    assert tuple not in type_func_dict
-    assert dict not in type_func_dict
+    if list in type_func_dict:
+        raise TypeError(
+            "type_func_dict must not contain 'list' as a key. "
+            "Lists are traversed recursively."
+        )
+    if tuple in type_func_dict:
+        raise TypeError(
+            "type_func_dict must not contain 'tuple' as a key. "
+            "Tuples are traversed recursively."
+        )
+    if dict in type_func_dict:
+        raise TypeError(
+            "type_func_dict must not contain 'dict' as a key. "
+            "Dicts are traversed recursively."
+        )
 
     if isinstance(x, (dict, collections.OrderedDict)):
         new_x = (
@@ -596,10 +617,18 @@ def reshape_dimensions_single(x, begin_axis, end_axis, target_dims):
     Returns:
         y (torch.Tensor): reshaped tensor
     """
-    assert begin_axis <= end_axis
-    assert begin_axis >= 0
-    assert end_axis < len(x.shape)
-    assert isinstance(target_dims, (tuple, list))
+    if begin_axis > end_axis:
+        raise ValueError(f"begin_axis ({begin_axis}) must be <= end_axis ({end_axis})")
+    if begin_axis < 0:
+        raise ValueError(f"begin_axis ({begin_axis}) must be >= 0")
+    if end_axis >= len(x.shape):
+        raise ValueError(
+            f"end_axis ({end_axis}) must be < number of dimensions ({len(x.shape)})"
+        )
+    if not isinstance(target_dims, (tuple, list)):
+        raise TypeError(
+            f"target_dims must be a tuple or list, got {type(target_dims).__name__}"
+        )
     s = x.shape
     final_s: list[int] = []
     for i in range(len(s)):
@@ -628,11 +657,11 @@ def reshape_dimensions(x, begin_axis, end_axis, target_dims):
     return recursive_dict_list_tuple_apply(
         x,
         {
-            torch.Tensor: lambda x, b=begin_axis, e=end_axis, t=target_dims: reshape_dimensions_single(
-                x, begin_axis=b, end_axis=e, target_dims=t
+            torch.Tensor: lambda x, b=begin_axis, e=end_axis, t=target_dims: (
+                reshape_dimensions_single(x, begin_axis=b, end_axis=e, target_dims=t)
             ),
-            np.ndarray: lambda x, b=begin_axis, e=end_axis, t=target_dims: reshape_dimensions_single(
-                x, begin_axis=b, end_axis=e, target_dims=t
+            np.ndarray: lambda x, b=begin_axis, e=end_axis, t=target_dims: (
+                reshape_dimensions_single(x, begin_axis=b, end_axis=e, target_dims=t)
             ),
             type(None): lambda x: x,
         },
@@ -678,8 +707,14 @@ def expand_at_single(x, size, dim):
     Returns:
         y (torch.Tensor): expanded tensor
     """
-    assert dim < x.ndimension()
-    assert x.shape[dim] == 1
+    if dim >= x.ndimension():
+        raise ValueError(
+            f"dim ({dim}) must be < number of dimensions ({x.ndimension()})"
+        )
+    if x.shape[dim] != 1:
+        raise ValueError(
+            f"Dimension {dim} must have size 1 for expansion, got {x.shape[dim]}"
+        )
     expand_dims = [-1] * x.ndimension()
     expand_dims[dim] = size
     return x.expand(*expand_dims)
@@ -745,8 +780,16 @@ def named_reduce_single(x, reduction, dim):
     Returns:
         y (torch.Tensor): reduced tensor
     """
-    assert x.ndimension() > dim
-    assert reduction in ["sum", "max", "mean", "flatten"]
+    if x.ndimension() <= dim:
+        raise ValueError(
+            f"Tensor has {x.ndimension()} dimensions, "
+            f"but dim ({dim}) requires at least {dim + 1}"
+        )
+    valid_reductions = ["sum", "max", "mean", "flatten"]
+    if reduction not in valid_reductions:
+        raise ValueError(
+            f"reduction must be one of {valid_reductions}, got '{reduction}'"
+        )
     if reduction == "flatten":
         x = flatten(x, begin_axis=dim)
     elif reduction == "max":
@@ -797,8 +840,13 @@ def gather_along_dim_with_dim_single(x, target_dim, source_dim, indices):
     Returns:
         y (torch.Tensor): gathered tensor, with dimension @target_dim indexed out
     """
-    assert len(indices.shape) == 1
-    assert x.shape[source_dim] == indices.shape[0]
+    if len(indices.shape) != 1:
+        raise ValueError(f"indices must be 1D, got shape {indices.shape}")
+    if x.shape[source_dim] != indices.shape[0]:
+        raise ValueError(
+            f"x.shape[{source_dim}] ({x.shape[source_dim]}) must match "
+            f"indices.shape[0] ({indices.shape[0]})"
+        )
 
     # unsqueeze in all dimensions except the source dimension
     new_shape = [1] * x.ndimension()
@@ -834,8 +882,8 @@ def gather_along_dim_with_dim(x, target_dim, source_dim, indices):
     """
     return map_tensor(
         x,
-        lambda y, t=target_dim, s=source_dim, i=indices: gather_along_dim_with_dim_single(
-            y, t, s, i
+        lambda y, t=target_dim, s=source_dim, i=indices: (
+            gather_along_dim_with_dim_single(y, t, s, i)
         ),
     )
 
@@ -887,10 +935,14 @@ def pad_sequence_single(seq, padding, batched=False, pad_same=True, pad_values=N
     Returns:
         padded sequence (np.ndarray or torch.Tensor)
     """
-    assert isinstance(seq, (np.ndarray, torch.Tensor))
-    assert pad_same or pad_values is not None
-    if pad_values is not None:
-        assert isinstance(pad_values, float)
+    if not isinstance(seq, (np.ndarray, torch.Tensor)):
+        raise TypeError(
+            f"seq must be np.ndarray or torch.Tensor, got {type(seq).__name__}"
+        )
+    if not pad_same and pad_values is None:
+        raise ValueError("pad_values must be provided when pad_same is False")
+    if pad_values is not None and not isinstance(pad_values, float):
+        raise TypeError(f"pad_values must be a float, got {type(pad_values).__name__}")
     repeat_func = np.repeat if isinstance(seq, np.ndarray) else torch.repeat_interleave
     concat_func = np.concatenate if isinstance(seq, np.ndarray) else torch.cat
     ones_like_func = np.ones_like if isinstance(seq, np.ndarray) else torch.ones_like
@@ -900,13 +952,15 @@ def pad_sequence_single(seq, padding, batched=False, pad_same=True, pad_values=N
     end_pad = []
 
     if padding[0] > 0:
-        pad = seq[[0]] if pad_same else ones_like_func(seq[[0]]) * pad_values  # type: ignore[arg-type]
-        begin_pad.append(repeat_func(pad, padding[0], seq_dim))  # type: ignore[arg-type]
+        first_element = seq[:, [0]] if batched else seq[[0]]
+        pad = first_element if pad_same else ones_like_func(first_element) * pad_values
+        begin_pad.append(repeat_func(pad, padding[0], seq_dim))
     if padding[1] > 0:
-        pad = seq[[-1]] if pad_same else ones_like_func(seq[[-1]]) * pad_values  # type: ignore[arg-type]
-        end_pad.append(repeat_func(pad, padding[1], seq_dim))  # type: ignore[arg-type]
+        last_element = seq[:, [-1]] if batched else seq[[-1]]
+        pad = last_element if pad_same else ones_like_func(last_element) * pad_values
+        end_pad.append(repeat_func(pad, padding[1], seq_dim))
 
-    return concat_func(begin_pad + [seq] + end_pad, seq_dim)  # type: ignore[arg-type]
+    return concat_func(begin_pad + [seq] + end_pad, seq_dim)
 
 
 def pad_sequence(seq, padding, batched=False, pad_same=True, pad_values=None):
@@ -927,11 +981,11 @@ def pad_sequence(seq, padding, batched=False, pad_same=True, pad_values=None):
     return recursive_dict_list_tuple_apply(
         seq,
         {
-            torch.Tensor: lambda x, p=padding, b=batched, ps=pad_same, pv=pad_values: pad_sequence_single(
-                x, p, b, ps, pv
+            torch.Tensor: lambda x, p=padding, b=batched, ps=pad_same, pv=pad_values: (
+                pad_sequence_single(x, p, b, ps, pv)
             ),
-            np.ndarray: lambda x, p=padding, b=batched, ps=pad_same, pv=pad_values: pad_sequence_single(
-                x, p, b, ps, pv
+            np.ndarray: lambda x, p=padding, b=batched, ps=pad_same, pv=pad_values: (
+                pad_sequence_single(x, p, b, ps, pv)
             ),
             type(None): lambda x: x,
         },
@@ -948,7 +1002,8 @@ def assert_size_at_dim_single(x, size, dim, msg):
         dim (int): dimension to check
         msg (str): text to display if assertion fails
     """
-    assert x.shape[dim] == size, msg
+    if x.shape[dim] != size:
+        raise ValueError(msg)
 
 
 def assert_size_at_dim(x, size, dim, msg):
@@ -997,7 +1052,8 @@ def list_of_flat_dict_to_dict_of_list(list_of_dict):
     Returns:
         dict_of_list (dict): dictionary of lists
     """
-    assert isinstance(list_of_dict, list)
+    if not isinstance(list_of_dict, list):
+        raise TypeError(f"Expected a list, got {type(list_of_dict).__name__}")
     dic: collections.OrderedDict[str, list] = collections.OrderedDict()
     for i in range(len(list_of_dict)):
         for k in list_of_dict[i]:
@@ -1039,7 +1095,8 @@ def flatten_nested_dict_list(d, parent_key="", sep="_", item_key=""):
     elif isinstance(d, dict):
         new_key = parent_key + sep + item_key if len(parent_key) > 0 else item_key
         for k, v in d.items():
-            assert isinstance(k, str)
+            if not isinstance(k, str):
+                raise TypeError(f"Dict keys must be strings, got {type(k).__name__}")
             items.extend(flatten_nested_dict_list(v, new_key, sep=sep, item_key=k))
         return items
     else:
@@ -1096,7 +1153,9 @@ def get_module_by_path(module: nn.Module, path: list[int | str]) -> nn.Module:
     Returns:
         nn.Module: The module at the specified path.
     """
-    return functools.reduce(lambda m, p: m[p] if isinstance(p, int) else getattr(m, p), path, module)  # type: ignore[index]
+    return functools.reduce(
+        lambda m, p: m[p] if isinstance(p, int) else getattr(m, p), path, module
+    )
 
 
 def set_module_by_path(

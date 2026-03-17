@@ -1,24 +1,16 @@
 """GPT-style transformer decoder with KV cache support."""
 
+import math
+
 import torch
 import torch.nn as nn
-import math
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.transformer.masking import create_full_padding_mask
 from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.transformer.decoder_layer import TransformerDecoderLayer
-from versatil.models.layers.transformer.kv_cache import (
-    DecoderKVCache,
-    LayerKVCache,
-    initialize_decoder_cache,
-)
 from versatil.models.layers.normalization.factory import create_normalization_layer
-from versatil.models.layers.transformer.positional_encoding import (
-    create_positional_encoding,
-)
+from versatil.models.layers.normalization.rms_norm import RMSNorm
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
@@ -28,8 +20,16 @@ from versatil.models.layers.positional_encoding.rotary import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
 )
-from versatil.models.layers.normalization.rms_norm import RMSNorm
-
+from versatil.models.layers.transformer.decoder_layer import TransformerDecoderLayer
+from versatil.models.layers.transformer.kv_cache import (
+    DecoderKVCache,
+    LayerKVCache,
+    initialize_decoder_cache,
+)
+from versatil.models.layers.transformer.masking import create_full_padding_mask
+from versatil.models.layers.transformer.positional_encoding import (
+    create_positional_encoding,
+)
 
 RESIDUAL_STREAM_FLAG = "SQUARE_ROOT_WEIGHT"  # Used for initialization flag
 
@@ -255,7 +255,9 @@ class GPTDecoder(nn.Module):
             self.positional_encoding,
             (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D),
         ):
-            hidden_states += self.positional_encoding(hidden_states)
+            hidden_states = hidden_states + self.positional_encoding(
+                hidden_states, offset=cache_length
+            )
 
         cross_kv_per_layer = None
         if self.use_cross_attention:

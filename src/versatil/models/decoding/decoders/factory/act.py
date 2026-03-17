@@ -8,14 +8,14 @@ from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.constants import FeatureType
+from versatil.models.decoding.constants import FeatureType
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer import Transformer
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding2D,
 )

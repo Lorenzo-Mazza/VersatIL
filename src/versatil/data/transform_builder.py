@@ -5,15 +5,14 @@ import torch
 
 from versatil.common.tensor_ops import tensor_to_str
 from versatil.configs.data.tokenizer import TokenizationConfig
-from versatil.data.metadata import (
-    PositionObservationMetadata,
-    ActionMetadata,
-    OnTheFlyActionMetadata,
-)
-from versatil.data.task import ObservationSpace
 from versatil.data.action_processor import ActionProcessor
 from versatil.data.constants import (
     Cameras,
+)
+from versatil.data.metadata import (
+    ActionMetadata,
+    OnTheFlyActionMetadata,
+    PositionObservationMetadata,
 )
 from versatil.data.normalization.image_normalizer import (
     get_depth_image_normalizer,
@@ -21,9 +20,10 @@ from versatil.data.normalization.image_normalizer import (
 )
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.preprocessing.replay_buffer import ReplayBuffer
-from versatil.data.tokenization.tokenizer import Tokenizer
-from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
+from versatil.data.task import ObservationSpace
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
+from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
+from versatil.data.tokenization.tokenizer import Tokenizer
 
 
 class TransformBuilder:
@@ -80,14 +80,14 @@ class TransformBuilder:
         self.min_kinematics_range = min_kinematics_range
 
     def create_normalizer_and_tokenizer(
-        self, device: torch.device | None = None, **kwargs
+        self,
+        device: torch.device | None = None,
     ) -> tuple[LinearNormalizer, Tokenizer | None]:
         """Create and fit normalizer and optionally tokenizer to data.
         Pipeline: Raw data → Winsorize → Normalize → Tokenize
 
         Args:
             device: Target device for tensors
-            **kwargs: Additional arguments for normalizer fitting
 
         Returns:
             Tuple of (normalizer, tokenizer) where tokenizer is None if not configured
@@ -113,7 +113,6 @@ class TransformBuilder:
             action_data=valid_action_data,
             action_meta=action_meta,
             device=device,
-            **kwargs,
         )
         tokenizer = None
         if self.tokenization_config and (
@@ -151,7 +150,6 @@ class TransformBuilder:
         action_meta: dict[str, ActionMetadata],
         device: torch.device | None = None,
         winsorize_depth: bool = True,
-        **kwargs,
     ) -> LinearNormalizer:
         """Create and fit normalizer for this dataset.
 
@@ -160,7 +158,6 @@ class TransformBuilder:
             action_meta: Action metadata for fitting
             device: Target device for tensors
             winsorize_depth: Apply winsorization to depth values
-            **kwargs: Additional arguments for normalizer fitting
 
         Returns:
             Fitted LinearNormalizer instance
@@ -196,7 +193,6 @@ class TransformBuilder:
             clamp_range=self.clamp_kinematics_range,
             min_std=self.min_kinematics_std,
             min_range=self.min_kinematics_range,
-            **kwargs,
         )
         self._setup_image_normalizers(normalizer, device, winsorize_depth)
         self._log_normalized_proprio_stats(normalizer, data_to_normalize)
@@ -215,7 +211,7 @@ class TransformBuilder:
             device: Target device
             winsorize_depth: Apply winsorization to depth
         """
-        for camera_key, camera_meta in self.observation_space.cameras.items():
+        for camera_key, _camera_meta in self.observation_space.cameras.items():
             if camera_key == Cameras.DEPTH.value:
                 depth_stats = self._compute_depth_stats_streaming(
                     camera_key, winsorize_depth
@@ -247,7 +243,7 @@ class TransformBuilder:
             Dictionary with min, max, mean, std statistics (on clipped data if winsorized)
         """
         depth_array = self.replay_buffer[camera_key]
-        n_frames = len(depth_array)
+        n_frames = depth_array.shape[0]
         total_pixels = depth_array.size
         p_lower, p_upper = None, None
         if winsorize and self.depth_winsorize_quantiles:
@@ -302,7 +298,7 @@ class TransformBuilder:
                 delta = chunk_mean - global_mean
                 new_count = global_count + n
                 global_mean += delta * n / new_count
-                global_m2 += chunk_m2 + delta ** 2 * global_count * n / new_count
+                global_m2 += chunk_m2 + delta**2 * global_count * n / new_count
                 global_count = new_count
         if global_count == 0:
             return {"min": float("nan"), "max": float("nan"), "mean": 0.0, "std": 0.0}
@@ -520,7 +516,7 @@ class TransformBuilder:
                 logging.info(
                     f"Winsorized {key} to [{lower_q:.3f}, {upper_q:.3f}] quantiles - "
                     f"clipped {n_clipped}/{data.size} values "
-                    f"({100*n_clipped/data.size:.2f}%)"
+                    f"({100 * n_clipped / data.size:.2f}%)"
                 )
         return winsorized
 

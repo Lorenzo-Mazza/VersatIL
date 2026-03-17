@@ -9,8 +9,9 @@ This tokenizer:
 """
 
 import logging
-from typing import Any
 from pathlib import Path
+from typing import Any
+
 import numpy as np
 import torch
 from transformers import AutoTokenizer
@@ -157,9 +158,7 @@ class ObservationTokenizer:
         "Task: grasp needle, proprio robot frame: 12 34 56, gripper state: 78 90;"
         """
         first_val = next(iter(observations.values()))
-        if isinstance(first_val, torch.Tensor):
-            batch_size = first_val.shape[0]
-        elif isinstance(first_val, np.ndarray):
+        if isinstance(first_val, (torch.Tensor, np.ndarray)):
             batch_size = first_val.shape[0]
         elif isinstance(first_val, list):
             batch_size = len(first_val)
@@ -194,7 +193,10 @@ class ObservationTokenizer:
                                 else " ".join(text_list)
                             )
                     else:
-                        assert isinstance(data, str)
+                        if not isinstance(data, str):
+                            raise TypeError(
+                                f"Expected str for language data, got {type(data)}"
+                            )
                         text = data
 
                     cleaned = text.lower().strip().replace("_", " ").replace("\n", " ")
@@ -217,7 +219,7 @@ class ObservationTokenizer:
                     else:
                         # Use raw float values as strings
                         sample_str = " ".join(
-                            map(lambda x: f"{x:.3f}", sample.flatten().tolist())
+                            f"{x:.3f}" for x in sample.flatten().tolist()
                         )
 
                     key_readable = key.replace("_", " ")

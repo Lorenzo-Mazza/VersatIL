@@ -6,25 +6,25 @@ It uses a GPT-style autoregressive decoder (only self-attention) to generate seq
 import torch
 import torch.nn as nn
 
-from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.constants import SampleKey
+from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import Tokenizer
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_masking import make_attention_mask
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.transformer.autoregressive_decoder import GPTDecoder
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
 from versatil.models.layers.positional_encoding.sinusoidal import (
-    SinusoidalPositionalEncoding2D,
     SinusoidalPositionalEncoding1D,
+    SinusoidalPositionalEncoding2D,
 )
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
+from versatil.models.layers.transformer.autoregressive_decoder import GPTDecoder
 
 
 class GPTActionTransformer(ActionDecoder):
@@ -305,7 +305,7 @@ class GPTActionTransformer(ActionDecoder):
         )  # (B, query_len, emb_dim)
         if full_token_sequence.shape[1] > self.max_seq_len:
             raise ValueError(
-                f"Input token length {full_token_sequence.shape[1]} >= max_seq_len {self.max_seq_len}. "
+                f"Input token length {full_token_sequence.shape[1]} > max_seq_len {self.max_seq_len}. "
                 "No room for any action tokens. "
                 "Consider increasing max_seq_len or reducing feature token count."
             )
@@ -318,7 +318,12 @@ class GPTActionTransformer(ActionDecoder):
             use_cache=False,
             self_attention_mask=full_attention_mask,
         )  # (B, query_len, D)
-        action_outputs = decoder_output[:, prefix_len:, :]  # (B, action_token_len, D)
+        # Shift alignment: grabs outputs from the last feature to the penultimate action so step t predicts target t+1.
+        # NB: This is crucial for correct teacher forcing without information leakage from future tokens.
+        # The first action token attends to all feature tokens but not future action tokens, etc.
+        action_outputs = decoder_output[
+            :, prefix_len - 1 : -1, :
+        ]  # (B, action_token_len, D)
         logits = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value](
             action_outputs
         )  # (B, action_token_len, vocab_size)
@@ -376,13 +381,15 @@ class GPTActionTransformer(ActionDecoder):
                 next_token = torch.multinomial(
                     probs.squeeze(-1), num_samples=1
                 )  # (B, 1)
+            generated_tokens.append(next_token)
+            if (next_token == self.tokenizer.eos_token_id).all():  # Check across batch
+                break
             next_token_embedding = self.token_embedding(
                 next_token
             )  # (B, 1, embedding_dimension)
-            generated_tokens.append(next_token)
 
         return {
             DecoderOutputKey.PREDICTED_ACTION_TOKENS.value: torch.cat(
                 generated_tokens, dim=1
-            )  # (B, max_seq_len)
+            )  # (B, num_generated_tokens)
         }

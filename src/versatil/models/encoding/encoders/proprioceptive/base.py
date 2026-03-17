@@ -80,8 +80,8 @@ class ProprioceptiveEncoder(Encoder):
         # Build network if not already built, and move to same device as input
         if self.network is None:
             self._build_network(input_dim)
-            # Move network to same device as input tensor
-            assert self.network is not None, "Network should be built by _build_network"
+            if self.network is None:
+                raise RuntimeError("Network should be built by _build_network")
             self.network = self.network.to(state.device)
         has_time = False
         if state.dim() == 3:

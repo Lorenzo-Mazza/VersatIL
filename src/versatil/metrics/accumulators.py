@@ -1,4 +1,5 @@
 """Metrics accumulator for tracking training and validation metrics."""
+
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -155,7 +156,7 @@ class MetricsAccumulator:
         """
         # TODO: drop support for multiple expert usage keys, it's unnecessary complexity
         expert_usages = {}
-        for key in self.metadata.keys():
+        for key in self.metadata:
             if key == MetadataKey.EXPERT_USAGE.value:
                 all_usage = torch.stack(self.metadata[key], dim=0)
                 expert_usages[key] = all_usage.float().mean(dim=0).numpy()

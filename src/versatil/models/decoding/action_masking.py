@@ -1,4 +1,5 @@
 """Attention masking for models with bidirectional prefix and causal action tokens."""
+
 import torch
 
 
@@ -10,8 +11,8 @@ def make_attention_mask(
     """Compute attention mask with bidirectional prefix and causal actions.
 
     Args:
-        feature_tokens: Feature token embeddings (B, feat_token_len, emb_dim)
         action_tokens: Action token embeddings (B, action_token_len, emb_dim)
+        feature_tokens: Feature token embeddings (B, feat_token_len, emb_dim)
         feature_token_mask: Optional feature token mask (B, feat_token_len)
 
     Returns:
@@ -36,7 +37,7 @@ def make_attention_mask(
                 device=action_tokens.device,
                 dtype=torch.bool,
             ),
-            diagonal=0,  # `True`s start on the main diagonal, i.e. don't attend to current and future action tokens
+            diagonal=1,  # `True`s start 1 position off the main diagonal, i.e. don't attend to future action tokens
         )
         .unsqueeze(0)
         .unsqueeze(0)
@@ -68,9 +69,9 @@ def make_attention_mask(
     full_padding_mask = full_padding_mask | key_padding_mask_4d.expand(
         -1, -1, total_len, -1
     )  # (B, 1, total_len, total_len)
-    full_padding_mask[
-        :, :, :prefix_len, prefix_len:
-    ] = True  # Prefix tokens cannot attend to future action tokens
+    full_padding_mask[:, :, :prefix_len, prefix_len:] = (
+        True  # Prefix tokens cannot attend to future action tokens
+    )
     return (
         full_padding_mask,
         key_padding_mask,

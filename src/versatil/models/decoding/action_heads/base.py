@@ -1,13 +1,18 @@
 from abc import ABC, abstractmethod
 
 import torch
-from torch import nn as nn
+from torch import nn
 
-from versatil.models.decoding.action_heads import ActionHeadBlock
+from versatil.models.decoding.action_heads.blocks import ActionHeadBlock
 
 
 class BaseActionHead(ABC, nn.Module):
     """Abstract base class for action heads with block-based processing and output projection.
+
+    The output dimension is set lazily via set_output_dim() because action heads
+    are instantiated from config with only the embedding dimension known. The output
+    dimension depends on the ActionSpace (resolved by ActionDecoder during policy
+    assembly) or the tokenizer vocabulary size (for tokenized decoders).
 
     Subclasses must implement forward() with their specific return type.
     """

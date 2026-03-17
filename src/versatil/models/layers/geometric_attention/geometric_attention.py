@@ -50,7 +50,7 @@ class GeometricSelfAttention(nn.Module):
         self.head_dimension_value = (
             embedding_dimension * value_dimension_factor
         ) // num_heads
-        self.attention_scaling = self.head_dimension_key ** -0.5
+        self.attention_scaling = self.head_dimension_key**-0.5
 
         self.query_projection = nn.Linear(
             embedding_dimension, embedding_dimension, bias=True
@@ -84,9 +84,9 @@ class GeometricSelfAttention(nn.Module):
 
     def _initialize_parameters(self):
         """Initializes projection weights with careful scaling."""
-        nn.init.xavier_normal_(self.query_projection.weight, gain=2 ** -2.5)
-        nn.init.xavier_normal_(self.key_projection.weight, gain=2 ** -2.5)
-        nn.init.xavier_normal_(self.value_projection.weight, gain=2 ** -2.5)
+        nn.init.xavier_normal_(self.query_projection.weight, gain=2**-2.5)
+        nn.init.xavier_normal_(self.key_projection.weight, gain=2**-2.5)
+        nn.init.xavier_normal_(self.value_projection.weight, gain=2**-2.5)
         nn.init.xavier_normal_(self.output_projection.weight)
         nn.init.constant_(self.output_projection.bias, 0.0)
 
@@ -252,4 +252,4 @@ class GeometricSelfAttention(nn.Module):
         output = attended_values + positional_encoding
         output = self.output_projection(output)
 
-        return output  # type: ignore[no-any-return]
+        return output

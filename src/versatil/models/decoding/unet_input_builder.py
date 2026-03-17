@@ -1,7 +1,7 @@
 """torch.nn.Module to construct an input feature vector to use as conditioner for a U-Net."""
 
 import torch
-from torch import nn as nn
+from torch import nn
 
 from versatil.data.constants import SampleKey
 from versatil.models.decoding.constants import DecoderOutputKey
@@ -61,7 +61,7 @@ class UNetInputBuilder(nn.Module):
         clean_features = {
             k: v
             for k, v in features.items()
-            if not EncoderOutputKeys.PADDING_MASK.value in k
+            if EncoderOutputKeys.PADDING_MASK.value not in k
             and k != SampleKey.IS_PAD_ACTION.value
         }
         projected = self.projection(
@@ -87,8 +87,8 @@ class UNetInputBuilder(nn.Module):
                     )
             elif x.ndim == 5:  # temporal spatial (B, T, Emb, H, W)
                 raise ValueError(
-                    f"5D feature {name} is not supported as input to U-Net Decoder. "
-                    f"Please pool your features accordingly using the encoding pipeline."
+                    f"5D feature '{name}' is not supported as input to U-Net Decoder. "
+                    "Please pool your features accordingly using the encoding pipeline."
                 )
             else:
                 raise ValueError(f"Feature '{name}' has unsupported shape {x.shape}")

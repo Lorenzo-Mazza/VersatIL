@@ -1,513 +1,1763 @@
-"""Tests for inference client with real config and synthetic data."""
-import pytest
-import torch
-from unittest.mock import MagicMock, patch
-from omegaconf import OmegaConf
-from imitation_learning_toolkit.sockets.model_client import Action
+"""Tests for versatil.inference.inference_client module."""
 
-from versatil.data.constants import (
-    Cameras,
-    GripperType,
-    ProprioceptiveType,
-)
-from versatil.configs.experiment import ExperimentConfig
-from versatil.configs.data.task import TaskSpaceConfig
-from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.configs.data.dataloader import DataLoaderConfig
-from versatil.configs.training import TrainingConfig, OptimizerConfig, AdamWConfig
-from versatil.models.encoding.encoders.rgb.cnn import CNNEncoder
-from versatil.models.encoding.encoders.constants import RGBBackboneType, PoolingMethod
-from versatil.models.encoding.pipeline import EncodingPipeline
-from versatil.models.decoding.algorithm.behavior_cloning import BehavioralCloning
-from versatil.models.decoding.decoders.base import DecoderInput
-from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.policy import Policy
-from versatil.training.lightning_policy import LightningPolicy
-from versatil.metrics.composite import ActionReconstructionLoss
-from versatil.inference.tso_client import TSOPolicyClient
-from tests.conftest import DummyNormalizer
-from versatil.models.decoding.decoders.base import ActionDecoder
+import re
+from collections.abc import Callable
+from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
+import torch
+from tso_robotics_sockets import (
+    CompressionType,
+    InferenceResponseKey,
+    ServerStatus,
+    TransportKey,
+)
+from versatil_constants.shared import ObsKey
+
+from versatil.inference.action_postprocessor import ActionPostprocessor
+from versatil.inference.inference_client import (
+    EpisodeStatus,
+    InferenceClient,
+)
+from versatil.inference.observation_preprocessor import ObservationPreprocessor
+from versatil.inference.policy_loader import PolicyLoader
+from versatil.inference.protocol import ActionTransport, ObservationTransport
+from versatil.inference.temporal_aggregation import TemporalAggregator
 
 
 @pytest.fixture
-def checkpoint_dir(tmp_path):
-    """Create a temporary directory for checkpoints."""
-    checkpoint_path = tmp_path / "test_checkpoint"
-    checkpoint_path.mkdir()
-    return checkpoint_path
+def mock_observation_space_factory() -> Callable[..., MagicMock]:
+    def factory(
+        camera_keys: list[str] | None = None,
+        proprioceptive_keys: list[str] | None = None,
+        has_language: bool = False,
+    ) -> MagicMock:
+        if camera_keys is None:
+            camera_keys = ["left", "right"]
+        if proprioceptive_keys is None:
+            proprioceptive_keys = ["proprio_robot_frame"]
+
+        cameras = {key: MagicMock() for key in camera_keys}
+        proprioceptive_observations = {key: MagicMock() for key in proprioceptive_keys}
+
+        observations_metadata = {}
+        observations_metadata.update(cameras)
+        observations_metadata.update(proprioceptive_observations)
+        if has_language:
+            observations_metadata[ObsKey.LANGUAGE.value] = MagicMock()
+
+        mock = MagicMock()
+        mock.cameras = cameras
+        mock.proprioceptive_observations = proprioceptive_observations
+        mock.observations_metadata = observations_metadata
+        return mock
+
+    return factory
 
 
 @pytest.fixture
-def test_config():
-    """Create a complete test configuration."""
-    observation_space = ObservationSpace(
-        camera_keys=[Cameras.LEFT.value],
-        use_proprioceptive_data=True,
-        use_proprio_base_frame=True,
-        use_proprio_camera_frame=False,
-        use_gripper_state=False,
-        gripper_type=GripperType.BINARY.value,
-    )
+def mock_action_space_factory() -> Callable[..., MagicMock]:
+    def factory(
+        action_keys_to_dimensions: dict[str, int] | None = None,
+    ) -> MagicMock:
+        if action_keys_to_dimensions is None:
+            action_keys_to_dimensions = {"position": 3}
 
-    action_space = ActionSpace(
-        has_position=True,
-        position_dim=3,
-        has_orientation=False,
-        orientation_dim=0,
-        has_gripper=True,
-        gripper_type=GripperType.BINARY.value,
-        predict_in_camera_frame=False,
-        deltas_as_actions=True,
-        denoise_actions=False,
-        task_has_phases=False,
-    )
+        actions_metadata = {}
+        for key, dimension in action_keys_to_dimensions.items():
+            meta = MagicMock()
+            meta.prediction_dimension = dimension
+            meta.requires_prediction_head = True
+            actions_metadata[key] = meta
 
-    dataloader_config = DataLoaderConfig(
-        batch_size=2,
-        num_workers=0,
-        image_height=224,
-        image_width=224,
-    )
+        mock = MagicMock()
+        mock.actions_metadata = actions_metadata
+        return mock
 
-    dataset_schema_config = DatasetSchemaConfig(
-        _target_="versatil.data.schemas.base.DatasetSchema",
-        dataset_folders=["dummy"],
-        zarr_path="dummy.zarr",
-    )
-
-    task_config = TaskSpaceConfig(
-        dataset_schema=dataset_schema_config,
-        dataloader=dataloader_config,
-        action_space=action_space,
-        observation_space=observation_space,
-        observation_horizon=1,
-        prediction_horizon=10,
-    )
-
-    optimizer_config = AdamWConfig(
-        lr=1e-4,
-        weight_decay=1e-6,
-    )
-
-    training_config = TrainingConfig(
-        num_epochs=1,
-        gradient_accumulate_every=1,
-        optimizer=optimizer_config,
-    )
-
-    experiment_config = ExperimentConfig(
-        name="test_inference",
-        seed=42,
-        use_wandb=False,
-        device="cpu",
-    )
-
-    config_dict = {
-        "task": task_config,
-        "training": training_config,
-        "experiment": experiment_config,
-        "policy": {},
-    }
-
-    config = OmegaConf.create(config_dict)
-
-    return config
+    return factory
 
 
 @pytest.fixture
-def test_policy(test_config, device):
-    """Create a minimal test policy with real components."""
-    observation_space = OmegaConf.to_object(test_config.task.observation_space)
-    action_space = OmegaConf.to_object(test_config.task.action_space)
-    prediction_horizon = test_config.task.prediction_horizon
+def mock_policy_loader_factory(
+    mock_observation_space_factory: Callable[..., MagicMock],
+    mock_action_space_factory: Callable[..., MagicMock],
+) -> Callable[..., MagicMock]:
+    def factory(
+        camera_keys: list[str] | None = None,
+        proprioceptive_keys: list[str] | None = None,
+        has_language: bool = False,
+        action_keys_to_dimensions: dict[str, int] | None = None,
+        prediction_horizon: int = 4,
+        observation_horizon: int = 2,
+        image_height: int = 64,
+        image_width: int = 64,
+        rotate_images: bool = False,
+        depth_clamp_range: tuple[float, float] | None = None,
+    ) -> MagicMock:
+        mock = MagicMock(spec=PolicyLoader)
+        mock.observation_space = mock_observation_space_factory(
+            camera_keys=camera_keys,
+            proprioceptive_keys=proprioceptive_keys,
+            has_language=has_language,
+        )
+        mock.action_space = mock_action_space_factory(
+            action_keys_to_dimensions=action_keys_to_dimensions,
+        )
+        mock.prediction_horizon = prediction_horizon
+        mock.observation_horizon = observation_horizon
+        mock.device = torch.device("cpu")
+        mock.checkpoint_path = "/mock/checkpoint"
+        mock.config.task.dataloader.image_height = image_height
+        mock.config.task.dataloader.image_width = image_width
+        mock.config.inference.rotate_images = rotate_images
+        mock.depth_clamp_range = depth_clamp_range
+        mock.denoising_thresholds = {}
+        return mock
 
-    rgb_encoder = CNNEncoder(
-        input_keys=Cameras.LEFT.value,
-        backbone=RGBBackboneType.RESNET18.value,
-        pooling_method=PoolingMethod.SPATIAL_SOFTMAX.value,
-        use_group_norm=True,
-        pretrained=False,
-        frozen=False,
-        image_height=224,
-        image_width=224,
-    ).to(device)
-
-    encoders = torch.nn.ModuleDict({"rgb": rgb_encoder})
-    encoder_outputs = {"rgb": rgb_encoder.get_output_specification()}
-
-    feature_keys_to_dims = {}
-    for encoder_name, output_spec in encoder_outputs.items():
-        for feature_name in output_spec.features:
-            full_name = f"{encoder_name}_{feature_name}"
-            feature_keys_to_dims[full_name] = output_spec.dimensions[feature_name]
-
-    encoding_pipeline = EncodingPipeline.__new__(EncodingPipeline)
-    torch.nn.Module.__init__(encoding_pipeline)
-    encoding_pipeline.encoders = encoders
-    encoding_pipeline.conditional_encoders = torch.nn.ModuleDict()
-    encoding_pipeline.fusion_stages = torch.nn.ModuleList([])
-    encoding_pipeline.encoders_to_outputs = encoder_outputs
-    encoding_pipeline._feature_keys_to_dims = feature_keys_to_dims
-    encoding_pipeline._consumed_features = set()
-
-    def _flatten_observation_dict(self, observation):
-        return observation
-
-    encoding_pipeline._flatten_observation_dict = _flatten_observation_dict.__get__(
-        encoding_pipeline, EncodingPipeline
-    )
-
-    position_head = ActionHead(
-        input_dim=512,
-        output_dim=action_space.position_dim,
-        blocks=[],
-    ).to(device)
-
-    gripper_head = ActionHead(
-        input_dim=512,
-        output_dim=action_space.gripper_dim,
-        blocks=[],
-    ).to(device)
-
-    action_heads = {
-        ProprioceptiveType.POSITION.value: position_head,
-        ProprioceptiveType.GRIPPER.value: gripper_head,
-    }
-
-
-    class SimpleDecoder(ActionDecoder):
-        def __init__(self, **kwargs):
-            super().__init__(**kwargs)
-            self.fc = None
-
-        def forward(self, features, actions=None):
-            feat = features["rgb_image"]
-            batch_size = feat.shape[0]
-            feat_flat = feat.reshape(batch_size, -1)
-
-            if self.fc is None:
-                self.fc = torch.nn.Linear(feat_flat.shape[-1], 512).to(feat.device)
-
-            hidden = self.fc(feat_flat)
-
-            outputs = {}
-            outputs[ProprioceptiveType.POSITION.value] = self.action_heads[ProprioceptiveType.POSITION.value](
-                hidden
-            ).unsqueeze(1).expand(-1, self.prediction_horizon, -1)
-            outputs[ProprioceptiveType.GRIPPER.value] = torch.sigmoid(
-                self.action_heads[ProprioceptiveType.GRIPPER.value](hidden)
-            ).unsqueeze(1).expand(-1, self.prediction_horizon, -1)
-
-            return outputs
-
-    decoder_input = DecoderInput(
-        keys=["rgb_image"],
-        required_types=[],
-        requires_actions=False,
-    )
-
-    decoder = SimpleDecoder(
-        decoder_input=decoder_input,
-        observation_space=observation_space,
-        action_space=action_space,
-        action_heads=action_heads,
-        device=str(device),
-        observation_horizon=1,
-        prediction_horizon=prediction_horizon,
-    ).to(device)
-
-    algorithm = BehavioralCloning()
-
-    loss_module = ActionReconstructionLoss(
-        action_keys=[ProprioceptiveType.POSITION.value],
-        mse_weight=1.0,
-        l1_weight=0.0,
-        gripper_bce_weight=1.0,
-        kl_weight=0.0,
-        gripper_type=GripperType.BINARY.value,
-        use_vae=False,
-    )
-
-    policy = Policy(
-        encoding_pipeline=encoding_pipeline,
-        algorithm=algorithm,
-        decoder=decoder,
-        observation_space=observation_space,
-        action_space=action_space,
-        prediction_horizon=prediction_horizon,
-        loss=loss_module,
-        device=str(device),
-        validate_loss_keys=True,
-    )
-
-    normalizer = DummyNormalizer()
-    policy.normalizer = normalizer
-
-    return policy
+    return factory
 
 
 @pytest.fixture
-def saved_checkpoint(checkpoint_dir, test_config, test_policy, device):
-    """Save a policy checkpoint and config to disk."""
-    training_config = TrainingConfig(
-        num_epochs=1,
-        gradient_accumulate_every=1,
-        optimizer=AdamWConfig(
-            lr=1e-4,
-        ),
-    )
-
-    lightning_policy = LightningPolicy(
-        policy=test_policy,
-        training_config=training_config,
-    )
-
-    checkpoint_file = checkpoint_dir / "latest.ckpt"
-
-    checkpoint = {
-        'state_dict': lightning_policy.state_dict(),
-        'hyper_parameters': {
-            'training_config': training_config,
-        },
-        'epoch': 0,
-        'global_step': 0,
-    }
-
-    torch.save(checkpoint, checkpoint_file)
-
-    config_file = checkpoint_dir / "config.yaml"
-    OmegaConf.save(test_config, config_file)
-
-    return checkpoint_dir
+def mock_observation_transport() -> MagicMock:
+    return MagicMock(spec=ObservationTransport)
 
 
 @pytest.fixture
-def device():
-    """Get available device for tests - always use CPU to avoid OOM."""
-    return torch.device("cpu")
+def mock_action_transport() -> MagicMock:
+    mock = MagicMock(spec=ActionTransport)
+    mock.close = MagicMock()
+    return mock
+
+
+@pytest.fixture
+def inference_client_factory(
+    mock_policy_loader_factory: Callable[..., MagicMock],
+    mock_observation_transport: MagicMock,
+    mock_action_transport: MagicMock,
+) -> Callable[..., InferenceClient]:
+    def factory(
+        camera_keys: list[str] | None = None,
+        proprioceptive_keys: list[str] | None = None,
+        has_language: bool = False,
+        action_keys_to_dimensions: dict[str, int] | None = None,
+        prediction_horizon: int = 4,
+        observation_horizon: int = 2,
+        temporal_aggregation: bool = False,
+        compression_type: str = CompressionType.RAW.value,
+        timing_log: bool = False,
+        update_rate_hz: float | None = None,
+    ) -> InferenceClient:
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=camera_keys,
+            proprioceptive_keys=proprioceptive_keys,
+            has_language=has_language,
+            action_keys_to_dimensions=action_keys_to_dimensions,
+            prediction_horizon=prediction_horizon,
+            observation_horizon=observation_horizon,
+        )
+        return InferenceClient(
+            policy_loader=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=mock_action_transport,
+            temporal_aggregation=temporal_aggregation,
+            compression_type=compression_type,
+            timing_log=timing_log,
+            update_rate_hz=update_rate_hz,
+        )
+
+    return factory
 
 
 @pytest.mark.unit
 class TestInferenceClientInitialization:
-    """Test InferenceClient initialization and config loading."""
-
-    @patch('versatil.inference.client.AbstractModelClient.__init__')
-    @patch('versatil.inference.client.LightningPolicy.load_from_checkpoint')
-    def test_client_loads_config_and_model(self, mock_load_checkpoint, mock_super_init, saved_checkpoint, test_policy, device):
-        """Test that InferenceClient properly loads config and model from checkpoint."""
-        mock_super_init.return_value = None
-
-        mock_lightning_policy = MagicMock()
-        mock_lightning_policy.policy = test_policy
-        mock_lightning_policy.eval = MagicMock()
-        mock_load_checkpoint.return_value = mock_lightning_policy
-
-        client = TSOPolicyClient(
-            device=device,
-            checkpoint_path=str(saved_checkpoint),
-            temporal_agg=True,
-            update_rate_hz=10.0,
+    @pytest.mark.parametrize("temporal_aggregation", [True, False])
+    @pytest.mark.parametrize(
+        "camera_keys",
+        [["left"], ["left", "right"]],
+    )
+    def test_stores_configuration(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        temporal_aggregation: bool,
+        camera_keys: list[str],
+    ):
+        client = inference_client_factory(
+            temporal_aggregation=temporal_aggregation,
+            camera_keys=camera_keys,
         )
 
-        assert client.config is not None
-        assert client.config.task.dataloader.image_height == 224
-        assert client.config.task.dataloader.image_width == 224
-        assert client.config.task.observation_horizon == 1
-        assert client.config.task.prediction_horizon == 10
+        assert client.temporal_aggregation == temporal_aggregation
+        assert client.camera_keys == camera_keys
 
-        assert client.model is not None
-        assert client.policy is not None
-        assert client.image_height == 224
-        assert client.image_width == 224
-        assert client.prediction_horizon == 10
+    def test_derives_camera_and_proprioceptive_keys_from_observation_space(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            camera_keys=["left", "right"],
+            proprioceptive_keys=["proprio_robot_frame"],
+        )
 
-        mock_super_init.assert_called_once()
-        mock_load_checkpoint.assert_called_once()
+        assert client.camera_keys == ["left", "right"]
+        assert client.proprioceptive_keys == ["proprio_robot_frame"]
+        assert "left" in client.all_observation_keys
+        assert "right" in client.all_observation_keys
+        assert "proprio_robot_frame" in client.all_observation_keys
 
-    @patch('versatil.inference.client.AbstractModelClient.__init__')
-    def test_client_raises_error_missing_config(self, mock_super_init, tmp_path, device):
-        """Test that InferenceClient raises error when config.yaml is missing."""
-        mock_super_init.return_value = None
+    def test_derives_action_keys_to_dimensions_from_action_space(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            action_keys_to_dimensions={"position": 3, "orientation": 4},
+        )
 
-        empty_dir = tmp_path / "empty"
-        empty_dir.mkdir()
+        assert client.action_keys_to_dimensions == {
+            "position": 3,
+            "orientation": 4,
+        }
 
-        with pytest.raises(FileNotFoundError, match="Config file not found"):
-            TSOPolicyClient(
-                device=device,
-                checkpoint_path=str(empty_dir),
-                temporal_agg=True,
-            )
+    def test_has_language_true_when_language_in_observation_space(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(has_language=True)
 
-    @patch('versatil.inference.client.AbstractModelClient.__init__')
-    def test_client_raises_error_missing_checkpoint(self, mock_super_init, tmp_path, device, test_config):
-        """Test that InferenceClient raises error when checkpoint is missing."""
-        mock_super_init.return_value = None
+        assert ObsKey.LANGUAGE.value in client.all_observation_keys
 
-        incomplete_dir = tmp_path / "incomplete"
-        incomplete_dir.mkdir()
+    def test_has_language_false_when_language_absent(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(has_language=False)
 
-        config_file = incomplete_dir / "config.yaml"
-        OmegaConf.save(test_config, config_file)
+        assert ObsKey.LANGUAGE.value not in client.all_observation_keys
 
-        with pytest.raises(FileNotFoundError, match="No checkpoint found"):
-            TSOPolicyClient(
-                device=device,
-                checkpoint_path=str(incomplete_dir),
-                temporal_agg=True,
-            )
+    def test_creates_observation_preprocessor(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(camera_keys=["left"])
+
+        assert client.observation_preprocessor.camera_keys == ["left"]
+
+    def test_creates_action_postprocessor(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            action_keys_to_dimensions={"position": 3},
+        )
+
+        assert (
+            client.action_postprocessor.action_space.actions_metadata[
+                "position"
+            ].prediction_dimension
+            == 3
+        )
+        assert client.action_postprocessor.denoising_thresholds == {}
+
+    def test_initial_timestep_is_zero(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory()
+
+        assert client.timestep == 0
+
+    def test_environment_states_initially_empty(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory()
+
+        assert client.environment_states == {}
 
 
 @pytest.mark.unit
-class TestInferenceClientPrediction:
-    """Test InferenceClient prediction functionality with synthetic data."""
+class TestCheckStatus:
+    def test_finished_status_returns_finished(self):
+        response = {
+            TransportKey.STATUS.value: ServerStatus.FINISHED.value,
+        }
 
-    @patch('versatil.inference.client.AbstractModelClient.__init__')
-    @patch('versatil.inference.client.LightningPolicy.load_from_checkpoint')
-    def test_get_actions_from_model(self, mock_load_checkpoint, mock_super_init, saved_checkpoint, test_policy, device):
-        """Test that client can generate actions from synthetic observations."""
-        mock_super_init.return_value = None
+        result = InferenceClient._check_status(response=response)
 
-        mock_lightning_policy = MagicMock()
-        mock_lightning_policy.policy = test_policy
-        mock_lightning_policy.eval = MagicMock()
-        mock_load_checkpoint.return_value = mock_lightning_policy
+        assert result == EpisodeStatus.FINISHED.value
 
-        client = TSOPolicyClient(
-            device=device,
-            checkpoint_path=str(saved_checkpoint),
-            temporal_agg=True,
+    def test_error_status_raises_runtime_error(self):
+        error_message = "simulation crashed"
+        response = {
+            TransportKey.STATUS.value: ServerStatus.ERROR.value,
+            TransportKey.ERROR_MSG.value: error_message,
+        }
+
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape(f"Server error: {error_message}"),
+        ):
+            InferenceClient._check_status(response=response)
+
+    @pytest.mark.parametrize(
+        "status",
+        [
+            ServerStatus.PROCESSING.value,
+            ServerStatus.CREATING_ENV.value,
+        ],
+    )
+    def test_transient_status_returns_skip(self, status: str):
+        response = {TransportKey.STATUS.value: status}
+
+        result = InferenceClient._check_status(response=response)
+
+        assert result == EpisodeStatus.SKIP.value
+
+    def test_waiting_action_status_returns_continue(self):
+        response = {
+            TransportKey.STATUS.value: ServerStatus.WAITING_ACTION.value,
+        }
+
+        result = InferenceClient._check_status(response=response)
+
+        assert result == EpisodeStatus.CONTINUE.value
+
+    def test_unknown_status_returns_continue(self):
+        response = {TransportKey.STATUS.value: "some_unknown_status"}
+
+        result = InferenceClient._check_status(response=response)
+
+        assert result == EpisodeStatus.CONTINUE.value
+
+    def test_missing_status_returns_continue(self):
+        response = {}
+
+        result = InferenceClient._check_status(response=response)
+
+        assert result == EpisodeStatus.CONTINUE.value
+
+
+@pytest.mark.unit
+class TestHandleResetSignal:
+    def test_resets_buffer_of_indicated_environment(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            observation_horizon=1,
+        )
+        state = client._create_environment_state()
+        state.observation_buffer.add(
+            observations={
+                "left": np.zeros((64, 64, 3), dtype=np.uint8),
+                "proprio": np.zeros(3, dtype=np.float32),
+            }
+        )
+        client.environment_states[0] = state
+        assert state.observation_buffer.is_ready()
+
+        client._handle_reset_signal(
+            response={InferenceResponseKey.RESET_ENVIRONMENT_INDICES.value: [0]}
+        )
+
+        assert not state.observation_buffer.is_ready()
+
+    def test_resets_temporal_aggregator_of_indicated_environment(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            temporal_aggregation=True,
+            observation_horizon=1,
+        )
+        state = client._create_environment_state()
+        state.temporal_aggregator.timestep = 5
+        client.environment_states[0] = state
+
+        client._handle_reset_signal(
+            response={InferenceResponseKey.RESET_ENVIRONMENT_INDICES.value: [0]}
+        )
+
+        assert state.temporal_aggregator.timestep == 0
+
+    def test_does_not_reset_non_indicated_environments(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            observation_horizon=1,
+        )
+        state_zero = client._create_environment_state()
+        state_zero.observation_buffer.add(
+            observations={
+                "left": np.zeros((64, 64, 3), dtype=np.uint8),
+                "proprio": np.zeros(3, dtype=np.float32),
+            }
+        )
+        state_one = client._create_environment_state()
+        state_one.observation_buffer.add(
+            observations={
+                "left": np.zeros((64, 64, 3), dtype=np.uint8),
+                "proprio": np.zeros(3, dtype=np.float32),
+            }
+        )
+        client.environment_states[0] = state_zero
+        client.environment_states[1] = state_one
+
+        client._handle_reset_signal(
+            response={InferenceResponseKey.RESET_ENVIRONMENT_INDICES.value: [0]}
+        )
+
+        assert state_one.observation_buffer.is_ready()
+
+    def test_ignores_unknown_environment_indices(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory()
+
+        client._handle_reset_signal(
+            response={InferenceResponseKey.RESET_ENVIRONMENT_INDICES.value: [99]}
+        )
+
+    def test_no_op_when_reset_key_missing(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            observation_horizon=1,
+        )
+        state = client._create_environment_state()
+        state.observation_buffer.add(
+            observations={
+                "left": np.zeros((64, 64, 3), dtype=np.uint8),
+                "proprio": np.zeros(3, dtype=np.float32),
+            }
+        )
+        client.environment_states[0] = state
+
+        client._handle_reset_signal(response={})
+
+        assert state.observation_buffer.is_ready()
+
+
+@pytest.mark.unit
+class TestUpdateEnvironmentStates:
+    def test_creates_new_state_for_unknown_environment(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+        )
+
+        observations = {
+            "left": np.zeros((64, 64, 3), dtype=np.uint8),
+            "proprio": np.zeros(3, dtype=np.float32),
+        }
+        client._update_environment_states(
+            per_environment_observations={0: observations}
+        )
+
+        assert 0 in client.environment_states
+        state = client.environment_states[0]
+        assert state.observation_buffer.buffer_size > 0
+
+    def test_adds_observation_to_existing_buffer(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            observation_horizon=2,
+        )
+        observations = {
+            "left": np.zeros((64, 64, 3), dtype=np.uint8),
+            "proprio": np.zeros(3, dtype=np.float32),
+        }
+
+        client._update_environment_states(
+            per_environment_observations={0: observations}
+        )
+        assert not client.environment_states[0].observation_buffer.is_ready()
+
+        client._update_environment_states(
+            per_environment_observations={0: observations}
+        )
+        assert client.environment_states[0].observation_buffer.is_ready()
+
+    def test_handles_multiple_environments(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+        )
+        observations = {
+            "left": np.zeros((64, 64, 3), dtype=np.uint8),
+            "proprio": np.zeros(3, dtype=np.float32),
+        }
+
+        client._update_environment_states(
+            per_environment_observations={
+                0: observations,
+                1: observations,
+                5: observations,
+            }
+        )
+
+        assert 0 in client.environment_states
+        assert 1 in client.environment_states
+        assert 5 in client.environment_states
+
+
+@pytest.mark.unit
+class TestRemoveInactiveEnvironments:
+    def test_removes_environments_not_in_response(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory()
+        client.environment_states[0] = client._create_environment_state()
+        client.environment_states[1] = client._create_environment_state()
+        client.environment_states[2] = client._create_environment_state()
+
+        client._remove_inactive_environments(
+            per_environment_observations={0: {}, 2: {}}
+        )
+
+        assert 0 in client.environment_states
+        assert 1 not in client.environment_states
+        assert 2 in client.environment_states
+
+    def test_keeps_all_when_all_active(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory()
+        client.environment_states[0] = client._create_environment_state()
+        client.environment_states[1] = client._create_environment_state()
+
+        client._remove_inactive_environments(
+            per_environment_observations={0: {}, 1: {}}
+        )
+
+        assert len(client.environment_states) == 2
+
+    def test_removes_all_when_none_active(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory()
+        client.environment_states[0] = client._create_environment_state()
+
+        client._remove_inactive_environments(per_environment_observations={})
+
+        assert len(client.environment_states) == 0
+
+
+@pytest.mark.unit
+class TestCreateEnvironmentState:
+    def test_buffer_keys_include_cameras_and_proprioceptive(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            camera_keys=["left", "right"],
+            proprioceptive_keys=["proprio_robot_frame"],
+        )
+
+        state = client._create_environment_state()
+
+        assert "left" in state.observation_buffer.required_keys
+        assert "right" in state.observation_buffer.required_keys
+        assert "proprio_robot_frame" in state.observation_buffer.required_keys
+
+    def test_buffer_keys_include_language_when_enabled(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(has_language=True)
+
+        state = client._create_environment_state()
+
+        assert ObsKey.LANGUAGE.value in state.observation_buffer.required_keys
+
+    def test_buffer_keys_exclude_language_when_disabled(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(has_language=False)
+
+        state = client._create_environment_state()
+
+        assert ObsKey.LANGUAGE.value not in state.observation_buffer.required_keys
+
+    def test_buffer_size_matches_observation_horizon(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(observation_horizon=3)
+
+        state = client._create_environment_state()
+
+        assert state.observation_buffer.buffer_size == 3
+
+    def test_temporal_aggregator_created_when_enabled(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            temporal_aggregation=True,
+            prediction_horizon=8,
+        )
+
+        state = client._create_environment_state()
+
+        assert state.temporal_aggregator.prediction_horizon == 8
+
+    def test_no_aggregation_when_disabled(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            temporal_aggregation=False,
+            action_keys_to_dimensions={"position": 2},
+            observation_horizon=2,
+        )
+
+        state = client._create_environment_state()
+        client.environment_states[0] = state
+
+        assert state.observation_buffer.buffer_size == 2
+
+        # Without aggregation, distribute_actions uses first timestep directly
+        client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
+        client.action_postprocessor.format_action.return_value = {
+            "position": [1.0, 2.0],
+        }
+
+        action_dict = {
+            "position": torch.tensor(
+                [
+                    [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]],
+                ]
+            ),
+        }
+        client._distribute_actions(
+            action_dict=action_dict,
+            ready_indices=[0],
+        )
+
+        format_call = client.action_postprocessor.format_action.call_args
+        passed_dict = format_call.kwargs["action_dict"]
+        torch.testing.assert_close(
+            passed_dict["position"],
+            torch.tensor([1.0, 2.0]),
+        )
+
+
+@pytest.mark.unit
+class TestGetActionsForReadyEnvironments:
+    def test_returns_empty_when_no_environments_ready(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            observation_horizon=3,
+        )
+        state = client._create_environment_state()
+        state.observation_buffer.add(
+            observations={
+                "left": np.zeros((64, 64, 3), dtype=np.uint8),
+                "proprio": np.zeros(3, dtype=np.float32),
+            }
+        )
+        client.environment_states[0] = state
+
+        result = client._get_actions_for_ready_environments()
+
+        assert result == {}
+
+    def test_runs_inference_for_ready_environments(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+    ):
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=4,
+            observation_horizon=1,
+        )
+        predicted_actions = torch.from_numpy(
+            rng.standard_normal((1, 4, 3)).astype(np.float32)
+        )
+        policy_loader.run_inference.return_value = {
+            "position": predicted_actions,
+        }
+
+        client = InferenceClient(
+            policy_loader=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=mock_action_transport,
+        )
+
+        state = client._create_environment_state()
+        state.observation_buffer.add(
+            observations={
+                "left": rng.integers(0, 255, (64, 64, 3)).astype(np.uint8),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+            }
+        )
+        client.environment_states[0] = state
+
+        result = client._get_actions_for_ready_environments()
+
+        policy_loader.run_inference.assert_called_once()
+        assert 0 in result
+
+    def test_passes_language_batch_to_inference_when_language_enabled(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+    ):
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            has_language=True,
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=4,
+            observation_horizon=1,
+        )
+        predicted_actions = torch.from_numpy(
+            rng.standard_normal((1, 4, 3)).astype(np.float32)
+        )
+        policy_loader.run_inference.return_value = {
+            "position": predicted_actions,
+        }
+
+        client = InferenceClient(
+            policy_loader=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=mock_action_transport,
+        )
+
+        language_instruction = "pick up the red block"
+        state = client._create_environment_state()
+        state.observation_buffer.add(
+            observations={
+                "left": rng.integers(0, 255, (64, 64, 3)).astype(np.uint8),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+                ObsKey.LANGUAGE.value: language_instruction,
+            }
+        )
+        client.environment_states[0] = state
+
+        client._get_actions_for_ready_environments()
+
+        call_kwargs = policy_loader.run_inference.call_args.kwargs
+        obs_dict = call_kwargs["obs_dict"]
+        assert ObsKey.LANGUAGE.value in obs_dict
+        # language_batch is a list per environment; each entry is the
+        # recent buffer contents (a list of strings per timestep)
+        assert obs_dict[ObsKey.LANGUAGE.value] == [[language_instruction]]
+
+    def test_multiple_ready_environments_with_language(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+    ):
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            has_language=True,
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=4,
+            observation_horizon=1,
+        )
+        predicted_actions = torch.from_numpy(
+            rng.standard_normal((2, 4, 3)).astype(np.float32)
+        )
+        policy_loader.run_inference.return_value = {
+            "position": predicted_actions,
+        }
+
+        client = InferenceClient(
+            policy_loader=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=mock_action_transport,
+        )
+
+        instruction_env_0 = "pick up the red block"
+        instruction_env_1 = "place on the table"
+
+        state_0 = client._create_environment_state()
+        state_0.observation_buffer.add(
+            observations={
+                "left": rng.integers(0, 255, (64, 64, 3)).astype(np.uint8),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+                ObsKey.LANGUAGE.value: instruction_env_0,
+            }
+        )
+        client.environment_states[0] = state_0
+
+        state_1 = client._create_environment_state()
+        state_1.observation_buffer.add(
+            observations={
+                "left": rng.integers(0, 255, (64, 64, 3)).astype(np.uint8),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+                ObsKey.LANGUAGE.value: instruction_env_1,
+            }
+        )
+        client.environment_states[1] = state_1
+
+        result = client._get_actions_for_ready_environments()
+
+        policy_loader.run_inference.assert_called_once()
+        call_kwargs = policy_loader.run_inference.call_args.kwargs
+        obs_dict = call_kwargs["obs_dict"]
+
+        # Both environments batched together
+        assert obs_dict["left"].shape[0] == 2
+        assert obs_dict["proprio"].shape[0] == 2
+        assert obs_dict[ObsKey.LANGUAGE.value] == [
+            [instruction_env_0],
+            [instruction_env_1],
+        ]
+        assert 0 in result
+        assert 1 in result
+
+
+@pytest.mark.unit
+class TestDistributeActions:
+    def test_without_temporal_aggregation_takes_first_timestep(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            action_keys_to_dimensions={"position": 3},
+            temporal_aggregation=False,
+        )
+        client.environment_states[0] = client._create_environment_state()
+        client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
+        client.action_postprocessor.format_action.return_value = {
+            "position": [1.0, 2.0, 3.0],
+        }
+
+        action_dict = {
+            "position": torch.tensor(
+                [
+                    [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+                ]
+            ),
+        }
+
+        result = client._distribute_actions(
+            action_dict=action_dict,
+            ready_indices=[0],
+        )
+
+        assert 0 in result
+        # Verify format_action was called with first timestep tensor
+        format_call = client.action_postprocessor.format_action.call_args
+        passed_dict = format_call.kwargs["action_dict"]
+        torch.testing.assert_close(
+            passed_dict["position"],
+            torch.tensor([1.0, 2.0, 3.0]),
+        )
+
+    def test_with_temporal_aggregation_calls_store_and_average(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        rng: np.random.Generator,
+    ):
+        client = inference_client_factory(
+            action_keys_to_dimensions={"position": 3},
+            temporal_aggregation=True,
+        )
+        state = client._create_environment_state()
+        mock_aggregator = MagicMock(spec=TemporalAggregator)
+        averaged_action = {"position": torch.tensor([0.5, 0.5, 0.5])}
+        mock_aggregator.store_and_average.return_value = averaged_action
+        state.temporal_aggregator = mock_aggregator
+        client.environment_states[0] = state
+        client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
+        client.action_postprocessor.format_action.return_value = {
+            "position": [0.5, 0.5, 0.5],
+        }
+
+        action_dict = {
+            "position": torch.from_numpy(
+                rng.standard_normal((1, 4, 3)).astype(np.float32)
+            ),
+        }
+
+        result = client._distribute_actions(
+            action_dict=action_dict,
+            ready_indices=[0],
+        )
+
+        mock_aggregator.store_and_average.assert_called_once()
+        assert 0 in result
+        # format_action receives the averaged output, not the raw predictions
+        format_call = client.action_postprocessor.format_action.call_args
+        passed_dict = format_call.kwargs["action_dict"]
+        torch.testing.assert_close(
+            passed_dict["position"],
+            torch.tensor([0.5, 0.5, 0.5]),
+        )
+
+    def test_distributes_to_multiple_environments(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            action_keys_to_dimensions={"position": 2},
+            temporal_aggregation=False,
+        )
+        client.environment_states[0] = client._create_environment_state()
+        client.environment_states[1] = client._create_environment_state()
+
+        call_count = 0
+        format_returns = [
+            {"position": [1.0, 2.0]},
+            {"position": [5.0, 6.0]},
+        ]
+
+        def side_effect(action_dict):
+            nonlocal call_count
+            result = format_returns[call_count]
+            call_count += 1
+            return result
+
+        client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
+        client.action_postprocessor.format_action.side_effect = side_effect
+
+        action_dict = {
+            "position": torch.tensor(
+                [
+                    [[1.0, 2.0], [3.0, 4.0]],
+                    [[5.0, 6.0], [7.0, 8.0]],
+                ]
+            ),
+        }
+
+        result = client._distribute_actions(
+            action_dict=action_dict,
+            ready_indices=[0, 1],
+        )
+
+        assert 0 in result
+        assert 1 in result
+        assert result[0]["position"] == [1.0, 2.0]
+        assert result[1]["position"] == [5.0, 6.0]
+
+
+@pytest.mark.unit
+class TestReset:
+    def test_clears_all_environment_states(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory()
+        client.environment_states[0] = client._create_environment_state()
+        client.environment_states[1] = client._create_environment_state()
+
+        client.reset()
+
+        assert len(client.environment_states) == 0
+
+    def test_resets_observation_buffers_before_clearing(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            observation_horizon=1,
+        )
+        state = client._create_environment_state()
+        state.observation_buffer.add(
+            observations={
+                "left": np.zeros((64, 64, 3), dtype=np.uint8),
+                "proprio": np.zeros(3, dtype=np.float32),
+            }
+        )
+        client.environment_states[0] = state
+        buffer_reference = state.observation_buffer
+
+        client.reset()
+
+        assert not buffer_reference.is_ready()
+
+    def test_resets_temporal_aggregators_before_clearing(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        client = inference_client_factory(
+            temporal_aggregation=True,
+            observation_horizon=1,
+        )
+        state = client._create_environment_state()
+        state.temporal_aggregator.timestep = 10
+        client.environment_states[0] = state
+        aggregator_reference = state.temporal_aggregator
+
+        client.reset()
+
+        assert aggregator_reference.timestep == 0
+
+
+@pytest.mark.unit
+class TestStep:
+    def test_receives_observations_with_correct_parameters(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        mock_observation_transport: MagicMock,
+    ):
+        client = inference_client_factory(
+            compression_type=CompressionType.RAW.value,
+        )
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.FINISHED.value,
+        }
+
+        client.step()
+
+        mock_observation_transport.receive.assert_called_once_with(
+            requested_keys=client.all_observation_keys,
+            compression_type=CompressionType.RAW.value,
+        )
+
+    def test_returns_finished_when_server_finished(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        mock_observation_transport: MagicMock,
+    ):
+        client = inference_client_factory()
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.FINISHED.value,
+        }
+
+        result = client.step()
+
+        assert result == EpisodeStatus.FINISHED.value
+
+    def test_returns_skip_when_server_processing(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        mock_observation_transport: MagicMock,
+    ):
+        client = inference_client_factory()
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.PROCESSING.value,
+        }
+
+        result = client.step()
+
+        assert result == EpisodeStatus.SKIP.value
+
+    def test_does_not_call_parse_when_non_continue_status(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        mock_observation_transport: MagicMock,
+    ):
+        client = inference_client_factory()
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.FINISHED.value,
+        }
+
+        with patch.object(
+            client.observation_preprocessor,
+            "parse_response",
+        ) as mock_parse:
+            client.step()
+
+            mock_parse.assert_not_called()
+
+    def test_does_not_send_actions_when_buffer_not_ready(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+    ):
+        client = inference_client_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            observation_horizon=3,
+        )
+        response = {
+            TransportKey.STATUS.value: ServerStatus.WAITING_ACTION.value,
+        }
+        mock_observation_transport.receive.return_value = response
+        parsed_observations = {
+            0: {
+                "left": np.zeros((64, 64, 3), dtype=np.uint8),
+                "proprio": np.zeros(3, dtype=np.float32),
+            }
+        }
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
+        client.observation_preprocessor.parse_response.return_value = (
+            parsed_observations
+        )
+
+        client.step()
+
+        mock_action_transport.send.assert_not_called()
+
+    def test_increments_timestep_on_continue(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        mock_observation_transport: MagicMock,
+    ):
+        client = inference_client_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            observation_horizon=3,
+        )
+        response = {
+            TransportKey.STATUS.value: ServerStatus.WAITING_ACTION.value,
+        }
+        mock_observation_transport.receive.return_value = response
+        parsed_observations = {
+            0: {
+                "left": np.zeros((64, 64, 3), dtype=np.uint8),
+                "proprio": np.zeros(3, dtype=np.float32),
+            }
+        }
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
+        client.observation_preprocessor.parse_response.return_value = (
+            parsed_observations
+        )
+        assert client.timestep == 0
+
+        client.step()
+
+        assert client.timestep == 1
+
+    def test_does_not_increment_timestep_on_finished(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        mock_observation_transport: MagicMock,
+    ):
+        client = inference_client_factory()
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.FINISHED.value,
+        }
+
+        client.step()
+
+        assert client.timestep == 0
+
+
+@pytest.mark.unit
+class TestStepOrchestration:
+    def test_full_receive_parse_buffer_infer_format_send_cycle(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+    ):
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=4,
+            observation_horizon=1,
+        )
+        predicted_actions = torch.from_numpy(
+            rng.standard_normal((1, 4, 3)).astype(np.float32)
+        )
+        policy_loader.run_inference.return_value = {
+            "position": predicted_actions,
+        }
+
+        client = InferenceClient(
+            policy_loader=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=mock_action_transport,
+        )
+
+        # Mock preprocessor to avoid decompress_array
+        parsed_observations = {
+            0: {
+                "left": rng.integers(0, 255, (64, 64, 3)).astype(np.uint8),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+            }
+        }
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
+        client.observation_preprocessor.parse_response.return_value = (
+            parsed_observations
+        )
+        camera_tensor = torch.from_numpy(
+            rng.standard_normal((1, 3, 64, 64)).astype(np.float32)
+        )
+        client.observation_preprocessor.transform_camera_observations.return_value = {
+            "left": camera_tensor,
+        }
+        # Mock postprocessor
+        client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
+        client.action_postprocessor.format_action.return_value = {
+            "position": [0.1, 0.2, 0.3],
+        }
+        client.action_postprocessor.build_action_metadata.return_value = {
+            "position": {"dimension": 3},
+        }
+
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.WAITING_ACTION.value,
+        }
+
+        result = client.step()
+
+        assert result == EpisodeStatus.CONTINUE.value
+        policy_loader.run_inference.assert_called_once()
+        mock_action_transport.send.assert_called_once()
+
+        send_kwargs = mock_action_transport.send.call_args
+        sent_actions = (
+            send_kwargs.kwargs.get("actions")
+            if send_kwargs.kwargs
+            else send_kwargs[1]["actions"]
+        )
+        assert 0 in sent_actions
+
+    def test_step_calls_pipeline_in_correct_order(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+    ):
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=4,
+            observation_horizon=1,
+        )
+        predicted_actions = torch.from_numpy(
+            rng.standard_normal((1, 4, 3)).astype(np.float32)
+        )
+        policy_loader.run_inference.return_value = {
+            "position": predicted_actions,
+        }
+
+        client = InferenceClient(
+            policy_loader=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=mock_action_transport,
+        )
+
+        mock_preprocessor = MagicMock(spec=ObservationPreprocessor)
+        parsed_observations = {
+            0: {
+                "left": rng.integers(0, 255, (64, 64, 3)).astype(np.uint8),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+            }
+        }
+        mock_preprocessor.parse_response.return_value = parsed_observations
+        camera_tensor = torch.from_numpy(
+            rng.standard_normal((1, 3, 64, 64)).astype(np.float32)
+        )
+        mock_preprocessor.transform_camera_observations.return_value = {
+            "left": camera_tensor,
+        }
+        client.observation_preprocessor = mock_preprocessor
+
+        mock_postprocessor = MagicMock(spec=ActionPostprocessor)
+        mock_postprocessor.format_action.return_value = {
+            "position": [0.1, 0.2, 0.3],
+        }
+        mock_postprocessor.build_action_metadata.return_value = {}
+        client.action_postprocessor = mock_postprocessor
+
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.WAITING_ACTION.value,
+        }
+
+        client.step()
+
+        # Verify receive -> parse -> inference -> format -> send order
+        mock_observation_transport.receive.assert_called_once()
+        mock_preprocessor.parse_response.assert_called_once()
+        policy_loader.run_inference.assert_called_once()
+        mock_postprocessor.format_action.assert_called_once()
+        mock_postprocessor.build_action_metadata.assert_called_once()
+        mock_action_transport.send.assert_called_once()
+
+    def test_temporal_aggregation_accumulates_across_steps(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+    ):
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=4,
+            observation_horizon=1,
+        )
+
+        client = InferenceClient(
+            policy_loader=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=mock_action_transport,
+            temporal_aggregation=True,
+        )
+
+        # Mock preprocessor
+        parsed_observations = {
+            0: {
+                "left": rng.integers(0, 255, (64, 64, 3)).astype(np.uint8),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+            }
+        }
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
+        client.observation_preprocessor.parse_response.return_value = (
+            parsed_observations
+        )
+        camera_tensor = torch.from_numpy(
+            rng.standard_normal((1, 3, 64, 64)).astype(np.float32)
+        )
+        client.observation_preprocessor.transform_camera_observations.return_value = {
+            "left": camera_tensor,
+        }
+        # Mock postprocessor
+        client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
+        client.action_postprocessor.format_action.return_value = {
+            "position": [0.5, 0.5, 0.5],
+        }
+        client.action_postprocessor.build_action_metadata.return_value = {}
+
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.WAITING_ACTION.value,
+        }
+
+        step_one_predictions = torch.from_numpy(
+            rng.standard_normal((1, 4, 3)).astype(np.float32)
+        )
+        policy_loader.run_inference.return_value = {
+            "position": step_one_predictions,
+        }
+        client.step()
+
+        step_two_predictions = torch.from_numpy(
+            rng.standard_normal((1, 4, 3)).astype(np.float32)
+        )
+        policy_loader.run_inference.return_value = {
+            "position": step_two_predictions,
+        }
+        client.step()
+
+        assert mock_action_transport.send.call_count == 2
+        state = client.environment_states[0]
+        assert state.temporal_aggregator.timestep == 2
+
+    def test_without_temporal_aggregation_passes_first_timestep_to_postprocessor(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+    ):
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=4,
+            observation_horizon=1,
+        )
+
+        fixed_predictions = torch.zeros(1, 4, 3)
+        fixed_predictions[0, 0] = torch.tensor([1.0, 2.0, 3.0])
+        fixed_predictions[0, 1] = torch.tensor([4.0, 5.0, 6.0])
+        policy_loader.run_inference.return_value = {
+            "position": fixed_predictions,
+        }
+
+        client = InferenceClient(
+            policy_loader=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=mock_action_transport,
+            temporal_aggregation=False,
+        )
+
+        # Mock preprocessor
+        parsed_observations = {
+            0: {
+                "left": rng.integers(0, 255, (64, 64, 3)).astype(np.uint8),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+            }
+        }
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
+        client.observation_preprocessor.parse_response.return_value = (
+            parsed_observations
+        )
+        camera_tensor = torch.from_numpy(
+            rng.standard_normal((1, 3, 64, 64)).astype(np.float32)
+        )
+        client.observation_preprocessor.transform_camera_observations.return_value = {
+            "left": camera_tensor,
+        }
+        # Mock postprocessor to capture what it receives
+        client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
+        client.action_postprocessor.format_action.return_value = {
+            "position": [1.0, 2.0, 3.0],
+        }
+        client.action_postprocessor.build_action_metadata.return_value = {}
+
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.WAITING_ACTION.value,
+        }
+
+        client.step()
+
+        # Verify the postprocessor received the first timestep [1, 2, 3]
+        format_call = client.action_postprocessor.format_action.call_args
+        passed_dict = format_call.kwargs["action_dict"]
+        torch.testing.assert_close(
+            passed_dict["position"],
+            torch.tensor([1.0, 2.0, 3.0]),
+        )
+
+
+@pytest.mark.unit
+class TestRunEpisode:
+    def test_registers_with_checkpoint_path(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        mock_observation_transport: MagicMock,
+    ):
+        client = inference_client_factory()
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.FINISHED.value,
+        }
+
+        client.run_episode(max_steps=10)
+
+        mock_observation_transport.register.assert_called_once_with(
+            client_name=client.policy_loader.checkpoint_path,
+        )
+
+    def test_stops_on_finished_status(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        mock_observation_transport: MagicMock,
+    ):
+        client = inference_client_factory()
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.FINISHED.value,
+        }
+
+        client.run_episode(max_steps=100)
+
+        assert mock_observation_transport.receive.call_count == 1
+
+    def test_respects_max_steps(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        mock_observation_transport: MagicMock,
+    ):
+        client = inference_client_factory()
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.PROCESSING.value,
+        }
+
+        client.run_episode(max_steps=5)
+
+        assert mock_observation_transport.receive.call_count == 5
+
+
+@pytest.mark.unit
+class TestShutdown:
+    def test_closes_observation_transport(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        mock_observation_transport: MagicMock,
+    ):
+        client = inference_client_factory()
+
+        client.shutdown()
+
+        mock_observation_transport.close.assert_called_once()
+
+    def test_closes_action_transport_when_close_method_exists(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        mock_action_transport: MagicMock,
+    ):
+        client = inference_client_factory()
+
+        client.shutdown()
+
+        mock_action_transport.close.assert_called_once()
+
+    def test_handles_action_transport_without_close(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+    ):
+        policy_loader = mock_policy_loader_factory()
+        action_transport = MagicMock(spec=[])
+        client = InferenceClient(
+            policy_loader=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=action_transport,
+        )
+
+        client.shutdown()
+
+        mock_observation_transport.close.assert_called_once()
+
+
+@pytest.mark.unit
+class TestStepTimingLog:
+    def _make_continue_client(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+    ) -> InferenceClient:
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=4,
+            observation_horizon=1,
+        )
+        predicted_actions = torch.from_numpy(
+            rng.standard_normal((1, 4, 3)).astype(np.float32)
+        )
+        policy_loader.run_inference.return_value = {
+            "position": predicted_actions,
+        }
+
+        client = InferenceClient(
+            policy_loader=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=mock_action_transport,
+            timing_log=True,
+        )
+
+        parsed_observations = {
+            0: {
+                "left": rng.integers(0, 255, (64, 64, 3)).astype(np.uint8),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+            }
+        }
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
+        client.observation_preprocessor.parse_response.return_value = (
+            parsed_observations
+        )
+        camera_tensor = torch.from_numpy(
+            rng.standard_normal((1, 3, 64, 64)).astype(np.float32)
+        )
+        client.observation_preprocessor.transform_camera_observations.return_value = {
+            "left": camera_tensor,
+        }
+        client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
+        client.action_postprocessor.format_action.return_value = {
+            "position": [0.1, 0.2, 0.3],
+        }
+        client.action_postprocessor.build_action_metadata.return_value = {}
+
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.WAITING_ACTION.value,
+        }
+
+        return client
+
+    def test_logs_timing_breakdown_on_successful_step(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+    ):
+        client = self._make_continue_client(
+            mock_policy_loader_factory=mock_policy_loader_factory,
+            mock_observation_transport=mock_observation_transport,
+            mock_action_transport=mock_action_transport,
+            rng=rng,
+        )
+        # 8 calls to time.time() in the timing_log=True path:
+        # step_start, preprocessing_start, end_preprocess, inference_start,
+        # end_inference, postprocessing_start, end_postprocess, end_total
+        time_values = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+
+        with (
+            patch(
+                "versatil.inference.inference_client.time.time",
+                side_effect=time_values,
+            ),
+            patch(
+                "versatil.inference.inference_client.logging.info",
+            ) as mock_log_info,
+        ):
+            client.step()
+
+            mock_log_info.assert_called_once()
+            call_args = mock_log_info.call_args[0]
+            format_string = call_args[0]
+            assert "[TIMING]" in format_string
+            # preprocess=0.1, inference=0.1, postprocess=0.1, total=0.7, fps=1/0.7
+            assert call_args[1] == 0  # timestep
+            assert call_args[2] == pytest.approx(0.1)  # preprocess duration
+            assert call_args[3] == pytest.approx(0.1)  # inference duration
+            assert call_args[4] == pytest.approx(0.1)  # postprocess duration
+            assert call_args[5] == pytest.approx(0.7)  # total duration
+            assert call_args[6] == pytest.approx(1.0 / 0.7)  # fps
+
+    def test_no_timing_log_when_disabled(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        mock_observation_transport: MagicMock,
+    ):
+        client = inference_client_factory(
+            timing_log=False,
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            observation_horizon=3,
+        )
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.WAITING_ACTION.value,
+        }
+        parsed_observations = {
+            0: {
+                "left": np.zeros((64, 64, 3), dtype=np.uint8),
+                "proprio": np.zeros(3, dtype=np.float32),
+            }
+        }
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
+        client.observation_preprocessor.parse_response.return_value = (
+            parsed_observations
+        )
+
+        with patch(
+            "versatil.inference.inference_client.logging.info",
+        ) as mock_log_info:
+            client.step()
+
+            mock_log_info.assert_not_called()
+
+
+@pytest.mark.unit
+class TestStepUpdateRateHz:
+    def test_sleeps_for_target_period_when_update_rate_set(
+        self,
+        mock_policy_loader_factory: Callable[..., MagicMock],
+        mock_observation_transport: MagicMock,
+        mock_action_transport: MagicMock,
+        rng: np.random.Generator,
+    ):
+        policy_loader = mock_policy_loader_factory(
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            action_keys_to_dimensions={"position": 3},
+            prediction_horizon=4,
+            observation_horizon=1,
+        )
+        predicted_actions = torch.from_numpy(
+            rng.standard_normal((1, 4, 3)).astype(np.float32)
+        )
+        policy_loader.run_inference.return_value = {
+            "position": predicted_actions,
+        }
+
+        client = InferenceClient(
+            policy_loader=policy_loader,
+            observation_transport=mock_observation_transport,
+            action_transport=mock_action_transport,
             update_rate_hz=10.0,
         )
 
-        observation_horizon = client.policy.decoder.observation_horizon
+        parsed_observations = {
+            0: {
+                "left": rng.integers(0, 255, (64, 64, 3)).astype(np.uint8),
+                "proprio": rng.standard_normal(3).astype(np.float32),
+            }
+        }
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
+        client.observation_preprocessor.parse_response.return_value = (
+            parsed_observations
+        )
+        camera_tensor = torch.from_numpy(
+            rng.standard_normal((1, 3, 64, 64)).astype(np.float32)
+        )
+        client.observation_preprocessor.transform_camera_observations.return_value = {
+            "left": camera_tensor,
+        }
+        client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
+        client.action_postprocessor.format_action.return_value = {
+            "position": [0.1, 0.2, 0.3],
+        }
+        client.action_postprocessor.build_action_metadata.return_value = {}
 
-        client.observation_buffer_size = observation_horizon
-        client.left_image_buffer = []
-        client.right_image_buffer = []
-        client.robot_state_buffer = []
-        client.obs_robot_frame = True
-        client.obs_camera_frame = False
-        client.request_depth = False
-        client.predicts_delta = True
-        client.predicts_in_camera_frame = False
-        client.enable_logging = False
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.WAITING_ACTION.value,
+        }
 
-        for _ in range(observation_horizon):
-            left_img = np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
-            right_img = np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
-            robot_state = np.random.randn(3).astype(np.float32)
+        with patch(
+            "versatil.inference.inference_client.time.sleep",
+        ) as mock_sleep:
+            client.step()
 
-            client.left_image_buffer.append(left_img)
-            client.right_image_buffer.append(right_img)
-            client.robot_state_buffer.append(robot_state)
+            mock_sleep.assert_called_once_with(1.0 / 10.0)
 
-        actions = client.get_actions_from_model()
-
-        assert isinstance(actions, list)
-        assert len(actions) > 0
-
-        assert isinstance(actions[0], Action)
-        assert actions[0].robot_action is not None
-        assert len(actions[0].robot_action) == 4
-        assert actions[0].gripper_action is not None
-
-    @patch('versatil.inference.client.AbstractModelClient.__init__')
-    @patch('versatil.inference.client.LightningPolicy.load_from_checkpoint')
-    def test_multiple_prediction_cycles(self, mock_load_checkpoint, mock_super_init, saved_checkpoint, test_policy, device):
-        """Test that client can perform multiple prediction cycles."""
-        mock_super_init.return_value = None
-
-        mock_lightning_policy = MagicMock()
-        mock_lightning_policy.policy = test_policy
-        mock_lightning_policy.eval = MagicMock()
-        mock_load_checkpoint.return_value = mock_lightning_policy
-
-        client = TSOPolicyClient(
-            device=device,
-            checkpoint_path=str(saved_checkpoint),
-            temporal_agg=True,
-            update_rate_hz=10.0,
+    def test_does_not_sleep_when_update_rate_is_none(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+        mock_observation_transport: MagicMock,
+    ):
+        client = inference_client_factory(
+            update_rate_hz=None,
+            camera_keys=["left"],
+            proprioceptive_keys=["proprio"],
+            observation_horizon=3,
+        )
+        mock_observation_transport.receive.return_value = {
+            TransportKey.STATUS.value: ServerStatus.WAITING_ACTION.value,
+        }
+        parsed_observations = {
+            0: {
+                "left": np.zeros((64, 64, 3), dtype=np.uint8),
+                "proprio": np.zeros(3, dtype=np.float32),
+            }
+        }
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
+        client.observation_preprocessor.parse_response.return_value = (
+            parsed_observations
         )
 
-        observation_horizon = client.policy.decoder.observation_horizon
+        with patch(
+            "versatil.inference.inference_client.time.sleep",
+        ) as mock_sleep:
+            client.step()
 
-        client.observation_buffer_size = observation_horizon
-        client.left_image_buffer = []
-        client.right_image_buffer = []
-        client.robot_state_buffer = []
-        client.obs_robot_frame = True
-        client.obs_camera_frame = False
-        client.request_depth = False
-        client.predicts_delta = True
-        client.predicts_in_camera_frame = False
-        client.enable_logging = False
-
-        num_cycles = 5
-        all_actions = []
-
-        for cycle in range(num_cycles):
-            left_img = np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
-            right_img = np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
-            robot_state = np.random.randn(3).astype(np.float32)
-
-            client.left_image_buffer.append(left_img)
-            client.right_image_buffer.append(right_img)
-            client.robot_state_buffer.append(robot_state)
-
-            actions = client.get_actions_from_model()
-            all_actions.append(actions)
-
-        assert len(all_actions) == num_cycles
-
-        for actions in all_actions:
-            assert isinstance(actions, list)
-            assert len(actions) > 0
-
-    @patch('versatil.inference.client.AbstractModelClient.__init__')
-    @patch('versatil.inference.client.LightningPolicy.load_from_checkpoint')
-    def test_temporal_aggregation_disabled(self, mock_load_checkpoint, mock_super_init, saved_checkpoint, test_policy, device):
-        """Test that client works with temporal aggregation disabled."""
-        mock_super_init.return_value = None
-
-        mock_lightning_policy = MagicMock()
-        mock_lightning_policy.policy = test_policy
-        mock_lightning_policy.eval = MagicMock()
-        mock_load_checkpoint.return_value = mock_lightning_policy
-
-        client = TSOPolicyClient(
-            device=device,
-            checkpoint_path=str(saved_checkpoint),
-            temporal_agg=False,
-            update_rate_hz=10.0,
-        )
-
-        observation_horizon = client.policy.decoder.observation_horizon
-        prediction_horizon = client.policy.prediction_horizon
-
-        client.observation_buffer_size = observation_horizon
-        client.left_image_buffer = []
-        client.right_image_buffer = []
-        client.robot_state_buffer = []
-        client.obs_robot_frame = True
-        client.obs_camera_frame = False
-        client.request_depth = False
-        client.predicts_delta = True
-        client.predicts_in_camera_frame = False
-        client.enable_logging = False
-
-        for _ in range(observation_horizon):
-            left_img = np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
-            right_img = np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
-            robot_state = np.random.randn(3).astype(np.float32)
-
-            client.left_image_buffer.append(left_img)
-            client.right_image_buffer.append(right_img)
-            client.robot_state_buffer.append(robot_state)
-
-        actions = client.get_actions_from_model()
-
-        assert isinstance(actions, list)
-        assert len(actions) == prediction_horizon
+            mock_sleep.assert_not_called()

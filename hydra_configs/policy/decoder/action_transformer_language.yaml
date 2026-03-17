@@ -7,17 +7,17 @@ input_keys:
   - right_rgb
   - instruction_language
 
-embedding_dimension: 256
+embedding_dimension: 128
 number_of_heads: 8
-number_of_key_value_heads: 2
-feedforward_dimension: 1024
-number_of_layers: 4
-activation: ${activation_function:SWIGLU}
+number_of_key_value_heads: null
+feedforward_dimension: 512
+number_of_layers: 3
+activation: ${activation_function:RELU}
 normalization_type: ${normalization:RMS_NORM}
-attention_type: ${attention:GROUPED_QUERY}
+attention_type: ${attention:MULTI_HEAD}
 dropout_rate: 0.2
 attention_dropout: 0.05
-positional_encoding_type: ${pos_encoding:ROPE}
+positional_encoding_type: ${pos_encoding:SINUSOIDAL}
 
 observation_horizon: ${task.observation_horizon}
 prediction_horizon: ${task.prediction_horizon}

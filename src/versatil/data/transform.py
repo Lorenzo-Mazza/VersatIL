@@ -10,15 +10,15 @@ from versatil.data.constants import (
 )
 from versatil.data.metadata import (
     GripperActionMetadata,
-    OnTheFlyActionMetadata,
     GripperObservationMetadata,
+    OnTheFlyActionMetadata,
 )
 from versatil.data.normalization.normalizer import LinearNormalizer
-from versatil.data.task import ObservationSpace, ActionSpace
+from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import (
     ActionTokenizer,
-    Tokenizer,
     ObservationTokenizer,
+    Tokenizer,
 )
 
 
@@ -69,7 +69,7 @@ def normalize_observation(
         Normalized observation dictionary.
     """
     normalized_observation = observation.copy()
-    for key, meta in observation_space.observations_metadata.items():
+    for key in observation_space.observations_metadata:
         if key in normalizer.params_dict.keys():
             normalized_observation[key] = normalizer[key].normalize(observation[key])
     return normalized_observation
@@ -91,7 +91,7 @@ def normalize_actions(
         Normalized action dictionary.
     """
     normalized_actions = actions.copy()
-    for key, meta in action_space.actions_metadata.items():
+    for key in action_space.actions_metadata:
         if key in normalizer.params_dict.keys():
             normalized_actions[key] = normalizer[key].normalize(actions[key])
     return normalized_actions
@@ -104,7 +104,7 @@ def unnormalize_actions(
 ) -> dict[str, torch.Tensor]:
     """Unnormalize actions using the normalizer with per-key statistics."""
     actions = normalized_actions.copy()
-    for key, meta in action_space.actions_metadata.items():
+    for key in action_space.actions_metadata:
         if key in normalizer.params_dict.keys():
             actions[key] = normalizer[key].unnormalize(normalized_actions[key])
     return actions
@@ -115,7 +115,7 @@ def tokenize_sample(
     tokenizer: Tokenizer,
     action_space: ActionSpace,
 ) -> dict[str, dict[str, torch.Tensor]]:
-    """Tokenize observations and actins according to the action space configuration."""
+    """Tokenize observations and actions according to the action space configuration."""
     if tokenizer.observation_tokenizer is not None:
         observation = sample[SampleKey.OBSERVATION.value]
         sample[SampleKey.OBSERVATION.value] = tokenize_observation(

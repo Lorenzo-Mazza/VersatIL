@@ -1,4 +1,5 @@
 """Dataset schema for the bowel retraction surgical dataset."""
+
 import logging
 import re
 
@@ -12,13 +13,12 @@ from versatil.data.constants import (
     CoordinateSystem,
     DatasetType,
     GripperType,
-    ProprioKey,
     ObsKey,
+    ProprioKey,
 )
 from versatil.data.metadata import CameraMetadata, ObservationMetadata
 from versatil.data.raw.schemas.csv import CsvDatasetSchema
 from versatil.data.raw.zarr_meta import DatasetMetadata
-
 
 BOWEL_RETRACTION_LEFT_IMAGE_KEY = "frameLeftPath"
 BOWEL_RETRACTION_RIGHT_IMAGE_KEY = "frameRightPath"
@@ -178,7 +178,7 @@ class BowelRetractionSchema(CsvDatasetSchema):
                     )
         if errors:
             raise ValueError(
-                f"BowelRetraction schema validation failed:\n"
+                "BowelRetraction schema validation failed:\n"
                 + "\n".join(f"  - {e}" for e in errors)
             )
 
@@ -213,7 +213,7 @@ class BowelRetractionSchema(CsvDatasetSchema):
             )
 
         for zarr_key, cam_metadata in self.metadata.cameras.items():
-            cam = cam_metadata.camera_key
+            cam = cam_metadata.raw_camera_key
             if cam == Cameras.DEPTH.value:
                 left_col = self._get_rgb_column(Cameras.LEFT.value)
                 paths = [self._compute_depth_path(p) for p in episode[left_col]]
@@ -260,5 +260,5 @@ class BowelRetractionSchema(CsvDatasetSchema):
             else self.left_dir_pattern
         )
         depth_path = base_image_path.replace(dir_to_sub, self.depth_dir_pattern)
-        depth_path = re.sub(rf"(\d+)\.png$", self.depth_file_pattern, depth_path)
+        depth_path = re.sub(r"(\d+)\.png$", self.depth_file_pattern, depth_path)
         return depth_path

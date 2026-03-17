@@ -11,16 +11,16 @@ Builds the final training/validation samples by:
 import numpy as np
 import torch
 
-from versatil.data.metadata import ObservationMetadata, ActionMetadata
-from versatil.data.task import ObservationSpace, ActionSpace
 from versatil.data.action_processor import ActionProcessor
 from versatil.data.augmentation.augmentation_pipeline import AugmentationPipeline
 from versatil.data.constants import (
     Cameras,
     SampleKey,
 )
-from versatil.data.tokenization import Tokenizer
+from versatil.data.metadata import ActionMetadata, ObservationMetadata
 from versatil.data.normalization.normalizer import LinearNormalizer
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.tokenization import Tokenizer
 from versatil.data.transform import normalize_sample, tokenize_sample
 
 
@@ -101,7 +101,7 @@ class SampleBuilder:
                         )
                     }
                 )
-        for key, data in action_data.items():
+        for key, _data in action_data.items():
             metadata = action_meta[key]
             sample[SampleKey.ACTION.value].update(
                 {
@@ -111,10 +111,10 @@ class SampleBuilder:
                 }
             )
 
-        sample[SampleKey.ACTION.value][
-            SampleKey.IS_PAD_ACTION.value
-        ] = self._compute_action_padding_mask(
-            start_idx=start_idx, sampler_indices=sampler_indices
+        sample[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value] = (
+            self._compute_action_padding_mask(
+                start_idx=start_idx, sampler_indices=sampler_indices
+            )
         )
         sample = self.normalize_and_tokenize_sample(sample=sample)
         return sample
@@ -150,7 +150,7 @@ class SampleBuilder:
     ) -> dict[str, torch.Tensor]:
         """Process images and return them as a dictionary of tensors."""
         image_dict = {}
-        for cam in self.observation_space.cameras.keys():
+        for cam in self.observation_space.cameras:
             # the sampler now fetches action_backward_shift extra prior observations at the start of padded_data, effectively offsetting the entire sequence
             img = padded_data[cam][
                 self.action_backward_shift : self.action_backward_shift

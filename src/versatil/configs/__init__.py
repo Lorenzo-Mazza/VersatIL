@@ -1,4 +1,5 @@
 """Configuration and resolver centralized store for OmegaConf."""
+
 import os
 from pathlib import Path
 
@@ -7,68 +8,73 @@ from omegaconf import OmegaConf
 
 from versatil.configs.data.augmentations import AugmentationPipelineConfig
 from versatil.configs.data.dataloader import DataLoaderConfig
+from versatil.configs.data.metadata import (
+    CameraMetadataConfig,
+    GripperActionMetadataConfig,
+    GripperObservationMetadataConfig,
+    ObservationMetadataConfig,
+    OrientationActionMetadataConfig,
+    OrientationObservationMetadataConfig,
+    PositionActionMetadataConfig,
+    PositionObservationMetadataConfig,
+    PrecomputedActionMetadataConfig,
+)
 from versatil.configs.data.raw import (
-    DatasetSchemaConfig,
     CsvDatasetSchemaConfig,
+    DatasetMetadataConfig,
+    DatasetSchemaConfig,
     Hdf5DatasetSchemaConfig,
     LeRobotDatasetSchemaConfig,
-    DatasetMetadataConfig,
 )
-from versatil.configs.data.metadata import (
-    ObservationMetadataConfig,
-    PositionObservationMetadataConfig,
-    OrientationObservationMetadataConfig,
-    GripperObservationMetadataConfig,
-    CameraMetadataConfig,
-    PrecomputedActionMetadataConfig,
-    PositionActionMetadataConfig,
-    OrientationActionMetadataConfig,
-    GripperActionMetadataConfig,
+from versatil.configs.data.task import (
+    ActionSpaceConfig,
+    ObservationSpaceConfig,
+    TaskSpaceConfig,
 )
 from versatil.configs.data.tokenizer import (
-    TokenizationConfig,
     ActionTokenizationConfig,
     ObservationTokenizationConfig,
+    TokenizationConfig,
 )
 from versatil.configs.decoding.action_head import (
+    ActionHeadBlockConfig,
     ActionHeadConfig,
+    AttentionBlockConfig,
     GaussianHeadConfig,
     MixtureOfExpertsHeadConfig,
-    ActionHeadBlockConfig,
-    AttentionBlockConfig,
     MLPBlockConfig,
     ResidualBlockConfig,
 )
 from versatil.configs.decoding.algorithm import (
+    BehavioralCloningConfig,
     DecodingAlgorithmConfig,
     DiffusionConfig,
-    BehavioralCloningConfig,
     FlowMatchingConfig,
     VariationalAlgorithmConfig,
 )
 from versatil.configs.decoding.decoder import (
     ACTConfig,
+    ActionTransformerConfig,
     ConditionalActionUNetConfig,
     DecodingNetworkConfig,
     DiffusionActionTransformerConfig,
+    DiscreteDETRActionTransformerConfig,
     DiTBlockActionTransformerConfig,
     FreeActionTransformerConfig,
-    LACTConfig,
-    MixtureOfExpertsDecoderConfig,
     GPTActionTransformerConfig,
-    DiscreteDETRActionTransformerConfig,
+    LACTConfig,
+    MixtureOfDensitiesActionTransformerConfig,
+    MixtureOfExpertsDecoderConfig,
     MoEFreeActionTransformerConfig,
     PhaseACTConfig,
-    ActionTransformerConfig,
-    MixtureOfDensitiesActionTransformerConfig,
 )
 from versatil.configs.decoding.latent import (
+    DiTPriorConfig,
+    GaussianPriorConfig,
     PosteriorLatentEncoderConfig,
     PriorLatentEncoderConfig,
-    VAETransformerEncoderConfig,
-    GaussianPriorConfig,
-    DiTPriorConfig,
     PriorTransformerEncoderConfig,
+    VAETransformerEncoderConfig,
     VampPriorConfig,
 )
 from versatil.configs.encoding.encoder import (
@@ -83,15 +89,16 @@ from versatil.configs.encoding.encoder import (
     ViTEncoderConfig,
 )
 from versatil.configs.encoding.fusion import (
-    FusionConfig,
-    ConcatFusionConfig,
     AttentionFusionConfig,
+    ConcatFusionConfig,
+    FusionConfig,
     MLPFusionConfig,
     SpatialFusionConfig,
 )
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.inference import InferenceConfig
 from versatil.configs.loss import (
+    ActionTokenLossConfig,
     BaseLossConfig,
     BinaryKLDivergenceLossConfig,
     BinaryMaximumMeanDiscrepancyLossConfig,
@@ -101,9 +108,9 @@ from versatil.configs.loss import (
     GripperLossConfig,
     GripperMixtureNLLossConfig,
     KLDivergenceLossConfig,
+    LatentOptimalTransportLossConfig,
     MaximumMeanDiscrepancyLossConfig,
     MoELossConfig,
-    LatentOptimalTransportLossConfig,
     OptimalTransportLossConfig,
     PhaseClassificationLossConfig,
     PriorDenoisingLossConfig,
@@ -114,18 +121,13 @@ from versatil.configs.loss import (
 )
 from versatil.configs.main import MainConfig
 from versatil.configs.policy import PolicyConfig
-from versatil.configs.data.task import (
-    TaskSpaceConfig,
-    ActionSpaceConfig,
-    ObservationSpaceConfig,
-)
 from versatil.configs.training import (
+    AdamConfig,
+    AdamWConfig,
     OptimizerConfig,
     ParameterGroupConfig,
-    TrainingConfig,
-    AdamWConfig,
-    AdamConfig,
     SGDConfig,
+    TrainingConfig,
 )
 from versatil.data.constants import (
     BinaryGripperRange,
@@ -133,25 +135,28 @@ from versatil.data.constants import (
     CoordinateSystem,
     DatasetType,
     GripperType,
+    ImageNormalizationType,
+    KinematicsNormalizationType,
     ObsKey,
     OrientationRepresentation,
     ProprioKey,
+    RawCameraKey,
     TokenizerType,
-    KinematicsNormalizationType,
-    ImageNormalizationType,
 )
+from versatil.metrics.constants import MetadataKey
+from versatil.metrics.kernels import KernelType
 from versatil.models.decoding.constants import (
     DecoderOutputKey,
-    LatentKey,
-    MoERoutingType,
     DenoisingAlgorithm,
     DiTType,
+    LatentKey,
+    MoERoutingType,
 )
 from versatil.models.encoding.encoders.constants import (
-    RGBBackboneType,
-    PoolingMethod,
-    LanguageEncoderType,
     BatchNormHandling,
+    LanguageEncoderType,
+    PoolingMethod,
+    RGBBackboneType,
 )
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import (
@@ -159,8 +164,6 @@ from versatil.models.layers.constants import (
     ConditioningType,
     PositionalEncodingType,
 )
-from versatil.metrics.constants import MetadataKey
-from versatil.metrics.kernels import KernelType
 from versatil.models.layers.denoising.diffusion_process import SchedulerType
 from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -231,6 +234,10 @@ def register_resolvers():
     """
     if not OmegaConf.has_resolver("cameras"):
         OmegaConf.register_new_resolver("cameras", lambda name: Cameras[name].value)
+    if not OmegaConf.has_resolver("raw_camera"):
+        OmegaConf.register_new_resolver(
+            "raw_camera", lambda name: RawCameraKey[name].value
+        )
     if not OmegaConf.has_resolver("gripper"):
         OmegaConf.register_new_resolver("gripper", lambda name: GripperType[name].value)
     if not OmegaConf.has_resolver("orientation"):
@@ -556,6 +563,7 @@ def register_configs():
         name="phase_classification",
         node=PhaseClassificationLossConfig,
     )
+    cs.store(group="policy/loss", name="token_loss", node=ActionTokenLossConfig)
     cs.store(group="policy/loss", name="moe_loss", node=MoELossConfig)
     cs.store(
         group="policy/loss",
@@ -653,9 +661,15 @@ def register_configs():
     )
 
     cs.store(group="policy/decoder", name="gpt", node=GPTActionTransformerConfig)
-    cs.store(group="policy/decoder", name="discrete_detr", node=DiscreteDETRActionTransformerConfig)
     cs.store(
-        group="policy/decoder", name="free_transformer", node=FreeActionTransformerConfig
+        group="policy/decoder",
+        name="discrete_detr",
+        node=DiscreteDETRActionTransformerConfig,
+    )
+    cs.store(
+        group="policy/decoder",
+        name="free_transformer",
+        node=FreeActionTransformerConfig,
     )
     cs.store(
         group="policy/decoder",

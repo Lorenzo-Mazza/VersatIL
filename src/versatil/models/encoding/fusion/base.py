@@ -1,4 +1,5 @@
 """Fusion modules for combining multi-modal features."""
+
 import abc
 from dataclasses import dataclass
 

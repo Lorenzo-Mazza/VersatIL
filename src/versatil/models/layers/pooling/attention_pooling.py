@@ -1,4 +1,5 @@
 """Inspired from https://benjaminwarner.dev/2022/07/14/tinkering-with-attention-pooling"""
+
 from collections.abc import Callable
 
 import torch
@@ -7,19 +8,19 @@ from torch import Tensor
 
 
 class AttentionPool2d(nn.Module):
-    "Attention for Learned Aggregation"
+    """Attention for Learned Aggregation."""
 
     def __init__(
         self,
-        ni: int,
+        feature_dimension: int,
         bias: bool = True,
         norm: Callable[[int], nn.Module] = nn.LayerNorm,
     ):
         super().__init__()
-        self.norm = norm(ni)
-        self.q = nn.Linear(ni, ni, bias=bias)
-        self.vk = nn.Linear(ni, ni * 2, bias=bias)
-        self.proj = nn.Linear(ni, ni)
+        self.norm = norm(feature_dimension)
+        self.q = nn.Linear(feature_dimension, feature_dimension, bias=bias)
+        self.vk = nn.Linear(feature_dimension, feature_dimension * 2, bias=bias)
+        self.proj = nn.Linear(feature_dimension, feature_dimension)
 
     def forward(self, x: Tensor, cls_q: Tensor):
         if x.ndim == 4:
@@ -59,26 +60,26 @@ class AttentionPool2d(nn.Module):
 
 
 class LearnedAggregation(nn.Module):
-    "Learned Aggregation from https://arxiv.org/abs/2112.13692"
+    """Learned Aggregation from https://arxiv.org/abs/2112.13692."""
 
     def __init__(
         self,
-        ni: int,
-        attn_bias: bool = True,
-        ffn_expand: int | float = 3,
+        feature_dimension: int,
+        attention_bias: bool = True,
+        feedforward_expand: int | float = 3,
         norm: Callable[[int], nn.Module] = nn.LayerNorm,
-        act_cls: Callable[[None], nn.Module] = nn.GELU,
+        activation_class: Callable[[], nn.Module] = nn.GELU,
     ):
         super().__init__()
-        self.gamma_1 = nn.Parameter(1e-4 * torch.ones(ni))
-        self.gamma_2 = nn.Parameter(1e-4 * torch.ones(ni))
-        self.cls_q = nn.Parameter(torch.zeros(ni))
-        self.attn = AttentionPool2d(ni, attn_bias, norm)
-        self.norm = norm(ni)
+        self.gamma_1 = nn.Parameter(1e-4 * torch.ones(feature_dimension))
+        self.gamma_2 = nn.Parameter(1e-4 * torch.ones(feature_dimension))
+        self.cls_q = nn.Parameter(torch.zeros(feature_dimension))
+        self.attn = AttentionPool2d(feature_dimension, attention_bias, norm)
+        self.norm = norm(feature_dimension)
         self.ffn = nn.Sequential(
-            nn.Linear(ni, int(ni * ffn_expand)),
-            act_cls(),
-            nn.Linear(int(ni * ffn_expand), ni),
+            nn.Linear(feature_dimension, int(feature_dimension * feedforward_expand)),
+            activation_class(),
+            nn.Linear(int(feature_dimension * feedforward_expand), feature_dimension),
         )
         nn.init.trunc_normal_(self.cls_q, std=0.02)
         self.apply(self._init_weights)

@@ -1,4 +1,4 @@
-""" 'DiT Block' architecture inspired by the original implementation by Peebles and Xie, adapted for robotics in
+"""'DiT Block' architecture inspired by the original implementation by Peebles and Xie, adapted for robotics in
  "The Ingredients for Robotic Diffusion Transformers" by Dasari et al.
 
  The implementation by Dasari had several bugs/differences from the original DiT paper, which have been corrected here.

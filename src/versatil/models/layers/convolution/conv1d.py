@@ -20,14 +20,14 @@ class Upsample1d(nn.Module):
 
 
 class Conv1dBlock(nn.Module):
-    def __init__(self, inp_channels, out_channels, kernel_size, n_groups=8):
+    def __init__(self, input_channels, output_channels, kernel_size, num_groups=8):
         super().__init__()
 
         self.block = nn.Sequential(
             nn.Conv1d(
-                inp_channels, out_channels, kernel_size, padding=kernel_size // 2
+                input_channels, output_channels, kernel_size, padding=kernel_size // 2
             ),
-            nn.GroupNorm(n_groups, out_channels),
+            nn.GroupNorm(num_groups, output_channels),
             nn.Mish(),
         )
 

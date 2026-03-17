@@ -1,4 +1,5 @@
 """This module provides reusable building blocks for implementing diffusion processes."""
+
 import enum
 from dataclasses import dataclass
 
@@ -134,7 +135,7 @@ def sample_random_timesteps(
     batch_size: int,
     num_train_timesteps: int,
     device: torch.device,
-) -> torch.Tensor:
+) -> torch.IntTensor:
     """Sample random timesteps for training.
 
     Samples uniformly from [0, num_train_timesteps) for each batch element.
@@ -177,7 +178,7 @@ def setup_inference_timesteps(
     noise_scheduler.set_timesteps(num_inference_steps)
 
 
-class SchedulerType(str, enum.Enum):
+class SchedulerType(enum.StrEnum):
     """Diffusion scheduler types (compatible with diffusers API)."""
 
     DDIM = "ddim"

@@ -1,4 +1,5 @@
 """Configuration classes for modular action heads."""
+
 from dataclasses import dataclass
 from typing import Any
 

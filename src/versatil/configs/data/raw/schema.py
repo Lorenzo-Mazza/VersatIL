@@ -1,9 +1,12 @@
 """Configuration for the dataset schema.
-  The dataset schema defines the content of a raw dataset, including its metadata for zarr storage.
-  It does not define which subset of the data is used at runtime (see TaskSpaceConfig for that).
- """
+The dataset schema defines the content of a raw dataset, including its metadata for zarr storage.
+It does not define which subset of the data is used at runtime (see TaskSpaceConfig for that).
+"""
+
 from dataclasses import dataclass
+
 from omegaconf import MISSING
+
 from versatil.configs.data.raw.zarr_meta import DatasetMetadataConfig
 
 

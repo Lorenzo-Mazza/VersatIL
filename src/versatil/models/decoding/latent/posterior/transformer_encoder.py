@@ -3,6 +3,7 @@ This is the transformer posterior encoder used in the original Action-Chunking T
 It takes as input a chunk of actions plus observation tokens and uses a transformer encoder with a CLS token to produce
 a latent embedding (split into mean and log variance), which is then reparameterized to produce a latent sample.
 """
+
 import logging
 
 import torch
@@ -14,6 +15,7 @@ from versatil.models.decoding.latent.posterior.base_posterior import (
     PosteriorLatentEncoder,
 )
 from versatil.models.decoding.latent.reparametrize import reparametrize
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer import (
     TransformerEncoder,
@@ -26,7 +28,6 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
 
 class VAETransformerEncoder(PosteriorLatentEncoder):
@@ -60,7 +61,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         dropout_rate: float = 0.1,
         normalize_before: bool = False,
         use_proprioceptive: bool = False,
-        exclude_keys: list[str] = None,
+        exclude_keys: list[str] | None = None,
         min_logvar: float | None = None,
         deterministic: bool = False,
     ):
@@ -96,7 +97,6 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
         self.observation_horizon = observation_horizon
-        self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
         self.feedforward_dimension = feedforward_dimension
         self.number_of_encoder_layers = number_of_encoder_layers
@@ -104,10 +104,6 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         self.dropout_rate = dropout_rate
         self.normalize_before = normalize_before
         self.vae_latent_dimension = latent_dimension
-        self.use_proprioceptive = use_proprioceptive
-        self.prediction_horizon = prediction_horizon
-        self.observation_horizon = observation_horizon
-        self.device = device
         self.transformer_encoder = TransformerEncoder(
             encoder_layer=TransformerEncoderLayer(
                 embedding_dimension=self.embedding_dimension,
@@ -142,7 +138,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         )
         self.cls_token = nn.Embedding(1, self.embedding_dimension)  # CLS input token
         projection_dim = (
-            self.vae_latent_dimension # mu
+            self.vae_latent_dimension  # mu
             if self.deterministic
             else self.vae_latent_dimension * 2  # mu and logvar
         )
@@ -156,7 +152,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         self,
         actions: dict[str, torch.Tensor],
         observations: dict[str, torch.Tensor] | None = None,
-    ) -> dict[str, torch.Tensor | dict[str, torch.Tensor] | None]:
+    ) -> dict[str, torch.Tensor]:
         """Encode actions into latent space using VAE.
 
         Args:
@@ -176,7 +172,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         """
         if observations is not None:
             input_observations = {
-                k: v for k, v in observations.items() if not (k in self.exclude_keys)
+                k: v for k, v in observations.items() if k not in self.exclude_keys
             }
         else:
             input_observations = {}
@@ -208,9 +204,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             input_tokens,
             positional_encoding=pos_encodings,
             source_key_padding_mask=padding_mask,
-        )[
-            :, -1, :
-        ]  # (B, CLS_TOKEN only, embedding_dim)
+        )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dim)
         latent_stats = self.latent_projection(encoder_output)
         if self.deterministic:
             z = latent_stats  # (B, latent_dim)

@@ -4,6 +4,7 @@ Provides a unified pipeline for creating zarr stores from any dataset schema,
 with WebP compression for uint8 images and lz4 for numerical arrays.
 """
 
+import logging
 from collections.abc import Iterable
 
 import numpy as np
@@ -14,7 +15,6 @@ from zarr.codecs import BloscCodec, BloscShuffle
 
 from versatil.data.preprocessing.codecs import WebPCodec
 from versatil.data.raw.schemas.base import DatasetSchema
-import logging
 
 WEBP_QUALITY = 99
 
@@ -61,9 +61,7 @@ def create_zarr_arrays(
                 shape=spec["shape"],
                 chunks=spec["chunks"],
                 dtype=dtype,
-                compressors=[numeric_compressor]
-                if spec["needs_compressor"]
-                else None,
+                compressors=[numeric_compressor] if spec["needs_compressor"] else None,
             )
 
 

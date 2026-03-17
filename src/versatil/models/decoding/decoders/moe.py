@@ -1,4 +1,5 @@
 """Mixture of Experts (MoE) decoder for action prediction."""
+
 import copy
 
 import torch
@@ -95,7 +96,7 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
             experts.append(expert)
         return experts
 
-    def forward(  # type: ignore[override]
+    def forward(
         self,
         features: dict[str, torch.Tensor],
         actions: dict[str, torch.Tensor] | None = None,
@@ -121,12 +122,16 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
             gating_feature
         )  # (B, num_experts)
         features.pop(gating_key)
-        streams = [torch.cuda.Stream() for _ in self.expert_decoders]
         expert_outputs = [None] * len(self.expert_decoders)
-        for i, (expert, stream) in enumerate(zip(self.expert_decoders, streams)):
-            with torch.cuda.stream(stream):
+        if torch.cuda.is_available() and features[next(iter(features))].is_cuda:
+            streams = [torch.cuda.Stream() for _ in self.expert_decoders]
+            for i, (expert, stream) in enumerate(zip(self.expert_decoders, streams)):
+                with torch.cuda.stream(stream):
+                    expert_outputs[i] = expert(features, actions)
+            torch.cuda.synchronize()
+        else:
+            for i, expert in enumerate(self.expert_decoders):
                 expert_outputs[i] = expert(features, actions)
-        torch.cuda.synchronize()
         combined_outputs = self._combine_expert_outputs(
             expert_outputs=expert_outputs, weights=mixing_probabilities
         )

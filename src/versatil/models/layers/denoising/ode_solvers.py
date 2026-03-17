@@ -4,9 +4,10 @@ Provides reusable ODE solver functions for integrating velocity fields
 in flow matching models. Used for both latent space priors and action decoders.
 """
 
+from collections.abc import Callable
+
 import torch
 from torch import Tensor
-from collections.abc import Callable
 
 from versatil.models.decoding.constants import ODESolver
 

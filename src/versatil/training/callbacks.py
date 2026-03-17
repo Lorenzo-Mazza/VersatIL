@@ -2,6 +2,7 @@
 
 import copy
 import io
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
@@ -13,19 +14,20 @@ from pytorch_lightning.callbacks import Callback, EarlyStopping
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from torch.nn.modules.batchnorm import _BatchNorm
+from torch.optim.lr_scheduler import ReduceLROnPlateau as TorchReduceLROnPlateau
 
 from versatil.metrics.constants import MetadataKey
-from torch.optim.lr_scheduler import ReduceLROnPlateau as TorchReduceLROnPlateau
 
 plt.set_loglevel("warning")
 
 
 class ResumableEarlyStopping(EarlyStopping):
     """EarlyStopping that ignores checkpoint state, always using config values.
-    
-    Note: this allows to resume training beyond an initial early stopping state, which is 
+
+    Note: this allows to resume training beyond an initial early stopping state, which is
      otherwise not possible to overwrite from Lightning.
     """
+
     def load_state_dict(self, state_dict):
         pass
 
@@ -110,6 +112,13 @@ class EMACallback(Callback):
             for module, ema_module in zip(
                 pl_module.policy.modules(), self.ema_model.modules()
             ):
+                # Copy BatchNorm running stats (buffers, not parameters)
+                if isinstance(module, _BatchNorm):
+                    for buffer, ema_buffer in zip(
+                        module.buffers(), ema_module.buffers()
+                    ):
+                        ema_buffer.copy_(buffer)
+
                 for param, ema_param in zip(
                     module.parameters(recurse=False),
                     ema_module.parameters(recurse=False),
@@ -117,11 +126,8 @@ class EMACallback(Callback):
                     if isinstance(param, dict):
                         raise RuntimeError("Dict parameter not supported")
 
-                    if isinstance(module, _BatchNorm):
-                        # Copy batchnorm stats directly
-                        ema_param.copy_(param.to(dtype=ema_param.dtype).data)
-                    elif not param.requires_grad:
-                        # Copy frozen parameters directly
+                    if isinstance(module, _BatchNorm) or not param.requires_grad:
+                        # Copy batchnorm learnable params and frozen params directly
                         ema_param.copy_(param.to(dtype=ema_param.dtype).data)
                     else:
                         # EMA update: ema = decay * ema + (1 - decay) * param
@@ -151,7 +157,7 @@ class EMACallback(Callback):
         if step <= 0:
             return 0.0
 
-        return max(self.min_value, min(value, self.max_value))  # type: ignore[no-any-return]
+        return max(self.min_value, min(value, self.max_value))
 
     def on_save_checkpoint(
         self,
@@ -238,7 +244,7 @@ class ExpertUsageCallback(Callback):
                 if trainer.logger is not None:
                     wandb_image = _figure_to_wandb_image(fig)
                     trainer.logger.log_metrics(
-                        {f"train_{key}": wandb_image},  # type: ignore[dict-item]
+                        {f"train_{key}": wandb_image},
                         step=trainer.current_epoch,
                     )
                 plt.close(fig)
@@ -261,7 +267,7 @@ class ExpertUsageCallback(Callback):
                 if trainer.logger is not None:
                     wandb_image = _figure_to_wandb_image(fig)
                     trainer.logger.log_metrics(
-                        {f"val_{key}": wandb_image},  # type: ignore[dict-item]
+                        {f"val_{key}": wandb_image},
                         step=trainer.current_epoch,
                     )
                 plt.close(fig)
@@ -324,7 +330,7 @@ class ConfusionMatrixCallback(Callback):
             if trainer.logger is not None:
                 wandb_image = _figure_to_wandb_image(fig)
                 trainer.logger.log_metrics(
-                    {"train_phase_confusion_matrix": wandb_image},  # type: ignore[dict-item]
+                    {"train_phase_confusion_matrix": wandb_image},
                     step=trainer.current_epoch,
                 )
             plt.close(fig)
@@ -347,7 +353,7 @@ class ConfusionMatrixCallback(Callback):
             if trainer.logger is not None:
                 wandb_image = _figure_to_wandb_image(fig)
                 trainer.logger.log_metrics(
-                    {"val_phase_confusion_matrix": wandb_image},  # type: ignore[dict-item]
+                    {"val_phase_confusion_matrix": wandb_image},
                     step=trainer.current_epoch,
                 )
             plt.close(fig)
@@ -461,7 +467,7 @@ class GradientNormCallback(Callback):
             if param.grad is not None:
                 param_norm = param.grad.data.norm(2)
                 total_norm += param_norm.item() ** 2
-        total_norm = total_norm ** 0.5
+        total_norm = total_norm**0.5
         return total_norm
 
     def _compute_grad_norm_for_params(self, params) -> float:
@@ -478,7 +484,7 @@ class GradientNormCallback(Callback):
             if param.grad is not None:
                 param_norm = param.grad.data.norm(2)
                 total_norm += param_norm.item() ** 2
-        total_norm = total_norm ** 0.5
+        total_norm = total_norm**0.5
         return total_norm
 
 
@@ -536,10 +542,7 @@ class ReduceLROnPlateauCallback(Callback):
         """
         # Get optimizer from pl_module
         optimizers = pl_module.optimizers()
-        if not isinstance(optimizers, list):
-            optimizer = optimizers
-        else:
-            optimizer = optimizers[0]
+        optimizer = optimizers if not isinstance(optimizers, list) else optimizers[0]
 
         # Create scheduler
         self.scheduler = TorchReduceLROnPlateau(
@@ -648,9 +651,7 @@ class LatentVisualizationCallback(Callback):
         )
 
         if trainer.logger is not None:
-            metrics = {
-                key: _figure_to_wandb_image(fig) for key, fig in figures.items()
-            }
+            metrics = {key: _figure_to_wandb_image(fig) for key, fig in figures.items()}
             if latent_stats_table is not None:
                 metrics["latent_space_statistics"] = latent_stats_table
             trainer.logger.log_metrics(metrics, step=trainer.current_epoch)
@@ -671,8 +672,9 @@ class LatentVisualizationCallback(Callback):
         Returns:
             Matplotlib figure with latent space visualization.
         """
+        rng = np.random.default_rng(42)
         if z.shape[0] > self.max_samples:
-            idx = np.random.choice(z.shape[0], self.max_samples, replace=False)
+            idx = rng.choice(z.shape[0], self.max_samples, replace=False)
             z = z[idx]
             if phases is not None:
                 phases = phases[idx]
@@ -720,8 +722,9 @@ class LatentVisualizationCallback(Callback):
         Returns:
             Matplotlib figure with PCA projection.
         """
+        rng = np.random.default_rng(42)
         if z.shape[0] > self.max_samples:
-            idx = np.random.choice(z.shape[0], self.max_samples, replace=False)
+            idx = rng.choice(z.shape[0], self.max_samples, replace=False)
             z = z[idx]
             if phases is not None:
                 phases = phases[idx]
@@ -756,9 +759,7 @@ class LatentVisualizationCallback(Callback):
         plt.tight_layout()
         return fig
 
-    def _create_pca_variance_figure(
-        self, z: np.ndarray, title: str = ""
-    ) -> plt.Figure:
+    def _create_pca_variance_figure(self, z: np.ndarray, title: str = "") -> plt.Figure:
         """Create PCA explained variance histogram per latent dimension.
 
         Args:
@@ -810,22 +811,31 @@ class LatentVisualizationCallback(Callback):
             array = concatenated.numpy()
             per_dim_std = array.std(axis=0)
             collapsed_dims = int((per_dim_std < 0.01).sum())
-            rows.append([
-                label,
-                str(array.shape),
-                f"{array.mean():.4f}",
-                f"{array.mean(axis=0).std():.4f}",
-                f"{array.std():.4f}",
-                f"{per_dim_std.mean():.4f}",
-                f"{array.min():.3f}",
-                f"{array.max():.3f}",
-                collapsed_dims,
-            ])
+            rows.append(
+                [
+                    label,
+                    str(array.shape),
+                    f"{array.mean():.4f}",
+                    f"{array.mean(axis=0).std():.4f}",
+                    f"{array.std():.4f}",
+                    f"{per_dim_std.mean():.4f}",
+                    f"{array.min():.3f}",
+                    f"{array.max():.3f}",
+                    collapsed_dims,
+                ]
+            )
         if not rows:
             return None
         columns = [
-            "name", "shape", "mean", "per_dim_std_of_mean",
-            "std", "per_dim_mean_of_std", "min", "max", "collapsed_dims",
+            "name",
+            "shape",
+            "mean",
+            "per_dim_std_of_mean",
+            "std",
+            "per_dim_mean_of_std",
+            "min",
+            "max",
+            "collapsed_dims",
         ]
         return wandb.Table(columns=columns, data=rows)
 

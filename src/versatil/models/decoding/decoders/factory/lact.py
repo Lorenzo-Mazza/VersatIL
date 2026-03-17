@@ -8,11 +8,14 @@ from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.constants import FeatureType
-from versatil.models.decoding.constants import LatentKey
+from versatil.models.decoding.constants import FeatureType, LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
+from versatil.models.layers.diffusion_transformer.cross_attention_dit_decoder import (
+    CrossConditioningDecoder,
+)
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
@@ -20,10 +23,6 @@ from versatil.models.layers.positional_encoding.learned import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding2D,
 )
-from versatil.models.layers.diffusion_transformer.cross_attention_dit_decoder import (
-    CrossConditioningDecoder,
-)
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
 
 class LACT(ActionDecoder):

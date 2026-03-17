@@ -106,6 +106,6 @@ class GeometricAttentionBias(nn.Module):
             combined_bias = (
                 self.bias_weights[0] * spatial_masks[0]
                 + self.bias_weights[1] * depth_masks[0],
-            )  # type: ignore[assignment]
+            )
 
-        return (sine, cosine), combined_bias  # type: ignore[return-value]
+        return (sine, cosine), combined_bias

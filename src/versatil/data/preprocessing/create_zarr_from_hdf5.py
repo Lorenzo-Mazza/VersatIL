@@ -1,5 +1,6 @@
 """Creates a Zarr-based replay buffer dataset from HDF5 files (e.g., LIBERO)."""
 
+import logging
 from collections.abc import Generator
 
 import albumentations as A
@@ -9,22 +10,19 @@ import numpy as np
 
 from versatil.data.preprocessing.create_zarr_arrays import create_zarr_replay_buffer
 from versatil.data.raw.schemas import Hdf5DatasetSchema
-import logging
 
 
 def _iter_hdf5_episodes(
     schema: Hdf5DatasetSchema,
     resizer: A.Resize | A.NoOp,
     depth_resizer: A.Resize | A.NoOp,
-) -> Generator[dict[str, np.ndarray], None, None]:
+) -> Generator[dict[str, np.ndarray]]:
     """Yield episode data dicts from HDF5 files."""
     for hdf5_path in schema.hdf5_paths:
         logging.info(msg=f"  Processing: {hdf5_path}")
         with h5py.File(hdf5_path, "r") as f:
             demo_names = schema.get_demo_names(hdf5_path)
-            demo_names_sorted = sorted(
-                demo_names, key=lambda x: int(x.split("_")[1])
-            )
+            demo_names_sorted = sorted(demo_names, key=lambda x: int(x.split("_")[1]))
             for demo_name in demo_names_sorted:
                 demo_group = f[f"data/{demo_name}"]
                 yield schema.extract_episode(
@@ -51,9 +49,7 @@ def create_replay_buffer_from_hdf5(schema: Hdf5DatasetSchema) -> None:
     cameras = schema.metadata.cameras
     if cameras:
         first_cam = next(iter(cameras.values()))
-        resizer = A.Resize(
-            height=first_cam.image_height, width=first_cam.image_width
-        )
+        resizer = A.Resize(height=first_cam.image_height, width=first_cam.image_width)
         depth_resizer = A.Resize(
             height=first_cam.image_height,
             width=first_cam.image_width,

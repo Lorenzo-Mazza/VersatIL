@@ -18,6 +18,7 @@ from versatil.data.transform import (
 from versatil.metrics.base import BaseLoss, LossOutput
 from versatil.metrics.components import GripperLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.encoding.pipeline import EncodingPipeline
 
@@ -118,7 +119,7 @@ class Policy(nn.Module):
             Decoder output dictionary containing action predictions and any architecture-specific outputs.
         """
         obs = batch[SampleKey.OBSERVATION.value]
-        actions = batch.get(SampleKey.ACTION.value, None)
+        actions = batch.get(SampleKey.ACTION.value)
         features = self.encoding_pipeline(obs)
         return self.algorithm.forward(
             features=features, actions=actions, network=self.decoder
@@ -143,7 +144,7 @@ class Policy(nn.Module):
             is_pad=batch[SampleKey.ACTION.value].get(
                 SampleKey.IS_PAD_ACTION.value, None
             ),
-        )  # type: ignore[no-any-return]
+        )
 
     def predict_action(
         self,
@@ -157,9 +158,7 @@ class Policy(nn.Module):
         Returns:
             Predicted actions (on same device as policy)
         """
-        obs_dict = to_device(
-            obs_dict, self.device
-        )  # Move nested observations to policy's device
+        obs_dict = to_device(obs_dict, device=self.device)
         normalized_obs = normalize_observation(
             observation=obs_dict,
             normalizer=self.normalizer,
@@ -175,18 +174,18 @@ class Policy(nn.Module):
             )
         features = self.encoding_pipeline(normalized_obs)
         predictions = self.algorithm.predict(features=features, network=self.decoder)
-        if SampleKey.TOKENIZED_ACTIONS.value in predictions:
-            action_tokens = predictions[SampleKey.TOKENIZED_ACTIONS.value]
+        if DecoderOutputKey.PREDICTED_ACTION_TOKENS.value in predictions:
+            action_tokens = predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
             if self.tokenizer is None or self.tokenizer.action_tokenizer is None:
                 raise RuntimeError(
                     "Action tokenizer not set. Cannot detokenize actions."
                 )
             normalized_actions = detokenize_actions(
-                action_tokens,
+                action_tokens=action_tokens,
                 action_tokenizer=self.tokenizer.action_tokenizer,
                 action_space=self.action_space,
             )
-            normalized_actions = to_device(normalized_actions, self.device)
+            normalized_actions = to_device(normalized_actions, device=self.device)
         else:
             normalized_actions = predictions
         actions = unnormalize_actions(
@@ -194,7 +193,7 @@ class Policy(nn.Module):
             normalizer=self.normalizer,
             action_space=self.action_space,
         )
-        return actions  # type: ignore[no-any-return]
+        return actions
 
     def get_vision_encoder_modules(self) -> dict[str, nn.Module]:
         """Get vision encoder modules that can produce spatial feature maps for explainability.

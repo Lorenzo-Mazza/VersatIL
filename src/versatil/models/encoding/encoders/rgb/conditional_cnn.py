@@ -4,14 +4,14 @@ import torch
 import torch.nn as nn
 from timm.layers import freeze_batch_norm_2d
 
-from versatil.data.constants import Cameras, RGB_CAMERAS
+from versatil.data.constants import RGB_CAMERAS
 from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from versatil.models.encoding.encoders.conditional import ConditionalEncoder
 from versatil.models.encoding.encoders.constants import (
+    BatchNormHandling,
     EncoderOutputKeys,
     PoolingMethod,
     RGBBackboneType,
-    BatchNormHandling
 )
 from versatil.models.layers.convert_layers import replace_batchnorm_with_groupnorm
 from versatil.models.layers.modulation.film_residual_block import FiLMedResBlock
@@ -33,15 +33,15 @@ class ConditionalCNNEncoder(ConditionalEncoder):
     }
 
     def __init__(
-            self,
-            input_keys: str | list[str],
-            condition_key: str,
-            condition_dim: int,
-            backbone: str = RGBBackboneType.RESNET18.value,
-            pooling_method: str = PoolingMethod.SPATIAL_SOFTMAX.value,
-            batch_norm_handling: str = BatchNormHandling.FROZEN.value,
-            pretrained: bool = False,
-            frozen: bool = False,
+        self,
+        input_keys: str | list[str],
+        condition_key: str,
+        condition_dim: int,
+        backbone: str = RGBBackboneType.RESNET18.value,
+        pooling_method: str = PoolingMethod.SPATIAL_SOFTMAX.value,
+        batch_norm_handling: str = BatchNormHandling.FROZEN.value,
+        pretrained: bool = False,
+        frozen: bool = False,
     ):
         specification = EncoderInput(
             keys=input_keys, one_of_groups=[RGB_CAMERAS], conditioning_key=condition_key
@@ -87,7 +87,6 @@ class ConditionalCNNEncoder(ConditionalEncoder):
             self._copy_pretrained_weights(base_model)
         self._apply_batch_norm_handling()
 
-
     def _apply_batch_norm_handling(self) -> None:
         """Apply BatchNorm handling strategy to all layers."""
         match self.batch_norm_handling:
@@ -106,8 +105,9 @@ class ConditionalCNNEncoder(ConditionalEncoder):
             case BatchNormHandling.DEFAULT.value:
                 pass
             case _:
-                raise ValueError(f"Unknown batch norm handling: {self.batch_norm_handling}")
-
+                raise ValueError(
+                    f"Unknown batch norm handling: {self.batch_norm_handling}"
+                )
 
     def _make_filmed_layer(
         self, out_channels: int, num_blocks: int, stride: int
@@ -264,7 +264,7 @@ class ConditionalCNNEncoder(ConditionalEncoder):
                 feature_channels=self.feature_dim,
                 spatial_height=H_feature_maps,
                 spatial_width=W_feature_maps,
-            ).to(self.device)
+            ).to(x.device)
         pooled_features = self.pooling_head(x)
         if has_time:
             # Reshape back to (B, T, C) or (B, T, C, H, W)

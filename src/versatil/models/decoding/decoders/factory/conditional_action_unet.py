@@ -3,17 +3,16 @@ Reference implementation: Diffusion Policy (https://arxiv.org/abs/2303.04137)
 """
 
 import logging
+
 import torch
 from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.constants import FeatureType
-from versatil.models.decoding.constants import DecoderOutputKey
-from versatil.models.decoding.decoders.base import DecoderInput
-from versatil.models.layers.conditional_unet import ConditionalUnet1D
-from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.decoding.constants import DecoderOutputKey, FeatureType
+from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.decoding.unet_input_builder import UNetInputBuilder
+from versatil.models.layers.conditional_unet import ConditionalUnet1D
 
 
 class ConditionalActionUNet(ActionDecoder):
@@ -44,7 +43,7 @@ class ConditionalActionUNet(ActionDecoder):
         prediction_horizon: int,
         device: str,
         embedding_dimension: int = 256,
-        down_dimensions: list[int] = None,
+        down_dimensions: list[int] | None = None,
         kernel_size: int = 5,
         num_groups: int = 8,
         use_local_conditioning: bool = False,
@@ -225,7 +224,11 @@ class ConditionalActionUNet(ActionDecoder):
         )  # (B, global_conditioning_dimension)
 
         # Run U-Net denoising
-        assert self._unet is not None, "U-Net should be initialized by now."
+        if self._unet is None:
+            raise RuntimeError(
+                "U-Net should be initialized by now. "
+                "Call _prepare_global_conditioning before running the U-Net."
+            )
         denoised = self._unet(
             noisy_input=noisy_actions,
             timesteps=timesteps,

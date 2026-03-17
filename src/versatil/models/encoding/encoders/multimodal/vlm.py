@@ -1,11 +1,10 @@
 import logging
 
 import torch
-from transformers import AutoModel, AutoConfig, AutoImageProcessor
+from transformers import AutoConfig, AutoImageProcessor, AutoModel
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 from versatil.data.constants import (
-    Cameras,
     RGB_CAMERAS,
     SampleKey,
 )
@@ -13,8 +12,8 @@ from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from versatil.models.encoding.encoders.constants import (
     AttentionImplementation,
     EncoderOutputKeys,
-    PoolingMethod,
     ImageTextModelType,
+    PoolingMethod,
 )
 from versatil.models.encoding.encoders.unconditional import Encoder
 from versatil.models.layers import LearnedAggregation
@@ -29,12 +28,12 @@ class VLMEncoder(Encoder):
         pretrained: bool,
         frozen: bool,
         pooling_method: str,
-        model_name: str = ImageTextModelType.CLIP_VITB32,
+        model_name: str = ImageTextModelType.CLIP_VITB32.value,
         attention_type: str = AttentionImplementation.SDPA.value,
     ):
         specification = EncoderInput(
             keys=input_keys,
-            one_of_groups=[[RGB_CAMERAS]],
+            one_of_groups=[RGB_CAMERAS],
             required=[SampleKey.TOKENIZED_OBSERVATIONS.value],
             requires_tokenized=True,
         )
@@ -204,7 +203,7 @@ class VLMEncoder(Encoder):
             )
         return text_input_ids, language_mask
 
-    def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:  # type: ignore[override]
+    def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         images = inputs[self.camera_key]
         if not isinstance(images, torch.Tensor):
             raise ValueError("images must be a tensor")
@@ -220,7 +219,7 @@ class VLMEncoder(Encoder):
         if not isinstance(text_input_ids, torch.Tensor):
             raise ValueError("tokenized_observations must be a tensor")
 
-        language_mask = inputs.get(SampleKey.IS_PAD_OBSERVATION.value, None)
+        language_mask = inputs.get(SampleKey.IS_PAD_OBSERVATION.value)
 
         T = None
         if images.dim() == 5:
@@ -272,7 +271,11 @@ class VLMEncoder(Encoder):
         token_padding_mask = ~attention_mask  # bool, True where padded
         if has_time:
             if self.pooling_method == PoolingMethod.NONE.value:
-                assert image_features.ndim >= 3 and language_features.ndim == 3
+                if image_features.ndim < 3 or language_features.ndim != 3:
+                    raise RuntimeError(
+                        f"Expected image_features.ndim >= 3 and language_features.ndim == 3, "
+                        f"got {image_features.ndim} and {language_features.ndim}"
+                    )
                 vision_seq_len = image_features.shape[1]
                 image_features = image_features.view(
                     B, T, vision_seq_len, self.hidden_vision_dim
@@ -282,7 +285,11 @@ class VLMEncoder(Encoder):
                 )
                 token_padding_mask = token_padding_mask.view(B, T, self.max_text_length)
             else:
-                assert image_features.ndim == 2 and language_features.ndim == 2
+                if image_features.ndim != 2 or language_features.ndim != 2:
+                    raise RuntimeError(
+                        f"Expected image_features.ndim == 2 and language_features.ndim == 2, "
+                        f"got {image_features.ndim} and {language_features.ndim}"
+                    )
                 image_features = image_features.view(B, T, self.hidden_vision_dim)
                 language_features = language_features.view(
                     B, T, self.hidden_language_dim

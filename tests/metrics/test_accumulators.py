@@ -1,236 +1,440 @@
-"""Tests for metrics accumulator class."""
+"""Tests for versatil.metrics.accumulators module."""
 
+import numpy as np
 import pytest
 import torch
 
-from versatil.metrics.accumulators import MetricsAccumulator
+from versatil.metrics.accumulators import MetricsAccumulator, to_scalar
 from versatil.metrics.base import LossOutput
-from versatil.metrics.constants import MetricKey, MetadataKey
+from versatil.metrics.constants import MetadataKey, MetricKey
 
 
 @pytest.fixture
-def device():
-    return "cuda" if torch.cuda.is_available() else "cpu"
-
-
-class TestMetricsAccumulator:
-    """Tests for the generic MetricsAccumulator class."""
-
-    def test_single_batch_accumulation(self, device):
-        """Test accumulating a single batch of losses."""
-        metrics = MetricsAccumulator()
-
-        loss_output = LossOutput(
-            total_loss=torch.tensor(1.5, device=device),
-            component_losses={
-                "mse_loss": torch.tensor(1.0, device=device),
-                "bce_loss": torch.tensor(0.5, device=device),
+def phase_loss_output_factory(rng):
+    def factory(
+        total_loss: float = 1.0,
+        batch_size: int = 4,
+        horizon: int = 3,
+        num_phases: int = 3,
+    ) -> LossOutput:
+        logits_data = rng.standard_normal((batch_size, horizon, num_phases)).astype(
+            np.float32
+        )
+        logits = torch.from_numpy(logits_data)
+        labels = torch.argmax(logits, dim=-1)
+        return LossOutput(
+            total_loss=torch.tensor(total_loss),
+            component_losses={},
+            metadata={
+                MetadataKey.PHASE_LOGITS.value: logits,
+                MetadataKey.PHASE_LABEL.value: labels,
             },
         )
 
-        metrics.add_loss_output(loss_output)
+    return factory
 
-        metrics_dict = metrics.to_dict()
-        assert metrics_dict[MetricKey.TOTAL_LOSS.value] == 1.5
-        assert metrics_dict["mse_loss"] == 1.0
-        assert metrics_dict["bce_loss"] == 0.5
 
-    def test_multiple_batch_averaging(self, device):
-        """Test averaging across multiple batches."""
-        metrics = MetricsAccumulator()
-
-        for i in range(5):
-            loss_output = LossOutput(
-                total_loss=torch.tensor(1.0 * (i + 1), device=device),
-                component_losses={"mse_loss": torch.tensor(0.5 * (i + 1), device=device)},
+@pytest.fixture
+def latent_loss_output_factory(rng):
+    def factory(
+        total_loss: float = 1.0,
+        batch_size: int = 4,
+        latent_dimension: int = 8,
+        include_prior: bool = False,
+    ) -> LossOutput:
+        metadata = {}
+        mu_data = rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
+        logvar_data = rng.standard_normal((batch_size, latent_dimension)).astype(
+            np.float32
+        )
+        z_data = rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
+        metadata[MetadataKey.POSTERIOR_MU.value] = torch.from_numpy(mu_data)
+        metadata[MetadataKey.POSTERIOR_LOGVAR.value] = torch.from_numpy(logvar_data)
+        metadata[MetadataKey.POSTERIOR_Z.value] = torch.from_numpy(z_data)
+        if include_prior:
+            prior_mu_data = rng.standard_normal((batch_size, latent_dimension)).astype(
+                np.float32
             )
-            metrics.add_loss_output(loss_output)
-
-        metrics_dict = metrics.to_dict()
-        assert metrics_dict[MetricKey.TOTAL_LOSS.value] == 3.0  # (1+2+3+4+5)/5
-        assert metrics_dict["mse_loss"] == 1.5  # (0.5+1+1.5+2+2.5)/5
-
-    def test_reset_functionality(self, device):
-        """Test that reset clears all accumulated metrics."""
-        metrics = MetricsAccumulator()
-
-        loss_output = LossOutput(
-            total_loss=torch.tensor(1.5, device=device),
-            component_losses={"mse_loss": torch.tensor(1.0, device=device)},
-        )
-        metrics.add_loss_output(loss_output)
-
-        metrics.reset()
-
-        assert metrics.num_batches == 0
-        assert metrics.total_loss == 0.0
-        assert len(metrics.component_metrics) == 0
-        assert len(metrics.metadata) == 0
-
-    def test_accumulates_all_loss_types(self, device):
-        """Test that all loss types are accumulated correctly."""
-        metrics = MetricsAccumulator()
-
-        loss_output = LossOutput(
-            total_loss=torch.tensor(2.0, device=device),
-            component_losses={
-                MetricKey.MSE_LOSS.value: torch.tensor(1.0, device=device),
-                MetricKey.KL_DIVERGENCE.value: torch.tensor(0.5, device=device),
-                MetricKey.GRIPPER_BCE.value: torch.tensor(0.5, device=device),
-            },
-        )
-
-        metrics.add_loss_output(loss_output)
-        metrics_dict = metrics.to_dict()
-
-        assert MetricKey.TOTAL_LOSS.value in metrics_dict
-        assert MetricKey.MSE_LOSS.value in metrics_dict
-        assert MetricKey.KL_DIVERGENCE.value in metrics_dict
-        assert MetricKey.GRIPPER_BCE.value in metrics_dict
-
-
-class TestPhaseMetrics:
-    """Tests for phase classification metrics computation."""
-
-    def test_phase_metrics_from_metadata(self, device):
-        """Test that phase metrics are computed from metadata."""
-        metrics = MetricsAccumulator()
-
-        batch_size = 4
-        horizon = 10
-        n_phases = 5
-
-        phase_logits = torch.randn(batch_size, horizon, n_phases, device=device)
-        phase_labels = torch.randint(0, n_phases, (batch_size, horizon), device=device)
-
-        loss_output = LossOutput(
-            total_loss=torch.tensor(1.5, device=device),
-            component_losses={MetricKey.PHASE_CROSS_ENTROPY.value: torch.tensor(1.0, device=device)},
-            metadata={
-                MetadataKey.PHASE_LOGITS.value: phase_logits,
-                MetadataKey.PHASE_LABEL.value: phase_labels,
-            },
-        )
-
-        metrics.add_loss_output(loss_output)
-        metrics_dict = metrics.to_dict()
-
-        # Should include phase accuracy
-        assert MetricKey.PHASE_ACCURACY.value in metrics_dict
-        assert 0.0 <= metrics_dict[MetricKey.PHASE_ACCURACY.value] <= 1.0
-
-        # Should include per-phase accuracies
-        for phase in range(n_phases):
-            key = f"phase_{phase}_accuracy"
-            if key in metrics_dict:  # May not be present if no samples of that phase
-                assert 0.0 <= metrics_dict[key] <= 1.0
-
-    def test_confusion_matrix_computation(self, device):
-        """Test confusion matrix computation."""
-        metrics = MetricsAccumulator()
-
-        batch_size = 4
-        horizon = 10
-        n_phases = 3
-
-        phase_logits = torch.randn(batch_size, horizon, n_phases, device=device)
-        phase_labels = torch.randint(0, n_phases, (batch_size, horizon), device=device)
-
-        loss_output = LossOutput(
-            total_loss=torch.tensor(1.5, device=device),
-            component_losses={MetricKey.PHASE_CROSS_ENTROPY.value: torch.tensor(1.0, device=device)},
-            metadata={
-                MetadataKey.PHASE_LOGITS.value: phase_logits,
-                MetadataKey.PHASE_LABEL.value: phase_labels,
-            },
-        )
-
-        metrics.add_loss_output(loss_output)
-        cm = metrics.compute_confusion_matrix()
-
-        assert cm is not None
-        assert cm.shape == (n_phases, n_phases)
-
-    def test_perfect_phase_accuracy(self, device):
-        """Test phase accuracy when predictions are perfect."""
-        metrics = MetricsAccumulator()
-
-        batch_size = 4
-        horizon = 10
-        n_phases = 3
-
-        # Create perfect predictions
-        phase_labels = torch.randint(0, n_phases, (batch_size, horizon), device=device)
-        phase_logits = torch.zeros(batch_size, horizon, n_phases, device=device)
-        for i in range(batch_size):
-            for j in range(horizon):
-                phase_logits[i, j, phase_labels[i, j]] = 10.0  # High logit for correct class
-
-        loss_output = LossOutput(
-            total_loss=torch.tensor(0.0, device=device),
-            component_losses={MetricKey.PHASE_CROSS_ENTROPY.value: torch.tensor(0.0, device=device)},
-            metadata={
-                MetadataKey.PHASE_LOGITS.value: phase_logits,
-                MetadataKey.PHASE_LABEL.value: phase_labels,
-            },
-        )
-
-        metrics.add_loss_output(loss_output)
-        metrics_dict = metrics.to_dict()
-
-        # Accuracy should be 1.0
-        assert metrics_dict[MetricKey.PHASE_ACCURACY.value] == 1.0
-
-    def test_multiple_batches_phase_accumulation(self, device):
-        """Test that phase metrics accumulate across batches."""
-        metrics = MetricsAccumulator()
-
-        batch_size = 2
-        horizon = 5
-        n_phases = 3
-
-        for _ in range(3):  # 3 batches
-            phase_logits = torch.randn(batch_size, horizon, n_phases, device=device)
-            phase_labels = torch.randint(0, n_phases, (batch_size, horizon), device=device)
-
-            loss_output = LossOutput(
-                total_loss=torch.tensor(1.0, device=device),
-                component_losses={MetricKey.PHASE_CROSS_ENTROPY.value: torch.tensor(1.0, device=device)},
-                metadata={
-                    MetadataKey.PHASE_LOGITS.value: phase_logits,
-                    MetadataKey.PHASE_LABEL.value: phase_labels,
-                },
+            prior_logvar_data = rng.standard_normal(
+                (batch_size, latent_dimension)
+            ).astype(np.float32)
+            prior_z_data = rng.standard_normal((batch_size, latent_dimension)).astype(
+                np.float32
             )
-
-            metrics.add_loss_output(loss_output)
-
-        # Should have stored metadata from all batches
-        assert len(metrics.metadata[MetadataKey.PHASE_LOGITS.value]) == 3
-        assert len(metrics.metadata[MetadataKey.PHASE_LABEL.value]) == 3
-
-        # Should compute metrics across all batches
-        metrics_dict = metrics.to_dict()
-        assert MetricKey.PHASE_ACCURACY.value in metrics_dict
-
-        # Confusion matrix should be computed on all data
-        cm = metrics.compute_confusion_matrix()
-        assert cm is not None
-        assert cm.sum() == batch_size * horizon * 3  # 3 batches
-
-    def test_no_phase_data_returns_none(self, device):
-        """Test that confusion matrix returns None when no phase data."""
-        metrics = MetricsAccumulator()
-
-        loss_output = LossOutput(
-            total_loss=torch.tensor(1.5, device=device),
-            component_losses={"mse_loss": torch.tensor(1.5, device=device)},
+            metadata[MetadataKey.PRIOR_MU.value] = torch.from_numpy(prior_mu_data)
+            metadata[MetadataKey.PRIOR_LOGVAR.value] = torch.from_numpy(
+                prior_logvar_data
+            )
+            metadata[MetadataKey.PRIOR_Z.value] = torch.from_numpy(prior_z_data)
+        return LossOutput(
+            total_loss=torch.tensor(total_loss),
+            component_losses={},
+            metadata=metadata,
         )
 
-        metrics.add_loss_output(loss_output)
+    return factory
 
-        cm = metrics.compute_confusion_matrix()
-        assert cm is None
 
-        # Phase metrics should be empty
-        phase_metrics = metrics.compute_phase_metrics()
-        assert len(phase_metrics) == 0
+@pytest.mark.unit
+class TestToScalar:
+    def test_converts_torch_tensor_to_float(self):
+        assert to_scalar(torch.tensor(3.14)) == pytest.approx(3.14)
+
+    def test_converts_numpy_array_to_float(self):
+        assert to_scalar(np.array(2.71)) == pytest.approx(2.71)
+
+    def test_converts_python_float_to_float(self):
+        assert to_scalar(42.0) == pytest.approx(42.0)
+
+    def test_converts_python_int_to_float(self):
+        result = to_scalar(7)
+        assert result == pytest.approx(7.0)
+
+    def test_detaches_gradient_tracked_tensor(self):
+        tensor = torch.tensor(1.5, requires_grad=True) * 2
+        result = to_scalar(tensor)
+        assert result == pytest.approx(3.0)
+
+
+@pytest.mark.unit
+class TestMetricsAccumulatorAddLossOutput:
+    def test_accumulates_total_loss(self, loss_output_factory):
+        accumulator = MetricsAccumulator()
+        accumulator.add_loss_output(loss_output_factory(total_loss_value=2.0))
+        accumulator.add_loss_output(loss_output_factory(total_loss_value=3.0))
+        assert accumulator.total_loss == pytest.approx(5.0)
+        assert accumulator.num_batches == 2
+
+    def test_accumulates_component_losses(self, loss_output_factory):
+        accumulator = MetricsAccumulator()
+        accumulator.add_loss_output(
+            loss_output_factory(
+                total_loss_value=1.0, component_losses={"mse": 0.5, "l1": 0.3}
+            )
+        )
+        accumulator.add_loss_output(
+            loss_output_factory(
+                total_loss_value=1.0, component_losses={"mse": 0.7, "l1": 0.1}
+            )
+        )
+        assert accumulator.component_metrics["mse"] == pytest.approx(1.2)
+        assert accumulator.component_metrics["l1"] == pytest.approx(0.4)
+
+    def test_stores_tensor_metadata_on_cpu(self):
+        accumulator = MetricsAccumulator()
+        gpu_like_tensor = torch.tensor([1.0, 2.0])
+        output = LossOutput(
+            total_loss=torch.tensor(1.0),
+            metadata={"test_key": gpu_like_tensor},
+        )
+        accumulator.add_loss_output(output)
+        stored = accumulator.metadata["test_key"][0]
+        assert stored.device.type == "cpu"
+
+    def test_stores_non_tensor_metadata(self):
+        accumulator = MetricsAccumulator()
+        output = LossOutput(
+            total_loss=torch.tensor(1.0),
+            metadata={"string_key": "some_value"},
+        )
+        accumulator.add_loss_output(output)
+        assert accumulator.metadata["string_key"] == ["some_value"]
+
+
+@pytest.mark.unit
+class TestMetricsAccumulatorAverage:
+    def test_returns_empty_dict_when_no_batches(self):
+        accumulator = MetricsAccumulator()
+        assert accumulator.average() == {}
+
+    def test_computes_correct_average(self, loss_output_factory):
+        accumulator = MetricsAccumulator()
+        accumulator.add_loss_output(
+            loss_output_factory(total_loss_value=4.0, component_losses={"mse": 2.0})
+        )
+        accumulator.add_loss_output(
+            loss_output_factory(total_loss_value=6.0, component_losses={"mse": 4.0})
+        )
+        averaged = accumulator.average()
+        assert averaged[MetricKey.TOTAL_LOSS.value] == pytest.approx(5.0)
+        assert averaged["mse"] == pytest.approx(3.0)
+
+
+@pytest.mark.unit
+class TestMetricsAccumulatorPhaseMetrics:
+    def test_returns_empty_dict_when_no_phase_data(self):
+        accumulator = MetricsAccumulator()
+        assert accumulator.compute_phase_metrics() == {}
+
+    def test_computes_perfect_accuracy_with_matching_predictions(self):
+        accumulator = MetricsAccumulator()
+        num_phases = 3
+        logits = torch.zeros(4, 2, num_phases)
+        labels = torch.zeros(4, 2, dtype=torch.long)
+        for batch_index in range(4):
+            for time_index in range(2):
+                correct_phase = (batch_index + time_index) % num_phases
+                logits[batch_index, time_index, correct_phase] = 10.0
+                labels[batch_index, time_index] = correct_phase
+        output = LossOutput(
+            total_loss=torch.tensor(1.0),
+            metadata={
+                MetadataKey.PHASE_LOGITS.value: logits,
+                MetadataKey.PHASE_LABEL.value: labels,
+            },
+        )
+        accumulator.add_loss_output(output)
+        metrics = accumulator.compute_phase_metrics()
+        assert metrics[MetricKey.PHASE_ACCURACY.value] == pytest.approx(1.0)
+
+    def test_computes_per_phase_accuracy(self):
+        accumulator = MetricsAccumulator()
+        # Phase 0: 2 correct out of 2, Phase 1: 0 correct out of 2
+        logits = torch.tensor(
+            [
+                [[10.0, -10.0], [10.0, -10.0]],
+                [[10.0, -10.0], [10.0, -10.0]],
+            ]
+        )  # (2, 2, 2) - always predicts phase 0
+        labels = torch.tensor(
+            [
+                [0, 0],
+                [1, 1],
+            ]
+        )  # (2, 2)
+        output = LossOutput(
+            total_loss=torch.tensor(1.0),
+            metadata={
+                MetadataKey.PHASE_LOGITS.value: logits,
+                MetadataKey.PHASE_LABEL.value: labels,
+            },
+        )
+        accumulator.add_loss_output(output)
+        metrics = accumulator.compute_phase_metrics()
+        assert metrics["phase_0_accuracy"] == pytest.approx(1.0)
+        assert metrics["phase_1_accuracy"] == pytest.approx(0.0)
+        assert metrics[MetricKey.PHASE_ACCURACY.value] == pytest.approx(0.5)
+
+
+@pytest.mark.unit
+class TestMetricsAccumulatorConfusionMatrix:
+    def test_returns_none_when_no_phase_data(self):
+        accumulator = MetricsAccumulator()
+        assert accumulator.compute_confusion_matrix() is None
+
+    def test_returns_correct_confusion_matrix(self):
+        accumulator = MetricsAccumulator()
+        logits = torch.tensor(
+            [
+                [[10.0, -10.0], [-10.0, 10.0]],
+            ]
+        )  # Predicts [0, 1] for batch 0
+        labels = torch.tensor([[0, 1]])
+        output = LossOutput(
+            total_loss=torch.tensor(1.0),
+            metadata={
+                MetadataKey.PHASE_LOGITS.value: logits,
+                MetadataKey.PHASE_LABEL.value: labels,
+            },
+        )
+        accumulator.add_loss_output(output)
+        confusion = accumulator.compute_confusion_matrix()
+        assert confusion[0, 0] == 1
+        assert confusion[1, 1] == 1
+        assert confusion[0, 1] == 0
+        assert confusion[1, 0] == 0
+
+
+@pytest.mark.unit
+class TestMetricsAccumulatorExpertUsage:
+    def test_returns_none_when_no_expert_data(self):
+        accumulator = MetricsAccumulator()
+        assert accumulator.compute_expert_usage() is None
+
+    def test_computes_average_expert_usage(self):
+        accumulator = MetricsAccumulator()
+        usage_1 = torch.tensor([0.8, 0.2])
+        usage_2 = torch.tensor([0.6, 0.4])
+        for usage in [usage_1, usage_2]:
+            output = LossOutput(
+                total_loss=torch.tensor(1.0),
+                metadata={MetadataKey.EXPERT_USAGE.value: usage},
+            )
+            accumulator.add_loss_output(output)
+        result = accumulator.compute_expert_usage()
+        expected = np.array([0.7, 0.3])
+        np.testing.assert_allclose(
+            result[MetadataKey.EXPERT_USAGE.value], expected, atol=1e-6
+        )
+
+
+@pytest.mark.unit
+class TestMetricsAccumulatorLatentVisualization:
+    def test_returns_nones_when_no_latent_data(self):
+        accumulator = MetricsAccumulator()
+        result = accumulator.compute_latent_visualization_data()
+        z, z_prior, phase = result
+        assert z is None
+        assert z_prior is None
+        assert phase is None
+
+    def test_returns_posterior_z_as_numpy(self, latent_loss_output_factory):
+        accumulator = MetricsAccumulator()
+        batch_size, latent_dimension = 4, 8
+        accumulator.add_loss_output(
+            latent_loss_output_factory(
+                batch_size=batch_size, latent_dimension=latent_dimension
+            )
+        )
+        z, z_prior, phase = accumulator.compute_latent_visualization_data()
+        assert z.shape == (batch_size, latent_dimension)
+        assert z_prior is None
+        assert phase is None
+
+    def test_returns_prior_z_when_available(self, latent_loss_output_factory):
+        accumulator = MetricsAccumulator()
+        batch_size, latent_dimension = 4, 8
+        accumulator.add_loss_output(
+            latent_loss_output_factory(
+                batch_size=batch_size,
+                latent_dimension=latent_dimension,
+                include_prior=True,
+            )
+        )
+        z, z_prior, phase = accumulator.compute_latent_visualization_data()
+        assert z.shape == (batch_size, latent_dimension)
+        assert z_prior.shape == (batch_size, latent_dimension)
+
+    def test_reduces_phase_labels_to_mode_per_sample(self, rng):
+        accumulator = MetricsAccumulator()
+        batch_size, horizon = 4, 5
+        labels = torch.zeros(batch_size, horizon, dtype=torch.long)
+        labels[0, :] = 0
+        labels[1, :3] = 1
+        labels[1, 3:] = 0
+        labels[2, :] = 2
+        labels[3, :4] = 0
+        labels[3, 4] = 1
+        z_data = torch.from_numpy(
+            rng.standard_normal((batch_size, 4)).astype(np.float32)
+        )
+        output = LossOutput(
+            total_loss=torch.tensor(1.0),
+            metadata={
+                MetadataKey.PHASE_LABEL.value: labels,
+                MetadataKey.POSTERIOR_Z.value: z_data,
+            },
+        )
+        accumulator.add_loss_output(output)
+        z, z_prior, phase = accumulator.compute_latent_visualization_data()
+        assert phase[0] == 0
+        assert phase[1] == 1
+        assert phase[2] == 2
+        assert phase[3] == 0
+
+    def test_squeezes_trailing_dim_from_phase_labels(self, rng):
+        accumulator = MetricsAccumulator()
+        labels = torch.zeros(2, 3, 1, dtype=torch.long)
+        z_data = torch.from_numpy(rng.standard_normal((2, 4)).astype(np.float32))
+        output = LossOutput(
+            total_loss=torch.tensor(1.0),
+            metadata={
+                MetadataKey.PHASE_LABEL.value: labels,
+                MetadataKey.POSTERIOR_Z.value: z_data,
+            },
+        )
+        accumulator.add_loss_output(output)
+        z, z_prior, phase = accumulator.compute_latent_visualization_data()
+        assert phase.shape == (2,)
+
+    def test_flattens_3d_latents(self, rng):
+        accumulator = MetricsAccumulator()
+        batch_size, temporal, hidden = 4, 3, 8
+        z_3d_data = rng.standard_normal((batch_size, temporal, hidden)).astype(
+            np.float32
+        )
+        z_3d = torch.from_numpy(z_3d_data)
+        output = LossOutput(
+            total_loss=torch.tensor(1.0),
+            metadata={MetadataKey.POSTERIOR_Z.value: z_3d},
+        )
+        accumulator.add_loss_output(output)
+        z, _, _ = accumulator.compute_latent_visualization_data()
+        assert z.shape == (batch_size, temporal * hidden)
+
+
+@pytest.mark.unit
+class TestMetricsAccumulatorLatentStatistics:
+    def test_returns_empty_when_no_latent_data(self):
+        accumulator = MetricsAccumulator()
+        assert accumulator.compute_latent_statistics() == {}
+
+    def test_computes_posterior_statistics(self, latent_loss_output_factory):
+        accumulator = MetricsAccumulator()
+        accumulator.add_loss_output(latent_loss_output_factory())
+        stats = accumulator.compute_latent_statistics()
+        assert "posterior_mu_mean" in stats
+        assert "posterior_mu_std" in stats
+        assert "posterior_logvar_mean" in stats
+        assert "posterior_logvar_std" in stats
+        assert "posterior_std_mean" in stats
+        assert "posterior_z_mean" in stats
+        assert "posterior_z_std" in stats
+
+    def test_computes_prior_statistics_when_available(self, latent_loss_output_factory):
+        accumulator = MetricsAccumulator()
+        accumulator.add_loss_output(latent_loss_output_factory(include_prior=True))
+        stats = accumulator.compute_latent_statistics()
+        assert "prior_mu_mean" in stats
+        assert "prior_mu_std" in stats
+        assert "prior_logvar_mean" in stats
+        assert "prior_logvar_std" in stats
+        assert "prior_std_mean" in stats
+        assert "prior_z_mean" in stats
+        assert "prior_z_std" in stats
+
+    def test_posterior_std_mean_is_exp_half_logvar(self):
+        accumulator = MetricsAccumulator()
+        logvar = torch.tensor([[0.0, 2.0], [-1.0, 1.0]])
+        output = LossOutput(
+            total_loss=torch.tensor(1.0),
+            metadata={MetadataKey.POSTERIOR_LOGVAR.value: logvar},
+        )
+        accumulator.add_loss_output(output)
+        stats = accumulator.compute_latent_statistics()
+        expected_std = (0.5 * logvar).exp().mean().item()
+        assert stats["posterior_std_mean"] == pytest.approx(expected_std)
+
+
+@pytest.mark.unit
+class TestMetricsAccumulatorToDict:
+    def test_includes_averaged_and_phase_and_latent_metrics(
+        self, phase_loss_output_factory, latent_loss_output_factory
+    ):
+        accumulator = MetricsAccumulator()
+        accumulator.add_loss_output(phase_loss_output_factory())
+        accumulator.add_loss_output(latent_loss_output_factory())
+        result = accumulator.to_dict()
+        assert MetricKey.TOTAL_LOSS.value in result
+        assert MetricKey.PHASE_ACCURACY.value in result
+        assert "posterior_mu_mean" in result
+
+
+@pytest.mark.unit
+class TestMetricsAccumulatorReset:
+    def test_clears_all_accumulated_data(self, loss_output_factory):
+        accumulator = MetricsAccumulator()
+        accumulator.add_loss_output(
+            loss_output_factory(total_loss_value=5.0, component_losses={"mse": 2.0})
+        )
+        accumulator.reset()
+        assert accumulator.total_loss == 0.0
+        assert accumulator.component_metrics == {}
+        assert accumulator.num_batches == 0
+        assert accumulator.metadata == {}
+
+    def test_average_returns_empty_after_reset(self, loss_output_factory):
+        accumulator = MetricsAccumulator()
+        accumulator.add_loss_output(loss_output_factory(total_loss_value=5.0))
+        accumulator.reset()
+        assert accumulator.average() == {}

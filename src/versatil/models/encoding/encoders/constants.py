@@ -1,7 +1,7 @@
 import enum
 
 
-class RGBBackboneType(str, enum.Enum):
+class RGBBackboneType(enum.StrEnum):
     """Available RGB image encoder backbones."""
 
     # Convolutional Neural Networks (CNNs)
@@ -24,7 +24,7 @@ class RGBBackboneType(str, enum.Enum):
     DINOV3_VITB16 = "timm/vit_base_patch16_dinov3.lvd1689m"  # https://huggingface.co/timm/vit_base_patch16_dinov3.lvd1689m
 
 
-class ImageTextModelType(str, enum.Enum):
+class ImageTextModelType(enum.StrEnum):
     """Available image+text multimodal encoders."""
 
     # CLIP models (OpenAI)
@@ -33,14 +33,14 @@ class ImageTextModelType(str, enum.Enum):
     SIGLIP_BASE_PATCH16 = "google/siglip2-base-patch16-naflex"
 
 
-class AttentionImplementation(str, enum.Enum):
+class AttentionImplementation(enum.StrEnum):
     """Attention implementation types."""
 
     EAGER = "eager"  # Standard PyTorch attention
     SDPA = "sdpa"  # Scaled Dot-Product Attention, automatically enables Torch 2.10 Flash Attention kernels
 
 
-class PoolingMethod(str, enum.Enum):
+class PoolingMethod(enum.StrEnum):
     """Feature pooling methods for Convolutional and Transformer encoders."""
 
     LEARNED_AGGREGATION = "learned_aggregation"  # learned attention aggregation of patch tokens/feature channels
@@ -51,7 +51,7 @@ class PoolingMethod(str, enum.Enum):
     NONE = "none"  # Return full spatial features or last hidden state tokens without pooling
 
 
-class BatchNormHandling(str, enum.Enum):
+class BatchNormHandling(enum.StrEnum):
     """How to handle BatchNorm layers in CNN backbones.
 
     BatchNorm is problematic for temporal data: when reshaping (B,T,C,H,W) to (B*T,C,H,W),
@@ -64,17 +64,18 @@ class BatchNormHandling(str, enum.Enum):
     CONVERT_TO_GROUPNORM = "groupnorm"  # Replace with GroupNorm (per-sample stats, but loses pretrained weights benefits)
 
 
-class LanguageEncoderType(str, enum.Enum):
+class LanguageEncoderType(enum.StrEnum):
     """Available language encoders."""
 
-    BERT_BASE = "bert-base-uncased"  
-    DISTILBERT_BASE = "distilbert-base-uncased" 
+    BERT_BASE = "bert-base-uncased"
+    DISTILBERT_BASE = "distilbert-base-uncased"
     MINI_LM_L6 = "sentence-transformers/all-MiniLM-L6-v2"
     GEMMA_2B = "google/gemma-2b"
     QWEN_2_1_5B = "Qwen/Qwen2-1.5B"
-    ALBERT_BASE = "albert-base-v2" 
+    ALBERT_BASE = "albert-base-v2"
 
-class EncoderOutputKeys(str, enum.Enum):
+
+class EncoderOutputKeys(enum.StrEnum):
     """Types of encoder output keys to use for extracting an output feature from an encoder."""
 
     RGB = "rgb"

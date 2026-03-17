@@ -2,8 +2,8 @@
 
 import logging
 import os
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -21,18 +21,23 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 class ActionTokenizer:
     """Action tokenizer with FAST and language vocabulary mapping support.
 
-    FAST (Frequency-space Action Sequence Tokenization) provides efficient tokenization
-    of multidimensional continuous action sequences into discrete tokens.
-
-    When using language tokenizer, FAST tokens are mapped to the END of the language
-    vocabulary, avoiding special tokens. This allows both text and action tokens to
-    coexist in the same vocabulary space.
+    Note:
+        FAST (Frequency-space Action Sequence Tokenization) provides efficient tokenization
+        of multidimensional continuous action sequences into discrete tokens.
+        When using language tokenizer, FAST tokens are mapped to the END of the language
+        vocabulary, avoiding special tokens. This allows both text and action tokens to
+        coexist in the same vocabulary space.
+        An EOS token is reserved at the end of the vocabulary (ID = original vocab_size).
+        It is appended after real action tokens during encoding and used as the stop signal
+        during autoregressive inference. The EOS position is not masked by is_pad, so the
+        model receives gradient to learn when to stop generating.
 
     Attributes:
         tokenizer_chain: List of tokenizer types to apply
         use_pretrained_fast: Whether to use pretrained FAST weights
         language_tokenizer_model: HuggingFace model for language tokenizer
         fast_vocab_size: FAST tokenizer vocabulary size
+        eos_token_id: EOS token ID reserved at the end of the vocabulary
         device: Target device for tensors
     """
 
@@ -70,6 +75,7 @@ class ActionTokenizer:
         self.num_special_tokens_to_skip = num_special_tokens_to_skip
         self.max_token_len = max_token_len
         self.pad_token_id = pad_token_id
+        self.eos_token_id: int | None = None  # Set when vocab_size is finalized
         self.device = device if device is not None else torch.device("cpu")
 
         self.fast_processor: PreTrainedTokenizerFast | None = None
@@ -110,6 +116,13 @@ class ActionTokenizer:
                     f"FAST tokens ({self.fast_vocab_size}) + special tokens ({self.num_special_tokens_to_skip}). "
                     f"Required: {required_vocab_size}"
                 )
+        if self.vocab_size is not None:
+            self._set_eos_token()
+
+    def _set_eos_token(self) -> None:
+        """Reserve EOS token at the end of the vocabulary and increment vocab_size."""
+        self.eos_token_id = self.vocab_size
+        self.vocab_size += 1
 
     def fit(self, action_chunks: np.ndarray) -> None:
         """Fit FAST tokenizer on action chunk data.
@@ -139,11 +152,16 @@ class ActionTokenizer:
             f"Fitting FAST tokenizer on {action_chunks.shape[0]} chunks "
             f"(time_horizon={action_chunks.shape[1]}, action_dim={action_chunks.shape[2]})"
         )
-        self.fast_processor = self.fast_processor.fit(action_chunks)
+        self.fast_processor = self.fast_processor.fit(
+            action_chunks,
+            time_horizon=action_chunks.shape[1],
+            action_dim=action_chunks.shape[2],
+        )
         self._is_fitted = True
 
         if self.language_tokenizer is None:
             self.vocab_size = self.fast_vocab_size
+            self._set_eos_token()
 
         logging.info(
             f"Fitted action tokenizer (chain={self.tokenizer_chain}, vocab_size={self.vocab_size})"
@@ -255,17 +273,21 @@ class ActionTokenizer:
                 tokens = fast_tokens
 
             tokens_len = len(tokens)
-            if tokens_len < self.max_token_len:
-                padding_len = self.max_token_len - tokens_len
+            # Truncate action tokens if needed, leaving room for EOS
+            if tokens_len >= self.max_token_len:
+                logging.warning(
+                    f"Token length ({tokens_len}) exceeds max_token_len ({self.max_token_len}), "
+                    f"truncating to {self.max_token_len - 1}."
+                )
+                tokens = tokens[: self.max_token_len - 1]
+                tokens_len = self.max_token_len - 1
+            # Append EOS after real action tokens — model learns to produce it as stop signal
+            tokens.append(self.eos_token_id)
+            sequence_len = tokens_len + 1  # action tokens + EOS
+            padding_len = self.max_token_len - sequence_len
+            if padding_len > 0:
                 tokens = tokens + [self.pad_token_id] * padding_len
-                is_pad = [False] * tokens_len + [True] * padding_len
-            else:
-                if tokens_len > self.max_token_len:
-                    logging.warning(
-                        f"Token length ({tokens_len}) exceeds max_token_len ({self.max_token_len}), truncating"
-                    )
-                tokens = tokens[: self.max_token_len]
-                is_pad = [False] * self.max_token_len
+            is_pad = [False] * sequence_len + [True] * padding_len
 
             return {
                 SampleKey.TOKENIZED_ACTIONS.value: torch.tensor(
@@ -313,10 +335,14 @@ class ActionTokenizer:
 
         if arr.ndim == 2:
             # Single chunk (T, D)
-            return self.encode_chunk(action_chunks, is_pad_mask)
+            return self.encode_chunk(
+                action_chunk=action_chunks, is_pad_mask=is_pad_mask
+            )
         elif arr.ndim == 3:
             # Batch (N, T, D)
-            return self.encode_batch(action_chunks)
+            return self.encode_batch(
+                action_chunks=action_chunks, is_pad_mask=is_pad_mask
+            )
         else:
             raise ValueError(f"Expected 2D or 3D input, got shape {arr.shape}")
 
@@ -342,7 +368,10 @@ class ActionTokenizer:
         else:
             tokens_arr = tokens
 
-        valid_tokens = tokens_arr[tokens_arr != self.pad_token_id]
+        valid_mask = (tokens_arr != self.pad_token_id) & (
+            tokens_arr != self.eos_token_id
+        )
+        valid_tokens = tokens_arr[valid_mask]
         if self.language_tokenizer is not None:
             fast_tokens = self._unmap_language_to_fast_vocab(valid_tokens)
         else:
@@ -350,7 +379,10 @@ class ActionTokenizer:
 
         if self.fast_processor is not None:
             decoded_actions = self.fast_processor.decode([fast_tokens.tolist()])
-            assert isinstance(decoded_actions, np.ndarray)
+            if not isinstance(decoded_actions, np.ndarray):
+                raise TypeError(
+                    f"Expected np.ndarray from FAST processor decode, got {type(decoded_actions)}"
+                )
             return decoded_actions[0]  # Return single chunk
 
         raise RuntimeError("Cannot decode without FAST processor")
@@ -375,20 +407,23 @@ class ActionTokenizer:
         else:
             tokens_arr = tokens
 
-        if self.language_tokenizer is not None:
-            fast_tokens = self._unmap_language_to_fast_vocab(tokens_arr)
-        else:
-            fast_tokens = tokens_arr
-
         tokens_list_of_lists = []
-        for i in range(fast_tokens.shape[0]):
-            sample_tokens = fast_tokens[i]
-            valid_tokens = sample_tokens[sample_tokens != self.pad_token_id]
+        for i in range(tokens_arr.shape[0]):
+            sample_tokens = tokens_arr[i]
+            valid_mask = (sample_tokens != self.pad_token_id) & (
+                sample_tokens != self.eos_token_id
+            )
+            valid_tokens = sample_tokens[valid_mask]
+            if self.language_tokenizer is not None:
+                valid_tokens = self._unmap_language_to_fast_vocab(valid_tokens)
             tokens_list_of_lists.append(valid_tokens.tolist())
 
         if self.fast_processor is not None:
             decoded_actions = self.fast_processor.decode(tokens_list_of_lists)
-            assert isinstance(decoded_actions, np.ndarray)
+            if not isinstance(decoded_actions, np.ndarray):
+                raise TypeError(
+                    f"Expected np.ndarray from FAST processor decode, got {type(decoded_actions)}"
+                )
             return decoded_actions
 
         raise RuntimeError("Cannot decode without FAST processor")
@@ -457,15 +492,20 @@ class ActionTokenizer:
         Returns:
             Dictionary containing tokenizer state.
         """
-        return {
+        state = {
             "tokenizer_chain": self.tokenizer_chain,
             "use_pretrained_fast": self.use_pretrained_fast,
             "language_tokenizer_model": self.language_tokenizer_model,
             "fast_vocab_size": self.fast_vocab_size,
             "num_special_tokens_to_skip": self.num_special_tokens_to_skip,
             "vocab_size": self.vocab_size,
+            "eos_token_id": self.eos_token_id,
             "is_fitted": self._is_fitted,
         }
+        if self.fast_processor is not None:
+            state["time_horizon"] = self.fast_processor.time_horizon
+            state["action_dim"] = self.fast_processor.action_dim
+        return state
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
         """Load state dictionary.
@@ -479,6 +519,7 @@ class ActionTokenizer:
         self.fast_vocab_size = state_dict["fast_vocab_size"]
         self.num_special_tokens_to_skip = state_dict["num_special_tokens_to_skip"]
         self.vocab_size = state_dict["vocab_size"]
+        self.eos_token_id = state_dict.get("eos_token_id")
         self._is_fitted = state_dict["is_fitted"]
 
     @classmethod
@@ -517,6 +558,8 @@ class ActionTokenizer:
             tokenizer.fast_processor = AutoProcessor.from_pretrained(
                 str(fast_path), trust_remote_code=True
             )
+            tokenizer.fast_processor.time_horizon = state_dict.get("time_horizon")
+            tokenizer.fast_processor.action_dim = state_dict.get("action_dim")
             tokenizer._is_fitted = True
 
         lang_path = path / "language_tokenizer"

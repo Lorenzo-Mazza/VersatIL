@@ -1,6 +1,6 @@
 import torch
-from torch import nn
 import torch.nn.functional as F
+from torch import nn
 
 from versatil.models.layers.positional_encoding.base import add_positional_encoding
 

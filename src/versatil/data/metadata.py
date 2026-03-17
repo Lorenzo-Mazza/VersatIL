@@ -1,16 +1,16 @@
 """Metadata for actions and observations used across the codebase.
- `dtype` across all classes uses the zarr v3 type convention.
- zarr v3 allowed dtypes are defined here https://zarr-specs.readthedocs.io/en/latest/v3/data-types/index.html
+`dtype` across all classes uses the zarr v3 type convention.
+zarr v3 allowed dtypes are defined here https://zarr-specs.readthedocs.io/en/latest/v3/data-types/index.html
 """
 
 from versatil.data.constants import (
-    CoordinateSystem,
-    ProprioceptiveType,
-    OrientationRepresentation,
-    GripperType,
-    BinaryGripperRange,
-    VALID_CAMERAS,
+    RAW_TO_CAMERA_MAPPING,
     ActionComputationMethod,
+    BinaryGripperRange,
+    CoordinateSystem,
+    GripperType,
+    OrientationRepresentation,
+    ProprioceptiveType,
 )
 
 
@@ -221,15 +221,6 @@ class GripperObservationMetadata(ObservationMetadata):
         slice_start: int | None = None,
         slice_end: int | None = None,
     ):
-        super().__init__(
-            raw_data_column_keys=raw_data_column_keys,
-            dimension=dimension,
-            dtype=dtype,
-            is_numerical=True,
-            needs_normalization=needs_normalization,
-            slice_start=slice_start,
-            slice_end=slice_end,
-        )
         valid_types = [e.value for e in GripperType]
         if gripper_type not in valid_types:
             raise ValueError(
@@ -245,14 +236,20 @@ class GripperObservationMetadata(ObservationMetadata):
                 raise ValueError("Binary gripper state dimension must be 1.")
             if needs_normalization:
                 raise ValueError("Binary gripper state should not need normalization.")
-            if dtype != "bool" and "int" not in dtype:
-                raise ValueError(
-                    "Binary gripper state dtype must be 'bool' or an integer type."
-                )
+            if "int" not in dtype:
+                raise ValueError("Binary gripper state dtype must be an integer type.")
         else:
-            if "float" not in dtype or not self.is_numerical:
+            if "float" not in dtype:
                 raise ValueError("Continuous gripper state dtype must be a float type.")
-
+        super().__init__(
+            raw_data_column_keys=raw_data_column_keys,
+            dimension=dimension,
+            dtype=dtype,
+            is_numerical=True,
+            needs_normalization=needs_normalization,
+            slice_start=slice_start,
+            slice_end=slice_end,
+        )
         self.gripper_type: str = gripper_type
         self.binary_gripper_range: str = binary_gripper_range
         self.proprioception_type: str = ProprioceptiveType.GRIPPER.value
@@ -279,8 +276,8 @@ class CameraMetadata(BaseMetadata):
     """Camera observation metadata.
 
     Attributes:
-        camera_key: Key in the raw dataset corresponding to the camera.
-            It has to be one of `data.constants.VALID_CAMERAS` values.
+        raw_camera_key: Key in the raw dataset corresponding to the camera.
+            It has to be one of `data.constants.VALID_RAW_CAMERA_KEYS` values.
         channels: Number of image channels.
         image_width: Optional target image width for resizing when storing images.
         image_height: Optional target image height for resizing when storing images.
@@ -295,11 +292,13 @@ class CameraMetadata(BaseMetadata):
         image_height: int | None = None,
     ):
         super().__init__(dtype, is_numerical=True, needs_normalization=True)
-        if camera_key not in VALID_CAMERAS:
+        if camera_key not in RAW_TO_CAMERA_MAPPING:
             raise ValueError(
-                f"camera_key has to be included in {VALID_CAMERAS}. Got {camera_key}"
+                f"camera_key must be a valid raw camera key. "
+                f"Got '{camera_key}', expected one of "
+                f"{list(RAW_TO_CAMERA_MAPPING.keys())}"
             )
-        self.camera_key = camera_key
+        self.raw_camera_key = camera_key
         self.channels = channels
         self.image_width = image_width
         self.image_height = image_height
@@ -310,7 +309,7 @@ class CameraMetadata(BaseMetadata):
             return NotImplemented
         return (
             super().__eq__(other)
-            and self.camera_key == other.camera_key
+            and self.raw_camera_key == other.raw_camera_key
             and self.channels == other.channels
             and self.image_width == other.image_width
             and self.image_height == other.image_height
@@ -591,16 +590,6 @@ class GripperActionMetadata(PrecomputedActionMetadata):
         slice_start: int | None = None,
         slice_end: int | None = None,
     ):
-        super().__init__(
-            prediction_dimension=prediction_dimension,
-            is_numerical=True,
-            needs_normalization=needs_normalization,
-            dtype=dtype,
-            raw_data_column_keys=raw_data_column_keys,
-            storage_dimension=storage_dimension,
-            slice_start=slice_start,
-            slice_end=slice_end,
-        )
         valid_types = [e.value for e in GripperType]
         if gripper_type not in valid_types:
             raise ValueError(
@@ -614,16 +603,23 @@ class GripperActionMetadata(PrecomputedActionMetadata):
         if gripper_type == GripperType.BINARY.value:
             if needs_normalization:
                 raise ValueError("Binary gripper action should not need normalization.")
-            if dtype != "bool" and "int" not in dtype:
-                raise ValueError(
-                    "Binary gripper action dtype must be 'bool' or an integer type."
-                )
+            if "int" not in dtype:
+                raise ValueError("Binary gripper action dtype must be an integer type.")
         else:
-            if "float" not in dtype or not self.is_numerical:
+            if "float" not in dtype:
                 raise ValueError(
                     "Continuous gripper action dtype must be a float type."
                 )
-
+        super().__init__(
+            prediction_dimension=prediction_dimension,
+            is_numerical=True,
+            needs_normalization=needs_normalization,
+            dtype=dtype,
+            raw_data_column_keys=raw_data_column_keys,
+            storage_dimension=storage_dimension,
+            slice_start=slice_start,
+            slice_end=slice_end,
+        )
         self.gripper_type: str = gripper_type
         self.binary_gripper_range: str = binary_gripper_range
         self.raw_data_column_keys = raw_data_column_keys

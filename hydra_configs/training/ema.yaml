@@ -1,0 +1,33 @@
+defaults:
+  - base
+
+num_epochs: 100
+gradient_accumulate_every: 1
+
+optimizer:
+  target_class : "torch.optim.AdamW"
+  lr: 5.0e-5
+  weight_decay: 2e-2
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+  param_groups:
+    - name: backbone
+      lr: 1.0e-5
+      weight_decay: 1.0e-3
+      params_pattern: "encoding_pipeline.encoders.*.backbone"
+
+clip_gradient_norm: false
+
+lr_schedule: null
+
+use_ema: true
+ema_power: 0.75
+
+# Stochastic Weight Averaging (SWA)
+swa_lrs: null  # Set to a float (e.g., 0.05) to enable SWA
+swa_epoch_start: 0.8  # Start SWA at 80% of training
+swa_annealing_epochs: 10  # Anneal LR over 10 epochs
+
+tune_lr: false  # Automatically find optimal learning rate
+
+early_stopping_patience: 50

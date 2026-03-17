@@ -6,21 +6,18 @@ import torch.utils.data as data
 from threadpoolctl import threadpool_limits
 
 from versatil.configs.data.dataloader import DataLoaderConfig
-from versatil.data.metadata import (
-    GripperActionMetadata,
-    OnTheFlyActionMetadata,
-    GripperObservationMetadata,
-)
-from versatil.data.task import ObservationSpace, ActionSpace
+from versatil.configs.data.tokenizer import TokenizationConfig
 from versatil.data.action_processor import ActionProcessor
 from versatil.data.augmentation.augmentation_pipeline import AugmentationPipeline
 from versatil.data.constants import (
     GripperType,
-    ProprioKey,
 )
-from versatil.configs.data.tokenizer import TokenizationConfig
+from versatil.data.metadata import (
+    GripperActionMetadata,
+    GripperObservationMetadata,
+    OnTheFlyActionMetadata,
+)
 from versatil.data.normalization.normalizer import LinearNormalizer
-from versatil.data.transform_builder import TransformBuilder
 from versatil.data.preprocessing.replay_buffer import ReplayBuffer
 from versatil.data.preprocessing.sampler import (
     SequenceSampler,
@@ -28,7 +25,9 @@ from versatil.data.preprocessing.sampler import (
     get_val_mask,
 )
 from versatil.data.sample_builder import SampleBuilder
+from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import Tokenizer
+from versatil.data.transform_builder import TransformBuilder
 
 logging.basicConfig(level=logging.INFO)
 
@@ -79,14 +78,12 @@ class EpisodicDataset(data.Dataset):
         self.seed = seed
         self.action_processor = ActionProcessor(action_space=action_space)
         self.augmentation_pipeline = AugmentationPipeline(
-            color_augmentation=dataloader_config.color_augmentation,  # type: ignore[arg-type]
-            spatial_augmentation=dataloader_config.spatial_augmentation,  # type: ignore[arg-type]
+            color_augmentation=dataloader_config.color_augmentation,
+            spatial_augmentation=dataloader_config.spatial_augmentation,
             target_height=dataloader_config.image_height,
             target_width=dataloader_config.image_width,
             train=train,
         )
-        self.train = train
-        self.seed = seed
         all_keys = list(
             set(
                 observation_space.get_required_zarr_keys()
@@ -264,7 +261,6 @@ class EpisodicDataset(data.Dataset):
         clamp_kinematics_range: bool = True,
         min_kinematics_std: float = 2e-2,
         min_kinematics_range: float = 4e-2,
-        **kwargs,
     ) -> tuple[LinearNormalizer, Tokenizer | None]:
         """Get normalizer and optionally tokenizer for this dataset.
 
@@ -278,7 +274,6 @@ class EpisodicDataset(data.Dataset):
             clamp_kinematics_range: Whether to clamp std/range to minimum values.
             min_kinematics_std: Minimum std for Gaussian mode when clamp_kinematics_range=True.
             min_kinematics_range: Minimum range for MinMax mode when clamp_kinematics_range=True.
-            **kwargs: Additional arguments for normalizer fitting
 
         Returns:
             Tuple of (normalizer, tokenizer) where tokenizer is None if not configured
@@ -305,7 +300,7 @@ class EpisodicDataset(data.Dataset):
         )
 
         return normalizer_builder.create_normalizer_and_tokenizer(
-            device=device, **kwargs
+            device=device,
         )
 
     def set_tokenizer(self, tokenizer: Tokenizer | None) -> None:
@@ -346,7 +341,10 @@ class EpisodicDataset(data.Dataset):
         if isinstance(meta, GripperActionMetadata):
             gripper_type = meta.gripper_type
         elif isinstance(meta, OnTheFlyActionMetadata):
-            assert isinstance(meta.source_metadata, GripperObservationMetadata)
+            if not isinstance(meta.source_metadata, GripperObservationMetadata):
+                raise TypeError(
+                    f"Expected GripperObservationMetadata, got {type(meta.source_metadata)}"
+                )
             gripper_type = meta.source_metadata.gripper_type
         else:
             raise ValueError(f"Unsupported gripper action metadata type: {type(meta)}")

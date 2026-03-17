@@ -9,11 +9,8 @@ from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.transformer.decoder_layer import TransformerDecoderLayer
 from versatil.models.layers.normalization.factory import create_normalization_layer
-from versatil.models.layers.transformer.positional_encoding import (
-    create_positional_encoding,
-)
+from versatil.models.layers.normalization.rms_norm import RMSNorm
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
@@ -23,7 +20,10 @@ from versatil.models.layers.positional_encoding.rotary import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
 )
-from versatil.models.layers.normalization.rms_norm import RMSNorm
+from versatil.models.layers.transformer.decoder_layer import TransformerDecoderLayer
+from versatil.models.layers.transformer.positional_encoding import (
+    create_positional_encoding,
+)
 
 
 class BidirectionalDecoder(nn.Module):

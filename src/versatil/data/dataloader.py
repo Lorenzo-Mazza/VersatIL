@@ -148,7 +148,7 @@ def get_dataloaders(
     )
 
 
-def validate_dataloader_config(config: DataLoaderConfig):
+def validate_dataloader_config(config: DataLoaderConfig) -> None:
     """Validate Dataloader configuration."""
     if config.batch_size <= 0:
         raise ValueError(f"batch_size must be positive, got {config.batch_size}")
@@ -230,7 +230,8 @@ def _ensure_zarr_exists(schema: DatasetSchema, preload_in_memory: bool = False) 
             create_replay_buffer_from_hdf5(schema=schema)
         elif isinstance(schema, CsvDatasetSchema):
             datasets_paths = _collect_dataset_paths(
-                schema.dataset_folders, schema.dataset_filename
+                dataset_folders=schema.dataset_folders,
+                episode_filename=schema.dataset_filename,
             )
             logging.info(
                 f"Found {len(datasets_paths)} episodes across {len(schema.dataset_folders)} folders"
@@ -264,7 +265,7 @@ def _log_phase_distributions(
             phase_labels.append(ep[PHASE_LABEL_KEY].flatten())
         phase_labels = np.concatenate(phase_labels)
         phase_counts = np.bincount(phase_labels, minlength=5)
-        logging.info(f"Train phase distribution: {dict(enumerate(phase_counts.tolist()))}")  # type: ignore[arg-type]
+        logging.info(f"Train phase distribution: {dict(enumerate(phase_counts.tolist()))}")
 
     selected_eps_val = np.where(val_dataset.sampler.episode_mask)[0]
     if len(selected_eps_val) > 0:
@@ -275,4 +276,4 @@ def _log_phase_distributions(
             ]
         )
         phase_counts_val = np.bincount(phase_labels_val, minlength=5)
-        logging.info(f"Val phase distribution: {dict(enumerate(phase_counts_val.tolist()))}")  # type: ignore[arg-type]"""
+        logging.info(f"Val phase distribution: {dict(enumerate(phase_counts_val.tolist()))}")"""

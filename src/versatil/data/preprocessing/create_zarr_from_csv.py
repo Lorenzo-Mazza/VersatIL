@@ -17,7 +17,7 @@ def _iter_csv_episodes(
     sorted_paths: list[str],
     resizer: A.Resize | A.NoOp,
     depth_resizer: A.Resize | A.NoOp,
-) -> Generator[dict[str, np.ndarray], None, None]:
+) -> Generator[dict[str, np.ndarray]]:
     """Yield episode data dicts from sorted CSV paths."""
     for path in sorted_paths:
         episode_df = pd.read_csv(path)

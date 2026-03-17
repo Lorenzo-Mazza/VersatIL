@@ -57,6 +57,8 @@ class ObservationBuffer:
         """
         if count is None:
             count = self.buffer_size
+        if count == 0:
+            return {key: [] for key in self._buffers}
         return {key: buffer[-count:] for key, buffer in self._buffers.items()}
 
     def reset(self) -> None:

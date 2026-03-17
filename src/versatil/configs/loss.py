@@ -110,6 +110,14 @@ class TrajectorySmoothnessConfig(BaseLossConfig):
 
 
 @dataclass
+class ActionTokenLossConfig(BaseLossConfig):
+    """Configuration for action token cross-entropy loss."""
+
+    _target_: str = "versatil.metrics.ActionTokenLoss"
+    label_smoothing: float = 0.2
+
+
+@dataclass
 class PhaseClassificationLossConfig(BaseLossConfig):
     """Configuration for phase classification loss."""
 
@@ -202,5 +210,3 @@ class LatentOptimalTransportLossConfig(BaseLossConfig):
     weight: float = 1.0
     p: int = 2
     epsilon: float = 0.01
-
-

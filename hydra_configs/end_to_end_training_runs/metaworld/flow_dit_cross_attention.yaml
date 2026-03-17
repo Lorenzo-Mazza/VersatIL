@@ -10,7 +10,7 @@ defaults:
   - /task/dataloader: metaworld
   - /task/action_space: metaworld_mt50_precomputed
   - /task/observation_space: metaworld_mt50_rgb
-  - /training: ema_cosine_schedule
+  - /training: ema
   - /policy/encoding_pipeline: mono_rgb_language_encoder
   - /policy/decoder: dit_cross_attention_transformer
   - /policy/algorithm: flow_matching
@@ -30,6 +30,7 @@ task:
 experiment:
   precision: ${precision:FP32}
   checkpoint_folder: ${checkpoint_dir:metaworld}
+  checkpoint_every: 10
 
 training:
   num_epochs: 200

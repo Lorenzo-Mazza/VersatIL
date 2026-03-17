@@ -29,12 +29,15 @@ class ViTEncoder(Encoder):
         super().__init__(
             input_specification=specification, pretrained=pretrained, frozen=frozen
         )
-        if backbone not in [e.value for e in RGBBackboneType]:
-            valid_backbones = [
-                e.value
-                for e in RGBBackboneType
-                if not any(x in e.value for x in ["efficientnet", "resnet", "edgenext"])
-            ]
+        valid_backbones = [
+            e.value
+            for e in RGBBackboneType
+            if not any(
+                x in e.value
+                for x in ["efficientnet", "resnet", "edgenext", "mobilenet"]
+            )
+        ]
+        if backbone not in valid_backbones:
             raise ValueError(
                 f"Invalid backbone '{backbone}'. Must be one Vision Transformer of the following: {valid_backbones}"
             )
@@ -56,9 +59,7 @@ class ViTEncoder(Encoder):
             "dynamic_img_size": True
         }  # Allows the underlying timm model to accept input images of arbitrary sizes
         if self.pretrained:
-            self.backbone = AutoModel.from_pretrained(
-                self.backbone_name, config=config
-            )
+            self.backbone = AutoModel.from_pretrained(self.backbone_name, config=config)
         else:
             self.backbone = AutoModel.from_config(config)
 

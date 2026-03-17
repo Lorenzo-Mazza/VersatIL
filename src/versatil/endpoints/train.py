@@ -5,7 +5,8 @@ import os
 from pathlib import Path
 
 import hydra
-from omegaconf import OmegaConf, DictConfig
+from omegaconf import DictConfig, OmegaConf
+
 from versatil.validation import validate_experiment
 from versatil.workspace import Workspace
 

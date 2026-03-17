@@ -1,9 +1,9 @@
 """Constants for loss computation and metrics tracking."""
 
-from enum import Enum
+from enum import StrEnum
 
 
-class MetricKey(str, Enum):
+class MetricKey(StrEnum):
     """Keys for metric tracking."""
 
     TOTAL_LOSS = "loss"
@@ -48,7 +48,7 @@ class MetricKey(str, Enum):
     VARIANCE_LOSS = "variance_loss"
 
 
-class LossModuleName(str, Enum):
+class LossModuleName(StrEnum):
     """Names for loss modules in composite losses."""
 
     REGRESSION = "regression"
@@ -61,21 +61,21 @@ class LossModuleName(str, Enum):
     DIFFUSION = "diffusion"
 
 
-class PredictionKey(str, Enum):
+class PredictionKey(StrEnum):
     """Keys for model predictions."""
 
     NOISE_PRED = "noise_pred"
     SAMPLE_PRED = "sample_pred"
 
 
-class TargetKey(str, Enum):
+class TargetKey(StrEnum):
     """Keys for target values."""
 
     NOISE = "noise"
     NOISY_SAMPLE = "noisy_sample"
 
 
-class MetadataKey(str, Enum):
+class MetadataKey(StrEnum):
     """Keys for metadata stored in LossOutput."""
 
     PHASE_LOGITS = "phase_logits"

@@ -1,10 +1,12 @@
 """Transformer Encoder used as the learnable parameterized prior for Variational Inference."""
+
 import torch
 from torch import nn
 
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 from versatil.models.decoding.latent import PriorLatentEncoder
 from versatil.models.decoding.latent.reparametrize import reparametrize
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer import (
     TransformerEncoder,
@@ -17,7 +19,6 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
 
 class PriorTransformerEncoder(PriorLatentEncoder):
@@ -40,7 +41,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         dropout_rate: float = 0.1,
         normalize_before: bool = False,
         use_proprioceptive: bool = False,
-        exclude_keys: list[str] = None,
+        exclude_keys: list[str] | None = None,
         learn_variance: bool = True,
         min_logvar: float | None = None,
         deterministic: bool = False,
@@ -56,18 +57,12 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
         self.observation_horizon = observation_horizon
-        self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
         self.feedforward_dimension = feedforward_dimension
         self.number_of_encoder_layers = number_of_encoder_layers
         self.activation = activation
         self.dropout_rate = dropout_rate
         self.normalize_before = normalize_before
-        self.latent_dimension = latent_dimension
-        self.use_proprioceptive = use_proprioceptive
-        self.prediction_horizon = prediction_horizon
-        self.observation_horizon = observation_horizon
-        self.device = device
         self.learn_variance = learn_variance
         self.encoder = TransformerEncoder(
             encoder_layer=TransformerEncoderLayer(
@@ -130,7 +125,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
             Dictionary of tensors (z, mu, logvar) with shape (B, latent_dim) for each.
         """
         input_observations = {
-            k: v for k, v in observations.items() if not (k in self.exclude_keys)
+            k: v for k, v in observations.items() if k not in self.exclude_keys
         }
 
         batch_size = list(input_observations.values())[0].size(0)
@@ -146,9 +141,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
             input_tokens,
             positional_encoding=pos_encodings,
             source_key_padding_mask=padding_mask,
-        )[
-            :, -1, :
-        ]  # (B, CLS_TOKEN only, embedding_dim)
+        )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dim)
         latent_stats = self.latent_projection(encoder_output)
         if self.deterministic:
             z = latent_stats  # (B, latent_dim)
@@ -176,6 +169,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         observations: dict[str, torch.Tensor] | None = None,
     ) -> torch.Tensor:
         """Sample latent variable from learned prior p(z|s)."""
-        return self.forward(target_latents=None, observations=observations,)[
-            LatentKey.PRIOR_LATENT.value
-        ]  # Return only z
+        return self.forward(
+            target_latents=None,
+            observations=observations,
+        )[LatentKey.PRIOR_LATENT.value]  # Return only z

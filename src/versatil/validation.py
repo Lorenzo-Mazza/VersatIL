@@ -1,5 +1,9 @@
 """Experiment validation module for validating global experiment configuration."""
+
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
 from versatil.data.constants import ImageNormalizationType, ObsKey, SampleKey
 from versatil.data.metadata import CameraMetadata
@@ -10,10 +14,15 @@ from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 from versatil.models.decoding.decoders import MoEDecoder
-from versatil.models.decoding.decoders.factory.mode_act import MixtureOfDensitiesActionTransformer
 from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.decoding.decoders.factory.mode_act import (
+    MixtureOfDensitiesActionTransformer,
+)
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.pipeline import EncodingPipeline
+
+if TYPE_CHECKING:
+    from versatil.configs.main import MainConfig
 
 
 class ExperimentValidationError(Exception):
@@ -89,7 +98,9 @@ class ExperimentValidator:
 
     def validate_encoder_observation_consistency(self) -> None:
         """Validate that encoder inputs match available observations."""
-        has_language = ObsKey.LANGUAGE.value in self.observation_space.observations_metadata
+        has_language = (
+            ObsKey.LANGUAGE.value in self.observation_space.observations_metadata
+        )
         if has_language and not self.is_tokenized:
             self.errors.append(
                 "Language observations are enabled but tokenization is disabled. "
@@ -99,7 +110,10 @@ class ExperimentValidator:
         available_keys = set()
         if self.is_tokenized and self.tokenized_obs_keys:
             tokenized_any = False
-            for obs_key, obs_meta in self.observation_space.observations_metadata.items():
+            for (
+                obs_key,
+                obs_meta,
+            ) in self.observation_space.observations_metadata.items():
                 if isinstance(obs_meta, CameraMetadata):
                     available_keys.add(obs_key)
                 elif obs_key in self.tokenized_obs_keys:
@@ -116,19 +130,22 @@ class ExperimentValidator:
                 available_keys.add(SampleKey.TOKENIZED_OBSERVATIONS.value)
                 available_keys.add(SampleKey.IS_PAD_OBSERVATION.value)
         else:
-            for obs_key in self.observation_space.observations_metadata.keys():
+            for obs_key in self.observation_space.observations_metadata:
                 available_keys.add(obs_key)
 
         configured_encoder_inputs = set()
         for encoder_name, encoder in self.encoding_pipeline.encoders.items():
             encoder: EncodingMixin
-            if hasattr(encoder, "backbone_name") and "dinov3" in encoder.backbone_name.lower():
-                if self.image_norm_type != ImageNormalizationType.IMAGENET.value:
-                    self.errors.append(
-                        f"Encoder '{encoder_name}' uses DINOv3 backbone which requires "
-                        f"ImageNet normalization, but image_norm_type is set to "
-                        f"'{self.image_norm_type}'. Set it to 'imagenet'."
-                    )
+            if (
+                hasattr(encoder, "backbone_name")
+                and "dinov3" in encoder.backbone_name.lower()
+                and self.image_norm_type != ImageNormalizationType.IMAGENET.value
+            ):
+                self.errors.append(
+                    f"Encoder '{encoder_name}' uses DINOv3 backbone which requires "
+                    f"ImageNet normalization, but image_norm_type is set to "
+                    f"'{self.image_norm_type}'. Set it to 'imagenet'."
+                )
 
             input_keys = encoder.input_specification.keys
             if isinstance(input_keys, str):
@@ -223,10 +240,9 @@ class ExperimentValidator:
                 }
             )
 
-        if (
-            isinstance(self.decoder, (MoEDecoder, MixtureOfDensitiesActionTransformer))
-            or any(isinstance(h, MoEHead) for h in self.decoder.action_heads.values())
-        ):
+        if isinstance(
+            self.decoder, (MoEDecoder, MixtureOfDensitiesActionTransformer)
+        ) or any(isinstance(h, MoEHead) for h in self.decoder.action_heads.values()):
             valid_loss_keys.add(DecoderOutputKey.ROUTING_WEIGHTS.value)
 
         if self.decoder.__class__.__name__ == "FreeActionTransformer":
@@ -246,7 +262,7 @@ class ExperimentValidator:
             )
 
 
-def validate_experiment(config: "MainConfig") -> None:
+def validate_experiment(config: MainConfig) -> None:
     """Validate experiment configuration from instantiated MainConfig.
 
     Args:

@@ -11,16 +11,16 @@ from versatil.data.constants import (
     ObsKey,
 )
 from versatil.data.metadata import (
-    ObservationMetadata,
-    PositionObservationMetadata,
-    OrientationObservationMetadata,
-    GripperObservationMetadata,
-    CameraMetadata,
     ActionMetadata,
-    PositionActionMetadata,
-    OrientationActionMetadata,
+    CameraMetadata,
     GripperActionMetadata,
+    GripperObservationMetadata,
+    ObservationMetadata,
     OnTheFlyActionMetadata,
+    OrientationActionMetadata,
+    OrientationObservationMetadata,
+    PositionActionMetadata,
+    PositionObservationMetadata,
     PrecomputedActionMetadata,
 )
 from versatil.data.raw.schemas.base import DatasetSchema
@@ -75,11 +75,12 @@ class ActionSpace:
         """Get all position actions (precomputed or on-the-fly)."""
         result = {}
         for k, v in self.actions_metadata.items():
-            if isinstance(v, PositionActionMetadata):
+            if (
+                isinstance(v, PositionActionMetadata)
+                or isinstance(v, OnTheFlyActionMetadata)
+                and isinstance(v.source_metadata, PositionObservationMetadata)
+            ):
                 result[k] = v
-            elif isinstance(v, OnTheFlyActionMetadata):
-                if isinstance(v.source_metadata, PositionObservationMetadata):
-                    result[k] = v
         return result
 
     @property
@@ -89,11 +90,12 @@ class ActionSpace:
         """Get all orientation actions (precomputed or on-the-fly)."""
         result = {}
         for k, v in self.actions_metadata.items():
-            if isinstance(v, OrientationActionMetadata):
+            if (
+                isinstance(v, OrientationActionMetadata)
+                or isinstance(v, OnTheFlyActionMetadata)
+                and isinstance(v.source_metadata, OrientationObservationMetadata)
+            ):
                 result[k] = v
-            elif isinstance(v, OnTheFlyActionMetadata):
-                if isinstance(v.source_metadata, OrientationObservationMetadata):
-                    result[k] = v
         return result
 
     @property
@@ -103,11 +105,12 @@ class ActionSpace:
         """Get all gripper actions (precomputed or on-the-fly)."""
         result = {}
         for k, v in self.actions_metadata.items():
-            if isinstance(v, GripperActionMetadata):
+            if (
+                isinstance(v, GripperActionMetadata)
+                or isinstance(v, OnTheFlyActionMetadata)
+                and isinstance(v.source_metadata, GripperObservationMetadata)
+            ):
                 result[k] = v
-            elif isinstance(v, OnTheFlyActionMetadata):
-                if isinstance(v.source_metadata, GripperObservationMetadata):
-                    result[k] = v
         return result
 
     def get_total_action_dim(self) -> int:
@@ -123,11 +126,12 @@ class ActionSpace:
         """Get total position action dimension."""
         dim = 0
         for meta in self.actions_metadata.values():
-            if isinstance(meta, PositionActionMetadata):
+            if (
+                isinstance(meta, PositionActionMetadata)
+                or isinstance(meta, OnTheFlyActionMetadata)
+                and isinstance(meta.source_metadata, PositionObservationMetadata)
+            ):
                 dim += meta.prediction_dimension
-            elif isinstance(meta, OnTheFlyActionMetadata):
-                if isinstance(meta.source_metadata, PositionObservationMetadata):
-                    dim += meta.prediction_dimension
         return dim
 
     @property
@@ -135,11 +139,12 @@ class ActionSpace:
         """Get total orientation action dimension."""
         dim = 0
         for meta in self.actions_metadata.values():
-            if isinstance(meta, OrientationActionMetadata):
+            if (
+                isinstance(meta, OrientationActionMetadata)
+                or isinstance(meta, OnTheFlyActionMetadata)
+                and isinstance(meta.source_metadata, OrientationObservationMetadata)
+            ):
                 dim += meta.prediction_dimension
-            elif isinstance(meta, OnTheFlyActionMetadata):
-                if isinstance(meta.source_metadata, OrientationObservationMetadata):
-                    dim += meta.prediction_dimension
         return dim
 
     @property
@@ -147,11 +152,12 @@ class ActionSpace:
         """Get total gripper action dimension."""
         dim = 0
         for meta in self.actions_metadata.values():
-            if isinstance(meta, GripperActionMetadata):
+            if (
+                isinstance(meta, GripperActionMetadata)
+                or isinstance(meta, OnTheFlyActionMetadata)
+                and isinstance(meta.source_metadata, GripperObservationMetadata)
+            ):
                 dim += meta.prediction_dimension
-            elif isinstance(meta, OnTheFlyActionMetadata):
-                if isinstance(meta.source_metadata, GripperObservationMetadata):
-                    dim += meta.prediction_dimension
         return dim
 
     @property
@@ -391,7 +397,7 @@ class TaskSpace:
 
             if schema_obs is not None and task_obs != schema_obs:
                 raise ValueError(f"Observation '{key}' metadata mismatch with schema")
-        for cam_key in self.observation_space.cameras.keys():
+        for cam_key in self.observation_space.cameras:
             if cam_key not in VALID_CAMERAS:
                 raise ValueError(
                     f"Invalid camera key '{cam_key}', must be one of {VALID_CAMERAS}. "

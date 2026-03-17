@@ -41,7 +41,7 @@ class RotaryPositionalEncoding(nn.Module):
         """
         half_dimension = dimension // 2
         exponents = torch.arange(half_dimension, dtype=torch.float32) / half_dimension
-        frequencies = 1.0 / (base_frequency ** exponents)
+        frequencies = 1.0 / (base_frequency**exponents)
         frequencies = frequencies.repeat_interleave(2)
         result: torch.Tensor = frequencies
         return result

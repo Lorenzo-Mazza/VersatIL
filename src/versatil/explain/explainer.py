@@ -3,6 +3,7 @@
 This module provides functions for explaining model predictions through various
 interpretability techniques including GradCAM, saliency maps, and integrated gradients.
 """
+
 from collections.abc import Callable
 
 import cv2
@@ -195,8 +196,8 @@ def compute_gradcam_custom(
             if explanation_type == ExplanationType.GRADCAM.value:
                 weights = gradient.mean(dim=(3, 4))
             elif explanation_type == ExplanationType.GRADCAM_PLUS_PLUS.value:
-                grad2 = gradient ** 2
-                grad3 = gradient ** 3
+                grad2 = gradient**2
+                grad3 = gradient**3
                 sum_act = activation.sum(dim=(3, 4)).unsqueeze(3).unsqueeze(4)
                 alpha = grad2 / (2 * grad2 + sum_act * grad3 + eps)
                 aij = alpha * F.relu(gradient)
@@ -456,7 +457,7 @@ def compute_gradcam_for_policy(
     if output_selector is None:
 
         def default_output_selector(
-            predictions: dict[str, torch.Tensor]
+            predictions: dict[str, torch.Tensor],
         ) -> torch.Tensor:
             # Use position actions if available, otherwise use first available action type
             if ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value in predictions:

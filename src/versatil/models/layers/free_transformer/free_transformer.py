@@ -5,38 +5,41 @@ The Free Transformer extends decoder transformers by injecting learnable latent
 variables into the middle layer, enabling conditional generation through a variational
 autoencoder framework.
 """
+
 import copy
 import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.transformer import (
-    TransformerDecoderLayer,
-    LayerKVCache,
-    DecoderKVCache,
-    initialize_decoder_cache,
-    create_positional_encoding,
-)
-from versatil.models.layers.transformer.autoregressive_decoder import (
-    RESIDUAL_STREAM_FLAG,
-)
-from versatil.models.layers.transformer.masking import create_full_padding_mask
+from versatil.models.layers.free_transformer.binary_mapper import BinaryMapper
 from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.normalization.rms_norm import RMSNorm
-from versatil.models.layers.free_transformer.binary_mapper import BinaryMapper
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
 from versatil.models.layers.positional_encoding.rotary import (
     RotaryPositionalEncoding,
 )
-from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
 )
+from versatil.models.layers.transformer import (
+    DecoderKVCache,
+    LayerKVCache,
+    TransformerDecoderLayer,
+    create_positional_encoding,
+    initialize_decoder_cache,
+)
+from versatil.models.layers.transformer.autoregressive_decoder import (
+    RESIDUAL_STREAM_FLAG,
+)
+from versatil.models.layers.transformer.masking import create_full_padding_mask
 
 
 class LatentConditionedDecoderLayer(TransformerDecoderLayer):
@@ -442,15 +445,17 @@ class FreeTransformer(nn.Module):
         Note:
             If self.use_global_latent is True, bit logits, latent codes and latent embeddings have all shape (B, 1, D).
         """
-        if isinstance(
-            self.positional_encoding,
-            (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D),
-        ):
-            hidden_states += self.positional_encoding(hidden_states)
         batch_size = hidden_states.shape[0]
         device = hidden_states.device
         query_length = hidden_states.shape[1]
         cache_length = decoder_cache.get_length() if decoder_cache else 0
+        if isinstance(
+            self.positional_encoding,
+            (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D),
+        ):
+            hidden_states += self.positional_encoding(
+                hidden_states, offset=cache_length
+            )
         cached_key_padding_mask = (
             decoder_cache.key_padding_mask if decoder_cache else None
         )
@@ -515,10 +520,7 @@ class FreeTransformer(nn.Module):
                 mid_features=mid_features, mid_features_mask=mid_features_mask
             )  # (B, query_length or 1, D)
             # Uniform prior sample
-            if self.use_global_latent:
-                query_dim = 1
-            else:
-                query_dim = query_length
+            query_dim = 1 if self.use_global_latent else query_length
             uniform_indices = torch.randint(
                 0,
                 self.latent_dim,

@@ -1,13 +1,14 @@
 """DETR-style transformer for non-autoregressive tokenized action prediction."""
+
 import torch
 import torch.nn as nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey
-from versatil.models.constants import FeatureType
+from versatil.models.decoding.constants import DecoderOutputKey, FeatureType
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer import Transformer
 from versatil.models.layers.positional_encoding.learned import (
@@ -16,7 +17,6 @@ from versatil.models.layers.positional_encoding.learned import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding2D,
 )
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
 
 class DiscreteDETRActionTransformer(ActionDecoder):
@@ -219,7 +219,7 @@ class DiscreteDETRActionTransformer(ActionDecoder):
             positional_encodings=pos_encodings,
             padding_mask=padding_mask,
         )
-        if self.train():
+        if self.training:
             head = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value]
             logits = head(action_embeddings)  # (B, max_seq_len, vocab_size)
             return {
@@ -271,6 +271,4 @@ class DiscreteDETRActionTransformer(ActionDecoder):
             source_positional_encoding=positional_encodings,
             source_key_padding_mask=padding_mask,
             target_positional_encoding=query_positional_encoding,
-        )[
-            -1
-        ]  # (B, max_seq_len, embedding_dimension)  type: ignore[no-any-return]
+        )[-1]  # (B, max_seq_len, embedding_dimension)  type: ignore[no-any-return]

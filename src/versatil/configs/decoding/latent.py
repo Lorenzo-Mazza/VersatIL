@@ -1,4 +1,5 @@
 """Latent action posterior and prior network configurations."""
+
 from dataclasses import dataclass
 
 from omegaconf import MISSING
@@ -43,9 +44,9 @@ class VAETransformerEncoderConfig(PosteriorLatentEncoderConfig):
     _target_: str = "versatil.models.decoding.latent.posterior.transformer_encoder.VAETransformerEncoder"
     latent_dimension: int = MISSING
     embedding_dimension: int = MISSING
-    prediction_horizon: int = "${policy.prediction_horizon}"  # type: ignore[assignment]
-    observation_horizon: int = "${policy.observation_horizon}"  # type: ignore[assignment]
-    device: str = "${policy.device}"  # type: ignore[assignment]
+    prediction_horizon: int = "${policy.prediction_horizon}"
+    observation_horizon: int = "${policy.observation_horizon}"
+    device: str = "${policy.device}"
     number_of_heads: int = 8
     feedforward_dimension: int = 512
     number_of_encoder_layers: int = 4
@@ -75,9 +76,9 @@ class PriorTransformerEncoderConfig(PriorLatentEncoderConfig):
     _target_: str = "versatil.models.decoding.latent.prior.transformer_encoder.PriorTransformerEncoder"
     latent_dimension: int = MISSING
     embedding_dimension: int = MISSING
-    prediction_horizon: int = "${policy.prediction_horizon}"  # type: ignore[assignment]
-    observation_horizon: int = "${policy.observation_horizon}"  # type: ignore[assignment]
-    device: str = "${policy.device}"  # type: ignore[assignment]
+    prediction_horizon: int = "${policy.prediction_horizon}"
+    observation_horizon: int = "${policy.observation_horizon}"
+    device: str = "${policy.device}"
     number_of_heads: int = 8
     feedforward_dimension: int = 512
     number_of_encoder_layers: int = 4
@@ -100,8 +101,8 @@ class VampPriorConfig(PriorLatentEncoderConfig):
     _target_: str = "versatil.models.decoding.latent.prior.vamp_prior.VampPrior"
     latent_dimension: int = 32
     num_components: int = 50
-    action_space: ActionSpaceConfig = "${policy.action_space}"  # type: ignore[assignment]
-    prediction_horizon: int = "${policy.prediction_horizon}"  # type: ignore[assignment]
+    action_space: ActionSpaceConfig = "${policy.action_space}"
+    prediction_horizon: int = "${policy.prediction_horizon}"
     min_logvar: float | None = None
 
 
@@ -119,7 +120,7 @@ class DiTPriorConfig(PriorLatentEncoderConfig):
     number_of_heads: int = 8
     number_of_layers: int = 4
     feedforward_dimension: int = 1024
-    observation_horizon: int = "${policy.observation_horizon}"  # type: ignore[assignment]
+    observation_horizon: int = "${policy.observation_horizon}"
     algorithm_type: str = DenoisingAlgorithm.FLOW_MATCHING.value
     sigma: float = 0.0
     ode_solver: str = ODESolver.EULER.value

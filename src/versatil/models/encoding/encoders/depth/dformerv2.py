@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from versatil.data.constants import Cameras, RGB_CAMERAS
+from versatil.data.constants import RGB_CAMERAS, Cameras
 from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
@@ -26,7 +26,7 @@ from versatil.models.layers.patch_embedding import PatchEmbedType
 from versatil.models.layers.pooling.pooling_head import create_pooling_head
 
 
-class DFormerVariant(str, enum.Enum):
+class DFormerVariant(enum.StrEnum):
     """Available DFormerv2 model variants."""
 
     SMALL = "S"
@@ -158,8 +158,7 @@ class DFormerEncoder(Encoder):
         initial_decay: float = 2.0,
         pretrained: bool = False,
         frozen: bool = False,
-        checkpoint_path: str
-        | None = "/mnt/cluster/workspaces/mazzalore/pretrained_models/pretrained_dformer/DFormerv2_Small_NYU.pth",
+        checkpoint_path: str | None = None,
         pooling_method: str = PoolingMethod.AVERAGE.value,
     ):
         """Initialize DFormer encoder.
@@ -195,11 +194,11 @@ class DFormerEncoder(Encoder):
         self.pooling_method = pooling_method
         self.decomposition_mode = AttentionDecompositionMode(decomposition_mode)
         config = self.VARIANT_CONFIGS[variant]
-        self.embed_dims: list[int] = config["embed_dims"]  # type: ignore[assignment]
-        self.depths: list[int] = config["depths"]  # type: ignore[assignment]
-        self.num_heads: list[int] = config["num_heads"]  # type: ignore[assignment]
-        self.decay_ranges: list[int] = config["decay_ranges"]  # type: ignore[assignment]
-        self.use_layer_scales: list[bool] = config["use_layer_scales"]  # type: ignore[assignment]
+        self.embed_dims: list[int] = config["embed_dims"]
+        self.depths: list[int] = config["depths"]
+        self.num_heads: list[int] = config["num_heads"]
+        self.decay_ranges: list[int] = config["decay_ranges"]
+        self.use_layer_scales: list[bool] = config["use_layer_scales"]
         self.num_stages = len(self.embed_dims)
         # Patch size is fixed at 4 to match original DFormerv2 architecture (2 stride-2 convs = 4x downsample)
         # This cannot be changed without breaking pretrained model loading
@@ -282,14 +281,14 @@ class DFormerEncoder(Encoder):
 
         mock_pooling_head = create_pooling_head(
             pooling_method=self.pooling_method,
-            feature_channels=self.embedding_dimension,
+            feature_channels=self.feature_dim,
             spatial_height=H_final,
             spatial_width=W_final,
         )
         self.pooling_head = (
             None  # Will be created in forward() with correct patch dimensions
         )
-        self.output_dim = mock_pooling_head.get_output_dim(self.embedding_dimension)
+        self.output_dim = mock_pooling_head.get_output_dim(self.feature_dim)
 
     def _load_checkpoint(self, checkpoint_path: str):
         """Load pretrained weights from checkpoint."""
@@ -355,10 +354,10 @@ class DFormerEncoder(Encoder):
         if self.pooling_head is None:
             self.pooling_head = create_pooling_head(
                 pooling_method=self.pooling_method,
-                feature_channels=self.embedding_dimension,
+                feature_channels=self.feature_dim,
                 spatial_height=H_patches,
                 spatial_width=W_patches,
-            ).to(self.device)
+            ).to(final_features.device)
         pooled_features = self.pooling_head(final_features)
         if has_time:
             pooled_features = pooled_features.reshape(

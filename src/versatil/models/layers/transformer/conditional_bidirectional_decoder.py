@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.constants import AttentionType, ConditioningType
+from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer

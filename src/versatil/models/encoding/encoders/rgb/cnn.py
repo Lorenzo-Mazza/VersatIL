@@ -3,13 +3,13 @@ from timm.layers import freeze_batch_norm_2d
 from transformers import TimmBackbone, TimmBackboneConfig
 from transformers.modeling_outputs import BackboneOutput
 
-from versatil.data.constants import Cameras, RGB_CAMERAS
+from versatil.data.constants import RGB_CAMERAS
 from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from versatil.models.encoding.encoders.constants import (
+    BatchNormHandling,
     EncoderOutputKeys,
     PoolingMethod,
     RGBBackboneType,
-    BatchNormHandling
 )
 from versatil.models.encoding.encoders.unconditional import Encoder
 from versatil.models.layers.convert_layers import replace_batchnorm_with_groupnorm
@@ -20,13 +20,13 @@ class CNNEncoder(Encoder):
     """Convolutional Neural Network encoder supporting multiple backbones via TIMM."""
 
     def __init__(
-            self,
-            input_keys: str | list[str],
-            backbone: str = RGBBackboneType.RESNET18.value,
-            pooling_method: str = PoolingMethod.AVERAGE.value,
-            batch_norm_handling: str = BatchNormHandling.FROZEN.value,
-            pretrained: bool = False,
-            frozen: bool = False,
+        self,
+        input_keys: str | list[str],
+        backbone: str = RGBBackboneType.RESNET18.value,
+        pooling_method: str = PoolingMethod.AVERAGE.value,
+        batch_norm_handling: str = BatchNormHandling.FROZEN.value,
+        pretrained: bool = False,
+        frozen: bool = False,
     ):
         specification = EncoderInput(keys=input_keys, one_of_groups=[RGB_CAMERAS])
         super().__init__(
@@ -57,20 +57,22 @@ class CNNEncoder(Encoder):
         self.backbone = TimmBackbone(config=backbone_config)
         match self.batch_norm_handling:
             case BatchNormHandling.FROZEN.value:
-                self.backbone.apply(freeze_batch_norm_2d)  # type: ignore[arg-type]
+                self.backbone.apply(freeze_batch_norm_2d)
             case BatchNormHandling.CONVERT_TO_GROUPNORM.value:
                 self.backbone = replace_batchnorm_with_groupnorm(self.backbone)
             case BatchNormHandling.DEFAULT.value:
                 pass  # keep as-is
             case _:
-                raise ValueError(f"Unknown batch norm handling: {self.batch_norm_handling}")
+                raise ValueError(
+                    f"Unknown batch norm handling: {self.batch_norm_handling}"
+                )
 
     def _setup_pooling(self):
         """Setup mock pooling head. The actual pooling head will be created in forward()."""
         with torch.no_grad():
             mock_input = torch.zeros(1, 3, 224, 224)
             mock_output: BackboneOutput = self.backbone(mock_input)
-            mock_features = mock_output.feature_maps[0]  # type: ignore[index]
+            mock_features = mock_output.feature_maps[0]
             _, c, h, w = mock_features.shape
         mock_pooling_head = create_pooling_head(
             pooling_method=self.pooling_method,
@@ -116,7 +118,7 @@ class CNNEncoder(Encoder):
                 feature_channels=self.feature_dim,
                 spatial_height=H_feature_maps,
                 spatial_width=W_feature_maps,
-            ).to(self.device)
+            ).to(features.device)
         pooled_features = self.pooling_head(features)
         if has_time:
             # Reshape back to (B, T, C) or (B, T, C, H, W)

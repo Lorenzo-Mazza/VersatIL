@@ -1,4 +1,5 @@
 """Positional encoding for GPT transformer."""
+
 import logging
 
 import torch

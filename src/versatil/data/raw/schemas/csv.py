@@ -6,8 +6,8 @@ import albumentations as A
 import numpy as np
 import pandas as pd
 
-from versatil.data.raw.zarr_meta import DatasetMetadata
 from versatil.data.raw.schemas.base import DatasetSchema
+from versatil.data.raw.zarr_meta import DatasetMetadata
 
 
 class CsvDatasetSchema(DatasetSchema):

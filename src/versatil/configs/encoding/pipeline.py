@@ -1,4 +1,5 @@
 """Configuration for input modalities encoding and feature fusion pipeline."""
+
 from dataclasses import dataclass
 from typing import Any
 

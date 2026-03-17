@@ -1,12 +1,12 @@
-"""Conditional 1-dimensional U-Net architecture, originally used in the Diffusion Policy paper https://arxiv.org/abs/2303.04137v4 """
+"""Conditional 1-dimensional U-Net architecture, originally used in the Diffusion Policy paper https://arxiv.org/abs/2303.04137v4"""
 
 import torch
 from torch import nn
 from torch.nn.modules.batchnorm import _BatchNorm
 
 from versatil.models.layers.convolution.conv1d import (
-    Downsample1d,
     Conv1dBlock,
+    Downsample1d,
     Upsample1d,
 )
 from versatil.models.layers.modulation.conditional_residual_block import (
@@ -30,7 +30,7 @@ class ConditionalUnet1D(nn.Module):
         local_conditioning_dimension: int | None = None,
         global_conditioning_dimension: int | None = None,
         diffusion_step_embedding_dimension: int = 256,
-        down_dimensions: list[int] = [256, 512, 1024],
+        down_dimensions: list[int] | None = None,
         kernel_size: int = 3,
         num_groups: int = 8,
         condition_predict_scale: bool = False,
@@ -52,6 +52,8 @@ class ConditionalUnet1D(nn.Module):
             initializer_range: std of the initial weights for conv and linear layers.
         """
         super().__init__()
+        if down_dimensions is None:
+            down_dimensions = [256, 512, 1024]
         all_dimensions = [input_dimension] + list(down_dimensions)
         starting_dimension = down_dimensions[0]
         diffusion_step_embedding_dimension = diffusion_step_embedding_dimension
@@ -253,7 +255,7 @@ class ConditionalUnet1D(nn.Module):
             global_features = torch.cat([global_features, global_conditioning], dim=-1)
 
         # encode local features
-        local_hidden_states = list()
+        local_hidden_states = []
         if local_conditioning is not None:
             local_conditioning = local_conditioning.permute(
                 0, 2, 1

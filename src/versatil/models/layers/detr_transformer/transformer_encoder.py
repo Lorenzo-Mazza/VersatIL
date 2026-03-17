@@ -2,6 +2,7 @@ import copy
 
 import torch
 import torch.nn as nn
+
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer.attention import FlashAttention
 

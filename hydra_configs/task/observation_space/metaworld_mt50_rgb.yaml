@@ -6,7 +6,7 @@ _target_: versatil.data.task.ObservationSpace
 observations_metadata:
   ${cameras:AGENTVIEW}:
     _target_: versatil.data.metadata.CameraMetadata
-    camera_key: ${cameras:IMAGE_METAWORLD_LEROBOT}
+    camera_key: ${raw_camera:IMAGE_METAWORLD}
     dtype: uint8
     channels: 3
     image_width: 480

@@ -1,78 +1,82 @@
-"""Shared fixtures for tokenize tests."""
+"""Shared fixtures for tokenization tests."""
+
+from collections.abc import Callable
 
 import numpy as np
 import pytest
 import torch
 
-
-@pytest.fixture
-def device():
-    """Device for testing."""
-    return torch.device("cpu")
+from versatil.data.tokenization.binning_tokenizer import BinningTokenizer
 
 
 @pytest.fixture
-def normalized_proprio_data():
-    """Generate normalized proprioceptive data for testing binning tokenizers.
+def binning_tokenizer_factory() -> Callable[..., BinningTokenizer]:
+    """Factory for BinningTokenizer with configurable parameters."""
 
-    Returns:
-        Dict with proprio keys mapped to normalized arrays (N=100, D=7)
-    """
-    np.random.seed(42)
-    return {
-        "proprio_robot_frame": np.random.randn(100, 7).astype(np.float32) * 0.5,
-        "proprio_camera_frame": np.random.randn(100, 7).astype(np.float32) * 0.5,
-    }
+    def factory(
+        num_bins: int = 16,
+        device: torch.device = torch.device("cpu"),
+    ) -> BinningTokenizer:
+        return BinningTokenizer(num_bins=num_bins, device=device)
 
-
-@pytest.fixture
-def language_instructions():
-    """Generate sample language instructions."""
-    return [
-        "Pick up the red block",
-        "Place the block on the table",
-        "Grasp the needle",
-        "Insert the needle into the tissue",
-        "Retract the needle",
-    ]
+    return factory
 
 
 @pytest.fixture
-def normalized_action_chunks():
-    """Generate normalized action chunks for FAST tokenizer testing.
+def fitted_binning_tokenizer_factory(
+    rng, binning_tokenizer_factory
+) -> Callable[..., BinningTokenizer]:
+    """Factory for a fitted BinningTokenizer with configurable data."""
 
-    Returns:
-        Array of shape (N_chunks=10, T=5, D=7)
-    """
-    np.random.seed(42)
-    return np.random.randn(10, 5, 7).astype(np.float32) * 0.5
+    def factory(
+        num_bins: int = 16,
+        num_samples: int = 100,
+        num_dimensions: int = 7,
+        device: torch.device = torch.device("cpu"),
+    ) -> BinningTokenizer:
+        tokenizer = binning_tokenizer_factory(num_bins=num_bins, device=device)
+        data = rng.standard_normal((num_samples, num_dimensions)).astype(np.float32)
+        tokenizer.fit(data)
+        return tokenizer
 
-
-@pytest.fixture
-def observation_dict_with_language(language_instructions, normalized_proprio_data):
-    """Create observation dict with language and proprio.
-
-    Returns batch of observations with temporal dimension.
-    """
-    batch_size = 5
-    obs_horizon = 2
-
-    # Language: list of strings (one per sample in batch)
-    lang = language_instructions[:batch_size]
-
-    # Proprio: (B, T, D)
-    proprio_robot = torch.from_numpy(
-        normalized_proprio_data["proprio_robot_frame"][:batch_size * obs_horizon]
-        .reshape(batch_size, obs_horizon, -1)
-    )
-
-    return {
-        "language_instruction": lang,
-        "proprio_robot_frame": proprio_robot,
-    }
+    return factory
 
 
 @pytest.fixture
-def simple_language_tokenizer_model():
-    """Return a small, fast language model for testing."""
-    return "google/bert_uncased_L-2_H-128_A-2"  # Tiny BERT for fast tests
+def action_chunk_factory(rng) -> Callable[..., np.ndarray | torch.Tensor]:
+    """Factory for action chunk arrays with configurable shape and format."""
+
+    def factory(
+        time_horizon: int = 5,
+        action_dimension: int = 7,
+        batch_size: int | None = None,
+        scale: float = 1.0,
+        as_torch: bool = False,
+    ) -> np.ndarray | torch.Tensor:
+        if batch_size is not None:
+            shape = (batch_size, time_horizon, action_dimension)
+        else:
+            shape = (time_horizon, action_dimension)
+        data = rng.standard_normal(shape).astype(np.float32) * scale
+        if as_torch:
+            return torch.from_numpy(data)
+        return data
+
+    return factory
+
+
+@pytest.fixture
+def pad_mask_factory() -> Callable[..., np.ndarray | torch.Tensor]:
+    """Factory for padding masks with configurable valid/pad split."""
+
+    def factory(
+        total: int = 5,
+        num_valid: int = 2,
+        as_torch: bool = False,
+    ) -> np.ndarray | torch.Tensor:
+        mask = np.array([False] * num_valid + [True] * (total - num_valid))
+        if as_torch:
+            return torch.tensor(mask)
+        return mask
+
+    return factory

@@ -57,7 +57,7 @@ class PositionalEncoding(abc.ABC, nn.Module):
         raise NotImplementedError("Subclasses must implement _compute_encodings")
 
     @abstractmethod
-    def forward(self, input_tensor: torch.Tensor) -> torch.Tensor:
+    def forward(self, input_tensor: torch.Tensor, offset: int = 0) -> torch.Tensor:
         raise NotImplementedError("Subclasses must implement forward")
 
 
@@ -96,13 +96,16 @@ class PositionalEncoding1D(PositionalEncoding, abc.ABC):
                 "precomputed_encodings", precomputed_encodings.unsqueeze(0)
             )  # [1, maximum_length, embedding_dimension]
 
-    def forward(self, input_tensor: torch.Tensor) -> torch.Tensor:
+    def forward(self, input_tensor: torch.Tensor, offset: int = 0) -> torch.Tensor:
         """Compute positional encodings for input tensor.
 
         Args:
             input_tensor: Input tensor with batch-first convention.
                 - For TENSOR_INDICES: shape (batch_size, seq_len, ...) or (batch_size, seq_len)
                 - For SCALAR: shape (batch_size,) containing scalar values to encode
+            offset: Position offset for TENSOR_INDICES mode. Shifts indices from
+                [0..seq_len-1] to [offset..offset+seq_len-1]. Used during cached
+                autoregressive inference.
 
         Returns:
             Positional encodings with shape:
@@ -115,11 +118,11 @@ class PositionalEncoding1D(PositionalEncoding, abc.ABC):
             seq_len = input_tensor.size(1)
             if self.precompute_encodings:
                 encodings = self.precomputed_encodings[
-                    :, :seq_len, :
+                    :, offset : offset + seq_len, :
                 ]  # [1, seq_len, embedding_dimension]
             else:
                 encodings = self._compute_encodings(
-                    torch.arange(seq_len).to(input_tensor.device)
+                    torch.arange(offset, offset + seq_len).to(input_tensor.device)
                 )
                 encodings = encodings.unsqueeze(0)  # [1, seq_len, embedding_dimension]
             encodings = encodings.expand(
@@ -155,7 +158,7 @@ class PositionalEncoding2D(PositionalEncoding, abc.ABC):
             mlp_activation=mlp_activation,
         )
 
-    def forward(self, input_tensor: torch.Tensor) -> torch.Tensor:
+    def forward(self, input_tensor: torch.Tensor, offset: int = 0) -> torch.Tensor:
         batch_size, channels, height, width = input_tensor.shape
 
         encodings = self._compute_encodings(
@@ -170,9 +173,10 @@ class PositionalEncoding2D(PositionalEncoding, abc.ABC):
                 -1, self.embedding_dimension
             )
             encodings = self.mlp_network(encodings)
-            # Reshape back: [batch_size, embedding_dimension, height, width]
+            output_dimension = encodings.shape[-1]
+            # Reshape back: [batch_size, output_dimension, height, width]
             encodings = encodings.reshape(
-                batch_size, height, width, self.embedding_dimension
+                batch_size, height, width, output_dimension
             ).permute(0, 3, 1, 2)
         return encodings
 

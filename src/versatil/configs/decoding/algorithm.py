@@ -1,4 +1,5 @@
 """Action-decoding algorithm configurations."""
+
 from dataclasses import dataclass
 
 from omegaconf import MISSING
@@ -115,7 +116,7 @@ class VariationalAlgorithmConfig(DecodingAlgorithmConfig):
     _target_: str = (
         "versatil.models.decoding.algorithm.variational.VariationalAlgorithm"
     )
-    base_algorithm: DecodingAlgorithmConfig = MISSING  # type: ignore[assignment]
-    posterior_encoder: PosteriorLatentEncoderConfig = MISSING  # type: ignore[assignment]
+    base_algorithm: DecodingAlgorithmConfig = MISSING
+    posterior_encoder: PosteriorLatentEncoderConfig = MISSING
     prior: PriorLatentEncoderConfig = MISSING
     sampling_from_prior_probability: float = 0.25

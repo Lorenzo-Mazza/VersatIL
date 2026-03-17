@@ -1,10 +1,11 @@
 """Constants and enums for training configuration."""
+
+from enum import StrEnum
+
 import torch
 
-from enum import Enum
 
-
-class PrecisionType(str, Enum):
+class PrecisionType(StrEnum):
     """PyTorch Lightning precision types.
 
     See: https://lightning.ai/docs/pytorch/stable/common/trainer.html#precision
@@ -70,7 +71,7 @@ MAP_PRECISION_TO_DTYPE = {
 }
 
 
-class Float32MatmulPrecision(str, Enum):
+class Float32MatmulPrecision(StrEnum):
     """Float32 matrix multiplication precision for Tensor Cores.
 
     Controls the precision of float32 matrix multiplications on GPUs with Tensor Cores.

@@ -1,4 +1,5 @@
 """Conditional Residual Block 1D Module originally used in the Diffusion Policy U-Net architecture."""
+
 from torch import nn
 
 from versatil.models.layers import ConditionalModulation
@@ -20,10 +21,10 @@ class ConditionalResidualBlock1D(nn.Module):
         self.blocks = nn.ModuleList(
             [
                 Conv1dBlock(
-                    input_channels, output_channels, kernel_size, n_groups=num_groups
+                    input_channels, output_channels, kernel_size, num_groups=num_groups
                 ),
                 Conv1dBlock(
-                    output_channels, output_channels, kernel_size, n_groups=num_groups
+                    output_channels, output_channels, kernel_size, num_groups=num_groups
                 ),
             ]
         )

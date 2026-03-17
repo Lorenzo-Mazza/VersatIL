@@ -29,10 +29,11 @@ task:
 experiment:
   precision: ${precision:FP32}
   checkpoint_folder: ${checkpoint_dir:libero}
+  checkpoint_every: 5
 
 training:
-  num_epochs: 200
-  early_stopping_patience: 100
+  num_epochs: 100
+  early_stopping_patience: 200
   lr_schedule: null
   clip_gradient_norm: true
   clip_max_norm: 1.0

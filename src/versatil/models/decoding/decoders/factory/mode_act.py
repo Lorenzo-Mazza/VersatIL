@@ -12,11 +12,15 @@ from torch import nn
 
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.models.constants import FeatureType
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_heads.gaussian import GaussianHead
-from versatil.models.decoding.constants import DecoderOutputKey, GMMInitStrategy
+from versatil.models.decoding.constants import (
+    DecoderOutputKey,
+    FeatureType,
+    GMMInitStrategy,
+)
 from versatil.models.decoding.decoders import ActionDecoder, DecoderInput
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.mlp import MLP
@@ -28,12 +32,11 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding2D,
 )
 from versatil.models.layers.transformer import BidirectionalDecoder
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
 
 class MixtureOfDensitiesActionTransformer(ActionDecoder):
     """Mixture Density Network Transformer for multi-modal action prediction.
-    
+
     Note:
         This architecture combines a transformer decoder with K expert action heads
         to predict mixture density parameters. For the mixture weight computation,
@@ -285,16 +288,26 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         data_max = output_stats["max"]
         out_dim = data_min.shape[0]
         if self.gmm_init_strategy == GMMInitStrategy.KMEANS_PLUS_PLUS.value:
-            centers = self._compute_kmeans_plus_plus_centers(data_min=data_min, data_max=data_max,
-                                                             number_of_mixture_components=self.num_mixture_components, out_dim=out_dim)
+            centers = self._compute_kmeans_plus_plus_centers(
+                data_min=data_min,
+                data_max=data_max,
+                number_of_mixture_components=self.num_mixture_components,
+                out_dim=out_dim,
+            )
         else:
-            centers = self._compute_uniform_centers(data_min=data_min, data_max=data_max, number_of_mixture_components=self.num_mixture_components)
+            centers = self._compute_uniform_centers(
+                data_min=data_min,
+                data_max=data_max,
+                number_of_mixture_components=self.num_mixture_components,
+            )
 
         data_range = data_max - data_min
         expert_sigma = data_range / self.num_mixture_components
         expert_logvar = 2 * torch.log(expert_sigma.clamp(min=1e-6))
         for k, head in enumerate(self.mixture_heads[action_key]):
-            self._initialize_single_gaussian_head(head=head, mean=centers[k], logvar=expert_logvar)
+            self._initialize_single_gaussian_head(
+                head=head, mean=centers[k], logvar=expert_logvar
+            )
 
     @staticmethod
     def _compute_kmeans_plus_plus_centers(
@@ -304,7 +317,7 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         out_dim: int,
     ) -> torch.Tensor:
         """Compute K centers using k-means++ initialization.
-        
+
         Note: from https://github.com/ziyadsheeba/qfat/blob/main/src/qfat/models/qfat.py
 
         Args:
@@ -318,7 +331,9 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         """
         # Generate candidate points uniformly within the data range for each dimension
         num_candidates = 1000
-        candidate_points = torch.empty((num_candidates, out_dim), device=data_min.device)
+        candidate_points = torch.empty(
+            (num_candidates, out_dim), device=data_min.device
+        )
         for dim in range(out_dim):
             candidate_points[:, dim] = torch.empty(
                 num_candidates, device=data_min.device
@@ -330,12 +345,17 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         # Select remaining centers with probability proportional to squared distance
         # from the nearest existing center (k-means++ initialization)
         for _ in range(1, number_of_mixture_components):
-            squared_distances = torch.cdist(candidate_points, selected_centers, p=2).pow(2)
+            squared_distances = torch.cdist(
+                candidate_points, selected_centers, p=2
+            ).pow(2)
             distance_to_nearest_center, _ = torch.min(squared_distances, dim=1)
-            selection_probabilities = distance_to_nearest_center / distance_to_nearest_center.sum()
+            selection_probabilities = (
+                distance_to_nearest_center / distance_to_nearest_center.sum()
+            )
             next_center_idx = torch.multinomial(selection_probabilities, 1).item()
             selected_centers = torch.cat(
-                [selected_centers, candidate_points[next_center_idx].unsqueeze(0)], dim=0
+                [selected_centers, candidate_points[next_center_idx].unsqueeze(0)],
+                dim=0,
             )
         return selected_centers
 
@@ -357,7 +377,11 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         """
         centers = []
         for k in range(number_of_mixture_components):
-            alpha = k / (number_of_mixture_components - 1) if number_of_mixture_components > 1 else 0.5
+            alpha = (
+                k / (number_of_mixture_components - 1)
+                if number_of_mixture_components > 1
+                else 0.5
+            )
             center = data_min + alpha * (data_max - data_min)
             centers.append(center)
         return torch.stack(centers, dim=0)
@@ -379,7 +403,9 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
             nn.init.zeros_(head.output_proj.weight)
             nn.init.zeros_(head._logvar_proj.weight)
             head.output_proj.bias.copy_(mean)
-            head._logvar_proj.bias.copy_(logvar.clamp(min=head.min_logvar, max=head.max_logvar))
+            head._logvar_proj.bias.copy_(
+                logvar.clamp(min=head.min_logvar, max=head.max_logvar)
+            )
 
     def _forward_mixture(
         self,
@@ -397,19 +423,25 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         )
         obs_tokens = obs_tokens + obs_pos_encodings
         batch_size = obs_tokens.shape[0]
-        mode_query_expanded = self.mode_query.unsqueeze(0).expand(batch_size, -1, -1) # (B, 1, emb)
+        mode_query_expanded = self.mode_query.unsqueeze(0).expand(
+            batch_size, -1, -1
+        )  # (B, 1, emb)
         action_queries_expanded = self.action_queries.unsqueeze(0).expand(
-            batch_size, -1, -1 # (B, T, emb
+            batch_size,
+            -1,
+            -1,  # (B, T, emb
         )
-        all_queries = torch.cat([mode_query_expanded, action_queries_expanded], dim=1) # (B, T+1, emb)
+        all_queries = torch.cat(
+            [mode_query_expanded, action_queries_expanded], dim=1
+        )  # (B, T+1, emb)
         attended = self.action_decoder(
             hidden_states=all_queries,
             encoded_features=obs_tokens,
             query_padding_mask=None,
             memory_padding_mask=obs_padding_mask,
         )
-        mode_embedding = attended[:, 0, :] # (B, emb)
-        action_embeddings = attended[:, 1:, :] # (B, T, emb)
+        mode_embedding = attended[:, 0, :]  # (B, emb)
+        action_embeddings = attended[:, 1:, :]  # (B, T, emb)
         if self.gating_feature_key is not None:
             gating_input = features[self.gating_feature_key]
         else:
@@ -445,9 +477,10 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
 
             base_head = self.action_heads[action_key]
             if isinstance(base_head, GaussianHead):
-                for output_key in component_outputs[0].keys():
+                for output_key in component_outputs[0]:
                     stacked = torch.stack(
-                        [comp[output_key] for comp in component_outputs], dim=2 # (B, T, Num Mixture, Action Dimension)
+                        [comp[output_key] for comp in component_outputs],
+                        dim=2,  # (B, T, Num Mixture, Action Dimension)
                     )
                     predictions[f"{action_key}_{output_key}"] = stacked
             else:
@@ -500,11 +533,13 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
                 if isinstance(base_head, GaussianHead):
                     mean = output[f"{action_key}_{DecoderOutputKey.MEAN.value}"]
                     logvar = output[f"{action_key}_{DecoderOutputKey.LOGVAR.value}"]
-                    sampled_predictions[action_key] = self._sample_from_gaussian_mixture(
-                        mean=mean,
-                        logvar=logvar,
-                        routing_weights=routing_weights,
-                        deterministic=self.deterministic_inference,
+                    sampled_predictions[action_key] = (
+                        self._sample_from_gaussian_mixture(
+                            mean=mean,
+                            logvar=logvar,
+                            routing_weights=routing_weights,
+                            deterministic=self.deterministic_inference,
+                        )
                     )
                 else:
                     stacked = output[action_key]
@@ -539,7 +574,9 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         if deterministic:
             component_indices = torch.argmax(routing_weights, dim=-1)
         else:
-            component_indices = torch.multinomial(routing_weights, num_samples=1).squeeze(-1)
+            component_indices = torch.multinomial(
+                routing_weights, num_samples=1
+            ).squeeze(-1)
         batch_indices = torch.arange(batch_size, device=mean.device)
         selected_mean = mean[batch_indices, :, component_indices, :]
         if deterministic:
@@ -570,6 +607,8 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         if deterministic:
             component_indices = torch.argmax(routing_weights, dim=-1)
         else:
-            component_indices = torch.multinomial(routing_weights, num_samples=1).squeeze(-1)
+            component_indices = torch.multinomial(
+                routing_weights, num_samples=1
+            ).squeeze(-1)
         batch_indices = torch.arange(batch_size, device=stacked.device)
         return stacked[batch_indices, :, component_indices, :]

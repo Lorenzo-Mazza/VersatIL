@@ -1,182 +1,208 @@
-"""Tests for custom OmegaConf resolvers."""
+"""Tests for versatil.configs resolver registration."""
+
+import os
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from omegaconf import OmegaConf
 from omegaconf.errors import InterpolationResolutionError
 
-from versatil.configs import register_resolvers  # Import to trigger resolver registration
-from versatil.data.constants import Cameras, GripperType, OrientationRepresentation
-from versatil.models.encoding.encoders.constants import RGBBackboneType
+from versatil.configs import register_resolvers
+from versatil.data.constants import (
+    BinaryGripperRange,
+    Cameras,
+    CoordinateSystem,
+    DatasetType,
+    GripperType,
+    ImageNormalizationType,
+    KinematicsNormalizationType,
+    ObsKey,
+    OrientationRepresentation,
+    ProprioKey,
+    RawCameraKey,
+    TokenizerType,
+)
+from versatil.metrics.constants import MetadataKey
+from versatil.metrics.kernels import KernelType
+from versatil.models.decoding.constants import (
+    DenoisingAlgorithm,
+    DiTType,
+    LatentKey,
+    MoERoutingType,
+)
+from versatil.models.encoding.encoders.constants import (
+    BatchNormHandling,
+    LanguageEncoderType,
+    PoolingMethod,
+    RGBBackboneType,
+)
+from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.constants import (
+    AttentionType,
+    ConditioningType,
+    PositionalEncodingType,
+)
+from versatil.models.layers.denoising.diffusion_process import SchedulerType
+from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
+from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.training.constants import Float32MatmulPrecision, PrecisionType
+
+register_resolvers()
+
+
+ENUM_RESOLVER_CASES = [
+    ("cameras", "LEFT", Cameras.LEFT.value),
+    ("cameras", "RIGHT", Cameras.RIGHT.value),
+    ("cameras", "DEPTH", Cameras.DEPTH.value),
+    ("raw_camera", "LEFT", RawCameraKey.LEFT.value),
+    ("gripper", "BINARY", GripperType.BINARY.value),
+    ("gripper", "CONTINUOUS", GripperType.CONTINUOUS.value),
+    ("orientation", "ROLL", OrientationRepresentation.ROLL.value),
+    ("orientation", "EULER", OrientationRepresentation.EULER.value),
+    ("rgb_backbone", "RESNET18", RGBBackboneType.RESNET18.value),
+    ("precision", "FP32", PrecisionType.FP32.value),
+    ("precision", "BF16_MIXED", PrecisionType.BF16_MIXED.value),
+    ("float32_matmul", "HIGHEST", Float32MatmulPrecision.HIGHEST.value),
+    ("batch_norm_handling", "FROZEN", BatchNormHandling.FROZEN.value),
+    ("pooling_method", "SPATIAL_SOFTMAX", PoolingMethod.SPATIAL_SOFTMAX.value),
+    ("language_model", "BERT_BASE", LanguageEncoderType.BERT_BASE.value),
+    ("activation_function", "RELU", ActivationFunction.RELU.value),
+    ("activation_function", "GELU", ActivationFunction.GELU.value),
+    ("normalization", "LAYER_NORM", NormalizationType.LAYER_NORM.value),
+    ("attention", "MULTI_HEAD", AttentionType.MULTI_HEAD.value),
+    ("pos_encoding", "SINUSOIDAL", PositionalEncodingType.SINUSOIDAL.value),
+    ("pos_encoding", "LEARNED", PositionalEncodingType.LEARNED.value),
+    ("tokenizer_type", "FAST", TokenizerType.FAST.value),
+    ("kinematics_norm_type", "MIN_MAX", KinematicsNormalizationType.MIN_MAX.value),
+    ("image_norm_type", "ZERO_TO_ONE", ImageNormalizationType.ZERO_TO_ONE.value),
+    ("obs_key", "LANGUAGE", ObsKey.LANGUAGE.value),
+    ("moe_routing_type", "SOFT", MoERoutingType.SOFT.value),
+    ("coordinate_system", "ROBOT_BASE", CoordinateSystem.ROBOT_BASE.value),
+    ("gripper_range", "ZERO_ONE", BinaryGripperRange.ZERO_ONE.value),
+    ("proprio_key", "GRIPPER_STATE", ProprioKey.GRIPPER_STATE.value),
+    ("latent_key", "POSTERIOR_LATENT", LatentKey.POSTERIOR_LATENT.value),
+    ("scheduler_type", "DDIM", SchedulerType.DDIM.value),
+    ("denoising_algorithm", "DIFFUSION", DenoisingAlgorithm.DIFFUSION.value),
+    ("conditioning_type", "ADALN", ConditioningType.ADALN.value),
+    ("metadata_key", "POSTERIOR_Z", MetadataKey.POSTERIOR_Z.value),
+    ("dit_type", "DIT_BLOCK", DiTType.DIT_BLOCK.value),
+    ("timestep_sampler", "UNIFORM", TimestepSampler.UNIFORM.value),
+    ("dataset_type", "LIBERO", DatasetType.LIBERO.value),
+    ("kernel_type", "RBF", KernelType.RBF.value),
+]
 
 
 @pytest.mark.unit
 class TestEnumResolvers:
-    """Test custom OmegaConf resolvers for enum access in YAML configs."""
+    @pytest.mark.parametrize(
+        "resolver_name, member_name, expected_value",
+        ENUM_RESOLVER_CASES,
+        ids=[f"{r}:{m}" for r, m, _ in ENUM_RESOLVER_CASES],
+    )
+    def test_enum_resolver_returns_correct_value(
+        self, resolver_name, member_name, expected_value
+    ):
+        cfg = OmegaConf.create({"result": f"${{{resolver_name}:{member_name}}}"})
+        assert cfg.result == expected_value
 
-    @classmethod
-    def setup_class(cls):
-        """Register resolvers before running tests."""
-        register_resolvers()
-
-    def test_cameras_resolver(self):
-        """Test cameras resolver returns correct enum values."""
-        # Create a config with camera resolver
-        cfg = OmegaConf.create({
-            "left": "${cameras:LEFT}",
-            "right": "${cameras:RIGHT}",
-            "depth": "${cameras:DEPTH}"
-        })
-
-        assert cfg.left == Cameras.LEFT.value
-        assert cfg.right == Cameras.RIGHT.value
-        assert cfg.depth == Cameras.DEPTH.value
-        assert cfg.left == "left"
-        assert cfg.right == "right"
-        assert cfg.depth == "depth"
-
-    def test_gripper_resolver(self):
-        """Test gripper resolver returns correct enum values."""
-        cfg = OmegaConf.create({
-            "binary": "${gripper:BINARY}",
-            "continuous": "${gripper:CONTINUOUS}"
-        })
-
-        assert cfg.binary == GripperType.BINARY.value
-        assert cfg.continuous == GripperType.CONTINUOUS.value
-        assert cfg.binary == "binary"
-        assert cfg.continuous == "continuous"
-
-    def test_orientation_resolver(self):
-        """Test orientation resolver returns correct enum values."""
-        cfg = OmegaConf.create({
-            "roll": "${orientation:ROLL}",
-            "euler": "${orientation:EULER}",
-            "quaternion": "${orientation:QUATERNION}"
-        })
-
-        assert cfg.roll == OrientationRepresentation.ROLL.value
-        assert cfg.euler == OrientationRepresentation.EULER.value
-        assert cfg.quaternion == OrientationRepresentation.QUATERNION.value
-        assert cfg.roll == "roll"
-        assert cfg.euler == "euler"
-        assert cfg.quaternion == "quaternion"
-
-    def test_resolver_in_list(self):
-        """Test resolvers work in lists (for camera_keys)."""
-        cfg = OmegaConf.create({
-            "camera_keys": [
-                "${cameras:LEFT}",
-                "${cameras:RIGHT}",
-                "${cameras:DEPTH}"
-            ]
-        })
-
-        assert cfg.camera_keys == ["left", "right", "depth"]
-        assert len(cfg.camera_keys) == 3
-
-    def test_invalid_enum_name_raises_error(self):
-        """Test that invalid enum names raise InterpolationResolutionError."""
+    def test_invalid_enum_name_raises_interpolation_error(self):
+        cfg = OmegaConf.create({"invalid": "${cameras:NONEXISTENT}"})
         with pytest.raises(InterpolationResolutionError):
-            cfg = OmegaConf.create({"invalid": "${cameras:INVALID}"})
-            _ = cfg.invalid  # Trigger resolution
+            _ = cfg.invalid
 
-    def test_resolver_with_nested_config(self):
-        """Test resolvers work in nested config structures."""
-        cfg = OmegaConf.create({
-            "task": {
-                "observation_space": {
-                    "camera_keys": ["${cameras:LEFT}", "${cameras:RIGHT}"],
-                    "gripper_type": "${gripper:BINARY}"
-                },
-                "action_space": {
-                    "gripper_type": "${gripper:CONTINUOUS}",
-                    "orientation_repr": "${orientation:QUATERNION}"
+    def test_resolver_works_inside_list(self):
+        cfg = OmegaConf.create(
+            {
+                "camera_keys": [
+                    "${cameras:LEFT}",
+                    "${cameras:RIGHT}",
+                    "${cameras:DEPTH}",
+                ]
+            }
+        )
+        assert cfg.camera_keys == [
+            Cameras.LEFT.value,
+            Cameras.RIGHT.value,
+            Cameras.DEPTH.value,
+        ]
+
+    def test_resolver_works_in_nested_config(self):
+        cfg = OmegaConf.create(
+            {
+                "task": {
+                    "cameras": ["${cameras:LEFT}"],
+                    "gripper_type": "${gripper:BINARY}",
                 }
             }
-        })
+        )
+        assert cfg.task.cameras == [Cameras.LEFT.value]
+        assert cfg.task.gripper_type == GripperType.BINARY.value
 
-        assert cfg.task.observation_space.camera_keys == ["left", "right"]
-        assert cfg.task.observation_space.gripper_type == "binary"
-        assert cfg.task.action_space.gripper_type == "continuous"
-        assert cfg.task.action_space.orientation_repr == "quaternion"
-
-    def test_resolver_mixed_with_interpolation(self):
-        """Test resolvers work alongside other OmegaConf interpolations."""
-        cfg = OmegaConf.create({
-            "default_camera": "${cameras:LEFT}",
-            "selected_camera": "${default_camera}",
-            "gripper": "${gripper:BINARY}"
-        })
-
-        assert cfg.default_camera == "left"
-        assert cfg.selected_camera == "left"
-        assert cfg.gripper == "binary"
-
-    def test_rgb_backbone_resolver(self):
-        """Test rgb_backbone resolver returns correct enum values."""
-        cfg = OmegaConf.create({
-            "resnet18": "${rgb_backbone:RESNET18}",
-            "resnet34": "${rgb_backbone:RESNET34}",
-            "resnet50": "${rgb_backbone:RESNET50}",
-            "dinov2_vits14": "${rgb_backbone:DINOV2_VITS14}"
-        })
-
-        assert cfg.resnet18 == RGBBackboneType.RESNET18.value
-        assert cfg.resnet34 == RGBBackboneType.RESNET34.value
-        assert cfg.resnet50 == RGBBackboneType.RESNET50.value
-        assert cfg.dinov2_vits14 == RGBBackboneType.DINOV2_VITS14.value
-        assert cfg.resnet18 == "timm/resnet18.a1_in1k"
-        assert cfg.resnet34 == "timm/resnet34.a1_in1k"
-        assert cfg.resnet50 == "timm/resnet50.a1_in1k"
-        assert cfg.dinov2_vits14 == "timm/vit_small_patch14_dinov2.lvd142m"
-
-    def test_precision_resolver(self):
-        """Test precision resolver returns correct enum values."""
-        cfg = OmegaConf.create({
-            "fp32": "${precision:FP32}",
-            "fp16_mixed": "${precision:FP16_MIXED}",
-            "bf16_mixed": "${precision:BF16_MIXED}",
-            "fp16_true": "${precision:FP16_TRUE}",
-            "bf16_true": "${precision:BF16_TRUE}",
-            "fp64": "${precision:FP64}",
-        })
-
-        assert cfg.fp32 == PrecisionType.FP32.value
-        assert cfg.fp16_mixed == PrecisionType.FP16_MIXED.value
-        assert cfg.bf16_mixed == PrecisionType.BF16_MIXED.value
-        assert cfg.fp16_true == PrecisionType.FP16_TRUE.value
-        assert cfg.bf16_true == PrecisionType.BF16_TRUE.value
-        assert cfg.fp64 == PrecisionType.FP64.value
-        assert cfg.fp32 == "32"
-        assert cfg.fp16_mixed == "16-mixed"
-        assert cfg.bf16_mixed == "bf16-mixed"
-
-    def test_float32_matmul_resolver(self):
-        """Test float32_matmul resolver returns correct enum values."""
-        cfg = OmegaConf.create({
-            "highest": "${float32_matmul:HIGHEST}",
-            "high": "${float32_matmul:HIGH}",
-            "medium": "${float32_matmul:MEDIUM}",
-        })
-
-        assert cfg.highest == Float32MatmulPrecision.HIGHEST.value
-        assert cfg.high == Float32MatmulPrecision.HIGH.value
-        assert cfg.medium == Float32MatmulPrecision.MEDIUM.value
-        assert cfg.highest == "highest"
-        assert cfg.high == "high"
-        assert cfg.medium == "medium"
-
-    def test_precision_and_matmul_in_experiment_config(self):
-        """Test precision resolvers work in experiment config structure."""
-        cfg = OmegaConf.create({
-            "experiment": {
-                "precision": "${precision:FP16_MIXED}",
-                "float32_matmul_precision": "${float32_matmul:MEDIUM}",
-                "device": "cuda"
+    def test_resolver_combined_with_omegaconf_interpolation(self):
+        cfg = OmegaConf.create(
+            {
+                "default_camera": "${cameras:LEFT}",
+                "selected_camera": "${default_camera}",
             }
-        })
+        )
+        assert cfg.default_camera == Cameras.LEFT.value
+        assert cfg.selected_camera == Cameras.LEFT.value
 
-        assert cfg.experiment.precision == "16-mixed"
-        assert cfg.experiment.float32_matmul_precision == "medium"
-        assert cfg.experiment.device == "cuda"
+
+@pytest.mark.unit
+class TestPathResolvers:
+    def test_env_resolver_reads_environment_variable(self):
+        with patch.dict(os.environ, {"TEST_VAR": "test_value"}):
+            cfg = OmegaConf.create({"val": "${env:TEST_VAR}"})
+            assert cfg.val == "test_value"
+
+    def test_env_resolver_returns_default_when_variable_missing(self):
+        with patch.dict(os.environ, {}, clear=True):
+            cfg = OmegaConf.create({"val": "${env:NONEXISTENT_VAR,fallback}"})
+            assert cfg.val == "fallback"
+
+    def test_checkpoint_dir_resolver_uses_env_variable(self):
+        with patch.dict(os.environ, {"VERSATIL_CHECKPOINT_DIR": "/data/checkpoints"}):
+            cfg = OmegaConf.create({"dir": "${checkpoint_dir:}"})
+            assert cfg.dir == "/data/checkpoints"
+
+    def test_checkpoint_dir_resolver_appends_subpath(self):
+        with patch.dict(os.environ, {"VERSATIL_CHECKPOINT_DIR": "/data/checkpoints"}):
+            cfg = OmegaConf.create({"dir": "${checkpoint_dir:experiment_1}"})
+            assert cfg.dir == str(Path("/data/checkpoints") / "experiment_1")
+
+    def test_checkpoint_dir_resolver_defaults_to_cwd(self):
+        with patch.dict(os.environ, {}, clear=True):
+            cfg = OmegaConf.create({"dir": "${checkpoint_dir:}"})
+            assert cfg.dir == "."
+
+    def test_zarr_dir_resolver_uses_env_variable(self):
+        with patch.dict(os.environ, {"VERSATIL_ZARR_DIR": "/data/zarr"}):
+            cfg = OmegaConf.create({"dir": "${zarr_dir:}"})
+            assert cfg.dir == "/data/zarr"
+
+    def test_zarr_dir_resolver_appends_subpath(self):
+        with patch.dict(os.environ, {"VERSATIL_ZARR_DIR": "/data/zarr"}):
+            cfg = OmegaConf.create({"dir": "${zarr_dir:my_dataset}"})
+            assert cfg.dir == str(Path("/data/zarr") / "my_dataset")
+
+    def test_cache_dir_resolver_uses_env_variable(self):
+        with patch.dict(os.environ, {"VERSATIL_CACHE_DIR": "/custom/cache"}):
+            cfg = OmegaConf.create({"dir": "${cache_dir:}"})
+            assert cfg.dir == "/custom/cache"
+
+    def test_cache_dir_resolver_defaults_to_home_cache(self):
+        with patch.dict(os.environ, {}, clear=True):
+            cfg = OmegaConf.create({"dir": "${cache_dir:}"})
+            assert cfg.dir == str(Path.home() / ".cache" / "versatil")
+
+    def test_pretrained_dir_resolver_uses_env_variable(self):
+        with patch.dict(os.environ, {"VERSATIL_PRETRAINED_DIR": "/models/pretrained"}):
+            cfg = OmegaConf.create({"dir": "${pretrained_dir:}"})
+            assert cfg.dir == "/models/pretrained"
+
+    def test_pretrained_dir_resolver_appends_subpath(self):
+        with patch.dict(os.environ, {"VERSATIL_PRETRAINED_DIR": "/models/pretrained"}):
+            cfg = OmegaConf.create({"dir": "${pretrained_dir:resnet}"})
+            assert cfg.dir == str(Path("/models/pretrained") / "resnet")

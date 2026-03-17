@@ -1,12 +1,10 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from omegaconf import MISSING
-
+from versatil.configs.data.task import TaskSpaceConfig
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.inference import InferenceConfig
 from versatil.configs.policy import PolicyConfig
-from versatil.configs.data.task import TaskSpaceConfig
 from versatil.configs.training import TrainingConfig
 
 

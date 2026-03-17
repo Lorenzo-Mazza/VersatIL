@@ -1,672 +1,985 @@
-"""Tests for EncodingPipeline with real encoder implementations."""
+"""Tests for versatil.models.encoding.pipeline module."""
+
+import re
+from collections.abc import Callable
+from contextlib import nullcontext as does_not_raise
+from unittest.mock import MagicMock, patch
+
+import numpy as np
 import pytest
 import torch
-import logging
-from unittest.mock import MagicMock
 
+from versatil.data.tokenization import Tokenizer
+from versatil.models.encoding.encoders.base import EncoderOutput
 from versatil.models.encoding.pipeline import EncodingPipeline
-from versatil.models.encoding.encoders.base import EncodingMixin, EncoderInput, EncoderOutput
-from tests.conftest import DummyRGBEncoder, DummyDepthEncoder, DummyProprioEncoder
 
 
-class DummyEncoderWithMixin(EncodingMixin):
-    """Minimal encoder that inherits from EncodingMixin for testing tokenizer propagation."""
-
-    def __init__(self):
-        input_spec = EncoderInput(keys=["test_input"])
-        super().__init__(input_specification=input_spec, pretrained=False)
-        self.name = "test_encoder"
-        self.linear = torch.nn.Linear(10, 128)
-
-    def get_output_specification(self) -> EncoderOutput:
-        return EncoderOutput(
-            features=["features"],
-            dimensions={"features": 128}
-        )
-
-    def forward(self, inputs: dict) -> dict:
-        return {"features": torch.randn(inputs["test_input"].shape[0], 128)}
-
-
-class DummyMultiOutputEncoder(torch.nn.Module):
-    """Encoder that produces multiple output features (like VLM)."""
-
-    def __init__(self):
-        super().__init__()
-        self.name = "vlm"
-        self.conv = torch.nn.Conv2d(3, 512, kernel_size=3, padding=1)
-        self.pool = torch.nn.AdaptiveAvgPool2d((1, 1))
-        self.visual_proj = torch.nn.Linear(512, 512)
-        self.language_proj = torch.nn.Linear(512, 768)
-        self.input_specification = EncoderInput(keys=["image"])
-        self._output_spec = EncoderOutput(
-            features=["visual", "language"],
-            dimensions={"visual": 512, "language": 768}
-        )
-
-    def get_output_specification(self):
-        return self._output_spec
-
-    def forward(self, inputs: dict) -> dict:
-        image = inputs["image"]
-        x = self.conv(image)
-        x = self.pool(x).flatten(1)
-        return {
-            "visual": self.visual_proj(x),
-            "language": self.language_proj(x),
-        }
-
-
-class SimpleFusion(torch.nn.Module):
-    """Simple fusion that concatenates and projects features."""
-
-    def __init__(self, input_features, output_name, output_dim):
-        super().__init__()
-        self.input_features = input_features
-        self.output_name = output_name
-        self.output_dim = output_dim
-        self.linear = None
-
-    def setup(self, feature_keys_to_dims):
-        input_dim = 0
-        for feat_name in self.input_features:
-            dims = feature_keys_to_dims[feat_name]
-            if isinstance(dims, tuple):
-                dim = 1
-                for d in dims:
-                    dim *= d
-                input_dim += dim
-            else:
-                input_dim += dims
-        self.linear = torch.nn.Linear(input_dim, self.output_dim)
-
-    def forward(self, input_features):
-        flattened = []
-        for feat in input_features:
-            if feat.dim() > 2:
-                feat = feat.flatten(1)
-            flattened.append(feat)
-        concatenated = torch.cat(flattened, dim=-1)
-        return self.linear(concatenated)
-
-    def get_output_dim(self):
-        return self.output_dim
-
-
-@pytest.fixture
-def rgb_encoder_factory():
-    """Factory for creating RGB encoders."""
-    def factory(**kwargs):
-        encoder = DummyRGBEncoder()
-        for key, value in kwargs.items():
-            setattr(encoder, key, value)
-        return encoder
-    return factory
-
-
-@pytest.fixture
-def depth_encoder_factory():
-    """Factory for creating depth encoders."""
-    def factory(**kwargs):
-        encoder = DummyDepthEncoder()
-        for key, value in kwargs.items():
-            setattr(encoder, key, value)
-        return encoder
-    return factory
-
-
-@pytest.fixture
-def proprio_encoder_factory():
-    """Factory for creating proprioceptive encoders."""
-    def factory(input_dim=7, output_dim=128, **kwargs):
-        encoder = DummyProprioEncoder(input_dim=input_dim, output_dim=output_dim)
-        for key, value in kwargs.items():
-            setattr(encoder, key, value)
-        return encoder
-    return factory
-
-
-@pytest.fixture
-def multi_output_encoder_factory():
-    """Factory for creating multi-output encoders."""
-    def factory(**kwargs):
-        encoder = DummyMultiOutputEncoder()
-        for key, value in kwargs.items():
-            setattr(encoder, key, value)
-        return encoder
-    return factory
-
-
-@pytest.fixture
-def fusion_factory():
-    """Factory for creating fusion modules."""
-    def factory(input_features, output_name="fused", output_dim=256):
-        return SimpleFusion(input_features, output_name, output_dim)
-    return factory
-
-
-@pytest.mark.unit
-class TestEncodingPipelineBasic:
-    """Test basic encoding pipeline initialization and properties."""
-
-    def test_init_single_encoder(self, rgb_encoder_factory):
-        """Test initializing pipeline with single encoder."""
-        rgb_encoder = rgb_encoder_factory()
-        pipeline = EncodingPipeline(encoders={"rgb": rgb_encoder})
-
-        assert len(pipeline.encoders) == 1
+class TestSetupEncoders:
+    def test_registers_unconditional_encoder_in_encoders_dict(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory()
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
         assert "rgb" in pipeline.encoders
-        assert "rgb_features" in pipeline.get_feature_names()
-
-    def test_init_multiple_encoders(self, rgb_encoder_factory, depth_encoder_factory, proprio_encoder_factory):
-        """Test initializing pipeline with multiple encoders."""
-        encoders = {
-            "rgb": rgb_encoder_factory(),
-            "depth": depth_encoder_factory(),
-            "proprio": proprio_encoder_factory()
-        }
-        pipeline = EncodingPipeline(encoders=encoders)
-
-        assert len(pipeline.encoders) == 3
-        feature_names = pipeline.get_feature_names()
-        assert "rgb_features" in feature_names
-        assert "depth_features" in feature_names
-        assert "proprio_features" in feature_names
-
-    def test_get_feature_names(self, rgb_encoder_factory, proprio_encoder_factory):
-        """Test getting all feature names from pipeline."""
-        encoders = {
-            "rgb": rgb_encoder_factory(),
-            "proprio": proprio_encoder_factory()
-        }
-        pipeline = EncodingPipeline(encoders=encoders)
-
-        feature_names = pipeline.get_feature_names()
-        assert "rgb_features" in feature_names
-        assert "proprio_features" in feature_names
-
-    def test_get_features_to_dimensions(self, rgb_encoder_factory, proprio_encoder_factory):
-        """Test getting feature dimensions mapping."""
-        encoders = {
-            "rgb": rgb_encoder_factory(),
-            "proprio": proprio_encoder_factory(output_dim=128)
-        }
-        pipeline = EncodingPipeline(encoders=encoders)
-
-        feature_dims = pipeline.get_features_to_dimensions()
-        assert feature_dims["rgb_features"] == (256, 7, 7)
-        assert feature_dims["proprio_features"] == 128
-
-    def test_empty_pipeline(self):
-        """Test empty pipeline with no encoders."""
-        pipeline = EncodingPipeline(encoders={})
-
-        assert len(pipeline.encoders) == 0
-        assert len(pipeline.get_feature_names()) == 0
-
-
-@pytest.mark.unit
-class TestEncodingPipelineForward:
-    """Test encoding pipeline forward pass."""
-
-    def test_forward_single_encoder(self, rgb_encoder_factory, batch_size, device):
-        """Test forward pass with single encoder."""
-        rgb_encoder = rgb_encoder_factory()
-        pipeline = EncodingPipeline(encoders={"rgb": rgb_encoder}).to(device)
-
-        observations = {"rgb": torch.randn(batch_size, 3, 224, 224, device=device)}
-        features = pipeline(observations)
-
-        assert "rgb_features" in features
-        assert features["rgb_features"].shape == (batch_size, 256, 7, 7)
-        assert features["rgb_features"].device.type == device.type
-
-    def test_forward_multiple_encoders(self, rgb_encoder_factory, depth_encoder_factory,
-                                      proprio_encoder_factory, batch_size, device):
-        """Test forward pass with multiple encoders."""
-        encoders = {
-            "rgb": rgb_encoder_factory(),
-            "depth": depth_encoder_factory(),
-            "proprio": proprio_encoder_factory()
-        }
-        pipeline = EncodingPipeline(encoders=encoders).to(device)
-
-        observations = {
-            "rgb": torch.randn(batch_size, 3, 224, 224, device=device),
-            "depth": torch.randn(batch_size, 1, 224, 224, device=device),
-            "proprio": torch.randn(batch_size, 7, device=device),
-        }
-        features = pipeline(observations)
-
-        assert "rgb_features" in features
-        assert "depth_features" in features
-        assert "proprio_features" in features
-        assert features["rgb_features"].shape == (batch_size, 256, 7, 7)
-        assert features["depth_features"].shape == (batch_size, 128, 7, 7)
-        assert features["proprio_features"].shape == (batch_size, 128)
-
-    def test_forward_mixed_spatial_and_flat(self, rgb_encoder_factory, proprio_encoder_factory,
-                                           batch_size, device):
-        """Test forward with mix of spatial and flat features."""
-        encoders = {
-            "rgb": rgb_encoder_factory(),
-            "proprio": proprio_encoder_factory()
-        }
-        pipeline = EncodingPipeline(encoders=encoders).to(device)
-
-        observations = {
-            "rgb": torch.randn(batch_size, 3, 224, 224, device=device),
-            "proprio": torch.randn(batch_size, 7, device=device),
-        }
-        features = pipeline(observations)
-
-        assert features["rgb_features"].shape == (batch_size, 256, 7, 7)
-        assert len(features["rgb_features"].shape) == 4
-
-        assert features["proprio_features"].shape == (batch_size, 128)
-        assert len(features["proprio_features"].shape) == 2
-
-
-@pytest.mark.unit
-class TestEncodingPipelineParametrized:
-    """Parametrized tests for encoding pipeline with different configurations."""
-
-    @pytest.mark.parametrize("output_dim", [64, 128, 256, 512])
-    def test_different_output_dimensions(self, proprio_encoder_factory, output_dim, batch_size, device):
-        """Test pipeline with different proprioceptive output dimensions."""
-        proprio_encoder = proprio_encoder_factory(output_dim=output_dim)
-        pipeline = EncodingPipeline(encoders={"proprio": proprio_encoder}).to(device)
-
-        observations = {"proprio": torch.randn(batch_size, 7, device=device)}
-        features = pipeline(observations)
-
-        assert features["proprio_features"].shape == (batch_size, output_dim)
-
-    @pytest.mark.parametrize("test_batch_size", [1, 4, 8, 16])
-    def test_different_batch_sizes(self, rgb_encoder_factory, test_batch_size, device):
-        """Test pipeline with different batch sizes."""
-        rgb_encoder = rgb_encoder_factory()
-        pipeline = EncodingPipeline(encoders={"rgb": rgb_encoder}).to(device)
-
-        observations = {"rgb": torch.randn(test_batch_size, 3, 224, 224, device=device)}
-        features = pipeline(observations)
-
-        assert features["rgb_features"].shape[0] == test_batch_size
-
-    @pytest.mark.parametrize("num_spatial_encoders", [1, 2, 3])
-    def test_different_number_of_spatial_encoders(self, rgb_encoder_factory, num_spatial_encoders,
-                                                  batch_size, device):
-        """Test pipeline with different numbers of spatial encoders."""
-        encoders = {}
-        observations = {}
-
-        for i in range(num_spatial_encoders):
-            encoder = rgb_encoder_factory()
-            encoder.name = f"encoder_{i}"
-            encoder.input_specification = EncoderInput(keys=[f"input_{i}"])
-            encoders[f"encoder_{i}"] = encoder
-            observations[f"input_{i}"] = torch.randn(batch_size, 3, 224, 224, device=device)
-
-        pipeline = EncodingPipeline(encoders=encoders).to(device)
-        features = pipeline(observations)
-
-        assert len(features) == num_spatial_encoders
-        for i in range(num_spatial_encoders):
-            assert f"encoder_{i}_features" in features
-
-
-@pytest.mark.unit
-class TestEncodingPipelineMultiOutput:
-    """Test encoding pipeline with multi-output encoders."""
-
-    def test_multi_output_encoder(self, multi_output_encoder_factory, batch_size, device):
-        """Test encoder that produces multiple outputs (like VLM)."""
-        vlm_encoder = multi_output_encoder_factory()
-        pipeline = EncodingPipeline(encoders={"vlm": vlm_encoder}).to(device)
-
-        observations = {"image": torch.randn(batch_size, 3, 224, 224, device=device)}
-        features = pipeline(observations)
-
-        assert "vlm_visual" in features
-        assert "vlm_language" in features
-        assert features["vlm_visual"].shape == (batch_size, 512)
-        assert features["vlm_language"].shape == (batch_size, 768)
-
-
-@pytest.mark.unit
-class TestEncodingPipelineEdgeCases:
-    """Test edge cases for encoding pipeline."""
-
-    def test_single_sample_batch(self, rgb_encoder_factory, device):
-        """Test pipeline with single sample."""
-        rgb_encoder = rgb_encoder_factory()
-        pipeline = EncodingPipeline(encoders={"rgb": rgb_encoder}).to(device)
-
-        observations = {"rgb": torch.randn(1, 3, 224, 224, device=device)}
-        features = pipeline(observations)
-
-        assert features["rgb_features"].shape == (1, 256, 7, 7)
-
-    def test_large_batch(self, rgb_encoder_factory, device):
-        """Test pipeline with large batch size."""
-        rgb_encoder = rgb_encoder_factory()
-        pipeline = EncodingPipeline(encoders={"rgb": rgb_encoder}).to(device)
-
-        batch_size = 32
-        observations = {"rgb": torch.randn(batch_size, 3, 224, 224, device=device)}
-        features = pipeline(observations)
-
-        assert features["rgb_features"].shape[0] == batch_size
-
-
-@pytest.mark.unit
-class TestEncodingPipelineValidation:
-    """Test validation logic of encoding pipeline."""
-
-    def test_valid_single_encoder_configuration(self, rgb_encoder_factory):
-        """Test that valid single encoder configuration passes validation."""
-        rgb_encoder = rgb_encoder_factory()
-        pipeline = EncodingPipeline(encoders={"rgb": rgb_encoder})
-
-        assert pipeline is not None
-        assert len(pipeline.encoders) == 1
-
-    def test_valid_multiple_encoder_configuration(self, rgb_encoder_factory, depth_encoder_factory,
-                                                  proprio_encoder_factory):
-        """Test that valid multiple encoder configuration passes validation."""
-        encoders = {
-            "rgb": rgb_encoder_factory(),
-            "depth": depth_encoder_factory(),
-            "proprio": proprio_encoder_factory()
-        }
-        pipeline = EncodingPipeline(encoders=encoders)
-
-        assert pipeline is not None
-        assert len(pipeline.encoders) == 3
-
-    def test_valid_multi_output_encoder_configuration(self, multi_output_encoder_factory):
-        """Test that multi-output encoder configuration passes validation."""
-        vlm_encoder = multi_output_encoder_factory()
-        pipeline = EncodingPipeline(encoders={"vlm": vlm_encoder})
-
-        assert pipeline is not None
-        feature_names = pipeline.get_feature_names()
-        assert "vlm_visual" in feature_names
-        assert "vlm_language" in feature_names
-
-    def test_feature_names_are_prefixed_correctly(self, rgb_encoder_factory):
-        """Test that encoder outputs are correctly prefixed with encoder name."""
-        rgb_encoder = rgb_encoder_factory()
-        pipeline = EncodingPipeline(encoders={"rgb": rgb_encoder})
-
-        feature_names = pipeline.get_feature_names()
-        assert "rgb_features" in feature_names
-        assert all(name.startswith("rgb_") for name in feature_names)
-
-    def test_multiple_encoders_unique_feature_names(self, rgb_encoder_factory, depth_encoder_factory):
-        """Test that multiple encoders produce uniquely named features."""
-        encoders = {
-            "rgb": rgb_encoder_factory(),
-            "depth": depth_encoder_factory()
-        }
-        pipeline = EncodingPipeline(encoders=encoders)
-
-        feature_names = pipeline.get_feature_names()
-        assert len(feature_names) == len(set(feature_names))
-        assert "rgb_features" in feature_names
-        assert "depth_features" in feature_names
-
-    def test_get_features_to_dimensions_returns_correct_mapping(self, rgb_encoder_factory,
-                                                                proprio_encoder_factory):
-        """Test that feature dimensions mapping is correct."""
-        encoders = {
-            "rgb": rgb_encoder_factory(),
-            "proprio": proprio_encoder_factory(output_dim=256)
-        }
-        pipeline = EncodingPipeline(encoders=encoders)
-
-        feature_dims = pipeline.get_features_to_dimensions()
-        assert feature_dims["rgb_features"] == (256, 7, 7)
-        assert feature_dims["proprio_features"] == 256
-
-    def test_encoder_output_matches_specification(self, rgb_encoder_factory, batch_size, device):
-        """Test that encoder forward output matches its specification."""
-        rgb_encoder = rgb_encoder_factory()
-        pipeline = EncodingPipeline(encoders={"rgb": rgb_encoder}).to(device)
-
-        observations = {"rgb": torch.randn(batch_size, 3, 224, 224, device=device)}
-        features = pipeline(observations)
-
-        assert "rgb_features" in features
-        output_spec = rgb_encoder.get_output_specification()
-        expected_dims = output_spec.dimensions["features"]
-        actual_shape = features["rgb_features"].shape[1:]
-        assert actual_shape == expected_dims
-
-    def test_missing_encoder_input_logs_warning(self, rgb_encoder_factory, batch_size, device, caplog):
-        """Test that pipeline logs warning when encoder input is missing."""
-        rgb_encoder = rgb_encoder_factory()
-        rgb_encoder.input_specification = EncoderInput(keys=["rgb", "missing_key"])
-        pipeline = EncodingPipeline(encoders={"rgb": rgb_encoder}).to(device)
-
-        observations = {"rgb": torch.randn(batch_size, 3, 224, 224, device=device)}
-
-        with caplog.at_level(logging.WARNING):
-            features = pipeline(observations)
-
-        assert any("missing" in record.message.lower() for record in caplog.records)
-        assert "rgb_features" not in features
-
-    def test_multiple_encoders_independent_validation(self, rgb_encoder_factory, depth_encoder_factory,
-                                                     proprio_encoder_factory):
-        """Test that encoders are validated independently."""
-        encoders = {
-            "rgb": rgb_encoder_factory(),
-            "depth": depth_encoder_factory(),
-            "proprio": proprio_encoder_factory()
-        }
-        pipeline = EncodingPipeline(encoders=encoders)
-
-        assert len(pipeline.encoders) == 3
-        feature_names = pipeline.get_feature_names()
-        assert "rgb_features" in feature_names
-        assert "depth_features" in feature_names
-        assert "proprio_features" in feature_names
-
-
-@pytest.mark.unit
-class TestEncodingPipelineGradients:
-    """Test gradient flow through encoding pipeline."""
-
-    def test_backward_pass_single_encoder(self, rgb_encoder_factory, batch_size, device):
-        """Test that gradients flow through pipeline with single encoder."""
-        rgb_encoder = rgb_encoder_factory()
-        pipeline = EncodingPipeline(encoders={"rgb": rgb_encoder}).to(device)
-
-        observations = {"rgb": torch.randn(batch_size, 3, 224, 224, device=device, requires_grad=True)}
-        features = pipeline(observations)
-
-        loss = features["rgb_features"].sum()
-        loss.backward()
-
-        assert observations["rgb"].grad is not None
-        assert not torch.isnan(observations["rgb"].grad).any()
-
-    def test_backward_pass_multiple_encoders(self, rgb_encoder_factory, depth_encoder_factory,
-                                            batch_size, device):
-        """Test gradient flow with multiple encoders."""
-        encoders = {
-            "rgb": rgb_encoder_factory(),
-            "depth": depth_encoder_factory()
-        }
-        pipeline = EncodingPipeline(encoders=encoders).to(device)
-
-        observations = {
-            "rgb": torch.randn(batch_size, 3, 224, 224, device=device, requires_grad=True),
-            "depth": torch.randn(batch_size, 1, 224, 224, device=device, requires_grad=True),
-        }
-        features = pipeline(observations)
-
-        loss = features["rgb_features"].sum() + features["depth_features"].sum()
-        loss.backward()
-
-        assert observations["rgb"].grad is not None
-        assert observations["depth"].grad is not None
-        assert not torch.isnan(observations["rgb"].grad).any()
-        assert not torch.isnan(observations["depth"].grad).any()
-
-
-@pytest.mark.unit
-class TestEncodingPipelineFeatureConsumption:
-    """Test that fusion modules properly consume their input features."""
-
-    def test_no_fusion_no_consumption(self, rgb_encoder_factory, proprio_encoder_factory):
-        """Without fusion, all encoder features should be available."""
-        encoders = {
-            "rgb": rgb_encoder_factory(),
-            "proprio": proprio_encoder_factory()
-        }
-        pipeline = EncodingPipeline(encoders=encoders)
-
+        assert "rgb" not in pipeline.conditional_encoders
+
+    def test_registers_conditional_encoder_in_conditional_dict(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        conditional_encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        rgb = encoder_mock_factory(input_keys=["left"])
+        film = conditional_encoder_mock_factory(
+            input_keys=["right"],
+            condition_key="rgb_embedding",
+        )
+        pipeline = EncodingPipeline(encoders={"rgb": rgb, "film": film})
+        assert "film" in pipeline.conditional_encoders
+        assert "film" not in pipeline.encoders
+
+    def test_sets_name_attribute_on_encoder(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory()
+        EncodingPipeline(encoders={"my_encoder": encoder})
+        assert encoder.name == "my_encoder"
+
+    def test_registers_prefixed_feature_dimensions(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory(
+            output_features=["embedding"],
+            output_dimensions={"embedding": 128},
+        )
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
+        assert pipeline._feature_keys_to_dims["rgb_embedding"] == 128
+
+    def test_stores_encoder_output_specifications(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory(
+            output_features=["feat_a", "feat_b"],
+            output_dimensions={"feat_a": 32, "feat_b": 64},
+        )
+        pipeline = EncodingPipeline(encoders={"vlm": encoder})
+        output = pipeline.encoder_to_outputs["vlm"]
+        assert output.features == ["feat_a", "feat_b"]
+        assert output.dimensions == {"feat_a": 32, "feat_b": 64}
+
+
+class TestSetupFusionModules:
+    def test_resolves_input_feature_names(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        fusion_module_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory(
+            output_features=["embedding"],
+            output_dimensions={"embedding": 64},
+        )
+        fusion = fusion_module_mock_factory(
+            input_features=["rgb"],
+            output_name="fused",
+            output_dimension=128,
+        )
+        pipeline = EncodingPipeline(
+            encoders={"rgb": encoder},
+            fusion_stages=[fusion],
+        )
+        assert "fused" in pipeline._feature_keys_to_dims
+        assert pipeline._feature_keys_to_dims["fused"] == 128
+
+    def test_tracks_consumed_features(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        fusion_module_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder_a = encoder_mock_factory(input_keys=["left"])
+        encoder_b = encoder_mock_factory(input_keys=["right"])
+        fusion = fusion_module_mock_factory(
+            input_features=["a", "b"],
+            output_name="fused",
+        )
+        pipeline = EncodingPipeline(
+            encoders={"a": encoder_a, "b": encoder_b},
+            fusion_stages=[fusion],
+        )
+        assert "a_embedding" in pipeline._consumed_features
+        assert "b_embedding" in pipeline._consumed_features
+
+    def test_calls_setup_on_fusion_module(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        fusion_module_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory()
+        fusion = fusion_module_mock_factory(input_features=["rgb"])
+        EncodingPipeline(
+            encoders={"rgb": encoder},
+            fusion_stages=[fusion],
+        )
+        fusion.setup.assert_called_once()
+
+    def test_none_fusion_stages_creates_empty_list(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory()
+        pipeline = EncodingPipeline(encoders={"rgb": encoder}, fusion_stages=None)
+        assert len(pipeline.fusion_stages) == 0
         assert len(pipeline._consumed_features) == 0
 
-        all_features = set(pipeline.get_feature_names())
-        final_features = set(pipeline.get_final_feature_names())
-        assert all_features == final_features
-        assert "rgb_features" in final_features
-        assert "proprio_features" in final_features
 
-    def test_single_fusion_consumes_inputs(self, rgb_encoder_factory, proprio_encoder_factory,
-                                          fusion_factory, batch_size):
-        """Fusion module should consume its input features."""
-        encoders = {
-            "rgb": rgb_encoder_factory(),
-            "proprio": proprio_encoder_factory()
+class TestResolveFeatureName:
+    @pytest.mark.parametrize(
+        "selector, expected_result, expectation",
+        [
+            ("vlm.language", "vlm_language", does_not_raise()),
+            (
+                "vlm.nonexistent",
+                None,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Invalid output_selector 'nonexistent' for 'vlm. "
+                        "Available: ['language', 'visual']'"
+                    ),
+                ),
+            ),
+        ],
+    )
+    def test_dot_notation_resolution(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        selector: str,
+        expected_result: str | None,
+        expectation,
+    ):
+        encoder = encoder_mock_factory(
+            output_features=["language", "visual"],
+            output_dimensions={"language": 64, "visual": 128},
+        )
+        pipeline = EncodingPipeline(encoders={"vlm": encoder})
+        with expectation:
+            result = pipeline._resolve_feature_name(input_specification=selector)
+            assert result == expected_result
+
+    def test_resolves_single_output_encoder_by_name(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory(
+            output_features=["embedding"],
+            output_dimensions={"embedding": 64},
+        )
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
+        result = pipeline._resolve_feature_name(input_specification="rgb")
+        assert result == "rgb_embedding"
+
+    def test_raises_for_multi_output_encoder_without_selector(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory(
+            output_features=["language", "visual"],
+            output_dimensions={"language": 64, "visual": 128},
+        )
+        pipeline = EncodingPipeline(encoders={"vlm": encoder})
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Multi-output encoder 'vlm' requires selector. "
+                "Available: ['language', 'visual']"
+            ),
+        ):
+            pipeline._resolve_feature_name(input_specification="vlm")
+
+    def test_passes_through_unrecognized_names(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory()
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
+        result = pipeline._resolve_feature_name(
+            input_specification="some_fusion_output"
+        )
+        assert result == "some_fusion_output"
+
+
+class TestValidatePipeline:
+    def test_raises_for_duplicate_encoder_output_keys(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        # Duplicate features within a single encoder's output specification
+        encoder = encoder_mock_factory(input_keys=["left"])
+        encoder.get_output_specification.return_value = EncoderOutput(
+            features=["embedding", "embedding"],
+            dimensions={"embedding": 64},
+        )
+        with pytest.raises(
+            ValueError,
+            match="Duplicate output keys detected from encoders",
+        ):
+            EncodingPipeline(encoders={"rgb": encoder})
+
+    @pytest.mark.parametrize(
+        "condition_key, expectation",
+        [
+            ("rgb_embedding", does_not_raise()),
+            (
+                "nonexistent_feature",
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Condition key 'nonexistent_feature' for encoder 'film' "
+                        "not available. Available: {'rgb_embedding'}"
+                    ),
+                ),
+            ),
+        ],
+    )
+    def test_conditional_encoder_condition_key_validation(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        conditional_encoder_mock_factory: Callable[..., MagicMock],
+        condition_key: str,
+        expectation,
+    ):
+        rgb = encoder_mock_factory(input_keys=["left"])
+        film = conditional_encoder_mock_factory(
+            input_keys=["right"],
+            condition_key=condition_key,
+        )
+        with expectation:
+            EncodingPipeline(encoders={"rgb": rgb, "film": film})
+
+    def test_raises_for_missing_fusion_input_feature(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        fusion_module_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory()
+        fusion = fusion_module_mock_factory(
+            input_features=["nonexistent_feature"],
+        )
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Fusion stage 0 expects input feature 'nonexistent_feature' "
+                "but it's not produced by any encoder or previous fusion. "
+                "Available features: {'rgb_embedding'}"
+            ),
+        ):
+            EncodingPipeline(
+                encoders={"rgb": encoder},
+                fusion_stages=[fusion],
+            )
+
+    def test_chained_fusion_stages_validate_correctly(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        fusion_module_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder_a = encoder_mock_factory(input_keys=["left"])
+        encoder_b = encoder_mock_factory(input_keys=["right"])
+        fusion_first = fusion_module_mock_factory(
+            input_features=["a", "b"],
+            output_name="fused_ab",
+        )
+        fusion_second = fusion_module_mock_factory(
+            input_features=["fused_ab"],
+            output_name="final",
+        )
+        pipeline = EncodingPipeline(
+            encoders={"a": encoder_a, "b": encoder_b},
+            fusion_stages=[fusion_first, fusion_second],
+        )
+        assert "final" in pipeline._feature_keys_to_dims
+        assert "fused_ab" in pipeline._consumed_features
+
+
+class TestFlattenObservationDict:
+    def test_flat_dict_returns_unchanged(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+    ):
+        encoder = encoder_mock_factory()
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
+        tensor = torch.from_numpy(rng.standard_normal((2, 3)).astype(np.float32))
+        observation = {"left": tensor}
+        result = pipeline._flatten_observation_dict(observation=observation)
+        assert "left" in result
+        assert torch.equal(result["left"], tensor)
+
+    def test_nested_dict_gets_flattened(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+    ):
+        encoder = encoder_mock_factory()
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
+        image_tensor = torch.from_numpy(
+            rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+        )
+        proprio_tensor = torch.from_numpy(
+            rng.standard_normal((2, 7)).astype(np.float32)
+        )
+        observation = {
+            "left": image_tensor,
+            "robot_proprio_state": {"proprio_camera_frame": proprio_tensor},
         }
-        fusion = fusion_factory(
-            input_features=["rgb_features", "proprio_features"],
+        result = pipeline._flatten_observation_dict(observation=observation)
+        assert "left" in result
+        assert "proprio_camera_frame" in result
+        assert "robot_proprio_state" not in result
+        assert torch.equal(result["proprio_camera_frame"], proprio_tensor)
+
+
+class TestForward:
+    def test_encodes_observations_with_correct_input_keys(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+    ):
+        encoder = encoder_mock_factory(input_keys=["left"])
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
+        image = torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32))
+        observation = {"left": image}
+        pipeline.forward(observation=observation)
+        encoder.assert_called_once()
+        call_args = encoder.call_args[0][0]
+        assert "left" in call_args
+        assert torch.equal(call_args["left"], image)
+
+    def test_prefixes_encoder_output_features(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+    ):
+        feature_tensor = torch.from_numpy(
+            rng.standard_normal((2, 64)).astype(np.float32)
+        )
+        encoder = encoder_mock_factory(
+            input_keys=["left"],
+            forward_return={"embedding": feature_tensor},
+        )
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
+        image = torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32))
+        result = pipeline.forward(observation={"left": image})
+        assert "rgb_embedding" in result
+        assert torch.equal(result["rgb_embedding"], feature_tensor)
+
+    @patch("versatil.models.encoding.pipeline.logging")
+    def test_skips_encoder_with_missing_keys(
+        self,
+        mock_logging,
+        encoder_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+    ):
+        encoder = encoder_mock_factory(input_keys=["left"])
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
+        observation = {
+            "right": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            )
+        }
+        result = pipeline.forward(observation=observation)
+        encoder.assert_not_called()
+        mock_logging.warning.assert_called_once()
+        assert "rgb_embedding" not in result
+
+    def test_applies_fusion_to_encoder_outputs(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        fusion_module_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+    ):
+        feature_tensor = torch.from_numpy(
+            rng.standard_normal((2, 64)).astype(np.float32)
+        )
+        fused_tensor = torch.from_numpy(
+            rng.standard_normal((2, 128)).astype(np.float32)
+        )
+        encoder = encoder_mock_factory(
+            input_keys=["left"],
+            forward_return={"embedding": feature_tensor},
+        )
+        fusion = fusion_module_mock_factory(
+            input_features=["rgb"],
+            output_name="fused_visual",
+            forward_return=fused_tensor,
+        )
+        pipeline = EncodingPipeline(
+            encoders={"rgb": encoder},
+            fusion_stages=[fusion],
+        )
+        image = torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32))
+        result = pipeline.forward(observation={"left": image})
+        assert "fused_visual" in result
+        # Consumed feature should be removed
+        assert "rgb_embedding" not in result
+
+    def test_removes_consumed_features_from_output(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        fusion_module_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+    ):
+        encoder_a = encoder_mock_factory(
+            input_keys=["left"],
+            forward_return={
+                "embedding": torch.from_numpy(
+                    rng.standard_normal((2, 64)).astype(np.float32)
+                )
+            },
+        )
+        encoder_b = encoder_mock_factory(
+            input_keys=["right"],
+            forward_return={
+                "embedding": torch.from_numpy(
+                    rng.standard_normal((2, 64)).astype(np.float32)
+                )
+            },
+        )
+        fusion = fusion_module_mock_factory(
+            input_features=["a", "b"],
             output_name="fused",
-            output_dim=256
+            forward_return=torch.from_numpy(
+                rng.standard_normal((2, 128)).astype(np.float32)
+            ),
         )
-        pipeline = EncodingPipeline(encoders=encoders, fusion_stages=[fusion])
-
-        assert "rgb_features" in pipeline._consumed_features
-        assert "proprio_features" in pipeline._consumed_features
-
-        final_features = set(pipeline.get_final_feature_names())
-        assert "rgb_features" not in final_features
-        assert "proprio_features" not in final_features
-        assert "fused" in final_features
-
-        observations = {
-            "rgb": torch.randn(batch_size, 3, 224, 224),
-            "proprio": torch.randn(batch_size, 7),
+        pipeline = EncodingPipeline(
+            encoders={"a": encoder_a, "b": encoder_b},
+            fusion_stages=[fusion],
+        )
+        observation = {
+            "left": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            ),
+            "right": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            ),
         }
-        features = pipeline(observations)
-        assert "rgb_features" not in features
-        assert "proprio_features" not in features
-        assert "fused" in features
+        result = pipeline.forward(observation=observation)
+        assert "fused" in result
+        assert "a_embedding" not in result
+        assert "b_embedding" not in result
 
-    def test_chained_fusion_consumes_transitively(self, proprio_encoder_factory, fusion_factory, batch_size):
-        """Chained fusions should consume all intermediate features."""
-        encoder_a = proprio_encoder_factory(output_dim=64)
-        encoder_a.name = "a"
-        encoder_b = proprio_encoder_factory(output_dim=64)
-        encoder_b.name = "b"
-        encoder_c = proprio_encoder_factory(output_dim=64)
-        encoder_c.name = "c"
-
-        encoders = {"a": encoder_a, "b": encoder_b, "c": encoder_c}
-        fusion1 = fusion_factory(
-            input_features=["a_features", "b_features"],
-            output_name="ab",
-            output_dim=128
+    def test_skips_feature_not_returned_by_encoder(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+    ):
+        encoder = encoder_mock_factory(
+            output_features=["embedding", "extra"],
+            output_dimensions={"embedding": 64, "extra": 32},
+            input_keys=["left"],
+            forward_return={
+                "embedding": torch.from_numpy(
+                    rng.standard_normal((2, 64)).astype(np.float32)
+                )
+            },
         )
-        fusion2 = fusion_factory(
-            input_features=["ab", "c_features"],
-            output_name="abc",
-            output_dim=256
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
+        image = torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32))
+        result = pipeline.forward(observation={"left": image})
+        assert "rgb_embedding" in result
+        assert "rgb_extra" not in result
+
+    def test_squeezes_singleton_time_dimension(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+    ):
+        # Feature with shape (batch, 1, dim) should be squeezed to (batch, dim)
+        feature_with_time = torch.from_numpy(
+            rng.standard_normal((2, 1, 64)).astype(np.float32)
         )
-        pipeline = EncodingPipeline(encoders=encoders, fusion_stages=[fusion1, fusion2])
+        encoder = encoder_mock_factory(
+            input_keys=["left"],
+            forward_return={"embedding": feature_with_time},
+        )
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
+        image = torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32))
+        result = pipeline.forward(observation={"left": image})
+        assert result["rgb_embedding"].shape == (2, 64)
 
-        assert "a_features" in pipeline._consumed_features
-        assert "b_features" in pipeline._consumed_features
-        assert "ab" in pipeline._consumed_features
-        assert "c_features" in pipeline._consumed_features
+    def test_does_not_squeeze_multi_step_time_dimension(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+    ):
+        feature_with_time = torch.from_numpy(
+            rng.standard_normal((2, 3, 64)).astype(np.float32)
+        )
+        encoder = encoder_mock_factory(
+            input_keys=["left"],
+            forward_return={"embedding": feature_with_time},
+        )
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
+        image = torch.from_numpy(rng.standard_normal((2, 3, 84, 84)).astype(np.float32))
+        result = pipeline.forward(observation={"left": image})
+        assert result["rgb_embedding"].shape == (2, 3, 64)
 
-        final_features = set(pipeline.get_final_feature_names())
-        assert "abc" in final_features
-        assert len(final_features) == 1
-
-        observations = {"proprio": torch.randn(batch_size, 7)}
-        features = pipeline(observations)
-        assert "abc" in features
-        assert len(features) == 1
-
-    def test_partial_fusion_keeps_unused_features(self, rgb_encoder_factory, proprio_encoder_factory,
-                                                  depth_encoder_factory, fusion_factory):
-        """Features not used by fusion should remain available."""
-        encoders = {
-            "rgb": rgb_encoder_factory(),
-            "proprio": proprio_encoder_factory(),
-            "depth": depth_encoder_factory()
+    def test_conditional_encoder_receives_conditioning_feature(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        conditional_encoder_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+    ):
+        rgb_features = torch.from_numpy(rng.standard_normal((2, 64)).astype(np.float32))
+        rgb = encoder_mock_factory(
+            input_keys=["left"],
+            forward_return={"embedding": rgb_features},
+        )
+        film = conditional_encoder_mock_factory(
+            input_keys=["right"],
+            condition_key="rgb_embedding",
+            forward_return={
+                "embedding": torch.from_numpy(
+                    rng.standard_normal((2, 64)).astype(np.float32)
+                )
+            },
+        )
+        pipeline = EncodingPipeline(encoders={"rgb": rgb, "film": film})
+        observation = {
+            "left": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            ),
+            "right": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            ),
         }
-        fusion = fusion_factory(
-            input_features=["rgb_features", "proprio_features"],
+        pipeline.forward(observation=observation)
+        film.assert_called_once()
+        conditioning_arg = film.call_args[0][1]
+        assert torch.equal(conditioning_arg, rgb_features)
+
+    def test_conditional_encoder_skips_feature_not_returned(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        conditional_encoder_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+    ):
+        rgb_features = torch.from_numpy(rng.standard_normal((2, 64)).astype(np.float32))
+        rgb = encoder_mock_factory(
+            input_keys=["left"],
+            forward_return={"embedding": rgb_features},
+        )
+        film = conditional_encoder_mock_factory(
+            output_features=["embedding", "extra"],
+            output_dimensions={"embedding": 64, "extra": 32},
+            input_keys=["right"],
+            condition_key="rgb_embedding",
+            forward_return={
+                "embedding": torch.from_numpy(
+                    rng.standard_normal((2, 64)).astype(np.float32)
+                )
+            },
+        )
+        pipeline = EncodingPipeline(encoders={"rgb": rgb, "film": film})
+        observation = {
+            "left": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            ),
+            "right": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            ),
+        }
+        result = pipeline.forward(observation=observation)
+        assert "film_embedding" in result
+        assert "film_extra" not in result
+
+    @patch("versatil.models.encoding.pipeline.logging")
+    def test_skips_conditional_encoder_with_missing_keys(
+        self,
+        mock_logging,
+        encoder_mock_factory: Callable[..., MagicMock],
+        conditional_encoder_mock_factory: Callable[..., MagicMock],
+        rng: np.random.Generator,
+    ):
+        rgb = encoder_mock_factory(
+            input_keys=["left"],
+            forward_return={
+                "embedding": torch.from_numpy(
+                    rng.standard_normal((2, 64)).astype(np.float32)
+                )
+            },
+        )
+        film = conditional_encoder_mock_factory(
+            input_keys=["depth"],
+            condition_key="rgb_embedding",
+        )
+        pipeline = EncodingPipeline(encoders={"rgb": rgb, "film": film})
+        observation = {
+            "left": torch.from_numpy(
+                rng.standard_normal((2, 3, 84, 84)).astype(np.float32)
+            ),
+        }
+        pipeline.forward(observation=observation)
+        film.assert_not_called()
+        assert mock_logging.warning.call_count >= 1
+
+
+class TestFlattenEncoderFeatureNames:
+    def test_returns_prefixed_feature_names(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory(
+            output_features=["embedding"],
+        )
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
+        result = pipeline.flatten_encoder_feature_names()
+        assert result == {"rgb_embedding"}
+
+    def test_returns_all_features_from_multi_output_encoder(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory(
+            output_features=["language", "visual"],
+            output_dimensions={"language": 64, "visual": 128},
+        )
+        pipeline = EncodingPipeline(encoders={"vlm": encoder})
+        result = pipeline.flatten_encoder_feature_names()
+        assert result == {"vlm_language", "vlm_visual"}
+
+
+class TestGetFeatureNames:
+    def test_includes_encoder_and_fusion_features(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        fusion_module_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory()
+        fusion = fusion_module_mock_factory(
+            input_features=["rgb"],
             output_name="fused",
-            output_dim=256
         )
-        pipeline = EncodingPipeline(encoders=encoders, fusion_stages=[fusion])
+        pipeline = EncodingPipeline(
+            encoders={"rgb": encoder},
+            fusion_stages=[fusion],
+        )
+        names = pipeline.get_feature_names()
+        assert "rgb_embedding" in names
+        assert "fused" in names
 
-        assert "depth_features" not in pipeline._consumed_features
+    def test_returns_only_encoder_features_without_fusion(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory()
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
+        names = pipeline.get_feature_names()
+        assert names == ["rgb_embedding"]
 
-        final_features = set(pipeline.get_final_feature_names())
-        assert "depth_features" in final_features
-        assert "fused" in final_features
-        assert "rgb_features" not in final_features
-        assert "proprio_features" not in final_features
 
-    def test_get_final_features_to_dimensions(self, rgb_encoder_factory, proprio_encoder_factory,
-                                             fusion_factory):
-        """get_final_features_to_dimensions should exclude consumed features."""
-        encoders = {
-            "rgb": rgb_encoder_factory(),
-            "proprio": proprio_encoder_factory(output_dim=64)
-        }
-        fusion = fusion_factory(
-            input_features=["rgb_features", "proprio_features"],
+class TestGetFinalFeatureNames:
+    def test_excludes_consumed_features(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        fusion_module_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory()
+        fusion = fusion_module_mock_factory(
+            input_features=["rgb"],
             output_name="fused",
-            output_dim=256
         )
-        pipeline = EncodingPipeline(encoders=encoders, fusion_stages=[fusion])
+        pipeline = EncodingPipeline(
+            encoders={"rgb": encoder},
+            fusion_stages=[fusion],
+        )
+        final_names = pipeline.get_final_feature_names()
+        assert "fused" in final_names
+        assert "rgb_embedding" not in final_names
 
-        all_features_to_dims = pipeline.get_features_to_dimensions()
-        assert "rgb_features" in all_features_to_dims
-        assert "proprio_features" in all_features_to_dims
-        assert "fused" in all_features_to_dims
+    def test_includes_unconsumed_encoder_features(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        fusion_module_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder_a = encoder_mock_factory(input_keys=["left"])
+        encoder_b = encoder_mock_factory(input_keys=["right"])
+        fusion = fusion_module_mock_factory(
+            input_features=["a"],
+            output_name="fused",
+        )
+        pipeline = EncodingPipeline(
+            encoders={"a": encoder_a, "b": encoder_b},
+            fusion_stages=[fusion],
+        )
+        final_names = pipeline.get_final_feature_names()
+        assert "fused" in final_names
+        assert "b_embedding" in final_names
+        assert "a_embedding" not in final_names
 
-        final_features_to_dims = pipeline.get_final_features_to_dimensions()
-        assert "rgb_features" not in final_features_to_dims
-        assert "proprio_features" not in final_features_to_dims
-        assert "fused" in final_features_to_dims
-        assert final_features_to_dims["fused"] == 256
+
+class TestGetFeaturesToDimensions:
+    def test_returns_all_feature_dimensions(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        fusion_module_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory(
+            output_dimensions={"embedding": 64},
+        )
+        fusion = fusion_module_mock_factory(
+            input_features=["rgb"],
+            output_name="fused",
+            output_dimension=128,
+        )
+        pipeline = EncodingPipeline(
+            encoders={"rgb": encoder},
+            fusion_stages=[fusion],
+        )
+        dims = pipeline.get_features_to_dimensions()
+        assert dims["rgb_embedding"] == 64
+        assert dims["fused"] == 128
 
 
-@pytest.mark.unit
-class TestEncodingPipelineSetTokenizer:
-    """Test EncodingPipeline.set_tokenizer() validation."""
+class TestGetFinalFeaturesToDimensions:
+    def test_excludes_consumed_feature_dimensions(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        fusion_module_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory(
+            output_dimensions={"embedding": 64},
+        )
+        fusion = fusion_module_mock_factory(
+            input_features=["rgb"],
+            output_name="fused",
+            output_dimension=128,
+        )
+        pipeline = EncodingPipeline(
+            encoders={"rgb": encoder},
+            fusion_stages=[fusion],
+        )
+        final_dims = pipeline.get_final_features_to_dimensions()
+        assert "fused" in final_dims
+        assert final_dims["fused"] == 128
+        assert "rgb_embedding" not in final_dims
 
-    def test_set_tokenizer_with_none(self, rgb_encoder_factory):
-        """Test setting None tokenizer doesn't crash."""
-        encoder = rgb_encoder_factory()
-        pipeline = EncodingPipeline(encoders={"encoder1": encoder})
-        pipeline.set_tokenizer(None)
 
-    def test_set_tokenizer_without_observation_tokenizer(self, rgb_encoder_factory):
-        """Test tokenizer without observation_tokenizer doesn't crash."""
-        encoder = rgb_encoder_factory()
-        pipeline = EncodingPipeline(encoders={"encoder1": encoder})
+class TestSetTokenizer:
+    def test_raises_when_encoder_requires_tokenized_but_no_tokenizer(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory(requires_tokenized=True)
+        pipeline = EncodingPipeline(encoders={"language": encoder})
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Encoder 'language' requires tokenized input, "
+                "but no observation tokenizer is available."
+            ),
+        ):
+            pipeline.set_tokenizer(tokenizer=None)
 
-        tokenizer = MagicMock()
+    def test_raises_when_encoder_requires_tokenized_but_no_observation_tokenizer(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory(requires_tokenized=True)
+        pipeline = EncodingPipeline(encoders={"language": encoder})
+        tokenizer = MagicMock(spec=Tokenizer)
         tokenizer.observation_tokenizer = None
-        pipeline.set_tokenizer(tokenizer)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Encoder 'language' requires tokenized input, "
+                "but no observation tokenizer is available."
+            ),
+        ):
+            pipeline.set_tokenizer(tokenizer=tokenizer)
+
+    @pytest.mark.parametrize(
+        "encoder_vocab_size, data_vocab_size, expectation",
+        [
+            (50000, 50000, does_not_raise()),
+            (
+                50000,
+                30000,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Vocab size mismatch: Observation tokenizer has vocab_size=30000, "
+                        "but encoder 'language' expects vocab_size=50000. "
+                    ),
+                ),
+            ),
+        ],
+    )
+    def test_unconditional_encoder_vocab_size_validation(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        encoder_vocab_size: int,
+        data_vocab_size: int,
+        expectation,
+    ):
+        encoder = encoder_mock_factory(
+            requires_tokenized=True,
+            vocab_size=encoder_vocab_size,
+        )
+        pipeline = EncodingPipeline(encoders={"language": encoder})
+        tokenizer = MagicMock(spec=Tokenizer)
+        tokenizer.observation_tokenizer = MagicMock()
+        tokenizer.observation_tokenizer.vocab_size = data_vocab_size
+        tokenizer.observation_tokenizer.tokenizer_model = "test_model"
+        with expectation:
+            pipeline.set_tokenizer(tokenizer=tokenizer)
+
+    def test_skips_encoders_not_requiring_tokenized(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory(requires_tokenized=False)
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
+        pipeline.set_tokenizer(tokenizer=None)
+
+    def test_validates_conditional_encoders_too(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        conditional_encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        rgb = encoder_mock_factory(input_keys=["left"])
+        film = conditional_encoder_mock_factory(
+            input_keys=["right"],
+            condition_key="rgb_embedding",
+        )
+        film.input_specification.requires_tokenized = True
+        film.get_vocab_size.return_value = 1000
+        pipeline = EncodingPipeline(encoders={"rgb": rgb, "film": film})
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Encoder 'film' requires tokenized input, "
+                "but no observation tokenizer is available."
+            ),
+        ):
+            pipeline.set_tokenizer(tokenizer=None)
+
+    def test_conditional_encoder_raises_when_observation_tokenizer_is_none(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        conditional_encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        rgb = encoder_mock_factory(input_keys=["left"])
+        film = conditional_encoder_mock_factory(
+            input_keys=["right"],
+            condition_key="rgb_embedding",
+        )
+        film.input_specification.requires_tokenized = True
+        pipeline = EncodingPipeline(encoders={"rgb": rgb, "film": film})
+        tokenizer = MagicMock(spec=Tokenizer)
+        tokenizer.observation_tokenizer = None
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Encoder 'film' requires tokenized input, "
+                "but no observation tokenizer is available."
+            ),
+        ):
+            pipeline.set_tokenizer(tokenizer=tokenizer)
+
+    @pytest.mark.parametrize(
+        "encoder_vocab_size, data_vocab_size, expectation",
+        [
+            (50000, 50000, does_not_raise()),
+            (
+                50000,
+                30000,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Vocab size mismatch: Observation tokenizer has vocab_size=30000, "
+                        "but encoder 'film' expects vocab_size=50000. "
+                    ),
+                ),
+            ),
+        ],
+    )
+    def test_conditional_encoder_vocab_size_validation(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        conditional_encoder_mock_factory: Callable[..., MagicMock],
+        encoder_vocab_size: int,
+        data_vocab_size: int,
+        expectation,
+    ):
+        rgb = encoder_mock_factory(input_keys=["left"])
+        film = conditional_encoder_mock_factory(
+            input_keys=["right"],
+            condition_key="rgb_embedding",
+        )
+        film.input_specification.requires_tokenized = True
+        film.get_vocab_size.return_value = encoder_vocab_size
+        pipeline = EncodingPipeline(encoders={"rgb": rgb, "film": film})
+        tokenizer = MagicMock(spec=Tokenizer)
+        tokenizer.observation_tokenizer = MagicMock()
+        tokenizer.observation_tokenizer.vocab_size = data_vocab_size
+        tokenizer.observation_tokenizer.tokenizer_model = "test_model"
+        with expectation:
+            pipeline.set_tokenizer(tokenizer=tokenizer)
+
+
+class TestRepr:
+    def test_contains_encoder_names(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory()
+        pipeline = EncodingPipeline(encoders={"rgb_encoder": encoder})
+        representation = repr(pipeline)
+        assert "rgb_encoder" in representation
+        assert "EncodingPipeline" in representation
+
+    def test_contains_conditional_encoder_names(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        conditional_encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        rgb = encoder_mock_factory(input_keys=["left"])
+        film = conditional_encoder_mock_factory(
+            input_keys=["right"],
+            condition_key="rgb_embedding",
+        )
+        pipeline = EncodingPipeline(encoders={"rgb": rgb, "film_encoder": film})
+        representation = repr(pipeline)
+        assert "rgb" in representation
+        assert "film_encoder" in representation
+
+    def test_without_fusion_stages_omits_fusion_section(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory()
+        pipeline = EncodingPipeline(encoders={"rgb": encoder})
+        representation = repr(pipeline)
+        assert "Fusion stages" not in representation
+
+    def test_contains_fusion_stage_info(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        fusion_module_mock_factory: Callable[..., MagicMock],
+    ):
+        encoder = encoder_mock_factory()
+        fusion = fusion_module_mock_factory(
+            input_features=["rgb_encoder"],
+            output_name="fused_visual",
+        )
+        pipeline = EncodingPipeline(
+            encoders={"rgb_encoder": encoder},
+            fusion_stages=[fusion],
+        )
+        representation = repr(pipeline)
+        assert "Fusion stages" in representation
+        assert "fused_visual" in representation
