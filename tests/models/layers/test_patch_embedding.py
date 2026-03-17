@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.patch_embedding module."""
+
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -7,12 +8,17 @@ import pytest
 import torch
 
 from versatil.models.layers.normalization.frozen_batchnorm import FrozenBatchNorm2d
-from versatil.models.layers.patch_embedding import PatchEmbedding, PatchEmbedType, PatchMerging
+from versatil.models.layers.patch_embedding import (
+    PatchEmbedding,
+    PatchEmbedType,
+    PatchMerging,
+)
 
 
 @pytest.fixture
 def patch_embedding_factory() -> Callable[..., PatchEmbedding]:
     """Factory for PatchEmbedding instances."""
+
     def factory(
         patch_size: int = 16,
         in_chans: int = 3,
@@ -27,12 +33,14 @@ def patch_embedding_factory() -> Callable[..., PatchEmbedding]:
             embed_type=embed_type,
             norm_layer=norm_layer,
         )
+
     return factory
 
 
 @pytest.fixture
 def patch_merging_factory() -> Callable[..., PatchMerging]:
     """Factory for PatchMerging instances."""
+
     def factory(
         dim: int = 64,
         out_dim: int = 128,
@@ -41,18 +49,21 @@ def patch_merging_factory() -> Callable[..., PatchMerging]:
             dim=dim,
             out_dim=out_dim,
         )
+
     return factory
 
 
 class TestPatchEmbeddingInitialization:
-
     @pytest.mark.parametrize("patch_size", [8, 16])
     @pytest.mark.parametrize("in_chans", [1, 3])
     @pytest.mark.parametrize("embed_dim", [256, 768])
-    @pytest.mark.parametrize("embed_type", [
-        PatchEmbedType.STANDARD.value,
-        PatchEmbedType.OVERLAPPING.value,
-    ])
+    @pytest.mark.parametrize(
+        "embed_type",
+        [
+            PatchEmbedType.STANDARD.value,
+            PatchEmbedType.OVERLAPPING.value,
+        ],
+    )
     def test_stores_configuration(
         self,
         patch_embedding_factory: Callable[..., PatchEmbedding],
@@ -72,12 +83,20 @@ class TestPatchEmbeddingInitialization:
         assert module.embed_dim == embed_dim
         assert module.embed_type == embed_type
 
-    @pytest.mark.parametrize("embed_type, expectation", [
-        (PatchEmbedType.STANDARD.value, does_not_raise()),
-        (PatchEmbedType.PROGRESSIVE.value, does_not_raise()),
-        (PatchEmbedType.OVERLAPPING.value, does_not_raise()),
-        ("unknown_type", pytest.raises(ValueError, match=re.escape("Unknown embed_type: unknown_type"))),
-    ])
+    @pytest.mark.parametrize(
+        "embed_type, expectation",
+        [
+            (PatchEmbedType.STANDARD.value, does_not_raise()),
+            (PatchEmbedType.PROGRESSIVE.value, does_not_raise()),
+            (PatchEmbedType.OVERLAPPING.value, does_not_raise()),
+            (
+                "unknown_type",
+                pytest.raises(
+                    ValueError, match=re.escape("Unknown embed_type: unknown_type")
+                ),
+            ),
+        ],
+    )
     def test_embed_type_validation(
         self,
         patch_embedding_factory: Callable[..., PatchEmbedding],
@@ -87,25 +106,34 @@ class TestPatchEmbeddingInitialization:
         with expectation:
             patch_embedding_factory(embed_type=embed_type)
 
-    @pytest.mark.parametrize("norm_layer, expectation", [
-        (torch.nn.BatchNorm2d, does_not_raise()),
-        (torch.nn.SyncBatchNorm, does_not_raise()),
-        (FrozenBatchNorm2d, does_not_raise()),
-        (torch.nn.LayerNorm, pytest.raises(
-            ValueError,
-            match=re.escape(
-                "LayerNorm is not supported for progressive embedding. "
-                "Use a BatchNorm variant (e.g. nn.BatchNorm2d, FrozenBatchNorm2d)."
+    @pytest.mark.parametrize(
+        "norm_layer, expectation",
+        [
+            (torch.nn.BatchNorm2d, does_not_raise()),
+            (torch.nn.SyncBatchNorm, does_not_raise()),
+            (FrozenBatchNorm2d, does_not_raise()),
+            (
+                torch.nn.LayerNorm,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "LayerNorm is not supported for progressive embedding. "
+                        "Use a BatchNorm variant (e.g. nn.BatchNorm2d, FrozenBatchNorm2d)."
+                    ),
+                ),
             ),
-        )),
-        (torch.nn.GroupNorm, pytest.raises(
-            ValueError,
-            match=re.escape(
-                "GroupNorm is not supported for progressive embedding. "
-                "Use a BatchNorm variant (e.g. nn.BatchNorm2d, FrozenBatchNorm2d)."
+            (
+                torch.nn.GroupNorm,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "GroupNorm is not supported for progressive embedding. "
+                        "Use a BatchNorm variant (e.g. nn.BatchNorm2d, FrozenBatchNorm2d)."
+                    ),
+                ),
             ),
-        )),
-    ])
+        ],
+    )
     def test_progressive_norm_layer_validation(
         self,
         norm_layer: type,
@@ -122,7 +150,6 @@ class TestPatchEmbeddingInitialization:
 
 
 class TestPatchEmbeddingForward:
-
     def test_standard_output_shape(
         self,
         patch_embedding_factory: Callable[..., PatchEmbedding],
@@ -228,7 +255,6 @@ class TestPatchEmbeddingForward:
 
 
 class TestPatchMergingInitialization:
-
     @pytest.mark.parametrize("dim", [32, 64])
     @pytest.mark.parametrize("out_dim", [64, 128])
     def test_stores_configuration(
@@ -243,11 +269,13 @@ class TestPatchMergingInitialization:
 
 
 class TestPatchMergingForward:
-
-    @pytest.mark.parametrize("height, width", [
-        (16, 16),
-        (8, 12),
-    ])
+    @pytest.mark.parametrize(
+        "height, width",
+        [
+            (16, 16),
+            (8, 12),
+        ],
+    )
     def test_halves_spatial_dimensions(
         self,
         patch_merging_factory: Callable[..., PatchMerging],

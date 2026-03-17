@@ -7,8 +7,8 @@ import torch
 
 from versatil.configs.data.tokenizer import TokenizationConfig
 from versatil.data.constants import TokenizerType
-from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
+from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
 
 
 class Tokenizer:

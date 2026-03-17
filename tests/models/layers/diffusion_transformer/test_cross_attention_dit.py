@@ -1,10 +1,12 @@
 """Tests for versatil.models.layers.diffusion_transformer.cross_attention_dit module."""
+
 from collections.abc import Callable
 
 import pytest
 import torch
 import torch.nn as nn
 
+from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.diffusion_transformer.cross_attention_dit import (
@@ -12,12 +14,9 @@ from versatil.models.layers.diffusion_transformer.cross_attention_dit import (
 )
 from versatil.models.layers.normalization.constants import NormalizationType
 
-from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
-
 
 @pytest.fixture
 def cross_attention_dit_factory() -> Callable[..., CrossAttentionDiT]:
-
     def factory(
         number_of_layers: int = 1,
         embedding_dimension: int = 32,
@@ -63,7 +62,6 @@ def cross_attention_dit_factory() -> Callable[..., CrossAttentionDiT]:
 
 
 class TestCrossAttentionDiTInitialization:
-
     @pytest.mark.parametrize("number_of_layers", [1, 2])
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     def test_stores_configuration(
@@ -103,7 +101,6 @@ class TestCrossAttentionDiTInitialization:
 
 
 class TestCrossAttentionDiTForward:
-
     @pytest.mark.parametrize(
         "batch_size, decoder_sequence_length, encoder_sequence_length, embedding_dimension, output_dimension",
         [
@@ -143,7 +140,11 @@ class TestCrossAttentionDiTForward:
             encoder_hidden_states=encoder_hidden,
         )
         expected_output_dim = output_dimension or embedding_dimension
-        assert output.shape == (batch_size, decoder_sequence_length, expected_output_dim)
+        assert output.shape == (
+            batch_size,
+            decoder_sequence_length,
+            expected_output_dim,
+        )
 
     def test_zero_init_prediction_layer_outputs_zeros_at_init(
         self,

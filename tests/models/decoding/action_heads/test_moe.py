@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.action_heads.moe module."""
+
 import re
 from collections.abc import Callable
 
@@ -17,6 +18,7 @@ def moe_head_factory(
     action_head_factory: Callable[..., ActionHead],
 ) -> Callable[..., MoEHead]:
     """Factory for MoEHead instances with configurable initialization mode."""
+
     def factory(
         mode: str = "explicit",
         num_experts: int = 3,
@@ -52,6 +54,7 @@ def moe_head_factory(
             )
         else:
             raise ValueError(f"Unknown mode: {mode}")
+
     return factory
 
 
@@ -60,20 +63,19 @@ def gating_tensor_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:
     """Factory for gating input tensors."""
+
     def factory(
         batch_size: int = 2,
         prediction_horizon: int = 8,
         gating_input_dim: int = 32,
     ) -> torch.Tensor:
         shape = (batch_size, prediction_horizon, gating_input_dim)
-        return torch.from_numpy(
-            rng.standard_normal(shape).astype(np.float32)
-        )
+        return torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
+
     return factory
 
 
 class TestMoEHeadInitialization:
-
     def test_explicit_experts_mode(
         self,
         moe_head_factory: Callable[..., MoEHead],
@@ -110,7 +112,6 @@ class TestMoEHeadInitialization:
 
 
 class TestMoEHeadSetNumExperts:
-
     def test_creates_experts_from_template(
         self,
         moe_head_factory: Callable[..., MoEHead],
@@ -144,9 +145,7 @@ class TestMoEHeadSetNumExperts:
         head._base_expert_template = None
         with pytest.raises(
             RuntimeError,
-            match=re.escape(
-                "No base_expert template stored. Cannot create experts."
-            ),
+            match=re.escape("No base_expert template stored. Cannot create experts."),
         ):
             head.set_num_experts(num_experts=3)
 
@@ -183,7 +182,6 @@ class TestMoEHeadSetNumExperts:
 
 
 class TestMoEHeadOutputDim:
-
     def test_raises_when_not_set(
         self,
         moe_head_factory: Callable[..., MoEHead],
@@ -207,7 +205,6 @@ class TestMoEHeadOutputDim:
 
 
 class TestMoEHeadForward:
-
     def test_raises_when_not_initialized(
         self,
         moe_head_factory: Callable[..., MoEHead],
@@ -219,9 +216,7 @@ class TestMoEHeadForward:
         gating = gating_tensor_factory()
         with pytest.raises(
             RuntimeError,
-            match=re.escape(
-                "MoEHead not initialized. Call set_num_experts() first."
-            ),
+            match=re.escape("MoEHead not initialized. Call set_num_experts() first."),
         ):
             head.forward(features=features, gating_feature=gating)
 

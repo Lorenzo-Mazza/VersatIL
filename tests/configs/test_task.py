@@ -1,4 +1,5 @@
 """Tests for versatil.configs.data.task module."""
+
 import dataclasses
 
 import pytest
@@ -15,7 +16,6 @@ from versatil.configs.data.task import (
 
 @pytest.mark.unit
 class TestActionSpaceConfig:
-
     def test_target_points_to_action_space(self):
         config = ActionSpaceConfig()
         assert config._target_ == "versatil.data.task.ActionSpace"
@@ -42,7 +42,6 @@ class TestActionSpaceConfig:
 
 @pytest.mark.unit
 class TestObservationSpaceConfig:
-
     def test_target_points_to_observation_space(self):
         config = ObservationSpaceConfig()
         assert config._target_ == "versatil.data.task.ObservationSpace"
@@ -54,7 +53,6 @@ class TestObservationSpaceConfig:
 
 @pytest.mark.unit
 class TestTaskSpaceConfig:
-
     def test_target_points_to_task_space(self):
         config = TaskSpaceConfig()
         assert config._target_ == "versatil.data.task.TaskSpace"
@@ -101,7 +99,6 @@ class TestTaskSpaceConfig:
 
 @pytest.mark.unit
 class TestTaskConfigInstantiation:
-
     def test_action_space_instantiates_with_empty_metadata(self):
         config = ActionSpaceConfig()
         instance = instantiate(config)

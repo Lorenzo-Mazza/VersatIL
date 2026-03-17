@@ -1,4 +1,5 @@
 """Tests for versatil.inference.temporal_aggregation module."""
+
 from collections.abc import Callable
 
 import numpy as np
@@ -46,9 +47,9 @@ def prediction_factory(
             action_keys_to_dimensions = {"position": 3, "gripper": 1}
         predictions = {}
         for key, dimension in action_keys_to_dimensions.items():
-            data = rng.standard_normal(
-                (prediction_horizon, dimension)
-            ).astype(np.float32)
+            data = rng.standard_normal((prediction_horizon, dimension)).astype(
+                np.float32
+            )
             predictions[key] = torch.from_numpy(data).to(device)
         return predictions
 
@@ -57,7 +58,6 @@ def prediction_factory(
 
 @pytest.mark.unit
 class TestTemporalAggregatorInitialization:
-
     @pytest.mark.parametrize("prediction_horizon", [2, 8])
     @pytest.mark.parametrize("max_timesteps", [10, 50])
     @pytest.mark.parametrize("exponential_decay", [0.01, 0.1])
@@ -81,18 +81,12 @@ class TestTemporalAggregatorInitialization:
         assert aggregator.exponential_decay == exponential_decay
         assert aggregator.favor_more_recent == favor_more_recent
 
-    def test_initializes_zero_populated_mask(
-        self, temporal_aggregator_factory
-    ):
-        aggregator = temporal_aggregator_factory(
-            max_timesteps=10, prediction_horizon=4
-        )
+    def test_initializes_zero_populated_mask(self, temporal_aggregator_factory):
+        aggregator = temporal_aggregator_factory(max_timesteps=10, prediction_horizon=4)
         assert aggregator.populated_mask.shape == (10, 14)
         assert not aggregator.populated_mask.any()
 
-    def test_initializes_zero_action_histories(
-        self, temporal_aggregator_factory
-    ):
+    def test_initializes_zero_action_histories(self, temporal_aggregator_factory):
         keys_to_dims = {"position": 3, "gripper": 1}
         aggregator = temporal_aggregator_factory(
             action_keys_to_dimensions=keys_to_dims,
@@ -111,7 +105,6 @@ class TestTemporalAggregatorInitialization:
 
 @pytest.mark.unit
 class TestTemporalAggregatorStoreAndAverage:
-
     def test_first_step_returns_first_predicted_action(
         self,
         temporal_aggregator_factory,
@@ -126,18 +119,14 @@ class TestTemporalAggregatorStoreAndAverage:
                 [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], device=device
             )
         }
-        result = aggregator.store_and_average(
-            current_predictions=predictions
-        )
+        result = aggregator.store_and_average(current_predictions=predictions)
         # At timestep 0, only one prediction contributes — no averaging
         torch.testing.assert_close(
             result["position"],
             torch.tensor([1.0, 2.0], device=device),
         )
 
-    def test_advances_timestep(
-        self, temporal_aggregator_factory, prediction_factory
-    ):
+    def test_advances_timestep(self, temporal_aggregator_factory, prediction_factory):
         aggregator = temporal_aggregator_factory()
         assert aggregator.timestep == 0
         aggregator.store_and_average(current_predictions=prediction_factory())
@@ -145,9 +134,7 @@ class TestTemporalAggregatorStoreAndAverage:
         aggregator.store_and_average(current_predictions=prediction_factory())
         assert aggregator.timestep == 2
 
-    def test_returns_all_action_keys(
-        self, temporal_aggregator_factory, device
-    ):
+    def test_returns_all_action_keys(self, temporal_aggregator_factory, device):
         keys_to_dims = {"position": 3, "gripper": 1}
         aggregator = temporal_aggregator_factory(
             action_keys_to_dimensions=keys_to_dims,
@@ -157,9 +144,7 @@ class TestTemporalAggregatorStoreAndAverage:
             "position": torch.zeros(2, 3, device=device),
             "gripper": torch.zeros(2, 1, device=device),
         }
-        result = aggregator.store_and_average(
-            current_predictions=predictions
-        )
+        result = aggregator.store_and_average(current_predictions=predictions)
         assert set(result.keys()) == {"position", "gripper"}
         assert result["position"].shape == (3,)
         assert result["gripper"].shape == (1,)
@@ -174,18 +159,14 @@ class TestTemporalAggregatorStoreAndAverage:
         )
         # Step 0: predict [10, 20, 30] for timesteps 0,1,2
         predictions_0 = {
-            "action": torch.tensor(
-                [[10.0], [20.0], [30.0]], device=device
-            )
+            "action": torch.tensor([[10.0], [20.0], [30.0]], device=device)
         }
         aggregator.store_and_average(current_predictions=predictions_0)
         # Step 1: predict [21, 31, 40] for timesteps 1,2,3
         # Timestep 1 has predictions: 20 (from step 0) and 21 (from step 1)
         # With uniform weights (decay=0), average = (20 + 21) / 2 = 20.5
         predictions_1 = {
-            "action": torch.tensor(
-                [[21.0], [31.0], [40.0]], device=device
-            )
+            "action": torch.tensor([[21.0], [31.0], [40.0]], device=device)
         }
         result = aggregator.store_and_average(current_predictions=predictions_1)
         torch.testing.assert_close(
@@ -193,9 +174,7 @@ class TestTemporalAggregatorStoreAndAverage:
             torch.tensor([20.5], device=device),
         )
 
-    def test_boundary_at_max_timesteps(
-        self, temporal_aggregator_factory, device
-    ):
+    def test_boundary_at_max_timesteps(self, temporal_aggregator_factory, device):
         aggregator = temporal_aggregator_factory(
             action_keys_to_dimensions={"action": 1},
             prediction_horizon=3,
@@ -205,13 +184,9 @@ class TestTemporalAggregatorStoreAndAverage:
         results = []
         for step in range(4):
             predictions = {
-                "action": torch.full(
-                    (3, 1), fill_value=float(step), device=device
-                )
+                "action": torch.full((3, 1), fill_value=float(step), device=device)
             }
-            result = aggregator.store_and_average(
-                current_predictions=predictions
-            )
+            result = aggregator.store_and_average(current_predictions=predictions)
             results.append(result["action"])
         assert aggregator.timestep == 4
         # At step 3, timestep column 3 has contributions from steps 1,2,3
@@ -238,28 +213,16 @@ class TestTemporalAggregatorStoreAndAverage:
             exponential_decay=1.0,
             favor_more_recent=False,
         )
-        predictions_0 = {
-            "action": torch.tensor(
-                [[0.0], [100.0], [0.0]], device=device
-            )
-        }
-        predictions_1 = {
-            "action": torch.tensor(
-                [[200.0], [0.0], [0.0]], device=device
-            )
-        }
+        predictions_0 = {"action": torch.tensor([[0.0], [100.0], [0.0]], device=device)}
+        predictions_1 = {"action": torch.tensor([[200.0], [0.0], [0.0]], device=device)}
         # For timestep 1: step 0 predicted 100, step 1 predicted 200
         # favor_more_recent=True: newer (step 1) gets higher weight
         # favor_more_recent=False: older (step 0) gets higher weight
-        aggregator_favor_recent.store_and_average(
-            current_predictions=predictions_0
-        )
+        aggregator_favor_recent.store_and_average(current_predictions=predictions_0)
         result_recent = aggregator_favor_recent.store_and_average(
             current_predictions=predictions_1
         )
-        aggregator_favor_older.store_and_average(
-            current_predictions=predictions_0
-        )
+        aggregator_favor_older.store_and_average(current_predictions=predictions_0)
         result_older = aggregator_favor_older.store_and_average(
             current_predictions=predictions_1
         )
@@ -270,7 +233,6 @@ class TestTemporalAggregatorStoreAndAverage:
 
 @pytest.mark.unit
 class TestTemporalAggregatorReset:
-
     def test_reset_zeroes_timestep(
         self, temporal_aggregator_factory, prediction_factory
     ):
@@ -307,19 +269,13 @@ class TestTemporalAggregatorReset:
             prediction_horizon=2,
         )
         # First episode
-        old_predictions = {
-            "action": torch.tensor([[999.0], [999.0]], device=device)
-        }
+        old_predictions = {"action": torch.tensor([[999.0], [999.0]], device=device)}
         aggregator.store_and_average(current_predictions=old_predictions)
         aggregator.reset()
 
         # Second episode — should not be contaminated by first
-        new_predictions = {
-            "action": torch.tensor([[1.0], [2.0]], device=device)
-        }
-        result = aggregator.store_and_average(
-            current_predictions=new_predictions
-        )
+        new_predictions = {"action": torch.tensor([[1.0], [2.0]], device=device)}
+        result = aggregator.store_and_average(current_predictions=new_predictions)
         torch.testing.assert_close(
             result["action"],
             torch.tensor([1.0], device=device),
@@ -328,7 +284,6 @@ class TestTemporalAggregatorReset:
 
 @pytest.mark.unit
 class TestComputeExponentialWeights:
-
     @pytest.mark.parametrize("num_predictions", [1, 3, 10])
     def test_weights_sum_to_one(self, temporal_aggregator_factory, num_predictions):
         aggregator = temporal_aggregator_factory(exponential_decay=0.05)
@@ -340,9 +295,7 @@ class TestComputeExponentialWeights:
             torch.tensor(1.0, device=weights.device),
         )
 
-    def test_single_prediction_returns_weight_one(
-        self, temporal_aggregator_factory
-    ):
+    def test_single_prediction_returns_weight_one(self, temporal_aggregator_factory):
         aggregator = temporal_aggregator_factory()
         weights = aggregator._compute_exponential_weights(num_predictions=1)
         torch.testing.assert_close(
@@ -366,9 +319,7 @@ class TestComputeExponentialWeights:
         # gets exp(0) = 1.0 (highest), oldest gets exp(-0.5*4)
         assert weights[-1].item() > weights[0].item()
 
-    def test_favor_older_puts_highest_weight_first(
-        self, temporal_aggregator_factory
-    ):
+    def test_favor_older_puts_highest_weight_first(self, temporal_aggregator_factory):
         aggregator = temporal_aggregator_factory(
             exponential_decay=0.5, favor_more_recent=False
         )
@@ -376,14 +327,10 @@ class TestComputeExponentialWeights:
         # Without reversal, index 0 gets exp(0) = 1.0 (highest)
         assert weights[0].item() > weights[-1].item()
 
-    def test_zero_decay_produces_uniform_weights(
-        self, temporal_aggregator_factory
-    ):
+    def test_zero_decay_produces_uniform_weights(self, temporal_aggregator_factory):
         aggregator = temporal_aggregator_factory(exponential_decay=0.0)
         weights = aggregator._compute_exponential_weights(num_predictions=4)
-        expected = torch.full(
-            (4, 1), fill_value=0.25, device=weights.device
-        )
+        expected = torch.full((4, 1), fill_value=0.25, device=weights.device)
         torch.testing.assert_close(weights, expected)
 
     def test_weights_with_zero_predictions_returns_empty(
@@ -394,9 +341,7 @@ class TestComputeExponentialWeights:
         assert weights.shape == (0, 1)
         assert weights.dtype == torch.float32
 
-    def test_exact_weight_values_for_known_decay(
-        self, temporal_aggregator_factory
-    ):
+    def test_exact_weight_values_for_known_decay(self, temporal_aggregator_factory):
         # num_predictions=3, decay=1.0, favor_more_recent=True
         # indices [0,1,2] reversed to [2,1,0]
         # raw weights: exp(-2), exp(-1), exp(0)
@@ -409,6 +354,7 @@ class TestComputeExponentialWeights:
         expected = raw / raw.sum()
         torch.testing.assert_close(
             weights,
-            torch.tensor(expected, dtype=torch.float32, device=weights.device)
-            .unsqueeze(dim=1),
+            torch.tensor(
+                expected, dtype=torch.float32, device=weights.device
+            ).unsqueeze(dim=1),
         )

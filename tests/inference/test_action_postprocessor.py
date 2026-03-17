@@ -1,10 +1,10 @@
 """Tests for versatil.inference.action_postprocessor module."""
+
 from collections.abc import Callable
 
 import numpy as np
 import pytest
 import torch
-
 from versatil_constants.shared import (
     ActionComponent,
     ActionComputationMethod,
@@ -14,6 +14,7 @@ from versatil_constants.shared import (
     GripperType,
     OrientationRepresentation,
 )
+
 from versatil.data.metadata import (
     ActionMetadata,
     GripperActionMetadata,
@@ -51,7 +52,6 @@ def action_postprocessor_factory(
 
 @pytest.mark.unit
 class TestActionPostprocessorInitialization:
-
     def test_stores_action_space_and_thresholds(
         self,
         action_postprocessor_factory: Callable[..., ActionPostprocessor],
@@ -67,7 +67,6 @@ class TestActionPostprocessorInitialization:
 
 @pytest.mark.unit
 class TestPostprocessGripperAction:
-
     def test_binary_zero_one_large_positive_logit_maps_to_one(
         self,
         gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
@@ -79,7 +78,8 @@ class TestPostprocessGripperAction:
         raw_value = np.array([10.0])
 
         result = ActionPostprocessor._postprocess_gripper_action(
-            raw_value=raw_value, action_meta=metadata,
+            raw_value=raw_value,
+            action_meta=metadata,
         )
 
         assert result[0] == 1.0
@@ -95,7 +95,8 @@ class TestPostprocessGripperAction:
         raw_value = np.array([-10.0])
 
         result = ActionPostprocessor._postprocess_gripper_action(
-            raw_value=raw_value, action_meta=metadata,
+            raw_value=raw_value,
+            action_meta=metadata,
         )
 
         assert result[0] == 0.0
@@ -112,7 +113,8 @@ class TestPostprocessGripperAction:
         raw_value = np.array([0.0])
 
         result = ActionPostprocessor._postprocess_gripper_action(
-            raw_value=raw_value, action_meta=metadata,
+            raw_value=raw_value,
+            action_meta=metadata,
         )
 
         assert result[0] == 0.0
@@ -128,7 +130,8 @@ class TestPostprocessGripperAction:
         raw_value = np.array([10.0])
 
         result = ActionPostprocessor._postprocess_gripper_action(
-            raw_value=raw_value, action_meta=metadata,
+            raw_value=raw_value,
+            action_meta=metadata,
         )
 
         # float(True) * 2.0 - 1.0 = 1.0
@@ -145,7 +148,8 @@ class TestPostprocessGripperAction:
         raw_value = np.array([-10.0])
 
         result = ActionPostprocessor._postprocess_gripper_action(
-            raw_value=raw_value, action_meta=metadata,
+            raw_value=raw_value,
+            action_meta=metadata,
         )
 
         # float(False) * 2.0 - 1.0 = -1.0
@@ -163,7 +167,8 @@ class TestPostprocessGripperAction:
         raw_value = np.array([0.0])
 
         result = ActionPostprocessor._postprocess_gripper_action(
-            raw_value=raw_value, action_meta=metadata,
+            raw_value=raw_value,
+            action_meta=metadata,
         )
 
         assert result[0] == -1.0
@@ -178,7 +183,8 @@ class TestPostprocessGripperAction:
         raw_value = np.array([0.42])
 
         result = ActionPostprocessor._postprocess_gripper_action(
-            raw_value=raw_value, action_meta=metadata,
+            raw_value=raw_value,
+            action_meta=metadata,
         )
 
         np.testing.assert_array_equal(result, raw_value)
@@ -199,7 +205,8 @@ class TestPostprocessGripperAction:
         raw_value = np.array([10.0])
 
         result = ActionPostprocessor._postprocess_gripper_action(
-            raw_value=raw_value, action_meta=metadata,
+            raw_value=raw_value,
+            action_meta=metadata,
         )
 
         assert result[0] == 1.0
@@ -219,7 +226,8 @@ class TestPostprocessGripperAction:
         raw_value = np.array([0.75])
 
         result = ActionPostprocessor._postprocess_gripper_action(
-            raw_value=raw_value, action_meta=metadata,
+            raw_value=raw_value,
+            action_meta=metadata,
         )
 
         np.testing.assert_array_equal(result, raw_value)
@@ -232,7 +240,8 @@ class TestPostprocessGripperAction:
         raw_value = np.array([1.0, 2.0, 3.0])
 
         result = ActionPostprocessor._postprocess_gripper_action(
-            raw_value=raw_value, action_meta=metadata,
+            raw_value=raw_value,
+            action_meta=metadata,
         )
 
         np.testing.assert_array_equal(result, raw_value)
@@ -240,7 +249,6 @@ class TestPostprocessGripperAction:
 
 @pytest.mark.unit
 class TestFormatAction:
-
     def test_maps_versatil_keys_to_action_component_keys(
         self,
         action_postprocessor_factory: Callable[..., ActionPostprocessor],
@@ -452,7 +460,8 @@ class TestFormatAction:
         raw_value = np.array([0.5, -0.3, 0.7])
 
         result = ActionPostprocessor._postprocess_gripper_action(
-            raw_value=raw_value, action_meta=on_the_fly_meta,
+            raw_value=raw_value,
+            action_meta=on_the_fly_meta,
         )
 
         # Values pass through unchanged -- no sigmoid applied
@@ -461,7 +470,6 @@ class TestFormatAction:
 
 @pytest.mark.unit
 class TestBuildActionMetadata:
-
     def test_position_action_metadata_includes_dimension_and_frame(
         self,
         action_postprocessor_factory: Callable[..., ActionPostprocessor],
@@ -487,9 +495,7 @@ class TestBuildActionMetadata:
     def test_orientation_action_metadata_includes_representation_and_frame(
         self,
         action_postprocessor_factory: Callable[..., ActionPostprocessor],
-        orientation_action_metadata_factory: Callable[
-            ..., OrientationActionMetadata
-        ],
+        orientation_action_metadata_factory: Callable[..., OrientationActionMetadata],
     ):
         orientation_meta = orientation_action_metadata_factory(
             frame=CoordinateSystem.ROBOT_BASE.value,
@@ -505,8 +511,7 @@ class TestBuildActionMetadata:
         entry = result[ActionComponent.ORIENTATION.value]
         assert entry[ActionMetadataField.DIMENSION.value] == 3
         assert (
-            entry[ActionMetadataField.FRAME.value]
-            == CoordinateSystem.ROBOT_BASE.value
+            entry[ActionMetadataField.FRAME.value] == CoordinateSystem.ROBOT_BASE.value
         )
         assert (
             entry[ActionMetadataField.ORIENTATION_REPRESENTATION.value]
@@ -531,10 +536,7 @@ class TestBuildActionMetadata:
 
         entry = result[ActionComponent.GRIPPER.value]
         assert entry[ActionMetadataField.DIMENSION.value] == 1
-        assert (
-            entry[ActionMetadataField.GRIPPER_TYPE.value]
-            == GripperType.BINARY.value
-        )
+        assert entry[ActionMetadataField.GRIPPER_TYPE.value] == GripperType.BINARY.value
         assert (
             entry[ActionMetadataField.BINARY_GRIPPER_RANGE.value]
             == BinaryGripperRange.MINUS_ONE_ONE.value
@@ -597,8 +599,7 @@ class TestBuildActionMetadata:
         entry = result[ActionComponent.ORIENTATION.value]
         assert entry[ActionMetadataField.DIMENSION.value] == 3
         assert (
-            entry[ActionMetadataField.FRAME.value]
-            == CoordinateSystem.ROBOT_BASE.value
+            entry[ActionMetadataField.FRAME.value] == CoordinateSystem.ROBOT_BASE.value
         )
         assert (
             entry[ActionMetadataField.ORIENTATION_REPRESENTATION.value]
@@ -613,9 +614,7 @@ class TestBuildActionMetadata:
         self,
         action_postprocessor_factory: Callable[..., ActionPostprocessor],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
-        gripper_observation_metadata_factory: Callable[
-            ..., GripperObservationMetadata
-        ],
+        gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
     ):
         gripper_obs_meta = gripper_observation_metadata_factory(
             gripper_type=GripperType.BINARY.value,
@@ -633,10 +632,7 @@ class TestBuildActionMetadata:
 
         entry = result[ActionComponent.GRIPPER.value]
         assert entry[ActionMetadataField.DIMENSION.value] == 1
-        assert (
-            entry[ActionMetadataField.GRIPPER_TYPE.value]
-            == GripperType.BINARY.value
-        )
+        assert entry[ActionMetadataField.GRIPPER_TYPE.value] == GripperType.BINARY.value
         assert (
             entry[ActionMetadataField.BINARY_GRIPPER_RANGE.value]
             == BinaryGripperRange.ZERO_ONE.value
@@ -665,9 +661,7 @@ class TestBuildActionMetadata:
         self,
         action_postprocessor_factory: Callable[..., ActionPostprocessor],
         position_action_metadata_factory: Callable[..., PositionActionMetadata],
-        orientation_action_metadata_factory: Callable[
-            ..., OrientationActionMetadata
-        ],
+        orientation_action_metadata_factory: Callable[..., OrientationActionMetadata],
         gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
     ):
         postprocessor = action_postprocessor_factory(
@@ -692,7 +686,6 @@ class TestBuildActionMetadata:
 
 @pytest.mark.unit
 class TestAddActionTypeMetadata:
-
     def test_adds_computation_method_for_on_the_fly_metadata(
         self,
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
@@ -703,7 +696,8 @@ class TestAddActionTypeMetadata:
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_action_type_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
         assert (
@@ -719,7 +713,8 @@ class TestAddActionTypeMetadata:
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_action_type_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
         assert ActionMetadataField.ACTION_TYPE.value not in entry
@@ -727,7 +722,6 @@ class TestAddActionTypeMetadata:
 
 @pytest.mark.unit
 class TestAddFrameMetadata:
-
     @pytest.mark.parametrize(
         "frame",
         [CoordinateSystem.ROBOT_BASE.value, CoordinateSystem.CAMERA.value],
@@ -741,16 +735,15 @@ class TestAddFrameMetadata:
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_frame_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
         assert entry[ActionMetadataField.FRAME.value] == frame
 
     def test_adds_frame_for_orientation_action_metadata(
         self,
-        orientation_action_metadata_factory: Callable[
-            ..., OrientationActionMetadata
-        ],
+        orientation_action_metadata_factory: Callable[..., OrientationActionMetadata],
     ):
         metadata = orientation_action_metadata_factory(
             frame=CoordinateSystem.CAMERA.value,
@@ -758,12 +751,11 @@ class TestAddFrameMetadata:
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_frame_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
-        assert (
-            entry[ActionMetadataField.FRAME.value] == CoordinateSystem.CAMERA.value
-        )
+        assert entry[ActionMetadataField.FRAME.value] == CoordinateSystem.CAMERA.value
 
     def test_adds_frame_for_on_the_fly_position_metadata(
         self,
@@ -779,12 +771,12 @@ class TestAddFrameMetadata:
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_frame_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
         assert (
-            entry[ActionMetadataField.FRAME.value]
-            == CoordinateSystem.ROBOT_BASE.value
+            entry[ActionMetadataField.FRAME.value] == CoordinateSystem.ROBOT_BASE.value
         )
 
     def test_adds_frame_for_on_the_fly_orientation_metadata(
@@ -803,12 +795,11 @@ class TestAddFrameMetadata:
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_frame_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
-        assert (
-            entry[ActionMetadataField.FRAME.value] == CoordinateSystem.CAMERA.value
-        )
+        assert entry[ActionMetadataField.FRAME.value] == CoordinateSystem.CAMERA.value
 
     def test_does_not_add_frame_for_gripper_action_metadata(
         self,
@@ -818,7 +809,8 @@ class TestAddFrameMetadata:
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_frame_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
         assert ActionMetadataField.FRAME.value not in entry
@@ -826,16 +818,15 @@ class TestAddFrameMetadata:
     def test_does_not_add_frame_for_on_the_fly_gripper_metadata(
         self,
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
-        gripper_observation_metadata_factory: Callable[
-            ..., GripperObservationMetadata
-        ],
+        gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
     ):
         gripper_obs = gripper_observation_metadata_factory()
         metadata = on_the_fly_action_metadata_factory(source_metadata=gripper_obs)
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_frame_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
         assert ActionMetadataField.FRAME.value not in entry
@@ -843,7 +834,6 @@ class TestAddFrameMetadata:
 
 @pytest.mark.unit
 class TestAddOrientationMetadata:
-
     @pytest.mark.parametrize(
         "orientation_representation",
         [
@@ -853,9 +843,7 @@ class TestAddOrientationMetadata:
     )
     def test_adds_representation_for_orientation_action_metadata(
         self,
-        orientation_action_metadata_factory: Callable[
-            ..., OrientationActionMetadata
-        ],
+        orientation_action_metadata_factory: Callable[..., OrientationActionMetadata],
         orientation_representation: str,
     ):
         metadata = orientation_action_metadata_factory(
@@ -864,7 +852,8 @@ class TestAddOrientationMetadata:
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_orientation_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
         assert (
@@ -888,7 +877,8 @@ class TestAddOrientationMetadata:
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_orientation_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
         assert (
@@ -904,7 +894,8 @@ class TestAddOrientationMetadata:
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_orientation_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
         assert ActionMetadataField.ORIENTATION_REPRESENTATION.value not in entry
@@ -921,7 +912,8 @@ class TestAddOrientationMetadata:
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_orientation_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
         assert ActionMetadataField.ORIENTATION_REPRESENTATION.value not in entry
@@ -929,7 +921,6 @@ class TestAddOrientationMetadata:
 
 @pytest.mark.unit
 class TestAddGripperMetadata:
-
     @pytest.mark.parametrize(
         "gripper_type, binary_gripper_range",
         [
@@ -950,7 +941,8 @@ class TestAddGripperMetadata:
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_gripper_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
         assert entry[ActionMetadataField.GRIPPER_TYPE.value] == gripper_type
@@ -962,9 +954,7 @@ class TestAddGripperMetadata:
     def test_adds_type_and_range_for_on_the_fly_gripper_metadata(
         self,
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
-        gripper_observation_metadata_factory: Callable[
-            ..., GripperObservationMetadata
-        ],
+        gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
     ):
         gripper_obs = gripper_observation_metadata_factory(
             gripper_type=GripperType.BINARY.value,
@@ -974,13 +964,11 @@ class TestAddGripperMetadata:
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_gripper_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
-        assert (
-            entry[ActionMetadataField.GRIPPER_TYPE.value]
-            == GripperType.BINARY.value
-        )
+        assert entry[ActionMetadataField.GRIPPER_TYPE.value] == GripperType.BINARY.value
         assert (
             entry[ActionMetadataField.BINARY_GRIPPER_RANGE.value]
             == BinaryGripperRange.MINUS_ONE_ONE.value
@@ -994,7 +982,8 @@ class TestAddGripperMetadata:
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_gripper_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
         assert ActionMetadataField.GRIPPER_TYPE.value not in entry
@@ -1012,7 +1001,8 @@ class TestAddGripperMetadata:
         entry: dict[str, str | int] = {}
 
         ActionPostprocessor._add_gripper_metadata(
-            action_meta=metadata, entry=entry,
+            action_meta=metadata,
+            entry=entry,
         )
 
         assert ActionMetadataField.GRIPPER_TYPE.value not in entry

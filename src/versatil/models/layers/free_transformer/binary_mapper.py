@@ -41,7 +41,7 @@ class BinaryMapper(nn.Module):
         """
         super().__init__()
         self.latent_bits = latent_bits
-        self.latent_dim = 2 ** latent_bits  # 2^H dimensional one-hot vectors
+        self.latent_dim = 2**latent_bits  # 2^H dimensional one-hot vectors
         self.embedding_dimension = embedding_dimension
         self.logit_projection = nn.Linear(embedding_dimension, latent_bits)
 
@@ -51,7 +51,7 @@ class BinaryMapper(nn.Module):
         all_indices = torch.arange(self.latent_dim)
         bit_patterns = torch.zeros(self.latent_dim, latent_bits)
         for h in range(latent_bits):
-            bit_patterns[:, h] = (all_indices // (2 ** h)) % 2
+            bit_patterns[:, h] = (all_indices // (2**h)) % 2
         self.register_buffer("bit_patterns", bit_patterns)  # (2^H, H)
 
     def _compute_soft_distribution(self, logits: torch.Tensor) -> torch.Tensor:
@@ -66,7 +66,7 @@ class BinaryMapper(nn.Module):
             Soft distribution over codes (B, T, 2^H)
         """
         *batch_dims, H = logits.shape  # (B*T, H)
-        if H != self.latent_bits:
+        if self.latent_bits != H:
             raise ValueError(
                 f"Logits last dimension {H} does not match latent_bits {self.latent_bits}"
             )
@@ -89,7 +89,7 @@ class BinaryMapper(nn.Module):
         # Select probability based on bit pattern
         # bit_patterns: (2^H, H) with values 0 or 1
         log_probs_per_code = torch.where(
-            (bit_patterns_expanded == 1).to(torch.bool),  # type: ignore[union-attr]
+            (bit_patterns_expanded == 1).to(torch.bool),
             log_prob_if_one,  # broadcasts to (..., 2^H, H)
             log_prob_if_zero,
         )  # (..., 2^H, H)

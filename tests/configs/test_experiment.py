@@ -1,4 +1,5 @@
 """Tests for versatil.configs.experiment module."""
+
 import dataclasses
 
 import pytest
@@ -10,13 +11,14 @@ from versatil.training.constants import Float32MatmulPrecision, PrecisionType
 
 @pytest.mark.unit
 class TestExperimentConfig:
-
     def test_name_and_checkpoint_folder_default_to_missing(self):
         config = ExperimentConfig()
         assert config.name == MISSING
         assert config.checkpoint_folder == MISSING
 
-    @pytest.mark.parametrize("precision", [PrecisionType.FP32.value, PrecisionType.BF16_MIXED.value])
+    @pytest.mark.parametrize(
+        "precision", [PrecisionType.FP32.value, PrecisionType.BF16_MIXED.value]
+    )
     @pytest.mark.parametrize("device", ["cuda", "cpu"])
     @pytest.mark.parametrize("distributed", [True, False])
     def test_stores_configuration(self, precision, device, distributed):
@@ -32,23 +34,22 @@ class TestExperimentConfig:
         assert config.distributed == distributed
 
     def test_precision_default_is_fp16_mixed_string(self):
-        config = ExperimentConfig(
-            name="test", checkpoint_folder="/tmp"
-        )
+        config = ExperimentConfig(name="test", checkpoint_folder="/tmp")
         assert config.precision == PrecisionType.FP16_MIXED.value
         assert config.precision == "16-mixed"
 
     def test_float32_matmul_precision_default_is_medium_string(self):
-        config = ExperimentConfig(
-            name="test", checkpoint_folder="/tmp"
-        )
+        config = ExperimentConfig(name="test", checkpoint_folder="/tmp")
         assert config.float32_matmul_precision == Float32MatmulPrecision.MEDIUM.value
         assert config.float32_matmul_precision == "medium"
 
-    @pytest.mark.parametrize("float32_matmul_precision", [
-        Float32MatmulPrecision.HIGHEST.value,
-        None,
-    ])
+    @pytest.mark.parametrize(
+        "float32_matmul_precision",
+        [
+            Float32MatmulPrecision.HIGHEST.value,
+            None,
+        ],
+    )
     def test_float32_matmul_precision_nullable(self, float32_matmul_precision):
         config = ExperimentConfig(
             name="test",
@@ -78,10 +79,13 @@ class TestExperimentConfig:
         }
         assert expected == field_names
 
-    @pytest.mark.parametrize("checkpoint_every, val_every, plot_every", [
-        (50, 2, 100),
-        (200, 5, 500),
-    ])
+    @pytest.mark.parametrize(
+        "checkpoint_every, val_every, plot_every",
+        [
+            (50, 2, 100),
+            (200, 5, 500),
+        ],
+    )
     def test_stores_interval_settings(self, checkpoint_every, val_every, plot_every):
         config = ExperimentConfig(
             name="test",

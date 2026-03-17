@@ -1,4 +1,5 @@
 """Tests for versatil.models.policy module."""
+
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
@@ -20,7 +21,6 @@ from versatil.models.policy import Policy
 
 
 class TestPolicyInitialization:
-
     @pytest.mark.parametrize("prediction_horizon", [4, 16])
     @pytest.mark.parametrize("observation_horizon", [1, 3])
     def test_stores_configuration(
@@ -55,7 +55,9 @@ class TestPolicyInitialization:
         assert policy.observation_horizon == observation_horizon
         assert policy.loss_module is loss
 
-    def test_converts_device_string_to_torch_device(self, policy_factory: Callable[..., Policy]):
+    def test_converts_device_string_to_torch_device(
+        self, policy_factory: Callable[..., Policy]
+    ):
         policy = policy_factory(device="cpu")
         assert policy.device.type == "cpu"
 
@@ -69,7 +71,6 @@ class TestPolicyInitialization:
 
 
 class TestSetNormalizer:
-
     def test_loads_normalizer_state_dict(self, policy_factory: Callable[..., Policy]):
         policy = policy_factory()
         normalizer = MagicMock(spec=LinearNormalizer)
@@ -82,31 +83,38 @@ class TestSetNormalizer:
         policy = policy_factory(device="cpu")
         normalizer = MagicMock(spec=LinearNormalizer)
         normalizer.state_dict.return_value = {}
-        with patch.object(policy.normalizer, "load_state_dict"):
-            with patch.object(policy.normalizer, "to") as mock_to:
-                policy.set_normalizer(normalizer=normalizer)
-                mock_to.assert_called_once_with(policy.device)
+        with (
+            patch.object(policy.normalizer, "load_state_dict"),
+            patch.object(policy.normalizer, "to") as mock_to,
+        ):
+            policy.set_normalizer(normalizer=normalizer)
+            mock_to.assert_called_once_with(policy.device)
 
-    def test_propagates_normalizer_to_decoder(self, policy_factory: Callable[..., Policy]):
+    def test_propagates_normalizer_to_decoder(
+        self, policy_factory: Callable[..., Policy]
+    ):
         decoder = MagicMock(spec=ActionDecoder)
         policy = policy_factory(decoder=decoder)
         normalizer = MagicMock(spec=LinearNormalizer)
         normalizer.state_dict.return_value = {}
-        with patch.object(policy.normalizer, "load_state_dict"):
-            with patch.object(policy.normalizer, "to"):
-                policy.set_normalizer(normalizer=normalizer)
+        with (
+            patch.object(policy.normalizer, "load_state_dict"),
+            patch.object(policy.normalizer, "to"),
+        ):
+            policy.set_normalizer(normalizer=normalizer)
         decoder.set_normalizer.assert_called_once_with(policy.normalizer)
 
 
 class TestSetTokenizer:
-
     def test_stores_tokenizer(self, policy_factory: Callable[..., Policy]):
         tokenizer = MagicMock(spec=Tokenizer)
         policy = policy_factory()
         policy.set_tokenizer(tokenizer=tokenizer)
         assert policy.tokenizer is tokenizer
 
-    def test_propagates_to_encoding_pipeline(self, policy_factory: Callable[..., Policy]):
+    def test_propagates_to_encoding_pipeline(
+        self, policy_factory: Callable[..., Policy]
+    ):
         tokenizer = MagicMock(spec=Tokenizer)
         policy = policy_factory()
         policy.set_tokenizer(tokenizer=tokenizer)
@@ -127,15 +135,20 @@ class TestSetTokenizer:
 
 
 class TestSetDenoisingThresholds:
-
-    def test_stores_thresholds_as_parameters(self, policy_factory: Callable[..., Policy]):
+    def test_stores_thresholds_as_parameters(
+        self, policy_factory: Callable[..., Policy]
+    ):
         policy = policy_factory()
         thresholds = {"position": 0.05, "orientation": 0.02}
         policy.set_denoising_thresholds(thresholds=thresholds)
         assert "position" in policy.denoising_thresholds.params_dict
         assert "orientation" in policy.denoising_thresholds.params_dict
-        assert policy.denoising_thresholds.params_dict["position"].item() == pytest.approx(0.05)
-        assert policy.denoising_thresholds.params_dict["orientation"].item() == pytest.approx(0.02)
+        assert policy.denoising_thresholds.params_dict[
+            "position"
+        ].item() == pytest.approx(0.05)
+        assert policy.denoising_thresholds.params_dict[
+            "orientation"
+        ].item() == pytest.approx(0.02)
 
     def test_parameters_have_no_gradient(self, policy_factory: Callable[..., Policy]):
         policy = policy_factory()
@@ -149,7 +162,6 @@ class TestSetDenoisingThresholds:
 
 
 class TestSetGripperClassWeights:
-
     def test_sets_pos_weight_on_gripper_loss_modules(
         self,
         policy_factory: Callable[..., Policy],
@@ -170,7 +182,9 @@ class TestSetGripperClassWeights:
         rng: np.random.Generator,
     ):
         other_module = MagicMock(spec=BaseLoss)
-        original_pos_weight = torch.from_numpy(rng.standard_normal(1).astype(np.float32))
+        original_pos_weight = torch.from_numpy(
+            rng.standard_normal(1).astype(np.float32)
+        )
         other_module.pos_weight = original_pos_weight
         loss_module = MagicMock(spec=BaseLoss)
         loss_module.modules.return_value = [loss_module, other_module]
@@ -187,7 +201,9 @@ class TestSetGripperClassWeights:
     ):
         gripper_loss = MagicMock(spec=GripperLoss)
         gripper_loss.__class__ = GripperLoss
-        gripper_loss.pos_weight = torch.from_numpy(rng.standard_normal(1).astype(np.float32))
+        gripper_loss.pos_weight = torch.from_numpy(
+            rng.standard_normal(1).astype(np.float32)
+        )
         loss_module = MagicMock(spec=BaseLoss)
         loss_module.modules.return_value = [loss_module, gripper_loss]
         policy = policy_factory(loss=loss_module)
@@ -196,7 +212,6 @@ class TestSetGripperClassWeights:
 
 
 class TestForward:
-
     def test_extracts_observations_and_calls_pipeline(
         self,
         policy_factory: Callable[..., Policy],
@@ -252,7 +267,6 @@ class TestForward:
 
 
 class TestComputeLoss:
-
     def test_calls_forward_then_loss_module(
         self,
         policy_factory: Callable[..., Policy],
@@ -262,7 +276,9 @@ class TestComputeLoss:
         loss_output = LossOutput(total_loss=torch.tensor(0.5))
         loss_module = MagicMock(spec=BaseLoss)
         loss_module.return_value = loss_output
-        policy = policy_factory(loss=loss_module, algorithm_forward_return=forward_output)
+        policy = policy_factory(
+            loss=loss_module, algorithm_forward_return=forward_output
+        )
         batch = batch_dictionary_factory()
         result = policy.compute_loss(batch=batch)
         assert result is loss_output
@@ -276,7 +292,9 @@ class TestComputeLoss:
         forward_output = {"prediction": torch.zeros(2, 4, 7)}
         loss_module = MagicMock(spec=BaseLoss)
         loss_module.return_value = LossOutput(total_loss=torch.tensor(0.1))
-        policy = policy_factory(loss=loss_module, algorithm_forward_return=forward_output)
+        policy = policy_factory(
+            loss=loss_module, algorithm_forward_return=forward_output
+        )
         batch = batch_dictionary_factory()
         policy.compute_loss(batch=batch)
         call_kwargs = loss_module.call_args.kwargs
@@ -291,7 +309,9 @@ class TestComputeLoss:
         forward_output = {"prediction": torch.zeros(2, 4, 7)}
         loss_module = MagicMock(spec=BaseLoss)
         loss_module.return_value = LossOutput(total_loss=torch.tensor(0.1))
-        policy = policy_factory(loss=loss_module, algorithm_forward_return=forward_output)
+        policy = policy_factory(
+            loss=loss_module, algorithm_forward_return=forward_output
+        )
         batch = batch_dictionary_factory()
         is_pad = batch[SampleKey.ACTION.value][SampleKey.IS_PAD_ACTION.value]
         policy.compute_loss(batch=batch)
@@ -300,7 +320,6 @@ class TestComputeLoss:
 
 
 class TestPredictAction:
-
     @patch("versatil.models.policy.unnormalize_actions")
     @patch("versatil.models.policy.normalize_observation")
     @patch("versatil.models.policy.to_device")
@@ -332,7 +351,9 @@ class TestPredictAction:
 
         mock_normalize.assert_called_once()
         policy.encoding_pipeline.assert_called_once_with(normalized_observation)
-        algorithm.predict.assert_called_once_with(features=features, network=policy.decoder)
+        algorithm.predict.assert_called_once_with(
+            features=features, network=policy.decoder
+        )
         mock_unnormalize.assert_called_once()
         assert result is unnormalized
 
@@ -483,7 +504,6 @@ class TestPredictAction:
 
 
 class TestGetVisionEncoderModules:
-
     def test_finds_encoder_with_backbone(
         self,
         policy_factory: Callable[..., Policy],
@@ -517,7 +537,9 @@ class TestGetVisionEncoderModules:
         encoding_pipeline_factory: Callable[..., MagicMock],
     ):
         encoder = vision_encoder_factory(has_layer4=True)
-        pipeline = encoding_pipeline_factory(conditional_encoders={"film_encoder": encoder})
+        pipeline = encoding_pipeline_factory(
+            conditional_encoders={"film_encoder": encoder}
+        )
         policy = policy_factory(encoding_pipeline=pipeline)
         result = policy.get_vision_encoder_modules()
         assert "film_encoder" in result
@@ -556,7 +578,6 @@ class TestGetVisionEncoderModules:
 
 
 class TestGetGradcamTargetLayers:
-
     def test_returns_layer4_for_timm_resnet_backbone(
         self,
         policy_factory: Callable[..., Policy],
@@ -713,7 +734,6 @@ class TestGetGradcamTargetLayers:
 
 
 class TestGetCameraToEncoderMapping:
-
     def test_maps_camera_keys_to_encoder_names(
         self,
         policy_factory: Callable[..., Policy],
@@ -721,7 +741,8 @@ class TestGetCameraToEncoderMapping:
         encoding_pipeline_factory: Callable[..., MagicMock],
     ):
         encoder = vision_encoder_factory(
-            has_backbone=True, input_keys=[Cameras.LEFT.value],
+            has_backbone=True,
+            input_keys=[Cameras.LEFT.value],
         )
         pipeline = encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
         policy = policy_factory(encoding_pipeline=pipeline)
@@ -735,7 +756,8 @@ class TestGetCameraToEncoderMapping:
         encoding_pipeline_factory: Callable[..., MagicMock],
     ):
         encoder = vision_encoder_factory(
-            has_backbone=True, input_keys=[Cameras.LEFT.value, "proprio_robot_frame"],
+            has_backbone=True,
+            input_keys=[Cameras.LEFT.value, "proprio_robot_frame"],
         )
         pipeline = encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
         policy = policy_factory(encoding_pipeline=pipeline)
@@ -750,7 +772,8 @@ class TestGetCameraToEncoderMapping:
         encoding_pipeline_factory: Callable[..., MagicMock],
     ):
         encoder_with_spec = vision_encoder_factory(
-            has_backbone=True, input_keys=[Cameras.RIGHT.value],
+            has_backbone=True,
+            input_keys=[Cameras.RIGHT.value],
         )
         encoder_without_spec = vision_encoder_factory(has_backbone=True)
         del encoder_without_spec.input_specification
@@ -769,7 +792,8 @@ class TestGetCameraToEncoderMapping:
         encoding_pipeline_factory: Callable[..., MagicMock],
     ):
         encoder = vision_encoder_factory(
-            has_backbone=True, input_keys=["proprio_robot_frame"],
+            has_backbone=True,
+            input_keys=["proprio_robot_frame"],
         )
         pipeline = encoding_pipeline_factory(encoders={"proprio_encoder": encoder})
         policy = policy_factory(encoding_pipeline=pipeline)

@@ -1,4 +1,5 @@
 """Tests for versatil.configs.decoding.algorithm module."""
+
 import pytest
 from hydra.utils import instantiate
 from omegaconf import MISSING
@@ -26,7 +27,6 @@ from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 
 @pytest.mark.unit
 class TestDecodingAlgorithmConfig:
-
     def test_target_defaults_to_missing(self):
         config = DecodingAlgorithmConfig()
         assert config._target_ == MISSING
@@ -34,7 +34,6 @@ class TestDecodingAlgorithmConfig:
 
 @pytest.mark.unit
 class TestBehavioralCloningConfig:
-
     def test_target_points_to_behavioral_cloning(self):
         config = BehavioralCloningConfig()
         assert (
@@ -49,10 +48,11 @@ class TestBehavioralCloningConfig:
 
 @pytest.mark.unit
 class TestDiffusionConfig:
-
     def test_target_points_to_diffusion(self):
         config = DiffusionConfig()
-        assert config._target_ == "versatil.models.decoding.algorithm.diffusion.Diffusion"
+        assert (
+            config._target_ == "versatil.models.decoding.algorithm.diffusion.Diffusion"
+        )
 
     def test_scheduler_type_default_is_ddim_string(self):
         config = DiffusionConfig()
@@ -72,7 +72,9 @@ class TestDiffusionConfig:
 
     @pytest.mark.parametrize("num_train_timesteps", [50, 200])
     @pytest.mark.parametrize("num_inference_steps", [5, 20])
-    def test_stores_timestep_configuration(self, num_train_timesteps, num_inference_steps):
+    def test_stores_timestep_configuration(
+        self, num_train_timesteps, num_inference_steps
+    ):
         config = DiffusionConfig(
             num_train_timesteps=num_train_timesteps,
             num_inference_steps=num_inference_steps,
@@ -96,7 +98,6 @@ class TestDiffusionConfig:
 
 @pytest.mark.unit
 class TestFlowMatchingConfig:
-
     def test_target_points_to_flow_matching(self):
         config = FlowMatchingConfig()
         assert (
@@ -132,7 +133,6 @@ class TestFlowMatchingConfig:
 
 @pytest.mark.unit
 class TestVariationalAlgorithmConfig:
-
     def test_target_points_to_variational_algorithm(self):
         config = VariationalAlgorithmConfig(
             base_algorithm=BehavioralCloningConfig(),
@@ -177,7 +177,6 @@ class TestVariationalAlgorithmConfig:
 
 @pytest.mark.unit
 class TestAlgorithmInstantiation:
-
     def test_behavioral_cloning_instantiates(self):
         config = BehavioralCloningConfig()
         instance = instantiate(config)

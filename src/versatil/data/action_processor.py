@@ -8,26 +8,32 @@ Handles all action-related computations including:
 
 import logging
 
+import matplotlib.pyplot as plt
 import numpy as np
 import scipy
-import matplotlib.pyplot as plt
 import seaborn as sns
 
-from versatil.data.metadata import OnTheFlyActionMetadata, ActionMetadata, ProprioceptiveObservationMetadata, PositionObservationMetadata, \
-    ObservationMetadata
-from versatil.data.task import ActionSpace
 from versatil.data.constants import (
+    ActionComputationMethod,
     GripperType,
-    OrientationRepresentation, ActionComputationMethod, ProprioceptiveType,
+    OrientationRepresentation,
+    ProprioceptiveType,
 )
+from versatil.data.metadata import (
+    ActionMetadata,
+    ObservationMetadata,
+    OnTheFlyActionMetadata,
+    PositionObservationMetadata,
+)
+from versatil.data.task import ActionSpace
 
 
 class ActionProcessor:
     """Computes actions from robot observations with denoising support."""
 
     def __init__(
-            self,
-            action_space: ActionSpace,
+        self,
+        action_space: ActionSpace,
     ):
         """Initialize action processor.
 
@@ -41,7 +47,6 @@ class ActionProcessor:
         self._denoising_thresholds_computed: bool = False
         self.dataset_magnitudes: dict[str, np.ndarray] = {}
 
-
     @property
     def requires_denoising_setup(self) -> bool:
         """Check if denoising is enabled but thresholds haven't been computed.
@@ -51,17 +56,18 @@ class ActionProcessor:
         """
         return self.denoise_actions and not self._denoising_thresholds_computed
 
-
     def compute_denoising_threshold(
-            self,
-            obs_data: np.ndarray,
-            key: str,
-            meta: ObservationMetadata,
-            episode_ends: np.ndarray,
+        self,
+        obs_data: np.ndarray,
+        key: str,
+        meta: ObservationMetadata,
+        episode_ends: np.ndarray,
     ) -> None:
         """Compute denoising thresholds from observation deltas of proprioceptive positions."""
         if not isinstance(meta, PositionObservationMetadata):
-            logging.warning("Denoising threshold computation only supported for position observations.")
+            logging.warning(
+                "Denoising threshold computation only supported for position observations."
+            )
             return
         # Mask out cross-episode transitions
         cross_indices = episode_ends[:-1] - 1
@@ -72,49 +78,51 @@ class ActionProcessor:
         norms = np.linalg.norm(deltas, axis=1)
         non_zero = norms[norms > 0]
         self.dataset_magnitudes[key] = norms
-        self.denoising_thresholds[key] = np.percentile(non_zero, self.denoising_percentile)
+        self.denoising_thresholds[key] = np.percentile(
+            non_zero, self.denoising_percentile
+        )
         self._denoising_thresholds_computed = True
 
-
     def compute_sample_actions(
-            self,
-            padded_data: dict[str, np.ndarray],
-            action_slice_start: int,
-            action_slice_end: int,
+        self,
+        padded_data: dict[str, np.ndarray],
+        action_slice_start: int,
+        action_slice_end: int,
     ) -> tuple[dict[str, np.ndarray], dict[str, ActionMetadata]]:
-
         """Compute actions from a sampled sequence of the zarr replay buffer.
 
-            Precomputed actions are extracted directly from the buffer.
-            On-the-fly actions are computed from current & next observations.
-            Additionally, denoising is applied to on-the-fly actions if enabled.
+        Precomputed actions are extracted directly from the buffer.
+        On-the-fly actions are computed from current & next observations.
+        Additionally, denoising is applied to on-the-fly actions if enabled.
         """
         action_data = {}
         action_meta = {}
         for key, meta in self.action_space.actions_metadata.items():
             if meta.is_precomputed:
                 precomputed_actions = padded_data[key]
-                processed_action = precomputed_actions[action_slice_start:action_slice_end]
+                processed_action = precomputed_actions[
+                    action_slice_start:action_slice_end
+                ]
             else:
                 assert isinstance(meta, OnTheFlyActionMetadata)
                 obs_for_action = padded_data[key]
-                next_obs = obs_for_action[action_slice_start + 1:action_slice_end + 1]
+                next_obs = obs_for_action[action_slice_start + 1 : action_slice_end + 1]
                 current_obs = obs_for_action[action_slice_start:action_slice_end]
-                if self.denoise_actions and meta.action_type == ProprioceptiveType.POSITION.value:
+                if (
+                    self.denoise_actions
+                    and meta.action_type == ProprioceptiveType.POSITION.value
+                ):
                     next_obs, current_obs = self.apply_delta_denoising(
-                        key=key,
-                        next_values=next_obs,
-                        current_values=current_obs
+                        key=key, next_values=next_obs, current_values=current_obs
                     )
                 processed_action = self.compute_action_on_the_fly(
-                    current_obs=current_obs, next_obs=next_obs, metadata=meta)
+                    current_obs=current_obs, next_obs=next_obs, metadata=meta
+                )
 
             action_data[key] = processed_action
             action_meta[key] = meta
 
-
         return action_data, action_meta
-
 
     def log_movement_distribution(self) -> None:
         """Log movement (observation delta) distribution stats."""
@@ -136,7 +144,6 @@ class ActionProcessor:
                     f"{num_below}/{len(norms)} ({pct_below:.1f}%) movements zeroed"
                 )
 
-
     def compute_action_on_the_fly(
         self,
         current_obs: np.ndarray,
@@ -149,31 +156,32 @@ class ActionProcessor:
                 return self.compute_position_action_from_observation(
                     current_position=current_obs,
                     next_position=next_obs,
-                    method=metadata.computation_method
+                    method=metadata.computation_method,
                 )
             case ProprioceptiveType.ORIENTATION.value:
                 return self.compute_orientation_action_from_observation(
                     current_orientation=current_obs,
                     next_orientation=next_obs,
                     method=metadata.computation_method,
-                    representation=metadata.source_metadata.orientation_representation
+                    representation=metadata.source_metadata.orientation_representation,
                 )
             case ProprioceptiveType.GRIPPER.value:
                 return self.compute_gripper_action_from_observation(
                     current_gripper=current_obs,
                     next_gripper=next_obs,
                     method=metadata.computation_method,
-                    gripper_type=metadata.source_metadata.gripper_type
+                    gripper_type=metadata.source_metadata.gripper_type,
                 )
-            case _ :
-                raise ValueError(f"Unsupported action type for on-the-fly computation: {metadata.action_type}")
-
+            case _:
+                raise ValueError(
+                    f"Unsupported action type for on-the-fly computation: {metadata.action_type}"
+                )
 
     @staticmethod
     def compute_position_action_from_observation(
         current_position: np.ndarray,
         next_position: np.ndarray,
-        method: str = ActionComputationMethod.DELTA.value
+        method: str = ActionComputationMethod.DELTA.value,
     ) -> np.ndarray:
         """Compute position action from current and next positions."""
         match method:
@@ -182,8 +190,9 @@ class ActionProcessor:
             case ActionComputationMethod.DELTA.value:
                 return next_position - current_position
             case _:
-                raise ValueError(f"Unsupported position action computation method: {method}")
-
+                raise ValueError(
+                    f"Unsupported position action computation method: {method}"
+                )
 
     @staticmethod
     def compute_gripper_action_from_observation(
@@ -195,7 +204,9 @@ class ActionProcessor:
         """Compute gripper action from current and next gripper states."""
         if gripper_type == GripperType.BINARY.value:
             if method != ActionComputationMethod.NEXT_TIMESTEP.value:
-                raise ValueError("Delta not supported for binary grippers; use NEXT_TIMESTEP")
+                raise ValueError(
+                    "Delta not supported for binary grippers; use NEXT_TIMESTEP"
+                )
             return next_gripper
         if method == ActionComputationMethod.NEXT_TIMESTEP.value:
             return next_gripper
@@ -204,46 +215,51 @@ class ActionProcessor:
         else:
             raise ValueError(f"Unsupported method: {method}")
 
-
     def compute_orientation_action_from_observation(
-            self,
-            current_orientation: np.ndarray,
-            next_orientation: np.ndarray,
-            method: str = ActionComputationMethod.DELTA.value,
-            representation: str = OrientationRepresentation.QUATERNION.value
+        self,
+        current_orientation: np.ndarray,
+        next_orientation: np.ndarray,
+        method: str = ActionComputationMethod.DELTA.value,
+        representation: str = OrientationRepresentation.QUATERNION.value,
     ) -> np.ndarray:
         """Compute orientation action from current and next orientations."""
         if method == ActionComputationMethod.NEXT_TIMESTEP.value:
             return next_orientation
         if method != ActionComputationMethod.DELTA.value:
-            raise ValueError(f"Unsupported method '{method}' for representation '{representation}'")
+            raise ValueError(
+                f"Unsupported method '{method}' for representation '{representation}'"
+            )
         if representation == OrientationRepresentation.ROLL.value:
             return self._compute_roll_deltas(current_orientation, next_orientation)
         elif representation == OrientationRepresentation.QUATERNION.value:
-            return self._compute_quaternion_deltas(current_orientation, next_orientation)
+            return self._compute_quaternion_deltas(
+                current_orientation, next_orientation
+            )
         elif representation == OrientationRepresentation.EULER.value:
             return self._compute_euler_deltas(current_orientation, next_orientation)
         else:
-            raise ValueError(f"Unsupported orientation representation: {representation}")
-
+            raise ValueError(
+                f"Unsupported orientation representation: {representation}"
+            )
 
     @staticmethod
     def _compute_quaternion_deltas(
-            curr_ori: np.ndarray, next_ori: np.ndarray
+        curr_ori: np.ndarray, next_ori: np.ndarray
     ) -> np.ndarray:
         """Compute quaternion deltas (w, x, y, z format)."""
         quat_order_from = [1, 2, 3, 0]  # to (x,y,z,w)
-        curr_rot = scipy.spatial.transform.Rotation.from_quat(curr_ori[:, quat_order_from])
-        next_rot = scipy.spatial.transform.Rotation.from_quat(next_ori[:, quat_order_from])
+        curr_rot = scipy.spatial.transform.Rotation.from_quat(
+            curr_ori[:, quat_order_from]
+        )
+        next_rot = scipy.spatial.transform.Rotation.from_quat(
+            next_ori[:, quat_order_from]
+        )
         rel_rot = next_rot * curr_rot.inv()
         quat_order_to = [3, 0, 1, 2]  # back to (w,x,y,z)
-        return rel_rot.as_quat()[:, quat_order_to]  # type: ignore[no-any-return]
-
+        return rel_rot.as_quat()[:, quat_order_to]
 
     @staticmethod
-    def _compute_roll_deltas(
-            curr_ori: np.ndarray, next_ori: np.ndarray
-    ) -> np.ndarray:
+    def _compute_roll_deltas(curr_ori: np.ndarray, next_ori: np.ndarray) -> np.ndarray:
         """Compute roll angle deltas (simple angle difference in radians).
 
         Args:
@@ -253,25 +269,18 @@ class ActionProcessor:
         Returns:
             Roll deltas (N, 1)
         """
-        return next_ori - curr_ori  # type: ignore[no-any-return]
-
+        return next_ori - curr_ori
 
     @staticmethod
-    def _compute_euler_deltas(
-            curr_ori: np.ndarray, next_ori: np.ndarray
-    ) -> np.ndarray:
+    def _compute_euler_deltas(curr_ori: np.ndarray, next_ori: np.ndarray) -> np.ndarray:
         """Compute euler angle deltas."""
         curr_rot = scipy.spatial.transform.Rotation.from_euler("xyz", curr_ori)
         next_rot = scipy.spatial.transform.Rotation.from_euler("xyz", next_ori)
         rel_rot = next_rot * curr_rot.inv()
-        return rel_rot.as_euler("xyz")  # type: ignore[no-any-return]
-
+        return rel_rot.as_euler("xyz")
 
     def apply_delta_denoising(
-        self,
-        next_values: np.ndarray,
-        current_values: np.ndarray,
-        key: str
+        self, next_values: np.ndarray, current_values: np.ndarray, key: str
     ) -> tuple[np.ndarray, np.ndarray]:
         """Apply denoising threshold to the magnitudes of delta movements between a quantity at time t and t+1.
 
@@ -279,7 +288,9 @@ class ActionProcessor:
             RuntimeError: If denoising thresholds haven't been computed.
         """
         if self.requires_denoising_setup:
-            raise RuntimeError("Denoising is enabled but thresholds have not been computed.")
+            raise RuntimeError(
+                "Denoising is enabled but thresholds have not been computed."
+            )
         if key in self.denoising_thresholds:
             next_values = next_values.copy()
             diffs = next_values - current_values
@@ -287,7 +298,6 @@ class ActionProcessor:
             mask = norms < self.denoising_thresholds[key]
             next_values[mask] = current_values[mask]
         return next_values, current_values
-
 
     def plot_action_magnitude_distribution(self) -> plt.Figure | None:
         """Plot magnitude distributions of the actions before/after denoising.
@@ -300,29 +310,44 @@ class ActionProcessor:
             return None
 
         sns.set_theme(style="whitegrid", palette="muted")
-        num_plots = len(self.denoising_thresholds.keys())
+        num_plots = len(self.denoising_thresholds)
         fig, axes = plt.subplots(1, num_plots, figsize=(7 * num_plots, 5))
         if num_plots == 1:
             axes = [axes]
-        plot_idx = 0
-        for key in self.denoising_thresholds.keys():
+        for plot_idx, key in enumerate(self.denoising_thresholds):
             ax = axes[plot_idx]
             norms = self.dataset_magnitudes[key]
             threshold = self.denoising_thresholds[key]
             log_norms = np.log10(norms + 1e-10)
-            sns.histplot(log_norms, bins=100, alpha=0.6, label="Raw", color="steelblue", ax=ax)
+            sns.histplot(
+                log_norms, bins=100, alpha=0.6, label="Raw", color="steelblue", ax=ax
+            )
             if threshold > 0:
                 log_threshold = np.log10(threshold)
                 denoised = np.where(norms < threshold, 0.0, norms)
                 denoised_nonzero = denoised[denoised > 0]
                 if len(denoised_nonzero) > 0:
-                    sns.histplot(np.log10(denoised_nonzero), bins=100, alpha=0.6, label="Denoised", color="coral", ax=ax)
-                ax.axvline(log_threshold, color="crimson", linestyle="--", linewidth=2, label=f"Threshold: {threshold:.2e}")
+                    sns.histplot(
+                        np.log10(denoised_nonzero),
+                        bins=100,
+                        alpha=0.6,
+                        label="Denoised",
+                        color="coral",
+                        ax=ax,
+                    )
+                ax.axvline(
+                    log_threshold,
+                    color="crimson",
+                    linestyle="--",
+                    linewidth=2,
+                    label=f"Threshold: {threshold:.2e}",
+                )
             ax.set_xlabel(f"log10({key} Observation Deltas Magnitude)", fontsize=11)
             ax.set_ylabel("Count", fontsize=11)
-            ax.set_title(f"{key} Observation Deltas Distribution", fontsize=13, fontweight="bold")
+            ax.set_title(
+                f"{key} Observation Deltas Distribution", fontsize=13, fontweight="bold"
+            )
             ax.legend(frameon=True, fancybox=True)
-            plot_idx += 1
 
         plt.tight_layout()
         sns.reset_defaults()

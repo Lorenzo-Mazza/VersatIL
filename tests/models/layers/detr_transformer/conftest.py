@@ -5,6 +5,7 @@ import torch
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer.attention import FlashAttention
+from versatil.models.layers.detr_transformer.transformer import Transformer
 from versatil.models.layers.detr_transformer.transformer_decoder import (
     TransformerDecoder,
     TransformerDecoderLayer,
@@ -13,8 +14,6 @@ from versatil.models.layers.detr_transformer.transformer_encoder import (
     TransformerEncoder,
     TransformerEncoderLayer,
 )
-from versatil.models.layers.detr_transformer.transformer import Transformer
-
 
 EMBEDDING_DIMENSION = 64
 NUMBER_OF_HEADS = 4
@@ -179,5 +178,3 @@ def transformer_factory() -> Callable[..., Transformer]:
         )
 
     return factory
-
-

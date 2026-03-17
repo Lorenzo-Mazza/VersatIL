@@ -56,9 +56,7 @@ def mock_language_tokenizer_result():
     def factory(batch_size: int = 2, max_length: int = 16) -> dict:
         return {
             "input_ids": torch.ones((batch_size, max_length), dtype=torch.long),
-            "attention_mask": torch.ones(
-                (batch_size, max_length), dtype=torch.long
-            ),
+            "attention_mask": torch.ones((batch_size, max_length), dtype=torch.long),
         }
 
     return factory
@@ -103,9 +101,7 @@ def training_data_factory(rng):
         if proprio_keys is None:
             proprio_keys = [ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value]
         return {
-            key: rng.standard_normal((num_samples, observation_dim)).astype(
-                np.float32
-            )
+            key: rng.standard_normal((num_samples, observation_dim)).astype(np.float32)
             for key in proprio_keys
         }
 
@@ -113,7 +109,6 @@ def training_data_factory(rng):
 
 
 class TestObservationTokenizerInit:
-
     def test_stores_tokenizer_model(self, observation_tokenizer_factory):
         tokenizer = observation_tokenizer_factory(tokenizer_model="test-model")
         assert tokenizer.tokenizer_model == "test-model"
@@ -172,7 +167,6 @@ class TestObservationTokenizerInit:
 
 
 class TestObservationTokenizerFit:
-
     def test_fit_without_binning_sets_fitted(self, observation_tokenizer_factory):
         tokenizer = observation_tokenizer_factory(bin_continuous_data=False)
         tokenizer.fit({})
@@ -219,9 +213,7 @@ class TestObservationTokenizerFit:
         assert proprio_key in tokenizer.binning_tokenizers
         assert tokenizer.binning_tokenizers[proprio_key]._is_fitted is True
 
-    def test_fit_warns_when_key_missing_from_data(
-        self, observation_tokenizer_factory
-    ):
+    def test_fit_warns_when_key_missing_from_data(self, observation_tokenizer_factory):
         missing_key = ProprioKey.GRIPPER_STATE.value
         tokenizer = observation_tokenizer_factory(
             observation_keys=[missing_key],
@@ -269,7 +261,6 @@ class TestObservationTokenizerFit:
 
 
 class TestObservationTokenizerBuildPrompts:
-
     @pytest.mark.parametrize(
         "language_input, expected_text",
         [
@@ -371,9 +362,7 @@ class TestObservationTokenizerBuildPrompts:
     ):
         tokenizer = observation_tokenizer_factory(bin_continuous_data=False)
         tokenizer._is_fitted = True
-        observations = observation_dict_factory(
-            language=["text1", "text2", "text3"]
-        )
+        observations = observation_dict_factory(language=["text1", "text2", "text3"])
         prompts = tokenizer._build_prompts(observations)
         assert len(prompts) == 3
 
@@ -461,7 +450,6 @@ class TestObservationTokenizerBuildPrompts:
 
 
 class TestObservationTokenizerTokenize:
-
     def test_tokenize_raises_when_not_fitted(self, observation_tokenizer_factory):
         tokenizer = observation_tokenizer_factory()
         with pytest.raises(RuntimeError, match="fitted before encoding"):
@@ -532,9 +520,7 @@ class TestObservationTokenizerTokenize:
         )
         tokenizer._is_fitted = True
         observations = {
-            "test_key": torch.zeros(
-                (batch_size, time_steps, 4), dtype=torch.float32
-            )
+            "test_key": torch.zeros((batch_size, time_steps, 4), dtype=torch.float32)
         }
         result = tokenizer.tokenize(observations)
         tokens = result[SampleKey.TOKENIZED_OBSERVATIONS.value]
@@ -542,7 +528,6 @@ class TestObservationTokenizerTokenize:
 
 
 class TestObservationTokenizerTo:
-
     def test_to_updates_device(self, observation_tokenizer_factory, device):
         tokenizer = observation_tokenizer_factory()
         tokenizer.to(device)
@@ -569,7 +554,6 @@ class TestObservationTokenizerTo:
 
 
 class TestObservationTokenizerStateDict:
-
     def test_state_dict_keys(self, observation_tokenizer_factory):
         tokenizer = observation_tokenizer_factory(
             bin_continuous_data=True, num_bins=128, max_token_len=512
@@ -642,7 +626,6 @@ class TestObservationTokenizerStateDict:
 
 
 class TestObservationTokenizerLoadStateDict:
-
     @pytest.mark.parametrize(
         "tokenizer_model, observation_keys, bin_continuous_data, num_bins,"
         " max_token_len, vocab_size",
@@ -722,7 +705,6 @@ class TestObservationTokenizerLoadStateDict:
 
 
 class TestObservationTokenizerSavePretrained:
-
     def test_save_creates_directory(self, observation_tokenizer_factory, tmp_path):
         tokenizer = observation_tokenizer_factory()
         tokenizer._is_fitted = True
@@ -742,9 +724,7 @@ class TestObservationTokenizerSavePretrained:
             save_path / "language_tokenizer"
         )
 
-    def test_save_pretrained_logs_info(
-        self, observation_tokenizer_factory, tmp_path
-    ):
+    def test_save_pretrained_logs_info(self, observation_tokenizer_factory, tmp_path):
         tokenizer = observation_tokenizer_factory()
         tokenizer._is_fitted = True
         save_path = tmp_path / "obs_tokenizer"
@@ -757,7 +737,6 @@ class TestObservationTokenizerSavePretrained:
 
 
 class TestObservationTokenizerFromPretrained:
-
     def test_raises_file_not_found(self):
         with pytest.raises(FileNotFoundError, match="Tokenizer path not found"):
             ObservationTokenizer.from_pretrained("/nonexistent/path")
@@ -823,7 +802,6 @@ class TestObservationTokenizerFromPretrained:
 
 @pytest.mark.integration
 class TestObservationTokenizerIntegrationLanguageOnly:
-
     def test_tokenize_language_observations(self, device):
         tokenizer = ObservationTokenizer(
             tokenizer_model="google/bert_uncased_L-2_H-128_A-2",
@@ -858,7 +836,6 @@ class TestObservationTokenizerIntegrationLanguageOnly:
 
 @pytest.mark.integration
 class TestObservationTokenizerIntegrationWithBinning:
-
     def test_fit_and_tokenize_with_proprio(
         self, training_data_factory, observation_dict_factory, device
     ):
@@ -887,10 +864,7 @@ class TestObservationTokenizerIntegrationWithBinning:
 
 @pytest.mark.integration
 class TestObservationTokenizerIntegrationSaveLoad:
-
-    def test_save_and_load_roundtrip(
-        self, training_data_factory, device, tmp_path
-    ):
+    def test_save_and_load_roundtrip(self, training_data_factory, device, tmp_path):
         proprio_key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
         tokenizer = ObservationTokenizer(
             tokenizer_model="google/bert_uncased_L-2_H-128_A-2",

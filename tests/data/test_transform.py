@@ -1,4 +1,5 @@
 """Tests for versatil.data.transform module."""
+
 import logging
 from collections.abc import Callable
 from unittest.mock import MagicMock
@@ -132,16 +133,19 @@ def mock_tokenizer(
 
 
 class TestNormalizeObservation:
-
     def test_normalizes_keys_present_in_normalizer(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         mock_normalizer: Callable[..., MagicMock],
     ):
-        observation_space = observation_space_factory(observations_metadata={
-            "position": position_observation_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                "position": position_observation_metadata_factory(),
+            }
+        )
         normalizer = mock_normalizer(keys=["position"])
         observation = {"position": torch.tensor([1.0, 2.0, 3.0])}
 
@@ -156,12 +160,16 @@ class TestNormalizeObservation:
     def test_passes_through_keys_not_in_normalizer(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         mock_normalizer: Callable[..., MagicMock],
     ):
-        observation_space = observation_space_factory(observations_metadata={
-            "position": position_observation_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                "position": position_observation_metadata_factory(),
+            }
+        )
         normalizer = mock_normalizer(keys=[])
         original_tensor = torch.tensor([1.0, 2.0, 3.0])
 
@@ -176,12 +184,16 @@ class TestNormalizeObservation:
     def test_does_not_modify_original_dict(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         mock_normalizer: Callable[..., MagicMock],
     ):
-        observation_space = observation_space_factory(observations_metadata={
-            "position": position_observation_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                "position": position_observation_metadata_factory(),
+            }
+        )
         normalizer = mock_normalizer(keys=["position"])
         original_tensor = torch.tensor([1.0, 2.0, 3.0])
         observation = {"position": original_tensor}
@@ -196,16 +208,17 @@ class TestNormalizeObservation:
 
 
 class TestNormalizeActions:
-
     def test_normalizes_action_keys_present_in_normalizer(
         self,
         action_space_factory: Callable[..., ActionSpace],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
         mock_normalizer: Callable[..., MagicMock],
     ):
-        action_space = action_space_factory(actions_metadata={
-            "position": on_the_fly_action_metadata_factory(),
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(),
+            }
+        )
         normalizer = mock_normalizer(keys=["position"])
 
         result = normalize_actions(
@@ -222,9 +235,11 @@ class TestNormalizeActions:
         gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
         mock_normalizer: Callable[..., MagicMock],
     ):
-        action_space = action_space_factory(actions_metadata={
-            "gripper": gripper_action_metadata_factory(),
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "gripper": gripper_action_metadata_factory(),
+            }
+        )
         normalizer = mock_normalizer(keys=[])
         original_tensor = torch.tensor([0.0, 1.0])
 
@@ -238,16 +253,17 @@ class TestNormalizeActions:
 
 
 class TestUnnormalizeActions:
-
     def test_unnormalizes_action_keys_present_in_normalizer(
         self,
         action_space_factory: Callable[..., ActionSpace],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
         mock_normalizer: Callable[..., MagicMock],
     ):
-        action_space = action_space_factory(actions_metadata={
-            "position": on_the_fly_action_metadata_factory(),
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(),
+            }
+        )
         normalizer = mock_normalizer(keys=["position"])
 
         result = unnormalize_actions(
@@ -260,21 +276,26 @@ class TestUnnormalizeActions:
 
 
 class TestNormalizeSample:
-
     def test_normalizes_both_observations_and_actions(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
         action_space_factory: Callable[..., ActionSpace],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
         mock_normalizer: Callable[..., MagicMock],
     ):
-        observation_space = observation_space_factory(observations_metadata={
-            "position": position_observation_metadata_factory(),
-        })
-        action_space = action_space_factory(actions_metadata={
-            "position": on_the_fly_action_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                "position": position_observation_metadata_factory(),
+            }
+        )
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(),
+            }
+        )
         normalizer = mock_normalizer(keys=["position"])
 
         sample = {
@@ -302,16 +323,22 @@ class TestNormalizeSample:
         self,
         observation_space_factory: Callable[..., ObservationSpace],
         action_space_factory: Callable[..., ActionSpace],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
         mock_normalizer: Callable[..., MagicMock],
     ):
-        observation_space = observation_space_factory(observations_metadata={
-            "position": position_observation_metadata_factory(),
-        })
-        action_space = action_space_factory(actions_metadata={
-            "position": on_the_fly_action_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                "position": position_observation_metadata_factory(),
+            }
+        )
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(),
+            }
+        )
         normalizer = mock_normalizer(keys=["position"])
         original_observation = torch.tensor([1.0, 2.0, 3.0])
 
@@ -334,7 +361,6 @@ class TestNormalizeSample:
 
 
 class TestTokenizeSample:
-
     def test_tokenizes_observations_when_tokenizer_present(
         self,
         mock_tokenizer: Callable[..., MagicMock],
@@ -349,11 +375,16 @@ class TestTokenizeSample:
         }
 
         result = tokenize_sample(
-            sample=sample, tokenizer=tokenizer, action_space=MagicMock(),
+            sample=sample,
+            tokenizer=tokenizer,
+            action_space=MagicMock(),
         )
 
         tokenizer.observation_tokenizer.tokenize.assert_called_once()
-        assert SampleKey.TOKENIZED_OBSERVATIONS.value in result[SampleKey.OBSERVATION.value]
+        assert (
+            SampleKey.TOKENIZED_OBSERVATIONS.value
+            in result[SampleKey.OBSERVATION.value]
+        )
         assert SampleKey.IS_PAD_OBSERVATION.value in result[SampleKey.OBSERVATION.value]
 
     def test_tokenizes_actions_when_tokenizer_present(
@@ -362,20 +393,33 @@ class TestTokenizeSample:
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
         mock_tokenizer: Callable[..., MagicMock],
     ):
-        action_space = action_space_factory(actions_metadata={
-            "position": on_the_fly_action_metadata_factory(),
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(),
+            }
+        )
         tokenizer = mock_tokenizer(
             has_observation_tokenizer=False,
             has_action_tokenizer=True,
         )
         sample = {
             SampleKey.OBSERVATION.value: {},
-            SampleKey.ACTION.value: {"position": torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0], [10.0, 11.0, 12.0]])},
+            SampleKey.ACTION.value: {
+                "position": torch.tensor(
+                    [
+                        [1.0, 2.0, 3.0],
+                        [4.0, 5.0, 6.0],
+                        [7.0, 8.0, 9.0],
+                        [10.0, 11.0, 12.0],
+                    ]
+                )
+            },
         }
 
         result = tokenize_sample(
-            sample=sample, tokenizer=tokenizer, action_space=action_space,
+            sample=sample,
+            tokenizer=tokenizer,
+            action_space=action_space,
         )
 
         tokenizer.action_tokenizer.encode.assert_called_once()
@@ -395,15 +439,19 @@ class TestTokenizeSample:
         }
 
         result = tokenize_sample(
-            sample=sample, tokenizer=tokenizer, action_space=MagicMock(),
+            sample=sample,
+            tokenizer=tokenizer,
+            action_space=MagicMock(),
         )
 
-        assert SampleKey.TOKENIZED_OBSERVATIONS.value not in result[SampleKey.OBSERVATION.value]
+        assert (
+            SampleKey.TOKENIZED_OBSERVATIONS.value
+            not in result[SampleKey.OBSERVATION.value]
+        )
         assert SampleKey.TOKENIZED_ACTIONS.value not in result[SampleKey.ACTION.value]
 
 
 class TestTokenizeObservation:
-
     def test_tokenizes_matching_keys(
         self,
         mock_observation_tokenizer: Callable[..., MagicMock],
@@ -412,7 +460,8 @@ class TestTokenizeObservation:
         observation = {"position": torch.tensor([1.0, 2.0, 3.0])}
 
         result = tokenize_observation(
-            observation=observation, obs_tokenizer=tokenizer,
+            observation=observation,
+            obs_tokenizer=tokenizer,
         )
 
         tokenizer.tokenize.assert_called_once()
@@ -435,20 +484,30 @@ class TestTokenizeObservation:
 
 
 class TestTokenizeActions:
-
     def test_concatenates_numerical_actions_and_encodes(
         self,
         action_space_factory: Callable[..., ActionSpace],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
         mock_action_tokenizer: Callable[..., MagicMock],
     ):
-        action_space = action_space_factory(actions_metadata={
-            "position": on_the_fly_action_metadata_factory(),
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(),
+            }
+        )
         tokenizer = mock_action_tokenizer()
 
         result = tokenize_actions(
-            actions={"position": torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0], [10.0, 11.0, 12.0]])},
+            actions={
+                "position": torch.tensor(
+                    [
+                        [1.0, 2.0, 3.0],
+                        [4.0, 5.0, 6.0],
+                        [7.0, 8.0, 9.0],
+                        [10.0, 11.0, 12.0],
+                    ]
+                )
+            },
             action_tokenizer=tokenizer,
             action_space=action_space,
         )
@@ -463,15 +522,24 @@ class TestTokenizeActions:
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
         mock_action_tokenizer: Callable[..., MagicMock],
     ):
-        action_space = action_space_factory(actions_metadata={
-            "position": on_the_fly_action_metadata_factory(),
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(),
+            }
+        )
         tokenizer = mock_action_tokenizer()
         padding_mask = torch.tensor([False, True, False, True])
 
         tokenize_actions(
             actions={
-                "position": torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0], [10.0, 11.0, 12.0]]),
+                "position": torch.tensor(
+                    [
+                        [1.0, 2.0, 3.0],
+                        [4.0, 5.0, 6.0],
+                        [7.0, 8.0, 9.0],
+                        [10.0, 11.0, 12.0],
+                    ]
+                ),
                 SampleKey.IS_PAD_ACTION.value: padding_mask,
             },
             action_tokenizer=tokenizer,
@@ -495,15 +563,24 @@ class TestTokenizeActions:
             is_precomputed=True,
             requires_prediction_head=False,
         )
-        action_space = action_space_factory(actions_metadata={
-            "language": non_numerical,
-            "position": on_the_fly_action_metadata_factory(),
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "language": non_numerical,
+                "position": on_the_fly_action_metadata_factory(),
+            }
+        )
         tokenizer = mock_action_tokenizer()
 
         tokenize_actions(
             actions={
-                "position": torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0], [10.0, 11.0, 12.0]]),
+                "position": torch.tensor(
+                    [
+                        [1.0, 2.0, 3.0],
+                        [4.0, 5.0, 6.0],
+                        [7.0, 8.0, 9.0],
+                        [10.0, 11.0, 12.0],
+                    ]
+                ),
                 "language": torch.zeros(4, 1),
             },
             action_tokenizer=tokenizer,
@@ -520,9 +597,11 @@ class TestTokenizeActions:
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
         mock_action_tokenizer: Callable[..., MagicMock],
     ):
-        action_space = action_space_factory(actions_metadata={
-            "position": on_the_fly_action_metadata_factory(),
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(),
+            }
+        )
         tokenizer = mock_action_tokenizer()
 
         # 1D action tensor: (pred_horizon,) instead of (pred_horizon, dim)
@@ -537,7 +616,6 @@ class TestTokenizeActions:
 
 
 class TestDetokenizeActions:
-
     @pytest.mark.parametrize(
         "dimension, pred_horizon",
         [(3, 2), (6, 4), (1, 3)],
@@ -546,16 +624,22 @@ class TestDetokenizeActions:
         self,
         action_space_factory: Callable[..., ActionSpace],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         mock_action_tokenizer: Callable[..., MagicMock],
         dimension: int,
         pred_horizon: int,
     ):
-        action_space = action_space_factory(actions_metadata={
-            "position": on_the_fly_action_metadata_factory(
-                source_metadata=position_observation_metadata_factory(dimension=dimension),
-            ),
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_observation_metadata_factory(
+                        dimension=dimension
+                    ),
+                ),
+            }
+        )
         decoded = np.zeros((pred_horizon, dimension), dtype=np.float32)
         tokenizer = mock_action_tokenizer(decoded_output=decoded)
 
@@ -584,12 +668,14 @@ class TestDetokenizeActions:
         raw_values: list[float],
         expected_values: list[int],
     ):
-        action_space = action_space_factory(actions_metadata={
-            "gripper": gripper_action_metadata_factory(
-                gripper_type=GripperType.BINARY.value,
-                binary_gripper_range=binary_range,
-            ),
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "gripper": gripper_action_metadata_factory(
+                    gripper_type=GripperType.BINARY.value,
+                    binary_gripper_range=binary_range,
+                ),
+            }
+        )
         tokenizer = mock_action_tokenizer(
             decoded_output=np.array([[v] for v in raw_values], dtype=np.float32),
         )
@@ -615,11 +701,13 @@ class TestDetokenizeActions:
             gripper_type=GripperType.BINARY.value,
             binary_gripper_range=BinaryGripperRange.ZERO_ONE.value,
         )
-        action_space = action_space_factory(actions_metadata={
-            "gripper": on_the_fly_action_metadata_factory(
-                source_metadata=gripper_source,
-            ),
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "gripper": on_the_fly_action_metadata_factory(
+                    source_metadata=gripper_source,
+                ),
+            }
+        )
         tokenizer = mock_action_tokenizer(
             decoded_output=np.array([[0.8]], dtype=np.float32),
         )
@@ -647,9 +735,11 @@ class TestDetokenizeActions:
         # Override the range to an unrecognized value after construction
         gripper_metadata.binary_gripper_range = "unknown_range"
 
-        action_space = action_space_factory(actions_metadata={
-            "gripper": gripper_metadata,
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "gripper": gripper_metadata,
+            }
+        )
         tokenizer = mock_action_tokenizer(
             decoded_output=np.array([[0.8]], dtype=np.float32),
         )
@@ -670,14 +760,18 @@ class TestDetokenizeActions:
         self,
         action_space_factory: Callable[..., ActionSpace],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         mock_action_tokenizer: Callable[..., MagicMock],
     ):
-        action_space = action_space_factory(actions_metadata={
-            "position": on_the_fly_action_metadata_factory(
-                source_metadata=position_observation_metadata_factory(dimension=3),
-            ),
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_observation_metadata_factory(dimension=3),
+                ),
+            }
+        )
         tokenizer = mock_action_tokenizer(
             decoded_output=np.array([[1.0, 2.0, 3.0]], dtype=np.float32),
         )
@@ -695,20 +789,24 @@ class TestDetokenizeActions:
         self,
         action_space_factory: Callable[..., ActionSpace],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
         mock_action_tokenizer: Callable[..., MagicMock],
     ):
         """Actions are split in sorted key order matching tokenize_actions concatenation."""
-        action_space = action_space_factory(actions_metadata={
-            "position": on_the_fly_action_metadata_factory(
-                source_metadata=position_observation_metadata_factory(dimension=3),
-            ),
-            "gripper": gripper_action_metadata_factory(
-                gripper_type=GripperType.CONTINUOUS.value,
-                prediction_dimension=1,
-            ),
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_observation_metadata_factory(dimension=3),
+                ),
+                "gripper": gripper_action_metadata_factory(
+                    gripper_type=GripperType.CONTINUOUS.value,
+                    prediction_dimension=1,
+                ),
+            }
+        )
         # Sorted keys: "gripper" (dim=1), "position" (dim=3) → total=4
         tokenizer = mock_action_tokenizer(
             decoded_output=np.array([[10.0, 1.0, 2.0, 3.0]], dtype=np.float32),

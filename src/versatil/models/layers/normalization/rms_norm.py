@@ -52,7 +52,7 @@ class RMSNorm(nn.Module):
             Normalized tensor of same shape
         """
         # Compute RMS: sqrt(mean(x^2))
-        rms = torch.sqrt(torch.mean(x ** 2, dim=-1, keepdim=True) + self.eps)
+        rms = torch.sqrt(torch.mean(x**2, dim=-1, keepdim=True) + self.eps)
         x_normed = x / rms
 
         if self.elementwise_affine:

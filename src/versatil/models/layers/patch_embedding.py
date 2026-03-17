@@ -36,7 +36,9 @@ class PatchEmbedding(nn.Module):
             self.projection = self._build_standard_projection()
         elif embed_type == PatchEmbedType.PROGRESSIVE.value:
             norm = norm_layer if norm_layer is not None else nn.BatchNorm2d
-            if not issubclass(norm, (nn.modules.batchnorm._BatchNorm, FrozenBatchNorm2d)):
+            if not issubclass(
+                norm, (nn.modules.batchnorm._BatchNorm, FrozenBatchNorm2d)
+            ):
                 raise ValueError(
                     f"{norm.__name__} is not supported for progressive embedding. "
                     f"Use a BatchNorm variant (e.g. nn.BatchNorm2d, FrozenBatchNorm2d)."

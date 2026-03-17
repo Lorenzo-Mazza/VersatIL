@@ -15,10 +15,10 @@ import torch.nn.functional as F
 from versatil.data.constants import SampleKey
 from versatil.data.task import ActionSpace
 from versatil.models.decoding.constants import LatentKey
-from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from versatil.models.decoding.latent.posterior.base_posterior import (
     PosteriorLatentEncoder,
 )
+from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 
 
 def log_normal_diag(

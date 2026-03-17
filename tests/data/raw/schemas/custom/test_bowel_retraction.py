@@ -1,4 +1,5 @@
 """Tests for versatil.data.raw.schemas.custom.bowel_retraction module."""
+
 from collections.abc import Callable
 from unittest.mock import patch
 
@@ -72,7 +73,6 @@ def valid_bowel_retraction_metadata(
 
 
 class TestBowelRetractionSchemaInit:
-
     def test_wrong_dataset_type_raises(
         self,
         valid_bowel_retraction_metadata: DatasetMetadata,
@@ -143,11 +143,12 @@ class TestBowelRetractionSchemaInit:
 
 
 class TestBowelRetractionValidateMetadata:
-
     def test_invalid_camera_key_raises(
         self,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
@@ -196,7 +197,9 @@ class TestBowelRetractionValidateMetadata:
         present_camera: Cameras,
         missing_camera: Cameras,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
@@ -229,7 +232,9 @@ class TestBowelRetractionValidateMetadata:
     def test_invalid_position_observation_key_raises(
         self,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
@@ -265,8 +270,14 @@ class TestBowelRetractionValidateMetadata:
     @pytest.mark.parametrize(
         "proprio_key, wrong_frame",
         [
-            (ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value, CoordinateSystem.CAMERA.value),
-            (ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value, CoordinateSystem.ROBOT_BASE.value),
+            (
+                ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
+                CoordinateSystem.CAMERA.value,
+            ),
+            (
+                ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value,
+                CoordinateSystem.ROBOT_BASE.value,
+            ),
         ],
         ids=["robot_frame_with_camera_frame", "camera_frame_with_robot_frame"],
     )
@@ -275,7 +286,9 @@ class TestBowelRetractionValidateMetadata:
         proprio_key: str,
         wrong_frame: str,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
@@ -311,8 +324,14 @@ class TestBowelRetractionValidateMetadata:
     @pytest.mark.parametrize(
         "key, frame",
         [
-            (ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value, CoordinateSystem.ROBOT_BASE.value),
-            (ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value, CoordinateSystem.CAMERA.value),
+            (
+                ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value,
+                CoordinateSystem.ROBOT_BASE.value,
+            ),
+            (
+                ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value,
+                CoordinateSystem.CAMERA.value,
+            ),
         ],
         ids=["robot_frame_correct", "camera_frame_correct"],
     )
@@ -321,7 +340,9 @@ class TestBowelRetractionValidateMetadata:
         key: str,
         frame: str,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
@@ -356,7 +377,9 @@ class TestBowelRetractionValidateMetadata:
     def test_orientation_observations_present_raises(
         self,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         orientation_observation_metadata_factory: Callable,
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
@@ -396,7 +419,9 @@ class TestBowelRetractionValidateMetadata:
     def test_gripper_not_binary_raises(
         self,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
@@ -431,7 +456,9 @@ class TestBowelRetractionValidateMetadata:
     def test_gripper_wrong_column_keys_raises(
         self,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
@@ -691,7 +718,6 @@ class TestBowelRetractionValidateMetadata:
 
 
 class TestBowelRetractionExtractEpisode:
-
     @pytest.fixture
     def bowel_retraction_episode_factory(
         self,
@@ -707,12 +733,16 @@ class TestBowelRetractionExtractEpisode:
                 "x": rng.standard_normal(num_rows).astype(np.float32),
                 "y": rng.standard_normal(num_rows).astype(np.float32),
                 "z": rng.standard_normal(num_rows).astype(np.float32),
-                BOWEL_RETRACTION_GRIPPER_COL: rng.integers(0, 2, size=num_rows).astype(np.float32),
+                BOWEL_RETRACTION_GRIPPER_COL: rng.integers(0, 2, size=num_rows).astype(
+                    np.float32
+                ),
                 BOWEL_RETRACTION_RECTIFIED_LEFT_IMAGE_KEY: [
-                    f"/img/framesLeftRectified/frame_{i:04d}.png" for i in range(num_rows)
+                    f"/img/framesLeftRectified/frame_{i:04d}.png"
+                    for i in range(num_rows)
                 ],
                 BOWEL_RETRACTION_RECTIFIED_RIGHT_IMAGE_KEY: [
-                    f"/img/framesRightRectified/frame_{i:04d}.png" for i in range(num_rows)
+                    f"/img/framesRightRectified/frame_{i:04d}.png"
+                    for i in range(num_rows)
                 ],
             }
             if extra_columns:
@@ -848,7 +878,9 @@ class TestBowelRetractionExtractEpisode:
         self,
         rng: np.random.Generator,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
         noop_resizer: A.NoOp,
@@ -886,26 +918,28 @@ class TestBowelRetractionExtractEpisode:
             metadata=metadata,
             dataset_type=DatasetType.TSO.value,
         )
-        episode = pd.DataFrame({
-            "x": rng.standard_normal(2).astype(np.float32),
-            "y": rng.standard_normal(2).astype(np.float32),
-            "z": rng.standard_normal(2).astype(np.float32),
-            BOWEL_RETRACTION_GRIPPER_COL: rng.integers(0, 2, size=2).astype(np.float32),
-            BOWEL_RETRACTION_RECTIFIED_LEFT_IMAGE_KEY: [
-                "/data/framesLeftRectified/frame_0001.png",
-                "/data/framesLeftRectified/frame_0002.png",
-            ],
-            BOWEL_RETRACTION_RECTIFIED_RIGHT_IMAGE_KEY: [
-                "/data/framesRightRectified/frame_0001.png",
-                "/data/framesRightRectified/frame_0002.png",
-            ],
-        })
+        episode = pd.DataFrame(
+            {
+                "x": rng.standard_normal(2).astype(np.float32),
+                "y": rng.standard_normal(2).astype(np.float32),
+                "z": rng.standard_normal(2).astype(np.float32),
+                BOWEL_RETRACTION_GRIPPER_COL: rng.integers(0, 2, size=2).astype(
+                    np.float32
+                ),
+                BOWEL_RETRACTION_RECTIFIED_LEFT_IMAGE_KEY: [
+                    "/data/framesLeftRectified/frame_0001.png",
+                    "/data/framesLeftRectified/frame_0002.png",
+                ],
+                BOWEL_RETRACTION_RECTIFIED_RIGHT_IMAGE_KEY: [
+                    "/data/framesRightRectified/frame_0001.png",
+                    "/data/framesRightRectified/frame_0002.png",
+                ],
+            }
+        )
         mock_rgb = rng.integers(0, 255, size=(64, 64, 3), dtype=np.uint8)
         mock_depth = rng.standard_normal((64, 64)).astype(np.float32)
 
-        with patch(
-            "versatil.data.raw.schemas.custom.bowel_retraction.cv2"
-        ) as mock_cv2:
+        with patch("versatil.data.raw.schemas.custom.bowel_retraction.cv2") as mock_cv2:
             mock_cv2.imread.return_value = mock_rgb
             mock_cv2.cvtColor.return_value = mock_rgb
             mock_cv2.COLOR_BGR2RGB = cv2.COLOR_BGR2RGB
@@ -922,7 +956,6 @@ class TestBowelRetractionExtractEpisode:
 
 
 class TestBowelRetractionGetRgbColumn:
-
     @pytest.mark.parametrize(
         "use_rectified, camera, expected_key",
         [
@@ -971,7 +1004,6 @@ class TestBowelRetractionGetRgbColumn:
 
 
 class TestBowelRetractionComputeDepthPath:
-
     @pytest.mark.parametrize(
         "use_rectified, base_path, expected_path",
         [

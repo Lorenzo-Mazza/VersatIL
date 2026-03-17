@@ -1,7 +1,5 @@
 """Tests for versatil.models.layers.transformer.masking module."""
-from collections.abc import Callable
 
-import numpy as np
 import pytest
 import torch
 
@@ -12,12 +10,9 @@ from versatil.models.layers.transformer.masking import (
 
 
 class TestGenerateCausalMask:
-
     @pytest.mark.parametrize("sequence_length", [1, 4, 8])
     def test_output_shape(self, device: torch.device, sequence_length: int):
-        mask = generate_causal_mask(
-            sequence_length=sequence_length, device=device
-        )
+        mask = generate_causal_mask(sequence_length=sequence_length, device=device)
         assert mask.shape == (1, 1, sequence_length, sequence_length)
 
     def test_diagonal_is_not_masked(self, device: torch.device):
@@ -59,7 +54,6 @@ class TestGenerateCausalMask:
 
 
 class TestCreateFullPaddingMask:
-
     def test_causal_mask_without_padding_or_cache(self, device: torch.device):
         total_mask, full_key_padding_mask = create_full_padding_mask(
             key_padding_mask=None,
@@ -110,15 +104,9 @@ class TestCreateFullPaddingMask:
         assert total_mask[0, 0, 0, 2].item() is True
         assert total_mask[0, 0, 0, 3].item() is True
 
-    def test_key_padding_mask_concatenated_with_cached_mask(
-        self, device: torch.device
-    ):
-        cached_mask = torch.tensor(
-            [[False, True], [True, False]], device=device
-        )
-        current_mask = torch.tensor(
-            [[False, False], [False, True]], device=device
-        )
+    def test_key_padding_mask_concatenated_with_cached_mask(self, device: torch.device):
+        cached_mask = torch.tensor([[False, True], [True, False]], device=device)
+        current_mask = torch.tensor([[False, False], [False, True]], device=device)
         total_mask, full_key_padding_mask = create_full_padding_mask(
             key_padding_mask=current_mask,
             cached_key_padding_mask=cached_mask,
@@ -133,9 +121,7 @@ class TestCreateFullPaddingMask:
         assert full_key_padding_mask.shape == (2, 4)
 
     def test_cached_mask_without_current_padding(self, device: torch.device):
-        cached_mask = torch.tensor(
-            [[False, True], [True, False]], device=device
-        )
+        cached_mask = torch.tensor([[False, True], [True, False]], device=device)
         total_mask, full_key_padding_mask = create_full_padding_mask(
             key_padding_mask=None,
             cached_key_padding_mask=cached_mask,
@@ -152,9 +138,7 @@ class TestCreateFullPaddingMask:
         # Cached positions preserved
         assert full_key_padding_mask[0, 1].item() is True
 
-    def test_custom_self_attention_mask_replaces_causal(
-        self, device: torch.device
-    ):
+    def test_custom_self_attention_mask_replaces_causal(self, device: torch.device):
         custom_mask = torch.ones(2, 1, 4, 4, dtype=torch.bool, device=device)
         total_mask, full_key_padding_mask = create_full_padding_mask(
             key_padding_mask=None,
@@ -170,9 +154,7 @@ class TestCreateFullPaddingMask:
         assert total_mask.all()
         assert full_key_padding_mask is None
 
-    def test_custom_self_attention_mask_with_cache_offset(
-        self, device: torch.device
-    ):
+    def test_custom_self_attention_mask_with_cache_offset(self, device: torch.device):
         custom_mask = torch.zeros(2, 1, 1, 1, dtype=torch.bool, device=device)
         total_mask, full_key_padding_mask = create_full_padding_mask(
             key_padding_mask=None,

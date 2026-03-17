@@ -72,9 +72,7 @@ class TestDictOfTensorMixinDevice:
 class TestDictOfTensorMixinLoadFromStateDict:
     def test_loads_flat_state_dict(self, rng):
         mixin = DictOfTensorMixin()
-        values = torch.from_numpy(
-            rng.standard_normal((4,)).astype(np.float32)
-        )
+        values = torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
         state_dict = {"params_dict.gamma": values}
         mixin._load_from_state_dict(
             state_dict=state_dict,
@@ -90,9 +88,7 @@ class TestDictOfTensorMixinLoadFromStateDict:
 
     def test_loaded_params_have_gradients_disabled(self, rng):
         mixin = DictOfTensorMixin()
-        values = torch.from_numpy(
-            rng.standard_normal((4,)).astype(np.float32)
-        )
+        values = torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
         state_dict = {"params_dict.gamma": values}
         mixin._load_from_state_dict(
             state_dict=state_dict,
@@ -107,9 +103,7 @@ class TestDictOfTensorMixinLoadFromStateDict:
 
     def test_loads_nested_state_dict(self, rng):
         mixin = DictOfTensorMixin()
-        values = torch.from_numpy(
-            rng.standard_normal((3,)).astype(np.float32)
-        )
+        values = torch.from_numpy(rng.standard_normal((3,)).astype(np.float32))
         state_dict = {"params_dict.outer.inner": values}
         mixin._load_from_state_dict(
             state_dict=state_dict,
@@ -126,9 +120,7 @@ class TestDictOfTensorMixinLoadFromStateDict:
 
     def test_loads_with_prefix(self, rng):
         mixin = DictOfTensorMixin()
-        values = torch.from_numpy(
-            rng.standard_normal((2,)).astype(np.float32)
-        )
+        values = torch.from_numpy(rng.standard_normal((2,)).astype(np.float32))
         state_dict = {"model.params_dict.delta": values}
         mixin._load_from_state_dict(
             state_dict=state_dict,
@@ -144,9 +136,7 @@ class TestDictOfTensorMixinLoadFromStateDict:
 
     def test_loaded_values_are_cloned(self, rng):
         mixin = DictOfTensorMixin()
-        values = torch.from_numpy(
-            rng.standard_normal((4,)).astype(np.float32)
-        )
+        values = torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
         state_dict = {"params_dict.gamma": values}
         mixin._load_from_state_dict(
             state_dict=state_dict,
@@ -164,12 +154,8 @@ class TestDictOfTensorMixinLoadFromStateDict:
 
     def test_loads_multiple_keys(self, rng):
         mixin = DictOfTensorMixin()
-        alpha = torch.from_numpy(
-            rng.standard_normal((3,)).astype(np.float32)
-        )
-        beta = torch.from_numpy(
-            rng.standard_normal((5,)).astype(np.float32)
-        )
+        alpha = torch.from_numpy(rng.standard_normal((3,)).astype(np.float32))
+        beta = torch.from_numpy(rng.standard_normal((5,)).astype(np.float32))
         state_dict = {
             "params_dict.alpha": alpha,
             "params_dict.beta": beta,
@@ -190,9 +176,7 @@ class TestDictOfTensorMixinLoadFromStateDict:
 
     def test_ignores_unrelated_state_dict_keys(self, rng):
         mixin = DictOfTensorMixin()
-        values = torch.from_numpy(
-            rng.standard_normal((4,)).astype(np.float32)
-        )
+        values = torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
         state_dict = {
             "params_dict.gamma": values,
             "other_module.weight": torch.ones(10),

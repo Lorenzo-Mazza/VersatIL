@@ -1,4 +1,5 @@
 """Tests for versatil.metrics.accumulators module."""
+
 import numpy as np
 import pytest
 import torch
@@ -16,7 +17,9 @@ def phase_loss_output_factory(rng):
         horizon: int = 3,
         num_phases: int = 3,
     ) -> LossOutput:
-        logits_data = rng.standard_normal((batch_size, horizon, num_phases)).astype(np.float32)
+        logits_data = rng.standard_normal((batch_size, horizon, num_phases)).astype(
+            np.float32
+        )
         logits = torch.from_numpy(logits_data)
         labels = torch.argmax(logits, dim=-1)
         return LossOutput(
@@ -41,17 +44,27 @@ def latent_loss_output_factory(rng):
     ) -> LossOutput:
         metadata = {}
         mu_data = rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
-        logvar_data = rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
+        logvar_data = rng.standard_normal((batch_size, latent_dimension)).astype(
+            np.float32
+        )
         z_data = rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
         metadata[MetadataKey.POSTERIOR_MU.value] = torch.from_numpy(mu_data)
         metadata[MetadataKey.POSTERIOR_LOGVAR.value] = torch.from_numpy(logvar_data)
         metadata[MetadataKey.POSTERIOR_Z.value] = torch.from_numpy(z_data)
         if include_prior:
-            prior_mu_data = rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
-            prior_logvar_data = rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
-            prior_z_data = rng.standard_normal((batch_size, latent_dimension)).astype(np.float32)
+            prior_mu_data = rng.standard_normal((batch_size, latent_dimension)).astype(
+                np.float32
+            )
+            prior_logvar_data = rng.standard_normal(
+                (batch_size, latent_dimension)
+            ).astype(np.float32)
+            prior_z_data = rng.standard_normal((batch_size, latent_dimension)).astype(
+                np.float32
+            )
             metadata[MetadataKey.PRIOR_MU.value] = torch.from_numpy(prior_mu_data)
-            metadata[MetadataKey.PRIOR_LOGVAR.value] = torch.from_numpy(prior_logvar_data)
+            metadata[MetadataKey.PRIOR_LOGVAR.value] = torch.from_numpy(
+                prior_logvar_data
+            )
             metadata[MetadataKey.PRIOR_Z.value] = torch.from_numpy(prior_z_data)
         return LossOutput(
             total_loss=torch.tensor(total_loss),
@@ -95,10 +108,14 @@ class TestMetricsAccumulatorAddLossOutput:
     def test_accumulates_component_losses(self, loss_output_factory):
         accumulator = MetricsAccumulator()
         accumulator.add_loss_output(
-            loss_output_factory(total_loss_value=1.0, component_losses={"mse": 0.5, "l1": 0.3})
+            loss_output_factory(
+                total_loss_value=1.0, component_losses={"mse": 0.5, "l1": 0.3}
+            )
         )
         accumulator.add_loss_output(
-            loss_output_factory(total_loss_value=1.0, component_losses={"mse": 0.7, "l1": 0.1})
+            loss_output_factory(
+                total_loss_value=1.0, component_losses={"mse": 0.7, "l1": 0.1}
+            )
         )
         assert accumulator.component_metrics["mse"] == pytest.approx(1.2)
         assert accumulator.component_metrics["l1"] == pytest.approx(0.4)
@@ -173,14 +190,18 @@ class TestMetricsAccumulatorPhaseMetrics:
     def test_computes_per_phase_accuracy(self):
         accumulator = MetricsAccumulator()
         # Phase 0: 2 correct out of 2, Phase 1: 0 correct out of 2
-        logits = torch.tensor([
-            [[10.0, -10.0], [10.0, -10.0]],
-            [[10.0, -10.0], [10.0, -10.0]],
-        ])  # (2, 2, 2) - always predicts phase 0
-        labels = torch.tensor([
-            [0, 0],
-            [1, 1],
-        ])  # (2, 2)
+        logits = torch.tensor(
+            [
+                [[10.0, -10.0], [10.0, -10.0]],
+                [[10.0, -10.0], [10.0, -10.0]],
+            ]
+        )  # (2, 2, 2) - always predicts phase 0
+        labels = torch.tensor(
+            [
+                [0, 0],
+                [1, 1],
+            ]
+        )  # (2, 2)
         output = LossOutput(
             total_loss=torch.tensor(1.0),
             metadata={
@@ -203,9 +224,11 @@ class TestMetricsAccumulatorConfusionMatrix:
 
     def test_returns_correct_confusion_matrix(self):
         accumulator = MetricsAccumulator()
-        logits = torch.tensor([
-            [[10.0, -10.0], [-10.0, 10.0]],
-        ])  # Predicts [0, 1] for batch 0
+        logits = torch.tensor(
+            [
+                [[10.0, -10.0], [-10.0, 10.0]],
+            ]
+        )  # Predicts [0, 1] for batch 0
         labels = torch.tensor([[0, 1]])
         output = LossOutput(
             total_loss=torch.tensor(1.0),
@@ -259,7 +282,9 @@ class TestMetricsAccumulatorLatentVisualization:
         accumulator = MetricsAccumulator()
         batch_size, latent_dimension = 4, 8
         accumulator.add_loss_output(
-            latent_loss_output_factory(batch_size=batch_size, latent_dimension=latent_dimension)
+            latent_loss_output_factory(
+                batch_size=batch_size, latent_dimension=latent_dimension
+            )
         )
         z, z_prior, phase = accumulator.compute_latent_visualization_data()
         assert z.shape == (batch_size, latent_dimension)
@@ -290,7 +315,9 @@ class TestMetricsAccumulatorLatentVisualization:
         labels[2, :] = 2
         labels[3, :4] = 0
         labels[3, 4] = 1
-        z_data = torch.from_numpy(rng.standard_normal((batch_size, 4)).astype(np.float32))
+        z_data = torch.from_numpy(
+            rng.standard_normal((batch_size, 4)).astype(np.float32)
+        )
         output = LossOutput(
             total_loss=torch.tensor(1.0),
             metadata={
@@ -323,7 +350,9 @@ class TestMetricsAccumulatorLatentVisualization:
     def test_flattens_3d_latents(self, rng):
         accumulator = MetricsAccumulator()
         batch_size, temporal, hidden = 4, 3, 8
-        z_3d_data = rng.standard_normal((batch_size, temporal, hidden)).astype(np.float32)
+        z_3d_data = rng.standard_normal((batch_size, temporal, hidden)).astype(
+            np.float32
+        )
         z_3d = torch.from_numpy(z_3d_data)
         output = LossOutput(
             total_loss=torch.tensor(1.0),

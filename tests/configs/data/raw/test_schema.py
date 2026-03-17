@@ -1,4 +1,5 @@
 """Tests for versatil.configs.data.raw.schema module."""
+
 import pytest
 from omegaconf import MISSING
 
@@ -12,7 +13,6 @@ from versatil.configs.data.raw.schema import (
 
 @pytest.mark.unit
 class TestDatasetSchemaConfig:
-
     def test_required_fields_default_to_missing(self):
         config = DatasetSchemaConfig()
         assert config._target_ == MISSING
@@ -23,7 +23,6 @@ class TestDatasetSchemaConfig:
 
 @pytest.mark.unit
 class TestCsvDatasetSchemaConfig:
-
     def test_dataset_folders_required(self):
         config = CsvDatasetSchemaConfig()
         assert config.dataset_folders == MISSING
@@ -35,7 +34,6 @@ class TestCsvDatasetSchemaConfig:
 
 @pytest.mark.unit
 class TestHdf5DatasetSchemaConfig:
-
     def test_hdf5_paths_required(self):
         config = Hdf5DatasetSchemaConfig()
         assert config.hdf5_paths == MISSING
@@ -47,7 +45,6 @@ class TestHdf5DatasetSchemaConfig:
 
 @pytest.mark.unit
 class TestLeRobotDatasetSchemaConfig:
-
     def test_dataset_path_required(self):
         config = LeRobotDatasetSchemaConfig()
         assert config.dataset_path == MISSING

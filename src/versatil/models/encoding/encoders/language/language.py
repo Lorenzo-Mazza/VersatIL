@@ -2,7 +2,7 @@ import logging
 
 import torch
 from torch import nn
-from transformers import AutoModel, AutoConfig
+from transformers import AutoConfig, AutoModel
 from transformers.modeling_outputs import BaseModelOutput
 
 from versatil.data.constants import SampleKey
@@ -10,8 +10,8 @@ from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
 from versatil.models.encoding.encoders.constants import (
     AttentionImplementation,
     EncoderOutputKeys,
-    PoolingMethod,
     LanguageEncoderType,
+    PoolingMethod,
 )
 from versatil.models.encoding.encoders.unconditional import Encoder
 from versatil.models.layers import LearnedAggregation
@@ -62,7 +62,11 @@ class LanguageEncoder(Encoder):
                 "use_embeddings_only=True is only compatible with pooling_method=PoolingMethod.NONE"
             )
         self._build_encoder()
-        self.feature_dim = self.encoder.embedding_dim if self.use_embeddings_only else self.config.hidden_size
+        self.feature_dim = (
+            self.encoder.embedding_dim
+            if self.use_embeddings_only
+            else self.config.hidden_size
+        )
         self.pooling_head: LearnedAggregation | None = None
         self._setup_pooling()
         self.padding_mask_name = (
@@ -184,7 +188,7 @@ class LanguageEncoder(Encoder):
             )
         return text_input_ids, language_mask
 
-    def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:  # type: ignore[override]
+    def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """
         Forward pass through language encoder.
 

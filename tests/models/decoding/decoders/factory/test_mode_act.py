@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.decoders.factory.mode_act module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -14,9 +15,6 @@ from versatil.models.decoding.constants import (
     FeatureType,
     GMMInitStrategy,
 )
-from versatil.models.layers.positional_encoding.learned import (
-    LearnedPositionalEncoding1D,
-)
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.mode_act import (
     MixtureOfDensitiesActionTransformer,
@@ -25,10 +23,12 @@ from versatil.models.decoding.transformer_input_builder import TransformerInputB
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType
+from versatil.models.layers.positional_encoding.learned import (
+    LearnedPositionalEncoding1D,
+)
 from versatil.models.layers.transformer.bidirectional_decoder import (
     BidirectionalDecoder,
 )
-
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 2
@@ -201,7 +201,6 @@ def gaussian_mode_act_factory(
 
 
 class TestModeACTInitialization:
-
     def test_inherits_from_action_decoder(
         self,
         mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
@@ -274,10 +273,13 @@ class TestModeACTInitialization:
             assert action_key in decoder.mixture_heads
             assert len(decoder.mixture_heads[action_key]) == num_components
 
-    @pytest.mark.parametrize("gating_normalization, expect_layer_norm", [
-        (True, True),
-        (False, False),
-    ])
+    @pytest.mark.parametrize(
+        "gating_normalization, expect_layer_norm",
+        [
+            (True, True),
+            (False, False),
+        ],
+    )
     def test_gating_network_normalization(
         self,
         mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
@@ -348,11 +350,13 @@ class TestModeACTInitialization:
                 for parameter_a, parameter_b in zip(
                     heads[0].parameters(), heads[index].parameters()
                 ):
-                    assert not torch.equal(parameter_a, parameter_b) or parameter_a.numel() == 0
+                    assert (
+                        not torch.equal(parameter_a, parameter_b)
+                        or parameter_a.numel() == 0
+                    )
 
 
 class TestModeACTForwardWithGaussianHead:
-
     def test_training_returns_mixture_outputs(
         self,
         gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
@@ -451,7 +455,6 @@ class TestModeACTForwardWithGaussianHead:
 
 
 class TestModeACTForwardWithActionHead:
-
     def test_training_returns_stacked_outputs(
         self,
         mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
@@ -547,7 +550,6 @@ class TestModeACTForwardWithActionHead:
             1,
         )
 
-
     def test_different_features_produce_different_routing_weights(
         self,
         mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
@@ -582,7 +584,6 @@ class TestModeACTForwardWithActionHead:
 
 
 class TestModeACTSampling:
-
     def test_sample_from_gaussian_mixture_deterministic(
         self,
         rng: np.random.Generator,
@@ -618,9 +619,7 @@ class TestModeACTSampling:
         selected_indices = torch.argmax(routing_weights, dim=-1)
         for batch_index in range(batch_size):
             expected = mean[batch_index, :, selected_indices[batch_index], :]
-            torch.testing.assert_close(
-                result[batch_index], expected, atol=0, rtol=0
-            )
+            torch.testing.assert_close(result[batch_index], expected, atol=0, rtol=0)
 
     def test_sample_from_gaussian_mixture_stochastic_adds_noise(
         self,
@@ -635,9 +634,7 @@ class TestModeACTSampling:
                 (batch_size, prediction_horizon, num_components, action_dim)
             ).astype(np.float32)
         )
-        logvar = torch.zeros(
-            batch_size, prediction_horizon, num_components, action_dim
-        )
+        logvar = torch.zeros(batch_size, prediction_horizon, num_components, action_dim)
         routing_weights = torch.softmax(
             torch.from_numpy(
                 rng.standard_normal((batch_size, num_components)).astype(np.float32)
@@ -685,9 +682,7 @@ class TestModeACTSampling:
         selected_indices = torch.argmax(routing_weights, dim=-1)
         for batch_index in range(batch_size):
             expected = stacked[batch_index, :, selected_indices[batch_index], :]
-            torch.testing.assert_close(
-                result[batch_index], expected, atol=0, rtol=0
-            )
+            torch.testing.assert_close(result[batch_index], expected, atol=0, rtol=0)
 
     def test_sample_from_mixture_stochastic_selects_valid_component(
         self,
@@ -728,21 +723,20 @@ class TestModeACTSampling:
 
 
 class TestModeACTGMMInitialization:
-
     def test_compute_uniform_centers_shape_and_range(
         self,
         rng: np.random.Generator,
     ):
         out_dim = 5
         num_components = 4
-        data_min = torch.from_numpy(
-            rng.standard_normal((out_dim,)).astype(np.float32)
-        )
-        data_max = data_min + torch.abs(
-            torch.from_numpy(
-                rng.standard_normal((out_dim,)).astype(np.float32)
+        data_min = torch.from_numpy(rng.standard_normal((out_dim,)).astype(np.float32))
+        data_max = (
+            data_min
+            + torch.abs(
+                torch.from_numpy(rng.standard_normal((out_dim,)).astype(np.float32))
             )
-        ) + 0.1
+            + 0.1
+        )
         centers = MixtureOfDensitiesActionTransformer._compute_uniform_centers(
             data_min=data_min,
             data_max=data_max,
@@ -763,14 +757,14 @@ class TestModeACTGMMInitialization:
     ):
         out_dim = 5
         num_components = 4
-        data_min = torch.from_numpy(
-            rng.standard_normal((out_dim,)).astype(np.float32)
-        )
-        data_max = data_min + torch.abs(
-            torch.from_numpy(
-                rng.standard_normal((out_dim,)).astype(np.float32)
+        data_min = torch.from_numpy(rng.standard_normal((out_dim,)).astype(np.float32))
+        data_max = (
+            data_min
+            + torch.abs(
+                torch.from_numpy(rng.standard_normal((out_dim,)).astype(np.float32))
             )
-        ) + 0.1
+            + 0.1
+        )
         centers = MixtureOfDensitiesActionTransformer._compute_kmeans_plus_plus_centers(
             data_min=data_min,
             data_max=data_max,
@@ -847,9 +841,7 @@ class TestModeACTGMMInitialization:
         rng: np.random.Generator,
     ):
         out_dim = 3
-        data_min = torch.from_numpy(
-            rng.standard_normal((out_dim,)).astype(np.float32)
-        )
+        data_min = torch.from_numpy(rng.standard_normal((out_dim,)).astype(np.float32))
         data_max = data_min + 1.0
         centers = MixtureOfDensitiesActionTransformer._compute_uniform_centers(
             data_min=data_min,
@@ -863,7 +855,6 @@ class TestModeACTGMMInitialization:
 
 
 class TestModeACTInferenceMode:
-
     def test_stochastic_gaussian_inference_differs_from_deterministic(
         self,
         gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
@@ -942,11 +933,13 @@ class TestModeACTInferenceMode:
 
 
 class TestModeACTTemporalObservation:
-
-    @pytest.mark.parametrize("observation_horizon, expects_temporal_pe", [
-        (1, False),
-        (3, True),
-    ])
+    @pytest.mark.parametrize(
+        "observation_horizon, expects_temporal_pe",
+        [
+            (1, False),
+            (3, True),
+        ],
+    )
     def test_temporal_pe_created_based_on_observation_horizon(
         self,
         mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
@@ -959,4 +952,3 @@ class TestModeACTTemporalObservation:
             assert isinstance(layer, LearnedPositionalEncoding1D)
         else:
             assert layer is None
-

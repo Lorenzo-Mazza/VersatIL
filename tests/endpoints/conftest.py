@@ -1,4 +1,5 @@
 """Endpoint test fixtures: synthetic zarr factories and e2e config helpers."""
+
 import os
 import socket as socket_module
 import threading
@@ -13,7 +14,7 @@ import pytest
 import zarr
 import zarr.storage
 from hydra import compose, initialize_config_dir
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 from tso_robotics_sockets import (
     CompressionType,
     InferenceRequestKey,
@@ -28,7 +29,6 @@ from tso_robotics_sockets import (
 import versatil.configs  # noqa: F401 — registers ConfigStore entries
 from versatil.data.constants import Cameras, ObsKey, ProprioKey
 from versatil.data.task import ObservationSpace
-
 
 BOWEL_RETRACTION_ZARR_SPEC: dict[str, dict] = {
     ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: {
@@ -179,21 +179,21 @@ def _generate_array_for_key(
                 0.5, 5.0, (total_timesteps, image_height, image_width, spec["channels"])
             ).astype(dtype)
         case "proprio" | "action":
-            return rng.standard_normal(
-                (total_timesteps, spec["dimension"])
-            ).astype(dtype)
+            return rng.standard_normal((total_timesteps, spec["dimension"])).astype(
+                dtype
+            )
         case "gripper_binary":
-            return rng.integers(
-                0, 2, (total_timesteps, spec["dimension"])
-            ).astype(dtype)
+            return rng.integers(0, 2, (total_timesteps, spec["dimension"])).astype(
+                dtype
+            )
         case "gripper_continuous":
-            return rng.uniform(
-                0.0, 1.0, (total_timesteps, spec["dimension"])
-            ).astype(dtype)
+            return rng.uniform(0.0, 1.0, (total_timesteps, spec["dimension"])).astype(
+                dtype
+            )
         case "label":
-            return rng.integers(
-                0, 5, (total_timesteps, spec["dimension"])
-            ).astype(dtype)
+            return rng.integers(0, 5, (total_timesteps, spec["dimension"])).astype(
+                dtype
+            )
         case "language":
             return ["pick up object"] * total_timesteps
         case _:
@@ -300,10 +300,7 @@ def discover_e2e_configs() -> list[str]:
     """Auto-discover all e2e config names from the hydra_configs directory."""
     e2e_dir = Path(HYDRA_CONFIG_DIR) / "end_to_end_training_runs"
     paths = sorted(e2e_dir.rglob("*.yaml"))
-    return [
-        str(p.relative_to(HYDRA_CONFIG_DIR)).removesuffix(".yaml")
-        for p in paths
-    ]
+    return [str(p.relative_to(HYDRA_CONFIG_DIR)).removesuffix(".yaml") for p in paths]
 
 
 def resolve_dataset_type(config_name: str) -> str:
@@ -319,9 +316,7 @@ def build_tiny_overrides(config_name: str) -> list[str]:
     overrides = []
     with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
         cfg = compose(config_name=config_name)
-        decoder_dict = OmegaConf.to_container(
-            cfg.policy.decoder, resolve=False
-        )
+        decoder_dict = OmegaConf.to_container(cfg.policy.decoder, resolve=False)
         encoders_dict = OmegaConf.to_container(
             cfg.policy.encoding_pipeline.encoders, resolve=False
         )
@@ -400,9 +395,7 @@ def start_mock_observation_server(
     server_rng = np.random.default_rng(seed=777)
 
     def handle_get_observation(request_data: dict) -> tuple[bool, dict]:
-        requested = request_data.get(
-            InferenceRequestKey.REQUESTED_KEYS.value, []
-        )
+        requested = request_data.get(InferenceRequestKey.REQUESTED_KEYS.value, [])
         compression = request_data.get(
             InferenceRequestKey.COMPRESSION_TYPE.value,
             CompressionType.RAW.value,
@@ -414,9 +407,7 @@ def start_mock_observation_server(
         for key in camera_keys:
             if key in requested:
                 channels = observation_space.cameras[key].channels
-                image = server_rng.integers(
-                    0, 256, (64, 64, channels), dtype=np.uint8
-                )
+                image = server_rng.integers(0, 256, (64, 64, channels), dtype=np.uint8)
                 response[key] = compress_array(
                     image, method=compression, as_base64=True
                 )

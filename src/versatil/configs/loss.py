@@ -210,5 +210,3 @@ class LatentOptimalTransportLossConfig(BaseLossConfig):
     weight: float = 1.0
     p: int = 2
     epsilon: float = 0.01
-
-

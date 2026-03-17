@@ -1,4 +1,5 @@
 """Tests for versatil.data.transform_builder module."""
+
 import logging
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
@@ -20,8 +21,8 @@ from versatil.data.metadata import (
     OnTheFlyActionMetadata,
     PositionObservationMetadata,
 )
-from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.normalization.normalizer import LinearNormalizer
+from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.transform_builder import TransformBuilder
 
 
@@ -52,8 +53,7 @@ def mock_replay_buffer() -> Callable[..., MagicMock]:
 
         if use_zarr:
             stored_data = {
-                key: _numpy_to_zarr_array(value)
-                for key, value in raw_data.items()
+                key: _numpy_to_zarr_array(value) for key, value in raw_data.items()
             }
         else:
             stored_data = raw_data
@@ -130,10 +130,9 @@ def transform_builder_factory(
 
 
 class TestTransformBuilderInitialization:
-
-    @pytest.mark.parametrize("kinematics_norm_type", [
-        member.value for member in KinematicsNormalizationType
-    ])
+    @pytest.mark.parametrize(
+        "kinematics_norm_type", [member.value for member in KinematicsNormalizationType]
+    )
     def test_stores_kinematics_norm_type(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
@@ -144,9 +143,9 @@ class TestTransformBuilderInitialization:
         )
         assert builder.kinematics_norm_type == kinematics_norm_type
 
-    @pytest.mark.parametrize("image_norm_type", [
-        member.value for member in ImageNormalizationType
-    ])
+    @pytest.mark.parametrize(
+        "image_norm_type", [member.value for member in ImageNormalizationType]
+    )
     def test_stores_image_norm_type(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
@@ -166,7 +165,6 @@ class TestTransformBuilderInitialization:
 
 
 class TestApplyWinsorization:
-
     @pytest.mark.parametrize(
         "quantiles",
         [(0.01, 0.99), (0.05, 0.95), (0.1, 0.9)],
@@ -217,11 +215,12 @@ class TestApplyWinsorization:
 
 
 class TestComputeProprioceptiveDenosingThresholds:
-
     def test_computes_thresholds_for_on_the_fly_position_actions(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
         rng: np.random.Generator,
     ):
@@ -245,7 +244,6 @@ class TestComputeProprioceptiveDenosingThresholds:
 
 
 class TestCreateActionChunksForTokenizer:
-
     @pytest.mark.parametrize(
         "prediction_horizon, episode_ends, action_dim, expected_chunks",
         [
@@ -272,7 +270,9 @@ class TestCreateActionChunksForTokenizer:
             for i in range(len(episode_ends))
         )
         action_data = {
-            "position": rng.standard_normal((total_valid_actions, action_dim)).astype(np.float32),
+            "position": rng.standard_normal((total_valid_actions, action_dim)).astype(
+                np.float32
+            ),
         }
 
         chunks = builder._create_action_chunks_for_tokenizer(
@@ -328,7 +328,6 @@ class TestCreateActionChunksForTokenizer:
 
 
 class TestSetupImageNormalizers:
-
     def test_sets_up_rgb_normalizer_for_non_depth_camera(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
@@ -347,7 +346,9 @@ class TestSetupImageNormalizers:
         normalizer = MagicMock()
 
         builder._setup_image_normalizers(
-            normalizer=normalizer, device=None, winsorize_depth=False,
+            normalizer=normalizer,
+            device=None,
+            winsorize_depth=False,
         )
 
         normalizer.__setitem__.assert_called_once()
@@ -373,7 +374,9 @@ class TestSetupImageNormalizers:
         normalizer = MagicMock()
 
         builder._setup_image_normalizers(
-            normalizer=normalizer, device=None, winsorize_depth=False,
+            normalizer=normalizer,
+            device=None,
+            winsorize_depth=False,
         )
 
         normalizer.__setitem__.assert_called_once()
@@ -382,7 +385,6 @@ class TestSetupImageNormalizers:
 
 
 class TestComputeDepthStatsStreaming:
-
     def _make_depth_builder(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
@@ -410,12 +412,15 @@ class TestComputeDepthStatsStreaming:
     ):
         depth_data = np.ones((10, 4, 4), dtype=np.float32) * 3.0
         builder = self._make_depth_builder(
-            transform_builder_factory, camera_metadata_factory, depth_data,
+            transform_builder_factory,
+            camera_metadata_factory,
+            depth_data,
             use_zarr=use_zarr,
         )
 
         stats = builder._compute_depth_stats_streaming(
-            camera_key=Cameras.DEPTH.value, winsorize=False,
+            camera_key=Cameras.DEPTH.value,
+            winsorize=False,
         )
 
         assert stats["min"] == pytest.approx(3.0)
@@ -434,12 +439,16 @@ class TestComputeDepthStatsStreaming:
         # chunk_size=2 → two chunks, exercises Welford merge
         depth_data = np.arange(1, 17, dtype=np.float32).reshape(4, 2, 2)
         builder = self._make_depth_builder(
-            transform_builder_factory, camera_metadata_factory, depth_data,
+            transform_builder_factory,
+            camera_metadata_factory,
+            depth_data,
             use_zarr=use_zarr,
         )
 
         stats = builder._compute_depth_stats_streaming(
-            camera_key=Cameras.DEPTH.value, winsorize=False, chunk_size=2,
+            camera_key=Cameras.DEPTH.value,
+            winsorize=False,
+            chunk_size=2,
         )
 
         # Values 1..16: min=1, max=16, mean=8.5, std=sqrt(Var) where Var = E[X²]-E[X]²
@@ -462,12 +471,15 @@ class TestComputeDepthStatsStreaming:
         depth_data[0, 0, 1] = -50.0
 
         builder = self._make_depth_builder(
-            transform_builder_factory, camera_metadata_factory, depth_data,
+            transform_builder_factory,
+            camera_metadata_factory,
+            depth_data,
             use_zarr=use_zarr,
         )
 
         stats = builder._compute_depth_stats_streaming(
-            camera_key=Cameras.DEPTH.value, winsorize=True,
+            camera_key=Cameras.DEPTH.value,
+            winsorize=True,
         )
 
         # Outliers clipped → min and max should be close to 1.0
@@ -483,12 +495,15 @@ class TestComputeDepthStatsStreaming:
     ):
         depth_data = np.empty((0, 4, 4), dtype=np.float32)
         builder = self._make_depth_builder(
-            transform_builder_factory, camera_metadata_factory, depth_data,
+            transform_builder_factory,
+            camera_metadata_factory,
+            depth_data,
             use_zarr=use_zarr,
         )
 
         stats = builder._compute_depth_stats_streaming(
-            camera_key=Cameras.DEPTH.value, winsorize=False,
+            camera_key=Cameras.DEPTH.value,
+            winsorize=False,
         )
 
         assert np.isnan(stats["min"])
@@ -506,17 +521,23 @@ class TestComputeDepthStatsStreaming:
     ):
         depth_data = rng.uniform(0.5, 5.0, (30, 4, 4)).astype(np.float32)
         builder = self._make_depth_builder(
-            transform_builder_factory, camera_metadata_factory, depth_data,
+            transform_builder_factory,
+            camera_metadata_factory,
+            depth_data,
             use_zarr=use_zarr,
         )
 
         # Large chunk (single pass)
         stats_single = builder._compute_depth_stats_streaming(
-            camera_key=Cameras.DEPTH.value, winsorize=False, chunk_size=10000,
+            camera_key=Cameras.DEPTH.value,
+            winsorize=False,
+            chunk_size=10000,
         )
         # Small chunks (multiple passes through Welford)
         stats_chunked = builder._compute_depth_stats_streaming(
-            camera_key=Cameras.DEPTH.value, winsorize=False, chunk_size=chunk_size,
+            camera_key=Cameras.DEPTH.value,
+            winsorize=False,
+            chunk_size=chunk_size,
         )
 
         assert stats_single["min"] == pytest.approx(stats_chunked["min"], abs=1e-5)
@@ -526,7 +547,6 @@ class TestComputeDepthStatsStreaming:
 
 
 class TestLogCameraStatsSampled:
-
     def test_logs_stats_for_rgb_camera(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
@@ -549,7 +569,8 @@ class TestLogCameraStatsSampled:
 
         with caplog.at_level(logging.INFO):
             builder._log_camera_stats_sampled(
-                camera_key=Cameras.LEFT.value, normalizer=normalizer,
+                camera_key=Cameras.LEFT.value,
+                normalizer=normalizer,
             )
 
         assert "Camera left stats" in caplog.text
@@ -574,14 +595,14 @@ class TestLogCameraStatsSampled:
 
         with caplog.at_level(logging.INFO):
             builder._log_camera_stats_sampled(
-                camera_key=Cameras.LEFT.value, normalizer=normalizer,
+                camera_key=Cameras.LEFT.value,
+                normalizer=normalizer,
             )
 
         assert "empty array" in caplog.text
 
 
 class TestLogNormalizedProprioStats:
-
     def test_logs_before_and_after_normalization_stats(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
@@ -607,7 +628,8 @@ class TestLogNormalizedProprioStats:
 
         with caplog.at_level(logging.INFO):
             builder._log_normalized_proprio_stats(
-                normalizer=normalizer, proprio_data=proprio_data,
+                normalizer=normalizer,
+                proprio_data=proprio_data,
             )
 
         assert "before normalization" in caplog.text
@@ -615,11 +637,12 @@ class TestLogNormalizedProprioStats:
 
 
 class TestCreateNormalizer:
-
     def test_fits_normalizer_with_observation_and_action_data(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
         rng: np.random.Generator,
     ):
@@ -631,15 +654,22 @@ class TestCreateNormalizer:
             replay_buffer_data={"position": position_data},
         )
 
-        action_meta = {"position": on_the_fly_action_metadata_factory(
-            source_metadata=position_source,
-        )}
+        action_meta = {
+            "position": on_the_fly_action_metadata_factory(
+                source_metadata=position_source,
+            )
+        }
         action_data = {"position": rng.standard_normal((99, 3)).astype(np.float32)}
 
         mock_normalizer = MagicMock()
-        with patch("versatil.data.transform_builder.LinearNormalizer", return_value=mock_normalizer), \
-             patch.object(builder, "_setup_image_normalizers") as mock_setup_images, \
-             patch.object(builder, "_log_normalized_proprio_stats") as mock_log_stats:
+        with (
+            patch(
+                "versatil.data.transform_builder.LinearNormalizer",
+                return_value=mock_normalizer,
+            ),
+            patch.object(builder, "_setup_image_normalizers") as mock_setup_images,
+            patch.object(builder, "_log_normalized_proprio_stats") as mock_log_stats,
+        ):
             normalizer = builder._create_normalizer(
                 action_data=action_data,
                 action_meta=action_meta,
@@ -654,7 +684,9 @@ class TestCreateNormalizer:
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         rng: np.random.Generator,
     ):
         position_data = rng.standard_normal((100, 3)).astype(np.float32)
@@ -670,9 +702,14 @@ class TestCreateNormalizer:
         )
 
         mock_normalizer = MagicMock()
-        with patch("versatil.data.transform_builder.LinearNormalizer", return_value=mock_normalizer), \
-             patch.object(builder, "_setup_image_normalizers"), \
-             patch.object(builder, "_log_normalized_proprio_stats"):
+        with (
+            patch(
+                "versatil.data.transform_builder.LinearNormalizer",
+                return_value=mock_normalizer,
+            ),
+            patch.object(builder, "_setup_image_normalizers"),
+            patch.object(builder, "_log_normalized_proprio_stats"),
+        ):
             builder._create_normalizer(action_data={}, action_meta={})
 
         fit_call_data = mock_normalizer.fit.call_args[1]["data"]
@@ -704,20 +741,30 @@ class TestCreateNormalizer:
     def test_skips_observations_not_needing_normalization(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         rng: np.random.Generator,
     ):
         no_norm_position = position_observation_metadata_factory(
-            dimension=3, needs_normalization=False,
+            dimension=3,
+            needs_normalization=False,
         )
         builder = transform_builder_factory(
             observations_metadata={"position": no_norm_position},
-            replay_buffer_data={"position": rng.standard_normal((100, 3)).astype(np.float32)},
+            replay_buffer_data={
+                "position": rng.standard_normal((100, 3)).astype(np.float32)
+            },
         )
         mock_normalizer = MagicMock()
-        with patch("versatil.data.transform_builder.LinearNormalizer", return_value=mock_normalizer), \
-             patch.object(builder, "_setup_image_normalizers"), \
-             patch.object(builder, "_log_normalized_proprio_stats"):
+        with (
+            patch(
+                "versatil.data.transform_builder.LinearNormalizer",
+                return_value=mock_normalizer,
+            ),
+            patch.object(builder, "_setup_image_normalizers"),
+            patch.object(builder, "_log_normalized_proprio_stats"),
+        ):
             builder._create_normalizer(action_data={}, action_meta={})
 
         fit_call_data = mock_normalizer.fit.call_args[1]["data"]
@@ -725,11 +772,12 @@ class TestCreateNormalizer:
 
 
 class TestCreateNormalizerAndTokenizer:
-
     def test_returns_normalizer_and_none_tokenizer_when_no_config(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
         rng: np.random.Generator,
     ):
@@ -751,9 +799,11 @@ class TestCreateNormalizerAndTokenizer:
         # Mock action processor to return valid data
         builder.action_processor.compute_sample_actions.return_value = (
             {"position": rng.standard_normal((99, 3)).astype(np.float32)},
-            {"position": on_the_fly_action_metadata_factory(
-                source_metadata=position_source,
-            )},
+            {
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_source,
+                )
+            },
         )
 
         normalizer, tokenizer = builder.create_normalizer_and_tokenizer()
@@ -764,7 +814,9 @@ class TestCreateNormalizerAndTokenizer:
     def test_masks_cross_episode_transitions_in_action_data(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
         rng: np.random.Generator,
     ):
@@ -789,9 +841,11 @@ class TestCreateNormalizerAndTokenizer:
 
         builder.action_processor.compute_sample_actions.return_value = (
             {"position": all_actions},
-            {"position": on_the_fly_action_metadata_factory(
-                source_metadata=position_source,
-            )},
+            {
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_source,
+                )
+            },
         )
 
         normalizer, _ = builder.create_normalizer_and_tokenizer()
@@ -803,7 +857,6 @@ class TestCreateNormalizerAndTokenizer:
 
 
 class TestCreateTokenizer:
-
     def test_raises_when_observation_tokenizer_config_missing(
         self,
         transform_builder_factory: Callable[..., TransformBuilder],
@@ -815,7 +868,9 @@ class TestCreateTokenizer:
 
         builder = transform_builder_factory(tokenization_config=mock_config)
 
-        with pytest.raises(ValueError, match="observation_tokenizer config must be provided"):
+        with pytest.raises(
+            ValueError, match="observation_tokenizer config must be provided"
+        ):
             builder._create_tokenizer(
                 normalizer=MagicMock(),
                 action_data={},
@@ -833,7 +888,9 @@ class TestCreateTokenizer:
 
         builder = transform_builder_factory(tokenization_config=mock_config)
 
-        with pytest.raises(ValueError, match="action_tokenizer config must be provided"):
+        with pytest.raises(
+            ValueError, match="action_tokenizer config must be provided"
+        ):
             builder._create_tokenizer(
                 normalizer=MagicMock(),
                 action_data={},
@@ -854,9 +911,16 @@ class TestCreateTokenizer:
 
         builder = transform_builder_factory(tokenization_config=mock_config)
 
-        with patch("versatil.data.transform_builder.ObservationTokenizer", return_value=mock_obs_instance) as mock_obs_class, \
-             patch("versatil.data.transform_builder.Tokenizer") as mock_tokenizer_class:
-            builder._create_tokenizer(normalizer=MagicMock(), action_data={}, action_meta={})
+        with (
+            patch(
+                "versatil.data.transform_builder.ObservationTokenizer",
+                return_value=mock_obs_instance,
+            ) as mock_obs_class,
+            patch("versatil.data.transform_builder.Tokenizer") as mock_tokenizer_class,
+        ):
+            builder._create_tokenizer(
+                normalizer=MagicMock(), action_data={}, action_meta={}
+            )
 
         mock_obs_class.assert_called_once()
         mock_tokenizer_class.assert_called_once_with(
@@ -877,9 +941,16 @@ class TestCreateTokenizer:
 
         builder = transform_builder_factory(tokenization_config=mock_config)
 
-        with patch("versatil.data.transform_builder.ActionTokenizer", return_value=mock_action_instance) as mock_action_class, \
-             patch("versatil.data.transform_builder.Tokenizer") as mock_tokenizer_class:
-            builder._create_tokenizer(normalizer=MagicMock(), action_data={}, action_meta={})
+        with (
+            patch(
+                "versatil.data.transform_builder.ActionTokenizer",
+                return_value=mock_action_instance,
+            ) as mock_action_class,
+            patch("versatil.data.transform_builder.Tokenizer") as mock_tokenizer_class,
+        ):
+            builder._create_tokenizer(
+                normalizer=MagicMock(), action_data={}, action_meta={}
+            )
 
         mock_action_class.assert_called_once()
         mock_action_instance.fit.assert_not_called()
@@ -911,9 +982,16 @@ class TestCreateTokenizer:
         action_data = {"position": rng.standard_normal((9, 3)).astype(np.float32)}
         action_meta = {"position": action_metadata}
 
-        with patch("versatil.data.transform_builder.ActionTokenizer", return_value=mock_action_instance), \
-             patch("versatil.data.transform_builder.Tokenizer"):
-            builder._create_tokenizer(normalizer=MagicMock(), action_data=action_data, action_meta=action_meta)
+        with (
+            patch(
+                "versatil.data.transform_builder.ActionTokenizer",
+                return_value=mock_action_instance,
+            ),
+            patch("versatil.data.transform_builder.Tokenizer"),
+        ):
+            builder._create_tokenizer(
+                normalizer=MagicMock(), action_data=action_data, action_meta=action_meta
+            )
 
         mock_action_instance.fit.assert_called_once()
 
@@ -932,10 +1010,17 @@ class TestCreateTokenizer:
 
         builder = transform_builder_factory(tokenization_config=mock_config)
 
-        with patch("versatil.data.transform_builder.ObservationTokenizer", return_value=mock_obs_instance), \
-             patch("versatil.data.transform_builder.Tokenizer"), \
-             caplog.at_level(logging.WARNING):
-            builder._create_tokenizer(normalizer=MagicMock(), action_data={}, action_meta={})
+        with (
+            patch(
+                "versatil.data.transform_builder.ObservationTokenizer",
+                return_value=mock_obs_instance,
+            ),
+            patch("versatil.data.transform_builder.Tokenizer"),
+            caplog.at_level(logging.WARNING),
+        ):
+            builder._create_tokenizer(
+                normalizer=MagicMock(), action_data={}, action_meta={}
+            )
 
         assert "pass-through" in caplog.text
         mock_obs_instance.fit.assert_called_with({})

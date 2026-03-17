@@ -1,4 +1,5 @@
 """Tests for versatil.data.action_processor module."""
+
 import logging
 from collections.abc import Callable
 
@@ -45,7 +46,6 @@ def action_processor_factory(
 
 
 class TestActionProcessorInitialization:
-
     def test_properties_stored_from_action_space(
         self,
         action_processor_factory: Callable[..., ActionProcessor],
@@ -87,9 +87,10 @@ class TestActionProcessorInitialization:
 
 
 class TestComputePositionAction:
-
     def test_delta_method_returns_difference(self):
-        current_position = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32)
+        current_position = np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32
+        )
         next_position = np.array([[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]], dtype=np.float32)
 
         result = ActionProcessor.compute_position_action_from_observation(
@@ -123,7 +124,6 @@ class TestComputePositionAction:
 
 
 class TestComputeOrientationAction:
-
     def test_next_timestep_returns_next_for_any_representation(
         self,
         action_processor_factory: Callable[..., ActionProcessor],
@@ -259,7 +259,6 @@ class TestComputeOrientationAction:
 
 
 class TestComputeGripperAction:
-
     def test_binary_next_timestep_returns_next(self):
         current_gripper = np.array([[0]], dtype=np.float32)
         next_gripper = np.array([[1]], dtype=np.float32)
@@ -320,11 +319,12 @@ class TestComputeGripperAction:
 
 
 class TestComputeActionOnTheFly:
-
     def test_dispatches_to_position(
         self,
         action_processor_factory: Callable[..., ActionProcessor],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
     ):
         processor = action_processor_factory()
@@ -337,7 +337,9 @@ class TestComputeActionOnTheFly:
         next_obs = np.array([[1.0, 2.0, 3.0]], dtype=np.float32)
 
         result = processor.compute_action_on_the_fly(
-            current_obs=current, next_obs=next_obs, metadata=metadata,
+            current_obs=current,
+            next_obs=next_obs,
+            metadata=metadata,
         )
 
         np.testing.assert_allclose(result, [[1.0, 2.0, 3.0]])
@@ -345,7 +347,9 @@ class TestComputeActionOnTheFly:
     def test_dispatches_to_orientation(
         self,
         action_processor_factory: Callable[..., ActionProcessor],
-        orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+        orientation_observation_metadata_factory: Callable[
+            ..., OrientationObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
     ):
         processor = action_processor_factory()
@@ -358,7 +362,9 @@ class TestComputeActionOnTheFly:
         next_obs = np.array([[1.0]], dtype=np.float32)
 
         result = processor.compute_action_on_the_fly(
-            current_obs=current, next_obs=next_obs, metadata=metadata,
+            current_obs=current,
+            next_obs=next_obs,
+            metadata=metadata,
         )
 
         np.testing.assert_allclose(result, [[0.5]])
@@ -381,17 +387,20 @@ class TestComputeActionOnTheFly:
         next_obs = np.array([[1]], dtype=np.float32)
 
         result = processor.compute_action_on_the_fly(
-            current_obs=current, next_obs=next_obs, metadata=metadata,
+            current_obs=current,
+            next_obs=next_obs,
+            metadata=metadata,
         )
 
         np.testing.assert_array_equal(result, [[1]])
-
 
     def test_unsupported_action_type_raises(
         self,
         action_processor_factory: Callable[..., ActionProcessor],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
     ):
         processor = action_processor_factory()
         metadata = on_the_fly_action_metadata_factory(
@@ -409,11 +418,12 @@ class TestComputeActionOnTheFly:
 
 
 class TestComputeDenosingThreshold:
-
     def test_computes_threshold_from_position_observations(
         self,
         action_processor_factory: Callable[..., ActionProcessor],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
     ):
         processor = action_processor_factory(
             denoise_actions=True,
@@ -421,13 +431,16 @@ class TestComputeDenosingThreshold:
         )
         position_metadata = position_observation_metadata_factory(dimension=3)
         # 5 timesteps, all within one episode
-        observation_data = np.array([
-            [0.0, 0.0, 0.0],
-            [0.001, 0.001, 0.001],
-            [1.0, 1.0, 1.0],
-            [2.0, 2.0, 2.0],
-            [3.0, 3.0, 3.0],
-        ], dtype=np.float32)
+        observation_data = np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [0.001, 0.001, 0.001],
+                [1.0, 1.0, 1.0],
+                [2.0, 2.0, 2.0],
+                [3.0, 3.0, 3.0],
+            ],
+            dtype=np.float32,
+        )
         episode_ends = np.array([5])
 
         processor.compute_denoising_threshold(
@@ -441,12 +454,16 @@ class TestComputeDenosingThreshold:
         assert processor.denoising_thresholds["position"] > 0
         assert processor._denoising_thresholds_computed is True
         assert "position" in processor.dataset_magnitudes
-        assert len(processor.dataset_magnitudes["position"]) == 4  # 5 timesteps → 4 deltas
+        assert (
+            len(processor.dataset_magnitudes["position"]) == 4
+        )  # 5 timesteps → 4 deltas
 
     def test_masks_cross_episode_transitions(
         self,
         action_processor_factory: Callable[..., ActionProcessor],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
     ):
         processor = action_processor_factory(
             denoise_actions=True,
@@ -455,7 +472,9 @@ class TestComputeDenosingThreshold:
         position_metadata = position_observation_metadata_factory(dimension=1)
         # Two episodes: [0, 1, 2] and [100, 101, 102]
         # Cross-episode delta (2→100) should be excluded
-        observation_data = np.array([[0], [1], [2], [100], [101], [102]], dtype=np.float32)
+        observation_data = np.array(
+            [[0], [1], [2], [100], [101], [102]], dtype=np.float32
+        )
         episode_ends = np.array([3, 6])
 
         processor.compute_denoising_threshold(
@@ -472,7 +491,9 @@ class TestComputeDenosingThreshold:
     def test_skips_non_position_metadata(
         self,
         action_processor_factory: Callable[..., ActionProcessor],
-        orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+        orientation_observation_metadata_factory: Callable[
+            ..., OrientationObservationMetadata
+        ],
     ):
         processor = action_processor_factory(denoise_actions=True)
         orientation_metadata = orientation_observation_metadata_factory()
@@ -488,7 +509,6 @@ class TestComputeDenosingThreshold:
 
 
 class TestApplyDeltaDenoising:
-
     def test_zeroes_movements_below_threshold(
         self,
         action_processor_factory: Callable[..., ActionProcessor],
@@ -498,10 +518,13 @@ class TestApplyDeltaDenoising:
         processor._denoising_thresholds_computed = True
 
         current_values = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], dtype=np.float32)
-        next_values = np.array([
-            [0.001, 0.001, 0.001],  # norm ~0.0017, below threshold
-            [1.0, 1.0, 1.0],       # norm ~1.73, above threshold
-        ], dtype=np.float32)
+        next_values = np.array(
+            [
+                [0.001, 0.001, 0.001],  # norm ~0.0017, below threshold
+                [1.0, 1.0, 1.0],  # norm ~1.73, above threshold
+            ],
+            dtype=np.float32,
+        )
 
         denoised_next, _ = processor.apply_delta_denoising(
             next_values=next_values,
@@ -566,7 +589,6 @@ class TestApplyDeltaDenoising:
 
 
 class TestComputeSampleActions:
-
     def test_extracts_precomputed_actions_from_padded_data(
         self,
         action_processor_factory: Callable[..., ActionProcessor],
@@ -593,7 +615,9 @@ class TestComputeSampleActions:
     def test_computes_on_the_fly_position_actions(
         self,
         action_processor_factory: Callable[..., ActionProcessor],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
     ):
         position_metadata = on_the_fly_action_metadata_factory(
@@ -621,7 +645,9 @@ class TestComputeSampleActions:
     def test_applies_denoising_to_position_actions(
         self,
         action_processor_factory: Callable[..., ActionProcessor],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
     ):
         position_metadata = on_the_fly_action_metadata_factory(
@@ -654,7 +680,9 @@ class TestComputeSampleActions:
     def test_denoising_not_applied_to_orientation_actions(
         self,
         action_processor_factory: Callable[..., ActionProcessor],
-        orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+        orientation_observation_metadata_factory: Callable[
+            ..., OrientationObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
     ):
         orientation_metadata = on_the_fly_action_metadata_factory(
@@ -685,7 +713,9 @@ class TestComputeSampleActions:
     def test_mixed_precomputed_and_on_the_fly(
         self,
         action_processor_factory: Callable[..., ActionProcessor],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
         gripper_action_metadata_factory: Callable[..., GripperActionMetadata],
     ):
@@ -720,7 +750,6 @@ class TestComputeSampleActions:
 
 
 class TestLogMovementDistribution:
-
     def test_logs_stats_for_each_key(
         self,
         action_processor_factory: Callable[..., ActionProcessor],
@@ -758,7 +787,6 @@ class TestLogMovementDistribution:
 
 
 class TestPlotActionMagnitudeDistribution:
-
     def test_returns_none_when_no_thresholds(
         self,
         action_processor_factory: Callable[..., ActionProcessor],

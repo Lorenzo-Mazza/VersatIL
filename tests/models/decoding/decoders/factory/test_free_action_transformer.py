@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.decoders.factory.free_action_transformer module."""
+
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock
@@ -16,7 +17,6 @@ from versatil.models.decoding.decoders.factory.free_action_transformer import (
 )
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.free_transformer.free_transformer import FreeTransformer
-
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 2
@@ -91,7 +91,6 @@ def free_transformer_factory(
 
 
 class TestFreeActionTransformerInitialization:
-
     def test_inherits_from_action_decoder(
         self,
         free_transformer_factory: Callable[..., FreeActionTransformer],
@@ -177,10 +176,13 @@ class TestFreeActionTransformerInitialization:
         decoder = free_transformer_factory()
         assert decoder.token_embedding is None
 
-    @pytest.mark.parametrize("learnable_temperature, expected_requires_grad", [
-        (True, True),
-        (False, False),
-    ])
+    @pytest.mark.parametrize(
+        "learnable_temperature, expected_requires_grad",
+        [
+            (True, True),
+            (False, False),
+        ],
+    )
     def test_temperature_is_parameter(
         self,
         free_transformer_factory: Callable[..., FreeActionTransformer],
@@ -195,7 +197,6 @@ class TestFreeActionTransformerInitialization:
 
 
 class TestFreeActionTransformerSetTokenizer:
-
     def test_raises_without_tokenizer(
         self,
         free_transformer_factory: Callable[..., FreeActionTransformer],
@@ -263,7 +264,6 @@ class TestFreeActionTransformerSetTokenizer:
 
 
 class TestFreeActionTransformerForward:
-
     def test_training_output_keys(
         self,
         free_transformer_factory: Callable[..., FreeActionTransformer],
@@ -426,13 +426,15 @@ class TestFreeActionTransformerForward:
             vocab_size=VOCAB_SIZE,
         )
         expected_token_length = SPATIAL_HEIGHT * SPATIAL_WIDTH + ACTION_TOKEN_LENGTH
-        with pytest.raises(
-            ValueError,
-            match=re.escape(
-                f"Input token length {expected_token_length} > max_seq_len {small_max_seq_len}. "
-                "No room for any action tokens. "
-                "Consider increasing max_seq_len or reducing feature token count."
+        with (
+            pytest.raises(
+                ValueError,
+                match=re.escape(
+                    f"Input token length {expected_token_length} > max_seq_len {small_max_seq_len}. "
+                    "No room for any action tokens. "
+                    "Consider increasing max_seq_len or reducing feature token count."
+                ),
             ),
+            torch.no_grad(),
         ):
-            with torch.no_grad():
-                decoder(features=features, actions=actions)
+            decoder(features=features, actions=actions)

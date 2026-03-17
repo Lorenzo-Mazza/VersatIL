@@ -1,4 +1,5 @@
 """Attention masking for models with bidirectional prefix and causal action tokens."""
+
 import torch
 
 
@@ -68,9 +69,9 @@ def make_attention_mask(
     full_padding_mask = full_padding_mask | key_padding_mask_4d.expand(
         -1, -1, total_len, -1
     )  # (B, 1, total_len, total_len)
-    full_padding_mask[
-        :, :, :prefix_len, prefix_len:
-    ] = True  # Prefix tokens cannot attend to future action tokens
+    full_padding_mask[:, :, :prefix_len, prefix_len:] = (
+        True  # Prefix tokens cannot attend to future action tokens
+    )
     return (
         full_padding_mask,
         key_padding_mask,

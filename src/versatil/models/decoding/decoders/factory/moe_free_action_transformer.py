@@ -14,7 +14,6 @@ from versatil.models.decoding.decoders import ActionDecoder
 from versatil.models.decoding.decoders.factory.free_action_transformer import (
     FreeActionTransformer,
 )
-from versatil.models.layers.swiglu import SwiGLU
 
 
 class MoEFreeActionTransformer(FreeActionTransformer):
@@ -200,7 +199,9 @@ class MoEFreeActionTransformer(FreeActionTransformer):
             return_latent_embeddings=True,
         )
         # Shift alignment: grabs outputs from the last feature to the penultimate action so step t predicts target t+1.
-        action_outputs = decoder_output[:, prefix_len - 1 : -1, :] # (B, action_token_len, D)
+        action_outputs = decoder_output[
+            :, prefix_len - 1 : -1, :
+        ]  # (B, action_token_len, D)
         gating_logits = self.expert_gating_projection(
             latent_embeddings
         )  # Global latent (B, 1, num_experts)

@@ -40,7 +40,6 @@ def mock_action_tokenizer():
 
 
 class TestTokenizerInit:
-
     def test_stores_observation_tokenizer(self, mock_observation_tokenizer):
         observation_tokenizer = mock_observation_tokenizer(vocab_size=30000)
         tokenizer = Tokenizer(observation_tokenizer=observation_tokenizer)
@@ -70,7 +69,6 @@ class TestTokenizerInit:
 
 
 class TestTokenizerVocabSize:
-
     def test_observation_vocab_size_delegates_to_tokenizer(
         self, mock_observation_tokenizer
     ):
@@ -93,7 +91,6 @@ class TestTokenizerVocabSize:
 
 
 class TestTokenizerTo:
-
     def test_to_calls_observation_tokenizer_to(
         self, mock_observation_tokenizer, device
     ):
@@ -132,7 +129,6 @@ class TestTokenizerTo:
 
 
 class TestTokenizerSavePretrained:
-
     def test_creates_directory(self, tmp_path):
         tokenizer = Tokenizer()
         save_path = tmp_path / "tokenizer"
@@ -200,9 +196,7 @@ class TestTokenizerSavePretrained:
                 f"Saved observation tokenizer to {save_path / 'observation_tokenizer'}"
             )
 
-    def test_save_logs_info_for_action_tokenizer(
-        self, mock_action_tokenizer, tmp_path
-    ):
+    def test_save_logs_info_for_action_tokenizer(self, mock_action_tokenizer, tmp_path):
         action_tokenizer = mock_action_tokenizer()
         tokenizer = Tokenizer(action_tokenizer=action_tokenizer)
         save_path = tmp_path / "tokenizer"
@@ -214,7 +208,6 @@ class TestTokenizerSavePretrained:
 
 
 class TestTokenizerFromPretrained:
-
     def test_raises_file_not_found_for_nonexistent_path(self):
         with pytest.raises(FileNotFoundError, match="Tokenizer path not found"):
             Tokenizer.from_pretrained("/nonexistent/path")
@@ -287,7 +280,6 @@ class TestTokenizerFromPretrained:
 
 
 class TestValidateTokenizerConfig:
-
     def test_tokenize_observations_without_config_raises(self):
         config = TokenizationConfig(
             tokenize_observations=True,

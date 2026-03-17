@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+
 from versatil.data.constants import TokenizerType
 from versatil.models.encoding.encoders.constants import LanguageEncoderType
 

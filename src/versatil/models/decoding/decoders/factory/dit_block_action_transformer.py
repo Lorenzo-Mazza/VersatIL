@@ -5,7 +5,6 @@ Supports encoder caching for inference optimization.
 """
 
 import logging
-from typing import Optional
 
 import torch
 from torch import nn
@@ -13,12 +12,13 @@ from torch import nn
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.constants import DecoderOutputKey, FeatureType
-from versatil.models.decoding.decoders.base import DecoderInput, ActionDecoder
+from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers import MLP
 from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.diffusion_transformer import DiTBlock
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
@@ -26,7 +26,6 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
 
 class DiTBlockActionTransformer(ActionDecoder):
@@ -180,7 +179,7 @@ class DiTBlockActionTransformer(ActionDecoder):
             ).to_torch_activation(),
             dropout=self.dropout_rate,
         )
-        self._encoder_cache: Optional[torch.Tensor] = None
+        self._encoder_cache: torch.Tensor | None = None
         self._caching_enabled: bool = False
         self.to(self.device)
 

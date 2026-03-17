@@ -5,10 +5,10 @@ Note:
     imported from ``versatil_constants`` — the single source of truth shared
     across all projects in the ecosystem.
 """
+
 import enum
 
 from versatil_constants.libero import LiberoCamera
-from versatil_constants.metaworld import MetaWorldCamera
 from versatil_constants.shared import (  # noqa: F401
     ActionComponent,
     ActionComputationMethod,
@@ -28,7 +28,9 @@ class Cameras(enum.Enum):
     LEFT = TSOCamera.LEFT.value
     RIGHT = TSOCamera.RIGHT.value
     DEPTH = TSOCamera.DEPTH.value
-    AGENTVIEW = LiberoCamera.AGENTVIEW.value # MetaWorldCamera.AGENTVIEW.value is identical
+    AGENTVIEW = (
+        LiberoCamera.AGENTVIEW.value
+    )  # MetaWorldCamera.AGENTVIEW.value is identical
     EYE_IN_HAND = LiberoCamera.EYE_IN_HAND.value
 
 
@@ -78,6 +80,7 @@ RAW_TO_CAMERA_MAPPING: dict[str, str] = {
 
 class ProprioKey(str, enum.Enum):
     """Proprioceptive observation keys for all supported environments."""
+
     # TSO datasets proprioceptive keys
     ROBOT_FRAME_CARTESIAN_TIP_POS = "proprio_robot_frame"
     ROBOT_FRAME_CARTESIAN_TIP_ORI = "tip_ori_robot_frame"

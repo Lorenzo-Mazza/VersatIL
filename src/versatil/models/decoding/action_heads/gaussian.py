@@ -3,8 +3,8 @@
 import torch
 from torch import nn
 
-from versatil.models.decoding.action_heads.blocks import ActionHeadBlock
 from versatil.models.decoding.action_heads import BaseActionHead
+from versatil.models.decoding.action_heads.blocks import ActionHeadBlock
 from versatil.models.decoding.constants import DecoderOutputKey
 
 

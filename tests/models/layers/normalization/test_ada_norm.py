@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.normalization.ada_norm module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -32,7 +33,6 @@ def ada_norm_factory() -> Callable[..., AdaNorm]:
 
 
 class TestAdaNormInitialization:
-
     @pytest.mark.parametrize("condition_dim", [16, 64])
     @pytest.mark.parametrize("feature_dim", [32, 128])
     @pytest.mark.parametrize("use_gate", [True, False])
@@ -63,10 +63,14 @@ class TestAdaNormInitialization:
     ):
         feature_dim = 64
         norm = ada_norm_factory(
-            condition_dim=32, feature_dim=feature_dim, use_gate=use_gate,
+            condition_dim=32,
+            feature_dim=feature_dim,
+            use_gate=use_gate,
         )
         tensor = sequence_tensor_factory(
-            batch_size=2, sequence_length=8, embedding_dimension=feature_dim,
+            batch_size=2,
+            sequence_length=8,
+            embedding_dimension=feature_dim,
         )
         condition = condition_factory(batch_size=2, condition_dim=32)
         # Both "identity" (no gate) and "zero" (gate) init zero out weights
@@ -82,7 +86,6 @@ class TestAdaNormInitialization:
 
 
 class TestAdaNormForward:
-
     @pytest.mark.parametrize("batch_size, sequence_length", [(2, 6), (4, 10)])
     def test_output_shape_without_gate(
         self,
@@ -94,7 +97,9 @@ class TestAdaNormForward:
     ):
         feature_dim = 64
         norm = ada_norm_factory(
-            condition_dim=32, feature_dim=feature_dim, use_gate=False,
+            condition_dim=32,
+            feature_dim=feature_dim,
+            use_gate=False,
         )
         features = sequence_tensor_factory(
             batch_size=batch_size,
@@ -115,7 +120,9 @@ class TestAdaNormForward:
         batch_size = 2
         sequence_length = 8
         norm = ada_norm_factory(
-            condition_dim=32, feature_dim=feature_dim, use_gate=True,
+            condition_dim=32,
+            feature_dim=feature_dim,
+            use_gate=True,
         )
         features = sequence_tensor_factory(
             batch_size=batch_size,
@@ -137,10 +144,14 @@ class TestAdaNormForward:
     ):
         feature_dim = 64
         norm = ada_norm_factory(
-            condition_dim=32, feature_dim=feature_dim, use_gate=False,
+            condition_dim=32,
+            feature_dim=feature_dim,
+            use_gate=False,
         )
         features = sequence_tensor_factory(
-            batch_size=2, sequence_length=8, embedding_dimension=feature_dim,
+            batch_size=2,
+            sequence_length=8,
+            embedding_dimension=feature_dim,
         )
         condition = condition_factory(batch_size=2, condition_dim=32)
         base_norm = nn.LayerNorm(feature_dim, elementwise_affine=False)
@@ -158,14 +169,18 @@ class TestAdaNormForward:
     ):
         feature_dim = 64
         norm = ada_norm_factory(
-            condition_dim=32, feature_dim=feature_dim, use_gate=False,
+            condition_dim=32,
+            feature_dim=feature_dim,
+            use_gate=False,
         )
         # Set modulation weights to nonzero so conditioning has effect
         for layer in norm.modulation.projection.modules():
             if hasattr(layer, "weight"):
                 nn.init.xavier_uniform_(layer.weight)
         features = sequence_tensor_factory(
-            batch_size=2, sequence_length=8, embedding_dimension=feature_dim,
+            batch_size=2,
+            sequence_length=8,
+            embedding_dimension=feature_dim,
         )
         condition_a = condition_factory(batch_size=2, condition_dim=32)
         condition_b = condition_factory(batch_size=2, condition_dim=32)
@@ -189,7 +204,9 @@ class TestAdaNormForward:
             base_norm=rms_base,
         )
         features = sequence_tensor_factory(
-            batch_size=2, sequence_length=8, embedding_dimension=feature_dim,
+            batch_size=2,
+            sequence_length=8,
+            embedding_dimension=feature_dim,
         )
         condition = condition_factory(batch_size=2, condition_dim=32)
         with torch.no_grad():

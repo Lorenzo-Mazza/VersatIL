@@ -13,16 +13,16 @@ from pathlib import Path
 from typing import Any
 
 import albumentations as A
+import av
 import cv2
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from versatil.data.constants import ObsKey, LeRobotPathsV30
+from versatil.data.constants import LeRobotPathsV30, ObsKey
 from versatil.data.metadata import CameraMetadata
 from versatil.data.raw.schemas.base import DatasetSchema
 from versatil.data.raw.zarr_meta import DatasetMetadata
-import av
 
 
 def decode_video_frames(
@@ -380,7 +380,7 @@ class LeRobotDatasetSchemaV30(DatasetSchema):
         if video_keys:
             # Use episode timestamps to query video frames
             timestamps = episode_table["timestamp"].to_pylist()
-            query_timestamps = {k: timestamps for k in video_keys}
+            query_timestamps = dict.fromkeys(video_keys, timestamps)
             frames = self._get_frames_from_videos(query_timestamps, episode_id)
 
         return frames

@@ -2,6 +2,7 @@
 
 IMPORTANT: geomloss is imported lazily to avoid PyKeOps JIT compilation overhead.
 """
+
 import torch
 
 from versatil.metrics import BaseLoss, LossOutput, MetadataKey, MetricKey
@@ -56,16 +57,14 @@ class OptimalTransportLoss(BaseLoss):
         self.time_scale = time_scale
         # Lazy import to avoid PyKeOps compilation overhead unless this loss is used
         try:
-            from geomloss import SamplesLoss
+            from geomloss import SamplesLoss  # noqa: PLC0415
         except ImportError as e:
             raise ImportError(
                 "OptimalTransportLoss requires geomloss and pykeops. "
                 "Install with: pip install geomloss pykeops"
             ) from e
 
-        self.ot = SamplesLoss(
-            loss="sinkhorn", p=p, blur=epsilon ** (1 / p)
-        )
+        self.ot = SamplesLoss(loss="sinkhorn", p=p, blur=epsilon ** (1 / p))
 
     def get_required_keys(self) -> set[str]:
         """Gets the required keys for predictions and targets.
@@ -101,21 +100,38 @@ class OptimalTransportLoss(BaseLoss):
                 raise ValueError(
                     f"Predictions and targets must contain key '{action_key}' for Optimal Transport Loss."
                 )
-        total_predictions = torch.cat([predictions[k] for k in self.action_keys], dim=-1) # (B, horizon, action_total_dim)
-        total_targets = torch.cat([targets[k] for k in self.action_keys], dim=-1) # (B, horizon, action_total_dim)
+        total_predictions = torch.cat(
+            [predictions[k] for k in self.action_keys], dim=-1
+        )  # (B, horizon, action_total_dim)
+        total_targets = torch.cat(
+            [targets[k] for k in self.action_keys], dim=-1
+        )  # (B, horizon, action_total_dim)
         batch_size, horizon, _ = total_predictions.shape
-        time_embeddings = torch.linspace(0, 1, steps=horizon, device=total_predictions.device)
+        time_embeddings = torch.linspace(
+            0, 1, steps=horizon, device=total_predictions.device
+        )
         time_embeddings = time_embeddings.view(1, horizon, 1).expand(batch_size, -1, -1)
         time_embeddings = time_embeddings * self.time_scale
-        predictions_with_time = torch.cat([total_predictions, time_embeddings], dim=-1) # (B, horizon, action_total_dim + 1)
-        targets_with_time = torch.cat([total_targets, time_embeddings], dim=-1) # (B, horizon, action_total_dim + 1)
+        predictions_with_time = torch.cat(
+            [total_predictions, time_embeddings], dim=-1
+        )  # (B, horizon, action_total_dim + 1)
+        targets_with_time = torch.cat(
+            [total_targets, time_embeddings], dim=-1
+        )  # (B, horizon, action_total_dim + 1)
         if is_pad is None:
-            is_pad = torch.zeros((batch_size, horizon), dtype=torch.bool, device=total_predictions.device)
-        weights = (~is_pad).float() # 1.0 for valid points, 0.0 for padded points
+            is_pad = torch.zeros(
+                (batch_size, horizon), dtype=torch.bool, device=total_predictions.device
+            )
+        weights = (~is_pad).float()  # 1.0 for valid points, 0.0 for padded points
         weight_sums = weights.sum(dim=1, keepdim=True).clamp(min=1e-6)
         normalized_weights = weights / weight_sums
         # We need to pass (Weights_X, Samples_X, Weights_Y, Samples_Y) as args here because of GeomLoss API
-        ot_loss = self.ot(normalized_weights, predictions_with_time, normalized_weights, targets_with_time).mean()
+        ot_loss = self.ot(
+            normalized_weights,
+            predictions_with_time,
+            normalized_weights,
+            targets_with_time,
+        ).mean()
         return LossOutput(
             total_loss=self.weight * ot_loss,
             component_losses={MetricKey.OPTIMAL_TRANSPORT_LOSS.value: ot_loss},
@@ -144,7 +160,7 @@ class LatentOptimalTransportLoss(BaseLoss):
         super().__init__()
         self.weight = weight
         try:
-            from geomloss import SamplesLoss
+            from geomloss import SamplesLoss  # noqa: PLC0415
         except ImportError as e:
             raise ImportError(
                 "LatentOptimalTransportLoss requires geomloss and pykeops. "

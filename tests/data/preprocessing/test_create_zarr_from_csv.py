@@ -1,4 +1,5 @@
 """Tests for versatil.data.preprocessing.create_zarr_from_csv module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -13,7 +14,6 @@ from versatil.data.preprocessing.create_zarr_from_csv import (
 
 
 class TestIterCsvEpisodes:
-
     @patch("versatil.data.preprocessing.create_zarr_from_csv.pd.read_csv")
     def test_yields_one_episode_per_csv_path(
         self,
@@ -94,7 +94,6 @@ class TestIterCsvEpisodes:
 
 
 class TestCreateReplayBuffer:
-
     @patch("versatil.data.preprocessing.create_zarr_from_csv.A.Resize")
     @patch("versatil.data.preprocessing.create_zarr_from_csv.create_zarr_replay_buffer")
     def test_cameras_with_dimensions_creates_resize_transforms(
@@ -120,7 +119,9 @@ class TestCreateReplayBuffer:
         assert mock_resize_class.call_count == 2
         mock_resize_class.assert_any_call(height=96, width=128)
         mock_resize_class.assert_any_call(
-            height=96, width=128, interpolation=cv2.INTER_NEAREST,
+            height=96,
+            width=128,
+            interpolation=cv2.INTER_NEAREST,
         )
 
     @patch("versatil.data.preprocessing.create_zarr_from_csv.create_zarr_replay_buffer")

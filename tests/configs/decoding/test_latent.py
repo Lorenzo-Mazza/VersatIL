@@ -1,4 +1,5 @@
 """Tests for versatil.configs.decoding.latent module."""
+
 import pytest
 from hydra.utils import instantiate
 from omegaconf import MISSING
@@ -24,7 +25,6 @@ from versatil.models.layers.denoising.diffusion_process import SchedulerType
 
 @pytest.mark.unit
 class TestPosteriorLatentEncoderConfig:
-
     def test_target_defaults_to_missing(self):
         config = PosteriorLatentEncoderConfig()
         assert config._target_ == MISSING
@@ -36,7 +36,6 @@ class TestPosteriorLatentEncoderConfig:
 
 @pytest.mark.unit
 class TestPriorLatentEncoderConfig:
-
     def test_target_defaults_to_missing(self):
         config = PriorLatentEncoderConfig()
         assert config._target_ == MISSING
@@ -48,7 +47,6 @@ class TestPriorLatentEncoderConfig:
 
 @pytest.mark.unit
 class TestVAETransformerEncoderConfig:
-
     def test_target_points_to_vae_transformer_encoder(self):
         config = VAETransformerEncoderConfig(
             latent_dimension=32, embedding_dimension=256
@@ -100,7 +98,6 @@ class TestVAETransformerEncoderConfig:
 
 @pytest.mark.unit
 class TestGaussianPriorConfig:
-
     def test_target_points_to_gaussian_prior(self):
         config = GaussianPriorConfig(latent_dimension=32)
         assert (
@@ -120,7 +117,6 @@ class TestGaussianPriorConfig:
 
 @pytest.mark.unit
 class TestPriorTransformerEncoderConfig:
-
     def test_target_points_to_prior_transformer_encoder(self):
         config = PriorTransformerEncoderConfig(
             latent_dimension=32, embedding_dimension=256
@@ -148,7 +144,6 @@ class TestPriorTransformerEncoderConfig:
 
 @pytest.mark.unit
 class TestVampPriorConfig:
-
     def test_target_points_to_vamp_prior(self):
         config = VampPriorConfig(latent_dimension=32)
         assert (
@@ -158,9 +153,7 @@ class TestVampPriorConfig:
 
     @pytest.mark.parametrize("num_components", [20, 100])
     def test_stores_num_components(self, num_components):
-        config = VampPriorConfig(
-            latent_dimension=32, num_components=num_components
-        )
+        config = VampPriorConfig(latent_dimension=32, num_components=num_components)
         assert config.num_components == num_components
 
     def test_inherits_from_prior_config(self):
@@ -170,7 +163,6 @@ class TestVampPriorConfig:
 
 @pytest.mark.unit
 class TestDiTPriorConfig:
-
     def test_target_points_to_dit_prior(self):
         config = DiTPriorConfig(latent_dimension=32)
         assert (
@@ -204,9 +196,7 @@ class TestDiTPriorConfig:
 
     @pytest.mark.parametrize("use_gating", [True, False])
     def test_stores_gating_option(self, use_gating):
-        config = DiTPriorConfig(
-            latent_dimension=32, use_gating=use_gating
-        )
+        config = DiTPriorConfig(latent_dimension=32, use_gating=use_gating)
         assert config.use_gating == use_gating
 
     def test_inherits_from_prior_config(self):
@@ -216,7 +206,6 @@ class TestDiTPriorConfig:
 
 @pytest.mark.unit
 class TestLatentInstantiation:
-
     def test_gaussian_prior_instantiates(self):
         config = GaussianPriorConfig(latent_dimension=32, device="cpu")
         instance = instantiate(config)
@@ -224,10 +213,14 @@ class TestLatentInstantiation:
 
     def test_vae_transformer_encoder_instantiates(self):
         config = VAETransformerEncoderConfig(
-            latent_dimension=32, embedding_dimension=128,
-            prediction_horizon=16, observation_horizon=1,
-            device="cpu", number_of_heads=4,
-            feedforward_dimension=256, number_of_encoder_layers=2,
+            latent_dimension=32,
+            embedding_dimension=128,
+            prediction_horizon=16,
+            observation_horizon=1,
+            device="cpu",
+            number_of_heads=4,
+            feedforward_dimension=256,
+            number_of_encoder_layers=2,
             dropout_rate=0.1,
         )
         instance = instantiate(config)

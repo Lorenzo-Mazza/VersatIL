@@ -5,20 +5,19 @@ zarr v3 allowed dtypes are defined here https://zarr-specs.readthedocs.io/en/lat
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.data.constants import RAW_TO_CAMERA_MAPPING
 from versatil.data.metadata import (
-    ObservationMetadata,
-    PositionObservationMetadata,
-    OrientationObservationMetadata,
-    GripperObservationMetadata,
     CameraMetadata,
-    PrecomputedActionMetadata,
-    PositionActionMetadata,
-    OrientationActionMetadata,
     GripperActionMetadata,
+    GripperObservationMetadata,
+    ObservationMetadata,
+    OrientationActionMetadata,
+    OrientationObservationMetadata,
+    PositionActionMetadata,
+    PositionObservationMetadata,
+    PrecomputedActionMetadata,
 )
 
 
@@ -212,13 +211,11 @@ class DatasetMetadata:
         """Check if dataset has any precomputed actions."""
         return len(self.precomputed_actions) > 0
 
-    def get_precomputed_action(self, key: str) -> Optional[PrecomputedActionMetadata]:
+    def get_precomputed_action(self, key: str) -> PrecomputedActionMetadata | None:
         """Get a specific precomputed action by key."""
         return self.precomputed_actions.get(key)
 
-    def get_observation(
-        self, key: str
-    ) -> Optional[ObservationMetadata | CameraMetadata]:
+    def get_observation(self, key: str) -> ObservationMetadata | CameraMetadata | None:
         """Get a specific observation by key."""
         return self.observations.get(key)
 

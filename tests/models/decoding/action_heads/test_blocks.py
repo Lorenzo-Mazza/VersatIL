@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.action_heads.blocks module."""
+
 import re
 from collections.abc import Callable
 
@@ -17,6 +18,7 @@ from versatil.models.layers.activation import ActivationFunction
 @pytest.fixture
 def mlp_block_factory() -> Callable[..., MLPBlock]:
     """Factory for MLPBlock instances."""
+
     def factory(
         input_dim: int = 64,
         hidden_dims: list[int] | None = None,
@@ -35,12 +37,14 @@ def mlp_block_factory() -> Callable[..., MLPBlock]:
             dropout=dropout,
             normalization=normalization,
         )
+
     return factory
 
 
 @pytest.fixture
 def attention_block_factory() -> Callable[..., AttentionBlock]:
     """Factory for AttentionBlock instances."""
+
     def factory(
         embedding_dimension: int = 64,
         num_heads: int = 4,
@@ -53,17 +57,20 @@ def attention_block_factory() -> Callable[..., AttentionBlock]:
             dropout=dropout,
             normalization=normalization,
         )
+
     return factory
 
 
 class TestMLPBlockInitialization:
-
     @pytest.mark.parametrize("input_dim", [32, 128])
-    @pytest.mark.parametrize("hidden_dims, output_dim, expected_output_dim", [
-        ([32], None, 32),
-        ([64, 32], None, 32),
-        (None, 16, 16),
-    ])
+    @pytest.mark.parametrize(
+        "hidden_dims, output_dim, expected_output_dim",
+        [
+            ([32], None, 32),
+            ([64, 32], None, 32),
+            (None, 16, 16),
+        ],
+    )
     def test_stores_configuration(
         self,
         mlp_block_factory: Callable[..., MLPBlock],
@@ -87,10 +94,13 @@ class TestMLPBlockInitialization:
         ):
             MLPBlock(input_dim=64, hidden_dims=None, output_dim=None)
 
-    @pytest.mark.parametrize("normalization, expected_type", [
-        (True, nn.LayerNorm),
-        (False, nn.Identity),
-    ])
+    @pytest.mark.parametrize(
+        "normalization, expected_type",
+        [
+            (True, nn.LayerNorm),
+            (False, nn.Identity),
+        ],
+    )
     def test_normalization_layer(
         self,
         mlp_block_factory: Callable[..., MLPBlock],
@@ -102,12 +112,14 @@ class TestMLPBlockInitialization:
 
 
 class TestMLPBlockForward:
-
-    @pytest.mark.parametrize("hidden_dims, output_dim", [
-        ([32], None),
-        ([64, 16], None),
-        (None, 48),
-    ])
+    @pytest.mark.parametrize(
+        "hidden_dims, output_dim",
+        [
+            ([32], None),
+            ([64, 16], None),
+            (None, 48),
+        ],
+    )
     def test_output_shape(
         self,
         mlp_block_factory: Callable[..., MLPBlock],
@@ -141,7 +153,6 @@ class TestMLPBlockForward:
 
 
 class TestAttentionBlockInitialization:
-
     @pytest.mark.parametrize("embedding_dimension", [32, 128])
     def test_stores_dimensions(
         self,
@@ -152,10 +163,13 @@ class TestAttentionBlockInitialization:
         assert block.input_dim == embedding_dimension
         assert block.output_dim == embedding_dimension
 
-    @pytest.mark.parametrize("normalization, expected_type", [
-        (True, nn.LayerNorm),
-        (False, nn.Identity),
-    ])
+    @pytest.mark.parametrize(
+        "normalization, expected_type",
+        [
+            (True, nn.LayerNorm),
+            (False, nn.Identity),
+        ],
+    )
     def test_normalization_layer(
         self,
         attention_block_factory: Callable[..., AttentionBlock],
@@ -167,7 +181,6 @@ class TestAttentionBlockInitialization:
 
 
 class TestAttentionBlockForward:
-
     def test_output_shape_preserves_input_shape(
         self,
         attention_block_factory: Callable[..., AttentionBlock],
@@ -192,7 +205,6 @@ class TestAttentionBlockForward:
 
 
 class TestResidualBlockInitialization:
-
     @pytest.mark.parametrize("dim", [32, 64])
     def test_stores_configuration(self, dim: int):
         inner = MLPBlock(input_dim=dim, hidden_dims=[dim])
@@ -205,13 +217,14 @@ class TestResidualBlockInitialization:
         inner = MLPBlock(input_dim=64, hidden_dims=[32])
         with pytest.raises(
             ValueError,
-            match=re.escape("Input and output dimensions must match for ResidualBlock."),
+            match=re.escape(
+                "Input and output dimensions must match for ResidualBlock."
+            ),
         ):
             ResidualBlock(block=inner)
 
 
 class TestResidualBlockForward:
-
     def test_output_shape_preserves_input_shape(
         self,
         embedding_tensor_factory: Callable[..., torch.Tensor],

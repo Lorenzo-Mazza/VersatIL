@@ -1,5 +1,4 @@
 """Root test fixtures shared across the entire test suite."""
-import versatil  # noqa: F401 — triggers dotenv loading and cache directory setup
 
 from collections.abc import Callable
 from typing import Any
@@ -8,6 +7,7 @@ import numpy as np
 import pytest
 import torch
 
+import versatil  # noqa: F401 — triggers dotenv loading and cache directory setup
 from versatil.data.constants import (
     ActionComputationMethod,
     BinaryGripperRange,
@@ -132,7 +132,9 @@ def action_tensor_factory(
 
 
 @pytest.fixture
-def position_observation_metadata_factory() -> Callable[..., PositionObservationMetadata]:
+def position_observation_metadata_factory() -> Callable[
+    ..., PositionObservationMetadata
+]:
     def factory(
         dimension: int = 3,
         frame: str = CoordinateSystem.ROBOT_BASE.value,
@@ -153,11 +155,14 @@ def position_observation_metadata_factory() -> Callable[..., PositionObservation
             slice_start=slice_start,
             slice_end=slice_end,
         )
+
     return factory
 
 
 @pytest.fixture
-def orientation_observation_metadata_factory() -> Callable[..., OrientationObservationMetadata]:
+def orientation_observation_metadata_factory() -> Callable[
+    ..., OrientationObservationMetadata
+]:
     def factory(
         dimension: int = 1,
         frame: str = CoordinateSystem.ROBOT_BASE.value,
@@ -180,6 +185,7 @@ def orientation_observation_metadata_factory() -> Callable[..., OrientationObser
             slice_start=slice_start,
             slice_end=slice_end,
         )
+
     return factory
 
 
@@ -213,6 +219,7 @@ def gripper_observation_metadata_factory() -> Callable[..., GripperObservationMe
             gripper_type=gripper_type,
             binary_gripper_range=binary_gripper_range,
         )
+
     return factory
 
 
@@ -232,6 +239,7 @@ def camera_metadata_factory() -> Callable[..., CameraMetadata]:
             image_width=image_width,
             image_height=image_height,
         )
+
     return factory
 
 
@@ -251,6 +259,7 @@ def on_the_fly_action_metadata_factory(
             source_metadata=source_metadata,
             computation_method=computation_method,
         )
+
     return factory
 
 
@@ -286,6 +295,7 @@ def gripper_action_metadata_factory() -> Callable[..., GripperActionMetadata]:
             dtype=dtype,
             binary_gripper_range=binary_gripper_range,
         )
+
     return factory
 
 
@@ -305,6 +315,7 @@ def action_space_factory() -> Callable[..., ActionSpace]:
             denoise_actions=denoise_actions,
             denoising_percentile=denoising_percentile,
         )
+
     return factory
 
 
@@ -332,6 +343,7 @@ def position_action_metadata_factory() -> Callable[..., PositionActionMetadata]:
             slice_start=slice_start,
             slice_end=slice_end,
         )
+
     return factory
 
 
@@ -361,6 +373,7 @@ def orientation_action_metadata_factory() -> Callable[..., OrientationActionMeta
             slice_start=slice_start,
             slice_end=slice_end,
         )
+
     return factory
 
 
@@ -372,4 +385,5 @@ def observation_space_factory() -> Callable[..., ObservationSpace]:
         if observations_metadata is None:
             observations_metadata = {}
         return ObservationSpace(observations_metadata=observations_metadata)
+
     return factory

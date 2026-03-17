@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.detr_transformer.attention module."""
+
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -15,7 +16,6 @@ TARGET_LENGTH = 6
 
 
 class TestFlashAttentionInitialization:
-
     @pytest.mark.parametrize("embedding_dimension", [EMBEDDING_DIMENSION, 128])
     @pytest.mark.parametrize("number_of_heads", [NUMBER_OF_HEADS, 8])
     @pytest.mark.parametrize("dropout", [0.0, 0.1])
@@ -36,22 +36,33 @@ class TestFlashAttentionInitialization:
         assert attention.head_size == embedding_dimension // number_of_heads
         assert attention.dropout == dropout
 
-    @pytest.mark.parametrize("embedding_dimension, number_of_heads, expectation", [
-        (64, 4, does_not_raise()),
-        (128, 8, does_not_raise()),
-        (64, 3, pytest.raises(
-            ValueError,
-            match=re.escape(
-                "Attention layer embedding_dimension must be divisible by number_of_heads."
+    @pytest.mark.parametrize(
+        "embedding_dimension, number_of_heads, expectation",
+        [
+            (64, 4, does_not_raise()),
+            (128, 8, does_not_raise()),
+            (
+                64,
+                3,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Attention layer embedding_dimension must be divisible by number_of_heads."
+                    ),
+                ),
             ),
-        )),
-        (64, 5, pytest.raises(
-            ValueError,
-            match=re.escape(
-                "Attention layer embedding_dimension must be divisible by number_of_heads."
+            (
+                64,
+                5,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Attention layer embedding_dimension must be divisible by number_of_heads."
+                    ),
+                ),
             ),
-        )),
-    ])
+        ],
+    )
     def test_embedding_dimension_divisibility_validation(
         self,
         embedding_dimension: int,
@@ -89,7 +100,6 @@ class TestFlashAttentionInitialization:
 
 
 class TestFlashAttentionForward:
-
     def test_self_attention_output_shape(
         self,
         flash_attention_factory: Callable[..., FlashAttention],
@@ -263,7 +273,6 @@ class TestFlashAttentionForward:
 
 
 class TestFlashAttentionMasking:
-
     def test_key_padding_mask_suppresses_padded_positions(
         self,
         flash_attention_factory: Callable[..., FlashAttention],
@@ -433,7 +442,6 @@ class TestFlashAttentionMasking:
 
 
 class TestFlashAttentionTraining:
-
     def test_dropout_disabled_during_eval(
         self,
         flash_attention_factory: Callable[..., FlashAttention],

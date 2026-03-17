@@ -1,4 +1,5 @@
 """Tests for versatil.configs.decoding.action_head module."""
+
 import pytest
 from hydra.utils import instantiate
 from omegaconf import MISSING
@@ -17,7 +18,6 @@ from versatil.models.decoding.constants import MoERoutingType
 
 @pytest.mark.unit
 class TestActionHeadBlockConfig:
-
     def test_target_defaults_to_missing(self):
         config = ActionHeadBlockConfig()
         assert config._target_ == MISSING
@@ -25,7 +25,6 @@ class TestActionHeadBlockConfig:
 
 @pytest.mark.unit
 class TestMLPBlockConfig:
-
     def test_target_points_to_mlp_block(self):
         config = MLPBlockConfig(input_dim=256)
         assert config._target_ == "versatil.models.decoding.action_heads.MLPBlock"
@@ -48,7 +47,6 @@ class TestMLPBlockConfig:
 
 @pytest.mark.unit
 class TestAttentionBlockConfig:
-
     def test_target_points_to_attention_block(self):
         config = AttentionBlockConfig(embedding_dimension=256)
         assert config._target_ == "versatil.models.decoding.action_heads.AttentionBlock"
@@ -65,11 +63,8 @@ class TestAttentionBlockConfig:
 
 @pytest.mark.unit
 class TestResidualBlockConfig:
-
     def test_target_points_to_residual_block(self):
-        config = ResidualBlockConfig(
-            block=MLPBlockConfig(input_dim=256)
-        )
+        config = ResidualBlockConfig(block=MLPBlockConfig(input_dim=256))
         assert config._target_ == "versatil.models.decoding.action_heads.ResidualBlock"
 
     def test_block_required(self):
@@ -79,7 +74,6 @@ class TestResidualBlockConfig:
 
 @pytest.mark.unit
 class TestActionHeadConfig:
-
     def test_target_points_to_action_head(self):
         config = ActionHeadConfig(input_dim=256)
         assert config._target_ == "versatil.models.decoding.action_heads.ActionHead"
@@ -95,7 +89,6 @@ class TestActionHeadConfig:
 
 @pytest.mark.unit
 class TestGaussianHeadConfig:
-
     def test_target_points_to_gaussian_head(self):
         config = GaussianHeadConfig(input_dim=256)
         assert config._target_ == "versatil.models.decoding.action_heads.GaussianHead"
@@ -112,7 +105,6 @@ class TestGaussianHeadConfig:
 
 @pytest.mark.unit
 class TestMixtureOfExpertsHeadConfig:
-
     def test_target_points_to_moe_head(self):
         config = MixtureOfExpertsHeadConfig(num_experts=3)
         assert config._target_ == "versatil.models.decoding.action_heads.MoEHead"
@@ -146,7 +138,6 @@ class TestMixtureOfExpertsHeadConfig:
 
 @pytest.mark.unit
 class TestActionHeadInstantiation:
-
     def test_action_head_instantiates(self):
         config = ActionHeadConfig(input_dim=64)
         instance = instantiate(config)

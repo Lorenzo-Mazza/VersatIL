@@ -1,4 +1,5 @@
 """Tests for Hydra YAML configuration composition and validation."""
+
 import glob
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
@@ -11,10 +12,12 @@ import versatil.configs  # noqa: F401 — registers ConfigStore entries
 
 HYDRA_CONFIGS_ROOT = str(Path(__file__).parents[2] / "hydra_configs")
 
-ALL_YAML_FILES = sorted(glob.glob(
-    str(Path(HYDRA_CONFIGS_ROOT) / "**" / "*.yaml"),
-    recursive=True,
-))
+ALL_YAML_FILES = sorted(
+    glob.glob(
+        str(Path(HYDRA_CONFIGS_ROOT) / "**" / "*.yaml"),
+        recursive=True,
+    )
+)
 
 ALL_CONFIG_IDS = [
     str(Path(p).relative_to(HYDRA_CONFIGS_ROOT)).removesuffix(".yaml")
@@ -24,7 +27,6 @@ ALL_CONFIG_IDS = [
 
 @pytest.mark.unit
 class TestHydraComposition:
-
     @pytest.mark.parametrize("config_name", ALL_CONFIG_IDS)
     def test_composes_without_error(self, config_name: str):
         with initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None):
@@ -34,7 +36,6 @@ class TestHydraComposition:
 
 @pytest.mark.unit
 class TestHydraConfigValidation:
-
     @pytest.mark.parametrize(
         "config_name, overrides, expectation",
         [
@@ -223,8 +224,8 @@ class TestHydraConfigValidation:
         overrides: list[str],
         expectation: object,
     ):
-        with initialize_config_dir(
-            config_dir=HYDRA_CONFIGS_ROOT, version_base=None
+        with (
+            initialize_config_dir(config_dir=HYDRA_CONFIGS_ROOT, version_base=None),
+            expectation,
         ):
-            with expectation:
-                compose(config_name=config_name, overrides=overrides)
+            compose(config_name=config_name, overrides=overrides)

@@ -1,4 +1,4 @@
-"""Fixed Gaussian prior for variational inference.
+r"""Fixed Gaussian prior for variational inference.
 
 This module implements a standard Gaussian N(0, I) prior for latent variable models.
 Unlike learned priors (e.g., DiffusionPrior), this prior requires no training and

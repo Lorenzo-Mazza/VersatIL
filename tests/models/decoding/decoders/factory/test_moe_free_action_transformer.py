@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.decoders.factory.moe_free_action_transformer module."""
+
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock
@@ -17,7 +18,6 @@ from versatil.models.decoding.decoders.factory.free_action_transformer import (
 from versatil.models.decoding.decoders.factory.moe_free_action_transformer import (
     MoEFreeActionTransformer,
 )
-
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 2
@@ -45,9 +45,7 @@ def moe_head_factory(
         input_dim: int = EMBEDDING_DIMENSION,
         num_experts: int = NUM_EXPERTS,
     ) -> MoEHead:
-        experts = [
-            action_head_factory(input_dim=input_dim) for _ in range(num_experts)
-        ]
+        experts = [action_head_factory(input_dim=input_dim) for _ in range(num_experts)]
         return MoEHead(experts=experts)
 
     return factory
@@ -103,7 +101,6 @@ def moe_free_transformer_factory(
 
 
 class TestMoEFreeActionTransformerInitialization:
-
     def test_inherits_from_free_action_transformer(
         self,
         moe_free_transformer_factory: Callable[..., MoEFreeActionTransformer],
@@ -117,9 +114,10 @@ class TestMoEFreeActionTransformerInitialization:
     ):
         decoder = moe_free_transformer_factory()
         assert isinstance(decoder.moe_action_head, MoEHead)
-        assert decoder.moe_action_head is decoder.action_heads[
-            DecoderOutputKey.ACTION_LOGITS.value
-        ]
+        assert (
+            decoder.moe_action_head
+            is decoder.action_heads[DecoderOutputKey.ACTION_LOGITS.value]
+        )
 
     def test_expert_gating_projection_initially_none(
         self,
@@ -145,7 +143,6 @@ class TestMoEFreeActionTransformerInitialization:
 
 
 class TestMoEFreeActionTransformerSetTokenizer:
-
     def test_raises_without_tokenizer(
         self,
         moe_free_transformer_factory: Callable[..., MoEFreeActionTransformer],
@@ -235,7 +232,6 @@ class TestMoEFreeActionTransformerSetTokenizer:
 
 
 class TestMoEFreeActionTransformerForward:
-
     def test_raises_if_sequence_too_long(
         self,
         moe_free_transformer_factory: Callable[..., MoEFreeActionTransformer],
@@ -255,7 +251,9 @@ class TestMoEFreeActionTransformerForward:
             width=SPATIAL_WIDTH,
         )
         actions = tokenized_actions_factory()
-        expected_token_length = SPATIAL_HEIGHT * SPATIAL_WIDTH + 8  # feature + action tokens
+        expected_token_length = (
+            SPATIAL_HEIGHT * SPATIAL_WIDTH + 8
+        )  # feature + action tokens
         with pytest.raises(
             ValueError,
             match=re.escape(

@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.algorithm.variational module."""
+
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock
@@ -25,6 +26,7 @@ def mock_posterior_factory(
     rng: np.random.Generator,
 ) -> Callable[..., MagicMock]:
     """Factory for mock PosteriorLatentEncoder."""
+
     def factory(
         latent_dimension: int = LATENT_DIMENSION,
         device: str = "cpu",
@@ -40,6 +42,7 @@ def mock_posterior_factory(
             LatentKey.POSTERIOR_LOGVAR.value: torch.zeros(2, latent_dimension),
         }
         return posterior
+
     return factory
 
 
@@ -48,6 +51,7 @@ def mock_prior_factory(
     rng: np.random.Generator,
 ) -> Callable[..., MagicMock]:
     """Factory for mock PriorLatentEncoder."""
+
     def factory(
         latent_dimension: int = LATENT_DIMENSION,
         include_prior_latent: bool = True,
@@ -67,18 +71,21 @@ def mock_prior_factory(
             rng.standard_normal((2, latent_dimension)).astype(np.float32)
         )
         return prior
+
     return factory
 
 
 @pytest.fixture
 def mock_base_algorithm_factory() -> Callable[..., MagicMock]:
     """Factory for mock base DecodingAlgorithm."""
+
     def factory() -> MagicMock:
         algorithm = MagicMock(spec=DecodingAlgorithm)
         algorithm.forward.return_value = {
             "position_action": torch.zeros(2, 8, 3),
         }
         return algorithm
+
     return factory
 
 
@@ -89,6 +96,7 @@ def variational_factory(
     mock_base_algorithm_factory: Callable[..., MagicMock],
 ) -> Callable[..., VariationalAlgorithm]:
     """Factory for VariationalAlgorithm instances with mocked dependencies."""
+
     def factory(
         base_algorithm: MagicMock | None = None,
         posterior_encoder: MagicMock | None = None,
@@ -99,7 +107,9 @@ def variational_factory(
         if base_algorithm is None:
             base_algorithm = mock_base_algorithm_factory()
         if posterior_encoder is None:
-            posterior_encoder = mock_posterior_factory(latent_dimension=latent_dimension)
+            posterior_encoder = mock_posterior_factory(
+                latent_dimension=latent_dimension
+            )
         if prior is None:
             prior = mock_prior_factory(latent_dimension=latent_dimension)
         return VariationalAlgorithm(
@@ -108,11 +118,11 @@ def variational_factory(
             prior=prior,
             sampling_from_prior_probability=sampling_from_prior_probability,
         )
+
     return factory
 
 
 class TestVariationalAlgorithmInitialization:
-
     def test_inherits_from_decoding_algorithm(
         self,
         variational_factory: Callable[..., VariationalAlgorithm],
@@ -203,7 +213,6 @@ class TestVariationalAlgorithmInitialization:
 
 
 class TestVariationalAlgorithmForward:
-
     def test_raises_without_actions(
         self,
         variational_factory: Callable[..., VariationalAlgorithm],
@@ -232,7 +241,9 @@ class TestVariationalAlgorithmForward:
         network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         actions = action_dictionary_factory(
-            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
         )
         algo.forward(network=network, features=features, actions=actions)
         algo.posterior_encoder.encode.assert_called_once()
@@ -248,7 +259,9 @@ class TestVariationalAlgorithmForward:
         network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         actions = action_dictionary_factory(
-            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
         )
         algo.forward(network=network, features=features, actions=actions)
         algo.prior.forward.assert_called_once()
@@ -271,7 +284,9 @@ class TestVariationalAlgorithmForward:
         network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         actions = action_dictionary_factory(
-            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
         )
         algo.forward(network=network, features=features, actions=actions)
         # The target_latents passed to prior.forward should be detached
@@ -290,7 +305,9 @@ class TestVariationalAlgorithmForward:
         network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         actions = action_dictionary_factory(
-            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
         )
         algo.forward(network=network, features=features, actions=actions)
         algo.base_algorithm.forward.assert_called_once()
@@ -306,7 +323,9 @@ class TestVariationalAlgorithmForward:
         network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         actions = action_dictionary_factory(
-            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
         )
         algo.forward(network=network, features=features, actions=actions)
         features_passed = algo.base_algorithm.forward.call_args.kwargs["features"]
@@ -323,7 +342,9 @@ class TestVariationalAlgorithmForward:
         network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         actions = action_dictionary_factory(
-            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
         )
         result = algo.forward(network=network, features=features, actions=actions)
         assert LatentKey.POSTERIOR_LATENT.value in result
@@ -341,7 +362,9 @@ class TestVariationalAlgorithmForward:
         network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         actions = action_dictionary_factory(
-            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
         )
         result = algo.forward(network=network, features=features, actions=actions)
         assert LatentKey.PRIOR_MU.value in result
@@ -359,12 +382,16 @@ class TestVariationalAlgorithmForward:
         network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         actions = action_dictionary_factory(
-            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
         )
         algo.forward(network=network, features=features, actions=actions)
         features_passed = algo.base_algorithm.forward.call_args.kwargs["features"]
         # With p_prior=0.0, latent should be from posterior
-        posterior_z = algo.posterior_encoder.encode.return_value[LatentKey.POSTERIOR_LATENT.value]
+        posterior_z = algo.posterior_encoder.encode.return_value[
+            LatentKey.POSTERIOR_LATENT.value
+        ]
         assert torch.equal(
             features_passed[LatentKey.POSTERIOR_LATENT.value],
             posterior_z,
@@ -382,7 +409,9 @@ class TestVariationalAlgorithmForward:
         network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         actions = action_dictionary_factory(
-            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
         )
         algo.forward(network=network, features=features, actions=actions)
         features_passed = algo.base_algorithm.forward.call_args.kwargs["features"]
@@ -405,7 +434,9 @@ class TestVariationalAlgorithmForward:
         network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         actions = action_dictionary_factory(
-            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
         )
         algo.forward(network=network, features=features, actions=actions)
         features_passed = algo.base_algorithm.forward.call_args.kwargs["features"]
@@ -434,14 +465,15 @@ class TestVariationalAlgorithmForward:
         network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         actions = action_dictionary_factory(
-            action_keys=["position_action"], prediction_horizon=8, action_dimension=3,
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
         )
         algo.forward(network=network, features=features, actions=actions)
         prior.sample_prior.assert_called_once()
 
 
 class TestVariationalAlgorithmPredict:
-
     def test_samples_from_prior(
         self,
         variational_factory: Callable[..., VariationalAlgorithm],

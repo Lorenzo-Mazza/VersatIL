@@ -1,17 +1,16 @@
 """Tests for versatil.common.omegaconf_ops module."""
+
 import pytest
 
 from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.configs import register_resolvers
 from versatil.data.constants import Cameras
 
-
 register_resolvers()
 
 
 @pytest.mark.unit
 class TestResolveDictKeys:
-
     def test_plain_string_keys_returned_unchanged(self):
         input_dict = {"key_a": 1, "key_b": 2}
         result = resolve_dict_keys(input_dict)
@@ -45,13 +44,7 @@ class TestResolveDictKeys:
         assert result[Cameras.LEFT.value] == "value"
 
     def test_deeply_nested_dicts_resolved(self):
-        input_dict = {
-            "level1": {
-                "level2": {
-                    "level3": "deep_value"
-                }
-            }
-        }
+        input_dict = {"level1": {"level2": {"level3": "deep_value"}}}
         result = resolve_dict_keys(input_dict)
         assert result["level1"]["level2"]["level3"] == "deep_value"
 

@@ -1,20 +1,19 @@
 """Tests for versatil.models.layers.diffusion_transformer.mmdit_layer module."""
+
 from collections.abc import Callable
 
 import pytest
 import torch
 
+from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.diffusion_transformer.mmdit_layer import MMDiTLayer
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.swiglu import SwiGLU
 
-from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
-
 
 @pytest.fixture
 def mmdit_layer_factory() -> Callable[..., MMDiTLayer]:
-
     def factory(
         embedding_dimension: int = 32,
         conditioning_dimension: int = 32,
@@ -48,7 +47,6 @@ def mmdit_layer_factory() -> Callable[..., MMDiTLayer]:
 
 
 class TestMMDiTLayerInitialization:
-
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("use_gating", [True, False])
     @pytest.mark.parametrize("use_query_key_norm", [True, False])
@@ -72,8 +70,8 @@ class TestMMDiTLayerInitialization:
         mmdit_layer_factory: Callable[..., MMDiTLayer],
     ):
         layer = mmdit_layer_factory()
-        assert layer.feedforward_observation[-1].SQUARE_ROOT_WEIGHT == True
-        assert layer.feedforward_action[-1].SQUARE_ROOT_WEIGHT == True
+        assert layer.feedforward_observation[-1].SQUARE_ROOT_WEIGHT is True
+        assert layer.feedforward_action[-1].SQUARE_ROOT_WEIGHT is True
 
     @pytest.mark.parametrize(
         "activation",
@@ -104,7 +102,10 @@ class TestMMDiTLayerInitialization:
         )
         # With non-SwiGLU activation, the first linear maps to feedforward_dimension
         expected_feedforward_dimension = 4 * embedding_dimension
-        assert layer.feedforward_observation[0].out_features == expected_feedforward_dimension
+        assert (
+            layer.feedforward_observation[0].out_features
+            == expected_feedforward_dimension
+        )
 
     def test_explicit_feedforward_dimension_overrides_default(
         self,
@@ -119,7 +120,6 @@ class TestMMDiTLayerInitialization:
 
 
 class TestMMDiTLayerForward:
-
     @pytest.mark.parametrize(
         "batch_size, observation_length, action_length, embedding_dimension",
         [

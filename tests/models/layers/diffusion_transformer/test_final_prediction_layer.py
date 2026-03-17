@@ -1,20 +1,19 @@
 """Tests for versatil.models.layers.diffusion_transformer.final_prediction_layer module."""
+
 from collections.abc import Callable
 
 import pytest
 import torch
 
+from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
     FinalPredictionLayer,
 )
 
-from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
-
 
 @pytest.fixture
 def final_prediction_layer_factory() -> Callable[..., FinalPredictionLayer]:
-
     def factory(
         hidden_dimension: int = 32,
         output_dimension: int = 7,
@@ -30,7 +29,6 @@ def final_prediction_layer_factory() -> Callable[..., FinalPredictionLayer]:
 
 
 class TestFinalPredictionLayerInitialization:
-
     @pytest.mark.parametrize("hidden_dimension", [32, 64])
     @pytest.mark.parametrize("output_dimension", [7, 14])
     def test_stores_configuration(
@@ -73,7 +71,6 @@ class TestFinalPredictionLayerInitialization:
 
 
 class TestFinalPredictionLayerForward:
-
     @pytest.mark.parametrize(
         "batch_size, sequence_length, hidden_dimension, output_dimension",
         [

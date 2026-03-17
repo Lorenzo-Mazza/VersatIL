@@ -1,4 +1,5 @@
 """Tests for versatil.configs.training module."""
+
 import dataclasses
 
 import pytest
@@ -15,7 +16,6 @@ from versatil.configs.training import (
 
 @pytest.mark.unit
 class TestParameterGroupConfig:
-
     @pytest.mark.parametrize("name", ["backbone", "decoder"])
     @pytest.mark.parametrize("learning_rate", [1e-5, 1e-3])
     def test_stores_configuration(self, name, learning_rate):
@@ -25,9 +25,7 @@ class TestParameterGroupConfig:
 
     @pytest.mark.parametrize("weight_decay", [None, 1e-4])
     def test_stores_optional_weight_decay(self, weight_decay):
-        config = ParameterGroupConfig(
-            name="group", lr=1e-4, weight_decay=weight_decay
-        )
+        config = ParameterGroupConfig(name="group", lr=1e-4, weight_decay=weight_decay)
         assert config.weight_decay == weight_decay
 
     @pytest.mark.parametrize("params_pattern", [None, "backbone.*"])
@@ -40,11 +38,9 @@ class TestParameterGroupConfig:
 
 @pytest.mark.unit
 class TestOptimizerConfig:
-
-    def test_target_class_is_required(self):
-        # target_class uses dataclasses.MISSING, making it a required positional arg
-        with pytest.raises(TypeError, match="target_class"):
-            OptimizerConfig()
+    def test_target_class_defaults_to_missing(self):
+        config = OptimizerConfig()
+        assert config.target_class == "???"
 
     @pytest.mark.parametrize("learning_rate", [1e-4, 1e-3])
     def test_stores_learning_rate(self, learning_rate):
@@ -60,9 +56,7 @@ class TestOptimizerConfig:
             ParameterGroupConfig(name="backbone", lr=1e-5),
             ParameterGroupConfig(name="decoder", lr=1e-4),
         ]
-        config = OptimizerConfig(
-            target_class="torch.optim.AdamW", param_groups=groups
-        )
+        config = OptimizerConfig(target_class="torch.optim.AdamW", param_groups=groups)
         assert len(config.param_groups) == 2
         assert config.param_groups[0].name == "backbone"
         assert config.param_groups[1].name == "decoder"
@@ -70,7 +64,6 @@ class TestOptimizerConfig:
 
 @pytest.mark.unit
 class TestAdamWConfig:
-
     def test_target_class_points_to_adamw(self):
         config = AdamWConfig()
         assert config.target_class == "torch.optim.AdamW"
@@ -79,9 +72,7 @@ class TestAdamWConfig:
     @pytest.mark.parametrize("weight_decay", [1e-4, 0.0])
     @pytest.mark.parametrize("betas", [(0.9, 0.999), (0.95, 0.999)])
     def test_stores_configuration(self, learning_rate, weight_decay, betas):
-        config = AdamWConfig(
-            lr=learning_rate, weight_decay=weight_decay, betas=betas
-        )
+        config = AdamWConfig(lr=learning_rate, weight_decay=weight_decay, betas=betas)
         assert config.lr == learning_rate
         assert config.weight_decay == weight_decay
         assert config.betas == betas
@@ -93,7 +84,6 @@ class TestAdamWConfig:
 
 @pytest.mark.unit
 class TestAdamConfig:
-
     def test_target_class_points_to_adam(self):
         config = AdamConfig()
         assert config.target_class == "torch.optim.Adam"
@@ -112,7 +102,6 @@ class TestAdamConfig:
 
 @pytest.mark.unit
 class TestSGDConfig:
-
     def test_target_class_points_to_sgd(self):
         config = SGDConfig()
         assert config.target_class == "torch.optim.SGD"
@@ -121,9 +110,7 @@ class TestSGDConfig:
     @pytest.mark.parametrize("momentum", [0.0, 0.9])
     @pytest.mark.parametrize("nesterov", [True, False])
     def test_stores_configuration(self, learning_rate, momentum, nesterov):
-        config = SGDConfig(
-            lr=learning_rate, momentum=momentum, nesterov=nesterov
-        )
+        config = SGDConfig(lr=learning_rate, momentum=momentum, nesterov=nesterov)
         assert config.lr == learning_rate
         assert config.momentum == momentum
         assert config.nesterov == nesterov
@@ -135,7 +122,6 @@ class TestSGDConfig:
 
 @pytest.mark.unit
 class TestTrainingConfig:
-
     @pytest.mark.parametrize("num_epochs", [50, 200])
     @pytest.mark.parametrize("use_ema", [True, False])
     @pytest.mark.parametrize("clip_gradient_norm", [True, False])

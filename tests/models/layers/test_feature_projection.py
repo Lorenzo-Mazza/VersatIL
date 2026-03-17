@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.feature_projection module."""
+
 import re
 from collections.abc import Callable
 
@@ -13,6 +14,7 @@ from versatil.models.layers.feature_projection import FeatureProjection
 @pytest.fixture
 def feature_projection_factory() -> Callable[..., FeatureProjection]:
     """Factory for FeatureProjection instances with configurable fields."""
+
     def factory(
         embedding_dim: int = 64,
         has_time_dim: bool = False,
@@ -21,6 +23,7 @@ def feature_projection_factory() -> Callable[..., FeatureProjection]:
             embedding_dim=embedding_dim,
             has_time_dim=has_time_dim,
         )
+
     return factory
 
 
@@ -29,6 +32,7 @@ def flat_feature_factory(
     rng: np.random.Generator,
 ) -> Callable[..., dict[str, torch.Tensor]]:
     """Factory for flat feature dictionaries with shape (B, C)."""
+
     def factory(
         keys: list[str] | None = None,
         batch_size: int = 2,
@@ -42,6 +46,7 @@ def flat_feature_factory(
             )
             for key in keys
         }
+
     return factory
 
 
@@ -50,6 +55,7 @@ def sequential_feature_factory(
     rng: np.random.Generator,
 ) -> Callable[..., dict[str, torch.Tensor]]:
     """Factory for sequential feature dictionaries with shape (B, T, C)."""
+
     def factory(
         keys: list[str] | None = None,
         batch_size: int = 2,
@@ -60,10 +66,13 @@ def sequential_feature_factory(
             keys = ["sequential_feature"]
         return {
             key: torch.from_numpy(
-                rng.standard_normal((batch_size, temporal_length, channel_dim)).astype(np.float32)
+                rng.standard_normal((batch_size, temporal_length, channel_dim)).astype(
+                    np.float32
+                )
             )
             for key in keys
         }
+
     return factory
 
 
@@ -72,6 +81,7 @@ def spatial_feature_factory(
     rng: np.random.Generator,
 ) -> Callable[..., dict[str, torch.Tensor]]:
     """Factory for spatial feature dictionaries with shape (B, C, H, W)."""
+
     def factory(
         keys: list[str] | None = None,
         batch_size: int = 2,
@@ -83,15 +93,17 @@ def spatial_feature_factory(
             keys = ["spatial_feature"]
         return {
             key: torch.from_numpy(
-                rng.standard_normal((batch_size, channel_dim, height, width)).astype(np.float32)
+                rng.standard_normal((batch_size, channel_dim, height, width)).astype(
+                    np.float32
+                )
             )
             for key in keys
         }
+
     return factory
 
 
 class TestFeatureProjectionInitialization:
-
     @pytest.mark.parametrize("embedding_dim", [64, 128])
     @pytest.mark.parametrize("has_time_dim", [True, False])
     def test_stores_configuration(
@@ -123,12 +135,14 @@ class TestFeatureProjectionInitialization:
 
 
 class TestFeatureProjectionCreateProjectionLayer:
-
-    @pytest.mark.parametrize("channel_dim, expected_type", [
-        (64, nn.Identity),
-        (32, nn.Linear),
-        (128, nn.Linear),
-    ])
+    @pytest.mark.parametrize(
+        "channel_dim, expected_type",
+        [
+            (64, nn.Identity),
+            (32, nn.Linear),
+            (128, nn.Linear),
+        ],
+    )
     def test_flat_feature_creates_correct_layer_type(
         self,
         feature_projection_factory: Callable[..., FeatureProjection],
@@ -143,11 +157,14 @@ class TestFeatureProjectionCreateProjectionLayer:
         layer = projection._create_projection_layer(feature=feature_tensor)
         assert isinstance(layer, expected_type)
 
-    @pytest.mark.parametrize("channel_dim, expected_type", [
-        (64, nn.Identity),
-        (32, nn.Conv2d),
-        (128, nn.Conv2d),
-    ])
+    @pytest.mark.parametrize(
+        "channel_dim, expected_type",
+        [
+            (64, nn.Identity),
+            (32, nn.Conv2d),
+            (128, nn.Conv2d),
+        ],
+    )
     def test_spatial_feature_creates_correct_layer_type(
         self,
         feature_projection_factory: Callable[..., FeatureProjection],
@@ -203,7 +220,6 @@ class TestFeatureProjectionCreateProjectionLayer:
 
 
 class TestFeatureProjectionForward:
-
     def test_flat_features_projected_to_embedding_dim(
         self,
         feature_projection_factory: Callable[..., FeatureProjection],
@@ -231,7 +247,11 @@ class TestFeatureProjectionForward:
             channel_dim=32,
         )
         output = projection(features)
-        assert output["sequential_feature"].shape == (batch_size, temporal_length, embedding_dim)
+        assert output["sequential_feature"].shape == (
+            batch_size,
+            temporal_length,
+            embedding_dim,
+        )
 
     def test_spatial_features_projected_to_embedding_dim(
         self,
@@ -250,7 +270,12 @@ class TestFeatureProjectionForward:
             width=width,
         )
         output = projection(features)
-        assert output["spatial_feature"].shape == (batch_size, embedding_dim, height, width)
+        assert output["spatial_feature"].shape == (
+            batch_size,
+            embedding_dim,
+            height,
+            width,
+        )
 
     def test_multiple_features_projected_independently(
         self,
@@ -319,7 +344,8 @@ class TestFeatureProjectionForward:
         width = 7
         embedding_dim = 64
         projection = feature_projection_factory(
-            embedding_dim=embedding_dim, has_time_dim=True,
+            embedding_dim=embedding_dim,
+            has_time_dim=True,
         )
         features = {
             "video_feature": torch.from_numpy(
@@ -330,7 +356,11 @@ class TestFeatureProjectionForward:
         }
         output = projection(features)
         assert output["video_feature"].shape == (
-            batch_size, temporal_length, embedding_dim, height, width
+            batch_size,
+            temporal_length,
+            embedding_dim,
+            height,
+            width,
         )
 
     def test_5d_spatial_features_without_time_dim_flattens_batch_and_time(
@@ -345,7 +375,8 @@ class TestFeatureProjectionForward:
         width = 7
         embedding_dim = 64
         projection = feature_projection_factory(
-            embedding_dim=embedding_dim, has_time_dim=False,
+            embedding_dim=embedding_dim,
+            has_time_dim=False,
         )
         features = {
             "video_feature": torch.from_numpy(
@@ -357,7 +388,10 @@ class TestFeatureProjectionForward:
         output = projection(features)
         # Without has_time_dim, B*T stays flattened
         assert output["video_feature"].shape == (
-            batch_size * temporal_length, embedding_dim, height, width
+            batch_size * temporal_length,
+            embedding_dim,
+            height,
+            width,
         )
 
     def test_has_time_dim_reshapes_4d_sequential_features(
@@ -370,7 +404,8 @@ class TestFeatureProjectionForward:
         channel_dim = 32
         embedding_dim = 64
         projection = feature_projection_factory(
-            embedding_dim=embedding_dim, has_time_dim=True,
+            embedding_dim=embedding_dim,
+            has_time_dim=True,
         )
         features = {
             "temporal_flat": torch.from_numpy(
@@ -381,7 +416,10 @@ class TestFeatureProjectionForward:
         }
         output = projection(features)
         assert output["temporal_flat"].shape == (
-            batch_size, temporal_length, 1, embedding_dim
+            batch_size,
+            temporal_length,
+            1,
+            embedding_dim,
         )
 
     def test_reuses_projections_on_subsequent_calls(
@@ -396,13 +434,12 @@ class TestFeatureProjectionForward:
         projection.linear_projections["flat_feature"].weight.data.fill_(999.0)
         output_second_call = projection(features)
         # If projection is reused, the mutated weight should affect the output
-        assert (output_second_call["flat_feature"].abs().mean() > 100.0), (
+        assert output_second_call["flat_feature"].abs().mean() > 100.0, (
             "Second call should use the same (mutated) projection layer"
         )
 
 
 class TestFeatureProjectionProjectAndConcatenate:
-
     def test_concatenates_along_specified_dimension(
         self,
         feature_projection_factory: Callable[..., FeatureProjection],
@@ -491,7 +528,6 @@ class TestFeatureProjectionProjectAndConcatenate:
 
 
 class TestFeatureProjectionLoadFromStateDict:
-
     def test_creates_linear_projections_from_state_dict(
         self,
         rng: np.random.Generator,

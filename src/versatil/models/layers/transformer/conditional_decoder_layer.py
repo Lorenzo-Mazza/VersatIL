@@ -1,11 +1,12 @@
 """Conditional transformer decoder layer with AdaLN/FiLM support."""
+
 from typing import Literal
 
 import torch
 import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.constants import AttentionType, ConditioningType
+from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.modulation.conditional_modulation import (
     ConditionalModulation,
 )

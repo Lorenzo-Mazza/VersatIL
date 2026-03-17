@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.dynamic_feature_embedding module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -10,15 +11,16 @@ from versatil.models.layers.dynamic_feature_embedding import DynamicFeatureEmbed
 @pytest.fixture
 def dynamic_feature_embedding_factory() -> Callable[..., DynamicFeatureEmbedding]:
     """Factory for DynamicFeatureEmbedding instances."""
+
     def factory(
         embedding_dim: int = 64,
     ) -> DynamicFeatureEmbedding:
         return DynamicFeatureEmbedding(embedding_dim=embedding_dim)
+
     return factory
 
 
 class TestDynamicFeatureEmbeddingInitialization:
-
     @pytest.mark.parametrize("embedding_dim", [32, 128])
     def test_stores_embedding_dim(
         self,
@@ -37,7 +39,6 @@ class TestDynamicFeatureEmbeddingInitialization:
 
 
 class TestDynamicFeatureEmbeddingForward:
-
     def test_creates_embedding_on_first_access(
         self,
         dynamic_feature_embedding_factory: Callable[..., DynamicFeatureEmbedding],
@@ -99,7 +100,6 @@ class TestDynamicFeatureEmbeddingForward:
 
 
 class TestDynamicFeatureEmbeddingLoadFromStateDict:
-
     def test_load_state_dict_creates_embeddings_from_checkpoint(
         self,
         dynamic_feature_embedding_factory: Callable[..., DynamicFeatureEmbedding],

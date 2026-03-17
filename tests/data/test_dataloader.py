@@ -1,4 +1,5 @@
 """Tests for versatil.data.dataloader module."""
+
 import shutil
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
@@ -140,13 +141,15 @@ def mock_dataset_schema_factory() -> Callable[..., MagicMock]:
 
 @pytest.mark.unit
 class TestValidateDataloaderConfig:
-
-    @pytest.mark.parametrize("batch_size, expectation", [
-        (1, does_not_raise()),
-        (64, does_not_raise()),
-        (0, pytest.raises(ValueError, match="batch_size must be positive")),
-        (-1, pytest.raises(ValueError, match="batch_size must be positive")),
-    ])
+    @pytest.mark.parametrize(
+        "batch_size, expectation",
+        [
+            (1, does_not_raise()),
+            (64, does_not_raise()),
+            (0, pytest.raises(ValueError, match="batch_size must be positive")),
+            (-1, pytest.raises(ValueError, match="batch_size must be positive")),
+        ],
+    )
     def test_batch_size_validation(
         self, dataloader_config_factory, batch_size, expectation
     ):
@@ -155,11 +158,14 @@ class TestValidateDataloaderConfig:
         with expectation:
             validate_dataloader_config(config)
 
-    @pytest.mark.parametrize("num_workers, expectation", [
-        (0, does_not_raise()),
-        (4, does_not_raise()),
-        (-1, pytest.raises(ValueError, match="num_workers cannot be negative")),
-    ])
+    @pytest.mark.parametrize(
+        "num_workers, expectation",
+        [
+            (0, does_not_raise()),
+            (4, does_not_raise()),
+            (-1, pytest.raises(ValueError, match="num_workers cannot be negative")),
+        ],
+    )
     def test_num_workers_validation(
         self, dataloader_config_factory, num_workers, expectation
     ):
@@ -168,12 +174,15 @@ class TestValidateDataloaderConfig:
         with expectation:
             validate_dataloader_config(config)
 
-    @pytest.mark.parametrize("image_height, expectation", [
-        (1, does_not_raise()),
-        (270, does_not_raise()),
-        (0, pytest.raises(ValueError, match="image_height must be positive")),
-        (-1, pytest.raises(ValueError, match="image_height must be positive")),
-    ])
+    @pytest.mark.parametrize(
+        "image_height, expectation",
+        [
+            (1, does_not_raise()),
+            (270, does_not_raise()),
+            (0, pytest.raises(ValueError, match="image_height must be positive")),
+            (-1, pytest.raises(ValueError, match="image_height must be positive")),
+        ],
+    )
     def test_image_height_validation(
         self, dataloader_config_factory, image_height, expectation
     ):
@@ -182,12 +191,15 @@ class TestValidateDataloaderConfig:
         with expectation:
             validate_dataloader_config(config)
 
-    @pytest.mark.parametrize("image_width, expectation", [
-        (1, does_not_raise()),
-        (480, does_not_raise()),
-        (0, pytest.raises(ValueError, match="image_width must be positive")),
-        (-1, pytest.raises(ValueError, match="image_width must be positive")),
-    ])
+    @pytest.mark.parametrize(
+        "image_width, expectation",
+        [
+            (1, does_not_raise()),
+            (480, does_not_raise()),
+            (0, pytest.raises(ValueError, match="image_width must be positive")),
+            (-1, pytest.raises(ValueError, match="image_width must be positive")),
+        ],
+    )
     def test_image_width_validation(
         self, dataloader_config_factory, image_width, expectation
     ):
@@ -196,15 +208,18 @@ class TestValidateDataloaderConfig:
         with expectation:
             validate_dataloader_config(config)
 
-    @pytest.mark.parametrize("val_ratio, expectation", [
-        (0.0, does_not_raise()),
-        (0.1, does_not_raise()),
-        (0.5, does_not_raise()),
-        (0.99, does_not_raise()),
-        (-0.1, pytest.raises(ValueError, match="val_ratio must be in range")),
-        (1.0, pytest.raises(ValueError, match="val_ratio must be in range")),
-        (1.5, pytest.raises(ValueError, match="val_ratio must be in range")),
-    ])
+    @pytest.mark.parametrize(
+        "val_ratio, expectation",
+        [
+            (0.0, does_not_raise()),
+            (0.1, does_not_raise()),
+            (0.5, does_not_raise()),
+            (0.99, does_not_raise()),
+            (-0.1, pytest.raises(ValueError, match="val_ratio must be in range")),
+            (1.0, pytest.raises(ValueError, match="val_ratio must be in range")),
+            (1.5, pytest.raises(ValueError, match="val_ratio must be in range")),
+        ],
+    )
     def test_val_ratio_validation(
         self, dataloader_config_factory, val_ratio, expectation
     ):
@@ -213,14 +228,17 @@ class TestValidateDataloaderConfig:
         with expectation:
             validate_dataloader_config(config)
 
-    @pytest.mark.parametrize("total_ratio, expectation", [
-        (0.01, does_not_raise()),
-        (0.5, does_not_raise()),
-        (1.0, does_not_raise()),
-        (0.0, pytest.raises(ValueError, match="total_ratio must be in range")),
-        (-0.1, pytest.raises(ValueError, match="total_ratio must be in range")),
-        (1.1, pytest.raises(ValueError, match="total_ratio must be in range")),
-    ])
+    @pytest.mark.parametrize(
+        "total_ratio, expectation",
+        [
+            (0.01, does_not_raise()),
+            (0.5, does_not_raise()),
+            (1.0, does_not_raise()),
+            (0.0, pytest.raises(ValueError, match="total_ratio must be in range")),
+            (-0.1, pytest.raises(ValueError, match="total_ratio must be in range")),
+            (1.1, pytest.raises(ValueError, match="total_ratio must be in range")),
+        ],
+    )
     def test_total_ratio_validation(
         self, dataloader_config_factory, total_ratio, expectation
     ):
@@ -229,11 +247,19 @@ class TestValidateDataloaderConfig:
         with expectation:
             validate_dataloader_config(config)
 
-    @pytest.mark.parametrize("skip_steps, expectation", [
-        (0, does_not_raise()),
-        (10, does_not_raise()),
-        (-1, pytest.raises(ValueError, match="skip_initial_episode_steps cannot be negative")),
-    ])
+    @pytest.mark.parametrize(
+        "skip_steps, expectation",
+        [
+            (0, does_not_raise()),
+            (10, does_not_raise()),
+            (
+                -1,
+                pytest.raises(
+                    ValueError, match="skip_initial_episode_steps cannot be negative"
+                ),
+            ),
+        ],
+    )
     def test_skip_initial_episode_steps_validation(
         self, dataloader_config_factory, skip_steps, expectation
     ):
@@ -244,12 +270,15 @@ class TestValidateDataloaderConfig:
         with expectation:
             validate_dataloader_config(config)
 
-    @pytest.mark.parametrize("downsample_factor, expectation", [
-        (1, does_not_raise()),
-        (5, does_not_raise()),
-        (0, pytest.raises(ValueError, match="downsample_factor must be")),
-        (-1, pytest.raises(ValueError, match="downsample_factor must be")),
-    ])
+    @pytest.mark.parametrize(
+        "downsample_factor, expectation",
+        [
+            (1, does_not_raise()),
+            (5, does_not_raise()),
+            (0, pytest.raises(ValueError, match="downsample_factor must be")),
+            (-1, pytest.raises(ValueError, match="downsample_factor must be")),
+        ],
+    )
     def test_downsample_factor_validation(
         self, dataloader_config_factory, downsample_factor, expectation
     ):
@@ -260,12 +289,20 @@ class TestValidateDataloaderConfig:
         with expectation:
             validate_dataloader_config(config)
 
-    @pytest.mark.parametrize("shift, expectation", [
-        (0, does_not_raise()),
-        (1, does_not_raise()),
-        (5, does_not_raise()),
-        (-1, pytest.raises(ValueError, match="action_backward_shift cannot be negative")),
-    ])
+    @pytest.mark.parametrize(
+        "shift, expectation",
+        [
+            (0, does_not_raise()),
+            (1, does_not_raise()),
+            (5, does_not_raise()),
+            (
+                -1,
+                pytest.raises(
+                    ValueError, match="action_backward_shift cannot be negative"
+                ),
+            ),
+        ],
+    )
     def test_action_backward_shift_validation(
         self, dataloader_config_factory, shift, expectation
     ):
@@ -277,7 +314,6 @@ class TestValidateDataloaderConfig:
 
 @pytest.mark.unit
 class TestCollectDatasetPaths:
-
     def test_collects_from_single_folder(self, episode_directory_factory):
         folder_path, expected_paths = episode_directory_factory(
             num_episodes=2,
@@ -294,10 +330,12 @@ class TestCollectDatasetPaths:
 
     def test_collects_from_multiple_folders(self, episode_directory_factory):
         folder_one, _ = episode_directory_factory(
-            folder_name="folder_one", num_episodes=1,
+            folder_name="folder_one",
+            num_episodes=1,
         )
         folder_two, _ = episode_directory_factory(
-            folder_name="folder_two", num_episodes=2,
+            folder_name="folder_two",
+            num_episodes=2,
         )
 
         result = _collect_dataset_paths(
@@ -379,7 +417,6 @@ class TestCollectDatasetPaths:
 
 @pytest.mark.unit
 class TestEnsureZarrExists:
-
     def test_existing_zarr_loads_without_preload(self, mock_dataset_schema_factory):
         required_keys = ["left", "right"]
         schema = mock_dataset_schema_factory(required_keys=required_keys)
@@ -388,9 +425,7 @@ class TestEnsureZarrExists:
 
         with (
             patch("versatil.data.dataloader.Path") as mock_path_class,
-            patch(
-                "versatil.data.dataloader.ReplayBuffer"
-            ) as mock_replay_buffer,
+            patch("versatil.data.dataloader.ReplayBuffer") as mock_replay_buffer,
         ):
             mock_path_class.return_value.exists.return_value = True
             mock_replay_buffer.create_from_path.return_value = mock_buffer
@@ -405,9 +440,7 @@ class TestEnsureZarrExists:
 
         with (
             patch("versatil.data.dataloader.Path") as mock_path_class,
-            patch(
-                "versatil.data.dataloader.ReplayBuffer"
-            ) as mock_replay_buffer,
+            patch("versatil.data.dataloader.ReplayBuffer") as mock_replay_buffer,
         ):
             mock_path_class.return_value.exists.return_value = True
 
@@ -425,9 +458,7 @@ class TestEnsureZarrExists:
 
         with (
             patch("versatil.data.dataloader.Path") as mock_path_class,
-            patch(
-                "versatil.data.dataloader.ReplayBuffer"
-            ) as mock_replay_buffer,
+            patch("versatil.data.dataloader.ReplayBuffer") as mock_replay_buffer,
             patch("versatil.data.dataloader.shutil") as mock_shutil,
             patch(
                 "versatil.data.dataloader.create_replay_buffer_from_hdf5"
@@ -446,18 +477,14 @@ class TestEnsureZarrExists:
 
         with (
             patch("versatil.data.dataloader.Path") as mock_path_class,
-            patch(
-                "versatil.data.dataloader.ReplayBuffer"
-            ) as mock_replay_buffer,
+            patch("versatil.data.dataloader.ReplayBuffer") as mock_replay_buffer,
             patch("versatil.data.dataloader.shutil") as mock_shutil,
             patch(
                 "versatil.data.dataloader.create_replay_buffer_from_hdf5"
             ) as mock_create,
         ):
             mock_path_class.return_value.exists.return_value = True
-            mock_replay_buffer.copy_from_path.side_effect = Exception(
-                "Memory error"
-            )
+            mock_replay_buffer.copy_from_path.side_effect = Exception("Memory error")
 
             _ensure_zarr_exists(schema=schema, preload_in_memory=True)
 
@@ -469,18 +496,14 @@ class TestEnsureZarrExists:
 
         with (
             patch("versatil.data.dataloader.Path") as mock_path_class,
-            patch(
-                "versatil.data.dataloader.ReplayBuffer"
-            ) as mock_replay_buffer,
+            patch("versatil.data.dataloader.ReplayBuffer") as mock_replay_buffer,
             patch("versatil.data.dataloader.shutil") as mock_shutil,
             patch(
                 "versatil.data.dataloader.create_replay_buffer_from_hdf5"
             ) as mock_create,
         ):
             mock_path_class.return_value.exists.return_value = True
-            mock_replay_buffer.create_from_path.side_effect = Exception(
-                "Corrupt zarr"
-            )
+            mock_replay_buffer.create_from_path.side_effect = Exception("Corrupt zarr")
 
             _ensure_zarr_exists(schema=schema, preload_in_memory=False)
 
@@ -511,9 +534,7 @@ class TestEnsureZarrExists:
 
         with (
             patch("versatil.data.dataloader.Path") as mock_path_class,
-            patch(
-                "versatil.data.dataloader.create_replay_buffer"
-            ) as mock_create,
+            patch("versatil.data.dataloader.create_replay_buffer") as mock_create,
             patch(
                 "versatil.data.dataloader._collect_dataset_paths",
                 return_value=["/ep1.csv", "/ep2.csv"],
@@ -532,9 +553,7 @@ class TestEnsureZarrExists:
                 datasets_paths=["/ep1.csv", "/ep2.csv"],
             )
 
-    def test_nonexistent_zarr_creates_from_lerobot(
-        self, mock_dataset_schema_factory
-    ):
+    def test_nonexistent_zarr_creates_from_lerobot(self, mock_dataset_schema_factory):
         schema = mock_dataset_schema_factory(
             schema_type=LeRobotDatasetSchemaV30,
         )
@@ -564,13 +583,13 @@ class TestEnsureZarrExists:
                 match="Zarr creation not implemented",
             ):
                 _ensure_zarr_exists(
-                    schema=schema, preload_in_memory=False,
+                    schema=schema,
+                    preload_in_memory=False,
                 )
 
 
 @pytest.mark.unit
 class TestLogPhaseDistributions:
-
     def test_logs_warning_and_returns(self):
         train_dataset = MagicMock()
         val_dataset = MagicMock()
@@ -586,7 +605,6 @@ class TestLogPhaseDistributions:
 
 @pytest.mark.unit
 class TestGetDataloaders:
-
     @pytest.fixture(autouse=True)
     def _patch_dependencies(self):
         mock_normalizer = MagicMock()
@@ -597,7 +615,9 @@ class TestGetDataloaders:
             mock_tokenizer,
         )
         mock_train_dataset.action_processor.denoising_thresholds = {"key": 0.1}
-        mock_train_dataset.get_gripper_positive_class_imbalance_weight.return_value = 0.75
+        mock_train_dataset.get_gripper_positive_class_imbalance_weight.return_value = (
+            0.75
+        )
 
         mock_val_dataset = MagicMock()
         mock_val_dataset.action_processor = MagicMock()
@@ -608,15 +628,9 @@ class TestGetDataloaders:
         self.mock_val_dataset = mock_val_dataset
 
         with (
-            patch(
-                "versatil.data.dataloader.validate_dataloader_config"
-            ),
-            patch(
-                "versatil.data.dataloader.validate_tokenizer_config"
-            ),
-            patch(
-                "versatil.data.dataloader._ensure_zarr_exists"
-            ),
+            patch("versatil.data.dataloader.validate_dataloader_config"),
+            patch("versatil.data.dataloader.validate_tokenizer_config"),
+            patch("versatil.data.dataloader._ensure_zarr_exists"),
             patch(
                 "versatil.data.dataloader.EpisodicDataset",
                 side_effect=[mock_train_dataset, mock_val_dataset],
@@ -624,7 +638,8 @@ class TestGetDataloaders:
             patch(
                 "versatil.data.dataloader.data.DataLoader",
                 side_effect=lambda dataset, **kwargs: MagicMock(
-                    dataset=dataset, **kwargs,
+                    dataset=dataset,
+                    **kwargs,
                 ),
             ) as self.mock_dataloader_class,
         ):
@@ -689,15 +704,15 @@ class TestGetDataloaders:
         self, mock_hydra_config_factory
     ):
         config = mock_hydra_config_factory(
-            val_ratio=0.2, denoise_actions=True,
+            val_ratio=0.2,
+            denoise_actions=True,
         )
 
         get_dataloaders(config=config)
 
-        assert (
-            self.mock_val_dataset.action_processor.denoising_thresholds
-            == {"key": 0.1}
-        )
+        assert self.mock_val_dataset.action_processor.denoising_thresholds == {
+            "key": 0.1
+        }
         assert (
             self.mock_val_dataset.action_processor._denoising_thresholds_computed
             is True
@@ -707,7 +722,8 @@ class TestGetDataloaders:
         self, mock_hydra_config_factory
     ):
         config = mock_hydra_config_factory(
-            val_ratio=0.2, denoise_actions=False,
+            val_ratio=0.2,
+            denoise_actions=False,
         )
 
         get_dataloaders(config=config)
@@ -718,7 +734,8 @@ class TestGetDataloaders:
 
     def test_gripper_weights_computed_when_enabled(self, mock_hydra_config_factory):
         config = mock_hydra_config_factory(
-            has_gripper_actions=True, use_gripper_class_weights=True,
+            has_gripper_actions=True,
+            use_gripper_class_weights=True,
         )
 
         _, _, _, _, weights = get_dataloaders(config=config)
@@ -728,7 +745,8 @@ class TestGetDataloaders:
 
     def test_gripper_weights_none_when_disabled(self, mock_hydra_config_factory):
         config = mock_hydra_config_factory(
-            has_gripper_actions=False, use_gripper_class_weights=False,
+            has_gripper_actions=False,
+            use_gripper_class_weights=False,
         )
 
         _, _, _, _, weights = get_dataloaders(config=config)
@@ -737,7 +755,9 @@ class TestGetDataloaders:
 
     def test_val_loader_uses_correct_config(self, mock_hydra_config_factory):
         config = mock_hydra_config_factory(
-            val_ratio=0.2, batch_size=8, num_workers=6,
+            val_ratio=0.2,
+            batch_size=8,
+            num_workers=6,
         )
 
         get_dataloaders(config=config)
@@ -765,7 +785,6 @@ class TestGetDataloaders:
 
 @pytest.mark.integration
 class TestGetDataloadersIntegration:
-
     def test_creates_working_dataloaders_from_synthetic_data(
         self,
         synthetic_replay_buffer,

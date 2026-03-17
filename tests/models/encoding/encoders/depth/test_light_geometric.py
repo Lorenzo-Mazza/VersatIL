@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.encoders.depth.light_geometric module."""
+
 import logging
 import re
 from collections.abc import Callable
@@ -7,7 +8,7 @@ from contextlib import nullcontext as does_not_raise
 import pytest
 import torch
 
-from versatil.data.constants import Cameras, RGB_CAMERAS
+from versatil.data.constants import RGB_CAMERAS, Cameras
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
     PoolingMethod,
@@ -21,8 +22,9 @@ from versatil.models.layers.constants import AttentionDecompositionMode
 @pytest.fixture
 def light_geometric_encoder_factory() -> Callable[..., LightGeometricEncoder]:
     """Factory for LightGeometricEncoder with small dimensions."""
+
     def factory(
-        input_keys: str | list[str] = [Cameras.LEFT.value, Cameras.DEPTH.value],
+        input_keys: str | list[str] | None = None,
         embedding_dimension: int = 32,
         num_heads: int = 2,
         ffn_dimension: int = 64,
@@ -34,6 +36,8 @@ def light_geometric_encoder_factory() -> Callable[..., LightGeometricEncoder]:
         pretrained: bool = False,
         frozen: bool = False,
     ) -> LightGeometricEncoder:
+        if input_keys is None:
+            input_keys = [Cameras.LEFT.value, Cameras.DEPTH.value]
         return LightGeometricEncoder(
             input_keys=input_keys,
             embedding_dimension=embedding_dimension,
@@ -47,11 +51,11 @@ def light_geometric_encoder_factory() -> Callable[..., LightGeometricEncoder]:
             pretrained=pretrained,
             frozen=frozen,
         )
+
     return factory
 
 
 class TestLightGeometricEncoderInitialization:
-
     def test_has_encoder_interface(
         self,
         light_geometric_encoder_factory: Callable[..., LightGeometricEncoder],
@@ -62,14 +66,20 @@ class TestLightGeometricEncoderInitialization:
         assert hasattr(encoder, "input_specification")
 
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
-    @pytest.mark.parametrize("decomposition_mode", [
-        AttentionDecompositionMode.SEPARABLE.value,
-        AttentionDecompositionMode.FULL.value,
-    ])
-    @pytest.mark.parametrize("pooling_method", [
-        PoolingMethod.AVERAGE.value,
-        PoolingMethod.SPATIAL_SOFTMAX.value,
-    ])
+    @pytest.mark.parametrize(
+        "decomposition_mode",
+        [
+            AttentionDecompositionMode.SEPARABLE.value,
+            AttentionDecompositionMode.FULL.value,
+        ],
+    )
+    @pytest.mark.parametrize(
+        "pooling_method",
+        [
+            PoolingMethod.AVERAGE.value,
+            PoolingMethod.SPATIAL_SOFTMAX.value,
+        ],
+    )
     @pytest.mark.parametrize("patch_size", [8, 16])
     def test_stores_configuration(
         self,
@@ -86,21 +96,29 @@ class TestLightGeometricEncoderInitialization:
             patch_size=patch_size,
         )
         assert encoder.embedding_dimension == embedding_dimension
-        assert encoder.decomposition_mode == AttentionDecompositionMode(decomposition_mode)
+        assert encoder.decomposition_mode == AttentionDecompositionMode(
+            decomposition_mode
+        )
         assert encoder.pooling_method == pooling_method
         assert encoder.patch_size == patch_size
         assert encoder.pooling_head is None
 
-    @pytest.mark.parametrize("frozen, expectation", [
-        (False, does_not_raise()),
-        (True, pytest.raises(
-            ValueError,
-            match=re.escape(
-                "Freezing LightGeometricEncoder does not make sense "
-                "as it has no pretrained weights. Set frozen=False."
+    @pytest.mark.parametrize(
+        "frozen, expectation",
+        [
+            (False, does_not_raise()),
+            (
+                True,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Freezing LightGeometricEncoder does not make sense "
+                        "as it has no pretrained weights. Set frozen=False."
+                    ),
+                ),
             ),
-        )),
-    ])
+        ],
+    )
     def test_frozen_raises_value_error(
         self,
         light_geometric_encoder_factory: Callable[..., LightGeometricEncoder],
@@ -127,7 +145,7 @@ class TestLightGeometricEncoderInitialization:
     ):
         with pytest.raises(
             ValueError,
-            match=re.escape(f"Missing required inputs: {{'depth'}}"),
+            match=re.escape("Missing required inputs: {'depth'}"),
         ):
             LightGeometricEncoder(
                 input_keys=Cameras.LEFT.value,
@@ -166,7 +184,6 @@ class TestLightGeometricEncoderInitialization:
 
 
 class TestLightGeometricEncoderGetOutputSpecification:
-
     def test_returns_rgbd_feature_with_correct_dimension(
         self,
         light_geometric_encoder_factory: Callable[..., LightGeometricEncoder],
@@ -174,15 +191,19 @@ class TestLightGeometricEncoderGetOutputSpecification:
         encoder = light_geometric_encoder_factory()
         specification = encoder.get_output_specification()
         assert specification.features == [EncoderOutputKeys.RGBD.value]
-        assert specification.dimensions[EncoderOutputKeys.RGBD.value] == encoder.output_dim
+        assert (
+            specification.dimensions[EncoderOutputKeys.RGBD.value] == encoder.output_dim
+        )
 
 
 class TestLightGeometricEncoderForward:
-
-    @pytest.mark.parametrize("time_steps, expected_ndim", [
-        (None, 2),
-        (2, 3),
-    ])
+    @pytest.mark.parametrize(
+        "time_steps, expected_ndim",
+        [
+            (None, 2),
+            (2, 3),
+        ],
+    )
     def test_output_shape_with_and_without_time(
         self,
         light_geometric_encoder_factory: Callable[..., LightGeometricEncoder],
@@ -254,7 +275,6 @@ class TestLightGeometricEncoderForward:
 
 
 class TestLightGeometricEncoderIntegration:
-
     @pytest.mark.integration
     def test_forward_pass(
         self,

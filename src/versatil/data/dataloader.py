@@ -265,7 +265,7 @@ def _log_phase_distributions(
             phase_labels.append(ep[PHASE_LABEL_KEY].flatten())
         phase_labels = np.concatenate(phase_labels)
         phase_counts = np.bincount(phase_labels, minlength=5)
-        logging.info(f"Train phase distribution: {dict(enumerate(phase_counts.tolist()))}")  # type: ignore[arg-type]
+        logging.info(f"Train phase distribution: {dict(enumerate(phase_counts.tolist()))}")
 
     selected_eps_val = np.where(val_dataset.sampler.episode_mask)[0]
     if len(selected_eps_val) > 0:
@@ -276,4 +276,4 @@ def _log_phase_distributions(
             ]
         )
         phase_counts_val = np.bincount(phase_labels_val, minlength=5)
-        logging.info(f"Val phase distribution: {dict(enumerate(phase_counts_val.tolist()))}")  # type: ignore[arg-type]"""
+        logging.info(f"Val phase distribution: {dict(enumerate(phase_counts_val.tolist()))}")"""

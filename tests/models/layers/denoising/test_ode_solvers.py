@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.denoising.ode_solvers module."""
+
 import math
 import re
 from collections.abc import Callable
@@ -17,7 +18,6 @@ from versatil.models.layers.denoising.ode_solvers import (
 
 
 class TestEulerStep:
-
     def test_output_shape_matches_input(
         self,
         flat_tensor_factory: Callable[..., torch.Tensor],
@@ -70,7 +70,6 @@ class TestEulerStep:
 
 
 class TestHeunStep:
-
     def test_output_shape_matches_input(
         self,
         flat_tensor_factory: Callable[..., torch.Tensor],
@@ -78,7 +77,8 @@ class TestHeunStep:
     ):
         state = flat_tensor_factory(batch_size=3, feature_dimension=8)
         velocity_fn = velocity_field_factory(
-            field_type="constant", constant_velocity=1.0,
+            field_type="constant",
+            constant_velocity=1.0,
         )
         result = heun_step(
             z=state,
@@ -102,7 +102,8 @@ class TestHeunStep:
         state = torch.zeros(batch_size, feature_dim)
         constant_velocity = 2.0
         velocity_fn = velocity_field_factory(
-            field_type="constant", constant_velocity=constant_velocity,
+            field_type="constant",
+            constant_velocity=constant_velocity,
         )
         step_size = 0.5
         result = heun_step(
@@ -170,7 +171,6 @@ class TestHeunStep:
 
 
 class TestRK4Step:
-
     def test_output_shape_matches_input(
         self,
         flat_tensor_factory: Callable[..., torch.Tensor],
@@ -178,7 +178,8 @@ class TestRK4Step:
     ):
         state = flat_tensor_factory(batch_size=3, feature_dimension=8)
         velocity_fn = velocity_field_factory(
-            field_type="constant", constant_velocity=1.0,
+            field_type="constant",
+            constant_velocity=1.0,
         )
         result = rk4_step(
             z=state,
@@ -200,7 +201,8 @@ class TestRK4Step:
         state = torch.zeros(batch_size, feature_dim)
         constant_velocity = 3.0
         velocity_fn = velocity_field_factory(
-            field_type="constant", constant_velocity=constant_velocity,
+            field_type="constant",
+            constant_velocity=constant_velocity,
         )
         step_size = 0.25
         result = rk4_step(
@@ -272,8 +274,9 @@ class TestRK4Step:
 
 
 class TestIntegrateODE:
-
-    @pytest.mark.parametrize("solver", [ODESolver.EULER.value, ODESolver.HEUN.value, ODESolver.RK4.value])
+    @pytest.mark.parametrize(
+        "solver", [ODESolver.EULER.value, ODESolver.HEUN.value, ODESolver.RK4.value]
+    )
     def test_output_shape_matches_input(
         self,
         flat_tensor_factory: Callable[..., torch.Tensor],
@@ -282,7 +285,8 @@ class TestIntegrateODE:
     ):
         state = flat_tensor_factory(batch_size=3, feature_dimension=8)
         velocity_fn = velocity_field_factory(
-            field_type="constant", constant_velocity=1.0,
+            field_type="constant",
+            constant_velocity=1.0,
         )
         result = integrate_ode(
             z_init=state,
@@ -292,7 +296,9 @@ class TestIntegrateODE:
         )
         assert result.shape == (3, 8)
 
-    @pytest.mark.parametrize("solver", [ODESolver.EULER.value, ODESolver.HEUN.value, ODESolver.RK4.value])
+    @pytest.mark.parametrize(
+        "solver", [ODESolver.EULER.value, ODESolver.HEUN.value, ODESolver.RK4.value]
+    )
     def test_constant_velocity_integration_exact_for_all_solvers(
         self,
         velocity_field_factory: Callable,
@@ -305,7 +311,8 @@ class TestIntegrateODE:
         state = torch.zeros(batch_size, feature_dim)
         constant_velocity = 1.0
         velocity_fn = velocity_field_factory(
-            field_type="constant", constant_velocity=constant_velocity,
+            field_type="constant",
+            constant_velocity=constant_velocity,
         )
         result = integrate_ode(
             z_init=state,
@@ -403,7 +410,8 @@ class TestIntegrateODE:
         feature_dim = 3
         state = torch.full((batch_size, feature_dim), 5.0)
         velocity_fn = velocity_field_factory(
-            field_type="constant", constant_velocity=2.0,
+            field_type="constant",
+            constant_velocity=2.0,
         )
         result = integrate_ode(
             z_init=state,
@@ -416,7 +424,6 @@ class TestIntegrateODE:
 
 
 class TestSolverAccuracyComparison:
-
     def test_heun_more_accurate_than_euler_for_exponential_ode(
         self,
         velocity_field_factory: Callable,

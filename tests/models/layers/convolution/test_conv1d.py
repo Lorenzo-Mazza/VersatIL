@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.convolution.conv1d module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -53,7 +54,6 @@ def conv1d_block_factory() -> Callable[..., Conv1dBlock]:
 
 
 class TestDownsample1d:
-
     @pytest.mark.parametrize("dim", [16, 32])
     def test_stores_configuration(
         self,
@@ -87,7 +87,6 @@ class TestDownsample1d:
 
 
 class TestUpsample1d:
-
     @pytest.mark.parametrize("dim", [16, 32])
     def test_stores_configuration(
         self,
@@ -121,7 +120,6 @@ class TestUpsample1d:
 
 
 class TestDownsampleUpsampleComplementarity:
-
     @pytest.mark.parametrize("dim", [16, 32])
     @pytest.mark.parametrize("sequence_length", [32, 64])
     def test_downsample_then_upsample_restores_shape(
@@ -145,7 +143,6 @@ class TestDownsampleUpsampleComplementarity:
 
 
 class TestConv1dBlock:
-
     @pytest.mark.parametrize("input_channels", [16, 32])
     @pytest.mark.parametrize("output_channels", [32, 64])
     @pytest.mark.parametrize("kernel_size", [3, 5])
@@ -217,9 +214,7 @@ class TestConv1dBlock:
             num_groups=8,
         )
         # Standalone Conv1d with identical weights to isolate normalization + activation
-        raw_convolution = nn.Conv1d(
-            input_channels, output_channels, 3, padding=1
-        )
+        raw_convolution = nn.Conv1d(input_channels, output_channels, 3, padding=1)
         raw_convolution.weight.data.copy_(module.block[0].weight.data)
         raw_convolution.bias.data.copy_(module.block[0].bias.data)
 

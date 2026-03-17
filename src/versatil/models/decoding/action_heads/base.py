@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
 
 import torch
-from torch import nn as nn
+from torch import nn
 
-from versatil.models.decoding.action_heads import ActionHeadBlock
+from versatil.models.decoding.action_heads.blocks import ActionHeadBlock
 
 
 class BaseActionHead(ABC, nn.Module):

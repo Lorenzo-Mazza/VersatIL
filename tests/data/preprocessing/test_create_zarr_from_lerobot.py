@@ -1,4 +1,5 @@
 """Tests for versatil.data.preprocessing.create_zarr_from_lerobot module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -13,7 +14,6 @@ from versatil.data.preprocessing.create_zarr_from_lerobot import (
 
 
 class TestIterLerobotEpisodes:
-
     def test_yields_one_episode_per_id(
         self,
         mock_schema_factory: Callable[..., MagicMock],
@@ -58,10 +58,14 @@ class TestIterLerobotEpisodes:
 
         assert schema.extract_episode.call_count == 2
         schema.extract_episode.assert_any_call(
-            episode_id=0, resizer=resizer, depth_resizer=depth_resizer,
+            episode_id=0,
+            resizer=resizer,
+            depth_resizer=depth_resizer,
         )
         schema.extract_episode.assert_any_call(
-            episode_id=1, resizer=resizer, depth_resizer=depth_resizer,
+            episode_id=1,
+            resizer=resizer,
+            depth_resizer=depth_resizer,
         )
 
     def test_zero_episodes_yields_nothing(
@@ -88,9 +92,10 @@ class TestIterLerobotEpisodes:
 
 
 class TestCreateReplayBufferFromLerobot:
-
     @patch("versatil.data.preprocessing.create_zarr_from_lerobot.A.Resize")
-    @patch("versatil.data.preprocessing.create_zarr_from_lerobot.create_zarr_replay_buffer")
+    @patch(
+        "versatil.data.preprocessing.create_zarr_from_lerobot.create_zarr_replay_buffer"
+    )
     def test_cameras_present_creates_resize_transforms(
         self,
         mock_create_zarr,
@@ -112,10 +117,14 @@ class TestCreateReplayBufferFromLerobot:
         assert mock_resize_class.call_count == 2
         mock_resize_class.assert_any_call(height=256, width=256)
         mock_resize_class.assert_any_call(
-            height=256, width=256, interpolation=cv2.INTER_NEAREST,
+            height=256,
+            width=256,
+            interpolation=cv2.INTER_NEAREST,
         )
 
-    @patch("versatil.data.preprocessing.create_zarr_from_lerobot.create_zarr_replay_buffer")
+    @patch(
+        "versatil.data.preprocessing.create_zarr_from_lerobot.create_zarr_replay_buffer"
+    )
     def test_no_cameras_creates_noop_transforms(
         self,
         mock_create_zarr,
@@ -131,7 +140,9 @@ class TestCreateReplayBufferFromLerobot:
 
         mock_create_zarr.assert_called_once()
 
-    @patch("versatil.data.preprocessing.create_zarr_from_lerobot.create_zarr_replay_buffer")
+    @patch(
+        "versatil.data.preprocessing.create_zarr_from_lerobot.create_zarr_replay_buffer"
+    )
     def test_total_episodes_from_lerobot_metadata(
         self,
         mock_create_zarr,
@@ -148,7 +159,9 @@ class TestCreateReplayBufferFromLerobot:
         call_kwargs = mock_create_zarr.call_args
         assert call_kwargs.kwargs["total_episodes"] == 10
 
-    @patch("versatil.data.preprocessing.create_zarr_from_lerobot.create_zarr_replay_buffer")
+    @patch(
+        "versatil.data.preprocessing.create_zarr_from_lerobot.create_zarr_replay_buffer"
+    )
     def test_schema_passed_through_to_create_zarr(
         self,
         mock_create_zarr,

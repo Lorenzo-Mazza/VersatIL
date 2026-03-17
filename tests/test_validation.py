@@ -1,4 +1,5 @@
 """Tests for versatil.validation module."""
+
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
@@ -63,9 +64,7 @@ def mock_encoding_pipeline_factory(
         pipeline.encoders = encoders
         if final_features_to_dims is None:
             final_features_to_dims = {"visual_features": 256}
-        pipeline.get_final_features_to_dimensions.return_value = (
-            final_features_to_dims
-        )
+        pipeline.get_final_features_to_dimensions.return_value = final_features_to_dims
         return pipeline
 
     return factory
@@ -185,12 +184,10 @@ def validator_factory(
         image_norm_type: str | None = None,
     ) -> ExperimentValidator:
         return ExperimentValidator(
-            encoding_pipeline=encoding_pipeline
-            or mock_encoding_pipeline_factory(),
+            encoding_pipeline=encoding_pipeline or mock_encoding_pipeline_factory(),
             algorithm=algorithm or mock_algorithm_factory(),
             decoder=decoder or mock_decoder_factory(),
-            observation_space=observation_space
-            or mock_observation_space_factory(),
+            observation_space=observation_space or mock_observation_space_factory(),
             action_space=action_space or mock_action_space_factory(),
             loss=loss or mock_loss_factory(),
             is_tokenized=is_tokenized,
@@ -203,7 +200,6 @@ def validator_factory(
 
 @pytest.mark.unit
 class TestExperimentValidatorInit:
-
     def test_stores_configuration(
         self,
         validator_factory: Callable[..., ExperimentValidator],
@@ -249,7 +245,6 @@ class TestExperimentValidatorInit:
 
 @pytest.mark.unit
 class TestValidateAll:
-
     def test_passes_with_no_errors(
         self,
         validator_factory: Callable[..., ExperimentValidator],
@@ -311,9 +306,7 @@ class TestValidateAll:
     ):
         # Encoder processes "left" but observation space also has "right" uncovered
         encoder = mock_encoder_factory(input_keys="left")
-        pipeline = mock_encoding_pipeline_factory(
-            encoders={"rgb_encoder": encoder}
-        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
         camera_left = MagicMock(spec=CameraMetadata)
         camera_right = MagicMock(spec=CameraMetadata)
         observation_space = mock_observation_space_factory(
@@ -327,8 +320,8 @@ class TestValidateAll:
             validator.validate_all()
         assert len(validator.warnings) == 1
         expected_warning = (
-            f"Observation space contains keys {{'right'}} "
-            f"but no encoder is configured to process them."
+            "Observation space contains keys {'right'} "
+            "but no encoder is configured to process them."
         )
         assert validator.warnings[0] == expected_warning
         mock_logging.warning.assert_called_once()
@@ -344,9 +337,7 @@ class TestValidateAll:
     ):
         # Error 1: encoder requires key not in observation space
         encoder = mock_encoder_factory(input_keys="nonexistent_camera")
-        pipeline = mock_encoding_pipeline_factory(
-            encoders={"rgb_encoder": encoder}
-        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
         camera_meta = MagicMock(spec=CameraMetadata)
         observation_space = mock_observation_space_factory(
             observation_keys={"left": camera_meta}
@@ -370,7 +361,6 @@ class TestValidateAll:
 
 @pytest.mark.unit
 class TestValidateEncoderObservationConsistency:
-
     def test_language_without_tokenization_produces_error(
         self,
         validator_factory: Callable[..., ExperimentValidator],
@@ -401,9 +391,7 @@ class TestValidateEncoderObservationConsistency:
         # but the language-without-tokenization error causes early return
         # so the missing key error should NOT be added
         encoder = mock_encoder_factory(input_keys="nonexistent")
-        pipeline = mock_encoding_pipeline_factory(
-            encoders={"encoder": encoder}
-        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"encoder": encoder})
         observation_space = mock_observation_space_factory(
             observation_keys={ObsKey.LANGUAGE.value: MagicMock()}
         )
@@ -430,9 +418,7 @@ class TestValidateEncoderObservationConsistency:
         # Camera observations should remain in available_keys even with tokenization
         camera_meta = MagicMock(spec=CameraMetadata)
         encoder = mock_encoder_factory(input_keys="left")
-        pipeline = mock_encoding_pipeline_factory(
-            encoders={"rgb_encoder": encoder}
-        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
         observation_space = mock_observation_space_factory(
             observation_keys={"left": camera_meta}
         )
@@ -458,9 +444,7 @@ class TestValidateEncoderObservationConsistency:
         encoder = mock_encoder_factory(
             input_keys=SampleKey.TOKENIZED_OBSERVATIONS.value
         )
-        pipeline = mock_encoding_pipeline_factory(
-            encoders={"token_encoder": encoder}
-        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"token_encoder": encoder})
         observation_space = mock_observation_space_factory(
             observation_keys={"gripper_state_obs": proprio_meta}
         )
@@ -482,9 +466,7 @@ class TestValidateEncoderObservationConsistency:
     ):
         language_meta = MagicMock()  # Not CameraMetadata
         encoder = mock_encoder_factory(input_keys="some_key")
-        pipeline = mock_encoding_pipeline_factory(
-            encoders={"encoder": encoder}
-        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"encoder": encoder})
         observation_space = mock_observation_space_factory(
             observation_keys={ObsKey.LANGUAGE.value: language_meta}
         )
@@ -512,9 +494,7 @@ class TestValidateEncoderObservationConsistency:
         camera_meta = MagicMock(spec=CameraMetadata)
         proprio_meta = MagicMock()
         encoder = mock_encoder_factory(input_keys=["left", "gripper_state_obs"])
-        pipeline = mock_encoding_pipeline_factory(
-            encoders={"encoder": encoder}
-        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"encoder": encoder})
         observation_space = mock_observation_space_factory(
             observation_keys={
                 "left": camera_meta,
@@ -537,9 +517,7 @@ class TestValidateEncoderObservationConsistency:
         mock_observation_space_factory: Callable[..., MagicMock],
     ):
         encoder = mock_encoder_factory(input_keys="depth")
-        pipeline = mock_encoding_pipeline_factory(
-            encoders={"depth_encoder": encoder}
-        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"depth_encoder": encoder})
         camera_meta = MagicMock(spec=CameraMetadata)
         observation_space = mock_observation_space_factory(
             observation_keys={"left": camera_meta}
@@ -551,10 +529,10 @@ class TestValidateEncoderObservationConsistency:
         validator.validate_encoder_observation_consistency()
         assert len(validator.errors) == 1
         expected_error = (
-            f"Encoder 'depth_encoder' requires keys {{'depth'}} "
-            f"which are not in observation space. "
-            f"Available keys: {{'left'}}. "
-            f"Please either add them to the observation space or modify encoder configuration."
+            "Encoder 'depth_encoder' requires keys {'depth'} "
+            "which are not in observation space. "
+            "Available keys: {'left'}. "
+            "Please either add them to the observation space or modify encoder configuration."
         )
         assert validator.errors[0] == expected_error
 
@@ -569,9 +547,7 @@ class TestValidateEncoderObservationConsistency:
             input_keys="left",
             backbone_name="DINOv3_ViT_Small",
         )
-        pipeline = mock_encoding_pipeline_factory(
-            encoders={"vit_encoder": encoder}
-        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"vit_encoder": encoder})
         camera_meta = MagicMock(spec=CameraMetadata)
         observation_space = mock_observation_space_factory(
             observation_keys={"left": camera_meta}
@@ -601,9 +577,7 @@ class TestValidateEncoderObservationConsistency:
             input_keys="left",
             backbone_name="DINOv3_ViT_Small",
         )
-        pipeline = mock_encoding_pipeline_factory(
-            encoders={"vit_encoder": encoder}
-        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"vit_encoder": encoder})
         camera_meta = MagicMock(spec=CameraMetadata)
         observation_space = mock_observation_space_factory(
             observation_keys={"left": camera_meta}
@@ -624,9 +598,7 @@ class TestValidateEncoderObservationConsistency:
         mock_observation_space_factory: Callable[..., MagicMock],
     ):
         encoder = mock_encoder_factory(input_keys="left")
-        pipeline = mock_encoding_pipeline_factory(
-            encoders={"rgb_encoder": encoder}
-        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"rgb_encoder": encoder})
         camera_left = MagicMock(spec=CameraMetadata)
         camera_right = MagicMock(spec=CameraMetadata)
         observation_space = mock_observation_space_factory(
@@ -639,8 +611,8 @@ class TestValidateEncoderObservationConsistency:
         validator.validate_encoder_observation_consistency()
         assert len(validator.warnings) == 1
         expected_warning = (
-            f"Observation space contains keys {{'right'}} "
-            f"but no encoder is configured to process them."
+            "Observation space contains keys {'right'} "
+            "but no encoder is configured to process them."
         )
         assert validator.warnings[0] == expected_warning
 
@@ -656,9 +628,7 @@ class TestValidateEncoderObservationConsistency:
         encoder = mock_encoder_factory(
             input_keys=SampleKey.TOKENIZED_OBSERVATIONS.value
         )
-        pipeline = mock_encoding_pipeline_factory(
-            encoders={"token_encoder": encoder}
-        )
+        pipeline = mock_encoding_pipeline_factory(encoders={"token_encoder": encoder})
         observation_space = mock_observation_space_factory(
             observation_keys={"gripper_state_obs": proprio_meta}
         )
@@ -675,7 +645,6 @@ class TestValidateEncoderObservationConsistency:
 
 @pytest.mark.unit
 class TestValidateDecoderEncoderCompatibility:
-
     def test_passes_when_decoder_keys_match_encoder_outputs(
         self,
         validator_factory: Callable[..., ExperimentValidator],
@@ -727,9 +696,7 @@ class TestValidateDecoderEncoderCompatibility:
         mock_decoder_factory: Callable[..., MagicMock],
     ):
         features = {"visual_features": (3, 14, 14)}
-        pipeline = mock_encoding_pipeline_factory(
-            final_features_to_dims=features
-        )
+        pipeline = mock_encoding_pipeline_factory(final_features_to_dims=features)
         decoder = mock_decoder_factory(input_keys=["visual_features"])
         # Replace decoder_input with a mock to track the call
         mock_decoder_input = MagicMock()
@@ -748,16 +715,13 @@ class TestValidateDecoderEncoderCompatibility:
 
 @pytest.mark.unit
 class TestValidateMoEGatingFeature:
-
     def test_moe_decoder_triggers_gating_validation(
         self,
         validator_factory: Callable[..., ExperimentValidator],
         mock_encoding_pipeline_factory: Callable[..., MagicMock],
     ):
         features = {"visual_features": 256}
-        pipeline = mock_encoding_pipeline_factory(
-            final_features_to_dims=features
-        )
+        pipeline = mock_encoding_pipeline_factory(final_features_to_dims=features)
         decoder = MagicMock(spec=MoEDecoder)
         decoder.decoder_input = DecoderInput(keys=["visual_features"])
         decoder.action_heads = {"position": MagicMock()}
@@ -779,9 +743,7 @@ class TestValidateMoEGatingFeature:
         mock_encoding_pipeline_factory: Callable[..., MagicMock],
     ):
         features = {"visual_features": 256}
-        pipeline = mock_encoding_pipeline_factory(
-            final_features_to_dims=features
-        )
+        pipeline = mock_encoding_pipeline_factory(final_features_to_dims=features)
         decoder = MagicMock(spec=MoEDecoder)
         decoder.decoder_input = DecoderInput(keys=["visual_features"])
         decoder.action_heads = {"position": MagicMock()}
@@ -809,9 +771,7 @@ class TestValidateMoEGatingFeature:
         mock_encoding_pipeline_factory: Callable[..., MagicMock],
     ):
         features = {"visual_features": 256}
-        pipeline = mock_encoding_pipeline_factory(
-            final_features_to_dims=features
-        )
+        pipeline = mock_encoding_pipeline_factory(final_features_to_dims=features)
         decoder = MagicMock(spec=MoEDecoder)
         decoder.decoder_input = DecoderInput(keys=["visual_features"])
         decoder.action_heads = {"position": MagicMock()}
@@ -833,9 +793,7 @@ class TestValidateMoEGatingFeature:
         mock_algorithm_factory: Callable[..., MagicMock],
     ):
         features = {"visual_features": 256}
-        pipeline = mock_encoding_pipeline_factory(
-            final_features_to_dims=features
-        )
+        pipeline = mock_encoding_pipeline_factory(final_features_to_dims=features)
         decoder = MagicMock(spec=MoEDecoder)
         decoder.decoder_input = DecoderInput(keys=["visual_features"])
         decoder.action_heads = {"position": MagicMock()}
@@ -861,9 +819,7 @@ class TestValidateMoEGatingFeature:
         mock_algorithm_factory: Callable[..., MagicMock],
     ):
         features = {"visual_features": 256}
-        pipeline = mock_encoding_pipeline_factory(
-            final_features_to_dims=features
-        )
+        pipeline = mock_encoding_pipeline_factory(final_features_to_dims=features)
         decoder = MagicMock(spec=MoEDecoder)
         decoder.decoder_input = DecoderInput(keys=["visual_features"])
         decoder.action_heads = {"position": MagicMock()}
@@ -891,7 +847,6 @@ class TestValidateMoEGatingFeature:
 
 @pytest.mark.unit
 class TestValidateLossKeys:
-
     def test_valid_loss_keys_pass(
         self,
         validator_factory: Callable[..., ExperimentValidator],
@@ -916,10 +871,10 @@ class TestValidateLossKeys:
         validator.validate_loss_keys()
         assert len(validator.errors) == 1
         expected_error = (
-            f"Loss module references keys {{'unknown_key'}} that are not "
-            f"defined in the action space or auxiliary keys. "
-            f"Valid loss keys: {{'position'}}. "
-            f"Please update your loss configuration or decoder."
+            "Loss module references keys {'unknown_key'} that are not "
+            "defined in the action space or auxiliary keys. "
+            "Valid loss keys: {'position'}. "
+            "Please update your loss configuration or decoder."
         )
         assert validator.errors[0] == expected_error
 
@@ -1058,14 +1013,15 @@ class TestValidateLossKeys:
 
 @pytest.mark.unit
 class TestValidateExperiment:
-
     def test_validate_experiment_passes_with_valid_config(self):
         mock_config = MagicMock()
         mock_config.task.observation_space = MagicMock()
         mock_config.task.action_space = MagicMock()
         mock_config.task.dataloader.tokenization.tokenize_observations = False
         mock_config.task.dataloader.tokenization.observation_tokenizer = None
-        mock_config.task.dataloader.image_norm_type = ImageNormalizationType.IMAGENET.value
+        mock_config.task.dataloader.image_norm_type = (
+            ImageNormalizationType.IMAGENET.value
+        )
         mock_config.policy.encoding_pipeline = MagicMock(spec=EncodingPipeline)
         mock_config.policy.encoding_pipeline.encoders = {}
         mock_config.policy.algorithm = MagicMock(spec=DecodingAlgorithm)
@@ -1109,9 +1065,7 @@ class TestValidateExperiment:
         mock_config.task.observation_space.observations_metadata = {}
         mock_config.policy.encoding_pipeline.get_final_features_to_dimensions.return_value = {}
 
-        with patch(
-            "versatil.validation.ExperimentValidator"
-        ) as mock_validator_class:
+        with patch("versatil.validation.ExperimentValidator") as mock_validator_class:
             mock_validator_instance = MagicMock()
             mock_validator_class.return_value = mock_validator_instance
             validate_experiment(config=mock_config)
@@ -1144,9 +1098,7 @@ class TestValidateExperiment:
         mock_config.task.observation_space.observations_metadata = {}
         mock_config.policy.encoding_pipeline.get_final_features_to_dimensions.return_value = {}
 
-        with patch(
-            "versatil.validation.ExperimentValidator"
-        ) as mock_validator_class:
+        with patch("versatil.validation.ExperimentValidator") as mock_validator_class:
             mock_validator_instance = MagicMock()
             mock_validator_class.return_value = mock_validator_instance
             validate_experiment(config=mock_config)
@@ -1175,9 +1127,7 @@ class TestValidateExperiment:
         mock_config.task.observation_space.observations_metadata = {}
         mock_config.policy.encoding_pipeline.get_final_features_to_dimensions.return_value = {}
 
-        with patch(
-            "versatil.validation.ExperimentValidator"
-        ) as mock_validator_class:
+        with patch("versatil.validation.ExperimentValidator") as mock_validator_class:
             mock_validator_instance = MagicMock()
             mock_validator_class.return_value = mock_validator_instance
             validate_experiment(config=mock_config)

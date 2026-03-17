@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.modulation.film_residual_block module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -31,7 +32,6 @@ def filmed_resblock_factory() -> Callable[..., FiLMedResBlock]:
 
 
 class TestFiLMedResBlockInitialization:
-
     @pytest.mark.parametrize("in_channels", [16, 32])
     @pytest.mark.parametrize("out_channels", [16, 64])
     @pytest.mark.parametrize("condition_dim", [32, 64])
@@ -79,7 +79,6 @@ class TestFiLMedResBlockInitialization:
 
 
 class TestFiLMedResBlockForward:
-
     def test_output_shape_same_channels(
         self,
         filmed_resblock_factory: Callable[..., FiLMedResBlock],
@@ -88,7 +87,9 @@ class TestFiLMedResBlockForward:
     ):
         channels = 16
         module = filmed_resblock_factory(
-            in_channels=channels, out_channels=channels, condition_dim=32,
+            in_channels=channels,
+            out_channels=channels,
+            condition_dim=32,
         )
         module.eval()
         tensor = nchw_tensor_factory(batch_size=2, channels=channels, height=8, width=8)
@@ -116,7 +117,9 @@ class TestFiLMedResBlockForward:
             downsample=downsample,
         )
         module.eval()
-        tensor = nchw_tensor_factory(batch_size=2, channels=in_channels, height=8, width=8)
+        tensor = nchw_tensor_factory(
+            batch_size=2, channels=in_channels, height=8, width=8
+        )
         condition = condition_factory(batch_size=2, condition_dim=32)
         with torch.no_grad():
             output = module(x=tensor, condition=condition)
@@ -132,7 +135,9 @@ class TestFiLMedResBlockForward:
         out_channels = 32
         stride = 2
         downsample = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+            nn.Conv2d(
+                in_channels, out_channels, kernel_size=1, stride=stride, bias=False
+            ),
             nn.BatchNorm2d(out_channels),
         )
         module = filmed_resblock_factory(
@@ -143,7 +148,9 @@ class TestFiLMedResBlockForward:
             downsample=downsample,
         )
         module.eval()
-        tensor = nchw_tensor_factory(batch_size=2, channels=in_channels, height=8, width=8)
+        tensor = nchw_tensor_factory(
+            batch_size=2, channels=in_channels, height=8, width=8
+        )
         condition = condition_factory(batch_size=2, condition_dim=32)
         with torch.no_grad():
             output = module(x=tensor, condition=condition)
@@ -157,7 +164,9 @@ class TestFiLMedResBlockForward:
     ):
         channels = 16
         module = filmed_resblock_factory(
-            in_channels=channels, out_channels=channels, condition_dim=32,
+            in_channels=channels,
+            out_channels=channels,
+            condition_dim=32,
         )
         module.eval()
         # Set FiLM projection weights to nonzero so conditioning has an effect
@@ -180,7 +189,9 @@ class TestFiLMedResBlockForward:
     ):
         channels = 16
         module = filmed_resblock_factory(
-            in_channels=channels, out_channels=channels, condition_dim=32,
+            in_channels=channels,
+            out_channels=channels,
+            condition_dim=32,
         )
         module.eval()
         # Zero conv weights so main branch produces ~zero output

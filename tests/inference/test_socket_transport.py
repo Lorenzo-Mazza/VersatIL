@@ -4,7 +4,6 @@ from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from tso_robotics_sockets import InferenceRequestKey, ServerRoute
 from tso_robotics_sockets.client import SocketClient
 
@@ -13,10 +12,7 @@ from versatil.inference.socket_transport import (
     SocketObservationTransport,
 )
 
-
-SOCKET_CLIENT_PATH = (
-    "versatil.inference.socket_transport.SocketClient"
-)
+SOCKET_CLIENT_PATH = "versatil.inference.socket_transport.SocketClient"
 
 
 @pytest.fixture
@@ -64,7 +60,6 @@ def action_transport_factory(
 
 @pytest.mark.unit
 class TestSocketObservationTransportInitialization:
-
     def test_creates_socket_client_with_provided_address_and_port(
         self,
     ):
@@ -91,7 +86,6 @@ class TestSocketObservationTransportInitialization:
 
 @pytest.mark.unit
 class TestSocketObservationTransportReceive:
-
     def test_sends_correct_route_name(
         self,
         observation_transport_factory,
@@ -106,10 +100,7 @@ class TestSocketObservationTransportReceive:
         )
 
         call_kwargs = mock_socket_client.send_request.call_args
-        assert (
-            call_kwargs.kwargs["route_name"]
-            == ServerRoute.GET_OBSERVATION.value
-        )
+        assert call_kwargs.kwargs["route_name"] == ServerRoute.GET_OBSERVATION.value
 
     def test_sends_requested_keys(
         self,
@@ -127,10 +118,7 @@ class TestSocketObservationTransportReceive:
 
         call_kwargs = mock_socket_client.send_request.call_args
         sent_data = call_kwargs.kwargs["dict_data"]
-        assert (
-            sent_data[InferenceRequestKey.REQUESTED_KEYS.value]
-            == requested_keys
-        )
+        assert sent_data[InferenceRequestKey.REQUESTED_KEYS.value] == requested_keys
 
     def test_sends_compression_type(
         self,
@@ -147,10 +135,7 @@ class TestSocketObservationTransportReceive:
 
         call_kwargs = mock_socket_client.send_request.call_args
         sent_data = call_kwargs.kwargs["dict_data"]
-        assert (
-            sent_data[InferenceRequestKey.COMPRESSION_TYPE.value]
-            == "png"
-        )
+        assert sent_data[InferenceRequestKey.COMPRESSION_TYPE.value] == "png"
 
     def test_returns_server_response(
         self,
@@ -171,7 +156,6 @@ class TestSocketObservationTransportReceive:
 
 @pytest.mark.unit
 class TestSocketObservationTransportRegister:
-
     def test_sends_correct_route_name(
         self,
         observation_transport_factory,
@@ -183,10 +167,7 @@ class TestSocketObservationTransportRegister:
         transport.register(client_name="test_policy")
 
         call_kwargs = mock_socket_client.send_request.call_args
-        assert (
-            call_kwargs.kwargs["route_name"]
-            == ServerRoute.REGISTER_CLIENT.value
-        )
+        assert call_kwargs.kwargs["route_name"] == ServerRoute.REGISTER_CLIENT.value
 
     def test_sends_client_name(
         self,
@@ -200,10 +181,7 @@ class TestSocketObservationTransportRegister:
 
         call_kwargs = mock_socket_client.send_request.call_args
         sent_data = call_kwargs.kwargs["dict_data"]
-        assert (
-            sent_data[InferenceRequestKey.CLIENT_NAME.value]
-            == "my_checkpoint_path"
-        )
+        assert sent_data[InferenceRequestKey.CLIENT_NAME.value] == "my_checkpoint_path"
 
     def test_returns_server_response(
         self,
@@ -221,7 +199,6 @@ class TestSocketObservationTransportRegister:
 
 @pytest.mark.unit
 class TestSocketObservationTransportClose:
-
     def test_delegates_to_socket_close(
         self,
         observation_transport_factory,
@@ -236,7 +213,6 @@ class TestSocketObservationTransportClose:
 
 @pytest.mark.unit
 class TestSocketActionTransportInitialization:
-
     def test_creates_socket_client_with_provided_address_and_port(
         self,
     ):
@@ -263,7 +239,6 @@ class TestSocketActionTransportInitialization:
 
 @pytest.mark.unit
 class TestSocketActionTransportSend:
-
     def test_sends_correct_route_name(
         self,
         action_transport_factory,
@@ -278,10 +253,7 @@ class TestSocketActionTransportSend:
         )
 
         call_kwargs = mock_socket_client.send_request.call_args
-        assert (
-            call_kwargs.kwargs["route_name"]
-            == ServerRoute.SEND_ACTION.value
-        )
+        assert call_kwargs.kwargs["route_name"] == ServerRoute.SEND_ACTION.value
 
     def test_sends_actions(
         self,
@@ -299,9 +271,7 @@ class TestSocketActionTransportSend:
 
         call_kwargs = mock_socket_client.send_request.call_args
         sent_data = call_kwargs.kwargs["dict_data"]
-        assert (
-            sent_data[InferenceRequestKey.ACTIONS.value] == actions
-        )
+        assert sent_data[InferenceRequestKey.ACTIONS.value] == actions
 
     def test_sends_action_metadata(
         self,
@@ -322,10 +292,7 @@ class TestSocketActionTransportSend:
 
         call_kwargs = mock_socket_client.send_request.call_args
         sent_data = call_kwargs.kwargs["dict_data"]
-        assert (
-            sent_data[InferenceRequestKey.ACTION_METADATA.value]
-            == action_metadata
-        )
+        assert sent_data[InferenceRequestKey.ACTION_METADATA.value] == action_metadata
 
     def test_returns_server_response(
         self,
@@ -346,7 +313,6 @@ class TestSocketActionTransportSend:
 
 @pytest.mark.unit
 class TestSocketActionTransportClose:
-
     def test_delegates_to_socket_close(
         self,
         action_transport_factory,

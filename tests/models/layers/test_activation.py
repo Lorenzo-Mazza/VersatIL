@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.activation module."""
+
 import enum
 
 import pytest
@@ -6,7 +7,6 @@ from torch import nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.swiglu import SwiGLU
-
 
 EXPECTED_MEMBERS = {
     "RELU": "relu",
@@ -34,7 +34,6 @@ ACTIVATION_TO_TORCH_TYPE = {
 
 
 class TestActivationFunctionEnum:
-
     def test_is_str_enum(self):
         assert issubclass(ActivationFunction, str)
         assert issubclass(ActivationFunction, enum.Enum)
@@ -58,7 +57,6 @@ class TestActivationFunctionEnum:
 
 
 class TestToTorchActivation:
-
     @pytest.mark.parametrize(
         "activation, expected_type",
         list(ACTIVATION_TO_TORCH_TYPE.items()),

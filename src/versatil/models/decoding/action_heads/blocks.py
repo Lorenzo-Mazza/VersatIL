@@ -1,4 +1,5 @@
 """Individual building blocks for composing action heads."""
+
 from abc import ABC, abstractmethod
 
 import torch

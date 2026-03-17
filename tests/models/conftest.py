@@ -1,4 +1,5 @@
 """Models package test fixtures: mock factories for Policy dependencies."""
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from unittest.mock import MagicMock
@@ -22,6 +23,7 @@ def input_tensor_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:
     """Factory for generic input tensors with configurable shape."""
+
     def factory(
         batch_size: int = 2,
         input_dimension: int = 64,
@@ -31,9 +33,8 @@ def input_tensor_factory(
             shape = (batch_size, sequence_length, input_dimension)
         else:
             shape = (batch_size, input_dimension)
-        return torch.from_numpy(
-            rng.standard_normal(shape).astype(np.float32)
-        )
+        return torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
+
     return factory
 
 
@@ -42,21 +43,22 @@ def embedding_tensor_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:
     """Factory for action embedding tensors (B, prediction_horizon, embedding_dimension)."""
+
     def factory(
         batch_size: int = 2,
         prediction_horizon: int = 8,
         embedding_dimension: int = 64,
     ) -> torch.Tensor:
         shape = (batch_size, prediction_horizon, embedding_dimension)
-        return torch.from_numpy(
-            rng.standard_normal(shape).astype(np.float32)
-        )
+        return torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
+
     return factory
 
 
 @pytest.fixture
 def mock_action_decoder_factory() -> Callable[..., MagicMock]:
     """Factory for mock ActionDecoder with configurable action space metadata."""
+
     def factory(
         action_keys: list[str] | None = None,
         prediction_dimension: int = 3,
@@ -85,12 +87,16 @@ def mock_action_decoder_factory() -> Callable[..., MagicMock]:
                 for key in action_keys
             }
         return network
+
     return factory
 
 
 @pytest.fixture
-def feature_dictionary_factory(rng: np.random.Generator) -> Callable[..., dict[str, torch.Tensor]]:
+def feature_dictionary_factory(
+    rng: np.random.Generator,
+) -> Callable[..., dict[str, torch.Tensor]]:
     """Factory for feature dictionaries produced by encoding pipeline."""
+
     def factory(
         batch_size: int = 2,
         feature_dimension: int = 64,
@@ -104,12 +110,16 @@ def feature_dictionary_factory(rng: np.random.Generator) -> Callable[..., dict[s
             )
             for key in feature_keys
         }
+
     return factory
 
 
 @pytest.fixture
-def observation_dictionary_factory(rng: np.random.Generator) -> Callable[..., dict[str, torch.Tensor]]:
+def observation_dictionary_factory(
+    rng: np.random.Generator,
+) -> Callable[..., dict[str, torch.Tensor]]:
     """Factory for observation dictionaries."""
+
     def factory(
         batch_size: int = 2,
         observation_dimension: int = 7,
@@ -119,16 +129,22 @@ def observation_dictionary_factory(rng: np.random.Generator) -> Callable[..., di
             observation_keys = ["proprio_robot_frame"]
         return {
             key: torch.from_numpy(
-                rng.standard_normal((batch_size, observation_dimension)).astype(np.float32)
+                rng.standard_normal((batch_size, observation_dimension)).astype(
+                    np.float32
+                )
             )
             for key in observation_keys
         }
+
     return factory
 
 
 @pytest.fixture
-def action_dictionary_factory(rng: np.random.Generator) -> Callable[..., dict[str, torch.Tensor]]:
+def action_dictionary_factory(
+    rng: np.random.Generator,
+) -> Callable[..., dict[str, torch.Tensor]]:
     """Factory for action dictionaries."""
+
     def factory(
         batch_size: int = 2,
         prediction_horizon: int = 4,
@@ -140,9 +156,9 @@ def action_dictionary_factory(rng: np.random.Generator) -> Callable[..., dict[st
             action_keys = ["proprio_robot_frame"]
         result = {
             key: torch.from_numpy(
-                rng.standard_normal((batch_size, prediction_horizon, action_dimension)).astype(
-                    np.float32
-                )
+                rng.standard_normal(
+                    (batch_size, prediction_horizon, action_dimension)
+                ).astype(np.float32)
             )
             for key in action_keys
         }
@@ -151,6 +167,7 @@ def action_dictionary_factory(rng: np.random.Generator) -> Callable[..., dict[st
                 batch_size, prediction_horizon, dtype=torch.bool
             )
         return result
+
     return factory
 
 
@@ -160,6 +177,7 @@ def batch_dictionary_factory(
     action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
 ) -> Callable[..., dict[str, dict[str, torch.Tensor]]]:
     """Factory for full batch dictionaries with observation and action sub-dicts."""
+
     def factory(
         batch_size: int = 2,
         observation_dimension: int = 7,
@@ -177,6 +195,7 @@ def batch_dictionary_factory(
                 action_dimension=action_dimension,
             ),
         }
+
     return factory
 
 
@@ -187,6 +206,7 @@ def vision_encoder_factory() -> Callable[..., MagicMock]:
     With spec=EncodingMixin, attributes not in the spec are absent by default.
     Pass has_backbone=True etc. to explicitly add the corresponding attribute.
     """
+
     def factory(
         has_backbone: bool = False,
         has_stages: bool = False,
@@ -208,20 +228,25 @@ def vision_encoder_factory() -> Callable[..., MagicMock]:
             input_spec.keys = input_keys
             encoder.input_specification = input_spec
         return encoder
+
     return factory
 
 
 @pytest.fixture
 def encoding_pipeline_factory() -> Callable[..., MagicMock]:
     """Factory for mock encoding pipelines with configurable encoder dicts."""
+
     def factory(
         encoders: dict[str, MagicMock] | None = None,
         conditional_encoders: dict[str, MagicMock] | None = None,
     ) -> MagicMock:
         pipeline = MagicMock(spec=EncodingPipeline)
         pipeline.encoders = encoders if encoders is not None else {}
-        pipeline.conditional_encoders = conditional_encoders if conditional_encoders is not None else {}
+        pipeline.conditional_encoders = (
+            conditional_encoders if conditional_encoders is not None else {}
+        )
         return pipeline
+
     return factory
 
 
@@ -230,6 +255,7 @@ def policy_factory(
     feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
 ) -> Callable[..., Policy]:
     """Factory for creating Policy instances with mocked dependencies."""
+
     def factory(
         encoding_pipeline: EncodingPipeline | None = None,
         algorithm: DecodingAlgorithm | None = None,
@@ -276,4 +302,5 @@ def policy_factory(
             loss=loss,
             device=device,
         )
+
     return factory

@@ -7,9 +7,9 @@ import numpy as np
 import torch
 from albumentations.pytorch import ToTensorV2
 from tso_robotics_sockets import CompressionType, decompress_array
+from versatil_constants.shared import ObsKey
 
 from versatil.data.constants import Cameras
-from versatil_constants.shared import ObsKey
 
 
 class ObservationPreprocessor:
@@ -68,9 +68,7 @@ class ObservationPreprocessor:
             additional_targets=additional_targets,
         )
 
-    def parse_response(
-        self, response: dict
-    ) -> dict[int, dict[str, np.ndarray | str]]:
+    def parse_response(self, response: dict) -> dict[int, dict[str, np.ndarray | str]]:
         """Parse server response into per-environment observation dicts.
 
         Args:
@@ -109,13 +107,9 @@ class ObservationPreprocessor:
                 observations[camera_key] = image
         for key in self.proprioceptive_keys:
             if key in response:
-                observations[key] = np.array(
-                    response[key], dtype=np.float32
-                )
+                observations[key] = np.array(response[key], dtype=np.float32)
         if self.has_language and ObsKey.LANGUAGE.value in response:
-            observations[ObsKey.LANGUAGE.value] = response[
-                ObsKey.LANGUAGE.value
-            ]
+            observations[ObsKey.LANGUAGE.value] = response[ObsKey.LANGUAGE.value]
         return {0: observations}
 
     def _parse_multi_environment(
@@ -130,9 +124,7 @@ class ObservationPreprocessor:
             Dict mapping each environment index to observation dict.
         """
         first_camera = self.camera_keys[0]
-        environment_indices = [
-            int(key) for key in response[first_camera].keys()
-        ]
+        environment_indices = [int(key) for key in response[first_camera]]
         per_environment: dict[int, dict[str, np.ndarray | str]] = {}
         for environment_index in environment_indices:
             index_string = str(environment_index)
@@ -151,9 +143,9 @@ class ObservationPreprocessor:
                         response[key][index_string], dtype=np.float32
                     )
             if self.has_language and ObsKey.LANGUAGE.value in response:
-                observations[ObsKey.LANGUAGE.value] = response[
-                    ObsKey.LANGUAGE.value
-                ][index_string]
+                observations[ObsKey.LANGUAGE.value] = response[ObsKey.LANGUAGE.value][
+                    index_string
+                ]
             per_environment[environment_index] = observations
         return per_environment
 
@@ -212,13 +204,12 @@ class ObservationPreprocessor:
                     depth_tensor = depth_tensor.unsqueeze(0)
                 if self.depth_clamp_range is not None:
                     depth_min, depth_max = self.depth_clamp_range
-                    depth_tensor = torch.clamp(depth_tensor, min=depth_min, max=depth_max)
+                    depth_tensor = torch.clamp(
+                        depth_tensor, min=depth_min, max=depth_max
+                    )
                 camera_tensors[self.depth_key].append(depth_tensor)
 
-        return {
-            key: torch.stack(tensors)
-            for key, tensors in camera_tensors.items()
-        }
+        return {key: torch.stack(tensors) for key, tensors in camera_tensors.items()}
 
     @staticmethod
     def _normalize_image_tensor(image: torch.Tensor) -> torch.Tensor:

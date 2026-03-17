@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.transformer.conditional_bidirectional_decoder module."""
+
 import re
 from collections.abc import Callable
 
@@ -15,7 +16,9 @@ from versatil.models.layers.transformer.conditional_bidirectional_decoder import
 
 
 @pytest.fixture
-def conditional_bidirectional_decoder_factory() -> Callable[..., ConditionalBidirectionalDecoder]:
+def conditional_bidirectional_decoder_factory() -> Callable[
+    ..., ConditionalBidirectionalDecoder
+]:
     """Factory for ConditionalBidirectionalDecoder modules."""
 
     def factory(
@@ -61,13 +64,14 @@ def conditional_bidirectional_decoder_factory() -> Callable[..., ConditionalBidi
 
 
 class TestConditionalBidirectionalDecoderInitialization:
-
     @pytest.mark.parametrize("number_of_layers", [1, 3])
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("condition_dimension", [16, 32])
     def test_stores_configuration(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
         number_of_layers: int,
         embedding_dimension: int,
         condition_dimension: int,
@@ -83,14 +87,18 @@ class TestConditionalBidirectionalDecoderInitialization:
 
     def test_creates_correct_number_of_conditional_layers(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
     ):
         decoder = conditional_bidirectional_decoder_factory(number_of_layers=3)
         assert len(decoder.layers) == 3
 
     def test_layers_have_cross_attention_enabled(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
     ):
         decoder = conditional_bidirectional_decoder_factory(number_of_layers=2)
         for layer in decoder.layers:
@@ -98,7 +106,9 @@ class TestConditionalBidirectionalDecoderInitialization:
 
     def test_no_positional_encoding_by_default(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
     ):
         decoder = conditional_bidirectional_decoder_factory(
             positional_encoding_type=None
@@ -107,7 +117,9 @@ class TestConditionalBidirectionalDecoderInitialization:
 
     def test_positional_encoding_created_when_specified(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
     ):
         decoder = conditional_bidirectional_decoder_factory(
             positional_encoding_type=PositionalEncodingType.SINUSOIDAL.value,
@@ -116,7 +128,9 @@ class TestConditionalBidirectionalDecoderInitialization:
 
     def test_gqa_requires_kv_heads(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
     ):
         with pytest.raises(
             ValueError,
@@ -129,7 +143,9 @@ class TestConditionalBidirectionalDecoderInitialization:
 
     def test_mha_sets_kv_heads_to_query_heads(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
     ):
         decoder = conditional_bidirectional_decoder_factory(
             number_of_heads=8,
@@ -139,10 +155,11 @@ class TestConditionalBidirectionalDecoderInitialization:
 
 
 class TestConditionalBidirectionalDecoderForward:
-
     def test_output_shape(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
@@ -168,7 +185,9 @@ class TestConditionalBidirectionalDecoderForward:
 
     def test_identity_init_conditioning_has_no_effect(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
         rng: np.random.Generator,
     ):
         decoder = conditional_bidirectional_decoder_factory(
@@ -182,15 +201,9 @@ class TestConditionalBidirectionalDecoderForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((2, 4, 32)).astype(np.float32)
         )
-        memory = torch.from_numpy(
-            rng.standard_normal((2, 6, 32)).astype(np.float32)
-        )
-        condition_a = torch.from_numpy(
-            rng.standard_normal((2, 16)).astype(np.float32)
-        )
-        condition_b = torch.from_numpy(
-            rng.standard_normal((2, 16)).astype(np.float32)
-        )
+        memory = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
+        condition_a = torch.from_numpy(rng.standard_normal((2, 16)).astype(np.float32))
+        condition_b = torch.from_numpy(rng.standard_normal((2, 16)).astype(np.float32))
         output_a = decoder(
             hidden_states=hidden_states,
             condition=condition_a,
@@ -205,7 +218,9 @@ class TestConditionalBidirectionalDecoderForward:
 
     def test_xavier_init_different_conditions_produce_different_outputs(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
         rng: np.random.Generator,
     ):
         decoder = conditional_bidirectional_decoder_factory(
@@ -219,15 +234,9 @@ class TestConditionalBidirectionalDecoderForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((2, 4, 32)).astype(np.float32)
         )
-        memory = torch.from_numpy(
-            rng.standard_normal((2, 6, 32)).astype(np.float32)
-        )
-        condition_a = torch.from_numpy(
-            rng.standard_normal((2, 16)).astype(np.float32)
-        )
-        condition_b = torch.from_numpy(
-            rng.standard_normal((2, 16)).astype(np.float32)
-        )
+        memory = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
+        condition_a = torch.from_numpy(rng.standard_normal((2, 16)).astype(np.float32))
+        condition_b = torch.from_numpy(rng.standard_normal((2, 16)).astype(np.float32))
         output_a = decoder(
             hidden_states=hidden_states,
             condition=condition_a,
@@ -242,7 +251,9 @@ class TestConditionalBidirectionalDecoderForward:
 
     def test_bidirectional_all_positions_see_all_positions(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
         rng: np.random.Generator,
     ):
         decoder = conditional_bidirectional_decoder_factory(
@@ -257,12 +268,8 @@ class TestConditionalBidirectionalDecoderForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((1, 4, 32)).astype(np.float32)
         )
-        memory = torch.from_numpy(
-            rng.standard_normal((1, 6, 32)).astype(np.float32)
-        )
-        condition = torch.from_numpy(
-            rng.standard_normal((1, 16)).astype(np.float32)
-        )
+        memory = torch.from_numpy(rng.standard_normal((1, 6, 32)).astype(np.float32))
+        condition = torch.from_numpy(rng.standard_normal((1, 16)).astype(np.float32))
         output_original = decoder(
             hidden_states=hidden_states,
             condition=condition,
@@ -286,7 +293,9 @@ class TestConditionalBidirectionalDecoderForward:
 
     def test_query_padding_mask_affects_output(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
         rng: np.random.Generator,
         padding_mask_factory: Callable[..., torch.Tensor],
     ):
@@ -300,12 +309,8 @@ class TestConditionalBidirectionalDecoderForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((2, 4, 32)).astype(np.float32)
         )
-        memory = torch.from_numpy(
-            rng.standard_normal((2, 6, 32)).astype(np.float32)
-        )
-        condition = torch.from_numpy(
-            rng.standard_normal((2, 16)).astype(np.float32)
-        )
+        memory = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
+        condition = torch.from_numpy(rng.standard_normal((2, 16)).astype(np.float32))
         query_mask = padding_mask_factory(
             batch_size=2, sequence_length=4, padded_positions=[[2, 3], []]
         )
@@ -320,13 +325,13 @@ class TestConditionalBidirectionalDecoderForward:
             condition=condition,
             encoded_features=memory,
         )
-        assert not torch.allclose(
-            output_masked[0], output_unmasked[0], atol=1e-5
-        )
+        assert not torch.allclose(output_masked[0], output_unmasked[0], atol=1e-5)
 
     def test_memory_padding_mask_affects_output(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
         rng: np.random.Generator,
         padding_mask_factory: Callable[..., torch.Tensor],
     ):
@@ -340,12 +345,8 @@ class TestConditionalBidirectionalDecoderForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((2, 4, 32)).astype(np.float32)
         )
-        memory = torch.from_numpy(
-            rng.standard_normal((2, 6, 32)).astype(np.float32)
-        )
-        condition = torch.from_numpy(
-            rng.standard_normal((2, 16)).astype(np.float32)
-        )
+        memory = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
+        condition = torch.from_numpy(rng.standard_normal((2, 16)).astype(np.float32))
         memory_mask = padding_mask_factory(
             batch_size=2, sequence_length=6, padded_positions=[[4, 5], []]
         )
@@ -360,13 +361,13 @@ class TestConditionalBidirectionalDecoderForward:
             condition=condition,
             encoded_features=memory,
         )
-        assert not torch.allclose(
-            output_masked[0], output_unmasked[0], atol=1e-5
-        )
+        assert not torch.allclose(output_masked[0], output_unmasked[0], atol=1e-5)
 
     def test_different_memory_produces_different_output(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
         rng: np.random.Generator,
     ):
         decoder = conditional_bidirectional_decoder_factory(
@@ -379,15 +380,9 @@ class TestConditionalBidirectionalDecoderForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((2, 4, 32)).astype(np.float32)
         )
-        condition = torch.from_numpy(
-            rng.standard_normal((2, 16)).astype(np.float32)
-        )
-        memory_a = torch.from_numpy(
-            rng.standard_normal((2, 6, 32)).astype(np.float32)
-        )
-        memory_b = torch.from_numpy(
-            rng.standard_normal((2, 6, 32)).astype(np.float32)
-        )
+        condition = torch.from_numpy(rng.standard_normal((2, 16)).astype(np.float32))
+        memory_a = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
+        memory_b = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
         output_a = decoder(
             hidden_states=hidden_states,
             condition=condition,
@@ -402,7 +397,9 @@ class TestConditionalBidirectionalDecoderForward:
 
     def test_with_sinusoidal_positional_encoding(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
@@ -429,7 +426,9 @@ class TestConditionalBidirectionalDecoderForward:
 
     def test_with_rope_positional_encoding(
         self,
-        conditional_bidirectional_decoder_factory: Callable[..., ConditionalBidirectionalDecoder],
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
@@ -456,7 +455,6 @@ class TestConditionalBidirectionalDecoderForward:
 
 
 class TestConditionalBidirectionalDecoderExpandPaddingMask:
-
     def test_expands_to_four_dimensions(
         self,
         padding_mask_factory: Callable[..., torch.Tensor],

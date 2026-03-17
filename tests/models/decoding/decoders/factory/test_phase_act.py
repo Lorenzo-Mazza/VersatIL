@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.decoders.factory.phase_act module."""
+
 import re
 from collections.abc import Callable
 from types import SimpleNamespace
@@ -7,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
-from versatil.data.constants import ObsKey, SampleKey
+from versatil.data.constants import ObsKey
 from versatil.models.decoding.action_heads.moe import MoEHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import DecoderOutputKey, FeatureType
@@ -16,7 +17,6 @@ from versatil.models.decoding.decoders.factory.phase_act import PhaseACT
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
-
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 2
@@ -115,7 +115,6 @@ def phase_act_factory(
 
 
 class TestPhaseACTInitialization:
-
     def test_inherits_from_act(
         self,
         phase_act_factory: Callable[..., PhaseACT],
@@ -231,7 +230,6 @@ class TestPhaseACTInitialization:
 
 
 class TestPhaseACTForward:
-
     def test_output_keys(
         self,
         phase_act_factory: Callable[..., PhaseACT],
@@ -331,11 +329,13 @@ class TestPhaseACTForward:
 
 
 class TestPhaseACTTemporalObservation:
-
-    @pytest.mark.parametrize("observation_horizon, expects_temporal_pe", [
-        (1, False),
-        (3, True),
-    ])
+    @pytest.mark.parametrize(
+        "observation_horizon, expects_temporal_pe",
+        [
+            (1, False),
+            (3, True),
+        ],
+    )
     def test_temporal_pe_created_based_on_observation_horizon(
         self,
         phase_act_factory: Callable[..., PhaseACT],
@@ -348,4 +348,3 @@ class TestPhaseACTTemporalObservation:
             assert isinstance(layer, LearnedPositionalEncoding1D)
         else:
             assert layer is None
-

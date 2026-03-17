@@ -1,6 +1,7 @@
 """Tests for versatil.data.augmentation.augmentation_pipeline module."""
+
 from collections.abc import Callable
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, call, patch
 
 import albumentations as A
 import hydra.utils
@@ -21,6 +22,7 @@ def mock_color_augmentation():
         else:
             mock.side_effect = lambda image: {"image": image * 1.1}
         return mock
+
     return factory
 
 
@@ -34,6 +36,7 @@ def mock_spatial_augmentation():
         else:
             mock.side_effect = lambda image: {"image": image + 0.1}
         return mock
+
     return factory
 
 
@@ -50,11 +53,11 @@ def mock_resize_transform():
             mock_instance.side_effect = lambda **kwargs: {"image": kwargs.get("image")}
         mock_resize.return_value = mock_instance
         return mock_resize
+
     yield factory
 
 
 class TestAugmentationPipelineInitialization:
-
     def test_init_no_augmentations(self):
         pipeline = AugmentationPipeline(train=True)
 
@@ -68,17 +71,13 @@ class TestAugmentationPipelineInitialization:
 
     def test_init_with_color_train(self, mock_color_augmentation):
         mock_color = mock_color_augmentation()
-        pipeline = AugmentationPipeline(
-            color_augmentation=mock_color,
-            train=True
-        )
+        pipeline = AugmentationPipeline(color_augmentation=mock_color, train=True)
         assert pipeline.use_color
         assert pipeline.photometric_transform == mock_color
 
     def test_init_with_color_eval(self, mock_color_augmentation):
         pipeline = AugmentationPipeline(
-            color_augmentation=mock_color_augmentation(),
-            train=False
+            color_augmentation=mock_color_augmentation(), train=False
         )
 
         assert not pipeline.use_color
@@ -86,10 +85,7 @@ class TestAugmentationPipelineInitialization:
 
     def test_init_with_spatial_train(self, mock_spatial_augmentation):
         mock_spatial = mock_spatial_augmentation()
-        pipeline = AugmentationPipeline(
-            spatial_augmentation=mock_spatial,
-            train=True
-        )
+        pipeline = AugmentationPipeline(spatial_augmentation=mock_spatial, train=True)
         assert pipeline.use_spatial
         assert pipeline.spatial_transform == mock_spatial
 
@@ -99,23 +95,20 @@ class TestAugmentationPipelineInitialization:
         mock_depth_resize = MagicMock()
         mock_resize_class.side_effect = [mock_rgb_resize, mock_depth_resize]
 
-        pipeline = AugmentationPipeline(
-            target_height=224,
-            target_width=224,
-            train=True
-        )
+        pipeline = AugmentationPipeline(target_height=224, target_width=224, train=True)
 
         assert pipeline.use_resize
         assert pipeline.resize_transform_rgb == mock_rgb_resize
         assert pipeline.resize_transform_depth == mock_depth_resize
-        mock_resize_class.assert_has_calls([
-            call(height=224, width=224, interpolation=1, p=1.0),
-            call(height=224, width=224, interpolation=0, p=1.0)
-        ])
+        mock_resize_class.assert_has_calls(
+            [
+                call(height=224, width=224, interpolation=1, p=1.0),
+                call(height=224, width=224, interpolation=0, p=1.0),
+            ]
+        )
 
 
 class TestApplyRGBAugmentations:
-
     def test_apply_rgb_no_transforms(
         self,
         synthetic_rgb_images: Callable[..., np.ndarray],
@@ -137,11 +130,11 @@ class TestApplyRGBAugmentations:
         mock_class = mock_resize_transform(return_value={"image": resized_frame})
         mock_instance = mock_class.return_value
 
-        with patch("versatil.data.augmentation.augmentation_pipeline.A.Resize", new=mock_class):
+        with patch(
+            "versatil.data.augmentation.augmentation_pipeline.A.Resize", new=mock_class
+        ):
             pipeline = AugmentationPipeline(
-                target_height=224,
-                target_width=224,
-                train=True
+                target_height=224, target_width=224, train=True
             )
             result = pipeline.apply_rgb_augmentations(images)
 
@@ -157,10 +150,7 @@ class TestApplyRGBAugmentations:
         images = synthetic_rgb_images(num_timesteps=3)
         modified_frame = images[0] * 1.1
         mock_color = mock_color_augmentation()
-        pipeline = AugmentationPipeline(
-            color_augmentation=mock_color,
-            train=True
-        )
+        pipeline = AugmentationPipeline(color_augmentation=mock_color, train=True)
 
         result = pipeline.apply_rgb_augmentations(images)
 
@@ -176,10 +166,7 @@ class TestApplyRGBAugmentations:
         images = synthetic_rgb_images(num_timesteps=3)
         modified_frame = images[0] + 0.1
         mock_spatial = mock_spatial_augmentation()
-        pipeline = AugmentationPipeline(
-            spatial_augmentation=mock_spatial,
-            train=True
-        )
+        pipeline = AugmentationPipeline(spatial_augmentation=mock_spatial, train=True)
 
         result = pipeline.apply_rgb_augmentations(images)
 
@@ -195,17 +182,25 @@ class TestApplyRGBAugmentations:
         synthetic_rgb_images: Callable[..., np.ndarray],
     ):
         images = synthetic_rgb_images(num_timesteps=3)
-        mock_class = mock_resize_transform(side_effect=lambda **kwargs: {"image": kwargs["image"] + 0.1})
+        mock_class = mock_resize_transform(
+            side_effect=lambda **kwargs: {"image": kwargs["image"] + 0.1}
+        )
         mock_instance = mock_class.return_value
-        mock_color = mock_color_augmentation(side_effect=lambda image: {"image": image * 1.1})
-        mock_spatial = mock_spatial_augmentation(side_effect=lambda image: {"image": image + 0.1})
-        with patch("versatil.data.augmentation.augmentation_pipeline.A.Resize", new=mock_class):
+        mock_color = mock_color_augmentation(
+            side_effect=lambda image: {"image": image * 1.1}
+        )
+        mock_spatial = mock_spatial_augmentation(
+            side_effect=lambda image: {"image": image + 0.1}
+        )
+        with patch(
+            "versatil.data.augmentation.augmentation_pipeline.A.Resize", new=mock_class
+        ):
             pipeline = AugmentationPipeline(
                 color_augmentation=mock_color,
                 spatial_augmentation=mock_spatial,
                 target_height=64,
                 target_width=64,
-                train=True
+                train=True,
             )
             result = pipeline.apply_rgb_augmentations(images)
 
@@ -218,7 +213,6 @@ class TestApplyRGBAugmentations:
 
 
 class TestApplyDepthAugmentations:
-
     def test_apply_depth_no_transforms(
         self,
         synthetic_depth_images: Callable[..., np.ndarray],
@@ -240,11 +234,11 @@ class TestApplyDepthAugmentations:
         mock_class = mock_resize_transform(return_value={"image": resized_frame})
         mock_instance = mock_class.return_value
 
-        with patch("versatil.data.augmentation.augmentation_pipeline.A.Resize", new=mock_class):
+        with patch(
+            "versatil.data.augmentation.augmentation_pipeline.A.Resize", new=mock_class
+        ):
             pipeline = AugmentationPipeline(
-                target_height=128,
-                target_width=128,
-                train=True
+                target_height=128, target_width=128, train=True
             )
             result = pipeline.apply_depth_augmentations(images)
 
@@ -259,11 +253,10 @@ class TestApplyDepthAugmentations:
     ):
         images = synthetic_depth_images(num_timesteps=3)
         modified_frame = images[0] + 0.1
-        mock_spatial = mock_spatial_augmentation(side_effect=lambda image: {"image": image + 0.1})
-        pipeline = AugmentationPipeline(
-            spatial_augmentation=mock_spatial,
-            train=True
+        mock_spatial = mock_spatial_augmentation(
+            side_effect=lambda image: {"image": image + 0.1}
         )
+        pipeline = AugmentationPipeline(spatial_augmentation=mock_spatial, train=True)
         result = pipeline.apply_depth_augmentations(images)
         assert result.shape == images.shape
         np.testing.assert_allclose(result[0], modified_frame)
@@ -276,10 +269,7 @@ class TestApplyDepthAugmentations:
     ):
         images = synthetic_depth_images(num_timesteps=3)
         mock_color = mock_color_augmentation()
-        pipeline = AugmentationPipeline(
-            color_augmentation=mock_color,
-            train=True
-        )
+        pipeline = AugmentationPipeline(color_augmentation=mock_color, train=True)
         result = pipeline.apply_depth_augmentations(images)
         mock_color.assert_not_called()
         np.testing.assert_array_equal(result, images)
@@ -291,15 +281,21 @@ class TestApplyDepthAugmentations:
         synthetic_depth_images: Callable[..., np.ndarray],
     ):
         images = synthetic_depth_images(num_timesteps=3)
-        mock_resize = mock_resize_transform(side_effect=lambda **kwargs: {"image": kwargs["image"] + 0.1})
-        mock_spatial = mock_spatial_augmentation(side_effect=lambda image: {"image": image - 0.05})
+        mock_resize = mock_resize_transform(
+            side_effect=lambda **kwargs: {"image": kwargs["image"] + 0.1}
+        )
+        mock_spatial = mock_spatial_augmentation(
+            side_effect=lambda image: {"image": image - 0.05}
+        )
         mock_instance_resize = mock_resize.return_value
-        with patch("versatil.data.augmentation.augmentation_pipeline.A.Resize", new=mock_resize):
+        with patch(
+            "versatil.data.augmentation.augmentation_pipeline.A.Resize", new=mock_resize
+        ):
             pipeline = AugmentationPipeline(
                 spatial_augmentation=mock_spatial,
                 target_height=64,
                 target_width=64,
-                train=True
+                train=True,
             )
             result = pipeline.apply_depth_augmentations(images)
         # Expected: (original +0.1) -0.05
@@ -310,7 +306,6 @@ class TestApplyDepthAugmentations:
 
 
 class TestIntegration:
-
     def test_full_pipeline_workflow_rgb(
         self,
         synthetic_rgb_images: Callable[..., np.ndarray],
@@ -318,13 +313,15 @@ class TestIntegration:
         mock_spatial_augmentation,
     ):
         images = synthetic_rgb_images(num_timesteps=3)
-        mock_color = mock_color_augmentation(side_effect=lambda image: {"image": image * 1.1})
-        mock_spatial = mock_spatial_augmentation(side_effect=lambda image: {"image": image - 0.05})
+        mock_color = mock_color_augmentation(
+            side_effect=lambda image: {"image": image * 1.1}
+        )
+        mock_spatial = mock_spatial_augmentation(
+            side_effect=lambda image: {"image": image - 0.05}
+        )
 
         pipeline = AugmentationPipeline(
-            color_augmentation=mock_color,
-            spatial_augmentation=mock_spatial,
-            train=True
+            color_augmentation=mock_color, spatial_augmentation=mock_spatial, train=True
         )
 
         result = pipeline.apply_rgb_augmentations(images)
@@ -339,11 +336,10 @@ class TestIntegration:
         mock_spatial_augmentation,
     ):
         images = synthetic_depth_images(num_timesteps=3)
-        mock_spatial = mock_spatial_augmentation(side_effect=lambda image: {"image": image - 0.05})
-        pipeline = AugmentationPipeline(
-            spatial_augmentation=mock_spatial,
-            train=True
+        mock_spatial = mock_spatial_augmentation(
+            side_effect=lambda image: {"image": image - 0.05}
         )
+        pipeline = AugmentationPipeline(spatial_augmentation=mock_spatial, train=True)
         result = pipeline.apply_depth_augmentations(images)
 
         expected = images - 0.05
@@ -354,7 +350,7 @@ class TestIntegration:
         pipeline = AugmentationPipeline(
             color_augmentation=MagicMock(),
             spatial_augmentation=MagicMock(),
-            train=False
+            train=False,
         )
 
         assert not pipeline.use_color
@@ -366,12 +362,14 @@ class TestIntegration:
         mock_resize_transform,
     ):
         images = synthetic_rgb_images(num_timesteps=3)
-        mock_resize = mock_resize_transform(side_effect=lambda **kwargs: {"image": kwargs["image"][::2, ::2]})
-        with patch("versatil.data.augmentation.augmentation_pipeline.A.Resize", new=mock_resize):
+        mock_resize = mock_resize_transform(
+            side_effect=lambda **kwargs: {"image": kwargs["image"][::2, ::2]}
+        )
+        with patch(
+            "versatil.data.augmentation.augmentation_pipeline.A.Resize", new=mock_resize
+        ):
             pipeline = AugmentationPipeline(
-                target_height=32,
-                target_width=32,
-                train=True
+                target_height=32, target_width=32, train=True
             )
             rgb_result = pipeline.apply_rgb_augmentations(images)
         expected_rgb = np.stack([frame[::2, ::2] for frame in images])
@@ -380,24 +378,34 @@ class TestIntegration:
 
 @pytest.mark.integration
 class TestRealHydraConfigIntegration:
-
     def test_real_color_augmentation_pipeline(
         self,
         synthetic_rgb_images: Callable[..., np.ndarray],
     ):
         images = synthetic_rgb_images(num_timesteps=3)
-        config = OmegaConf.create({
-            "_target_": "albumentations.Compose",
-            "transforms": [
-                {"_target_": "albumentations.ColorJitter", "brightness": 0.3, "contrast": 0.4, "saturation": 0.5, "hue": 0.1, "p": 0.5},
-                {"_target_": "albumentations.RandomBrightnessContrast", "brightness_limit": 0.4, "contrast_limit": 0.4, "p": 0.6},
-            ]
-        })
-        config = hydra.utils.instantiate(config)
-        pipeline = AugmentationPipeline(
-            color_augmentation=config,
-            train=True
+        config = OmegaConf.create(
+            {
+                "_target_": "albumentations.Compose",
+                "transforms": [
+                    {
+                        "_target_": "albumentations.ColorJitter",
+                        "brightness": 0.3,
+                        "contrast": 0.4,
+                        "saturation": 0.5,
+                        "hue": 0.1,
+                        "p": 0.5,
+                    },
+                    {
+                        "_target_": "albumentations.RandomBrightnessContrast",
+                        "brightness_limit": 0.4,
+                        "contrast_limit": 0.4,
+                        "p": 0.6,
+                    },
+                ],
+            }
         )
+        config = hydra.utils.instantiate(config)
+        pipeline = AugmentationPipeline(color_augmentation=config, train=True)
 
         assert pipeline.photometric_transform is not None
         assert callable(pipeline.photometric_transform)
@@ -410,18 +418,27 @@ class TestRealHydraConfigIntegration:
         synthetic_rgb_images: Callable[..., np.ndarray],
     ):
         images = synthetic_rgb_images(num_timesteps=3)
-        config = OmegaConf.create({
-            "_target_": "albumentations.Compose",
-            "transforms": [
-                {"_target_": "albumentations.GaussianBlur", "blur_limit": (3, 7), "p": 0.5},
-                {"_target_": "albumentations.CoarseDropout", "max_holes": 8, "max_height": 8, "max_width": 8, "p": 0.3},
-            ]
-        })
-        config = hydra.utils.instantiate(config)
-        pipeline = AugmentationPipeline(
-            spatial_augmentation=config,
-            train=True
+        config = OmegaConf.create(
+            {
+                "_target_": "albumentations.Compose",
+                "transforms": [
+                    {
+                        "_target_": "albumentations.GaussianBlur",
+                        "blur_limit": (3, 7),
+                        "p": 0.5,
+                    },
+                    {
+                        "_target_": "albumentations.CoarseDropout",
+                        "max_holes": 8,
+                        "max_height": 8,
+                        "max_width": 8,
+                        "p": 0.3,
+                    },
+                ],
+            }
         )
+        config = hydra.utils.instantiate(config)
+        pipeline = AugmentationPipeline(spatial_augmentation=config, train=True)
 
         assert pipeline.spatial_transform is not None
         assert callable(pipeline.spatial_transform)
@@ -434,25 +451,40 @@ class TestRealHydraConfigIntegration:
         synthetic_rgb_images: Callable[..., np.ndarray],
     ):
         images = synthetic_rgb_images(num_timesteps=3)
-        color_config = OmegaConf.create({
-            "_target_": "albumentations.Compose",
-            "transforms": [
-                {"_target_": "albumentations.ColorJitter", "brightness": 0.2, "contrast": 0.2, "saturation": 0.2, "hue": 0.1, "p": 1.0},
-            ]
-        })
+        color_config = OmegaConf.create(
+            {
+                "_target_": "albumentations.Compose",
+                "transforms": [
+                    {
+                        "_target_": "albumentations.ColorJitter",
+                        "brightness": 0.2,
+                        "contrast": 0.2,
+                        "saturation": 0.2,
+                        "hue": 0.1,
+                        "p": 1.0,
+                    },
+                ],
+            }
+        )
 
-        spatial_config = OmegaConf.create({
-            "_target_": "albumentations.Compose",
-            "transforms": [
-                {"_target_": "albumentations.GaussianBlur", "blur_limit": (3, 5), "p": 1.0},
-            ]
-        })
+        spatial_config = OmegaConf.create(
+            {
+                "_target_": "albumentations.Compose",
+                "transforms": [
+                    {
+                        "_target_": "albumentations.GaussianBlur",
+                        "blur_limit": (3, 5),
+                        "p": 1.0,
+                    },
+                ],
+            }
+        )
         spatial_config = hydra.utils.instantiate(spatial_config)
         color_config = hydra.utils.instantiate(color_config)
         pipeline = AugmentationPipeline(
             color_augmentation=color_config,
             spatial_augmentation=spatial_config,
-            train=True
+            train=True,
         )
 
         assert callable(pipeline.photometric_transform)

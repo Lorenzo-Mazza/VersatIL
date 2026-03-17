@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.transformer.encoder_layer module."""
+
 from collections.abc import Callable
 
 import numpy as np
@@ -46,7 +47,6 @@ def encoder_layer_factory() -> Callable[..., TransformerEncoderLayer]:
 
 
 class TestTransformerEncoderLayerInitialization:
-
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("number_of_heads", [4, 8])
     def test_stores_configuration(
@@ -66,9 +66,6 @@ class TestTransformerEncoderLayerInitialization:
         self,
         encoder_layer_factory: Callable[..., TransformerEncoderLayer],
     ):
-        layer = encoder_layer_factory(
-            embedding_dimension=32, feedforward_dimension=None
-        )
         # SwiGLU and standard both use feedforward_dimension in the sequential;
         # we test a non-SwiGLU to check linear layer sizes
         layer_gelu = encoder_layer_factory(
@@ -112,7 +109,6 @@ class TestTransformerEncoderLayerInitialization:
 
 
 class TestTransformerEncoderLayerForward:
-
     def test_output_shape(
         self,
         encoder_layer_factory: Callable[..., TransformerEncoderLayer],
@@ -159,9 +155,7 @@ class TestTransformerEncoderLayerForward:
         mask = attention_mask_factory(
             batch_size=2, query_length=4, key_length=4, causal=True
         )
-        output_with_mask = layer(
-            hidden_states=hidden_states, attention_mask=mask
-        )
+        output_with_mask = layer(hidden_states=hidden_states, attention_mask=mask)
         output_without_mask = layer(hidden_states=hidden_states)
         assert not torch.allclose(output_with_mask, output_without_mask, atol=1e-6)
 

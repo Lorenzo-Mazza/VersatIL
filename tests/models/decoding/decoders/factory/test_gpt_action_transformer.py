@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.decoders.factory.gpt_action_transformer module."""
+
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock
@@ -20,7 +21,6 @@ from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.transformer.autoregressive_decoder import GPTDecoder
-
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 2
@@ -104,7 +104,6 @@ def gpt_transformer_factory(
 
 
 class TestGPTActionTransformerInitialization:
-
     def test_inherits_from_action_decoder(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -212,10 +211,13 @@ class TestGPTActionTransformerInitialization:
         decoder = gpt_transformer_factory()
         assert decoder.token_embedding is None
 
-    @pytest.mark.parametrize("learnable_temperature, expected_requires_grad", [
-        (True, True),
-        (False, False),
-    ])
+    @pytest.mark.parametrize(
+        "learnable_temperature, expected_requires_grad",
+        [
+            (True, True),
+            (False, False),
+        ],
+    )
     def test_temperature_is_parameter(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -237,7 +239,6 @@ class TestGPTActionTransformerInitialization:
 
 
 class TestGPTActionTransformerSetTokenizer:
-
     def test_raises_without_tokenizer(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -305,7 +306,6 @@ class TestGPTActionTransformerSetTokenizer:
 
 
 class TestGPTActionTransformerForward:
-
     def test_training_output_keys(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
@@ -399,7 +399,9 @@ class TestGPTActionTransformerForward:
             feature_dim=EMBEDDING_DIMENSION,
         )
         posterior_mu = input_tensor_factory(batch_size=BATCH_SIZE, input_dimension=16)
-        posterior_logvar = input_tensor_factory(batch_size=BATCH_SIZE, input_dimension=16)
+        posterior_logvar = input_tensor_factory(
+            batch_size=BATCH_SIZE, input_dimension=16
+        )
         features[LatentKey.POSTERIOR_MU.value] = posterior_mu
         features[LatentKey.POSTERIOR_LOGVAR.value] = posterior_logvar
         actions = tokenized_actions_factory(batch_size=BATCH_SIZE)
@@ -407,7 +409,9 @@ class TestGPTActionTransformerForward:
         assert LatentKey.POSTERIOR_MU.value in predictions
         assert LatentKey.POSTERIOR_LOGVAR.value in predictions
         assert torch.equal(predictions[LatentKey.POSTERIOR_MU.value], posterior_mu)
-        assert torch.equal(predictions[LatentKey.POSTERIOR_LOGVAR.value], posterior_logvar)
+        assert torch.equal(
+            predictions[LatentKey.POSTERIOR_LOGVAR.value], posterior_logvar
+        )
 
     def test_inference_terminates_early_on_eos(
         self,

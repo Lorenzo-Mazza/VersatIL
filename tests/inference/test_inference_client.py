@@ -1,4 +1,5 @@
 """Tests for versatil.inference.inference_client module."""
+
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
@@ -6,21 +7,20 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
-
 from tso_robotics_sockets import (
     CompressionType,
     InferenceResponseKey,
     ServerStatus,
     TransportKey,
 )
-
 from versatil_constants.shared import ObsKey
+
+from versatil.inference.action_postprocessor import ActionPostprocessor
 from versatil.inference.inference_client import (
     EpisodeStatus,
     InferenceClient,
 )
 from versatil.inference.observation_preprocessor import ObservationPreprocessor
-from versatil.inference.action_postprocessor import ActionPostprocessor
 from versatil.inference.policy_loader import PolicyLoader
 from versatil.inference.protocol import ActionTransport, ObservationTransport
 from versatil.inference.temporal_aggregation import TemporalAggregator
@@ -28,7 +28,6 @@ from versatil.inference.temporal_aggregation import TemporalAggregator
 
 @pytest.fixture
 def mock_observation_space_factory() -> Callable[..., MagicMock]:
-
     def factory(
         camera_keys: list[str] | None = None,
         proprioceptive_keys: list[str] | None = None,
@@ -40,9 +39,7 @@ def mock_observation_space_factory() -> Callable[..., MagicMock]:
             proprioceptive_keys = ["proprio_robot_frame"]
 
         cameras = {key: MagicMock() for key in camera_keys}
-        proprioceptive_observations = {
-            key: MagicMock() for key in proprioceptive_keys
-        }
+        proprioceptive_observations = {key: MagicMock() for key in proprioceptive_keys}
 
         observations_metadata = {}
         observations_metadata.update(cameras)
@@ -61,7 +58,6 @@ def mock_observation_space_factory() -> Callable[..., MagicMock]:
 
 @pytest.fixture
 def mock_action_space_factory() -> Callable[..., MagicMock]:
-
     def factory(
         action_keys_to_dimensions: dict[str, int] | None = None,
     ) -> MagicMock:
@@ -87,7 +83,6 @@ def mock_policy_loader_factory(
     mock_observation_space_factory: Callable[..., MagicMock],
     mock_action_space_factory: Callable[..., MagicMock],
 ) -> Callable[..., MagicMock]:
-
     def factory(
         camera_keys: list[str] | None = None,
         proprioceptive_keys: list[str] | None = None,
@@ -141,7 +136,6 @@ def inference_client_factory(
     mock_observation_transport: MagicMock,
     mock_action_transport: MagicMock,
 ) -> Callable[..., InferenceClient]:
-
     def factory(
         camera_keys: list[str] | None = None,
         proprioceptive_keys: list[str] | None = None,
@@ -177,10 +171,7 @@ def inference_client_factory(
 
 @pytest.mark.unit
 class TestInferenceClientInitialization:
-
-    @pytest.mark.parametrize(
-        "temporal_aggregation", [True, False]
-    )
+    @pytest.mark.parametrize("temporal_aggregation", [True, False])
     @pytest.mark.parametrize(
         "camera_keys",
         [["left"], ["left", "right"]],
@@ -259,7 +250,12 @@ class TestInferenceClientInitialization:
             action_keys_to_dimensions={"position": 3},
         )
 
-        assert client.action_postprocessor.action_space.actions_metadata["position"].prediction_dimension == 3
+        assert (
+            client.action_postprocessor.action_space.actions_metadata[
+                "position"
+            ].prediction_dimension
+            == 3
+        )
         assert client.action_postprocessor.denoising_thresholds == {}
 
     def test_initial_timestep_is_zero(
@@ -281,7 +277,6 @@ class TestInferenceClientInitialization:
 
 @pytest.mark.unit
 class TestCheckStatus:
-
     def test_finished_status_returns_finished(self):
         response = {
             TransportKey.STATUS.value: ServerStatus.FINISHED.value,
@@ -344,7 +339,6 @@ class TestCheckStatus:
 
 @pytest.mark.unit
 class TestHandleResetSignal:
-
     def test_resets_buffer_of_indicated_environment(
         self,
         inference_client_factory: Callable[..., InferenceClient],
@@ -365,9 +359,7 @@ class TestHandleResetSignal:
         assert state.observation_buffer.is_ready()
 
         client._handle_reset_signal(
-            response={
-                InferenceResponseKey.RESET_ENVIRONMENT_INDICES.value: [0]
-            }
+            response={InferenceResponseKey.RESET_ENVIRONMENT_INDICES.value: [0]}
         )
 
         assert not state.observation_buffer.is_ready()
@@ -387,9 +379,7 @@ class TestHandleResetSignal:
         client.environment_states[0] = state
 
         client._handle_reset_signal(
-            response={
-                InferenceResponseKey.RESET_ENVIRONMENT_INDICES.value: [0]
-            }
+            response={InferenceResponseKey.RESET_ENVIRONMENT_INDICES.value: [0]}
         )
 
         assert state.temporal_aggregator.timestep == 0
@@ -421,9 +411,7 @@ class TestHandleResetSignal:
         client.environment_states[1] = state_one
 
         client._handle_reset_signal(
-            response={
-                InferenceResponseKey.RESET_ENVIRONMENT_INDICES.value: [0]
-            }
+            response={InferenceResponseKey.RESET_ENVIRONMENT_INDICES.value: [0]}
         )
 
         assert state_one.observation_buffer.is_ready()
@@ -435,9 +423,7 @@ class TestHandleResetSignal:
         client = inference_client_factory()
 
         client._handle_reset_signal(
-            response={
-                InferenceResponseKey.RESET_ENVIRONMENT_INDICES.value: [99]
-            }
+            response={InferenceResponseKey.RESET_ENVIRONMENT_INDICES.value: [99]}
         )
 
     def test_no_op_when_reset_key_missing(
@@ -465,7 +451,6 @@ class TestHandleResetSignal:
 
 @pytest.mark.unit
 class TestUpdateEnvironmentStates:
-
     def test_creates_new_state_for_unknown_environment(
         self,
         inference_client_factory: Callable[..., InferenceClient],
@@ -539,7 +524,6 @@ class TestUpdateEnvironmentStates:
 
 @pytest.mark.unit
 class TestRemoveInactiveEnvironments:
-
     def test_removes_environments_not_in_response(
         self,
         inference_client_factory: Callable[..., InferenceClient],
@@ -578,16 +562,13 @@ class TestRemoveInactiveEnvironments:
         client = inference_client_factory()
         client.environment_states[0] = client._create_environment_state()
 
-        client._remove_inactive_environments(
-            per_environment_observations={}
-        )
+        client._remove_inactive_environments(per_environment_observations={})
 
         assert len(client.environment_states) == 0
 
 
 @pytest.mark.unit
 class TestCreateEnvironmentState:
-
     def test_buffer_keys_include_cameras_and_proprioceptive(
         self,
         inference_client_factory: Callable[..., InferenceClient],
@@ -668,11 +649,13 @@ class TestCreateEnvironmentState:
         }
 
         action_dict = {
-            "position": torch.tensor([
-                [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]],
-            ]),
+            "position": torch.tensor(
+                [
+                    [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]],
+                ]
+            ),
         }
-        result = client._distribute_actions(
+        client._distribute_actions(
             action_dict=action_dict,
             ready_indices=[0],
         )
@@ -687,7 +670,6 @@ class TestCreateEnvironmentState:
 
 @pytest.mark.unit
 class TestGetActionsForReadyEnvironments:
-
     def test_returns_empty_when_no_environments_ready(
         self,
         inference_client_factory: Callable[..., InferenceClient],
@@ -869,7 +851,6 @@ class TestGetActionsForReadyEnvironments:
 
 @pytest.mark.unit
 class TestDistributeActions:
-
     def test_without_temporal_aggregation_takes_first_timestep(
         self,
         inference_client_factory: Callable[..., InferenceClient],
@@ -885,9 +866,11 @@ class TestDistributeActions:
         }
 
         action_dict = {
-            "position": torch.tensor([
-                [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
-            ]),
+            "position": torch.tensor(
+                [
+                    [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+                ]
+            ),
         }
 
         result = client._distribute_actions(
@@ -972,10 +955,12 @@ class TestDistributeActions:
         client.action_postprocessor.format_action.side_effect = side_effect
 
         action_dict = {
-            "position": torch.tensor([
-                [[1.0, 2.0], [3.0, 4.0]],
-                [[5.0, 6.0], [7.0, 8.0]],
-            ]),
+            "position": torch.tensor(
+                [
+                    [[1.0, 2.0], [3.0, 4.0]],
+                    [[5.0, 6.0], [7.0, 8.0]],
+                ]
+            ),
         }
 
         result = client._distribute_actions(
@@ -991,7 +976,6 @@ class TestDistributeActions:
 
 @pytest.mark.unit
 class TestReset:
-
     def test_clears_all_environment_states(
         self,
         inference_client_factory: Callable[..., InferenceClient],
@@ -1047,7 +1031,6 @@ class TestReset:
 
 @pytest.mark.unit
 class TestStep:
-
     def test_receives_observations_with_correct_parameters(
         self,
         inference_client_factory: Callable[..., InferenceClient],
@@ -1134,9 +1117,7 @@ class TestStep:
                 "proprio": np.zeros(3, dtype=np.float32),
             }
         }
-        client.observation_preprocessor = MagicMock(
-            spec=ObservationPreprocessor
-        )
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
         client.observation_preprocessor.parse_response.return_value = (
             parsed_observations
         )
@@ -1165,9 +1146,7 @@ class TestStep:
                 "proprio": np.zeros(3, dtype=np.float32),
             }
         }
-        client.observation_preprocessor = MagicMock(
-            spec=ObservationPreprocessor
-        )
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
         client.observation_preprocessor.parse_response.return_value = (
             parsed_observations
         )
@@ -1194,7 +1173,6 @@ class TestStep:
 
 @pytest.mark.unit
 class TestStepOrchestration:
-
     def test_full_receive_parse_buffer_infer_format_send_cycle(
         self,
         mock_policy_loader_factory: Callable[..., MagicMock],
@@ -1229,9 +1207,7 @@ class TestStepOrchestration:
                 "proprio": rng.standard_normal(3).astype(np.float32),
             }
         }
-        client.observation_preprocessor = MagicMock(
-            spec=ObservationPreprocessor
-        )
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
         client.observation_preprocessor.parse_response.return_value = (
             parsed_observations
         )
@@ -1361,9 +1337,7 @@ class TestStepOrchestration:
                 "proprio": rng.standard_normal(3).astype(np.float32),
             }
         }
-        client.observation_preprocessor = MagicMock(
-            spec=ObservationPreprocessor
-        )
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
         client.observation_preprocessor.parse_response.return_value = (
             parsed_observations
         )
@@ -1440,9 +1414,7 @@ class TestStepOrchestration:
                 "proprio": rng.standard_normal(3).astype(np.float32),
             }
         }
-        client.observation_preprocessor = MagicMock(
-            spec=ObservationPreprocessor
-        )
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
         client.observation_preprocessor.parse_response.return_value = (
             parsed_observations
         )
@@ -1466,9 +1438,7 @@ class TestStepOrchestration:
         client.step()
 
         # Verify the postprocessor received the first timestep [1, 2, 3]
-        format_call = (
-            client.action_postprocessor.format_action.call_args
-        )
+        format_call = client.action_postprocessor.format_action.call_args
         passed_dict = format_call.kwargs["action_dict"]
         torch.testing.assert_close(
             passed_dict["position"],
@@ -1478,7 +1448,6 @@ class TestStepOrchestration:
 
 @pytest.mark.unit
 class TestRunEpisode:
-
     def test_registers_with_checkpoint_path(
         self,
         inference_client_factory: Callable[..., InferenceClient],
@@ -1526,7 +1495,6 @@ class TestRunEpisode:
 
 @pytest.mark.unit
 class TestShutdown:
-
     def test_closes_observation_transport(
         self,
         inference_client_factory: Callable[..., InferenceClient],
@@ -1569,7 +1537,6 @@ class TestShutdown:
 
 @pytest.mark.unit
 class TestStepTimingLog:
-
     def _make_continue_client(
         self,
         mock_policy_loader_factory: Callable[..., MagicMock],
@@ -1604,9 +1571,7 @@ class TestStepTimingLog:
                 "proprio": rng.standard_normal(3).astype(np.float32),
             }
         }
-        client.observation_preprocessor = MagicMock(
-            spec=ObservationPreprocessor
-        )
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
         client.observation_preprocessor.parse_response.return_value = (
             parsed_observations
         )
@@ -1646,12 +1611,15 @@ class TestStepTimingLog:
         # end_inference, postprocessing_start, end_postprocess, end_total
         time_values = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
 
-        with patch(
-            "versatil.inference.inference_client.time.time",
-            side_effect=time_values,
-        ), patch(
-            "versatil.inference.inference_client.logging.info",
-        ) as mock_log_info:
+        with (
+            patch(
+                "versatil.inference.inference_client.time.time",
+                side_effect=time_values,
+            ),
+            patch(
+                "versatil.inference.inference_client.logging.info",
+            ) as mock_log_info,
+        ):
             client.step()
 
             mock_log_info.assert_called_once()
@@ -1686,9 +1654,7 @@ class TestStepTimingLog:
                 "proprio": np.zeros(3, dtype=np.float32),
             }
         }
-        client.observation_preprocessor = MagicMock(
-            spec=ObservationPreprocessor
-        )
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
         client.observation_preprocessor.parse_response.return_value = (
             parsed_observations
         )
@@ -1703,7 +1669,6 @@ class TestStepTimingLog:
 
 @pytest.mark.unit
 class TestStepUpdateRateHz:
-
     def test_sleeps_for_target_period_when_update_rate_set(
         self,
         mock_policy_loader_factory: Callable[..., MagicMock],
@@ -1738,9 +1703,7 @@ class TestStepUpdateRateHz:
                 "proprio": rng.standard_normal(3).astype(np.float32),
             }
         }
-        client.observation_preprocessor = MagicMock(
-            spec=ObservationPreprocessor
-        )
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
         client.observation_preprocessor.parse_response.return_value = (
             parsed_observations
         )
@@ -1787,9 +1750,7 @@ class TestStepUpdateRateHz:
                 "proprio": np.zeros(3, dtype=np.float32),
             }
         }
-        client.observation_preprocessor = MagicMock(
-            spec=ObservationPreprocessor
-        )
+        client.observation_preprocessor = MagicMock(spec=ObservationPreprocessor)
         client.observation_preprocessor.parse_response.return_value = (
             parsed_observations
         )

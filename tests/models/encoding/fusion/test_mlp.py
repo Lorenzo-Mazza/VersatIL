@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.fusion.mlp module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -11,6 +12,7 @@ from versatil.models.layers.activation import ActivationFunction
 @pytest.fixture
 def mlp_fusion_factory() -> Callable[..., MLPFusion]:
     """Factory for MLPFusion instances."""
+
     def factory(
         input_features: list[str] | None = None,
         output_name: str = "mlp_fused",
@@ -31,11 +33,11 @@ def mlp_fusion_factory() -> Callable[..., MLPFusion]:
             activation_name=activation_name,
             dropout=dropout,
         )
+
     return factory
 
 
 class TestMLPFusionInitialization:
-
     def test_has_sequential_fusion_interface(
         self,
         mlp_fusion_factory: Callable[..., MLPFusion],
@@ -68,7 +70,6 @@ class TestMLPFusionInitialization:
 
 
 class TestMLPFusionForward:
-
     def test_raises_if_projections_not_set_up(
         self,
         mlp_fusion_factory: Callable[..., MLPFusion],
@@ -116,11 +117,14 @@ class TestMLPFusionForward:
         else:
             assert output.shape == (batch_size, expected_output_dim)
 
-    @pytest.mark.parametrize("activation_name", [
-        ActivationFunction.GELU.value,
-        ActivationFunction.RELU.value,
-        ActivationFunction.SILU.value,
-    ])
+    @pytest.mark.parametrize(
+        "activation_name",
+        [
+            ActivationFunction.GELU.value,
+            ActivationFunction.RELU.value,
+            ActivationFunction.SILU.value,
+        ],
+    )
     def test_forward_with_different_activations(
         self,
         mlp_fusion_factory: Callable[..., MLPFusion],
@@ -155,22 +159,23 @@ class TestMLPFusionForward:
             hidden_dim=hidden_dim,
             mlp_hidden_dims=[hidden_dim * num_features, 24],
         )
-        dims = {name: 32 for name in feature_names}
+        dims = dict.fromkeys(feature_names, 32)
         module.setup(feature_keys_to_dims=dims)
         features = [
-            input_tensor_factory(input_dimension=32)
-            for _ in range(num_features)
+            input_tensor_factory(input_dimension=32) for _ in range(num_features)
         ]
         output = module(features)
         assert output.shape == (2, 24)
 
 
 class TestMLPFusionGetOutputSpecification:
-
-    @pytest.mark.parametrize("mlp_hidden_dims, expected_dim", [
-        ([64, 32], 32),
-        ([128, 64, 16], 16),
-    ])
+    @pytest.mark.parametrize(
+        "mlp_hidden_dims, expected_dim",
+        [
+            ([64, 32], 32),
+            ([128, 64, 16], 16),
+        ],
+    )
     def test_output_dim_equals_last_mlp_layer(
         self,
         mlp_fusion_factory: Callable[..., MLPFusion],

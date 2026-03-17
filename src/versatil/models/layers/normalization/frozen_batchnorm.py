@@ -1,4 +1,5 @@
 """Frozen BatchNorm2d implementation taken from DETR."""
+
 import torch
 
 

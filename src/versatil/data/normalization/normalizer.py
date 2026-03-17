@@ -1,12 +1,13 @@
 """Linear normalization module (min-max scaling, z-score, demean).
 Inspired by https://github.com/real-stanford/diffusion_policy/blob/main/diffusion_policy/model/common/normalizer.py
 """
+
 import numpy as np
 import torch
 import torch.nn as nn
 
-from versatil.common.tensor_ops import dict_apply
 from versatil.common.dict_of_tensor_mixin import DictOfTensorMixin
+from versatil.common.tensor_ops import dict_apply
 from versatil.data.constants import KinematicsNormalizationType
 
 
@@ -140,8 +141,12 @@ class LinearNormalizer(DictOfTensorMixin):
                 params_dict[f"_norm_{i}_offset"] = (
                     normalizer.params_dict["offset"].clone().detach()
                 )
-                for stat_key, stat_value in normalizer.params_dict["input_stats"].items():
-                    params_dict[f"_norm_{i}_stat_{stat_key}"] = stat_value.clone().detach()
+                for stat_key, stat_value in normalizer.params_dict[
+                    "input_stats"
+                ].items():
+                    params_dict[f"_norm_{i}_stat_{stat_key}"] = (
+                        stat_value.clone().detach()
+                    )
 
             for parameter in params_dict.parameters():
                 parameter.requires_grad_(False)
@@ -169,18 +174,18 @@ class LinearNormalizer(DictOfTensorMixin):
 
     def normalize(self, x: dict | torch.Tensor | np.ndarray) -> dict | torch.Tensor:
         """Normalize input data. Dict keys without parameters pass through unchanged."""
-        return self._normalize_impl(x, forward=True)  # type: ignore[no-any-return]
+        return self._normalize_impl(x, forward=True)
 
     def unnormalize(self, x: dict | torch.Tensor | np.ndarray) -> dict | torch.Tensor:
         """Unnormalize input data back to original scale."""
-        return self._normalize_impl(x, forward=False)  # type: ignore[no-any-return]
+        return self._normalize_impl(x, forward=False)
 
     def get_input_stats(self) -> dict:
         """Get input statistics (min, max, mean, std) for all keys."""
         if len(self.params_dict) == 0:
             raise RuntimeError("Not initialized")
         if len(self.params_dict) == 1 and "_default" in self.params_dict:
-            return self.params_dict["_default"]["input_stats"]  # type: ignore[no-any-return]
+            return self.params_dict["_default"]["input_stats"]
 
         result = {}
         for key, value in self.params_dict.items():
@@ -292,6 +297,7 @@ class SingleFieldLinearNormalizer(DictOfTensorMixin):
         input_stats_dict: dict[str, torch.Tensor | np.ndarray],
     ):
         """Create a normalizer from explicit scale, offset, and input stats."""
+
         def to_tensor(x):
             if not isinstance(x, torch.Tensor):
                 x = torch.from_numpy(x)
@@ -314,7 +320,7 @@ class SingleFieldLinearNormalizer(DictOfTensorMixin):
                 "offset": to_tensor(offset),
                 "input_stats": nn.ParameterDict(
                     dict_apply(input_stats_dict, to_tensor)
-                ),  # type: ignore[arg-type]
+                ),
             }
         )
         for parameter in params_dict.parameters():
@@ -332,15 +338,15 @@ class SingleFieldLinearNormalizer(DictOfTensorMixin):
             "mean": torch.tensor([0], dtype=dtype),
             "std": torch.tensor([1], dtype=dtype),
         }
-        return cls.create_manual(scale, offset, input_stats_dict)  # type: ignore[arg-type]
+        return cls.create_manual(scale, offset, input_stats_dict)
 
     def normalize(self, x: torch.Tensor | np.ndarray) -> torch.Tensor:
         """Apply normalization: x * scale + offset."""
-        return _normalize(x, self.params_dict, forward=True)  # type: ignore[no-any-return]
+        return _normalize(x, self.params_dict, forward=True)
 
     def unnormalize(self, x: torch.Tensor | np.ndarray) -> torch.Tensor:
         """Apply inverse normalization: (x - offset) / scale."""
-        return _normalize(x, self.params_dict, forward=False)  # type: ignore[no-any-return]
+        return _normalize(x, self.params_dict, forward=False)
 
     def get_input_stats(self) -> nn.ParameterDict:
         """Get input statistics (min, max, mean, std)."""

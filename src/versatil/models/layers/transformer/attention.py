@@ -173,7 +173,7 @@ class CachedAttention(nn.Module):
             values,
             attn_mask=sdpa_mask,
             dropout_p=self.dropout if self.training else 0.0,
-            scale=self.head_dimension ** -0.5,
+            scale=self.head_dimension**-0.5,
         )
         attended_values = attended_values.transpose(
             1, 2

@@ -129,10 +129,7 @@ class BaseMixtureOfExperts(nn.Module):
             Normalized routing weights (B, [horizon,] num_experts)
 
         """
-        if self.has_gating_network:
-            logits = self.gating_network(features)
-        else:
-            logits = features
+        logits = self.gating_network(features) if self.has_gating_network else features
         logits = logits / self.temperature
         return F.softmax(logits, dim=-1)
 

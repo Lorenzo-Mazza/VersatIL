@@ -1,4 +1,5 @@
 """Taken from DFormerV2 paper: https://arxiv.org/pdf/2504.04701"""
+
 import torch
 from torch import nn
 
@@ -127,4 +128,4 @@ class GeometricAttentionEncoderBlock(nn.Module):
         else:
             features = residual + self.drop_path(mlp_output)
 
-        return features  # type: ignore[no-any-return]
+        return features

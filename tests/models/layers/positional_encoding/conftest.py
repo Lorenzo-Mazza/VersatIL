@@ -1,4 +1,5 @@
 """Shared fixtures for positional encoding tests."""
+
 from collections.abc import Callable
 
 import numpy as np
@@ -16,17 +17,20 @@ def scalar_tensor_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:
     """Factory for scalar input tensors with shape (B,)."""
+
     def factory(
         batch_size: int = 2,
     ) -> torch.Tensor:
         data = rng.standard_normal((batch_size,)).astype(np.float32)
         return torch.from_numpy(data)
+
     return factory
 
 
 @pytest.fixture
 def sinusoidal_1d_factory() -> Callable[..., SinusoidalPositionalEncoding1D]:
     """Factory for SinusoidalPositionalEncoding1D instances."""
+
     def factory(
         embedding_dimension: int = 64,
         position_source: str = PositionSource.TENSOR_INDICES.value,
@@ -47,4 +51,5 @@ def sinusoidal_1d_factory() -> Callable[..., SinusoidalPositionalEncoding1D]:
             mlp_hidden_dimensions=mlp_hidden_dimensions,
             mlp_activation=mlp_activation,
         )
+
     return factory

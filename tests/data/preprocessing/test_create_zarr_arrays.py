@@ -1,4 +1,5 @@
 """Tests for versatil.data.preprocessing.create_zarr_arrays module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -15,7 +16,6 @@ from versatil.data.preprocessing.create_zarr_arrays import (
 
 
 class TestIsUint8ImageSpec:
-
     @pytest.mark.parametrize(
         "shape, dtype, expected",
         [
@@ -46,14 +46,15 @@ class TestIsUint8ImageSpec:
 
 
 class TestCreateZarrArrays:
-
     def test_image_array_uses_webp_serializer_with_single_frame_chunks(
         self,
         mock_schema_factory: Callable[..., MagicMock],
         spec_factory: Callable[..., dict],
     ):
         image_spec = spec_factory(
-            shape=(0, 64, 64, 3), chunks=(16, 64, 64, 3), dtype="uint8",
+            shape=(0, 64, 64, 3),
+            chunks=(16, 64, 64, 3),
+            dtype="uint8",
         )
         schema = mock_schema_factory(specs={"left": image_spec})
         data_group = MagicMock()
@@ -82,7 +83,10 @@ class TestCreateZarrArrays:
         spec_factory: Callable[..., dict],
     ):
         numerical_spec = spec_factory(
-            shape=(0, 7), chunks=(256, 7), dtype="float32", needs_compressor=True,
+            shape=(0, 7),
+            chunks=(256, 7),
+            dtype="float32",
+            needs_compressor=True,
         )
         schema = mock_schema_factory(specs={"proprio": numerical_spec})
         data_group = MagicMock()
@@ -109,7 +113,10 @@ class TestCreateZarrArrays:
         spec_factory: Callable[..., dict],
     ):
         string_spec = spec_factory(
-            shape=(0,), chunks=(100,), dtype="str", needs_compressor=False,
+            shape=(0,),
+            chunks=(100,),
+            dtype="str",
+            needs_compressor=False,
         )
         schema = mock_schema_factory(specs={"language": string_spec})
         data_group = MagicMock()
@@ -135,7 +142,10 @@ class TestCreateZarrArrays:
         spec_factory: Callable[..., dict],
     ):
         spec = spec_factory(
-            shape=(0, 3), chunks=(100, 3), dtype="float32", needs_compressor=False,
+            shape=(0, 3),
+            chunks=(100, 3),
+            dtype="float32",
+            needs_compressor=False,
         )
         schema = mock_schema_factory(specs={"metadata_field": spec})
         data_group = MagicMock()
@@ -163,13 +173,20 @@ class TestCreateZarrArrays:
         schema = mock_schema_factory(
             specs={
                 "left": spec_factory(
-                    shape=(0, 64, 64, 3), chunks=(16, 64, 64, 3), dtype="uint8",
+                    shape=(0, 64, 64, 3),
+                    chunks=(16, 64, 64, 3),
+                    dtype="uint8",
                 ),
                 "proprio": spec_factory(
-                    shape=(0, 7), chunks=(256, 7), dtype="float32",
+                    shape=(0, 7),
+                    chunks=(256, 7),
+                    dtype="float32",
                 ),
                 "language": spec_factory(
-                    shape=(0,), chunks=(100,), dtype="str", needs_compressor=False,
+                    shape=(0,),
+                    chunks=(100,),
+                    dtype="str",
+                    needs_compressor=False,
                 ),
             }
         )
@@ -186,12 +203,14 @@ class TestCreateZarrArrays:
 
 
 class TestCreateZarrReplayBuffer:
-
     @pytest.fixture
     def position_specs(self, spec_factory: Callable[..., dict]) -> dict:
         return {
             "position": spec_factory(
-                shape=(0, 3), chunks=(256, 3), dtype="float32", needs_compressor=True,
+                shape=(0, 3),
+                chunks=(256, 3),
+                dtype="float32",
+                needs_compressor=True,
             ),
         }
 
@@ -272,7 +291,9 @@ class TestCreateZarrReplayBuffer:
             for _ in range(51)
         ]
 
-        with patch("versatil.data.preprocessing.create_zarr_arrays.logging") as mock_logging:
+        with patch(
+            "versatil.data.preprocessing.create_zarr_arrays.logging"
+        ) as mock_logging:
             create_zarr_replay_buffer(
                 schema=schema,
                 episodes=episodes,
@@ -280,7 +301,8 @@ class TestCreateZarrReplayBuffer:
             )
 
             progress_calls = [
-                c for c in mock_logging.info.call_args_list
+                c
+                for c in mock_logging.info.call_args_list
                 if "Processing episode" in str(c)
             ]
             # Episodes at index 0 and 50 are multiples of 50
@@ -296,7 +318,9 @@ class TestCreateZarrReplayBuffer:
         zarr_path = str(tmp_path / "test.zarr")
         schema = mock_schema_factory(specs=position_specs, zarr_path=zarr_path)
 
-        with patch("versatil.data.preprocessing.create_zarr_arrays.logging") as mock_logging:
+        with patch(
+            "versatil.data.preprocessing.create_zarr_arrays.logging"
+        ) as mock_logging:
             create_zarr_replay_buffer(
                 schema=schema,
                 episodes=[{"position": rng.standard_normal((5, 3)).astype(np.float32)}],
@@ -304,7 +328,8 @@ class TestCreateZarrReplayBuffer:
             )
 
             progress_calls = [
-                c for c in mock_logging.info.call_args_list
+                c
+                for c in mock_logging.info.call_args_list
                 if "Processing episode" in str(c)
             ]
             assert len(progress_calls) == 0
@@ -337,7 +362,9 @@ class TestCreateZarrReplayBuffer:
         zarr_path = str(tmp_path / "test.zarr")
         schema = mock_schema_factory(specs=position_specs, zarr_path=zarr_path)
 
-        with patch("versatil.data.preprocessing.create_zarr_arrays.logging") as mock_logging:
+        with patch(
+            "versatil.data.preprocessing.create_zarr_arrays.logging"
+        ) as mock_logging:
             create_zarr_replay_buffer(
                 schema=schema,
                 episodes=[{"position": rng.standard_normal((5, 3)).astype(np.float32)}],
@@ -345,7 +372,8 @@ class TestCreateZarrReplayBuffer:
             )
 
             initial_calls = [
-                c for c in mock_logging.info.call_args_list
+                c
+                for c in mock_logging.info.call_args_list
                 if "Creating Zarr dataset" in str(c)
             ]
             assert len(initial_calls) == 1
@@ -362,7 +390,9 @@ class TestCreateZarrReplayBuffer:
         zarr_path = str(tmp_path / "test.zarr")
         schema = mock_schema_factory(specs=position_specs, zarr_path=zarr_path)
 
-        with patch("versatil.data.preprocessing.create_zarr_arrays.logging") as mock_logging:
+        with patch(
+            "versatil.data.preprocessing.create_zarr_arrays.logging"
+        ) as mock_logging:
             create_zarr_replay_buffer(
                 schema=schema,
                 episodes=[
@@ -373,7 +403,8 @@ class TestCreateZarrReplayBuffer:
             )
 
             final_calls = [
-                c for c in mock_logging.info.call_args_list
+                c
+                for c in mock_logging.info.call_args_list
                 if "2 episodes" in str(c) and "8 total steps" in str(c)
             ]
             assert len(final_calls) == 1

@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.diffusion_transformer.joint_attention module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -9,7 +10,6 @@ from versatil.models.layers.diffusion_transformer.joint_attention import JointAt
 
 @pytest.fixture
 def joint_attention_factory() -> Callable[..., JointAttention]:
-
     def factory(
         embedding_dimension: int = 32,
         number_of_heads: int = 4,
@@ -31,7 +31,6 @@ def joint_attention_factory() -> Callable[..., JointAttention]:
 
 
 class TestJointAttentionInitialization:
-
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("number_of_heads", [4, 8])
     @pytest.mark.parametrize("use_query_key_norm", [True, False])
@@ -69,8 +68,8 @@ class TestJointAttentionInitialization:
         joint_attention_factory: Callable[..., JointAttention],
     ):
         attention = joint_attention_factory(embedding_dimension=32)
-        assert attention.output_projection_observation.SQUARE_ROOT_WEIGHT == True
-        assert attention.output_projection_action.SQUARE_ROOT_WEIGHT == True
+        assert attention.output_projection_observation.SQUARE_ROOT_WEIGHT is True
+        assert attention.output_projection_action.SQUARE_ROOT_WEIGHT is True
 
     def test_disabling_query_key_norm_excludes_norm_parameters(
         self,
@@ -85,7 +84,6 @@ class TestJointAttentionInitialization:
 
 
 class TestJointAttentionForward:
-
     @pytest.mark.parametrize(
         "batch_size, observation_length, action_length, embedding_dimension",
         [
@@ -120,7 +118,11 @@ class TestJointAttentionForward:
             hidden_states_observation=observation,
             hidden_states_action=action,
         )
-        assert output_observation.shape == (batch_size, observation_length, embedding_dimension)
+        assert output_observation.shape == (
+            batch_size,
+            observation_length,
+            embedding_dimension,
+        )
         assert output_action.shape == (batch_size, action_length, embedding_dimension)
 
     def test_both_streams_attend_to_joint_key_values(
@@ -282,7 +284,6 @@ class TestJointAttentionForward:
 
 
 class TestJointAttentionMask:
-
     def test_no_masks_returns_none(
         self,
         joint_attention_factory: Callable[..., JointAttention],

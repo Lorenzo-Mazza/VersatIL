@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.conditional_unet module."""
+
 from collections.abc import Callable
 
 import numpy as np
@@ -22,18 +23,19 @@ def _activate_modulation_weights(module: ConditionalUnet1D) -> None:
 
 @pytest.fixture
 def unet_factory() -> Callable[..., ConditionalUnet1D]:
-
     def factory(
         input_dimension: int = 8,
         local_conditioning_dimension: int | None = None,
         global_conditioning_dimension: int | None = None,
         diffusion_step_embedding_dimension: int = 32,
-        down_dimensions: list[int] = [32, 64],
+        down_dimensions: list[int] | None = None,
         kernel_size: int = 3,
         num_groups: int = 8,
         condition_predict_scale: bool = False,
         initializer_range: float = 0.02,
     ) -> ConditionalUnet1D:
+        if down_dimensions is None:
+            down_dimensions = [32, 64]
         return ConditionalUnet1D(
             input_dimension=input_dimension,
             local_conditioning_dimension=local_conditioning_dimension,
@@ -53,7 +55,6 @@ def unet_factory() -> Callable[..., ConditionalUnet1D]:
 def local_conditioning_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:
-
     def factory(
         batch_size: int = 2,
         sequence_length: int = 16,
@@ -68,7 +69,6 @@ def local_conditioning_factory(
 
 
 class TestConditionalUnet1DInitialization:
-
     @pytest.mark.parametrize("input_dimension", [8, 16])
     @pytest.mark.parametrize("diffusion_step_embedding_dimension", [32, 64])
     @pytest.mark.parametrize("initializer_range", [0.02, 0.05])
@@ -155,7 +155,9 @@ class TestConditionalUnet1DInitialization:
         first_downsample_group = module.downsampling_modules[0]
         downsample_layer = first_downsample_group[2]
         test_input = conv1d_tensor_factory(
-            batch_size=1, channels=32, sequence_length=16,
+            batch_size=1,
+            channels=32,
+            sequence_length=16,
         )
         with torch.no_grad():
             output = downsample_layer(test_input)
@@ -209,7 +211,6 @@ class TestConditionalUnet1DInitialization:
 
 
 class TestConditionalUnet1DForward:
-
     @pytest.mark.parametrize("input_dimension", [8, 16])
     @pytest.mark.parametrize("sequence_length", [16, 32])
     def test_output_shape_without_conditioning(
@@ -395,7 +396,6 @@ class TestConditionalUnet1DForward:
 
 
 class TestConditionalUnet1DConditioning:
-
     def test_modulation_is_identity_at_init(
         self,
         unet_factory: Callable[..., ConditionalUnet1D],
@@ -552,7 +552,6 @@ class TestConditionalUnet1DConditioning:
 
 
 class TestConditionalUnet1DSkipConnections:
-
     def test_zeroing_skip_connections_changes_output(
         self,
         unet_factory: Callable[..., ConditionalUnet1D],
@@ -627,7 +626,6 @@ class TestConditionalUnet1DSkipConnections:
 
 
 class TestConditionalUnet1DLocalConditioningIntegration:
-
     def test_local_conditioning_forward_pass_completes(
         self,
         unet_factory: Callable[..., ConditionalUnet1D],
@@ -718,7 +716,6 @@ class TestConditionalUnet1DLocalConditioningIntegration:
 
 
 class TestConditionalUnet1DConditionPredictScale:
-
     @pytest.mark.parametrize("condition_predict_scale", [True, False])
     def test_forward_with_condition_predict_scale(
         self,

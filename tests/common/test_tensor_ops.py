@@ -1,4 +1,5 @@
 """Tests for versatil.common.tensor_ops module."""
+
 import collections
 import re
 from collections.abc import Callable
@@ -61,9 +62,7 @@ def tensor_factory(rng: np.random.Generator) -> Callable[..., torch.Tensor]:
     def factory(
         shape: tuple[int, ...] = (3, 4),
     ) -> torch.Tensor:
-        return torch.from_numpy(
-            rng.standard_normal(shape).astype(np.float32)
-        )
+        return torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
 
     return factory
 
@@ -95,7 +94,6 @@ def nested_dict_factory(
 
 @pytest.mark.unit
 class TestDictApply:
-
     def test_applies_function_to_each_value(
         self,
         nested_dict_factory: Callable[..., dict[str, torch.Tensor]],
@@ -117,7 +115,6 @@ class TestDictApply:
 
 @pytest.mark.unit
 class TestPadRemainingDims:
-
     def test_pads_to_match_higher_dimensional_target(self):
         source = torch.tensor([2.0, 3.0])
         target = torch.zeros(2, 4, 5)
@@ -147,7 +144,6 @@ class TestPadRemainingDims:
 
 @pytest.mark.unit
 class TestDictApplySplit:
-
     def test_splits_dict_values_into_sub_dicts(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -168,7 +164,6 @@ class TestDictApplySplit:
 
 @pytest.mark.unit
 class TestDictApplyReduce:
-
     def test_reduces_list_of_dicts_by_key(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -184,7 +179,6 @@ class TestDictApplyReduce:
 
 @pytest.mark.unit
 class TestRecursiveDictListTupleApply:
-
     def test_applies_to_dict_values(self):
         data = {"a": torch.tensor([1.0, 2.0]), "b": torch.tensor([3.0])}
         result = recursive_dict_list_tuple_apply(
@@ -194,13 +188,13 @@ class TestRecursiveDictListTupleApply:
         torch.testing.assert_close(result["b"], torch.tensor([30.0]))
 
     def test_preserves_ordered_dict_type(self):
-        data = collections.OrderedDict([
-            ("z", torch.tensor(1.0)),
-            ("a", torch.tensor(2.0)),
-        ])
-        result = recursive_dict_list_tuple_apply(
-            data, {torch.Tensor: lambda x: x}
+        data = collections.OrderedDict(
+            [
+                ("z", torch.tensor(1.0)),
+                ("a", torch.tensor(2.0)),
+            ]
         )
+        result = recursive_dict_list_tuple_apply(data, {torch.Tensor: lambda x: x})
         assert isinstance(result, collections.OrderedDict)
         assert list(result.keys()) == ["z", "a"]
 
@@ -221,11 +215,14 @@ class TestRecursiveDictListTupleApply:
         assert isinstance(result, tuple)
         assert result[0].item() == pytest.approx(10.0)
 
-    @pytest.mark.parametrize("forbidden_type, label", [
-        (list, "list"),
-        (tuple, "tuple"),
-        (dict, "dict"),
-    ])
+    @pytest.mark.parametrize(
+        "forbidden_type, label",
+        [
+            (list, "list"),
+            (tuple, "tuple"),
+            (dict, "dict"),
+        ],
+    )
     def test_raises_when_container_type_in_func_dict(
         self,
         forbidden_type: type,
@@ -233,13 +230,9 @@ class TestRecursiveDictListTupleApply:
     ):
         with pytest.raises(
             TypeError,
-            match=re.escape(
-                f"type_func_dict must not contain '{label}' as a key. "
-            ),
+            match=re.escape(f"type_func_dict must not contain '{label}' as a key. "),
         ):
-            recursive_dict_list_tuple_apply(
-                {}, {forbidden_type: lambda x: x}
-            )
+            recursive_dict_list_tuple_apply({}, {forbidden_type: lambda x: x})
 
     def test_raises_for_unhandled_type(self):
         with pytest.raises(
@@ -251,7 +244,6 @@ class TestRecursiveDictListTupleApply:
 
 @pytest.mark.unit
 class TestMapTensor:
-
     def test_applies_func_to_tensors_and_skips_none(self):
         data = {"tensor": torch.tensor([1.0, 2.0]), "none_val": None}
         result = map_tensor(data, func=lambda x: x * 3.0)
@@ -267,7 +259,6 @@ class TestMapTensor:
 
 @pytest.mark.unit
 class TestClone:
-
     def test_cloned_tensor_is_independent_copy(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -291,19 +282,15 @@ class TestClone:
 
 @pytest.mark.unit
 class TestDetach:
-
     def test_detaches_tensor_from_computation_graph(self):
         tensor = torch.tensor([1.0, 2.0], requires_grad=True)
         result = detach({"x": tensor})
         assert not result["x"].requires_grad
-        torch.testing.assert_close(
-            result["x"], torch.tensor([1.0, 2.0])
-        )
+        torch.testing.assert_close(result["x"], torch.tensor([1.0, 2.0]))
 
 
 @pytest.mark.unit
 class TestToBatch:
-
     def test_adds_leading_batch_dim_to_tensor(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -325,7 +312,6 @@ class TestToBatch:
 
 @pytest.mark.unit
 class TestToSequence:
-
     def test_inserts_time_dim_at_position_1(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -338,7 +324,6 @@ class TestToSequence:
 
 @pytest.mark.unit
 class TestIndexAtTime:
-
     def test_selects_specific_time_step(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -351,12 +336,14 @@ class TestIndexAtTime:
 
 @pytest.mark.unit
 class TestUnsqueeze:
-
-    @pytest.mark.parametrize("dim, expected_shape", [
-        (0, (1, 3, 4)),
-        (1, (3, 1, 4)),
-        (2, (3, 4, 1)),
-    ])
+    @pytest.mark.parametrize(
+        "dim, expected_shape",
+        [
+            (0, (1, 3, 4)),
+            (1, (3, 1, 4)),
+            (2, (3, 4, 1)),
+        ],
+    )
     def test_inserts_dimension_at_correct_position(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -370,7 +357,6 @@ class TestUnsqueeze:
 
 @pytest.mark.unit
 class TestContiguous:
-
     def test_makes_non_contiguous_tensor_contiguous(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -384,7 +370,6 @@ class TestContiguous:
 
 @pytest.mark.unit
 class TestToDevice:
-
     def test_moves_tensor_to_target_device(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -401,14 +386,11 @@ class TestToDevice:
 
 @pytest.mark.unit
 class TestToFloat:
-
     def test_converts_int_tensor_to_float32(self):
         tensor = torch.tensor([1, 2, 3])
         result = to_float({"x": tensor})
         assert result["x"].dtype == torch.float32
-        torch.testing.assert_close(
-            result["x"], torch.tensor([1.0, 2.0, 3.0])
-        )
+        torch.testing.assert_close(result["x"], torch.tensor([1.0, 2.0, 3.0]))
 
     def test_converts_int_ndarray_to_float32(self):
         array = np.array([1, 2, 3], dtype=np.int64)
@@ -418,7 +400,6 @@ class TestToFloat:
 
 @pytest.mark.unit
 class TestToUint8:
-
     def test_converts_tensor_to_uint8(self):
         tensor = torch.tensor([0.0, 128.0, 255.0])
         result = to_uint8({"x": tensor})
@@ -428,14 +409,11 @@ class TestToUint8:
 
 @pytest.mark.unit
 class TestToTensor:
-
     def test_converts_ndarray_to_torch_tensor(self):
         array = np.array([1.0, 2.0, 3.0], dtype=np.float32)
         result = to_tensor({"x": array})
         assert isinstance(result["x"], torch.Tensor)
-        torch.testing.assert_close(
-            result["x"], torch.tensor([1.0, 2.0, 3.0])
-        )
+        torch.testing.assert_close(result["x"], torch.tensor([1.0, 2.0, 3.0]))
 
     def test_leaves_existing_tensor_unchanged(
         self,
@@ -448,19 +426,15 @@ class TestToTensor:
 
 @pytest.mark.unit
 class TestToNumpy:
-
     def test_converts_tensor_to_ndarray(self):
         tensor = torch.tensor([1.0, 2.0, 3.0])
         result = to_numpy({"x": tensor})
         assert isinstance(result["x"], np.ndarray)
-        np.testing.assert_array_almost_equal(
-            result["x"], [1.0, 2.0, 3.0]
-        )
+        np.testing.assert_array_almost_equal(result["x"], [1.0, 2.0, 3.0])
 
 
 @pytest.mark.unit
 class TestToList:
-
     def test_converts_tensor_to_python_list(self):
         tensor = torch.tensor([1.0, 2.0, 3.0])
         result = to_list({"x": tensor})
@@ -474,7 +448,6 @@ class TestToList:
 
 @pytest.mark.unit
 class TestTensorToStr:
-
     def test_scalar_tensor_formatted_with_4_decimals(self):
         tensor = torch.tensor(3.14159)
         result = tensor_to_str(tensor)
@@ -488,15 +461,16 @@ class TestTensorToStr:
 
 @pytest.mark.unit
 class TestToOneHotSingle:
-
     def test_produces_correct_one_hot_vectors(self):
         labels = torch.tensor([0, 2, 1])
         result = to_one_hot_single(labels, num_class=3)
-        expected = torch.tensor([
-            [1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [0.0, 1.0, 0.0],
-        ])
+        expected = torch.tensor(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 1.0, 0.0],
+            ]
+        )
         torch.testing.assert_close(result, expected)
 
     def test_handles_batched_labels(self):
@@ -504,23 +478,21 @@ class TestToOneHotSingle:
         result = to_one_hot_single(labels, num_class=4)
         assert result.shape == (2, 2, 4)
         # [0, 0]: class 0 -> [1, 0, 0, 0]
-        torch.testing.assert_close(
-            result[0, 0], torch.tensor([1.0, 0.0, 0.0, 0.0])
-        )
+        torch.testing.assert_close(result[0, 0], torch.tensor([1.0, 0.0, 0.0, 0.0]))
         # [1, 0]: class 2 -> [0, 0, 1, 0]
-        torch.testing.assert_close(
-            result[1, 0], torch.tensor([0.0, 0.0, 1.0, 0.0])
-        )
+        torch.testing.assert_close(result[1, 0], torch.tensor([0.0, 0.0, 1.0, 0.0]))
 
 
 @pytest.mark.unit
 class TestFlattenSingle:
-
-    @pytest.mark.parametrize("shape, begin_axis, expected_shape", [
-        ((2, 3, 4), 1, (2, 12)),
-        ((2, 3, 4), 0, (24,)),
-        ((2, 3, 4, 5), 2, (2, 3, 20)),
-    ])
+    @pytest.mark.parametrize(
+        "shape, begin_axis, expected_shape",
+        [
+            ((2, 3, 4), 1, (2, 12)),
+            ((2, 3, 4), 0, (24,)),
+            ((2, 3, 4, 5), 2, (2, 3, 20)),
+        ],
+    )
     def test_flattens_from_begin_axis(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -536,7 +508,6 @@ class TestFlattenSingle:
 
 @pytest.mark.unit
 class TestReshapeDimensionsSingle:
-
     def test_splits_dimension_into_multiple(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -565,9 +536,7 @@ class TestReshapeDimensionsSingle:
             ValueError,
             match=re.escape("begin_axis (2) must be <= end_axis (1)"),
         ):
-            reshape_dimensions_single(
-                tensor, begin_axis=2, end_axis=1, target_dims=[6]
-            )
+            reshape_dimensions_single(tensor, begin_axis=2, end_axis=1, target_dims=[6])
 
     def test_raises_when_begin_axis_negative(self):
         tensor = torch.zeros(2, 3)
@@ -585,9 +554,7 @@ class TestReshapeDimensionsSingle:
             ValueError,
             match=re.escape("end_axis (5) must be < number of dimensions (2)"),
         ):
-            reshape_dimensions_single(
-                tensor, begin_axis=0, end_axis=5, target_dims=[2]
-            )
+            reshape_dimensions_single(tensor, begin_axis=0, end_axis=5, target_dims=[2])
 
     def test_raises_when_target_dims_not_sequence(self):
         tensor = torch.zeros(2, 3)
@@ -595,14 +562,11 @@ class TestReshapeDimensionsSingle:
             TypeError,
             match=re.escape("target_dims must be a tuple or list, got int"),
         ):
-            reshape_dimensions_single(
-                tensor, begin_axis=0, end_axis=0, target_dims=2
-            )
+            reshape_dimensions_single(tensor, begin_axis=0, end_axis=0, target_dims=2)
 
 
 @pytest.mark.unit
 class TestJoinDimensions:
-
     def test_joins_consecutive_dimensions(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -623,7 +587,6 @@ class TestJoinDimensions:
 
 @pytest.mark.unit
 class TestExpandAtSingle:
-
     def test_expands_singleton_dimension(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -652,7 +615,6 @@ class TestExpandAtSingle:
 
 @pytest.mark.unit
 class TestRepeatByExpandAt:
-
     def test_repeats_dimension_correctly(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -673,7 +635,6 @@ class TestRepeatByExpandAt:
 
 @pytest.mark.unit
 class TestNamedReduceSingle:
-
     def test_sum_along_dimension(self):
         tensor = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
         result = named_reduce_single(tensor, reduction="sum", dim=1)
@@ -709,16 +670,13 @@ class TestNamedReduceSingle:
         tensor = torch.zeros(2, 3)
         with pytest.raises(
             ValueError,
-            match=re.escape(
-                "Tensor has 2 dimensions, but dim (2) requires at least 3"
-            ),
+            match=re.escape("Tensor has 2 dimensions, but dim (2) requires at least 3"),
         ):
             named_reduce_single(tensor, reduction="sum", dim=2)
 
 
 @pytest.mark.unit
 class TestGatherAlongDimWithDimSingle:
-
     def test_gathers_correct_elements_from_3d_tensor(self):
         # (B=3, T=4, D=2): gather time steps per batch
         tensor = torch.arange(24).reshape(3, 4, 2).float()
@@ -762,7 +720,6 @@ class TestGatherAlongDimWithDimSingle:
 
 @pytest.mark.unit
 class TestGatherSequenceSingle:
-
     def test_gathers_per_batch_time_step(self):
         # [B=2, T=3, D=4]
         sequence = torch.arange(24).reshape(2, 3, 4).float()
@@ -777,7 +734,6 @@ class TestGatherSequenceSingle:
 
 @pytest.mark.unit
 class TestPadSequenceSingle:
-
     def test_unbatched_pad_same_replicates_boundaries(self):
         sequence = torch.tensor([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
         result = pad_sequence_single(
@@ -804,13 +760,13 @@ class TestPadSequenceSingle:
 
     def test_batched_pad_same_indexes_correct_time_dimension(self):
         # [B=2, T=3, D=2]
-        batch = torch.tensor([
-            [[10.0, 11.0], [20.0, 21.0], [30.0, 31.0]],
-            [[40.0, 41.0], [50.0, 51.0], [60.0, 61.0]],
-        ])
-        result = pad_sequence_single(
-            batch, padding=(1, 1), batched=True, pad_same=True
+        batch = torch.tensor(
+            [
+                [[10.0, 11.0], [20.0, 21.0], [30.0, 31.0]],
+                [[40.0, 41.0], [50.0, 51.0], [60.0, 61.0]],
+            ]
         )
+        result = pad_sequence_single(batch, padding=(1, 1), batched=True, pad_same=True)
         assert result.shape == (2, 5, 2)
         # Begin pad: first time step of each batch
         torch.testing.assert_close(result[0, 0], torch.tensor([10.0, 11.0]))
@@ -822,10 +778,12 @@ class TestPadSequenceSingle:
         torch.testing.assert_close(result[:, 1:4, :], batch)
 
     def test_batched_pad_with_constant_value(self):
-        batch = torch.tensor([
-            [[1.0, 2.0], [3.0, 4.0]],
-            [[5.0, 6.0], [7.0, 8.0]],
-        ])
+        batch = torch.tensor(
+            [
+                [[1.0, 2.0], [3.0, 4.0]],
+                [[5.0, 6.0], [7.0, 8.0]],
+            ]
+        )
         result = pad_sequence_single(
             batch,
             padding=(0, 2),
@@ -835,9 +793,7 @@ class TestPadSequenceSingle:
         )
         assert result.shape == (2, 4, 2)
         torch.testing.assert_close(result[:, :2, :], batch)
-        torch.testing.assert_close(
-            result[:, 2:, :], torch.full((2, 2, 2), -1.0)
-        )
+        torch.testing.assert_close(result[:, 2:, :], torch.full((2, 2, 2), -1.0))
 
     def test_numpy_unbatched_pad_same(self):
         sequence = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
@@ -863,9 +819,7 @@ class TestPadSequenceSingle:
             TypeError,
             match=re.escape("seq must be np.ndarray or torch.Tensor, got list"),
         ):
-            pad_sequence_single(
-                [1, 2, 3], padding=(1, 1), batched=False, pad_same=True
-            )
+            pad_sequence_single([1, 2, 3], padding=(1, 1), batched=False, pad_same=True)
 
     def test_raises_when_pad_same_false_without_pad_values(self):
         tensor = torch.zeros(3, 4)
@@ -873,9 +827,7 @@ class TestPadSequenceSingle:
             ValueError,
             match=re.escape("pad_values must be provided when pad_same is False"),
         ):
-            pad_sequence_single(
-                tensor, padding=(1, 0), batched=False, pad_same=False
-            )
+            pad_sequence_single(tensor, padding=(1, 0), batched=False, pad_same=False)
 
     def test_raises_for_non_float_pad_values(self):
         tensor = torch.zeros(3, 4)
@@ -894,7 +846,6 @@ class TestPadSequenceSingle:
 
 @pytest.mark.unit
 class TestAssertSizeAtDimSingle:
-
     def test_passes_when_size_matches(self):
         tensor = torch.zeros(2, 3, 4)
         assert_size_at_dim_single(tensor, size=3, dim=1, msg="wrong size")
@@ -908,7 +859,6 @@ class TestAssertSizeAtDimSingle:
 
 @pytest.mark.unit
 class TestAssertSizeAtDim:
-
     def test_validates_all_tensors_in_structure(self):
         data = {"a": torch.zeros(2, 4), "b": torch.zeros(2, 4)}
         assert_size_at_dim(data, size=4, dim=1, msg="size mismatch")
@@ -922,7 +872,6 @@ class TestAssertSizeAtDim:
 
 @pytest.mark.unit
 class TestGetShape:
-
     def test_returns_shapes_for_nested_tensors(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -938,7 +887,6 @@ class TestGetShape:
 
 @pytest.mark.unit
 class TestListOfFlatDictToDictOfList:
-
     def test_transposes_list_to_dict(self):
         list_of_dicts = [
             {"x": 1, "y": 2},
@@ -968,7 +916,6 @@ class TestListOfFlatDictToDictOfList:
 
 @pytest.mark.unit
 class TestFlattenNestedDictList:
-
     def test_flattens_simple_dict(self):
         data = {"a": 1, "b": 2}
         result = flatten_nested_dict_list(data)
@@ -1002,7 +949,6 @@ class TestFlattenNestedDictList:
 
 @pytest.mark.unit
 class TestTimeDistributed:
-
     def test_applies_operation_across_batch_and_time(self):
         linear = nn.Linear(4, 8, bias=False)
         tensor = torch.ones(2, 3, 4)
@@ -1026,7 +972,6 @@ class TestTimeDistributed:
 
 @pytest.mark.unit
 class TestReplaceSubmodules:
-
     def test_replaces_all_matching_modules(self):
         model = nn.Sequential(
             nn.Linear(4, 4),
@@ -1043,7 +988,8 @@ class TestReplaceSubmodules:
             1 for m in replaced.modules() if isinstance(m, nn.BatchNorm1d)
         )
         identity_count = sum(
-            1 for m in replaced.modules()
+            1
+            for m in replaced.modules()
             if isinstance(m, nn.Identity) and m is not replaced
         )
         assert batchnorm_count == 0
@@ -1076,7 +1022,6 @@ class TestReplaceSubmodules:
 
 @pytest.mark.unit
 class TestGetModuleByPath:
-
     def test_retrieves_module_by_attribute_name(self):
         container = nn.Module()
         container.backbone = nn.Sequential(nn.Linear(4, 8), nn.ReLU())
@@ -1092,7 +1037,6 @@ class TestGetModuleByPath:
 
 @pytest.mark.unit
 class TestSetModuleByPath:
-
     def test_sets_module_at_integer_index(self):
         model = nn.Sequential(nn.Linear(4, 8), nn.ReLU())
         new_module = nn.GELU()
@@ -1117,7 +1061,6 @@ class TestSetModuleByPath:
 
 @pytest.mark.unit
 class TestOptimizerTo:
-
     def test_moves_optimizer_state_tensors_to_device(self):
         model = nn.Linear(4, 4)
         optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
@@ -1143,7 +1086,6 @@ class TestOptimizerTo:
 
 @pytest.mark.unit
 class TestMapNdarray:
-
     def test_applies_function_to_ndarrays_and_skips_none(
         self,
         ndarray_factory: Callable[..., np.ndarray],
@@ -1166,7 +1108,6 @@ class TestMapNdarray:
 
 @pytest.mark.unit
 class TestMapTensorNdarray:
-
     def test_applies_separate_functions_to_tensors_and_ndarrays(
         self,
         tensor_factory: Callable[..., torch.Tensor],
@@ -1187,7 +1128,6 @@ class TestMapTensorNdarray:
 
 @pytest.mark.unit
 class TestToTorch:
-
     def test_converts_ndarray_to_float_tensor_on_device(
         self,
         ndarray_factory: Callable[..., np.ndarray],
@@ -1204,14 +1144,15 @@ class TestToTorch:
 
 @pytest.mark.unit
 class TestToOneHot:
-
     def test_converts_nested_dict_labels_to_one_hot(self):
         labels = {"a": torch.tensor([0, 2]), "b": torch.tensor([1])}
         result = to_one_hot(labels, num_class=3)
-        expected_a = torch.tensor([
-            [1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0],
-        ])
+        expected_a = torch.tensor(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ]
+        )
         expected_b = torch.tensor([[0.0, 1.0, 0.0]])
         torch.testing.assert_close(result["a"], expected_a)
         torch.testing.assert_close(result["b"], expected_b)

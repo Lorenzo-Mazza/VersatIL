@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.swiglu module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -10,6 +11,7 @@ from versatil.models.layers.swiglu import SwiGLU
 @pytest.fixture
 def swiglu_factory() -> Callable[..., SwiGLU]:
     """Factory for SwiGLU instances with configurable parameters."""
+
     def factory(
         input_dim: int = 32,
         hidden_dim: int = 64,
@@ -20,11 +22,11 @@ def swiglu_factory() -> Callable[..., SwiGLU]:
             hidden_dim=hidden_dim,
             bias=bias,
         )
+
     return factory
 
 
 class TestSwiGLUInitialization:
-
     @pytest.mark.parametrize("input_dim", [16, 64])
     @pytest.mark.parametrize("hidden_dim", [32, 128])
     def test_stores_configuration(
@@ -66,11 +68,13 @@ class TestSwiGLUInitialization:
 
 
 class TestSwiGLUForward:
-
-    @pytest.mark.parametrize("input_dim, hidden_dim", [
-        (16, 32),
-        (64, 128),
-    ])
+    @pytest.mark.parametrize(
+        "input_dim, hidden_dim",
+        [
+            (16, 32),
+            (64, 128),
+        ],
+    )
     def test_output_shape_2d(
         self,
         swiglu_factory: Callable[..., SwiGLU],
@@ -83,10 +87,13 @@ class TestSwiGLUForward:
         output = module(tensor)
         assert output.shape == (4, hidden_dim)
 
-    @pytest.mark.parametrize("input_dim, hidden_dim", [
-        (16, 32),
-        (64, 128),
-    ])
+    @pytest.mark.parametrize(
+        "input_dim, hidden_dim",
+        [
+            (16, 32),
+            (64, 128),
+        ],
+    )
     def test_output_shape_3d(
         self,
         swiglu_factory: Callable[..., SwiGLU],

@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.free_transformer.free_transformer module."""
+
 import re
 from collections.abc import Callable
 
@@ -15,7 +16,6 @@ from versatil.models.layers.free_transformer.free_transformer import (
 
 
 class TestLatentConditionedDecoderLayerInitialization:
-
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("latent_dim", [8, 16])
     @pytest.mark.parametrize("number_of_heads", [2, 4])
@@ -80,7 +80,6 @@ class TestLatentConditionedDecoderLayerInitialization:
 
 
 class TestLatentConditionedDecoderLayerForward:
-
     @pytest.mark.parametrize(
         "batch_size, sequence_length",
         [
@@ -139,9 +138,9 @@ class TestLatentConditionedDecoderLayerForward:
             embedding_dimension=embedding_dimension,
         )
         latent = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, sequence_length, latent_dim)
-            ).astype(np.float32)
+            rng.standard_normal((batch_size, sequence_length, latent_dim)).astype(
+                np.float32
+            )
         )
         output, cache = layer(hidden_states=hidden_states, latent=latent)
         assert output.shape == (batch_size, sequence_length, embedding_dimension)
@@ -170,12 +169,8 @@ class TestLatentConditionedDecoderLayerForward:
             rng.standard_normal((2, 4, latent_dim)).astype(np.float32)
         )
         with torch.no_grad():
-            output_with_latent, _ = layer(
-                hidden_states=hidden_states, latent=latent
-            )
-            output_without_latent, _ = layer(
-                hidden_states=hidden_states, latent=None
-            )
+            output_with_latent, _ = layer(hidden_states=hidden_states, latent=latent)
+            output_without_latent, _ = layer(hidden_states=hidden_states, latent=None)
         assert not torch.allclose(output_with_latent, output_without_latent, atol=1e-5)
 
     def test_different_latents_produce_different_outputs(
@@ -237,9 +232,7 @@ class TestLatentConditionedDecoderLayerForward:
         )
         latent_expanded = latent_single.expand(-1, sequence_length, -1)
         with torch.no_grad():
-            output_single, _ = layer(
-                hidden_states=hidden_states, latent=latent_single
-            )
+            output_single, _ = layer(hidden_states=hidden_states, latent=latent_single)
             output_expanded, _ = layer(
                 hidden_states=hidden_states, latent=latent_expanded
             )
@@ -268,7 +261,6 @@ class TestLatentConditionedDecoderLayerForward:
 
 
 class TestFreeTransformerLatentEncoderInitialization:
-
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("number_of_layers", [1, 2])
     @pytest.mark.parametrize("use_global_latent", [True, False])
@@ -314,7 +306,6 @@ class TestFreeTransformerLatentEncoderInitialization:
 
 
 class TestFreeTransformerLatentEncoderForward:
-
     @pytest.mark.parametrize(
         "batch_size, sequence_length, use_global_latent",
         [
@@ -421,7 +412,6 @@ class TestFreeTransformerLatentEncoderForward:
 
 
 class TestFreeTransformerInitialization:
-
     @pytest.mark.parametrize("number_of_decoder_layers", [4, 6])
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("use_global_latent", [True, False])
@@ -483,7 +473,7 @@ class TestFreeTransformerInitialization:
     ):
         latent_bits = 4
         model = free_transformer_factory(latent_bits=latent_bits, latent_dim=None)
-        assert model.latent_dim == 2 ** latent_bits
+        assert model.latent_dim == 2**latent_bits
 
     def test_latent_dim_override(
         self,
@@ -582,7 +572,7 @@ class TestFreeTransformerInitialization:
         latent_bits = 5
         model = free_transformer_factory(latent_bits=latent_bits)
         assert model.binary_mapper.latent_bits == latent_bits
-        assert model.binary_mapper.latent_dim == 2 ** latent_bits
+        assert model.binary_mapper.latent_dim == 2**latent_bits
 
     def test_latent_encoder_uses_configured_global_latent_mode(
         self,
@@ -617,9 +607,7 @@ class TestFreeTransformerInitialization:
             batch_size=2, sequence_length=4, embedding_dimension=embedding_dimension
         )
         with torch.no_grad():
-            output, _, _, _ = model(
-                hidden_states=hidden_states, deterministic=True
-            )
+            output, _, _, _ = model(hidden_states=hidden_states, deterministic=True)
         assert torch.all(torch.isfinite(output))
 
     def test_no_positional_encoding_produces_position_invariant_encoding(
@@ -639,14 +627,11 @@ class TestFreeTransformerInitialization:
             batch_size=1, sequence_length=4, embedding_dimension=embedding_dimension
         )
         with torch.no_grad():
-            output, _, _, _ = model(
-                hidden_states=hidden_states, deterministic=True
-            )
+            output, _, _, _ = model(hidden_states=hidden_states, deterministic=True)
         assert torch.all(torch.isfinite(output))
 
 
 class TestFreeTransformerWeightInitialization:
-
     def test_normalization_weights_initialized_to_ones(
         self,
         free_transformer_factory: Callable[..., FreeTransformer],
@@ -673,7 +658,6 @@ class TestFreeTransformerWeightInitialization:
 
 
 class TestFreeTransformerForward:
-
     @pytest.mark.parametrize(
         "batch_size, sequence_length",
         [
@@ -700,15 +684,13 @@ class TestFreeTransformerForward:
             sequence_length=sequence_length,
             embedding_dimension=embedding_dimension,
         )
-        output, bit_logits, latent_codes, new_cache = model(
-            hidden_states=hidden_states
-        )
+        output, bit_logits, latent_codes, new_cache = model(hidden_states=hidden_states)
         assert output.shape == (batch_size, sequence_length, embedding_dimension)
         assert bit_logits.shape == (batch_size, sequence_length, latent_bits)
         assert latent_codes.shape == (
             batch_size,
             sequence_length,
-            2 ** latent_bits,
+            2**latent_bits,
         )
         assert new_cache is None
 
@@ -747,7 +729,7 @@ class TestFreeTransformerForward:
         assert latent_codes.shape == (
             batch_size,
             sequence_length,
-            2 ** latent_bits,
+            2**latent_bits,
         )
 
     def test_global_latent_produces_single_timestep_codes(
@@ -770,13 +752,11 @@ class TestFreeTransformerForward:
             sequence_length=sequence_length,
             embedding_dimension=embedding_dimension,
         )
-        output, bit_logits, latent_codes, _ = model(
-            hidden_states=hidden_states
-        )
+        output, bit_logits, latent_codes, _ = model(hidden_states=hidden_states)
         assert output.shape == (batch_size, sequence_length, embedding_dimension)
         # Global latent produces (B, 1, ...) for bit_logits and latent_codes
         assert bit_logits.shape == (batch_size, 1, latent_bits)
-        assert latent_codes.shape == (batch_size, 1, 2 ** latent_bits)
+        assert latent_codes.shape == (batch_size, 1, 2**latent_bits)
 
     def test_return_latent_embeddings_adds_extra_output(
         self,
@@ -795,9 +775,7 @@ class TestFreeTransformerForward:
             sequence_length=sequence_length,
             embedding_dimension=embedding_dimension,
         )
-        result = model(
-            hidden_states=hidden_states, return_latent_embeddings=True
-        )
+        result = model(hidden_states=hidden_states, return_latent_embeddings=True)
         assert len(result) == 5
         output, bit_logits, latent_codes, latent_embeddings, new_cache = result
         assert latent_embeddings.shape == (
@@ -816,9 +794,7 @@ class TestFreeTransformerForward:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        result = model(
-            hidden_states=hidden_states, return_latent_embeddings=False
-        )
+        result = model(hidden_states=hidden_states, return_latent_embeddings=False)
         assert len(result) == 4
 
     def test_use_cache_returns_decoder_cache(
@@ -837,9 +813,7 @@ class TestFreeTransformerForward:
             batch_size=2, sequence_length=4, embedding_dimension=embedding_dimension
         )
         with torch.no_grad():
-            _, _, _, new_cache = model(
-                hidden_states=hidden_states, use_cache=True
-            )
+            _, _, _, new_cache = model(hidden_states=hidden_states, use_cache=True)
         assert new_cache is not None
         assert len(new_cache.layers) == number_of_decoder_layers
 
@@ -873,9 +847,7 @@ class TestFreeTransformerForward:
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
         hidden_states.requires_grad_(True)
-        output, bit_logits, latent_codes, _ = model(
-            hidden_states=hidden_states
-        )
+        output, bit_logits, latent_codes, _ = model(hidden_states=hidden_states)
         loss = output.sum() + bit_logits.sum()
         loss.backward()
         assert hidden_states.grad is not None
@@ -916,7 +888,6 @@ class TestFreeTransformerForward:
 
 
 class TestFreeTransformerCaching:
-
     def test_cached_forward_produces_same_output_as_full(
         self,
         free_transformer_factory: Callable[..., FreeTransformer],
@@ -936,9 +907,7 @@ class TestFreeTransformerCaching:
         )
         # Full forward
         with torch.no_grad():
-            full_output, _, _, _ = model(
-                hidden_states=full_input, deterministic=True
-            )
+            full_output, _, _, _ = model(hidden_states=full_input, deterministic=True)
         # Incremental forward: process tokens one at a time
         cache = None
         incremental_outputs = []
@@ -953,9 +922,7 @@ class TestFreeTransformerCaching:
                 )
             incremental_outputs.append(step_output)
         incremental_output = torch.cat(incremental_outputs, dim=1)
-        assert torch.allclose(
-            full_output, incremental_output, atol=1e-4
-        )
+        assert torch.allclose(full_output, incremental_output, atol=1e-4)
 
     def test_cache_length_grows_with_tokens(
         self,
@@ -984,7 +951,6 @@ class TestFreeTransformerCaching:
 
 
 class TestFreeTransformerPositionalEncoding:
-
     @pytest.mark.parametrize(
         "positional_encoding_type",
         [
@@ -1008,9 +974,7 @@ class TestFreeTransformerPositionalEncoding:
             batch_size=2, sequence_length=4, embedding_dimension=embedding_dimension
         )
         with torch.no_grad():
-            output, _, _, _ = model(
-                hidden_states=hidden_states, deterministic=True
-            )
+            output, _, _, _ = model(hidden_states=hidden_states, deterministic=True)
         assert torch.all(torch.isfinite(output))
         assert output.shape == (2, 4, embedding_dimension)
 
@@ -1029,14 +993,11 @@ class TestFreeTransformerPositionalEncoding:
             batch_size=2, sequence_length=4, embedding_dimension=embedding_dimension
         )
         with torch.no_grad():
-            output, _, _, _ = model(
-                hidden_states=hidden_states, deterministic=True
-            )
+            output, _, _, _ = model(hidden_states=hidden_states, deterministic=True)
         assert torch.all(torch.isfinite(output))
 
 
 class TestFreeTransformerInferenceMode:
-
     def test_inference_samples_from_uniform_prior(
         self,
         free_transformer_factory: Callable[..., FreeTransformer],
@@ -1082,7 +1043,7 @@ class TestFreeTransformerInferenceMode:
             )
         assert bit_logits is None
         # Global latent should have query_dim=1
-        assert latent_codes.shape == (2, 1, 2 ** latent_bits)
+        assert latent_codes.shape == (2, 1, 2**latent_bits)
 
     def test_non_inference_eval_still_computes_bit_logits(
         self,
@@ -1099,7 +1060,5 @@ class TestFreeTransformerInferenceMode:
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
         with torch.no_grad():
-            _, bit_logits, _, _ = model(
-                hidden_states=hidden_states, is_inference=False
-            )
+            _, bit_logits, _, _ = model(hidden_states=hidden_states, is_inference=False)
         assert bit_logits.shape == (2, 4, latent_bits)

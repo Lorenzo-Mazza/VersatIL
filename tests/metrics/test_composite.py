@@ -1,4 +1,5 @@
 """Tests for versatil.metrics.composite module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -6,6 +7,7 @@ import pytest
 import torch
 
 from versatil.metrics.base import BaseLoss, LossOutput
+from versatil.metrics.components import RegressionLoss
 from versatil.metrics.composite import CompositeLoss
 
 
@@ -65,7 +67,6 @@ def dummy_targets() -> dict[str, torch.Tensor]:
 
 @pytest.mark.unit
 class TestCompositeLossInitialization:
-
     def test_default_weights_are_all_ones(
         self,
         mock_loss_factory: Callable[..., MagicMock],
@@ -92,7 +93,6 @@ class TestCompositeLossInitialization:
 
 @pytest.mark.unit
 class TestCompositeLossGetRequiredKeys:
-
     def test_collects_union_of_all_sub_loss_keys(
         self,
         mock_loss_factory: Callable[..., MagicMock],
@@ -117,7 +117,6 @@ class TestCompositeLossGetRequiredKeys:
 
 @pytest.mark.unit
 class TestCompositeLossForward:
-
     def test_total_loss_is_weighted_sum_of_sub_losses(
         self,
         composite_loss_factory: Callable[..., CompositeLoss],
@@ -228,15 +227,10 @@ class TestCompositeLossForward:
 
 @pytest.mark.unit
 class TestCompositeLossParameters:
-
     def test_parameters_includes_all_sub_loss_parameters(self):
-        from versatil.metrics.components import RegressionLoss
-
         loss_a = RegressionLoss(action_keys=["position"], mse_weight=1.0)
         loss_b = RegressionLoss(action_keys=["orientation"], mse_weight=1.0)
-        composite = CompositeLoss(
-            loss_modules={"a": loss_a, "b": loss_b}
-        )
+        composite = CompositeLoss(loss_modules={"a": loss_a, "b": loss_b})
 
         composite_params = list(composite.parameters())
         loss_a_params = list(loss_a.parameters())
@@ -253,8 +247,6 @@ class TestCompositeLossParameters:
         mock_loss.parameters.return_value = sub_loss.parameters()
 
         # Use a real parametric module as sub-loss via ModuleDict
-        from versatil.metrics.components import RegressionLoss
-
         loss_a = RegressionLoss(action_keys=["position"], mse_weight=1.0)
         composite = CompositeLoss(loss_modules={"a": loss_a})
 

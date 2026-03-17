@@ -1,4 +1,5 @@
 """Shared fixtures for layer tests."""
+
 from collections.abc import Callable
 
 import numpy as np
@@ -16,9 +17,7 @@ def condition_factory(
         batch_size: int = 2,
         condition_dim: int = 32,
     ) -> torch.Tensor:
-        data = rng.standard_normal(
-            (batch_size, condition_dim)
-        ).astype(np.float32)
+        data = rng.standard_normal((batch_size, condition_dim)).astype(np.float32)
         return torch.from_numpy(data)
 
     return factory
@@ -34,9 +33,7 @@ def flat_tensor_factory(
         batch_size: int = 2,
         feature_dimension: int = 32,
     ) -> torch.Tensor:
-        data = rng.standard_normal(
-            (batch_size, feature_dimension)
-        ).astype(np.float32)
+        data = rng.standard_normal((batch_size, feature_dimension)).astype(np.float32)
         return torch.from_numpy(data)
 
     return factory
@@ -73,9 +70,9 @@ def nchw_tensor_factory(
         height: int = 8,
         width: int = 8,
     ) -> torch.Tensor:
-        data = rng.standard_normal(
-            (batch_size, channels, height, width)
-        ).astype(np.float32)
+        data = rng.standard_normal((batch_size, channels, height, width)).astype(
+            np.float32
+        )
         return torch.from_numpy(data)
 
     return factory
@@ -93,9 +90,9 @@ def nhwc_tensor_factory(
         width: int = 8,
         channels: int = 32,
     ) -> torch.Tensor:
-        data = rng.standard_normal(
-            (batch_size, height, width, channels)
-        ).astype(np.float32)
+        data = rng.standard_normal((batch_size, height, width, channels)).astype(
+            np.float32
+        )
         return torch.from_numpy(data)
 
     return factory
@@ -112,9 +109,9 @@ def conv1d_tensor_factory(
         channels: int = 16,
         sequence_length: int = 32,
     ) -> torch.Tensor:
-        data = rng.standard_normal(
-            (batch_size, channels, sequence_length)
-        ).astype(np.float32)
+        data = rng.standard_normal((batch_size, channels, sequence_length)).astype(
+            np.float32
+        )
         return torch.from_numpy(data)
 
     return factory
@@ -130,9 +127,7 @@ def timestep_factory(
         batch_size: int = 2,
         num_train_timesteps: int = 100,
     ) -> torch.Tensor:
-        values = rng.integers(
-            low=0, high=num_train_timesteps, size=(batch_size,)
-        )
+        values = rng.integers(low=0, high=num_train_timesteps, size=(batch_size,))
         return torch.from_numpy(values).long()
 
     return factory
@@ -154,8 +149,6 @@ def attention_mask_factory() -> Callable[..., torch.Tensor]:
                 diagonal=1,
             )
             return mask.unsqueeze(0).unsqueeze(0).expand(batch_size, -1, -1, -1)
-        return torch.zeros(
-            batch_size, 1, query_length, key_length, dtype=torch.bool
-        )
+        return torch.zeros(batch_size, 1, query_length, key_length, dtype=torch.bool)
 
     return factory

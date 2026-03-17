@@ -1,4 +1,5 @@
 """Tests for versatil.inference integration module."""
+
 import threading
 from collections.abc import Callable
 from unittest.mock import MagicMock
@@ -16,17 +17,16 @@ from tso_robotics_sockets import (
     TransportKey,
     compress_array,
 )
-
 from versatil_constants.shared import (
     ActionComponent,
     ActionComputationMethod,
     ActionMetadataField,
-    BinaryGripperRange,
     CoordinateSystem,
     GripperType,
     ObsKey,
     OrientationRepresentation,
 )
+
 from versatil.data.constants import Cameras, ProprioKey
 from versatil.data.metadata import OnTheFlyActionMetadata
 from versatil.data.task import ActionSpace, ObservationSpace
@@ -54,14 +54,15 @@ def observation_space_integration_factory(
     gripper_observation_metadata_factory: Callable,
     camera_metadata_factory: Callable,
 ) -> Callable[..., ObservationSpace]:
-
     def factory(
         include_orientation: bool = True,
         include_gripper: bool = True,
     ) -> ObservationSpace:
         metadata = {
             Cameras.LEFT.value: camera_metadata_factory(camera_key=Cameras.LEFT.value),
-            Cameras.RIGHT.value: camera_metadata_factory(camera_key=Cameras.RIGHT.value),
+            Cameras.RIGHT.value: camera_metadata_factory(
+                camera_key=Cameras.RIGHT.value
+            ),
             ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: position_observation_metadata_factory(
                 dimension=POSITION_DIMENSION,
             ),
@@ -69,10 +70,14 @@ def observation_space_integration_factory(
         }
         if include_orientation:
             metadata[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_ORI.value] = (
-                orientation_observation_metadata_factory(dimension=ORIENTATION_DIMENSION)
+                orientation_observation_metadata_factory(
+                    dimension=ORIENTATION_DIMENSION
+                )
             )
         if include_gripper:
-            metadata[ProprioKey.GRIPPER_STATE.value] = gripper_observation_metadata_factory()
+            metadata[ProprioKey.GRIPPER_STATE.value] = (
+                gripper_observation_metadata_factory()
+            )
         return ObservationSpace(observations_metadata=metadata)
 
     return factory
@@ -84,7 +89,6 @@ def action_space_integration_factory(
     orientation_observation_metadata_factory: Callable,
     gripper_observation_metadata_factory: Callable,
 ) -> Callable[..., ActionSpace]:
-
     def factory(
         include_orientation: bool = True,
         include_gripper: bool = True,
@@ -98,11 +102,13 @@ def action_space_integration_factory(
             ),
         }
         if include_orientation:
-            actions[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_ORI.value] = OnTheFlyActionMetadata(
-                source_metadata=orientation_observation_metadata_factory(
-                    dimension=ORIENTATION_DIMENSION,
-                ),
-                computation_method=ActionComputationMethod.DELTA.value,
+            actions[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_ORI.value] = (
+                OnTheFlyActionMetadata(
+                    source_metadata=orientation_observation_metadata_factory(
+                        dimension=ORIENTATION_DIMENSION,
+                    ),
+                    computation_method=ActionComputationMethod.DELTA.value,
+                )
             )
         if include_gripper:
             actions[ProprioKey.GRIPPER_STATE.value] = OnTheFlyActionMetadata(
@@ -134,7 +140,6 @@ def mock_policy_loader_factory(
     action_space: ActionSpace,
     rng: np.random.Generator,
 ) -> Callable[..., MagicMock]:
-
     def factory(
         observation_horizon: int = OBSERVATION_HORIZON,
         prediction_horizon: int = PREDICTION_HORIZON,
@@ -215,9 +220,7 @@ def observation_server() -> SocketServer:
     )
 
     def handle_get_observation(request_data: dict) -> tuple[bool, dict]:
-        requested_keys = request_data.get(
-            InferenceRequestKey.REQUESTED_KEYS.value, []
-        )
+        requested_keys = request_data.get(InferenceRequestKey.REQUESTED_KEYS.value, [])
         compression_type = request_data.get(
             InferenceRequestKey.COMPRESSION_TYPE.value,
             CompressionType.RAW.value,
@@ -236,9 +239,9 @@ def observation_server() -> SocketServer:
                 )
         for proprio_key, dimension in proprio_dims.items():
             if proprio_key in requested_keys:
-                response[proprio_key] = server_rng.standard_normal(
-                    dimension
-                ).astype(np.float32).tolist()
+                response[proprio_key] = (
+                    server_rng.standard_normal(dimension).astype(np.float32).tolist()
+                )
         if ObsKey.LANGUAGE.value in requested_keys:
             response[ObsKey.LANGUAGE.value] = "pick up the red block"
         return True, response
@@ -307,7 +310,6 @@ def socket_integration_client(
 
 @pytest.mark.integration
 class TestSocketProtocolEndToEnd:
-
     def test_full_observation_action_cycle_over_sockets(
         self,
         socket_integration_client: InferenceClient,
@@ -330,7 +332,13 @@ class TestSocketProtocolEndToEnd:
         assert left_tensor.dtype == torch.float32
         assert left_tensor.min() >= 0.0
         assert left_tensor.max() <= 1.0
-        assert left_tensor.shape == (1, OBSERVATION_HORIZON, 3, IMAGE_HEIGHT, IMAGE_WIDTH)
+        assert left_tensor.shape == (
+            1,
+            OBSERVATION_HORIZON,
+            3,
+            IMAGE_HEIGHT,
+            IMAGE_WIDTH,
+        )
 
     def test_proprioceptive_data_survives_json_serialization(
         self,
@@ -365,7 +373,9 @@ class TestSocketProtocolEndToEnd:
 
         # Verify that the client produced structured actions with the correct keys
         # by inspecting the action_transport.send call via the mock
-        metadata = socket_integration_client.action_postprocessor.build_action_metadata()
+        metadata = (
+            socket_integration_client.action_postprocessor.build_action_metadata()
+        )
         assert ActionComponent.POSITION.value in metadata
         assert ActionComponent.ORIENTATION.value in metadata
         assert ActionComponent.GRIPPER.value in metadata
@@ -387,11 +397,21 @@ class TestSocketProtocolEndToEnd:
     ):
         socket_integration_client.step()
 
-        metadata = socket_integration_client.action_postprocessor.build_action_metadata()
+        metadata = (
+            socket_integration_client.action_postprocessor.build_action_metadata()
+        )
         position_metadata = metadata[ActionComponent.POSITION.value]
-        assert position_metadata[ActionMetadataField.DIMENSION.value] == POSITION_DIMENSION
-        assert position_metadata[ActionMetadataField.FRAME.value] == CoordinateSystem.ROBOT_BASE.value
-        assert position_metadata[ActionMetadataField.ACTION_TYPE.value] == ActionComputationMethod.DELTA.value
+        assert (
+            position_metadata[ActionMetadataField.DIMENSION.value] == POSITION_DIMENSION
+        )
+        assert (
+            position_metadata[ActionMetadataField.FRAME.value]
+            == CoordinateSystem.ROBOT_BASE.value
+        )
+        assert (
+            position_metadata[ActionMetadataField.ACTION_TYPE.value]
+            == ActionComputationMethod.DELTA.value
+        )
 
         orientation_metadata = metadata[ActionComponent.ORIENTATION.value]
         assert (
@@ -400,7 +420,10 @@ class TestSocketProtocolEndToEnd:
         )
 
         gripper_metadata = metadata[ActionComponent.GRIPPER.value]
-        assert gripper_metadata[ActionMetadataField.GRIPPER_TYPE.value] == GripperType.BINARY.value
+        assert (
+            gripper_metadata[ActionMetadataField.GRIPPER_TYPE.value]
+            == GripperType.BINARY.value
+        )
 
     def test_binary_gripper_produces_discrete_values(
         self,
@@ -409,7 +432,9 @@ class TestSocketProtocolEndToEnd:
     ):
         collected_gripper_values = []
 
-        original_format_action = socket_integration_client.action_postprocessor.format_action
+        original_format_action = (
+            socket_integration_client.action_postprocessor.format_action
+        )
 
         def capturing_format_action(action_dict):
             result = original_format_action(action_dict=action_dict)
@@ -417,7 +442,9 @@ class TestSocketProtocolEndToEnd:
                 collected_gripper_values.append(result[ActionComponent.GRIPPER.value])
             return result
 
-        socket_integration_client.action_postprocessor.format_action = capturing_format_action
+        socket_integration_client.action_postprocessor.format_action = (
+            capturing_format_action
+        )
 
         for _ in range(5):
             socket_integration_client.step()
@@ -483,7 +510,6 @@ class TestSocketProtocolEndToEnd:
 
 @pytest.mark.integration
 class TestTemporalAggregationIntegration:
-
     def test_temporal_aggregation_produces_different_values_across_steps(
         self,
         mock_policy_loader_factory: Callable[..., MagicMock],
@@ -530,7 +556,10 @@ class TestTemporalAggregationIntegration:
         client.action_postprocessor.format_action = capturing_format_action
 
         client.step()
-        assert client.environment_states[0].temporal_aggregator.prediction_horizon == PREDICTION_HORIZON
+        assert (
+            client.environment_states[0].temporal_aggregator.prediction_horizon
+            == PREDICTION_HORIZON
+        )
 
         client.step()
         client.step()
@@ -546,7 +575,6 @@ class TestTemporalAggregationIntegration:
 
 @pytest.mark.integration
 class TestObservationHorizonGreaterThanOne:
-
     def test_buffer_fills_before_inference(
         self,
         mock_policy_loader_factory: Callable[..., MagicMock],

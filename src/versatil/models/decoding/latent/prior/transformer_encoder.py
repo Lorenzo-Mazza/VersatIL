@@ -1,10 +1,12 @@
 """Transformer Encoder used as the learnable parameterized prior for Variational Inference."""
+
 import torch
 from torch import nn
 
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
 from versatil.models.decoding.latent import PriorLatentEncoder
 from versatil.models.decoding.latent.reparametrize import reparametrize
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer import (
     TransformerEncoder,
@@ -17,7 +19,6 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
 
 class PriorTransformerEncoder(PriorLatentEncoder):
@@ -140,9 +141,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
             input_tokens,
             positional_encoding=pos_encodings,
             source_key_padding_mask=padding_mask,
-        )[
-            :, -1, :
-        ]  # (B, CLS_TOKEN only, embedding_dim)
+        )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dim)
         latent_stats = self.latent_projection(encoder_output)
         if self.deterministic:
             z = latent_stats  # (B, latent_dim)
@@ -170,6 +169,7 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         observations: dict[str, torch.Tensor] | None = None,
     ) -> torch.Tensor:
         """Sample latent variable from learned prior p(z|s)."""
-        return self.forward(target_latents=None, observations=observations,)[
-            LatentKey.PRIOR_LATENT.value
-        ]  # Return only z
+        return self.forward(
+            target_latents=None,
+            observations=observations,
+        )[LatentKey.PRIOR_LATENT.value]  # Return only z

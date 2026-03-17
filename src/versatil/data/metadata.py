@@ -1,19 +1,16 @@
 """Metadata for actions and observations used across the codebase.
- `dtype` across all classes uses the zarr v3 type convention.
- zarr v3 allowed dtypes are defined here https://zarr-specs.readthedocs.io/en/latest/v3/data-types/index.html
+`dtype` across all classes uses the zarr v3 type convention.
+zarr v3 allowed dtypes are defined here https://zarr-specs.readthedocs.io/en/latest/v3/data-types/index.html
 """
 
-from typing import Optional
-
 from versatil.data.constants import (
-    CoordinateSystem,
-    ProprioceptiveType,
-    OrientationRepresentation,
-    GripperType,
-    BinaryGripperRange,
-    VALID_RAW_CAMERA_KEYS,
     RAW_TO_CAMERA_MAPPING,
     ActionComputationMethod,
+    BinaryGripperRange,
+    CoordinateSystem,
+    GripperType,
+    OrientationRepresentation,
+    ProprioceptiveType,
 )
 
 
@@ -74,8 +71,8 @@ class ObservationMetadata(BaseMetadata):
         dtype: str,
         is_numerical: bool,
         needs_normalization: bool,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
     ):
         super().__init__(dtype, is_numerical, needs_normalization)
         if not raw_data_column_keys:
@@ -125,8 +122,8 @@ class PositionObservationMetadata(ObservationMetadata):
         dtype: str,
         needs_normalization: bool,
         frame: str = CoordinateSystem.ROBOT_BASE.value,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
     ):
         if "float" not in dtype:
             raise ValueError("Position observations dtype must be a float type.")
@@ -168,8 +165,8 @@ class OrientationObservationMetadata(ObservationMetadata):
         needs_normalization: bool,
         frame: str = CoordinateSystem.ROBOT_BASE.value,
         orientation_representation: str = OrientationRepresentation.ROLL.value,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
     ):
         if "float" not in dtype:
             raise ValueError("Orientation observations dtype must be a float type.")
@@ -221,8 +218,8 @@ class GripperObservationMetadata(ObservationMetadata):
         needs_normalization: bool,
         gripper_type: str = GripperType.BINARY.value,
         binary_gripper_range: str = BinaryGripperRange.ZERO_ONE.value,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
     ):
         valid_types = [e.value for e in GripperType]
         if gripper_type not in valid_types:
@@ -240,9 +237,7 @@ class GripperObservationMetadata(ObservationMetadata):
             if needs_normalization:
                 raise ValueError("Binary gripper state should not need normalization.")
             if "int" not in dtype:
-                raise ValueError(
-                    "Binary gripper state dtype must be an integer type."
-                )
+                raise ValueError("Binary gripper state dtype must be an integer type.")
         else:
             if "float" not in dtype:
                 raise ValueError("Continuous gripper state dtype must be a float type.")
@@ -293,8 +288,8 @@ class CameraMetadata(BaseMetadata):
         camera_key: str,
         dtype: str,
         channels: int,
-        image_width: Optional[int] = None,
-        image_height: Optional[int] = None,
+        image_width: int | None = None,
+        image_height: int | None = None,
     ):
         super().__init__(dtype, is_numerical=True, needs_normalization=True)
         if camera_key not in RAW_TO_CAMERA_MAPPING:
@@ -313,11 +308,11 @@ class CameraMetadata(BaseMetadata):
         if not isinstance(other, CameraMetadata):
             return NotImplemented
         return (
-                super().__eq__(other)
-                and self.raw_camera_key == other.raw_camera_key
-                and self.channels == other.channels
-                and self.image_width == other.image_width
-                and self.image_height == other.image_height
+            super().__eq__(other)
+            and self.raw_camera_key == other.raw_camera_key
+            and self.channels == other.channels
+            and self.image_width == other.image_width
+            and self.image_height == other.image_height
         )
 
 
@@ -434,8 +429,8 @@ class PrecomputedActionMetadata(ActionMetadata):
         is_numerical: bool,
         needs_normalization: bool,
         dtype: str,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
         requires_prediction_head: bool = True,
     ):
         super().__init__(
@@ -493,8 +488,8 @@ class PositionActionMetadata(PrecomputedActionMetadata):
         prediction_dimension: int,
         needs_normalization: bool,
         dtype: str,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
     ):
         super().__init__(
             raw_data_column_keys=raw_data_column_keys,
@@ -535,8 +530,8 @@ class OrientationActionMetadata(PrecomputedActionMetadata):
         prediction_dimension: int,
         needs_normalization: bool,
         dtype: str,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
     ):
         super().__init__(
             raw_data_column_keys=raw_data_column_keys,
@@ -592,8 +587,8 @@ class GripperActionMetadata(PrecomputedActionMetadata):
         needs_normalization: bool,
         dtype: str,
         binary_gripper_range: str = BinaryGripperRange.ZERO_ONE.value,
-        slice_start: Optional[int] = None,
-        slice_end: Optional[int] = None,
+        slice_start: int | None = None,
+        slice_end: int | None = None,
     ):
         valid_types = [e.value for e in GripperType]
         if gripper_type not in valid_types:
@@ -609,9 +604,7 @@ class GripperActionMetadata(PrecomputedActionMetadata):
             if needs_normalization:
                 raise ValueError("Binary gripper action should not need normalization.")
             if "int" not in dtype:
-                raise ValueError(
-                    "Binary gripper action dtype must be an integer type."
-                )
+                raise ValueError("Binary gripper action dtype must be an integer type.")
         else:
             if "float" not in dtype:
                 raise ValueError(

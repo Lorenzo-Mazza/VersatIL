@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.geometric_attention.geometric_attention_encoder module."""
+
 import pytest
 import torch
 
@@ -6,7 +7,6 @@ from versatil.models.layers.constants import AttentionDecompositionMode
 
 
 class TestEncoderBlockConfiguration:
-
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("use_layer_scale", [True, False])
     @pytest.mark.parametrize(
@@ -54,9 +54,7 @@ class TestEncoderBlockConfiguration:
         self, encoder_block_factory, nhwc_tensor_factory, depth_map_factory
     ):
         # When layer_scale is disabled, forward should work without gamma parameters
-        block = encoder_block_factory(
-            use_layer_scale=False, embedding_dimension=32
-        )
+        block = encoder_block_factory(use_layer_scale=False, embedding_dimension=32)
         # Verify gamma1/gamma2 are not in the module's parameters
         param_names = [name for name, _ in block.named_parameters()]
         assert "gamma1" not in param_names
@@ -64,7 +62,6 @@ class TestEncoderBlockConfiguration:
 
 
 class TestEncoderBlockForward:
-
     @pytest.mark.parametrize(
         "batch_size, height, width, embedding_dimension, num_heads",
         [(2, 4, 6, 32, 4), (1, 8, 8, 64, 8)],
@@ -90,9 +87,7 @@ class TestEncoderBlockForward:
             width=width,
             channels=embedding_dimension,
         )
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
         output = block(rgb_tensor=rgb_tensor, depth_map=depth_map)
         assert output.shape == (batch_size, height, width, embedding_dimension)
 
@@ -119,9 +114,7 @@ class TestEncoderBlockForward:
             width=width,
             channels=embedding_dimension,
         )
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
         output = block(rgb_tensor=rgb_tensor, depth_map=depth_map)
         assert output.shape == (batch_size, height, width, embedding_dimension)
 
@@ -137,9 +130,7 @@ class TestEncoderBlockForward:
             channels=embedding_dimension,
         )
         rgb_tensor.requires_grad_(True)
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
 
         output = block(rgb_tensor=rgb_tensor, depth_map=depth_map)
         loss = output.sum()
@@ -151,7 +142,6 @@ class TestEncoderBlockForward:
 
 
 class TestEncoderBlockResidualConnection:
-
     def test_residual_connection_preserves_input_scale(
         self, encoder_block_factory, nhwc_tensor_factory, depth_map_factory
     ):
@@ -172,21 +162,20 @@ class TestEncoderBlockResidualConnection:
             width=width,
             channels=embedding_dimension,
         )
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
 
         output = block(rgb_tensor=rgb_tensor, depth_map=depth_map)
 
         # With near-zero layer scale, output should be close to
         # input + input_positional_encoding(input)
         input_with_position = rgb_tensor + block.input_positional_encoding(rgb_tensor)
-        relative_error = (output - input_with_position).abs().mean() / input_with_position.abs().mean()
+        relative_error = (
+            output - input_with_position
+        ).abs().mean() / input_with_position.abs().mean()
         assert relative_error.item() < 0.01
 
 
 class TestEncoderBlockLayerScale:
-
     def test_layer_scale_modulates_attention_contribution(
         self, encoder_block_factory, nhwc_tensor_factory, depth_map_factory
     ):
@@ -206,7 +195,8 @@ class TestEncoderBlockLayerScale:
         # Copy weights to ensure only layer_scale differs
         state_dict = block_with_scale.state_dict()
         compatible_state = {
-            key: value for key, value in state_dict.items()
+            key: value
+            for key, value in state_dict.items()
             if key not in ("gamma1", "gamma2")
         }
         block_without_scale.load_state_dict(compatible_state)
@@ -220,22 +210,16 @@ class TestEncoderBlockLayerScale:
             width=width,
             channels=embedding_dimension,
         )
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
 
-        output_with_scale = block_with_scale(
-            rgb_tensor=rgb_tensor, depth_map=depth_map
-        )
+        output_with_scale = block_with_scale(rgb_tensor=rgb_tensor, depth_map=depth_map)
         output_without_scale = block_without_scale(
             rgb_tensor=rgb_tensor, depth_map=depth_map
         )
 
         # With tiny layer_scale, the attention/mlp contributions are nearly zero
         # so output is closer to the residual. Without layer_scale, contributions are full.
-        assert not torch.allclose(
-            output_with_scale, output_without_scale, atol=1e-4
-        )
+        assert not torch.allclose(output_with_scale, output_without_scale, atol=1e-4)
 
     def test_large_layer_scale_approaches_no_scale_behavior(
         self, encoder_block_factory, nhwc_tensor_factory, depth_map_factory
@@ -256,7 +240,8 @@ class TestEncoderBlockLayerScale:
         # Copy weights
         state_dict = block_with_ones_scale.state_dict()
         compatible_state = {
-            key: value for key, value in state_dict.items()
+            key: value
+            for key, value in state_dict.items()
             if key not in ("gamma1", "gamma2")
         }
         block_without_scale.load_state_dict(compatible_state)
@@ -270,9 +255,7 @@ class TestEncoderBlockLayerScale:
             width=width,
             channels=embedding_dimension,
         )
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
 
         output_with_scale = block_with_ones_scale(
             rgb_tensor=rgb_tensor, depth_map=depth_map
@@ -282,13 +265,10 @@ class TestEncoderBlockLayerScale:
         )
 
         # With layer_scale=1.0, behavior should be identical to no scale
-        assert torch.allclose(
-            output_with_scale, output_without_scale, atol=1e-5
-        )
+        assert torch.allclose(output_with_scale, output_without_scale, atol=1e-5)
 
 
 class TestEncoderBlockDropPath:
-
     def test_drop_path_is_identity_in_eval_mode(
         self, encoder_block_factory, nhwc_tensor_factory, depth_map_factory
     ):
@@ -306,9 +286,7 @@ class TestEncoderBlockDropPath:
             width=width,
             channels=embedding_dimension,
         )
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
 
         # In eval mode, drop_path should be deterministic (no dropout)
         output_first = block(rgb_tensor=rgb_tensor, depth_map=depth_map)
@@ -332,9 +310,7 @@ class TestEncoderBlockDropPath:
             width=width,
             channels=embedding_dimension,
         )
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
 
         # With drop_path_rate=0.0, training mode should be deterministic
         output_first = block(rgb_tensor=rgb_tensor, depth_map=depth_map)
@@ -343,7 +319,6 @@ class TestEncoderBlockDropPath:
 
 
 class TestEncoderBlockDepthConditioning:
-
     def test_different_depth_maps_produce_different_outputs(
         self, encoder_block_factory, nhwc_tensor_factory
     ):
@@ -362,7 +337,7 @@ class TestEncoderBlockDepthConditioning:
 
         uniform_depth = torch.ones(batch_size, 1, height, width)
         boundary_depth = torch.ones(batch_size, 1, height, width)
-        boundary_depth[:, :, :, width // 2:] = 50.0
+        boundary_depth[:, :, :, width // 2 :] = 50.0
 
         output_uniform = block(rgb_tensor=rgb_tensor, depth_map=uniform_depth)
         output_boundary = block(rgb_tensor=rgb_tensor, depth_map=boundary_depth)

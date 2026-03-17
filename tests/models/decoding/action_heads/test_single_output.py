@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.action_heads.single_output module."""
+
 import re
 from collections.abc import Callable
 
@@ -10,7 +11,6 @@ from versatil.models.decoding.action_heads.single_output import ActionHead
 
 
 class TestActionHeadForward:
-
     def test_raises_if_output_dim_not_set(
         self,
         action_head_factory: Callable[..., ActionHead],

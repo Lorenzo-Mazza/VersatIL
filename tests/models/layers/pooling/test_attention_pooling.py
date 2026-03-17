@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.pooling.attention_pooling module."""
+
 import re
 from collections.abc import Callable
 
@@ -17,17 +18,20 @@ def cls_query_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:
     """Factory for CLS query tokens (C,)."""
+
     def factory(
         channels: int = 16,
     ) -> torch.Tensor:
         data = rng.standard_normal((channels,)).astype(np.float32)
         return torch.from_numpy(data)
+
     return factory
 
 
 @pytest.fixture
 def attention_pool_factory() -> Callable[..., AttentionPool2d]:
     """Factory for AttentionPool2d instances."""
+
     def factory(
         feature_dimension: int = 16,
         bias: bool = True,
@@ -36,12 +40,14 @@ def attention_pool_factory() -> Callable[..., AttentionPool2d]:
             feature_dimension=feature_dimension,
             bias=bias,
         )
+
     return factory
 
 
 @pytest.fixture
 def learned_aggregation_factory() -> Callable[..., LearnedAggregation]:
     """Factory for LearnedAggregation instances."""
+
     def factory(
         feature_dimension: int = 16,
         attention_bias: bool = True,
@@ -52,11 +58,11 @@ def learned_aggregation_factory() -> Callable[..., LearnedAggregation]:
             attention_bias=attention_bias,
             feedforward_expand=feedforward_expand,
         )
+
     return factory
 
 
 class TestAttentionPool2dForward:
-
     @pytest.mark.parametrize("feature_dimension", [16, 32])
     def test_output_shape_for_4d_input(
         self,
@@ -67,7 +73,10 @@ class TestAttentionPool2dForward:
     ):
         module = attention_pool_factory(feature_dimension=feature_dimension)
         tensor = nchw_tensor_factory(
-            batch_size=2, channels=feature_dimension, height=4, width=4,
+            batch_size=2,
+            channels=feature_dimension,
+            height=4,
+            width=4,
         )
         cls_q = cls_query_factory(channels=feature_dimension)
         output = module(tensor, cls_q)
@@ -101,7 +110,10 @@ class TestAttentionPool2dForward:
     ):
         module = attention_pool_factory(feature_dimension=feature_dimension)
         tensor = nhwc_tensor_factory(
-            batch_size=2, height=4, width=4, channels=feature_dimension,
+            batch_size=2,
+            height=4,
+            width=4,
+            channels=feature_dimension,
         )
         cls_q = cls_query_factory(channels=feature_dimension)
         output = module(tensor, cls_q)
@@ -159,7 +171,10 @@ class TestAttentionPool2dForward:
         feature_dimension = 16
         module = attention_pool_factory(feature_dimension=feature_dimension)
         tensor = nchw_tensor_factory(
-            batch_size=2, channels=feature_dimension, height=4, width=4,
+            batch_size=2,
+            channels=feature_dimension,
+            height=4,
+            width=4,
         )
         cls_q_a = cls_query_factory(channels=feature_dimension)
         cls_q_b = cls_query_factory(channels=feature_dimension)
@@ -211,7 +226,6 @@ class TestAttentionPool2dForward:
 
 
 class TestLearnedAggregation:
-
     @pytest.mark.parametrize("feature_dimension", [16, 32])
     def test_output_shape_from_4d_input(
         self,
@@ -222,7 +236,10 @@ class TestLearnedAggregation:
         batch_size = 2
         module = learned_aggregation_factory(feature_dimension=feature_dimension)
         tensor = nchw_tensor_factory(
-            batch_size=batch_size, channels=feature_dimension, height=4, width=4,
+            batch_size=batch_size,
+            channels=feature_dimension,
+            height=4,
+            width=4,
         )
         output = module(tensor)
         assert output.shape == (batch_size, feature_dimension)

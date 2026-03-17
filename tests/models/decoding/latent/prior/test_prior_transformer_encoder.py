@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.latent.prior.transformer_encoder module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -14,6 +15,7 @@ from versatil.models.decoding.latent.prior.transformer_encoder import (
 @pytest.fixture
 def prior_transformer_factory() -> Callable[..., PriorTransformerEncoder]:
     """Factory for PriorTransformerEncoder instances."""
+
     def factory(
         embedding_dimension: int = 64,
         latent_dimension: int = 16,
@@ -42,11 +44,11 @@ def prior_transformer_factory() -> Callable[..., PriorTransformerEncoder]:
             min_logvar=min_logvar,
             exclude_keys=exclude_keys,
         )
+
     return factory
 
 
 class TestPriorTransformerEncoderInitialization:
-
     def test_inherits_from_prior_latent_encoder(
         self,
         prior_transformer_factory: Callable[..., PriorTransformerEncoder],
@@ -80,12 +82,15 @@ class TestPriorTransformerEncoderInitialization:
         assert encoder.deterministic is deterministic
         assert encoder.learn_variance is learn_variance
 
-    @pytest.mark.parametrize("deterministic, learn_variance, expected_multiplier", [
-        (True, True, 1),
-        (True, False, 1),
-        (False, True, 2),
-        (False, False, 1),
-    ])
+    @pytest.mark.parametrize(
+        "deterministic, learn_variance, expected_multiplier",
+        [
+            (True, True, 1),
+            (True, False, 1),
+            (False, True, 2),
+            (False, False, 1),
+        ],
+    )
     def test_projection_dim_depends_on_deterministic_and_learn_variance(
         self,
         prior_transformer_factory: Callable[..., PriorTransformerEncoder],
@@ -99,11 +104,13 @@ class TestPriorTransformerEncoderInitialization:
             deterministic=deterministic,
             learn_variance=learn_variance,
         )
-        assert encoder.latent_projection.out_features == latent_dimension * expected_multiplier
+        assert (
+            encoder.latent_projection.out_features
+            == latent_dimension * expected_multiplier
+        )
 
 
 class TestPriorTransformerEncoderForward:
-
     def test_deterministic_returns_exact_keys(
         self,
         prior_transformer_factory: Callable[..., PriorTransformerEncoder],
@@ -182,9 +189,15 @@ class TestPriorTransformerEncoderForward:
             feature_dimension=embedding_dimension,
         )
         result = encoder.forward(observations=features)
-        assert result[LatentKey.PRIOR_LATENT.value].shape == (batch_size, latent_dimension)
+        assert result[LatentKey.PRIOR_LATENT.value].shape == (
+            batch_size,
+            latent_dimension,
+        )
         assert result[LatentKey.PRIOR_MU.value].shape == (batch_size, latent_dimension)
-        assert result[LatentKey.PRIOR_LOGVAR.value].shape == (batch_size, latent_dimension)
+        assert result[LatentKey.PRIOR_LOGVAR.value].shape == (
+            batch_size,
+            latent_dimension,
+        )
 
     def test_min_logvar_clamps_logvar(
         self,
@@ -229,7 +242,6 @@ class TestPriorTransformerEncoderForward:
 
 
 class TestPriorTransformerEncoderSamplePrior:
-
     @pytest.mark.parametrize("batch_size", [1, 4])
     @pytest.mark.parametrize("latent_dimension", [8, 32])
     def test_output_shape(

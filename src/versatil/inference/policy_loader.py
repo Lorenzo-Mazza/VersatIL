@@ -64,21 +64,15 @@ class PolicyLoader:
         """Load config, policy, and tokenizer from checkpoint directory."""
         config_path = os.path.join(self._checkpoint_path, "config.yaml")
         if not os.path.exists(config_path):
-            raise FileNotFoundError(
-                f"Config file not found at {config_path}."
-            )
+            raise FileNotFoundError(f"Config file not found at {config_path}.")
         logging.info(f"Loading config from {config_path}")
         config = hydra.utils.instantiate(OmegaConf.load(config_path))
         validate_experiment(config)
         self._config = config
 
-        checkpoint_file = os.path.join(
-            self._checkpoint_path, self._checkpoint_name
-        )
+        checkpoint_file = os.path.join(self._checkpoint_path, self._checkpoint_name)
         if not os.path.exists(checkpoint_file):
-            raise FileNotFoundError(
-                f"No checkpoint found at {checkpoint_file}."
-            )
+            raise FileNotFoundError(f"No checkpoint found at {checkpoint_file}.")
         logging.info(f"Loading model and tokenizer from {checkpoint_file}")
 
         tokenizer_path = os.path.join(self._checkpoint_path, "tokenizer")
@@ -104,9 +98,7 @@ class PolicyLoader:
             policy=self._policy,
             training_config=self._config.training,
         )
-        lightning_module.load_state_dict(
-            checkpoint["state_dict"], strict=False
-        )
+        lightning_module.load_state_dict(checkpoint["state_dict"], strict=False)
         self._validate_checkpoint_loading(
             checkpoint_state_dict=checkpoint["state_dict"],
             lightning_module=lightning_module,
@@ -144,12 +136,8 @@ class PolicyLoader:
         warnings = []
 
         for prefix in critical_prefixes:
-            checkpoint_count = len(
-                [k for k in checkpoint_keys if k.startswith(prefix)]
-            )
-            model_count = len(
-                [k for k in model_keys if k.startswith(prefix)]
-            )
+            checkpoint_count = len([k for k in checkpoint_keys if k.startswith(prefix)])
+            model_count = len([k for k in model_keys if k.startswith(prefix)])
             if checkpoint_count > 0 and model_count == 0:
                 errors.append(
                     f"CRITICAL: Checkpoint has {checkpoint_count} keys for "
@@ -173,13 +161,11 @@ class PolicyLoader:
 
         lazy_module_prefixes = [
             (
-                "policy.decoder.architecture.feature_projection."
-                "linear_projections.",
+                "policy.decoder.architecture.feature_projection.linear_projections.",
                 "FeatureProjection linear",
             ),
             (
-                "policy.decoder.architecture.feature_projection."
-                "spatial_projections.",
+                "policy.decoder.architecture.feature_projection.spatial_projections.",
                 "FeatureProjection spatial",
             ),
             (
@@ -189,17 +175,12 @@ class PolicyLoader:
         ]
         for checkpoint_prefix, module_name in lazy_module_prefixes:
             checkpoint_keys_for_module = [
-                k
-                for k in checkpoint_keys
-                if k.startswith(checkpoint_prefix)
+                k for k in checkpoint_keys if k.startswith(checkpoint_prefix)
             ]
             model_keys_for_module = [
                 k for k in model_keys if k.startswith(checkpoint_prefix)
             ]
-            if (
-                len(checkpoint_keys_for_module) > 0
-                and len(model_keys_for_module) == 0
-            ):
+            if len(checkpoint_keys_for_module) > 0 and len(model_keys_for_module) == 0:
                 errors.append(
                     f"CRITICAL: {module_name} failed to load. "
                     f"Checkpoint has {len(checkpoint_keys_for_module)} keys "
@@ -245,12 +226,14 @@ class PolicyLoader:
         Returns:
             Action dictionary from policy.predict_action.
         """
-        with torch.autocast(
-            device_type=str(self._device),
-            dtype=MAP_PRECISION_TO_DTYPE[self._precision],
+        with (
+            torch.autocast(
+                device_type=str(self._device),
+                dtype=MAP_PRECISION_TO_DTYPE[self._precision],
+            ),
+            torch.no_grad(),
         ):
-            with torch.no_grad():
-                return self._policy.predict_action(obs_dict=obs_dict)
+            return self._policy.predict_action(obs_dict=obs_dict)
 
     @property
     def device(self) -> torch.device:
@@ -311,9 +294,7 @@ class PolicyLoader:
         if not raw:
             return {}
         return {
-            key: raw[key]
-            for key in self.action_space.actions_metadata
-            if key in raw
+            key: raw[key] for key in self.action_space.actions_metadata if key in raw
         }
 
     @property

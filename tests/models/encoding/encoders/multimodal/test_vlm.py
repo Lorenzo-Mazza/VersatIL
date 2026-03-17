@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.encoders.multimodal.vlm module."""
+
 import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
@@ -15,7 +16,6 @@ from versatil.models.encoding.encoders.constants import (
     PoolingMethod,
 )
 from versatil.models.encoding.encoders.multimodal.vlm import VLMEncoder
-
 
 HIDDEN_VISION_DIM = 768
 HIDDEN_LANGUAGE_DIM = 512
@@ -126,9 +126,7 @@ def vlm_input_factory(
         else:
             image_shape = (batch_size, channels, height, width)
             text_shape = (batch_size, sequence_length)
-        images = torch.from_numpy(
-            rng.standard_normal(image_shape).astype(np.float32)
-        )
+        images = torch.from_numpy(rng.standard_normal(image_shape).astype(np.float32))
         token_ids = torch.from_numpy(
             rng.integers(low=0, high=VOCAB_SIZE, size=text_shape).astype(np.int64)
         )
@@ -145,7 +143,6 @@ def vlm_input_factory(
 
 
 class TestVLMEncoderInitialization:
-
     def test_has_encoder_interface(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
@@ -155,14 +152,20 @@ class TestVLMEncoderInitialization:
         assert hasattr(encoder, "get_output_specification")
         assert hasattr(encoder, "input_specification")
 
-    @pytest.mark.parametrize("input_keys", [
-        [Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value],
-        [Cameras.RIGHT.value, SampleKey.TOKENIZED_OBSERVATIONS.value],
-    ])
-    @pytest.mark.parametrize("pooling_method", [
-        PoolingMethod.DEFAULT.value,
-        PoolingMethod.AVERAGE.value,
-    ])
+    @pytest.mark.parametrize(
+        "input_keys",
+        [
+            [Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value],
+            [Cameras.RIGHT.value, SampleKey.TOKENIZED_OBSERVATIONS.value],
+        ],
+    )
+    @pytest.mark.parametrize(
+        "pooling_method",
+        [
+            PoolingMethod.DEFAULT.value,
+            PoolingMethod.AVERAGE.value,
+        ],
+    )
     def test_stores_configuration(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
@@ -174,8 +177,7 @@ class TestVLMEncoderInitialization:
             pooling_method=pooling_method,
         )
         expected_camera_key = next(
-            key for key in input_keys
-            if key != SampleKey.TOKENIZED_OBSERVATIONS.value
+            key for key in input_keys if key != SampleKey.TOKENIZED_OBSERVATIONS.value
         )
         assert encoder.camera_key == expected_camera_key
         assert encoder.language_key == SampleKey.TOKENIZED_OBSERVATIONS.value
@@ -197,32 +199,24 @@ class TestVLMEncoderInitialization:
     ):
         encoder = vlm_encoder_factory()
         expected = (
-            f"{EncoderOutputKeys.LANGUAGE.value}"
-            f"_{EncoderOutputKeys.PADDING_MASK.value}"
+            f"{EncoderOutputKeys.LANGUAGE.value}_{EncoderOutputKeys.PADDING_MASK.value}"
         )
         assert encoder.padding_mask_name == expected
 
 
 class TestVLMEncoderPoolFeatures:
-
     def test_default_pooling_returns_pooler_output(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
         rng: np.random.Generator,
     ):
-        encoder = vlm_encoder_factory(
-            pooling_method=PoolingMethod.DEFAULT.value
-        )
+        encoder = vlm_encoder_factory(pooling_method=PoolingMethod.DEFAULT.value)
         batch_size = 2
         pooler_output = torch.from_numpy(
-            rng.standard_normal((batch_size, HIDDEN_VISION_DIM)).astype(
-                np.float32
-            )
+            rng.standard_normal((batch_size, HIDDEN_VISION_DIM)).astype(np.float32)
         )
         hidden_state = torch.from_numpy(
-            rng.standard_normal((batch_size, 50, HIDDEN_VISION_DIM)).astype(
-                np.float32
-            )
+            rng.standard_normal((batch_size, 50, HIDDEN_VISION_DIM)).astype(np.float32)
         )
         outputs = BaseModelOutputWithPooling(
             last_hidden_state=hidden_state,
@@ -238,9 +232,7 @@ class TestVLMEncoderPoolFeatures:
         vlm_encoder_factory: Callable[..., VLMEncoder],
         rng: np.random.Generator,
     ):
-        encoder = vlm_encoder_factory(
-            pooling_method=PoolingMethod.AVERAGE.value
-        )
+        encoder = vlm_encoder_factory(pooling_method=PoolingMethod.AVERAGE.value)
         batch_size = 2
         sequence_length = 50
         hidden_state = torch.from_numpy(
@@ -264,9 +256,7 @@ class TestVLMEncoderPoolFeatures:
         vlm_encoder_factory: Callable[..., VLMEncoder],
         rng: np.random.Generator,
     ):
-        encoder = vlm_encoder_factory(
-            pooling_method=PoolingMethod.AVERAGE.value
-        )
+        encoder = vlm_encoder_factory(pooling_method=PoolingMethod.AVERAGE.value)
         batch_size = 2
         sequence_length = 20
         hidden_state = torch.from_numpy(
@@ -290,9 +280,7 @@ class TestVLMEncoderPoolFeatures:
         vlm_encoder_factory: Callable[..., VLMEncoder],
         rng: np.random.Generator,
     ):
-        encoder = vlm_encoder_factory(
-            pooling_method=PoolingMethod.NONE.value
-        )
+        encoder = vlm_encoder_factory(pooling_method=PoolingMethod.NONE.value)
         batch_size = 2
         sequence_length = 50
         hidden_state = torch.from_numpy(
@@ -366,9 +354,7 @@ class TestVLMEncoderPoolFeatures:
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
     ):
-        encoder = vlm_encoder_factory(
-            pooling_method=PoolingMethod.DEFAULT.value
-        )
+        encoder = vlm_encoder_factory(pooling_method=PoolingMethod.DEFAULT.value)
         outputs = BaseModelOutputWithPooling(
             last_hidden_state=torch.zeros(2, 50, HIDDEN_VISION_DIM),
             pooler_output=None,
@@ -402,7 +388,6 @@ class TestVLMEncoderPoolFeatures:
 
 
 class TestVLMEncoderResizeImages:
-
     def test_resizes_to_target_size(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
@@ -455,7 +440,6 @@ class TestVLMEncoderResizeImages:
 
 
 class TestVLMEncoderPadTextInputs:
-
     def test_truncation_when_longer_than_max_text_length(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
@@ -504,9 +488,9 @@ class TestVLMEncoderPadTextInputs:
     ):
         encoder = vlm_encoder_factory()
         text_ids = torch.from_numpy(
-            rng.integers(
-                low=0, high=VOCAB_SIZE, size=(2, MAX_TEXT_LENGTH)
-            ).astype(np.int64)
+            rng.integers(low=0, high=VOCAB_SIZE, size=(2, MAX_TEXT_LENGTH)).astype(
+                np.int64
+            )
         )
         mask = torch.zeros(2, MAX_TEXT_LENGTH, dtype=torch.bool)
         result_ids, result_mask = encoder._pad_text_inputs(
@@ -517,18 +501,13 @@ class TestVLMEncoderPadTextInputs:
 
 
 class TestVLMEncoderForward:
-
     def _setup_encoder_mock_outputs(
         self,
         encoder: VLMEncoder,
         batch_size: int,
     ):
-        vision_hidden = torch.zeros(
-            batch_size, 49, HIDDEN_VISION_DIM
-        )
-        language_hidden = torch.zeros(
-            batch_size, MAX_TEXT_LENGTH, HIDDEN_LANGUAGE_DIM
-        )
+        vision_hidden = torch.zeros(batch_size, 49, HIDDEN_VISION_DIM)
+        language_hidden = torch.zeros(batch_size, MAX_TEXT_LENGTH, HIDDEN_LANGUAGE_DIM)
 
         vision_pooler = torch.zeros(batch_size, HIDDEN_VISION_DIM)
         language_pooler = torch.zeros(batch_size, HIDDEN_LANGUAGE_DIM)
@@ -548,9 +527,13 @@ class TestVLMEncoderForward:
         # Mock the image processor to pass through
         encoder.image_processor = MagicMock()
         mock_processed = MagicMock()
-        mock_processed.to.return_value = {"pixel_values": torch.zeros(batch_size, 3, IMAGE_SIZE, IMAGE_SIZE)}
+        mock_processed.to.return_value = {
+            "pixel_values": torch.zeros(batch_size, 3, IMAGE_SIZE, IMAGE_SIZE)
+        }
         mock_processed.__iter__ = lambda s: iter(["pixel_values"])
-        mock_processed.__getitem__ = lambda s, k: torch.zeros(batch_size, 3, IMAGE_SIZE, IMAGE_SIZE)
+        mock_processed.__getitem__ = lambda s, k: torch.zeros(
+            batch_size, 3, IMAGE_SIZE, IMAGE_SIZE
+        )
         mock_processed.keys = lambda: ["pixel_values"]
         encoder.image_processor.return_value = mock_processed
 
@@ -613,9 +596,7 @@ class TestVLMEncoderForward:
         images = torch.from_numpy(
             rng.standard_normal((2, 3, 224, 224)).astype(np.float32)
         )
-        with pytest.raises(
-            ValueError, match="tokenized_observations must be a tensor"
-        ):
+        with pytest.raises(ValueError, match="tokenized_observations must be a tensor"):
             encoder(
                 inputs={
                     Cameras.LEFT.value: images,
@@ -666,11 +647,17 @@ class TestVLMEncoderForward:
         padding_mask = output[encoder.padding_mask_name]
         # (B, T, vision_seq_len, hidden_vision_dim)
         assert image_features.shape == (
-            batch_size, time_steps, vision_seq_len, HIDDEN_VISION_DIM,
+            batch_size,
+            time_steps,
+            vision_seq_len,
+            HIDDEN_VISION_DIM,
         )
         # (B, T, max_text_length, hidden_language_dim)
         assert language_features.shape == (
-            batch_size, time_steps, MAX_TEXT_LENGTH, HIDDEN_LANGUAGE_DIM,
+            batch_size,
+            time_steps,
+            MAX_TEXT_LENGTH,
+            HIDDEN_LANGUAGE_DIM,
         )
         # (B, T, max_text_length)
         assert padding_mask.shape == (batch_size, time_steps, MAX_TEXT_LENGTH)
@@ -681,9 +668,7 @@ class TestVLMEncoderForward:
         vlm_input_factory: Callable[..., dict[str, torch.Tensor]],
     ):
         batch_size = 2
-        encoder = vlm_encoder_factory(
-            pooling_method=PoolingMethod.DEFAULT.value
-        )
+        encoder = vlm_encoder_factory(pooling_method=PoolingMethod.DEFAULT.value)
         self._setup_encoder_mock_outputs(
             encoder=encoder,
             batch_size=batch_size,
@@ -702,9 +687,7 @@ class TestVLMEncoderForward:
         batch_size = 2
         time_steps = 3
         effective_batch = batch_size * time_steps
-        encoder = vlm_encoder_factory(
-            pooling_method=PoolingMethod.NONE.value
-        )
+        encoder = vlm_encoder_factory(pooling_method=PoolingMethod.NONE.value)
         # Create mock outputs where image_features has wrong ndim (2D instead of 3D+)
         vision_hidden = torch.zeros(effective_batch, HIDDEN_VISION_DIM)
         language_hidden = torch.zeros(
@@ -727,9 +710,7 @@ class TestVLMEncoderForward:
         encoder.image_processor = MagicMock()
         mock_processed = MagicMock()
         mock_processed.to.return_value = {
-            "pixel_values": torch.zeros(
-                effective_batch, 3, IMAGE_SIZE, IMAGE_SIZE
-            )
+            "pixel_values": torch.zeros(effective_batch, 3, IMAGE_SIZE, IMAGE_SIZE)
         }
         mock_processed.__iter__ = lambda s: iter(["pixel_values"])
         mock_processed.__getitem__ = lambda s, k: torch.zeros(
@@ -746,7 +727,7 @@ class TestVLMEncoderForward:
             RuntimeError,
             match=re.escape(
                 "Expected image_features.ndim >= 3 and language_features.ndim == 3, "
-                f"got 2 and 3"
+                "got 2 and 3"
             ),
         ):
             encoder(inputs=inputs)
@@ -759,23 +740,15 @@ class TestVLMEncoderForward:
         batch_size = 2
         time_steps = 3
         effective_batch = batch_size * time_steps
-        encoder = vlm_encoder_factory(
-            pooling_method=PoolingMethod.DEFAULT.value
-        )
+        encoder = vlm_encoder_factory(pooling_method=PoolingMethod.DEFAULT.value)
         # Create mock outputs where pooler_output has wrong ndim (3D instead of 2D)
-        vision_hidden = torch.zeros(
-            effective_batch, 49, HIDDEN_VISION_DIM
-        )
+        vision_hidden = torch.zeros(effective_batch, 49, HIDDEN_VISION_DIM)
         language_hidden = torch.zeros(
             effective_batch, MAX_TEXT_LENGTH, HIDDEN_LANGUAGE_DIM
         )
         # pooler_output with wrong shape (3D instead of 2D)
-        vision_pooler = torch.zeros(
-            effective_batch, 2, HIDDEN_VISION_DIM
-        )
-        language_pooler = torch.zeros(
-            effective_batch, HIDDEN_LANGUAGE_DIM
-        )
+        vision_pooler = torch.zeros(effective_batch, 2, HIDDEN_VISION_DIM)
+        language_pooler = torch.zeros(effective_batch, HIDDEN_LANGUAGE_DIM)
         mock_vision_output = BaseModelOutputWithPooling(
             last_hidden_state=vision_hidden,
             pooler_output=vision_pooler,
@@ -791,9 +764,7 @@ class TestVLMEncoderForward:
         encoder.image_processor = MagicMock()
         mock_processed = MagicMock()
         mock_processed.to.return_value = {
-            "pixel_values": torch.zeros(
-                effective_batch, 3, IMAGE_SIZE, IMAGE_SIZE
-            )
+            "pixel_values": torch.zeros(effective_batch, 3, IMAGE_SIZE, IMAGE_SIZE)
         }
         mock_processed.__iter__ = lambda s: iter(["pixel_values"])
         mock_processed.__getitem__ = lambda s, k: torch.zeros(
@@ -810,14 +781,13 @@ class TestVLMEncoderForward:
             RuntimeError,
             match=re.escape(
                 "Expected image_features.ndim == 2 and language_features.ndim == 2, "
-                f"got 3 and 2"
+                "got 3 and 2"
             ),
         ):
             encoder(inputs=inputs)
 
 
 class TestVLMEncoderGetVocabSize:
-
     def test_returns_text_model_vocab_size(
         self,
         vlm_encoder_factory: Callable[..., VLMEncoder],
@@ -827,7 +797,6 @@ class TestVLMEncoderGetVocabSize:
 
 
 class TestVLMEncoderGetOutputSpecification:
-
     @pytest.mark.parametrize(
         "pooling_method, expected_vision_dim, expected_language_dim",
         [
@@ -858,8 +827,7 @@ class TestVLMEncoderGetOutputSpecification:
         encoder = vlm_encoder_factory(pooling_method=pooling_method)
         specification = encoder.get_output_specification()
         assert (
-            specification.dimensions[EncoderOutputKeys.RGB.value]
-            == expected_vision_dim
+            specification.dimensions[EncoderOutputKeys.RGB.value] == expected_vision_dim
         )
         assert (
             specification.dimensions[EncoderOutputKeys.LANGUAGE.value]
@@ -879,7 +847,6 @@ class TestVLMEncoderGetOutputSpecification:
 
 
 class TestVLMEncoderIntegration:
-
     @pytest.mark.integration
     @pytest.mark.parametrize(
         "model_name",

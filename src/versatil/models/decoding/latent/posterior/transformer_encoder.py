@@ -3,6 +3,7 @@ This is the transformer posterior encoder used in the original Action-Chunking T
 It takes as input a chunk of actions plus observation tokens and uses a transformer encoder with a CLS token to produce
 a latent embedding (split into mean and log variance), which is then reparameterized to produce a latent sample.
 """
+
 import logging
 
 import torch
@@ -14,6 +15,7 @@ from versatil.models.decoding.latent.posterior.base_posterior import (
     PosteriorLatentEncoder,
 )
 from versatil.models.decoding.latent.reparametrize import reparametrize
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer import (
     TransformerEncoder,
@@ -26,7 +28,6 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
 
 class VAETransformerEncoder(PosteriorLatentEncoder):
@@ -137,7 +138,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         )
         self.cls_token = nn.Embedding(1, self.embedding_dimension)  # CLS input token
         projection_dim = (
-            self.vae_latent_dimension # mu
+            self.vae_latent_dimension  # mu
             if self.deterministic
             else self.vae_latent_dimension * 2  # mu and logvar
         )
@@ -203,9 +204,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             input_tokens,
             positional_encoding=pos_encodings,
             source_key_padding_mask=padding_mask,
-        )[
-            :, -1, :
-        ]  # (B, CLS_TOKEN only, embedding_dim)
+        )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dim)
         latent_stats = self.latent_projection(encoder_output)
         if self.deterministic:
             z = latent_stats  # (B, latent_dim)

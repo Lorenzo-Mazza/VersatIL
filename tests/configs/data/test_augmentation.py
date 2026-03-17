@@ -1,4 +1,5 @@
 """Tests for versatil.configs.data.augmentations module."""
+
 import pytest
 from hydra.utils import instantiate
 from omegaconf import MISSING
@@ -23,7 +24,6 @@ from versatil.configs.data.augmentations import (
 
 @pytest.mark.unit
 class TestAugmentationConfig:
-
     def test_target_defaults_to_missing(self):
         config = AugmentationConfig()
         assert config._target_ == MISSING
@@ -36,7 +36,6 @@ class TestAugmentationConfig:
 
 @pytest.mark.unit
 class TestColorJitterConfig:
-
     def test_target_points_to_albumentations(self):
         config = ColorJitterConfig()
         assert config._target_ == "albumentations.ColorJitter"
@@ -51,7 +50,6 @@ class TestColorJitterConfig:
 
 @pytest.mark.unit
 class TestRandomSunFlareConfig:
-
     def test_target_points_to_albumentations(self):
         config = RandomSunFlareConfig()
         assert config._target_ == "albumentations.RandomSunFlare"
@@ -59,7 +57,6 @@ class TestRandomSunFlareConfig:
 
 @pytest.mark.unit
 class TestRandomBrightnessContrastConfig:
-
     def test_target_points_to_albumentations(self):
         config = RandomBrightnessContrastConfig()
         assert config._target_ == "albumentations.RandomBrightnessContrast"
@@ -67,7 +64,6 @@ class TestRandomBrightnessContrastConfig:
 
 @pytest.mark.unit
 class TestRandomGammaConfig:
-
     def test_target_points_to_albumentations(self):
         config = RandomGammaConfig()
         assert config._target_ == "albumentations.RandomGamma"
@@ -79,7 +75,6 @@ class TestRandomGammaConfig:
 
 @pytest.mark.unit
 class TestCLAHEConfig:
-
     def test_target_points_to_albumentations(self):
         config = CLAHEConfig()
         assert config._target_ == "albumentations.CLAHE"
@@ -92,7 +87,6 @@ class TestCLAHEConfig:
 
 @pytest.mark.unit
 class TestRandomShadowConfig:
-
     def test_target_points_to_albumentations(self):
         config = RandomShadowConfig()
         assert config._target_ == "albumentations.RandomShadow"
@@ -100,7 +94,6 @@ class TestRandomShadowConfig:
 
 @pytest.mark.unit
 class TestImageCompressionConfig:
-
     def test_target_points_to_albumentations(self):
         config = ImageCompressionConfig()
         assert config._target_ == "albumentations.ImageCompression"
@@ -117,7 +110,6 @@ class TestImageCompressionConfig:
 
 @pytest.mark.unit
 class TestGaussianBlurConfig:
-
     def test_target_points_to_albumentations(self):
         config = GaussianBlurConfig()
         assert config._target_ == "albumentations.GaussianBlur"
@@ -125,7 +117,6 @@ class TestGaussianBlurConfig:
 
 @pytest.mark.unit
 class TestCoarseDropoutConfig:
-
     def test_target_points_to_albumentations(self):
         config = CoarseDropoutConfig()
         assert config._target_ == "albumentations.CoarseDropout"
@@ -133,7 +124,6 @@ class TestCoarseDropoutConfig:
 
 @pytest.mark.unit
 class TestShiftScaleRotateConfig:
-
     def test_target_points_to_albumentations(self):
         config = ShiftScaleRotateConfig()
         assert config._target_ == "albumentations.ShiftScaleRotate"
@@ -145,7 +135,6 @@ class TestShiftScaleRotateConfig:
 
 @pytest.mark.unit
 class TestCenterCropConfig:
-
     def test_target_points_to_albumentations(self):
         config = CenterCropConfig()
         assert config._target_ == "albumentations.CenterCrop"
@@ -158,7 +147,6 @@ class TestCenterCropConfig:
 
 @pytest.mark.unit
 class TestRotateConfig:
-
     def test_target_points_to_albumentations(self):
         config = RotateConfig()
         assert config._target_ == "albumentations.Rotate"
@@ -171,7 +159,6 @@ class TestRotateConfig:
 
 @pytest.mark.unit
 class TestAugmentationPipelineConfig:
-
     def test_target_points_to_compose(self):
         config = AugmentationPipelineConfig()
         assert config._target_ == "albumentations.Compose"
@@ -183,7 +170,6 @@ class TestAugmentationPipelineConfig:
 
 @pytest.mark.unit
 class TestAugmentationInstantiation:
-
     def test_color_jitter_instantiates(self):
         config = ColorJitterConfig()
         instance = instantiate(config)

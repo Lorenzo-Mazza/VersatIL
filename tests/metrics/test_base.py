@@ -98,7 +98,7 @@ class TestLossOutputAdd:
         output = loss_output_factory(total_loss_value=1.0)
         with pytest.raises(
             TypeError,
-            match=f"Cannot add LossOutput with {type(42)}",
+            match=f"Cannot add LossOutput with {int}",
         ):
             output + 42
 

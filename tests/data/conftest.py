@@ -1,4 +1,5 @@
 """Data package test fixtures: synthetic data generators and metadata factories."""
+
 import shutil
 import tempfile
 from collections.abc import Callable
@@ -9,23 +10,19 @@ import pytest
 import zarr
 
 from versatil.configs.data.dataloader import DataLoaderConfig
-from versatil.data.episodic_dataset import EpisodicDataset
-
 from versatil.data.constants import (
     ActionComputationMethod,
     BinaryGripperRange,
     Cameras,
     CoordinateSystem,
     GripperType,
-    OrientationRepresentation,
     ProprioKey,
 )
+from versatil.data.episodic_dataset import EpisodicDataset
 from versatil.data.metadata import (
     CameraMetadata,
-    GripperActionMetadata,
     GripperObservationMetadata,
     OnTheFlyActionMetadata,
-    OrientationObservationMetadata,
     PositionObservationMetadata,
 )
 from versatil.data.task import ActionSpace, ObservationSpace
@@ -71,9 +68,9 @@ def generate_synthetic_euler_angles(
     Returns:
         Array of shape (num_samples, 3).
     """
-    return rng.uniform(
-        angle_range[0], angle_range[1], (num_samples, 3)
-    ).astype(np.float32)
+    return rng.uniform(angle_range[0], angle_range[1], (num_samples, 3)).astype(
+        np.float32
+    )
 
 
 def generate_synthetic_gripper_states(
@@ -248,7 +245,7 @@ def create_synthetic_replay_buffer(
     episode_ends = []
     current_index = 0
 
-    for episode_index in range(num_episodes):
+    for _episode_index in range(num_episodes):
         episode = generate_synthetic_episode(
             rng=rng,
             num_timesteps=num_timesteps_per_episode,
@@ -269,9 +266,9 @@ def create_synthetic_replay_buffer(
         ] = episode[ProprioKey.CAMERA_FRAME_CARTESIAN_TIP_POS.value]
 
         if has_gripper:
-            data_group[ProprioKey.GRIPPER_STATE.value][
-                current_index:end_index
-            ] = episode[ProprioKey.GRIPPER_STATE.value]
+            data_group[ProprioKey.GRIPPER_STATE.value][current_index:end_index] = (
+                episode[ProprioKey.GRIPPER_STATE.value]
+            )
 
         for camera in cameras:
             data_group[camera][current_index:end_index] = episode[camera]
@@ -348,8 +345,6 @@ def synthetic_replay_buffer(rng: np.random.Generator) -> Callable[..., tuple]:
     return factory
 
 
-
-
 @pytest.fixture
 def real_dataset_factory(
     synthetic_replay_buffer: Callable[..., tuple],
@@ -419,9 +414,11 @@ def real_dataset_factory(
                 binary_gripper_range=BinaryGripperRange.ZERO_ONE.value,
             )
             observations_metadata[ProprioKey.GRIPPER_STATE.value] = gripper_meta
-            actions_metadata[ProprioKey.GRIPPER_STATE.value] = on_the_fly_action_metadata_factory(
-                source_metadata=gripper_meta,
-                computation_method=ActionComputationMethod.NEXT_TIMESTEP.value,
+            actions_metadata[ProprioKey.GRIPPER_STATE.value] = (
+                on_the_fly_action_metadata_factory(
+                    source_metadata=gripper_meta,
+                    computation_method=ActionComputationMethod.NEXT_TIMESTEP.value,
+                )
             )
 
         action_space = ActionSpace(

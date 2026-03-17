@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.transformer.autoregressive_decoder module."""
+
 import re
 from collections.abc import Callable
 
@@ -57,7 +58,6 @@ def gpt_decoder_factory() -> Callable[..., GPTDecoder]:
 
 
 class TestGPTDecoderInitialization:
-
     @pytest.mark.parametrize("number_of_layers", [1, 4])
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("use_cross_attention", [True, False])
@@ -122,9 +122,7 @@ class TestGPTDecoderInitialization:
                 number_of_key_value_heads=None,
             )
 
-    def test_gqa_stores_kv_heads(
-        self, gpt_decoder_factory: Callable[..., GPTDecoder]
-    ):
+    def test_gqa_stores_kv_heads(self, gpt_decoder_factory: Callable[..., GPTDecoder]):
         decoder = gpt_decoder_factory(
             number_of_heads=8,
             number_of_key_value_heads=2,
@@ -144,14 +142,11 @@ class TestGPTDecoderInitialization:
     def test_head_dimension_computed(
         self, gpt_decoder_factory: Callable[..., GPTDecoder]
     ):
-        decoder = gpt_decoder_factory(
-            embedding_dimension=64, number_of_heads=8
-        )
+        decoder = gpt_decoder_factory(embedding_dimension=64, number_of_heads=8)
         assert decoder.head_dimension == 8
 
 
 class TestGPTDecoderForward:
-
     def test_output_shape_decoder_only(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
@@ -187,9 +182,7 @@ class TestGPTDecoderForward:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=8, embedding_dimension=32
         )
-        output, cache = decoder(
-            hidden_states=hidden_states, encoded_features=memory
-        )
+        output, cache = decoder(hidden_states=hidden_states, encoded_features=memory)
         assert output.shape == (2, 5, 32)
 
     def test_use_cache_returns_decoder_cache(
@@ -206,9 +199,7 @@ class TestGPTDecoderForward:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=3, embedding_dimension=32
         )
-        output, cache = decoder(
-            hidden_states=hidden_states, use_cache=True
-        )
+        output, cache = decoder(hidden_states=hidden_states, use_cache=True)
         assert cache is not None
         assert len(cache.layers) == 2
         assert cache.get_length() == 3
@@ -236,9 +227,7 @@ class TestGPTDecoderForward:
         modified[0, 3, :] *= 100.0
         output_modified, _ = decoder(hidden_states=modified)
         # Tokens before position 3 (0, 1, 2) should be unchanged due to causal masking
-        assert torch.allclose(
-            output_original[0, :3], output_modified[0, :3], atol=1e-5
-        )
+        assert torch.allclose(output_original[0, :3], output_modified[0, :3], atol=1e-5)
         # Tokens at or after position 3 should change
         assert not torch.allclose(
             output_original[0, 3:], output_modified[0, 3:], atol=1e-5
@@ -259,9 +248,7 @@ class TestGPTDecoderForward:
         sequence_length = 5
         batch_size = 2
         full_sequence = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, sequence_length, 32)
-            ).astype(np.float32)
+            rng.standard_normal((batch_size, sequence_length, 32)).astype(np.float32)
         )
         # Full forward
         full_output, _ = decoder(hidden_states=full_sequence)
@@ -294,17 +281,13 @@ class TestGPTDecoderForward:
         sequence_length = 4
         batch_size = 2
         full_sequence = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, sequence_length, 32)
-            ).astype(np.float32)
+            rng.standard_normal((batch_size, sequence_length, 32)).astype(np.float32)
         )
         memory = torch.from_numpy(
             rng.standard_normal((batch_size, 6, 32)).astype(np.float32)
         )
         # Full forward
-        full_output, _ = decoder(
-            hidden_states=full_sequence, encoded_features=memory
-        )
+        full_output, _ = decoder(hidden_states=full_sequence, encoded_features=memory)
         # Incremental forward
         cache = None
         cached_outputs = []
@@ -361,13 +344,9 @@ class TestGPTDecoderForward:
         mask = padding_mask_factory(
             batch_size=2, sequence_length=4, padded_positions=[[1, 2], []]
         )
-        output_masked, _ = decoder(
-            hidden_states=hidden_states, key_padding_mask=mask
-        )
+        output_masked, _ = decoder(hidden_states=hidden_states, key_padding_mask=mask)
         output_unmasked, _ = decoder(hidden_states=hidden_states)
-        assert not torch.allclose(
-            output_masked[0], output_unmasked[0], atol=1e-5
-        )
+        assert not torch.allclose(output_masked[0], output_unmasked[0], atol=1e-5)
 
     def test_custom_self_attention_mask(
         self,
@@ -451,9 +430,7 @@ class TestGPTDecoderForward:
         sequence_length = 5
         batch_size = 2
         full_sequence = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, sequence_length, 32)
-            ).astype(np.float32)
+            rng.standard_normal((batch_size, sequence_length, 32)).astype(np.float32)
         )
         full_output, _ = decoder(hidden_states=full_sequence)
         cache = None
@@ -485,9 +462,7 @@ class TestGPTDecoderForward:
         sequence_length = 5
         batch_size = 2
         full_sequence = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, sequence_length, 32)
-            ).astype(np.float32)
+            rng.standard_normal((batch_size, sequence_length, 32)).astype(np.float32)
         )
         full_output, _ = decoder(hidden_states=full_sequence)
         cache = None
@@ -505,7 +480,6 @@ class TestGPTDecoderForward:
 
 
 class TestGPTDecoderPrecomputeCrossAttentionKV:
-
     def test_returns_one_kv_pair_per_layer(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
@@ -520,9 +494,7 @@ class TestGPTDecoderPrecomputeCrossAttentionKV:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=8, embedding_dimension=32
         )
-        cross_kv = decoder.precompute_cross_attention_kv(
-            encoded_features=memory
-        )
+        cross_kv = decoder.precompute_cross_attention_kv(encoded_features=memory)
         assert len(cross_kv) == 3
 
     def test_kv_shapes(
@@ -539,9 +511,7 @@ class TestGPTDecoderPrecomputeCrossAttentionKV:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=8, embedding_dimension=32
         )
-        cross_kv = decoder.precompute_cross_attention_kv(
-            encoded_features=memory
-        )
+        cross_kv = decoder.precompute_cross_attention_kv(encoded_features=memory)
         for keys, values in cross_kv:
             # (B, kv_heads, memory_length, head_dim)
             assert keys.shape == (2, 4, 8, 8)
@@ -563,9 +533,7 @@ class TestGPTDecoderPrecomputeCrossAttentionKV:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=8, embedding_dimension=32
         )
-        cross_kv = decoder.precompute_cross_attention_kv(
-            encoded_features=memory
-        )
+        cross_kv = decoder.precompute_cross_attention_kv(encoded_features=memory)
         for keys, values in cross_kv:
             # GQA: kv_heads=2, head_dim=8
             assert keys.shape == (2, 2, 8, 8)
@@ -573,7 +541,6 @@ class TestGPTDecoderPrecomputeCrossAttentionKV:
 
 
 class TestGPTDecoderCacheManagement:
-
     def test_cache_accumulates_across_steps(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
@@ -615,9 +582,7 @@ class TestGPTDecoderCacheManagement:
         hidden_states = torch.from_numpy(
             rng.standard_normal((batch_size, 3, 32)).astype(np.float32)
         )
-        key_padding = torch.tensor(
-            [[False, True, False], [False, False, True]]
-        )
+        key_padding = torch.tensor([[False, True, False], [False, False, True]])
         _, cache = decoder(
             hidden_states=hidden_states,
             key_padding_mask=key_padding,

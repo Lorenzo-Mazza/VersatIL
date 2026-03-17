@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.detr_transformer.transformer module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -15,7 +16,6 @@ TARGET_LENGTH = 6
 
 
 class TestTransformerInitialization:
-
     @pytest.mark.parametrize("embedding_dimension", [EMBEDDING_DIMENSION, 128])
     @pytest.mark.parametrize("number_of_heads", [NUMBER_OF_HEADS, 8])
     def test_stores_configuration(
@@ -194,11 +194,15 @@ class TestTransformerInitialization:
         memory = transformer.encoder(source=source)
         decoder_output = transformer.decoder(target=target, memory=memory)
         # decoder returns (1, B, T, C) or (num_layers, B, T, C)
-        assert decoder_output.shape == (1, batch_size, TARGET_LENGTH, EMBEDDING_DIMENSION)
+        assert decoder_output.shape == (
+            1,
+            batch_size,
+            TARGET_LENGTH,
+            EMBEDDING_DIMENSION,
+        )
 
 
 class TestTransformerForward:
-
     def test_output_shape_without_intermediate(
         self,
         transformer_factory: Callable[..., Transformer],
@@ -383,9 +387,7 @@ class TestTransformerForward:
             sequence_length=TARGET_LENGTH,
             embedding_dimension=EMBEDDING_DIMENSION,
         )
-        source_padding_mask = torch.zeros(
-            batch_size, SOURCE_LENGTH, dtype=torch.bool
-        )
+        source_padding_mask = torch.zeros(batch_size, SOURCE_LENGTH, dtype=torch.bool)
         source_padding_mask[:, -1] = True
         output_without = transformer(source=source, target=target)
         output_with = transformer(
@@ -413,9 +415,7 @@ class TestTransformerForward:
             sequence_length=TARGET_LENGTH,
             embedding_dimension=EMBEDDING_DIMENSION,
         )
-        target_padding_mask = torch.zeros(
-            batch_size, TARGET_LENGTH, dtype=torch.bool
-        )
+        target_padding_mask = torch.zeros(batch_size, TARGET_LENGTH, dtype=torch.bool)
         target_padding_mask[:, -1] = True
         output_without = transformer(source=source, target=target)
         output_with = transformer(
@@ -447,11 +447,14 @@ class TestTransformerForward:
         output = transformer(source=source, target=target)
         assert output.shape == (1, batch_size, TARGET_LENGTH, EMBEDDING_DIMENSION)
 
-    @pytest.mark.parametrize("activation", [
-        ActivationFunction.RELU.value,
-        ActivationFunction.GELU.value,
-        ActivationFunction.SWIGLU.value,
-    ])
+    @pytest.mark.parametrize(
+        "activation",
+        [
+            ActivationFunction.RELU.value,
+            ActivationFunction.GELU.value,
+            ActivationFunction.SWIGLU.value,
+        ],
+    )
     def test_forward_with_different_activations(
         self,
         transformer_factory: Callable[..., Transformer],
@@ -536,9 +539,7 @@ class TestTransformerForward:
             embedding_dimension=EMBEDDING_DIMENSION,
         )
         # Mask half the source positions
-        source_padding_mask = torch.zeros(
-            batch_size, SOURCE_LENGTH, dtype=torch.bool
-        )
+        source_padding_mask = torch.zeros(batch_size, SOURCE_LENGTH, dtype=torch.bool)
         source_padding_mask[:, SOURCE_LENGTH // 2 :] = True
         output_no_mask = transformer(source=source, target=target)
         output_with_mask = transformer(

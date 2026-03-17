@@ -1,4 +1,5 @@
 """Tests for versatil.configs.inference module."""
+
 import dataclasses
 
 import pytest
@@ -8,13 +9,10 @@ from versatil.configs.inference import InferenceConfig
 
 @pytest.mark.unit
 class TestInferenceConfig:
-
     @pytest.mark.parametrize("temporal_agg", [True, False])
     @pytest.mark.parametrize("rotate_images", [True, False])
     def test_stores_configuration(self, temporal_agg, rotate_images):
-        config = InferenceConfig(
-            temporal_agg=temporal_agg, rotate_images=rotate_images
-        )
+        config = InferenceConfig(temporal_agg=temporal_agg, rotate_images=rotate_images)
         assert config.temporal_agg == temporal_agg
         assert config.rotate_images == rotate_images
 

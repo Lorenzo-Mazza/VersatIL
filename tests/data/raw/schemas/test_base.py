@@ -1,4 +1,5 @@
 """Tests for versatil.data.raw.schemas.base module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -33,7 +34,6 @@ class ConcreteDatasetSchema(DatasetSchema):
 
 
 class TestDatasetSchemaInit:
-
     @pytest.mark.parametrize(
         "zarr_path",
         ["/tmp/test.zarr", "/data/experiments/dataset.zarr"],
@@ -90,7 +90,6 @@ class TestDatasetSchemaInit:
 
 
 class TestDatasetSchemaAbstract:
-
     def test_cannot_instantiate_abstract_class(self):
         with pytest.raises(TypeError, match="abstract method"):
             DatasetSchema(
@@ -104,10 +103,11 @@ class TestDatasetSchemaAbstract:
 
 
 class TestGetRequiredZarrKeys:
-
     def test_delegates_to_metadata_get_all_keys(
         self,
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
@@ -149,7 +149,6 @@ class TestGetRequiredZarrKeys:
 
 
 class TestGetZarrArraySpecs:
-
     @pytest.mark.parametrize(
         "camera_key, image_height, image_width, channels",
         [
@@ -203,7 +202,9 @@ class TestGetZarrArraySpecs:
         self,
         dimension: int,
         frame: str,
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         observations = {
@@ -328,7 +329,9 @@ class TestGetZarrArraySpecs:
     def test_mixed_observations_and_actions_returns_all_specs(
         self,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):

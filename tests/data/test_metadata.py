@@ -1,4 +1,5 @@
 """Tests for versatil.data.metadata module."""
+
 from contextlib import nullcontext as does_not_raise
 
 import pytest
@@ -29,7 +30,6 @@ from versatil.data.metadata import (
 
 
 class TestBaseMetadata:
-
     def test_non_numerical_with_normalization_raises(self):
         with pytest.raises(ValueError, match="Non-numerical"):
             BaseMetadata(dtype="string", is_numerical=False, needs_normalization=True)
@@ -58,13 +58,21 @@ class TestBaseMetadata:
             BaseMetadata(dtype=dtype, is_numerical=True, needs_normalization=True)
 
     def test_equality_same_values(self):
-        first = BaseMetadata(dtype="float32", is_numerical=True, needs_normalization=True)
-        second = BaseMetadata(dtype="float32", is_numerical=True, needs_normalization=True)
+        first = BaseMetadata(
+            dtype="float32", is_numerical=True, needs_normalization=True
+        )
+        second = BaseMetadata(
+            dtype="float32", is_numerical=True, needs_normalization=True
+        )
         assert first == second
 
     def test_equality_different_dtype(self):
-        first = BaseMetadata(dtype="float32", is_numerical=True, needs_normalization=True)
-        second = BaseMetadata(dtype="float64", is_numerical=True, needs_normalization=True)
+        first = BaseMetadata(
+            dtype="float32", is_numerical=True, needs_normalization=True
+        )
+        second = BaseMetadata(
+            dtype="float64", is_numerical=True, needs_normalization=True
+        )
         assert first != second
 
     def test_equality_different_type_returns_not_implemented(self):
@@ -75,7 +83,6 @@ class TestBaseMetadata:
 
 
 class TestObservationMetadata:
-
     def test_empty_raw_data_column_keys_raises(self):
         with pytest.raises(ValueError, match="cannot be empty"):
             ObservationMetadata(
@@ -194,7 +201,6 @@ class TestObservationMetadata:
 
 
 class TestPositionObservationMetadata:
-
     @pytest.mark.parametrize("dtype", ["int32", "int64", "bool", "string"])
     def test_non_float_dtype_raises(self, dtype):
         with pytest.raises(ValueError, match="float type"):
@@ -207,10 +213,7 @@ class TestPositionObservationMetadata:
 
     @pytest.mark.parametrize(
         "frame, expectation",
-        [
-            (member.value, does_not_raise())
-            for member in CoordinateSystem
-        ]
+        [(member.value, does_not_raise()) for member in CoordinateSystem]
         + [
             ("invalid_frame", pytest.raises(ValueError, match="frame must be one of")),
         ],
@@ -271,7 +274,6 @@ class TestPositionObservationMetadata:
 
 
 class TestOrientationObservationMetadata:
-
     @pytest.mark.parametrize("dtype", ["int32", "bool"])
     def test_non_float_dtype_raises(self, dtype):
         with pytest.raises(ValueError, match="float type"):
@@ -293,7 +295,9 @@ class TestOrientationObservationMetadata:
             )
 
     def test_invalid_orientation_representation_raises(self):
-        with pytest.raises(ValueError, match="orientation_representation must be one of"):
+        with pytest.raises(
+            ValueError, match="orientation_representation must be one of"
+        ):
             OrientationObservationMetadata(
                 raw_data_column_keys=["roll"],
                 dimension=1,
@@ -346,7 +350,6 @@ class TestOrientationObservationMetadata:
 
 
 class TestGripperObservationMetadata:
-
     def test_invalid_gripper_type_raises(self):
         with pytest.raises(ValueError, match="gripper_type must be one of"):
             GripperObservationMetadata(
@@ -460,14 +463,16 @@ class TestGripperObservationMetadata:
 
 
 class TestCameraMetadata:
-
     @pytest.mark.parametrize(
         "camera_key, expectation",
         [
             (Cameras.LEFT.value, does_not_raise()),
             (Cameras.RIGHT.value, does_not_raise()),
             (Cameras.DEPTH.value, does_not_raise()),
-            ("nonexistent_camera", pytest.raises(ValueError, match="must be a valid raw camera key")),
+            (
+                "nonexistent_camera",
+                pytest.raises(ValueError, match="must be a valid raw camera key"),
+            ),
         ],
     )
     def test_camera_key_validation(self, camera_key, expectation):
@@ -534,7 +539,6 @@ class TestCameraMetadata:
 
 
 class TestActionMetadata:
-
     @pytest.mark.parametrize("prediction_dimension", [0, -1])
     def test_non_positive_prediction_dimension_raises(self, prediction_dimension):
         with pytest.raises(ValueError, match="must be positive"):
@@ -579,7 +583,6 @@ class TestActionMetadata:
 
 
 class TestOnTheFlyActionMetadata:
-
     def test_non_numerical_source_raises(self):
         source = ObservationMetadata(
             raw_data_column_keys=["label"],
@@ -593,12 +596,12 @@ class TestOnTheFlyActionMetadata:
 
     @pytest.mark.parametrize(
         "method, expectation",
-        [
-            (member.value, does_not_raise())
-            for member in ActionComputationMethod
-        ]
+        [(member.value, does_not_raise()) for member in ActionComputationMethod]
         + [
-            ("velocity", pytest.raises(ValueError, match="computation_method must be one of")),
+            (
+                "velocity",
+                pytest.raises(ValueError, match="computation_method must be one of"),
+            ),
         ],
     )
     def test_computation_method_validation(self, method, expectation):
@@ -694,7 +697,6 @@ class TestOnTheFlyActionMetadata:
 
 
 class TestPrecomputedActionMetadata:
-
     def test_empty_raw_data_column_keys_raises(self):
         with pytest.raises(ValueError, match="cannot be empty"):
             PrecomputedActionMetadata(
@@ -770,7 +772,6 @@ class TestPrecomputedActionMetadata:
 
 
 class TestPositionActionMetadata:
-
     def test_invalid_frame_raises(self):
         with pytest.raises(ValueError, match="frame must be one of"):
             PositionActionMetadata(
@@ -814,7 +815,6 @@ class TestPositionActionMetadata:
 
 
 class TestOrientationActionMetadata:
-
     def test_invalid_frame_raises(self):
         with pytest.raises(ValueError, match="frame must be one of"):
             OrientationActionMetadata(
@@ -828,7 +828,9 @@ class TestOrientationActionMetadata:
             )
 
     def test_invalid_orientation_representation_raises(self):
-        with pytest.raises(ValueError, match="orientation_representation must be one of"):
+        with pytest.raises(
+            ValueError, match="orientation_representation must be one of"
+        ):
             OrientationActionMetadata(
                 frame=CoordinateSystem.ROBOT_BASE.value,
                 orientation_representation="rotation_matrix",
@@ -874,7 +876,6 @@ class TestOrientationActionMetadata:
 
 
 class TestGripperActionMetadata:
-
     def test_invalid_gripper_type_raises(self):
         with pytest.raises(ValueError, match="gripper_type must be one of"):
             GripperActionMetadata(

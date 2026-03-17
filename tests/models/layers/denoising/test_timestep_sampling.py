@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.denoising.timestep_sampling module."""
+
 import re
 from contextlib import nullcontext as does_not_raise
 
@@ -12,7 +13,6 @@ from versatil.models.layers.denoising.timestep_sampling import (
 
 
 class TestTimestepSampler:
-
     @pytest.mark.parametrize(
         "member, expected_value",
         [
@@ -26,7 +26,6 @@ class TestTimestepSampler:
 
 
 class TestSampleTimestepsUniform:
-
     @pytest.mark.parametrize("batch_size", [1, 8])
     def test_output_shape(self, batch_size: int, device: torch.device):
         timesteps = sample_timesteps(
@@ -81,7 +80,6 @@ class TestSampleTimestepsUniform:
 
 
 class TestSampleTimestepsLogitNormal:
-
     @pytest.mark.parametrize("batch_size", [1, 8])
     def test_output_shape(self, batch_size: int, device: torch.device):
         timesteps = sample_timesteps(
@@ -176,7 +174,6 @@ class TestSampleTimestepsLogitNormal:
 
 
 class TestSampleTimestepsBeta:
-
     @pytest.mark.parametrize("batch_size", [1, 8])
     def test_output_shape(self, batch_size: int, device: torch.device):
         timesteps = sample_timesteps(
@@ -287,7 +284,6 @@ class TestSampleTimestepsBeta:
 
 
 class TestSampleTimestepsValidation:
-
     @pytest.mark.parametrize(
         "sampler, expectation",
         [

@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.decoders.factory.act module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -9,13 +10,12 @@ from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import FeatureType, LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.act import ACT
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer.transformer import Transformer
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
-
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 2
@@ -91,7 +91,6 @@ def act_factory(
 
 
 class TestACTInitialization:
-
     def test_inherits_from_action_decoder(
         self,
         act_factory: Callable[..., ACT],
@@ -164,7 +163,6 @@ class TestACTInitialization:
 
 
 class TestACTForward:
-
     def test_output_keys_match_action_heads(
         self,
         act_factory: Callable[..., ACT],
@@ -312,11 +310,13 @@ class TestACTForward:
 
 
 class TestACTTemporalObservation:
-
-    @pytest.mark.parametrize("observation_horizon, expects_temporal_pe", [
-        (1, False),
-        (3, True),
-    ])
+    @pytest.mark.parametrize(
+        "observation_horizon, expects_temporal_pe",
+        [
+            (1, False),
+            (3, True),
+        ],
+    )
     def test_temporal_pe_created_based_on_observation_horizon(
         self,
         act_factory: Callable[..., ACT],
@@ -332,7 +332,6 @@ class TestACTTemporalObservation:
 
 
 class TestACTDecodeActions:
-
     def test_decode_actions_output_shape(
         self,
         act_factory: Callable[..., ACT],
@@ -387,9 +386,7 @@ class TestACTDecodeActions:
                 positional_encodings=positional_encodings,
                 padding_mask=None,
             )
-        padding_mask = torch.zeros(
-            BATCH_SIZE, sequence_length, dtype=torch.bool
-        )
+        padding_mask = torch.zeros(BATCH_SIZE, sequence_length, dtype=torch.bool)
         padding_mask[:, -2:] = True
         with torch.no_grad():
             output_with_mask = decoder._decode_actions(

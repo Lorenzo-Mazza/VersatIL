@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.action_heads.base module."""
+
 import re
 from collections.abc import Callable
 
@@ -23,6 +24,7 @@ class ConcreteActionHead(BaseActionHead):
 @pytest.fixture
 def concrete_action_head_factory() -> Callable[..., ConcreteActionHead]:
     """Factory for ConcreteActionHead instances."""
+
     def factory(
         input_dim: int = 64,
         blocks: list | None = None,
@@ -31,11 +33,11 @@ def concrete_action_head_factory() -> Callable[..., ConcreteActionHead]:
             input_dim=input_dim,
             blocks=blocks,
         )
+
     return factory
 
 
 class TestBaseActionHeadInitialization:
-
     @pytest.mark.parametrize("input_dim", [32, 128])
     @pytest.mark.parametrize("use_blocks", [False, True])
     def test_stores_configuration(
@@ -44,7 +46,11 @@ class TestBaseActionHeadInitialization:
         input_dim: int,
         use_blocks: bool,
     ):
-        blocks = [MLPBlock(input_dim=input_dim, hidden_dims=[input_dim])] if use_blocks else None
+        blocks = (
+            [MLPBlock(input_dim=input_dim, hidden_dims=[input_dim])]
+            if use_blocks
+            else None
+        )
         head = concrete_action_head_factory(input_dim=input_dim, blocks=blocks)
         assert head.input_dim == input_dim
         assert head.output_proj is None
@@ -67,7 +73,6 @@ class TestBaseActionHeadInitialization:
 
 
 class TestBaseActionHeadSetOutputDim:
-
     @pytest.mark.parametrize("dim", [3, 7])
     def test_sets_output_dim(
         self,
@@ -96,7 +101,6 @@ class TestBaseActionHeadSetOutputDim:
 
 
 class TestBaseActionHeadGetHiddenDim:
-
     def test_returns_input_dim_without_blocks(
         self,
         concrete_action_head_factory: Callable[..., ConcreteActionHead],
@@ -114,7 +118,6 @@ class TestBaseActionHeadGetHiddenDim:
 
 
 class TestBaseActionHeadForward:
-
     @pytest.mark.parametrize("output_dim", [3, 7])
     def test_output_shape(
         self,

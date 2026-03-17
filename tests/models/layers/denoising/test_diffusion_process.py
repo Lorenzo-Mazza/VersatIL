@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.denoising.diffusion_process module."""
+
 import re
 from collections.abc import Callable
 
@@ -17,7 +18,6 @@ from versatil.models.layers.denoising.diffusion_process import (
 
 
 class TestSchedulerType:
-
     @pytest.mark.parametrize(
         "member, expected_value",
         [
@@ -30,7 +30,6 @@ class TestSchedulerType:
 
 
 class TestCreateNoiseScheduler:
-
     def test_ddpm_returns_ddpm_scheduler_instance(
         self,
         scheduler_config_factory: Callable[..., DiffusionSchedulerConfig],
@@ -59,7 +58,9 @@ class TestCreateNoiseScheduler:
         assert scheduler.config.set_alpha_to_one is True
         assert scheduler.config.num_train_timesteps == 50
 
-    @pytest.mark.parametrize("scheduler_type", [SchedulerType.DDPM.value, SchedulerType.DDIM.value])
+    @pytest.mark.parametrize(
+        "scheduler_type", [SchedulerType.DDPM.value, SchedulerType.DDIM.value]
+    )
     def test_common_config_passed_to_scheduler(
         self,
         scheduler_config_factory: Callable[..., DiffusionSchedulerConfig],
@@ -149,8 +150,7 @@ class TestCreateNoiseScheduler:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                f"Unknown scheduler_type: {unknown_type}. "
-                f"Expected one of {valid_types}"
+                f"Unknown scheduler_type: {unknown_type}. Expected one of {valid_types}"
             ),
         ):
             create_noise_scheduler(config=config)
@@ -186,7 +186,6 @@ class TestCreateNoiseScheduler:
 
 
 class TestAddNoiseToTensor:
-
     def test_output_shape_matches_input(
         self,
         flat_tensor_factory: Callable[..., torch.Tensor],
@@ -195,7 +194,9 @@ class TestAddNoiseToTensor:
     ):
         batch_size = 4
         feature_dim = 16
-        clean = flat_tensor_factory(batch_size=batch_size, feature_dimension=feature_dim)
+        clean = flat_tensor_factory(
+            batch_size=batch_size, feature_dimension=feature_dim
+        )
         scheduler = ddpm_scheduler_factory(num_train_timesteps=100)
         timesteps = timestep_factory(batch_size=batch_size, num_train_timesteps=100)
         noisy, noise = add_noise_to_tensor(
@@ -313,7 +314,6 @@ class TestAddNoiseToTensor:
 
 
 class TestSampleRandomTimesteps:
-
     @pytest.mark.parametrize("batch_size", [1, 4])
     def test_output_shape(self, batch_size: int, device: torch.device):
         timesteps = sample_random_timesteps(
@@ -361,7 +361,6 @@ class TestSampleRandomTimesteps:
 
 
 class TestSetupInferenceTimesteps:
-
     @pytest.mark.parametrize("num_inference_steps", [5, 20])
     def test_sets_timesteps_on_scheduler(
         self,
@@ -421,8 +420,9 @@ class TestSetupInferenceTimesteps:
 
 
 class TestDiffusionSchedulerConfig:
-
-    @pytest.mark.parametrize("scheduler_type", [SchedulerType.DDPM.value, SchedulerType.DDIM.value])
+    @pytest.mark.parametrize(
+        "scheduler_type", [SchedulerType.DDPM.value, SchedulerType.DDIM.value]
+    )
     @pytest.mark.parametrize("num_train_timesteps", [50, 1000])
     @pytest.mark.parametrize("num_inference_steps", [5, 20])
     @pytest.mark.parametrize("prediction_type", ["epsilon", "sample"])

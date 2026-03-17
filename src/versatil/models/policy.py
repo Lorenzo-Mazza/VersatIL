@@ -144,7 +144,7 @@ class Policy(nn.Module):
             is_pad=batch[SampleKey.ACTION.value].get(
                 SampleKey.IS_PAD_ACTION.value, None
             ),
-        )  # type: ignore[no-any-return]
+        )
 
     def predict_action(
         self,
@@ -193,7 +193,7 @@ class Policy(nn.Module):
             normalizer=self.normalizer,
             action_space=self.action_space,
         )
-        return actions  # type: ignore[no-any-return]
+        return actions
 
     def get_vision_encoder_modules(self) -> dict[str, nn.Module]:
         """Get vision encoder modules that can produce spatial feature maps for explainability.

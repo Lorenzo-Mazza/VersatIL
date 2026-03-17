@@ -12,18 +12,23 @@ from torch import nn
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.constants import DecoderOutputKey, DiTType
-from versatil.models.decoding.decoders.base import DecoderInput, ActionDecoder
+from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers import MLP
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.diffusion_transformer import CrossAttentionDiT, MMDiTTransformer
-from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
-from versatil.models.layers.positional_encoding.learned import LearnedPositionalEncoding1D
+from versatil.models.layers.diffusion_transformer import (
+    CrossAttentionDiT,
+    MMDiTTransformer,
+)
+from versatil.models.layers.normalization.constants import NormalizationType
+from versatil.models.layers.positional_encoding.learned import (
+    LearnedPositionalEncoding1D,
+)
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
-from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 
 
 class DiffusionActionTransformer(ActionDecoder):
@@ -193,7 +198,9 @@ class DiffusionActionTransformer(ActionDecoder):
             input_dim=self.action_space.get_total_action_dim(),
             output_dim=self.embedding_dimension,
             hidden_dims=[self.embedding_dimension, self.embedding_dimension],
-            activation_function=ActivationFunction(self.activation).to_torch_activation(),
+            activation_function=ActivationFunction(
+                self.activation
+            ).to_torch_activation(),
             dropout=self.dropout_rate,
         )
         self.to(self.device)
@@ -212,9 +219,13 @@ class DiffusionActionTransformer(ActionDecoder):
         Raises:
             ValueError: If no valid observation features are provided.
         """
-        observation_tokens, positional_encodings, observation_padding_mask = self.input_builder(features)
+        observation_tokens, positional_encodings, observation_padding_mask = (
+            self.input_builder(features)
+        )
         if observation_tokens is None:
-            raise ValueError("No valid observation features provided to DiffusionActionTransformer")
+            raise ValueError(
+                "No valid observation features provided to DiffusionActionTransformer"
+            )
         return observation_tokens, positional_encodings, observation_padding_mask
 
     def forward(
@@ -247,9 +258,11 @@ class DiffusionActionTransformer(ActionDecoder):
         timesteps = features.pop(DecoderOutputKey.TIMESTEP.value)
         if len(timesteps.shape) == 2:
             timesteps = timesteps.squeeze(-1)
-        observation_tokens, observation_positional_encodings, observation_padding_mask = self._prepare_observation_tokens(
-            features
-        )
+        (
+            observation_tokens,
+            observation_positional_encodings,
+            observation_padding_mask,
+        ) = self._prepare_observation_tokens(features)
         if observation_positional_encodings is not None:
             observation_tokens = observation_tokens + observation_positional_encodings
         action_tensors = []

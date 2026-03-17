@@ -1,4 +1,5 @@
 """Shared fixtures for tokenization tests."""
+
 from collections.abc import Callable
 
 import numpy as np

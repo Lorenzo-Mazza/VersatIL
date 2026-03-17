@@ -24,12 +24,12 @@ dependencies = [
   "hydra-core",
   "joblib==1.5.0",
   "matplotlib",
-  "mypy",
   "numba==0.61.2",
   "numpy==2.2.0",
   "omegaconf",
-  "opencv-python",
+  "opencv-python-headless",
   "pandas",
+  "pre-commit",
   "psutil",
   "pyarrow",
   "pykeops",
@@ -87,6 +87,21 @@ addopts = [
 ]
 filterwarnings = [
     "ignore::pydantic._internal._generate_schema.UnsupportedFieldAttributeWarning",
+    "ignore:.*Defaults list is missing.*:UserWarning",
+    "ignore:.*is validated against ConfigStore schema.*:UserWarning",
+    "ignore:.*autocast.*:UserWarning",
+    "ignore:.*self.log.*:UserWarning",
+    "ignore::DeprecationWarning:geomloss",
+    "ignore:.*are not valid for transform.*:UserWarning",
+    "ignore:ShiftScaleRotate is a special case.*:UserWarning",
+    "ignore:Initializing zero-element tensors.*:UserWarning",
+    "ignore:.*weights_only=False.*:FutureWarning",
+    "ignore:.*tensorboardX.*:UserWarning",
+    "ignore:.*Checkpoint directory.*:UserWarning",
+    "ignore:.*does not have many workers.*:UserWarning",
+    "ignore:.*number of training batches.*is smaller than.*:UserWarning",
+    "ignore:.*validated against ConfigStore schema.*:UserWarning:pluggy",
+    "ignore:.*degrees of freedom.*:UserWarning",
 ]
 testpaths = ["tests"]
 python_files = "test_*.py"
@@ -142,6 +157,7 @@ ignore = [
     "TC001",  # Move application imports into type-checking block (often used at runtime)
     "TC002",  # Move third-party imports into type-checking block (often used at runtime)
     "PLC0206", # Dict iteration without .items() (performance not critical for our use case)
+    "SIM118", # key in dict.keys() — breaks on MagicMock in tests, minor style preference
 ]
 
 # Allow autofix for all enabled rules
@@ -159,7 +175,7 @@ unfixable = []
 # Allow uppercase R for rotation matrices
 "src/data/action_processor.py" = ["N803"]
 # Ignore loop variable binding in closures for hooks (intentional behavior)
-"src/explain/**/*.py" = ["B023"]
+"src/versatil/explain/**/*.py" = ["B023"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["versatil"]
@@ -172,41 +188,6 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
 
-[tool.mypy]
-# Python version and basic settings
-python_version = "3.11"
-warn_return_any = true
-warn_unused_configs = true
-warn_redundant_casts = true
-warn_unused_ignores = true
-
-# Start lenient - can tighten these over time
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-check_untyped_defs = true
-
-# Show error codes and context
-show_error_codes = true
-show_column_numbers = true
-pretty = true
-
-# Handle missing imports gracefully
-ignore_missing_imports = true
-
-# Exclude directories
-exclude = [
-    "^build/",
-    "^dist/",
-    "^\\.venv/",
-    "^lightning_logs/",
-    "^\\.qodo/",
-    "^\\.github/",
-]
-
-[[tool.mypy.overrides]]
-module = "tests.*"
-disallow_untyped_defs = false
-ignore_errors = false
 
 [project.entry-points."zarr.codecs"]
 versatil_webp = "versatil.data.preprocessing.codecs:WebPCodec"

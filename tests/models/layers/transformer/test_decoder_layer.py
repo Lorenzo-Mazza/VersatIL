@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.transformer.decoder_layer module."""
+
 import re
 from collections.abc import Callable
 
@@ -52,7 +53,6 @@ def decoder_layer_factory() -> Callable[..., TransformerDecoderLayer]:
 
 
 class TestTransformerDecoderLayerInitialization:
-
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("number_of_heads", [4, 8])
     @pytest.mark.parametrize("use_cross_attention", [True, False])
@@ -106,7 +106,6 @@ class TestTransformerDecoderLayerInitialization:
 
 
 class TestTransformerDecoderLayerForward:
-
     def test_output_shape_with_cross_attention(
         self,
         decoder_layer_factory: Callable[..., TransformerDecoderLayer],
@@ -123,9 +122,7 @@ class TestTransformerDecoderLayerForward:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=8, embedding_dimension=32
         )
-        output, cache = layer(
-            hidden_states=hidden_states, encoded_features=memory
-        )
+        output, cache = layer(hidden_states=hidden_states, encoded_features=memory)
         assert output.shape == (2, 5, 32)
         assert cache is None
 
@@ -289,16 +286,8 @@ class TestTransformerDecoderLayerForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((2, 4, 32)).astype(np.float32)
         )
-        memory_a = torch.from_numpy(
-            rng.standard_normal((2, 6, 32)).astype(np.float32)
-        )
-        memory_b = torch.from_numpy(
-            rng.standard_normal((2, 6, 32)).astype(np.float32)
-        )
-        output_a, _ = layer(
-            hidden_states=hidden_states, encoded_features=memory_a
-        )
-        output_b, _ = layer(
-            hidden_states=hidden_states, encoded_features=memory_b
-        )
+        memory_a = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
+        memory_b = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
+        output_a, _ = layer(hidden_states=hidden_states, encoded_features=memory_a)
+        output_b, _ = layer(hidden_states=hidden_states, encoded_features=memory_b)
         assert not torch.allclose(output_a, output_b, atol=1e-6)

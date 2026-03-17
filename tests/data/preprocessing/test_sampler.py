@@ -1,4 +1,5 @@
 """Tests for versatil.data.preprocessing.sampler module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -36,7 +37,6 @@ def mock_replay_buffer_factory() -> Callable[..., MagicMock]:
 
 
 class TestCreateIndices:
-
     def test_single_episode_no_padding(self):
         # 10 steps, seq_len=3 → starts at 0..7 → 8 sequences
         indices = create_indices(
@@ -167,7 +167,6 @@ class TestCreateIndices:
 
 
 class TestGetValMask:
-
     def test_returns_correct_count(self):
         mask = get_val_mask(n_episodes=10, val_ratio=0.3, seed=42)
 
@@ -205,7 +204,6 @@ class TestGetValMask:
 
 
 class TestDownsampleMask:
-
     def test_reduces_true_count_to_max_n(self):
         mask = np.ones(100, dtype=bool)
 
@@ -238,7 +236,6 @@ class TestDownsampleMask:
 
 
 class TestSequenceSamplerInitialization:
-
     def test_length_matches_number_of_possible_sequences(
         self,
         mock_replay_buffer_factory: Callable[..., MagicMock],
@@ -262,7 +259,9 @@ class TestSequenceSamplerInitialization:
         )
 
         sampler = SequenceSampler(
-            replay_buffer=buffer, sequence_length=3, episode_mask=np.array([False]),
+            replay_buffer=buffer,
+            sequence_length=3,
+            episode_mask=np.array([False]),
         )
 
         assert len(sampler) == 0
@@ -285,7 +284,6 @@ class TestSequenceSamplerInitialization:
 
 
 class TestSequenceSamplerSampleSequence:
-
     def test_returns_correct_values(
         self,
         mock_replay_buffer_factory: Callable[..., MagicMock],
@@ -327,7 +325,6 @@ class TestSequenceSamplerSampleSequence:
 
 
 class TestSequenceSamplerPadding:
-
     def test_pad_before_with_zeros(
         self,
         mock_replay_buffer_factory: Callable[..., MagicMock],
@@ -338,7 +335,10 @@ class TestSequenceSamplerPadding:
         )
 
         sampler = SequenceSampler(
-            replay_buffer=buffer, sequence_length=3, pad_before=1, pad_with_zeros=True,
+            replay_buffer=buffer,
+            sequence_length=3,
+            pad_before=1,
+            pad_with_zeros=True,
         )
         sample = sampler.sample_sequence(idx=0)
 
@@ -350,12 +350,17 @@ class TestSequenceSamplerPadding:
         mock_replay_buffer_factory: Callable[..., MagicMock],
     ):
         buffer = mock_replay_buffer_factory(
-            data={"position": np.array([[10, 20], [30, 40], [50, 60]], dtype=np.float32)},
+            data={
+                "position": np.array([[10, 20], [30, 40], [50, 60]], dtype=np.float32)
+            },
             episode_ends=np.array([3]),
         )
 
         sampler = SequenceSampler(
-            replay_buffer=buffer, sequence_length=3, pad_before=1, pad_with_zeros=False,
+            replay_buffer=buffer,
+            sequence_length=3,
+            pad_before=1,
+            pad_with_zeros=False,
         )
         sample = sampler.sample_sequence(idx=0)
 
@@ -367,12 +372,17 @@ class TestSequenceSamplerPadding:
         mock_replay_buffer_factory: Callable[..., MagicMock],
     ):
         buffer = mock_replay_buffer_factory(
-            data={"position": np.array([[10, 20], [30, 40], [50, 60]], dtype=np.float32)},
+            data={
+                "position": np.array([[10, 20], [30, 40], [50, 60]], dtype=np.float32)
+            },
             episode_ends=np.array([3]),
         )
 
         sampler = SequenceSampler(
-            replay_buffer=buffer, sequence_length=3, pad_after=1, pad_with_zeros=False,
+            replay_buffer=buffer,
+            sequence_length=3,
+            pad_after=1,
+            pad_with_zeros=False,
         )
         # Last sequence overhangs end → last row padded with repeated last value
         last_index = len(sampler) - 1
@@ -382,11 +392,13 @@ class TestSequenceSamplerPadding:
 
 
 class TestSequenceSamplerKeyFirstK:
-
-    @pytest.mark.parametrize("dtype,fill_check", [
-        (np.float32, lambda values: np.all(np.isnan(values))),
-        (np.int32, lambda values: np.all(values == 0)),
-    ])
+    @pytest.mark.parametrize(
+        "dtype,fill_check",
+        [
+            (np.float32, lambda values: np.all(np.isnan(values))),
+            (np.int32, lambda values: np.all(values == 0)),
+        ],
+    )
     def test_fills_remaining_with_correct_default(
         self,
         mock_replay_buffer_factory: Callable[..., MagicMock],
@@ -399,7 +411,9 @@ class TestSequenceSamplerKeyFirstK:
         )
 
         sampler = SequenceSampler(
-            replay_buffer=buffer, sequence_length=5, key_first_k={"values": 2},
+            replay_buffer=buffer,
+            sequence_length=5,
+            key_first_k={"values": 2},
         )
         sample = sampler.sample_sequence(idx=0)
 
@@ -411,14 +425,18 @@ class TestSequenceSamplerKeyFirstK:
         self,
         mock_replay_buffer_factory: Callable[..., MagicMock],
     ):
-        string_data = np.array(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"], dtype="U10").reshape(10, 1)
+        string_data = np.array(
+            ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"], dtype="U10"
+        ).reshape(10, 1)
         buffer = mock_replay_buffer_factory(
             data={"labels": string_data},
             episode_ends=np.array([10]),
         )
 
         sampler = SequenceSampler(
-            replay_buffer=buffer, sequence_length=5, key_first_k={"labels": 2},
+            replay_buffer=buffer,
+            sequence_length=5,
+            key_first_k={"labels": 2},
         )
         sample = sampler.sample_sequence(idx=0)
 

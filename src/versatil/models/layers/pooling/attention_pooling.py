@@ -1,4 +1,5 @@
 """Inspired from https://benjaminwarner.dev/2022/07/14/tinkering-with-attention-pooling"""
+
 from collections.abc import Callable
 
 import torch

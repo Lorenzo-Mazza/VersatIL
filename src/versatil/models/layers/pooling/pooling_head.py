@@ -1,16 +1,16 @@
 """Pooling strategies for encoder feature extraction."""
+
 from abc import ABC, abstractmethod
 
 import torch
 import torch.nn as nn
 
 from versatil.models.encoding.encoders.constants import PoolingMethod
-from versatil.models.layers import SpatialSoftmax, LearnedAggregation
+from versatil.models.layers import LearnedAggregation, SpatialSoftmax
 
 
 class PoolingHead(nn.Module, ABC):
     """Abstract base class for pooling operations."""
-
 
     @abstractmethod
     def get_output_dim(self, input_channels: int) -> int | tuple[int, ...]:
@@ -23,7 +23,6 @@ class PoolingHead(nn.Module, ABC):
             Output dimension (int for 1D, tuple for spatial dimensions)
         """
         raise NotImplementedError
-
 
     @abstractmethod
     def forward(self, features: torch.Tensor) -> torch.Tensor:
@@ -40,6 +39,7 @@ class PoolingHead(nn.Module, ABC):
 
 class SpatialSoftmaxPooling(PoolingHead):
     """Spatial softmax pooling on feature maps."""
+
     def __init__(self, spatial_height: int, spatial_width: int, channels: int):
         super().__init__()
         self.spatial_softmax = SpatialSoftmax(spatial_height, spatial_width, channels)
@@ -47,7 +47,6 @@ class SpatialSoftmaxPooling(PoolingHead):
 
     def get_output_dim(self, input_channels: int) -> int:
         return input_channels * 2
-
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         result: torch.Tensor = self.spatial_softmax(features)
@@ -57,13 +56,12 @@ class SpatialSoftmaxPooling(PoolingHead):
 class GlobalAveragePooling(PoolingHead):
     """Global average pooling for features."""
 
-
     def get_output_dim(self, input_channels: int) -> int:
         return input_channels
 
-
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         return features.mean(dim=[2, 3])
+
 
 class MaxPooling(PoolingHead):
     """Global max pooling for features."""
@@ -78,17 +76,14 @@ class MaxPooling(PoolingHead):
 class IdentityPooling(PoolingHead):
     """No pooling - returns features unchanged."""
 
-
     def __init__(self, channels: int):
         super().__init__()
-        self.spatial_height = -1 # Unknown at initialization
-        self.spatial_width = -1 # Unknown at initialization
+        self.spatial_height = -1  # Unknown at initialization
+        self.spatial_width = -1  # Unknown at initialization
         self.channels = channels
-
 
     def get_output_dim(self, input_channels: int) -> tuple[int, int, int]:
         return input_channels, self.spatial_height, self.spatial_width
-
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         return features
@@ -96,6 +91,7 @@ class IdentityPooling(PoolingHead):
 
 class LearnedAggregationPooling(PoolingHead):
     """Learned aggregation of feature maps through attention."""
+
     def __init__(self, channels: int):
         super().__init__()
         self.channels = channels
@@ -108,12 +104,11 @@ class LearnedAggregationPooling(PoolingHead):
         return self.pooling_head(features)
 
 
-
 def create_pooling_head(
-        pooling_method: str,
-        feature_channels: int,
-        spatial_height: int,
-        spatial_width: int,
+    pooling_method: str,
+    feature_channels: int,
+    spatial_height: int,
+    spatial_width: int,
 ) -> PoolingHead:
     """Factory function to create pooling heads.
 
@@ -131,7 +126,9 @@ def create_pooling_head(
     """
     match pooling_method:
         case PoolingMethod.SPATIAL_SOFTMAX.value:
-            return SpatialSoftmaxPooling(spatial_height, spatial_width, feature_channels)
+            return SpatialSoftmaxPooling(
+                spatial_height, spatial_width, feature_channels
+            )
         case PoolingMethod.AVERAGE.value:
             return GlobalAveragePooling()
         case PoolingMethod.MAX.value | PoolingMethod.DEFAULT.value:

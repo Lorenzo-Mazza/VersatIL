@@ -1,4 +1,5 @@
 """Tests for versatil.models.decoding.action_heads.gaussian module."""
+
 import re
 from collections.abc import Callable
 
@@ -11,7 +12,6 @@ from versatil.models.decoding.constants import DecoderOutputKey
 
 
 class TestGaussianHeadInitialization:
-
     @pytest.mark.parametrize("min_logvar", [-10.0, -5.0])
     @pytest.mark.parametrize("max_logvar", [4.0, 2.0])
     def test_stores_configuration(
@@ -26,7 +26,6 @@ class TestGaussianHeadInitialization:
 
 
 class TestGaussianHeadSetOutputDim:
-
     def test_creates_mean_projection(
         self,
         gaussian_head_factory: Callable[..., GaussianHead],
@@ -54,7 +53,6 @@ class TestGaussianHeadSetOutputDim:
 
 
 class TestGaussianHeadForward:
-
     def test_raises_if_output_dim_not_set(
         self,
         gaussian_head_factory: Callable[..., GaussianHead],

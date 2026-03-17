@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.diffusion_transformer.query_key_norm module."""
+
 from collections.abc import Callable
 
 import numpy as np
@@ -10,7 +11,6 @@ from versatil.models.layers.diffusion_transformer.query_key_norm import QueryKey
 
 @pytest.fixture
 def query_key_norm_factory() -> Callable[..., QueryKeyNorm]:
-
     def factory(
         head_dimension: int = 16,
         epsilon: float = 1e-6,
@@ -44,7 +44,6 @@ def attention_head_tensor_factory(
 
 
 class TestQueryKeyNormInitialization:
-
     @pytest.mark.parametrize("head_dimension", [16, 64])
     @pytest.mark.parametrize("epsilon", [1e-6, 1e-8])
     def test_stores_configuration(
@@ -70,7 +69,6 @@ class TestQueryKeyNormInitialization:
 
 
 class TestQueryKeyNormForward:
-
     def test_output_shapes_match_inputs(
         self,
         query_key_norm_factory: Callable[..., QueryKeyNorm],
@@ -94,8 +92,8 @@ class TestQueryKeyNormForward:
         query = attention_head_tensor_factory(head_dimension=head_dimension)
         key = attention_head_tensor_factory(head_dimension=head_dimension)
         normalized_query, normalized_key = norm(query, key)
-        query_rms = torch.sqrt(torch.mean(normalized_query ** 2, dim=-1))
-        key_rms = torch.sqrt(torch.mean(normalized_key ** 2, dim=-1))
+        query_rms = torch.sqrt(torch.mean(normalized_query**2, dim=-1))
+        key_rms = torch.sqrt(torch.mean(normalized_key**2, dim=-1))
         assert torch.allclose(query_rms, torch.ones_like(query_rms), atol=1e-4)
         assert torch.allclose(key_rms, torch.ones_like(key_rms), atol=1e-4)
 
@@ -110,8 +108,8 @@ class TestQueryKeyNormForward:
         key = attention_head_tensor_factory(head_dimension=head_dimension)
         norm.key_norm.weight.data.fill_(5.0)
         normalized_query, normalized_key = norm(query, key)
-        query_rms = torch.sqrt(torch.mean(normalized_query ** 2, dim=-1))
-        key_rms = torch.sqrt(torch.mean(normalized_key ** 2, dim=-1))
+        query_rms = torch.sqrt(torch.mean(normalized_query**2, dim=-1))
+        key_rms = torch.sqrt(torch.mean(normalized_key**2, dim=-1))
         assert torch.allclose(query_rms, torch.ones_like(query_rms), atol=1e-4)
         assert torch.allclose(key_rms, torch.full_like(key_rms, 5.0), atol=1e-2)
 

@@ -1,4 +1,5 @@
 """Tests for versatil.data.raw.schemas.hdf5 module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -27,7 +28,6 @@ class ConcreteHdf5Schema(Hdf5DatasetSchema):
 
 
 class TestHdf5DatasetSchemaInit:
-
     @pytest.mark.parametrize(
         "hdf5_paths",
         [
@@ -111,7 +111,6 @@ class TestHdf5DatasetSchemaInit:
 
 
 class TestHdf5DatasetSchemaAbstract:
-
     def test_cannot_instantiate_abstract_class(self):
         with pytest.raises(TypeError, match="abstract method"):
             Hdf5DatasetSchema(

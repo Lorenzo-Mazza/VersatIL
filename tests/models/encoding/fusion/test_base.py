@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.fusion.base module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -59,6 +60,7 @@ class ConcreteSequentialFusion(SequentialFusion):
 @pytest.fixture
 def fusion_module_factory() -> Callable[..., ConcreteFusionModule]:
     """Factory for ConcreteFusionModule instances."""
+
     def factory(
         input_features: list[str] | None = None,
         output_name: str = "fused_output",
@@ -69,12 +71,14 @@ def fusion_module_factory() -> Callable[..., ConcreteFusionModule]:
             input_features=input_features,
             output_name=output_name,
         )
+
     return factory
 
 
 @pytest.fixture
 def sequential_fusion_factory() -> Callable[..., ConcreteSequentialFusion]:
     """Factory for ConcreteSequentialFusion instances."""
+
     def factory(
         input_features: list[str] | None = None,
         output_name: str = "fused_output",
@@ -87,11 +91,11 @@ def sequential_fusion_factory() -> Callable[..., ConcreteSequentialFusion]:
             output_name=output_name,
             hidden_dim=hidden_dim,
         )
+
     return factory
 
 
 class TestFusionInputDataclass:
-
     @pytest.mark.parametrize("input_features", [["rgb", "depth"], ["a", "b", "c"]])
     @pytest.mark.parametrize("required_count", [1, 3])
     @pytest.mark.parametrize("max_count", [None, 5])
@@ -112,7 +116,6 @@ class TestFusionInputDataclass:
 
 
 class TestFusionOutputDataclass:
-
     @pytest.mark.parametrize("output_name", ["fused", "combined"])
     @pytest.mark.parametrize("output_dim", [64, (16, 32)])
     def test_stores_configuration(
@@ -126,11 +129,13 @@ class TestFusionOutputDataclass:
 
 
 class TestFusionModuleInitialization:
-
-    @pytest.mark.parametrize("input_features", [
-        ["rgb_features", "depth_features"],
-        ["feat_a", "feat_b", "feat_c"],
-    ])
+    @pytest.mark.parametrize(
+        "input_features",
+        [
+            ["rgb_features", "depth_features"],
+            ["feat_a", "feat_b", "feat_c"],
+        ],
+    )
     @pytest.mark.parametrize("output_name", ["fused_output", "my_fused"])
     def test_stores_configuration(
         self,
@@ -157,7 +162,6 @@ class TestFusionModuleInitialization:
 
 
 class TestFusionModuleInputFeaturesProperty:
-
     def test_getter_returns_input_features(
         self,
         fusion_module_factory: Callable[..., ConcreteFusionModule],
@@ -175,7 +179,6 @@ class TestFusionModuleInputFeaturesProperty:
 
 
 class TestFusionModuleSetup:
-
     def test_setup_sets_initialized_true(
         self,
         fusion_module_factory: Callable[..., ConcreteFusionModule],
@@ -196,7 +199,6 @@ class TestFusionModuleSetup:
 
 
 class TestFusionModuleGetOutputDim:
-
     def test_returns_output_dim_from_specification(
         self,
         fusion_module_factory: Callable[..., ConcreteFusionModule],
@@ -206,11 +208,13 @@ class TestFusionModuleGetOutputDim:
 
 
 class TestSequentialFusionInitialization:
-
-    @pytest.mark.parametrize("input_features", [
-        ["rgb_features", "depth_features"],
-        ["feat_a", "feat_b", "feat_c"],
-    ])
+    @pytest.mark.parametrize(
+        "input_features",
+        [
+            ["rgb_features", "depth_features"],
+            ["feat_a", "feat_b", "feat_c"],
+        ],
+    )
     @pytest.mark.parametrize("hidden_dim", [64, 128])
     @pytest.mark.parametrize("output_name", ["fused_output", "seq_fused"])
     def test_stores_configuration(
@@ -242,7 +246,6 @@ class TestSequentialFusionInitialization:
 
 
 class TestSequentialFusionSetupLayers:
-
     @pytest.mark.parametrize("hidden_dim", [32, 128])
     def test_creates_projection_per_input_feature(
         self,
@@ -292,12 +295,13 @@ class TestSequentialFusionSetupLayers:
             input_features=["spatial_feat"],
         )
         dims = {"spatial_feat": (512, 7, 7)}
-        with pytest.raises(ValueError, match="SequentialFusion requires flat or sequential"):
+        with pytest.raises(
+            ValueError, match="SequentialFusion requires flat or sequential"
+        ):
             module.setup(feature_keys_to_dims=dims)
 
 
 class TestSequentialFusionForward:
-
     @pytest.mark.parametrize("time_steps", [None, 3])
     def test_forward_produces_correct_output(
         self,

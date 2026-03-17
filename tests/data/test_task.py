@@ -1,4 +1,5 @@
 """Tests for versatil.data.task module."""
+
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -38,7 +39,9 @@ def position_on_the_fly(
 
 @pytest.fixture
 def orientation_on_the_fly(
-    orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+    orientation_observation_metadata_factory: Callable[
+        ..., OrientationObservationMetadata
+    ],
     on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
 ) -> OnTheFlyActionMetadata:
     """On-the-fly orientation action (1D roll, delta)."""
@@ -62,10 +65,12 @@ def mixed_action_space(
     precomputed_gripper: GripperActionMetadata,
 ) -> ActionSpace:
     """Action space with both on-the-fly position and precomputed gripper."""
-    return action_space_factory(actions_metadata={
-        "position": position_on_the_fly,
-        "gripper": precomputed_gripper,
-    })
+    return action_space_factory(
+        actions_metadata={
+            "position": position_on_the_fly,
+            "gripper": precomputed_gripper,
+        }
+    )
 
 
 def _make_mock_schema(
@@ -82,7 +87,6 @@ def _make_mock_schema(
 
 
 class TestActionSpaceInitialization:
-
     @pytest.mark.parametrize("denoise_actions", [True, False])
     def test_denoise_actions_stored(
         self,
@@ -114,7 +118,6 @@ class TestActionSpaceInitialization:
 
 
 class TestActionSpacePropertyFiltering:
-
     def test_on_the_fly_actions_filters_correctly(
         self,
         mixed_action_space: ActionSpace,
@@ -136,9 +139,11 @@ class TestActionSpacePropertyFiltering:
         action_space_factory: Callable[..., ActionSpace],
         position_on_the_fly: OnTheFlyActionMetadata,
     ):
-        action_space = action_space_factory(actions_metadata={
-            "position": position_on_the_fly,
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": position_on_the_fly,
+            }
+        )
 
         assert "position" in action_space.position_actions
 
@@ -147,9 +152,11 @@ class TestActionSpacePropertyFiltering:
         action_space_factory: Callable[..., ActionSpace],
         orientation_on_the_fly: OnTheFlyActionMetadata,
     ):
-        action_space = action_space_factory(actions_metadata={
-            "orientation": orientation_on_the_fly,
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "orientation": orientation_on_the_fly,
+            }
+        )
 
         assert len(action_space.position_actions) == 0
 
@@ -158,9 +165,11 @@ class TestActionSpacePropertyFiltering:
         action_space_factory: Callable[..., ActionSpace],
         orientation_on_the_fly: OnTheFlyActionMetadata,
     ):
-        action_space = action_space_factory(actions_metadata={
-            "orientation": orientation_on_the_fly,
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "orientation": orientation_on_the_fly,
+            }
+        )
 
         assert "orientation" in action_space.orientation_actions
 
@@ -177,9 +186,11 @@ class TestActionSpacePropertyFiltering:
             source_metadata=gripper_source,
         )
 
-        action_space = action_space_factory(actions_metadata={
-            "gripper": gripper_on_the_fly,
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "gripper": gripper_on_the_fly,
+            }
+        )
 
         assert "gripper" in action_space.gripper_actions
 
@@ -188,9 +199,11 @@ class TestActionSpacePropertyFiltering:
         action_space_factory: Callable[..., ActionSpace],
         precomputed_gripper: GripperActionMetadata,
     ):
-        action_space = action_space_factory(actions_metadata={
-            "gripper": precomputed_gripper,
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "gripper": precomputed_gripper,
+            }
+        )
 
         assert "gripper" in action_space.gripper_actions
 
@@ -208,22 +221,25 @@ class TestActionSpacePropertyFiltering:
 
 
 class TestActionSpaceDimensions:
-
     def test_position_dim_from_on_the_fly(
         self,
         action_space_factory: Callable[..., ActionSpace],
         position_on_the_fly: OnTheFlyActionMetadata,
     ):
-        action_space = action_space_factory(actions_metadata={
-            "position": position_on_the_fly,
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": position_on_the_fly,
+            }
+        )
 
         assert action_space.position_dim == 3
 
     def test_orientation_dim_from_on_the_fly(
         self,
         action_space_factory: Callable[..., ActionSpace],
-        orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+        orientation_observation_metadata_factory: Callable[
+            ..., OrientationObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
     ):
         quaternion_source = orientation_observation_metadata_factory(
@@ -231,11 +247,13 @@ class TestActionSpaceDimensions:
             orientation_representation=OrientationRepresentation.QUATERNION.value,
             raw_data_column_keys=["w", "x", "y", "z"],
         )
-        action_space = action_space_factory(actions_metadata={
-            "orientation": on_the_fly_action_metadata_factory(
-                source_metadata=quaternion_source,
-            ),
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "orientation": on_the_fly_action_metadata_factory(
+                    source_metadata=quaternion_source,
+                ),
+            }
+        )
 
         assert action_space.orientation_dim == 4
 
@@ -244,9 +262,11 @@ class TestActionSpaceDimensions:
         action_space_factory: Callable[..., ActionSpace],
         precomputed_gripper: GripperActionMetadata,
     ):
-        action_space = action_space_factory(actions_metadata={
-            "gripper": precomputed_gripper,
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "gripper": precomputed_gripper,
+            }
+        )
 
         assert action_space.gripper_dim == 1
 
@@ -258,11 +278,13 @@ class TestActionSpaceDimensions:
         position_on_the_fly: OnTheFlyActionMetadata,
         precomputed_gripper: GripperActionMetadata,
     ):
-        action_space = action_space_factory(actions_metadata={
-            "position": position_on_the_fly,
-            "orientation": orientation_on_the_fly,
-            "gripper": precomputed_gripper,
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": position_on_the_fly,
+                "orientation": orientation_on_the_fly,
+                "gripper": precomputed_gripper,
+            }
+        )
 
         assert action_space.get_total_action_dim() == 3 + 1 + 1
 
@@ -280,10 +302,12 @@ class TestActionSpaceDimensions:
             requires_prediction_head=False,
         )
 
-        action_space = action_space_factory(actions_metadata={
-            "position": position_on_the_fly,
-            "phase_label": auxiliary_action,
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": position_on_the_fly,
+                "phase_label": auxiliary_action,
+            }
+        )
 
         assert action_space.get_total_action_dim() == 3
 
@@ -300,15 +324,16 @@ class TestActionSpaceDimensions:
 
 
 class TestActionSpaceBooleanProperties:
-
     def test_has_on_the_fly_actions(
         self,
         action_space_factory: Callable[..., ActionSpace],
         position_on_the_fly: OnTheFlyActionMetadata,
     ):
-        action_space = action_space_factory(actions_metadata={
-            "position": position_on_the_fly,
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": position_on_the_fly,
+            }
+        )
 
         assert action_space.has_on_the_fly_actions
         assert not action_space.has_precomputed_actions
@@ -318,9 +343,11 @@ class TestActionSpaceBooleanProperties:
         action_space_factory: Callable[..., ActionSpace],
         precomputed_gripper: GripperActionMetadata,
     ):
-        action_space = action_space_factory(actions_metadata={
-            "gripper": precomputed_gripper,
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "gripper": precomputed_gripper,
+            }
+        )
 
         assert action_space.has_precomputed_actions
         assert not action_space.has_on_the_fly_actions
@@ -330,24 +357,30 @@ class TestActionSpaceBooleanProperties:
         action_space_factory: Callable[..., ActionSpace],
         position_on_the_fly: OnTheFlyActionMetadata,
     ):
-        action_space = action_space_factory(actions_metadata={
-            "position": position_on_the_fly,
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": position_on_the_fly,
+            }
+        )
 
         assert action_space.has_delta_actions
 
     def test_has_delta_actions_false_when_next_timestep(
         self,
         action_space_factory: Callable[..., ActionSpace],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
     ):
-        action_space = action_space_factory(actions_metadata={
-            "position": on_the_fly_action_metadata_factory(
-                source_metadata=position_observation_metadata_factory(),
-                computation_method=ActionComputationMethod.NEXT_TIMESTEP.value,
-            ),
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": on_the_fly_action_metadata_factory(
+                    source_metadata=position_observation_metadata_factory(),
+                    computation_method=ActionComputationMethod.NEXT_TIMESTEP.value,
+                ),
+            }
+        )
 
         assert not action_space.has_delta_actions
 
@@ -362,9 +395,11 @@ class TestActionSpaceBooleanProperties:
             dtype="int32",
             is_precomputed=True,
         )
-        action_space = action_space_factory(actions_metadata={
-            ObsKey.PHASE_LABEL.value: phase_metadata,
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                ObsKey.PHASE_LABEL.value: phase_metadata,
+            }
+        )
 
         assert action_space.task_has_phases
 
@@ -373,15 +408,16 @@ class TestActionSpaceBooleanProperties:
         action_space_factory: Callable[..., ActionSpace],
         position_on_the_fly: OnTheFlyActionMetadata,
     ):
-        action_space = action_space_factory(actions_metadata={
-            "position": position_on_the_fly,
-        })
+        action_space = action_space_factory(
+            actions_metadata={
+                "position": position_on_the_fly,
+            }
+        )
 
         assert not action_space.task_has_phases
 
 
 class TestActionSpaceZarrKeys:
-
     def test_get_required_zarr_keys_returns_all_metadata_keys(
         self,
         mixed_action_space: ActionSpace,
@@ -391,17 +427,22 @@ class TestActionSpaceZarrKeys:
 
 
 class TestObservationSpacePropertyFiltering:
-
     def test_cameras_filters_camera_metadata(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
     ):
-        observation_space = observation_space_factory(observations_metadata={
-            Cameras.LEFT.value: camera_metadata_factory(camera_key=Cameras.LEFT.value),
-            "position": position_observation_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                Cameras.LEFT.value: camera_metadata_factory(
+                    camera_key=Cameras.LEFT.value
+                ),
+                "position": position_observation_metadata_factory(),
+            }
+        )
 
         assert Cameras.LEFT.value in observation_space.cameras
         assert "position" not in observation_space.cameras
@@ -409,13 +450,19 @@ class TestObservationSpacePropertyFiltering:
     def test_position_observations_filters_correctly(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
-        orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
+        orientation_observation_metadata_factory: Callable[
+            ..., OrientationObservationMetadata
+        ],
     ):
-        observation_space = observation_space_factory(observations_metadata={
-            "position": position_observation_metadata_factory(),
-            "orientation": orientation_observation_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                "position": position_observation_metadata_factory(),
+                "orientation": orientation_observation_metadata_factory(),
+            }
+        )
 
         assert "position" in observation_space.position_observations
         assert "orientation" not in observation_space.position_observations
@@ -423,17 +470,23 @@ class TestObservationSpacePropertyFiltering:
     def test_proprioceptive_observations_includes_all_proprio_types(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
-        orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
+        orientation_observation_metadata_factory: Callable[
+            ..., OrientationObservationMetadata
+        ],
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
         camera_metadata_factory: Callable[..., CameraMetadata],
     ):
-        observation_space = observation_space_factory(observations_metadata={
-            "position": position_observation_metadata_factory(),
-            "orientation": orientation_observation_metadata_factory(),
-            "gripper": gripper_observation_metadata_factory(),
-            Cameras.LEFT.value: camera_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                "position": position_observation_metadata_factory(),
+                "orientation": orientation_observation_metadata_factory(),
+                "gripper": gripper_observation_metadata_factory(),
+                Cameras.LEFT.value: camera_metadata_factory(),
+            }
+        )
 
         proprio = observation_space.proprioceptive_observations
         assert set(proprio.keys()) == {"position", "orientation", "gripper"}
@@ -441,7 +494,9 @@ class TestObservationSpacePropertyFiltering:
     def test_custom_observations_excludes_proprio_and_cameras(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         camera_metadata_factory: Callable[..., CameraMetadata],
     ):
         custom = ObservationMetadata(
@@ -451,11 +506,13 @@ class TestObservationSpacePropertyFiltering:
             is_numerical=True,
             needs_normalization=True,
         )
-        observation_space = observation_space_factory(observations_metadata={
-            "custom_feature": custom,
-            "position": position_observation_metadata_factory(),
-            Cameras.LEFT.value: camera_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                "custom_feature": custom,
+                "position": position_observation_metadata_factory(),
+                Cameras.LEFT.value: camera_metadata_factory(),
+            }
+        )
 
         result = observation_space.custom_observations
         assert "custom_feature" in result
@@ -464,15 +521,16 @@ class TestObservationSpacePropertyFiltering:
 
 
 class TestObservationSpaceBooleanProperties:
-
     def test_has_cameras(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
         camera_metadata_factory: Callable[..., CameraMetadata],
     ):
-        observation_space = observation_space_factory(observations_metadata={
-            Cameras.LEFT.value: camera_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                Cameras.LEFT.value: camera_metadata_factory(),
+            }
+        )
 
         assert observation_space.has_cameras
 
@@ -481,42 +539,56 @@ class TestObservationSpaceBooleanProperties:
         observation_space_factory: Callable[..., ObservationSpace],
         gripper_observation_metadata_factory: Callable[..., GripperObservationMetadata],
     ):
-        observation_space = observation_space_factory(observations_metadata={
-            "gripper": gripper_observation_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                "gripper": gripper_observation_metadata_factory(),
+            }
+        )
 
         assert observation_space.has_gripper_state
 
     def test_has_proprioceptive_state(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
     ):
-        observation_space = observation_space_factory(observations_metadata={
-            "position": position_observation_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                "position": position_observation_metadata_factory(),
+            }
+        )
 
         assert observation_space.has_proprioceptive_state
 
     def test_has_proprioceptive_position(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
     ):
-        observation_space = observation_space_factory(observations_metadata={
-            "position": position_observation_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                "position": position_observation_metadata_factory(),
+            }
+        )
 
         assert observation_space.has_proprioceptive_position
 
     def test_has_proprioceptive_orientation(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
-        orientation_observation_metadata_factory: Callable[..., OrientationObservationMetadata],
+        orientation_observation_metadata_factory: Callable[
+            ..., OrientationObservationMetadata
+        ],
     ):
-        observation_space = observation_space_factory(observations_metadata={
-            "orientation": orientation_observation_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                "orientation": orientation_observation_metadata_factory(),
+            }
+        )
 
         assert observation_space.has_proprioceptive_orientation
 
@@ -534,24 +606,26 @@ class TestObservationSpaceBooleanProperties:
 
 
 class TestObservationSpaceZarrKeys:
-
     def test_get_required_zarr_keys_returns_all_metadata_keys(
         self,
         observation_space_factory: Callable[..., ObservationSpace],
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
     ):
-        observation_space = observation_space_factory(observations_metadata={
-            Cameras.LEFT.value: camera_metadata_factory(),
-            "position": position_observation_metadata_factory(),
-        })
+        observation_space = observation_space_factory(
+            observations_metadata={
+                Cameras.LEFT.value: camera_metadata_factory(),
+                "position": position_observation_metadata_factory(),
+            }
+        )
 
         keys = observation_space.get_required_zarr_keys()
         assert set(keys) == {Cameras.LEFT.value, "position"}
 
 
 class TestTaskSpaceInitialization:
-
     def test_all_components_stored(
         self,
         action_space_factory: Callable[..., ActionSpace],
@@ -580,12 +654,13 @@ class TestTaskSpaceInitialization:
 
 
 class TestTaskSpaceValidation:
-
     def test_valid_on_the_fly_action_passes(
         self,
         action_space_factory: Callable[..., ActionSpace],
         observation_space_factory: Callable[..., ObservationSpace],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
         camera_metadata_factory: Callable[..., CameraMetadata],
     ):
@@ -602,12 +677,16 @@ class TestTaskSpaceValidation:
         task_space = TaskSpace(
             dataset_schema=schema,
             dataloader=MagicMock(),
-            action_space=action_space_factory(actions_metadata={
-                "proprio_robot_frame": on_the_fly,
-            }),
-            observation_space=observation_space_factory(observations_metadata={
-                Cameras.LEFT.value: camera_metadata_factory(),
-            }),
+            action_space=action_space_factory(
+                actions_metadata={
+                    "proprio_robot_frame": on_the_fly,
+                }
+            ),
+            observation_space=observation_space_factory(
+                observations_metadata={
+                    Cameras.LEFT.value: camera_metadata_factory(),
+                }
+            ),
         )
 
         assert task_space.prediction_horizon == 16
@@ -625,9 +704,11 @@ class TestTaskSpaceValidation:
             TaskSpace(
                 dataset_schema=schema,
                 dataloader=MagicMock(),
-                action_space=action_space_factory(actions_metadata={
-                    "proprio_robot_frame": on_the_fly_action_metadata_factory(),
-                }),
+                action_space=action_space_factory(
+                    actions_metadata={
+                        "proprio_robot_frame": on_the_fly_action_metadata_factory(),
+                    }
+                ),
                 observation_space=observation_space_factory(),
             )
 
@@ -635,7 +716,9 @@ class TestTaskSpaceValidation:
         self,
         action_space_factory: Callable[..., ActionSpace],
         observation_space_factory: Callable[..., ObservationSpace],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
     ):
         # Task expects robot_base frame, schema has camera frame
@@ -658,9 +741,11 @@ class TestTaskSpaceValidation:
             TaskSpace(
                 dataset_schema=schema,
                 dataloader=MagicMock(),
-                action_space=action_space_factory(actions_metadata={
-                    "position": on_the_fly,
-                }),
+                action_space=action_space_factory(
+                    actions_metadata={
+                        "position": on_the_fly,
+                    }
+                ),
                 observation_space=observation_space_factory(),
             )
 
@@ -676,9 +761,11 @@ class TestTaskSpaceValidation:
             TaskSpace(
                 dataset_schema=schema,
                 dataloader=MagicMock(),
-                action_space=action_space_factory(actions_metadata={
-                    "gripper_action": gripper_action_metadata_factory(),
-                }),
+                action_space=action_space_factory(
+                    actions_metadata={
+                        "gripper_action": gripper_action_metadata_factory(),
+                    }
+                ),
                 observation_space=observation_space_factory(),
             )
 
@@ -695,16 +782,20 @@ class TestTaskSpaceValidation:
                 dataset_schema=schema,
                 dataloader=MagicMock(),
                 action_space=action_space_factory(),
-                observation_space=observation_space_factory(observations_metadata={
-                    Cameras.LEFT.value: camera_metadata_factory(),
-                }),
+                observation_space=observation_space_factory(
+                    observations_metadata={
+                        Cameras.LEFT.value: camera_metadata_factory(),
+                    }
+                ),
             )
 
     def test_observation_metadata_mismatch_raises(
         self,
         action_space_factory: Callable[..., ActionSpace],
         observation_space_factory: Callable[..., ObservationSpace],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
     ):
         # Task expects 3D position, schema stores 6D
         task_observation = position_observation_metadata_factory(dimension=3)
@@ -723,9 +814,11 @@ class TestTaskSpaceValidation:
                 dataset_schema=schema,
                 dataloader=MagicMock(),
                 action_space=action_space_factory(),
-                observation_space=observation_space_factory(observations_metadata={
-                    "position": task_observation,
-                }),
+                observation_space=observation_space_factory(
+                    observations_metadata={
+                        "position": task_observation,
+                    }
+                ),
             )
 
     @pytest.mark.parametrize("observation_horizon", [0, -1])

@@ -18,8 +18,7 @@ import torch
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder
-from versatil.models.decoding.latent import PosteriorLatentEncoder
-from versatil.models.decoding.latent import PriorLatentEncoder
+from versatil.models.decoding.latent import PosteriorLatentEncoder, PriorLatentEncoder
 from versatil.models.decoding.latent.prior.gaussian_prior import GaussianPrior
 from versatil.models.decoding.latent.prior.vamp_prior import VampPrior
 

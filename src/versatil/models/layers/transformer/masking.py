@@ -1,4 +1,5 @@
 """Masking utilities for causal transformers."""
+
 import torch
 
 

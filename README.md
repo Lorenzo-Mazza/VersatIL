@@ -1,5 +1,12 @@
 # VersatIL: Imitation Learning for Any Robot Policy
 
+[![pipeline status](https://gitlab.com/nct_tso_public/versatil/badges/main/pipeline.svg)](https://gitlab.com/nct_tso_public/versatil/-/commits/main)
+[![coverage report](https://gitlab.com/nct_tso_public/versatil/badges/main/coverage.svg)](https://gitlab.com/nct_tso_public/versatil/-/commits/main)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI](https://img.shields.io/pypi/v/versatil.svg)](https://pypi.org/project/versatil/)
+
 ![VersatIL Logo](media/VersatIL_logo.png)
 
 ### 🤯 The Paradox of Research Code
@@ -183,6 +190,9 @@ mamba activate versatil
 
 # 3. Install dependencies with uv
 UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
+
+# 4. Install pre-commit hooks (linting + type checking on every commit)
+pre-commit install
 ```
 
 NB: The above installation requires a machine with a GPU with CUDA installed.
@@ -479,7 +489,7 @@ pytest -m "not slow"       # Skip slow tests
 
 - **Docstrings**: Google-style, concise (avoid LLM patterns like numbered lists or excessive words)
 - **Type hints**: Required for all function signatures
-- **Formatter**: Black (line length 88, Python 3.11)
+- **Formatter/Linter**: [Ruff](https://docs.astral.sh/ruff/) (line length 88, Python 3.11)
 - **No inline imports**: All imports at module top
 - **Minimal comments**: Only for tensor shapes or non-obvious logic
 - **Variables**: Use English words, avoid abbreviations
@@ -492,11 +502,19 @@ pytest -m "not slow"       # Skip slow tests
 
 ```bash
 # Format code
-black src/ tests/
+ruff format src/ tests/
 
 # Check formatting
-black --check src/ tests/
+ruff format --check src/ tests/
+
+# Lint
+ruff check src/ tests/
+
+# Lint and auto-fix
+ruff check --fix src/ tests/
 ```
+
+Pre-commit hooks run ruff automatically on every `git commit`.
 
 ---
 

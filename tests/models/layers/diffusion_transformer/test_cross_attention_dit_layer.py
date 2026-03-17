@@ -1,9 +1,11 @@
 """Tests for versatil.models.layers.diffusion_transformer.cross_attention_dit_layer module."""
+
 from collections.abc import Callable
 
 import pytest
 import torch
 
+from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.diffusion_transformer.cross_attention_dit_layer import (
@@ -11,12 +13,9 @@ from versatil.models.layers.diffusion_transformer.cross_attention_dit_layer impo
 )
 from versatil.models.layers.normalization.constants import NormalizationType
 
-from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
-
 
 @pytest.fixture
 def cross_decoder_layer_factory() -> Callable[..., CrossConditioningDecoderLayer]:
-
     def factory(
         embedding_dimension: int = 32,
         timestep_dimension: int = 32,
@@ -52,9 +51,10 @@ def cross_decoder_layer_factory() -> Callable[..., CrossConditioningDecoderLayer
 
 
 class TestCrossConditioningDecoderLayerInitialization:
-
     @pytest.mark.parametrize("use_gating", [True, False])
-    @pytest.mark.parametrize("activation", [ActivationFunction.SILU.value, ActivationFunction.SWIGLU.value])
+    @pytest.mark.parametrize(
+        "activation", [ActivationFunction.SILU.value, ActivationFunction.SWIGLU.value]
+    )
     def test_stores_configuration(
         self,
         cross_decoder_layer_factory: Callable[..., CrossConditioningDecoderLayer],
@@ -73,7 +73,9 @@ class TestCrossConditioningDecoderLayerInitialization:
     ):
         layer = cross_decoder_layer_factory(embedding_dimension=32)
         # Mutate self-attention weights and verify cross-attention is unaffected
-        original_cross_weight = layer.cross_attention.query_projection.weight.data.clone()
+        original_cross_weight = (
+            layer.cross_attention.query_projection.weight.data.clone()
+        )
         layer.self_attention.query_projection.weight.data.fill_(999.0)
         assert torch.allclose(
             layer.cross_attention.query_projection.weight.data, original_cross_weight
@@ -81,7 +83,6 @@ class TestCrossConditioningDecoderLayerInitialization:
 
 
 class TestCrossConditioningDecoderLayerForward:
-
     @pytest.mark.parametrize(
         "batch_size, decoder_sequence_length, encoder_sequence_length, embedding_dimension",
         [
@@ -123,7 +124,11 @@ class TestCrossConditioningDecoderLayerForward:
             conditioning_embedding=conditioning,
             encoder_hidden_states=encoder_hidden,
         )
-        assert output.shape == (batch_size, decoder_sequence_length, embedding_dimension)
+        assert output.shape == (
+            batch_size,
+            decoder_sequence_length,
+            embedding_dimension,
+        )
 
     def test_cross_attention_with_different_context_produces_different_outputs(
         self,

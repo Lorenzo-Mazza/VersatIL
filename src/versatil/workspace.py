@@ -11,7 +11,7 @@ import pytorch_lightning as pl
 import torch
 import wandb
 from hydra.core.hydra_config import HydraConfig
-from omegaconf import OmegaConf, DictConfig
+from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.callbacks import (
     LearningRateMonitor,
     ModelCheckpoint,
@@ -37,10 +37,10 @@ from versatil.models.policy import Policy
 from versatil.training.callbacks import (
     ConfusionMatrixCallback,
     EMACallback,
-    GradientNormCallback,
-    ReduceLROnPlateauCallback,
     ExpertUsageCallback,
+    GradientNormCallback,
     LatentVisualizationCallback,
+    ReduceLROnPlateauCallback,
     ResumableEarlyStopping,
 )
 from versatil.training.lightning_policy import LightningPolicy
@@ -526,7 +526,9 @@ class Workspace:
         if self.policy is None:
             raise RuntimeError("Policy must be initialized before loading checkpoint")
         if self.lightning_policy is None:
-            raise RuntimeError("LightningPolicy must be initialized before loading checkpoint")
+            raise RuntimeError(
+                "LightningPolicy must be initialized before loading checkpoint"
+            )
         if "state_dict" not in checkpoint:
             raise ValueError("Checkpoint format not recognized")
 

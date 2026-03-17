@@ -10,10 +10,9 @@ from torch import nn
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.constants import DecoderOutputKey, FeatureType
-from versatil.models.decoding.decoders.base import DecoderInput
-from versatil.models.layers.conditional_unet import ConditionalUnet1D
-from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.decoding.unet_input_builder import UNetInputBuilder
+from versatil.models.layers.conditional_unet import ConditionalUnet1D
 
 
 class ConditionalActionUNet(ActionDecoder):

@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.transformer.attention module."""
+
 import re
 from collections.abc import Callable
 
@@ -109,10 +110,12 @@ def cross_attention_cache_factory(
 
 
 class TestCachedAttentionInitialization:
-
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("number_of_heads", [4, 8])
-    @pytest.mark.parametrize("attention_type", [AttentionType.MULTI_HEAD.value, AttentionType.GROUPED_QUERY.value])
+    @pytest.mark.parametrize(
+        "attention_type",
+        [AttentionType.MULTI_HEAD.value, AttentionType.GROUPED_QUERY.value],
+    )
     def test_stores_configuration(
         self,
         cached_attention_factory: Callable[..., CachedAttention],
@@ -121,7 +124,9 @@ class TestCachedAttentionInitialization:
         attention_type: str,
     ):
         number_of_key_value_heads = (
-            number_of_heads // 2 if attention_type == AttentionType.GROUPED_QUERY.value else None
+            number_of_heads // 2
+            if attention_type == AttentionType.GROUPED_QUERY.value
+            else None
         )
         module = cached_attention_factory(
             embedding_dimension=embedding_dimension,
@@ -163,7 +168,6 @@ class TestCachedAttentionInitialization:
 
 
 class TestCachedAttentionValidation:
-
     def test_embedding_not_divisible_by_heads_raises(
         self, cached_attention_factory: Callable[..., CachedAttention]
     ):
@@ -173,9 +177,7 @@ class TestCachedAttentionValidation:
                 "embedding_dimension (33) must be divisible by number_of_heads (4)"
             ),
         ):
-            cached_attention_factory(
-                embedding_dimension=33, number_of_heads=4
-            )
+            cached_attention_factory(embedding_dimension=33, number_of_heads=4)
 
     def test_gqa_without_kv_heads_raises(
         self, cached_attention_factory: Callable[..., CachedAttention]
@@ -219,15 +221,12 @@ class TestCachedAttentionValidation:
 
 
 class TestCachedAttentionForward:
-
     def test_self_attention_output_shape(
         self,
         cached_attention_factory: Callable[..., CachedAttention],
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
-        module = cached_attention_factory(
-            embedding_dimension=32, number_of_heads=4
-        )
+        module = cached_attention_factory(embedding_dimension=32, number_of_heads=4)
         sequence = sequence_tensor_factory(
             batch_size=2, sequence_length=5, embedding_dimension=32
         )
@@ -244,9 +243,7 @@ class TestCachedAttentionForward:
         cached_attention_factory: Callable[..., CachedAttention],
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
-        module = cached_attention_factory(
-            embedding_dimension=32, number_of_heads=4
-        )
+        module = cached_attention_factory(embedding_dimension=32, number_of_heads=4)
         query = sequence_tensor_factory(
             batch_size=2, sequence_length=5, embedding_dimension=32
         )
@@ -325,9 +322,7 @@ class TestCachedAttentionForward:
         cached_attention_factory: Callable[..., CachedAttention],
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
-        module = cached_attention_factory(
-            embedding_dimension=32, number_of_heads=4
-        )
+        module = cached_attention_factory(embedding_dimension=32, number_of_heads=4)
         sequence = sequence_tensor_factory(
             batch_size=2, sequence_length=1, embedding_dimension=32
         )
@@ -366,10 +361,15 @@ class TestCachedAttentionForward:
             ).astype(np.float32)
         )
         # Full forward with causal mask (to match what step-by-step caching sees)
-        causal_mask = torch.triu(
-            torch.ones(sequence_length, sequence_length, dtype=torch.bool),
-            diagonal=1,
-        ).unsqueeze(0).unsqueeze(0).expand(batch_size, -1, -1, -1)
+        causal_mask = (
+            torch.triu(
+                torch.ones(sequence_length, sequence_length, dtype=torch.bool),
+                diagonal=1,
+            )
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .expand(batch_size, -1, -1, -1)
+        )
         full_output, _ = module(
             query_input=full_sequence,
             key_input=full_sequence,
@@ -378,8 +378,12 @@ class TestCachedAttentionForward:
         )
         # Incremental forward with cache
         cache = LayerKVCache(
-            self_attention_keys=torch.empty(batch_size, number_of_heads, 0, head_dimension),
-            self_attention_values=torch.empty(batch_size, number_of_heads, 0, head_dimension),
+            self_attention_keys=torch.empty(
+                batch_size, number_of_heads, 0, head_dimension
+            ),
+            self_attention_values=torch.empty(
+                batch_size, number_of_heads, 0, head_dimension
+            ),
         )
         cached_outputs = []
         for step in range(sequence_length):
@@ -401,9 +405,7 @@ class TestCachedAttentionForward:
         sequence_tensor_factory: Callable[..., torch.Tensor],
         cross_attention_cache_factory: Callable[..., LayerKVCache],
     ):
-        module = cached_attention_factory(
-            embedding_dimension=32, number_of_heads=4
-        )
+        module = cached_attention_factory(embedding_dimension=32, number_of_heads=4)
         query = sequence_tensor_factory(
             batch_size=2, sequence_length=3, embedding_dimension=32
         )
@@ -467,7 +469,6 @@ class TestCachedAttentionForward:
 
 
 class TestCachedAttentionComputeQueryKeyValue:
-
     def test_mha_projects_all_heads(
         self,
         cached_attention_factory: Callable[..., CachedAttention],
@@ -515,7 +516,6 @@ class TestCachedAttentionComputeQueryKeyValue:
 
 
 class TestCachedAttentionCrossAttentionBehavior:
-
     def test_different_memory_produces_different_output(
         self,
         cached_attention_factory: Callable[..., CachedAttention],
@@ -530,19 +530,13 @@ class TestCachedAttentionCrossAttentionBehavior:
         )
         module.eval()
         query = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, 3, embedding_dimension)
-            ).astype(np.float32)
+            rng.standard_normal((batch_size, 3, embedding_dimension)).astype(np.float32)
         )
         memory_a = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, 6, embedding_dimension)
-            ).astype(np.float32)
+            rng.standard_normal((batch_size, 6, embedding_dimension)).astype(np.float32)
         )
         memory_b = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, 6, embedding_dimension)
-            ).astype(np.float32)
+            rng.standard_normal((batch_size, 6, embedding_dimension)).astype(np.float32)
         )
         output_a, _ = module(
             query_input=query, key_input=memory_a, value_input=memory_a

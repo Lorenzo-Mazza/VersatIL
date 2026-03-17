@@ -1,4 +1,5 @@
 """Tests for versatil.models.encoding.encoders.proprioceptive.base module."""
+
 from collections.abc import Callable
 from unittest.mock import patch
 
@@ -16,6 +17,7 @@ def proprioceptive_input_factory(
     rng: np.random.Generator,
 ) -> Callable[..., dict[str, torch.Tensor]]:
     """Factory for proprioceptive input tensors."""
+
     def factory(
         keys: list[str] | None = None,
         batch_size: int = 4,
@@ -34,12 +36,14 @@ def proprioceptive_input_factory(
                 rng.standard_normal(shape).astype(np.float32)
             )
         return result
+
     return factory
 
 
 @pytest.fixture
 def proprioceptive_encoder_factory() -> Callable[..., ProprioceptiveEncoder]:
     """Factory for ProprioceptiveEncoder instances."""
+
     def factory(
         input_keys: str | list[str] = "proprio_robot_frame",
         output_dimension: int = 64,
@@ -58,22 +62,31 @@ def proprioceptive_encoder_factory() -> Callable[..., ProprioceptiveEncoder]:
             pretrained=pretrained,
             frozen=frozen,
         )
+
     return factory
 
 
 class TestProprioceptiveEncoderInitialization:
-
-    @pytest.mark.parametrize("input_keys, expected_keys", [
-        ("proprio_robot_frame", ["proprio_robot_frame"]),
-        (["proprio_robot_frame", "gripper_state_obs"], ["proprio_robot_frame", "gripper_state_obs"]),
-    ])
+    @pytest.mark.parametrize(
+        "input_keys, expected_keys",
+        [
+            ("proprio_robot_frame", ["proprio_robot_frame"]),
+            (
+                ["proprio_robot_frame", "gripper_state_obs"],
+                ["proprio_robot_frame", "gripper_state_obs"],
+            ),
+        ],
+    )
     @pytest.mark.parametrize("output_dimension", [64, 128])
     @pytest.mark.parametrize("hidden_dimensions", [None, [128]])
     @pytest.mark.parametrize("dropout", [0.0, 0.5])
-    @pytest.mark.parametrize("activation, expected_class", [
-        (ActivationFunction.RELU.value, torch.nn.ReLU),
-        (ActivationFunction.GELU.value, torch.nn.GELU),
-    ])
+    @pytest.mark.parametrize(
+        "activation, expected_class",
+        [
+            (ActivationFunction.RELU.value, torch.nn.ReLU),
+            (ActivationFunction.GELU.value, torch.nn.GELU),
+        ],
+    )
     def test_stores_configuration(
         self,
         proprioceptive_encoder_factory: Callable[..., ProprioceptiveEncoder],
@@ -110,11 +123,13 @@ class TestProprioceptiveEncoderInitialization:
 
 
 class TestProprioceptiveEncoderBuildNetwork:
-
-    @pytest.mark.parametrize("frozen, expected_requires_grad", [
-        (False, True),
-        (True, False),
-    ])
+    @pytest.mark.parametrize(
+        "frozen, expected_requires_grad",
+        [
+            (False, True),
+            (True, False),
+        ],
+    )
     def test_parameter_grad_matches_frozen_flag(
         self,
         proprioceptive_encoder_factory: Callable[..., ProprioceptiveEncoder],
@@ -132,11 +147,13 @@ class TestProprioceptiveEncoderBuildNetwork:
 
 
 class TestProprioceptiveEncoderForward:
-
-    @pytest.mark.parametrize("time_steps, expected_ndim", [
-        (None, 2),
-        (3, 3),
-    ])
+    @pytest.mark.parametrize(
+        "time_steps, expected_ndim",
+        [
+            (None, 2),
+            (3, 3),
+        ],
+    )
     def test_output_shape_with_and_without_time(
         self,
         proprioceptive_encoder_factory: Callable[..., ProprioceptiveEncoder],
@@ -228,16 +245,17 @@ class TestProprioceptiveEncoderForward:
     ):
         encoder = proprioceptive_encoder_factory(output_dimension=64)
         inputs = proprioceptive_input_factory(input_dimension=7)
-        with patch.object(
-            ProprioceptiveEncoder,
-            "_build_network",
+        with (
+            patch.object(
+                ProprioceptiveEncoder,
+                "_build_network",
+            ),
+            pytest.raises(RuntimeError, match="Network should be built"),
         ):
-            with pytest.raises(RuntimeError, match="Network should be built"):
-                encoder(inputs)
+            encoder(inputs)
 
 
 class TestProprioceptiveEncoderGetOutputSpecification:
-
     def test_features_and_dimensions_match_output_dimension(
         self,
         proprioceptive_encoder_factory: Callable[..., ProprioceptiveEncoder],
@@ -251,7 +269,6 @@ class TestProprioceptiveEncoderGetOutputSpecification:
 
 
 class TestProprioceptiveEncoderGetOutputDims:
-
     def test_returns_proprioceptive_key_with_output_dimension(
         self,
         proprioceptive_encoder_factory: Callable[..., ProprioceptiveEncoder],

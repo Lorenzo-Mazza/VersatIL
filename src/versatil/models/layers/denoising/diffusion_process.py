@@ -1,4 +1,5 @@
 """This module provides reusable building blocks for implementing diffusion processes."""
+
 import enum
 from dataclasses import dataclass
 

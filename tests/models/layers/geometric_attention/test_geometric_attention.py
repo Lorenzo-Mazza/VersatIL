@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.geometric_attention.geometric_attention module."""
+
 import pytest
 import torch
 
@@ -6,12 +7,14 @@ from versatil.models.layers.constants import AttentionDecompositionMode
 
 
 class TestGeometricSelfAttentionConfiguration:
-
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("num_heads", [4, 8])
     @pytest.mark.parametrize(
         "decomposition_mode",
-        [AttentionDecompositionMode.FULL.value, AttentionDecompositionMode.SEPARABLE.value],
+        [
+            AttentionDecompositionMode.FULL.value,
+            AttentionDecompositionMode.SEPARABLE.value,
+        ],
     )
     def test_stores_configuration(
         self,
@@ -58,7 +61,6 @@ class TestGeometricSelfAttentionConfiguration:
 
 
 class TestGeometricSelfAttentionProjections:
-
     def test_query_key_projections_preserve_embedding_dimension(
         self, geometric_attention_factory
     ):
@@ -96,7 +98,6 @@ class TestGeometricSelfAttentionProjections:
 
 
 class TestGeometricSelfAttentionForward:
-
     @pytest.mark.parametrize(
         "batch_size, height, width, embedding_dimension, num_heads",
         [(2, 4, 6, 32, 4), (1, 3, 3, 64, 8)],
@@ -122,15 +123,16 @@ class TestGeometricSelfAttentionForward:
             width=width,
             channels=embedding_dimension,
         )
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
         output = attention(input_tensor=input_tensor, depth_map=depth_map)
         assert output.shape == (batch_size, height, width, embedding_dimension)
 
     @pytest.mark.parametrize(
         "decomposition_mode",
-        [AttentionDecompositionMode.FULL.value, AttentionDecompositionMode.SEPARABLE.value],
+        [
+            AttentionDecompositionMode.FULL.value,
+            AttentionDecompositionMode.SEPARABLE.value,
+        ],
     )
     def test_output_shape_for_both_decomposition_modes(
         self,
@@ -151,9 +153,7 @@ class TestGeometricSelfAttentionForward:
             width=width,
             channels=embedding_dimension,
         )
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
         output = attention(input_tensor=input_tensor, depth_map=depth_map)
         assert output.shape == (batch_size, height, width, embedding_dimension)
 
@@ -175,11 +175,9 @@ class TestGeometricSelfAttentionForward:
 
         # Depth with sharp discontinuity
         discontinuous_depth = torch.ones(batch_size, 1, height, width)
-        discontinuous_depth[:, :, :, width // 2:] = 10.0
+        discontinuous_depth[:, :, :, width // 2 :] = 10.0
 
-        output_uniform = attention(
-            input_tensor=input_tensor, depth_map=uniform_depth
-        )
+        output_uniform = attention(input_tensor=input_tensor, depth_map=uniform_depth)
         output_discontinuous = attention(
             input_tensor=input_tensor, depth_map=discontinuous_depth
         )
@@ -193,9 +191,7 @@ class TestGeometricSelfAttentionForward:
         attention = geometric_attention_factory(
             embedding_dimension=embedding_dimension, num_heads=4
         )
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
 
         input_a = nhwc_tensor_factory(
             batch_size=batch_size,
@@ -228,9 +224,7 @@ class TestGeometricSelfAttentionForward:
             channels=embedding_dimension,
         )
         input_tensor.requires_grad_(True)
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
 
         output = attention(input_tensor=input_tensor, depth_map=depth_map)
         loss = output.sum()
@@ -242,7 +236,6 @@ class TestGeometricSelfAttentionForward:
 
 
 class TestGeometricSelfAttentionDepthAwareness:
-
     def test_depth_boundary_suppresses_cross_boundary_attention(
         self, geometric_attention_factory, nhwc_tensor_factory
     ):
@@ -252,25 +245,24 @@ class TestGeometricSelfAttentionDepthAwareness:
         )
         attention.eval()
 
-        input_tensor = nhwc_tensor_factory(
-            batch_size=batch_size,
-            height=height,
-            width=width,
-            channels=embedding_dimension,
-        ) * 0.01
+        input_tensor = (
+            nhwc_tensor_factory(
+                batch_size=batch_size,
+                height=height,
+                width=width,
+                channels=embedding_dimension,
+            )
+            * 0.01
+        )
 
         # Uniform depth - no boundary effects
         uniform_depth = torch.ones(batch_size, 1, height, width)
-        output_uniform = attention(
-            input_tensor=input_tensor, depth_map=uniform_depth
-        )
+        output_uniform = attention(input_tensor=input_tensor, depth_map=uniform_depth)
 
         # Very large depth discontinuity in the middle
         boundary_depth = torch.ones(batch_size, 1, height, width)
-        boundary_depth[:, :, :, width // 2:] = 100.0
-        output_boundary = attention(
-            input_tensor=input_tensor, depth_map=boundary_depth
-        )
+        boundary_depth[:, :, :, width // 2 :] = 100.0
+        output_boundary = attention(input_tensor=input_tensor, depth_map=boundary_depth)
 
         relative_difference = (output_uniform - output_boundary).abs().mean()
         assert relative_difference.item() > 1e-6
@@ -293,9 +285,7 @@ class TestGeometricSelfAttentionDepthAwareness:
         )
 
         # Copy weights so only decomposition_mode differs
-        attention_separable.load_state_dict(
-            attention_full.state_dict(), strict=False
-        )
+        attention_separable.load_state_dict(attention_full.state_dict(), strict=False)
 
         input_tensor = nhwc_tensor_factory(
             batch_size=batch_size,
@@ -303,13 +293,9 @@ class TestGeometricSelfAttentionDepthAwareness:
             width=width,
             channels=embedding_dimension,
         )
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
 
-        output_full = attention_full(
-            input_tensor=input_tensor, depth_map=depth_map
-        )
+        output_full = attention_full(input_tensor=input_tensor, depth_map=depth_map)
         output_separable = attention_separable(
             input_tensor=input_tensor, depth_map=depth_map
         )
@@ -337,16 +323,14 @@ class TestGeometricSelfAttentionDepthAwareness:
             width=width,
             channels=embedding_dimension,
         )
-        depth_map = depth_map_factory(
-            batch_size=batch_size, height=height, width=width
-        )
+        depth_map = depth_map_factory(batch_size=batch_size, height=height, width=width)
 
-        output_1 = attention_factor_1(
-            input_tensor=input_tensor, depth_map=depth_map
+        output_1 = attention_factor_1(input_tensor=input_tensor, depth_map=depth_map)
+        output_2 = attention_factor_2(input_tensor=input_tensor, depth_map=depth_map)
+        assert (
+            output_1.shape
+            == output_2.shape
+            == (batch_size, height, width, embedding_dimension)
         )
-        output_2 = attention_factor_2(
-            input_tensor=input_tensor, depth_map=depth_map
-        )
-        assert output_1.shape == output_2.shape == (batch_size, height, width, embedding_dimension)
         # But the actual outputs should differ due to different internal computations
         assert not torch.allclose(output_1, output_2, atol=1e-5)

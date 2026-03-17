@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.free_transformer.binary_mapper module."""
+
 import re
 from collections.abc import Callable
 
@@ -10,7 +11,6 @@ from versatil.models.layers.free_transformer.binary_mapper import BinaryMapper
 
 
 class TestBinaryMapperInitialization:
-
     @pytest.mark.parametrize("latent_bits", [3, 5])
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     def test_stores_configuration(
@@ -24,7 +24,7 @@ class TestBinaryMapperInitialization:
             embedding_dimension=embedding_dimension,
         )
         assert mapper.latent_bits == latent_bits
-        assert mapper.latent_dim == 2 ** latent_bits
+        assert mapper.latent_dim == 2**latent_bits
         assert mapper.embedding_dimension == embedding_dimension
 
     def test_logit_projection_maps_embedding_to_bits(
@@ -46,7 +46,7 @@ class TestBinaryMapperInitialization:
     ):
         latent_bits = 4
         mapper = binary_mapper_factory(latent_bits=latent_bits)
-        assert mapper.bit_patterns.shape == (2 ** latent_bits, latent_bits)
+        assert mapper.bit_patterns.shape == (2**latent_bits, latent_bits)
 
     def test_bit_patterns_contain_only_zeros_and_ones(
         self,
@@ -89,7 +89,6 @@ class TestBinaryMapperInitialization:
 
 
 class TestBinaryMapperForward:
-
     @pytest.mark.parametrize(
         "batch_size, sequence_length",
         [
@@ -117,7 +116,7 @@ class TestBinaryMapperForward:
             embedding_dimension=embedding_dimension,
         )
         one_hot, logits = mapper(features=features)
-        assert one_hot.shape == (batch_size, sequence_length, 2 ** latent_bits)
+        assert one_hot.shape == (batch_size, sequence_length, 2**latent_bits)
         assert logits.shape == (batch_size, sequence_length, latent_bits)
 
     def test_two_dimensional_input_without_sequence_dimension(
@@ -134,10 +133,12 @@ class TestBinaryMapperForward:
         )
         # (B, embedding_dimension) without sequence dim
         features = sequence_tensor_factory(
-            batch_size=batch_size, sequence_length=1, embedding_dimension=embedding_dimension
+            batch_size=batch_size,
+            sequence_length=1,
+            embedding_dimension=embedding_dimension,
         ).squeeze(1)
         one_hot, logits = mapper(features=features)
-        assert one_hot.shape == (batch_size, 2 ** latent_bits)
+        assert one_hot.shape == (batch_size, 2**latent_bits)
         assert logits.shape == (batch_size, latent_bits)
 
     def test_one_hot_output_sums_to_one_in_forward_pass(
@@ -167,9 +168,7 @@ class TestBinaryMapperForward:
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
         with torch.no_grad():
-            one_hot_first, logits_first = mapper(
-                features=features, deterministic=True
-            )
+            one_hot_first, logits_first = mapper(features=features, deterministic=True)
             one_hot_second, logits_second = mapper(
                 features=features, deterministic=True
             )
@@ -228,7 +227,7 @@ class TestBinaryMapperForward:
         features = torch.zeros(1, 1, embedding_dimension)
         with torch.no_grad():
             one_hot, logits = mapper(features=features, deterministic=True)
-        expected_index = 2 ** latent_bits - 1  # 7 for 3 bits
+        expected_index = 2**latent_bits - 1  # 7 for 3 bits
         assert one_hot[0, 0, expected_index] == 1.0
         assert one_hot[0, 0].sum() == 1.0
 
@@ -253,7 +252,6 @@ class TestBinaryMapperForward:
 
 
 class TestBinaryMapperSoftDistribution:
-
     def test_soft_distribution_sums_to_one(
         self,
         binary_mapper_factory: Callable[..., BinaryMapper],
@@ -279,7 +277,7 @@ class TestBinaryMapperSoftDistribution:
             rng.standard_normal((2, 4, latent_bits)).astype(np.float32)
         )
         soft_distribution = mapper._compute_soft_distribution(logits)
-        assert soft_distribution.shape == (2, 4, 2 ** latent_bits)
+        assert soft_distribution.shape == (2, 4, 2**latent_bits)
 
     def test_soft_distribution_all_non_negative(
         self,
@@ -303,7 +301,7 @@ class TestBinaryMapperSoftDistribution:
         # Large positive logits => all bits = 1 => code index 7
         logits = torch.full((1, 1, latent_bits), 10.0)
         soft_distribution = mapper._compute_soft_distribution(logits)
-        expected_peak_index = 2 ** latent_bits - 1
+        expected_peak_index = 2**latent_bits - 1
         assert soft_distribution.argmax(dim=-1).item() == expected_peak_index
 
     def test_soft_distribution_rejects_wrong_logit_dimension(
@@ -331,7 +329,7 @@ class TestBinaryMapperSoftDistribution:
         # Logits = 0 => sigmoid = 0.5 => each bit equally likely => uniform over codes
         logits = torch.zeros(1, 1, latent_bits)
         soft_distribution = mapper._compute_soft_distribution(logits)
-        expected_uniform = 1.0 / (2 ** latent_bits)
+        expected_uniform = 1.0 / (2**latent_bits)
         assert torch.allclose(
             soft_distribution,
             torch.full_like(soft_distribution, expected_uniform),
@@ -340,7 +338,6 @@ class TestBinaryMapperSoftDistribution:
 
 
 class TestBinaryMapperGradientFlow:
-
     def test_gradient_flows_through_straight_through_estimator(
         self,
         binary_mapper_factory: Callable[..., BinaryMapper],
@@ -430,7 +427,7 @@ class TestBinaryMapperGradientFlow:
         one_hot, logits = mapper(features=features, deterministic=True)
         # Pick a code that is NOT the selected one
         selected_index = one_hot.argmax(dim=-1).item()
-        other_index = (selected_index + 1) % (2 ** latent_bits)
+        other_index = (selected_index + 1) % (2**latent_bits)
         loss = one_hot[0, 0, other_index]
         loss.backward()
         # Despite the forward value being 0, gradient flows via g_soft

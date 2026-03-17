@@ -1,12 +1,10 @@
 """Inference endpoint for real-time model deployment."""
+
 import argparse
 import logging
-import os
 
 import torch
-from omegaconf import OmegaConf
 
-from versatil.data.constants import DatasetType
 from versatil.inference.inference_client import InferenceClient
 from versatil.inference.policy_loader import PolicyLoader
 from versatil.inference.socket_transport import (
@@ -87,9 +85,7 @@ def main():
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if device == torch.device("cpu"):
-        logging.warning(
-            "Running on CPU. Consider using a GPU for better performance."
-        )
+        logging.warning("Running on CPU. Consider using a GPU for better performance.")
 
     policy_loader = PolicyLoader(
         device=device,

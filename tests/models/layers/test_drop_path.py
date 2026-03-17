@@ -1,4 +1,5 @@
 """Tests for versatil.models.layers.drop_path module."""
+
 from collections.abc import Callable
 
 import pytest
@@ -10,6 +11,7 @@ from versatil.models.layers.drop_path import DropPath
 @pytest.fixture
 def drop_path_factory() -> Callable[..., DropPath]:
     """Factory for DropPath instances."""
+
     def factory(
         drop_prob: float = 0.0,
         scale_by_keep: bool = True,
@@ -18,11 +20,11 @@ def drop_path_factory() -> Callable[..., DropPath]:
             drop_prob=drop_prob,
             scale_by_keep=scale_by_keep,
         )
+
     return factory
 
 
 class TestDropPathInitialization:
-
     @pytest.mark.parametrize("drop_prob", [0.0, 0.5])
     @pytest.mark.parametrize("scale_by_keep", [True, False])
     def test_stores_configuration(
@@ -37,7 +39,6 @@ class TestDropPathInitialization:
 
 
 class TestDropPathForward:
-
     def test_returns_unchanged_when_drop_prob_zero(
         self,
         drop_path_factory: Callable[..., DropPath],

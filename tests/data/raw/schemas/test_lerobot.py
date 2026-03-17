@@ -1,4 +1,5 @@
 """Tests for versatil.data.raw.schemas.lerobot module."""
+
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -13,9 +14,9 @@ import pytest
 from versatil.data.constants import (
     Cameras,
     CoordinateSystem,
-    RawCameraKey,
     LeRobotPathsV30,
     ObsKey,
+    RawCameraKey,
 )
 from versatil.data.metadata import (
     CameraMetadata,
@@ -43,7 +44,6 @@ def encode_png() -> Callable[[np.ndarray], bytes]:
 
 
 class TestDecodeVideoFrames:
-
     def test_returns_frames_in_original_order(self):
         timestamps = [0.2, 0.0, 0.1]
         mock_frames = []
@@ -58,7 +58,6 @@ class TestDecodeVideoFrames:
         mock_container = MagicMock()
         mock_container.streams.video = [mock_stream]
 
-        sorted_timestamps = [0.0, 0.1, 0.2]
         frame_pts = [0.0, 0.1, 0.2]
         call_count = [0]
 
@@ -72,7 +71,9 @@ class TestDecodeVideoFrames:
 
         mock_container.decode = mock_decode
 
-        with patch("versatil.data.raw.schemas.lerobot.av.open", return_value=mock_container):
+        with patch(
+            "versatil.data.raw.schemas.lerobot.av.open", return_value=mock_container
+        ):
             result = decode_video_frames(Path("/video.mp4"), timestamps)
 
         # Original order: [0.2, 0.0, 0.1] -> sorted [0.0, 0.1, 0.2]
@@ -98,7 +99,9 @@ class TestDecodeVideoFrames:
         mock_container.streams.video = [mock_stream]
         mock_container.decode.return_value = [early_frame, correct_frame]
 
-        with patch("versatil.data.raw.schemas.lerobot.av.open", return_value=mock_container):
+        with patch(
+            "versatil.data.raw.schemas.lerobot.av.open", return_value=mock_container
+        ):
             result = decode_video_frames(Path("/video.mp4"), [0.5], tolerance_s=0.01)
 
         assert len(result) == 1
@@ -115,11 +118,13 @@ class TestDecodeVideoFrames:
         mock_container.streams.video = [mock_stream]
         mock_container.decode.return_value = [frame]
 
-        with patch("versatil.data.raw.schemas.lerobot.av.open", return_value=mock_container):
-            with pytest.raises(RuntimeError, match="Timestamp tolerance exceeded"):
-                decode_video_frames(
-                    Path("/video.mp4"), [0.5], tolerance_s=0.01
-                )
+        with (
+            patch(
+                "versatil.data.raw.schemas.lerobot.av.open", return_value=mock_container
+            ),
+            pytest.raises(RuntimeError, match="Timestamp tolerance exceeded"),
+        ):
+            decode_video_frames(Path("/video.mp4"), [0.5], tolerance_s=0.01)
 
     def test_frame_not_found_raises_runtime_error(self):
         mock_stream = MagicMock()
@@ -129,9 +134,13 @@ class TestDecodeVideoFrames:
         mock_container.streams.video = [mock_stream]
         mock_container.decode.return_value = []
 
-        with patch("versatil.data.raw.schemas.lerobot.av.open", return_value=mock_container):
-            with pytest.raises(RuntimeError, match="Failed to read frame"):
-                decode_video_frames(Path("/video.mp4"), [0.5])
+        with (
+            patch(
+                "versatil.data.raw.schemas.lerobot.av.open", return_value=mock_container
+            ),
+            pytest.raises(RuntimeError, match="Failed to read frame"),
+        ):
+            decode_video_frames(Path("/video.mp4"), [0.5])
 
     def test_single_frame_at_exact_timestamp(self):
         mock_stream = MagicMock()
@@ -145,7 +154,9 @@ class TestDecodeVideoFrames:
         mock_container.streams.video = [mock_stream]
         mock_container.decode.return_value = [frame]
 
-        with patch("versatil.data.raw.schemas.lerobot.av.open", return_value=mock_container):
+        with patch(
+            "versatil.data.raw.schemas.lerobot.av.open", return_value=mock_container
+        ):
             result = decode_video_frames(Path("/video.mp4"), [0.5])
 
         assert len(result) == 1
@@ -163,14 +174,15 @@ class TestDecodeVideoFrames:
         mock_container.streams.video = [mock_stream]
         mock_container.decode.return_value = [frame]
 
-        with patch("versatil.data.raw.schemas.lerobot.av.open", return_value=mock_container):
+        with patch(
+            "versatil.data.raw.schemas.lerobot.av.open", return_value=mock_container
+        ):
             decode_video_frames(Path("/video.mp4"), [0.0])
 
         mock_container.close.assert_called_once()
 
 
 class TestLeRobotDatasetMetadataV30Init:
-
     def test_stores_dataset_path_as_path(self, tmp_path: Path):
         info = {"codebase_version": "v3.0", "features": {}}
         tasks_table = pa.table({"task_index": [0], "task": ["pick"]})
@@ -198,7 +210,6 @@ class TestLeRobotDatasetMetadataV30Init:
 
 
 class TestLeRobotDatasetMetadataV30Methods:
-
     @pytest.fixture
     def lerobot_metadata(self, tmp_path: Path) -> LeRobotDatasetMetadataV30:
         """Create a LeRobotDatasetMetadataV30 with minimal filesystem structure."""
@@ -219,7 +230,9 @@ class TestLeRobotDatasetMetadataV30Methods:
         with open(info_path, "w") as f:
             json.dump(info, f)
 
-        tasks_table = pa.table({"task_index": [0, 1], "task": ["pick bowl", "place cup"]})
+        tasks_table = pa.table(
+            {"task_index": [0, 1], "task": ["pick bowl", "place cup"]}
+        )
         tasks_path = tmp_path / LeRobotPathsV30.DEFAULT_TASKS_PATH
         tasks_path.parent.mkdir(parents=True, exist_ok=True)
         pq_write.write_table(tasks_table, str(tasks_path))
@@ -227,15 +240,17 @@ class TestLeRobotDatasetMetadataV30Methods:
         episodes_dir = tmp_path / LeRobotPathsV30.EPISODES_DIR
         chunk_dir = episodes_dir / "chunk-000"
         chunk_dir.mkdir(parents=True, exist_ok=True)
-        ep_table = pa.table({
-            "episode_index": [0, 1],
-            "data/chunk_index": [0, 0],
-            "data/file_index": [0, 1],
-            "videos/observation.images.front/chunk_index": [0, 0],
-            "videos/observation.images.front/file_index": [0, 1],
-            "videos/observation.images.front/from_timestamp": [0.0, 0.0],
-            "stats/mean": [0.5, 0.6],
-        })
+        ep_table = pa.table(
+            {
+                "episode_index": [0, 1],
+                "data/chunk_index": [0, 0],
+                "data/file_index": [0, 1],
+                "videos/observation.images.front/chunk_index": [0, 0],
+                "videos/observation.images.front/file_index": [0, 1],
+                "videos/observation.images.front/from_timestamp": [0.0, 0.0],
+                "stats/mean": [0.5, 0.6],
+            }
+        )
         pq_write.write_table(ep_table, str(chunk_dir / "file-000.parquet"))
 
         return LeRobotDatasetMetadataV30(dataset_path=str(tmp_path))
@@ -291,7 +306,9 @@ class TestLeRobotDatasetMetadataV30Methods:
     ):
         path = lerobot_metadata.get_video_file_path(0, RawCameraKey.FRONT.value)
 
-        assert path == tmp_path / "videos/observation.images.front/chunk-000/file-000.mp4"
+        assert (
+            path == tmp_path / "videos/observation.images.front/chunk-000/file-000.mp4"
+        )
 
     def test_get_image_file_path(
         self, lerobot_metadata: LeRobotDatasetMetadataV30, tmp_path: Path
@@ -300,20 +317,21 @@ class TestLeRobotDatasetMetadataV30Methods:
             episode_index=0, image_key="observation.images.side", frame_index=5
         )
 
-        assert path == tmp_path / "images/observation.images.side/episode-000000/frame-000005.png"
+        assert (
+            path
+            == tmp_path
+            / "images/observation.images.side/episode-000000/frame-000005.png"
+        )
 
 
 class TestLeRobotDatasetSchemaV30Init:
-
     def test_stores_dataset_path_as_path(
         self,
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         metadata = dataset_metadata_factory(observations={}, precomputed_actions={})
 
-        with patch.object(
-            LeRobotDatasetMetadataV30, "__init__", return_value=None
-        ):
+        with patch.object(LeRobotDatasetMetadataV30, "__init__", return_value=None):
             schema = LeRobotDatasetSchemaV30(
                 dataset_path="/data/lerobot_ds",
                 zarr_path="/tmp/test.zarr",
@@ -347,9 +365,7 @@ class TestLeRobotDatasetSchemaV30Init:
     ):
         metadata = dataset_metadata_factory(observations={}, precomputed_actions={})
 
-        with patch.object(
-            LeRobotDatasetMetadataV30, "__init__", return_value=None
-        ):
+        with patch.object(LeRobotDatasetMetadataV30, "__init__", return_value=None):
             schema = LeRobotDatasetSchemaV30(
                 dataset_path="/data/lerobot_ds",
                 zarr_path="/tmp/test.zarr",
@@ -363,12 +379,13 @@ class TestLeRobotDatasetSchemaV30Init:
 
 
 class TestLeRobotDatasetSchemaV30ExtractEpisode:
-
     @pytest.fixture
     def lerobot_schema(
         self,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ) -> LeRobotDatasetSchemaV30:
@@ -398,9 +415,7 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
             observations=observations, precomputed_actions=actions
         )
 
-        with patch.object(
-            LeRobotDatasetMetadataV30, "__init__", return_value=None
-        ):
+        with patch.object(LeRobotDatasetMetadataV30, "__init__", return_value=None):
             schema = LeRobotDatasetSchemaV30(
                 dataset_path="/data/lerobot_ds",
                 zarr_path="/tmp/test.zarr",
@@ -417,25 +432,38 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
         noop_resizer,
     ):
         mock_frames = [
-            rng.integers(0, 255, size=(128, 128, 3), dtype=np.uint8)
-            for _ in range(3)
+            rng.integers(0, 255, size=(128, 128, 3), dtype=np.uint8) for _ in range(3)
         ]
         state_data = rng.standard_normal((3, 6)).tolist()
         action_data = rng.standard_normal((3, 7)).tolist()
 
-        episode_table = pa.table({
-            "observation.state": state_data,
-            "action": action_data,
-            "timestamp": [0.0, 0.1, 0.2],
-            "task_index": [0, 0, 0],
-            "frame_index": [0, 1, 2],
-            "episode_index": [0, 0, 0],
-        })
+        episode_table = pa.table(
+            {
+                "observation.state": state_data,
+                "action": action_data,
+                "timestamp": [0.0, 0.1, 0.2],
+                "task_index": [0, 0, 0],
+                "frame_index": [0, 1, 2],
+                "episode_index": [0, 0, 0],
+            }
+        )
 
-        with patch.object(lerobot_schema, "get_episode_parquet", return_value=episode_table), \
-             patch.object(lerobot_schema, "get_episode_language_instructions", return_value=[["pick"]] * 3), \
-             patch.object(lerobot_schema, "get_episode_videos_frames", return_value={RawCameraKey.FRONT.value: mock_frames}), \
-             patch.object(lerobot_schema, "get_episode_images", return_value={}):
+        with (
+            patch.object(
+                lerobot_schema, "get_episode_parquet", return_value=episode_table
+            ),
+            patch.object(
+                lerobot_schema,
+                "get_episode_language_instructions",
+                return_value=[["pick"]] * 3,
+            ),
+            patch.object(
+                lerobot_schema,
+                "get_episode_videos_frames",
+                return_value={RawCameraKey.FRONT.value: mock_frames},
+            ),
+            patch.object(lerobot_schema, "get_episode_images", return_value={}),
+        ):
             data = lerobot_schema.extract_episode(
                 episode_id=0,
                 resizer=noop_resizer,
@@ -491,19 +519,31 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
 
         mock_frames = [np.zeros((64, 64, 3), dtype=np.uint8)] * 2
         action_data = rng.standard_normal((2, 7)).tolist()
-        episode_table = pa.table({
-            "action": action_data,
-            "timestamp": [0.0, 0.1],
-            "task_index": [0, 0],
-            "frame_index": [0, 1],
-            "episode_index": [0, 0],
-        })
+        episode_table = pa.table(
+            {
+                "action": action_data,
+                "timestamp": [0.0, 0.1],
+                "task_index": [0, 0],
+                "frame_index": [0, 1],
+                "episode_index": [0, 0],
+            }
+        )
         language_instructions = [["pick bowl"], ["pick bowl"]]
 
-        with patch.object(schema, "get_episode_parquet", return_value=episode_table), \
-             patch.object(schema, "get_episode_language_instructions", return_value=language_instructions), \
-             patch.object(schema, "get_episode_videos_frames", return_value={RawCameraKey.FRONT.value: mock_frames}), \
-             patch.object(schema, "get_episode_images", return_value={}):
+        with (
+            patch.object(schema, "get_episode_parquet", return_value=episode_table),
+            patch.object(
+                schema,
+                "get_episode_language_instructions",
+                return_value=language_instructions,
+            ),
+            patch.object(
+                schema,
+                "get_episode_videos_frames",
+                return_value={RawCameraKey.FRONT.value: mock_frames},
+            ),
+            patch.object(schema, "get_episode_images", return_value={}),
+        ):
             data = schema.extract_episode(
                 episode_id=0,
                 resizer=noop_resizer,
@@ -521,25 +561,35 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
     ):
         state_data = rng.standard_normal((2, 6)).tolist()
         action_data = rng.standard_normal((2, 7)).tolist()
-        episode_table = pa.table({
-            "observation.state": state_data,
-            "action": action_data,
-            "timestamp": [0.0, 0.1],
-            "task_index": [0, 0],
-            "frame_index": [0, 1],
-            "episode_index": [0, 0],
-        })
+        episode_table = pa.table(
+            {
+                "observation.state": state_data,
+                "action": action_data,
+                "timestamp": [0.0, 0.1],
+                "task_index": [0, 0],
+                "frame_index": [0, 1],
+                "episode_index": [0, 0],
+            }
+        )
 
-        with patch.object(lerobot_schema, "get_episode_parquet", return_value=episode_table), \
-             patch.object(lerobot_schema, "get_episode_language_instructions", return_value=[["pick"]] * 2), \
-             patch.object(lerobot_schema, "get_episode_videos_frames", return_value={}), \
-             patch.object(lerobot_schema, "get_episode_images", return_value={}):
-            with pytest.raises(ValueError, match="does not exist"):
-                lerobot_schema.extract_episode(
-                    episode_id=0,
-                    resizer=noop_resizer,
-                    depth_resizer=noop_resizer,
-                )
+        with (
+            patch.object(
+                lerobot_schema, "get_episode_parquet", return_value=episode_table
+            ),
+            patch.object(
+                lerobot_schema,
+                "get_episode_language_instructions",
+                return_value=[["pick"]] * 2,
+            ),
+            patch.object(lerobot_schema, "get_episode_videos_frames", return_value={}),
+            patch.object(lerobot_schema, "get_episode_images", return_value={}),
+            pytest.raises(ValueError, match="does not exist"),
+        ):
+            lerobot_schema.extract_episode(
+                episode_id=0,
+                resizer=noop_resizer,
+                depth_resizer=noop_resizer,
+            )
 
     def test_processes_vector_observation_without_slicing(
         self,
@@ -550,19 +600,33 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
         mock_frames = [np.zeros((128, 128, 3), dtype=np.uint8)] * 3
         state_data = rng.standard_normal((3, 6)).tolist()
         action_data = rng.standard_normal((3, 7)).tolist()
-        episode_table = pa.table({
-            "observation.state": state_data,
-            "action": action_data,
-            "timestamp": [0.0, 0.1, 0.2],
-            "task_index": [0, 0, 0],
-            "frame_index": [0, 1, 2],
-            "episode_index": [0, 0, 0],
-        })
+        episode_table = pa.table(
+            {
+                "observation.state": state_data,
+                "action": action_data,
+                "timestamp": [0.0, 0.1, 0.2],
+                "task_index": [0, 0, 0],
+                "frame_index": [0, 1, 2],
+                "episode_index": [0, 0, 0],
+            }
+        )
 
-        with patch.object(lerobot_schema, "get_episode_parquet", return_value=episode_table), \
-             patch.object(lerobot_schema, "get_episode_language_instructions", return_value=[["pick"]] * 3), \
-             patch.object(lerobot_schema, "get_episode_videos_frames", return_value={RawCameraKey.FRONT.value: mock_frames}), \
-             patch.object(lerobot_schema, "get_episode_images", return_value={}):
+        with (
+            patch.object(
+                lerobot_schema, "get_episode_parquet", return_value=episode_table
+            ),
+            patch.object(
+                lerobot_schema,
+                "get_episode_language_instructions",
+                return_value=[["pick"]] * 3,
+            ),
+            patch.object(
+                lerobot_schema,
+                "get_episode_videos_frames",
+                return_value={RawCameraKey.FRONT.value: mock_frames},
+            ),
+            patch.object(lerobot_schema, "get_episode_images", return_value={}),
+        ):
             data = lerobot_schema.extract_episode(
                 episode_id=0,
                 resizer=noop_resizer,
@@ -578,7 +642,9 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
         self,
         rng: np.random.Generator,
         camera_metadata_factory: Callable[..., CameraMetadata],
-        position_observation_metadata_factory: Callable[..., PositionObservationMetadata],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
         precomputed_action_metadata_factory: Callable[..., PrecomputedActionMetadata],
         dataset_metadata_factory: Callable[..., DatasetMetadata],
         noop_resizer,
@@ -613,19 +679,25 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
 
         state_data = rng.standard_normal((3, 6)).tolist()
         action_data = rng.standard_normal((3, 7)).tolist()
-        episode_table = pa.table({
-            "observation.state": state_data,
-            "action": action_data,
-            "timestamp": [0.0, 0.1, 0.2],
-            "task_index": [0, 0, 0],
-            "frame_index": [0, 1, 2],
-            "episode_index": [0, 0, 0],
-        })
+        episode_table = pa.table(
+            {
+                "observation.state": state_data,
+                "action": action_data,
+                "timestamp": [0.0, 0.1, 0.2],
+                "task_index": [0, 0, 0],
+                "frame_index": [0, 1, 2],
+                "episode_index": [0, 0, 0],
+            }
+        )
 
-        with patch.object(schema, "get_episode_parquet", return_value=episode_table), \
-             patch.object(schema, "get_episode_language_instructions", return_value=[["pick"]] * 3), \
-             patch.object(schema, "get_episode_videos_frames", return_value={}), \
-             patch.object(schema, "get_episode_images", return_value={}):
+        with (
+            patch.object(schema, "get_episode_parquet", return_value=episode_table),
+            patch.object(
+                schema, "get_episode_language_instructions", return_value=[["pick"]] * 3
+            ),
+            patch.object(schema, "get_episode_videos_frames", return_value={}),
+            patch.object(schema, "get_episode_images", return_value={}),
+        ):
             data = schema.extract_episode(
                 episode_id=0,
                 resizer=noop_resizer,
@@ -642,24 +714,38 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
     ):
         mock_frames = [np.zeros((128, 128, 3), dtype=np.uint8)] * 2
         action_data = rng.standard_normal((2, 7)).tolist()
-        episode_table = pa.table({
-            "action": action_data,
-            "timestamp": [0.0, 0.1],
-            "task_index": [0, 0],
-            "frame_index": [0, 1],
-            "episode_index": [0, 0],
-        })
+        episode_table = pa.table(
+            {
+                "action": action_data,
+                "timestamp": [0.0, 0.1],
+                "task_index": [0, 0],
+                "frame_index": [0, 1],
+                "episode_index": [0, 0],
+            }
+        )
 
-        with patch.object(lerobot_schema, "get_episode_parquet", return_value=episode_table), \
-             patch.object(lerobot_schema, "get_episode_language_instructions", return_value=[["pick"]] * 2), \
-             patch.object(lerobot_schema, "get_episode_videos_frames", return_value={RawCameraKey.FRONT.value: mock_frames}), \
-             patch.object(lerobot_schema, "get_episode_images", return_value={}):
-            with pytest.raises(ValueError, match="does not exist"):
-                lerobot_schema.extract_episode(
-                    episode_id=0,
-                    resizer=noop_resizer,
-                    depth_resizer=noop_resizer,
-                )
+        with (
+            patch.object(
+                lerobot_schema, "get_episode_parquet", return_value=episode_table
+            ),
+            patch.object(
+                lerobot_schema,
+                "get_episode_language_instructions",
+                return_value=[["pick"]] * 2,
+            ),
+            patch.object(
+                lerobot_schema,
+                "get_episode_videos_frames",
+                return_value={RawCameraKey.FRONT.value: mock_frames},
+            ),
+            patch.object(lerobot_schema, "get_episode_images", return_value={}),
+            pytest.raises(ValueError, match="does not exist"),
+        ):
+            lerobot_schema.extract_episode(
+                episode_id=0,
+                resizer=noop_resizer,
+                depth_resizer=noop_resizer,
+            )
 
     def test_processes_precomputed_actions_without_slicing(
         self,
@@ -670,19 +756,33 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
         mock_frames = [np.zeros((128, 128, 3), dtype=np.uint8)] * 3
         state_data = rng.standard_normal((3, 6)).tolist()
         action_data = rng.standard_normal((3, 7)).tolist()
-        episode_table = pa.table({
-            "observation.state": state_data,
-            "action": action_data,
-            "timestamp": [0.0, 0.1, 0.2],
-            "task_index": [0, 0, 0],
-            "frame_index": [0, 1, 2],
-            "episode_index": [0, 0, 0],
-        })
+        episode_table = pa.table(
+            {
+                "observation.state": state_data,
+                "action": action_data,
+                "timestamp": [0.0, 0.1, 0.2],
+                "task_index": [0, 0, 0],
+                "frame_index": [0, 1, 2],
+                "episode_index": [0, 0, 0],
+            }
+        )
 
-        with patch.object(lerobot_schema, "get_episode_parquet", return_value=episode_table), \
-             patch.object(lerobot_schema, "get_episode_language_instructions", return_value=[["pick"]] * 3), \
-             patch.object(lerobot_schema, "get_episode_videos_frames", return_value={RawCameraKey.FRONT.value: mock_frames}), \
-             patch.object(lerobot_schema, "get_episode_images", return_value={}):
+        with (
+            patch.object(
+                lerobot_schema, "get_episode_parquet", return_value=episode_table
+            ),
+            patch.object(
+                lerobot_schema,
+                "get_episode_language_instructions",
+                return_value=[["pick"]] * 3,
+            ),
+            patch.object(
+                lerobot_schema,
+                "get_episode_videos_frames",
+                return_value={RawCameraKey.FRONT.value: mock_frames},
+            ),
+            patch.object(lerobot_schema, "get_episode_images", return_value={}),
+        ):
             data = lerobot_schema.extract_episode(
                 episode_id=0,
                 resizer=noop_resizer,
@@ -723,18 +823,24 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
             )
 
         action_data = rng.standard_normal((3, 7)).tolist()
-        episode_table = pa.table({
-            "action": action_data,
-            "timestamp": [0.0, 0.1, 0.2],
-            "task_index": [0, 0, 0],
-            "frame_index": [0, 1, 2],
-            "episode_index": [0, 0, 0],
-        })
+        episode_table = pa.table(
+            {
+                "action": action_data,
+                "timestamp": [0.0, 0.1, 0.2],
+                "task_index": [0, 0, 0],
+                "frame_index": [0, 1, 2],
+                "episode_index": [0, 0, 0],
+            }
+        )
 
-        with patch.object(schema, "get_episode_parquet", return_value=episode_table), \
-             patch.object(schema, "get_episode_language_instructions", return_value=[["pick"]] * 3), \
-             patch.object(schema, "get_episode_videos_frames", return_value={}), \
-             patch.object(schema, "get_episode_images", return_value={}):
+        with (
+            patch.object(schema, "get_episode_parquet", return_value=episode_table),
+            patch.object(
+                schema, "get_episode_language_instructions", return_value=[["pick"]] * 3
+            ),
+            patch.object(schema, "get_episode_videos_frames", return_value={}),
+            patch.object(schema, "get_episode_images", return_value={}),
+        ):
             data = schema.extract_episode(
                 episode_id=0,
                 resizer=noop_resizer,
@@ -771,27 +877,32 @@ class TestLeRobotDatasetSchemaV30ExtractEpisode:
                 dataset_type="test",
             )
 
-        episode_table = pa.table({
-            "timestamp": [0.0],
-            "task_index": [0],
-            "frame_index": [0],
-            "episode_index": [0],
-        })
+        episode_table = pa.table(
+            {
+                "timestamp": [0.0],
+                "task_index": [0],
+                "frame_index": [0],
+                "episode_index": [0],
+            }
+        )
 
-        with patch.object(schema, "get_episode_parquet", return_value=episode_table), \
-             patch.object(schema, "get_episode_language_instructions", return_value=[["pick"]]), \
-             patch.object(schema, "get_episode_videos_frames", return_value={}), \
-             patch.object(schema, "get_episode_images", return_value={}):
-            with pytest.raises(ValueError, match="does not exist"):
-                schema.extract_episode(
-                    episode_id=0,
-                    resizer=noop_resizer,
-                    depth_resizer=noop_resizer,
-                )
+        with (
+            patch.object(schema, "get_episode_parquet", return_value=episode_table),
+            patch.object(
+                schema, "get_episode_language_instructions", return_value=[["pick"]]
+            ),
+            patch.object(schema, "get_episode_videos_frames", return_value={}),
+            patch.object(schema, "get_episode_images", return_value={}),
+            pytest.raises(ValueError, match="does not exist"),
+        ):
+            schema.extract_episode(
+                episode_id=0,
+                resizer=noop_resizer,
+                depth_resizer=noop_resizer,
+            )
 
 
 class TestLeRobotSchemaHelperMethods:
-
     @pytest.fixture
     def minimal_schema(
         self,
@@ -814,14 +925,17 @@ class TestLeRobotSchemaHelperMethods:
     ):
         minimal_schema.lerobot_metadata.get_video_keys.return_value = ["obs.images.top"]
 
-        episode_table = pa.table({
-            "timestamp": [0.0, 0.1, 0.2],
-        })
+        episode_table = pa.table(
+            {
+                "timestamp": [0.0, 0.1, 0.2],
+            }
+        )
 
         mock_frames = [np.zeros((64, 64, 3), dtype=np.uint8)] * 3
         with patch.object(
-            minimal_schema, "_get_frames_from_videos",
-            return_value={"obs.images.top": mock_frames}
+            minimal_schema,
+            "_get_frames_from_videos",
+            return_value={"obs.images.top": mock_frames},
         ):
             result = minimal_schema.get_episode_videos_frames(
                 episode_id=0, preloaded_episode_table=episode_table
@@ -849,14 +963,18 @@ class TestLeRobotSchemaHelperMethods:
         minimal_schema: LeRobotDatasetSchemaV30,
         encode_png: Callable[[np.ndarray], bytes],
     ):
-        minimal_schema.lerobot_metadata.get_image_keys.return_value = ["obs.images.side"]
+        minimal_schema.lerobot_metadata.get_image_keys.return_value = [
+            "obs.images.side"
+        ]
 
         mock_img = np.zeros((64, 64, 3), dtype=np.uint8)
         encoded_bytes = encode_png(mock_img)
-        episode_table = pa.table({
-            "obs.images.side": [{"bytes": encoded_bytes}],
-            "frame_index": [0],
-        })
+        episode_table = pa.table(
+            {
+                "obs.images.side": [{"bytes": encoded_bytes}],
+                "frame_index": [0],
+            }
+        )
 
         with patch("versatil.data.raw.schemas.lerobot.cv2") as mock_cv2:
             mock_cv2.imdecode.return_value = mock_img
@@ -875,13 +993,17 @@ class TestLeRobotSchemaHelperMethods:
         self,
         minimal_schema: LeRobotDatasetSchemaV30,
     ):
-        minimal_schema.lerobot_metadata.get_image_keys.return_value = ["obs.images.side"]
+        minimal_schema.lerobot_metadata.get_image_keys.return_value = [
+            "obs.images.side"
+        ]
         minimal_schema.dataset_path = Path("/data/ds")
 
-        episode_table = pa.table({
-            "obs.images.side": [{"path": "images/frame_000.png"}],
-            "frame_index": [0],
-        })
+        episode_table = pa.table(
+            {
+                "obs.images.side": [{"path": "images/frame_000.png"}],
+                "frame_index": [0],
+            }
+        )
 
         mock_img = np.zeros((64, 64, 3), dtype=np.uint8)
         with patch("versatil.data.raw.schemas.lerobot.cv2") as mock_cv2:
@@ -894,17 +1016,23 @@ class TestLeRobotSchemaHelperMethods:
             )
 
         assert "obs.images.side" in result
-        mock_cv2.imread.assert_called_once_with(str(Path("/data/ds/images/frame_000.png")))
+        mock_cv2.imread.assert_called_once_with(
+            str(Path("/data/ds/images/frame_000.png"))
+        )
 
     def test_get_episode_images_from_filesystem(
         self,
         minimal_schema: LeRobotDatasetSchemaV30,
     ):
-        minimal_schema.lerobot_metadata.get_image_keys.return_value = ["obs.images.side"]
+        minimal_schema.lerobot_metadata.get_image_keys.return_value = [
+            "obs.images.side"
+        ]
 
-        episode_table = pa.table({
-            "frame_index": [0, 1],
-        })
+        episode_table = pa.table(
+            {
+                "frame_index": [0, 1],
+            }
+        )
 
         mock_frames = [np.zeros((64, 64, 3), dtype=np.uint8)] * 2
         with patch.object(
@@ -936,14 +1064,18 @@ class TestLeRobotSchemaHelperMethods:
         minimal_schema: LeRobotDatasetSchemaV30,
     ):
         task_names = ["pick bowl", "place cup"]
-        minimal_schema.lerobot_metadata.tasks = pa.table({
-            "task_index": [0, 1],
-            "task": task_names,
-        })
+        minimal_schema.lerobot_metadata.tasks = pa.table(
+            {
+                "task_index": [0, 1],
+                "task": task_names,
+            }
+        )
 
-        episode_table = pa.table({
-            "task_index": [0, 0, 1],
-        })
+        episode_table = pa.table(
+            {
+                "task_index": [0, 0, 1],
+            }
+        )
 
         result = minimal_schema.get_episode_language_instructions(
             episode_id=0, preloaded_episode_table=episode_table
@@ -956,14 +1088,18 @@ class TestLeRobotSchemaHelperMethods:
         minimal_schema: LeRobotDatasetSchemaV30,
     ):
         task_names = ["pick bowl", "place cup"]
-        minimal_schema.lerobot_metadata.tasks = pa.table({
-            "task_index": [0, 1],
-            "task": task_names,
-        })
+        minimal_schema.lerobot_metadata.tasks = pa.table(
+            {
+                "task_index": [0, 1],
+                "task": task_names,
+            }
+        )
 
-        episode_table = pa.table({
-            "task_index": [1, 0],
-        })
+        episode_table = pa.table(
+            {
+                "task_index": [1, 0],
+            }
+        )
 
         with patch.object(
             minimal_schema, "get_episode_parquet", return_value=episode_table
@@ -979,14 +1115,18 @@ class TestLeRobotSchemaHelperMethods:
         self,
         minimal_schema: LeRobotDatasetSchemaV30,
     ):
-        full_table = pa.table({
-            "episode_index": [0, 0, 1, 1],
-            "value": [10, 20, 30, 40],
-        })
+        full_table = pa.table(
+            {
+                "episode_index": [0, 0, 1, 1],
+                "value": [10, 20, 30, 40],
+            }
+        )
         data_file_path = Path("/tmp/data.parquet")
         minimal_schema.lerobot_metadata.get_data_file_path.return_value = data_file_path
 
-        with patch("versatil.data.raw.schemas.lerobot.pq.read_table", return_value=full_table):
+        with patch(
+            "versatil.data.raw.schemas.lerobot.pq.read_table", return_value=full_table
+        ):
             result = minimal_schema.get_episode_parquet(0)
 
         assert result.num_rows == 2
@@ -997,14 +1137,18 @@ class TestLeRobotSchemaHelperMethods:
         minimal_schema: LeRobotDatasetSchemaV30,
     ):
         from_timestamp = 5.0
-        episode_meta = pa.table({
-            "episode_index": [0],
-            "videos/obs.images.top/from_timestamp": [from_timestamp],
-            "videos/obs.images.top/chunk_index": [0],
-            "videos/obs.images.top/file_index": [0],
-        })
+        episode_meta = pa.table(
+            {
+                "episode_index": [0],
+                "videos/obs.images.top/from_timestamp": [from_timestamp],
+                "videos/obs.images.top/chunk_index": [0],
+                "videos/obs.images.top/file_index": [0],
+            }
+        )
         minimal_schema.lerobot_metadata.get_episode_meta.return_value = episode_meta
-        minimal_schema.lerobot_metadata.get_video_file_path.return_value = Path("/data/video.mp4")
+        minimal_schema.lerobot_metadata.get_video_file_path.return_value = Path(
+            "/data/video.mp4"
+        )
 
         mock_frames = [np.zeros((64, 64, 3), dtype=np.uint8)] * 2
 
