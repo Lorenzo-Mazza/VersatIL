@@ -103,7 +103,6 @@ def _create_synthetic_zarr(
 
 
 @pytest.mark.slow
-@pytest.mark.integration
 @pytest.mark.parametrize(
     "config_name",
     E2E_CONFIGS,

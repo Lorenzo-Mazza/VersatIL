@@ -100,6 +100,8 @@ filterwarnings = [
     "ignore:.*Checkpoint directory.*:UserWarning",
     "ignore:.*does not have many workers.*:UserWarning",
     "ignore:.*number of training batches.*is smaller than.*:UserWarning",
+    "ignore:.*validated against ConfigStore schema.*:UserWarning:pluggy",
+    "ignore:.*degrees of freedom.*:UserWarning",
 ]
 testpaths = ["tests"]
 python_files = "test_*.py"
