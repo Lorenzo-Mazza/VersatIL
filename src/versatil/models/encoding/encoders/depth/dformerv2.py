@@ -292,7 +292,7 @@ class DFormerEncoder(Encoder):
 
     def _load_checkpoint(self, checkpoint_path: str):
         """Load pretrained weights from checkpoint."""
-        state_dict = torch.load(checkpoint_path, map_location="cpu")
+        state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
 
         if "model" in state_dict:
             state_dict = state_dict["model"]

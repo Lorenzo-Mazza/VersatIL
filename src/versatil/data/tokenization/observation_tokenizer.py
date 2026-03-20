@@ -313,6 +313,7 @@ class ObservationTokenizer:
         state_dict = torch.load(
             path / "observation_tokenizer_state.pt",
             map_location=device or torch.device("cpu"),
+            weights_only=False,
         )
         tokenizer = cls(
             tokenizer_model=state_dict["tokenizer_model"],

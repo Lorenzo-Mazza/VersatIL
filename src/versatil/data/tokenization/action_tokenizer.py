@@ -542,6 +542,7 @@ class ActionTokenizer:
         state_dict = torch.load(
             path / "action_tokenizer_state.pt",
             map_location=device or torch.device("cpu"),
+            weights_only=False,
         )
 
         tokenizer = cls(
