@@ -100,7 +100,7 @@ class LatentConditionedDecoderLayer(TransformerDecoderLayer):
             hidden_states: Input embeddings (B, seq_len, embedding_dim).
             encoded_features: Not used here. Kept for signature compatibility.
             self_attention_mask: Optional causal mask for self-attention with shape (B,1, query length, key length)
-             where True=masked. If None, no causal masking is applied.
+                where True=masked. If None, no causal masking is applied.
             cross_attention_mask: Not used here. Kept for signature compatibility.
             layer_cache: Optional cached K/V from previous steps.
             use_cache: Whether to return updated cache. Only valid if autoregressive=True.
@@ -428,7 +428,7 @@ class FreeTransformer(nn.Module):
         Args:
             hidden_states: Input token embeddings (B, query_length, D)
             self_attention_mask: Optional custom self-attention mask (B, 1, query_length, query_length) where True means masked.
-               If None, generates standard triangular causal mask.
+                If None, generates standard triangular causal mask.
             key_padding_mask: Optional current key padding mask for padded observation tokens (B, query_length) where True means masked.
             decoder_cache: Optional cached K/V from previous steps
             use_cache: Whether to return updated cache
@@ -438,8 +438,8 @@ class FreeTransformer(nn.Module):
 
         Returns:
             Tuple of (hidden_states, bit_logits, latent_codes, new_cache), where hidden_states has shape (B, query_len, D),
-             optional bit_logits has shape (B, query_len, latent_bits), latent_codes has shape (B, query_len, 2**latent_bits),
-             and new_cache is a LayerKVCache or None.
+                optional bit_logits has shape (B, query_len, latent_bits), latent_codes has shape (B, query_len, 2**latent_bits),
+                and new_cache is a LayerKVCache or None.
             If return_latent_embeddings is True, also returns latent embeddings with shape (B, query_len, D).
 
         Note:

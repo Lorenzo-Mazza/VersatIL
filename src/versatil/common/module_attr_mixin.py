@@ -1,3 +1,5 @@
+"""Mixin for nn.Module that exposes device and dtype properties."""
+
 import torch.nn as nn
 
 

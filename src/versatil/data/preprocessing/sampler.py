@@ -82,7 +82,7 @@ def create_indices(
     return indices
 
 
-def get_val_mask(n_episodes, val_ratio, seed=0):
+def get_val_mask(n_episodes: int, val_ratio: float, seed: int = 0) -> np.ndarray:
     """Makes a boolean array to pick which episodes are for validation.
 
     Randomly chooses a fraction (val_ratio) of episodes to mark as True (validation set).
@@ -109,7 +109,7 @@ def get_val_mask(n_episodes, val_ratio, seed=0):
     return val_mask
 
 
-def downsample_mask(mask, max_n, seed=0):
+def downsample_mask(mask: np.ndarray, max_n: int | None, seed: int = 0) -> np.ndarray:
     """Reduces the number of True values in a mask to at most max_n.
 
     If there are more than max_n Trues, randomly pick max_n of them to keep True, rest False.
@@ -205,7 +205,7 @@ class SequenceSampler:
         """How many sequences are available."""
         return len(self.indices)
 
-    def sample_sequence(self, idx):
+    def sample_sequence(self, idx: int) -> dict[str, np.ndarray]:
         """Gets one sequence as a dict of arrays.
 
         Uses the precomputed indices to slice the data.

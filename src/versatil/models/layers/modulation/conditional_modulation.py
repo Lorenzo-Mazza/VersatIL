@@ -79,8 +79,8 @@ class ConditionalModulation(nn.Module):
         """
         Args:
             x: Features to modulate
-               - CNN: (B, C, H, W)
-               - Transformer: (S, B, D) or (B, S, D)
+                - CNN: (B, C, H, W)
+                - Transformer: (S, B, D) or (B, S, D)
             condition: Conditioning vector (B, condition_dim)
 
         Returns:

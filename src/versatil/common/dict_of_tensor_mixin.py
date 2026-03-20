@@ -1,3 +1,5 @@
+"""Mixin for nn.Module that stores and loads nested ParameterDict state."""
+
 import torch
 import torch.nn as nn
 

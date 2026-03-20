@@ -1,5 +1,6 @@
 """Conditional Residual Block 1D Module originally used in the Diffusion Policy U-Net architecture."""
 
+import torch
 from torch import nn
 
 from versatil.models.layers import ConditionalModulation
@@ -41,7 +42,7 @@ class ConditionalResidualBlock1D(nn.Module):
             else nn.Identity()
         )
 
-    def forward(self, x, condition):
+    def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
         """Forward pass of ConditionalResidualBlock1D.
         Args:
             x (torch.Tensor): Input tensor of shape (batch_size, input_channels, prediction horizon).

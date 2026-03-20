@@ -6,6 +6,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PyPI](https://img.shields.io/pypi/v/versatil.svg)](https://pypi.org/project/versatil/)
+[![Docs](https://img.shields.io/badge/docs-online-blue)](https://lorenzo-mazza.github.io/VersatIL)
 
 ![VersatIL Logo](media/VersatIL_logo.png)
 
@@ -21,12 +22,10 @@ Or perhaps you have wandered through State-Of-The-Art codebases, staring blankly
 
 ### This ends with VersatIL. ⚡
 
-VersatIL is a modular, composable framework built with PyTorch that fully decouples the three pillars of imitation learning: 
-**Data**,
- **Algorithm**, and **Architecture** into clean, reusable components.
+VersatIL is a modular, composable framework built with PyTorch that decouples the three pillars of imitation learning:
+**Data**, **Algorithm**, and **Architecture** into clean, reusable components.
 
-
-Swap Behavioral Cloning for Diffusion or Flow Matching, replace a ResNet with a ViT or VLM backbone, or run your policy on a completely new dataset format — all with just config changes, no code rewrites.
+Swap Behavioral Cloning for Diffusion or Flow Matching, replace a ResNet with a ViT or VLM backbone, or run your policy on a completely new dataset format. Compatible components can be freely swapped with config changes, no source code rewrites.
 
 Rapid experimentation, cleaner code, and true reusability across projects.
 
@@ -95,7 +94,7 @@ Instead, VersatIL handles this with a two-stage approach:
 ### 🏋️‍♂️ During Training
 #### 🎯 Task Definition
 
-The **TaskConfig** selects what subset of the Zarr data to use, allowing multiple tasks from a single dataset without duplication:
+The **TaskSpace** selects what subset of the Zarr data to use, allowing multiple tasks from a single dataset without duplication:
 
 - **Observation space** — Choose which observations will be given to the robot policy as state, e.g. which cameras, proprioception, depth, language instructions, etc.
 - **Action space** — Choose which ground-truth actions will be given to your robot policy and in which format, e.g. deltas or absolute positions, gripper states, end-effector orientation, etc.
@@ -191,7 +190,7 @@ mamba activate versatil
 # 3. Install dependencies with uv
 UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
 
-# 4. Install pre-commit hooks (linting + type checking on every commit)
+# 4. Install pre-commit hooks (formatting + linting on every commit)
 pre-commit install
 ```
 
@@ -276,10 +275,11 @@ The `Policy` class orchestrates three stages:
 # 1. Encode observations
 features = encoding_pipeline(observations)  # Multi-modal → unified representation
 
-# 2. Decode actions
+# 2. Decode actions (algorithm orchestrates the decoder internally)
 predictions = algorithm.forward(
-    decoder(features),  # Algorithm uses decoder architecture
-    actions=ground_truth  # During training
+    network=decoder,       # Algorithm receives decoder as a callable
+    features=features,
+    actions=ground_truth,  # During training
 )
 
 # 3. Compute loss
@@ -294,14 +294,14 @@ VersatIL relies on strict naming conventions to wire encoders to decoders automa
 **The Rule:** `feature_name = "{encoder_name}_{type}"`
 
 If you define an RGB encoder named `left_eye`, it produces:
-* `left_eye_image` (The spatial features)
+* `left_eye_rgb` (The spatial features)
 
 If you define a proprioception encoder named `robot_state`, it produces:
 * `robot_state_proprio` (The flat features)
 
 For multimodal encoders that produce multiple features, such as Vision-Language models, we use a dot separator to select the feature.
 If you define a VLM encoder named `vlm_model`, it produces:
-* `vlm_model.image` (Image features)
+* `vlm_model.rgb` (Image features)
 * `vlm_model.language` (Text features)
 
 **Why strict naming?**
@@ -312,7 +312,7 @@ but you feed it **SPATIAL** (3D) features from a ResNet, the code raises a `Valu
 **Fusion outputs** specify `output_name` directly, due to their multi-input nature.
 ```python
 fusion = AttentionFusion(
-    input_features=["left_eye_image", "right_eye_image"],  # Use encoder feature names
+    input_features=["left_eye_rgb", "right_eye_rgb"],  # Use encoder feature names
     output_name="fused_visual"  # Direct name (no prefix)
 )
 ```
@@ -325,22 +325,22 @@ fusion = AttentionFusion(
 
 ### Encoders
 
-- **RGB** via [timm](https://github.com/huggingface/pytorch-image-models) 
-  - CNNEncoder: ResNet, EfficientNet, EdgeNeXt
-  - ConditionalCNNEncoder: CNN with FiLM conditioning
-  - ViTEncoder: ViT Base, DINOv2, DINOv3
+- **RGB**
+  - CNNEncoder: Any [timm](https://github.com/huggingface/pytorch-image-models) backbone (ResNet, EfficientNet, EdgeNeXt, MobileNetV4, ...)
+  - ViTEncoder: Any [timm](https://github.com/huggingface/pytorch-image-models) ViT via [HF Transformers](https://github.com/huggingface/transformers) (CLIP ViT, DINOv2, DINOv3, ...)
+  - ConditionalCNNEncoder: Custom ResNet with FiLM conditioning
 - **Depth**
   - DepthCNNEncoder: timm backbones adapted for single-channel depth
   - DFormerV2: RGB-D encoder with Geometric Attention ([paper](https://arxiv.org/abs/2504.04701))
   - LightGeometric: Custom lightweight geometric depth encoder
-- **Language** via [transformers](https://github.com/huggingface/transformers): BERT Base, DistilBERT Base, MiniLM-L6, Gemma 2B, Qwen2-1.5B
-- **Proprioceptive**: ProprioEncoder - MLP for robot state
-- **VLM** via [transformers](https://github.com/huggingface/transformers): CLIP, SigLIP
+- **Language** via [HF Transformers](https://github.com/huggingface/transformers): BERT, DistilBERT, MiniLM, Gemma, Qwen, ALBERT, ...
+- **Proprioceptive**: ProprioceptiveEncoder — MLP for robot state
+- **VLM** via [HF Transformers](https://github.com/huggingface/transformers): CLIP, SigLIP, ...
 
 Available backbones are listed in `src/versatil/models/encoding/encoders/constants.py` (`RGBBackboneType`, `LanguageEncoderType`, `ImageTextModelType`).
 They can be easily extended by either:
-- adding new Enum values that map to timm or transformers model names. 
-- Implementing custom encoder classes that subclass `EncoderBase`.
+- Adding new Enum values that map to timm or HF Transformers model names.
+- Implementing custom encoder classes that subclass `Encoder` (or `ConditionalEncoder` for conditioned encoders).
 
 ### Fusion
 
@@ -375,20 +375,20 @@ Each decoder can customize how it integrates the latent `z` token into its archi
 
 ### Decoders
 
-- `ActionTransformer` - **Novel** Action Transformer Decoder, using modern components s.a. Rotary Positional Embeddings and RMSNorm.
+- `ActionTransformer` - Bidirectional Transformer Decoder with any configurable positional encoding, normalization, and activation layers.
 - `ACT` - Action Chunking Transformer ([paper](https://arxiv.org/abs/2304.13705))
-- `LACT` - **Novel** Latent ACtion Transformer
+- `LACT` - **Novel** Latent Action Transformer
 - `PhaseACT` - Phase-aware ACT with surgical phase prediction ([paper](https://arxiv.org/abs/2601.21971))
 - `FreeTransformer` - **Novel** Free Transformer action decoder inspired by ([paper](https://arxiv.org/pdf/2510.17558))
 - `MoEFreeActionTransformer` - Mixture of Experts on top of Free Transformer
 - `GPTActionTransformer` - **Novel** autoregressive GPT-style decoder with tokenized actions in the style of ([pi0-FAST](https://www.physicalintelligence.company/blog/pi0-fast))
 - `DiscreteDETRActionTransformer` - DETR-style decoder (https://arxiv.org/abs/2005.12872) with tokenized actions
-- `ConditionalUNet` - U-Net for Diffusion Policy ([paper](https://arxiv.org/abs/2303.04137))
+- `ConditionalActionUNet` - U-Net for Diffusion Policy ([paper](https://arxiv.org/abs/2303.04137))
 - `DiTBlockActionTransformer` - DiT-Block Action Transformer (from [paper](https://arxiv.org/html/2410.10088v1))
 - `DiffusionActionTransformer` - **Novel** Diffusion Action Transformer supporting two different architectures:
     - With cross-attention to encoder tokens, using an architecture inspired by PixArt ([paper](https://arxiv.org/abs/2310.00426))
     - With a dual-attention stream, using the MultiModal DiT architecture from SD3   ([paper](https://arxiv.org/abs/2403.03206))
-- `MoEDecoderWrapper` - Mixture of Experts wrapper to use on top of any decoder
+- `MoEDecoder` - Mixture of Experts wrapper applicable on top of any decoder
 
 You can easily extend the available decoders by implementing new classes that subclass `versatil.models.decoding.decoders.base.ActionDecoder`.
 
@@ -402,11 +402,23 @@ An end-to-end training config just points to the blocks it wants to use:
 
 ```yaml
 # hydra_configs/end_to_end_training_runs/bowel_retraction/act.yaml
+# @package _global_
+_target_: versatil.configs.main.MainConfig
+
 defaults:
-  - /dataset_schema: bowel_retraction    # Loads raw dataset schema
-  - /task: bowel_retraction     # Loads task definition
-  - /policy: act                # Loads ACT architecture
-  - ...
+  - /task: base
+  - /policy: base
+  - /experiment: default
+  - /task/dataset_schema: bowel_retraction_v2   # Raw data format
+  - /task/dataloader: bowel_retraction           # Batch size, workers, augmentation
+  - /task/action_space: deltas_cf_pos_gripper_phase
+  - /task/observation_space: stereo_rgb
+  - /training: default
+  - /policy/encoding_pipeline: stereo_rgb        # Encoder + fusion config
+  - /policy/decoder: act_default                 # Action decoder architecture
+  - /policy/algorithm: bc_with_vae_gaussian      # Learning algorithm
+  - /policy/loss: regression_gripper_KL          # Loss composition
+  - /inference: default
   - _self_
 ```
 

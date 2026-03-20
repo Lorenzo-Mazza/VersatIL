@@ -82,7 +82,7 @@ The modular design separates concerns into composable components configured via 
 
 ### Core Design Philosophy
 
-**Policy = EncodingPipeline + Decoder + Loss**
+**Policy = EncodingPipeline + Action Decoder + Loss**
 
 Where:
 - **EncodingPipeline**: Multi-modal observation encoding with hierarchical fusion
@@ -126,19 +126,19 @@ src/versatil/
 │   │   ├── encoders/
 │   │   │   ├── encoder.py            # Base encoder interface
 │   │   │   ├── conditional.py        # ConditionalEncoder (e.g., FiLM)
-│   │   │   ├── rgb/                  # CNN, ViT, ConditionalCNN
-│   │   │   ├── depth/                # CNN, DFormerV2, LightGeometric
-│   │   │   ├── proprioceptive/       # MLP-based encoders
-│   │   │   ├── language/             # Text encoders
-│   │   │   └── multimodal/           # VLM encoders
+│   │   │   ├── rgb/                  # timm CNN, HF ViT, Custom Conditional CNN (FiLM)
+│   │   │   ├── depth/                # timm CNN, DFormerV2, Custom Geometric Encoder
+│   │   │   ├── proprioceptive/       # MLP-based encoder
+│   │   │   ├── language/             # HF Transformers language encoders
+│   │   │   └── multimodal/           # HF Transformers VLM encoders
 │   │   └── fusion/
 │   │       ├── base.py               # Base fusion interface
 │   │       ├── concat.py, mlp.py, attention.py
-│   │       └── sequential.py, spatial.py
+│   │       └── constants.py
 │   ├── decoding/
 │   │   ├── decoders/
 │   │   │   ├── base.py               # Base decoder with algorithm + architecture + heads
-│   │   │   └── factory/              # Pre-configured decoder factories (ACT, DiT, GPT, etc.)
+│   │   │   └── factory/              # Pre-configured decoder factories (ACT, Action Transformer, Conditional Action U-Net, CrossAttention/MMDiT, Discrete-DETR, DiT Block, Free Transformer, GPT, LACT, MoDE-ACT, MoE Free Transformer, Phase-ACT)
 │   │   ├── algorithm/
 │   │   │   ├── base.py               # Algorithm interface (forward/predict)
 │   │   │   ├── behavior_cloning.py
@@ -271,7 +271,7 @@ def validate_decoder(self):
 
 This ensures configuration errors are caught early, not during training.
 
-#### 2. Algorithm vs Architecture Separation
+#### 2. Algorithm / Architecture / Loss Separation
 
 **Algorithm** defines the learning paradigm (how to train/predict):
 - Behavioral Cloning: direct supervision
@@ -280,6 +280,8 @@ This ensures configuration errors are caught early, not during training.
 
 **Architecture** defines the neural network structure:
 - Transformer, MLP, UNet, DETR, etc.
+
+**Loss** defines the training objective (composable loss modules).
 
 They compose independently:
 ```python
@@ -304,9 +306,9 @@ VariationalAlgorithm(
 
 **Components**:
 - **Posterior Encoder** (e.g., VAETransformerEncoder): Encodes actions into latent z during training via q(z|a,s)
-- **Prior** (GaussianPrior or DiffusionPrior): Samples latent z during inference via p(z|s)
+- **Prior** (GaussianPrior or DiTPrior): Samples latent z during inference via p(z|s)
   - `GaussianPrior`: Simple N(0,I) prior (auto-created if prior=None)
-  - `DiffusionPrior`: Learned diffusion-based prior (more expressive)
+  - `DiTPrior`: Learned diffusion-based prior (more expressive)
 - **Base Algorithm**: Any decoding algorithm (BC, FlowMatching, Diffusion, etc.)
 
 **Training Flow**:
@@ -333,21 +335,20 @@ VariationalAlgorithm(
 VariationalAlgorithm(
     base_algorithm=FlowMatching(...),
     posterior_encoder=VAETransformerEncoder(...),
-    prior=DiffusionPrior(...)
+    prior=DiTPrior(...)
 )
 
 # NEW: Variational Diffusion (previously impossible)
 VariationalAlgorithm(
     base_algorithm=Diffusion(...),
     posterior_encoder=VAETransformerEncoder(...),
-    prior=DiffusionPrior(...)
+    prior=DiTPrior(...)
 )
 ```
 
 **Configs** (`hydra_configs/policy/algorithm/`):
 - `bc_with_vae_gaussian.yaml`: BC + VAE + Gaussian prior
-- `bc_with_learned_prior.yaml`: BC + VAE + Diffusion prior
-- `variational_diffusion.yaml`: Diffusion + VAE + Diffusion prior
+- `bc_with_learned_prior.yaml`: BC + VAE + DiT prior
 
 **⚠️ IMPORTANT - No Backward Compatibility**:
 The old variational APIs have been **completely removed** (no deprecation warnings):
