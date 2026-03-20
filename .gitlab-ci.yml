@@ -12,7 +12,7 @@ variables:
 
 # Reusable setup template
 .setup:
-  image: python:3.14
+  image: python:3.14.2
   before_script:
     - pip install uv
     - |
@@ -33,14 +33,14 @@ variables:
       fi
     - uv sync
   cache:
-    key: "$CI_COMMIT_REF_SLUG"
+    key: "$CI_COMMIT_REF_SLUG-$CI_COMMIT_SHORT_SHA"
     paths:
       - .cache/
       - .venv/
 
 ruff-format:
   stage: lint
-  image: python:3.14
+  image: python:3.14.2
   before_script:
     - pip install ruff==0.15.6
   script:
@@ -51,7 +51,7 @@ ruff-format:
 
 ruff-lint:
   stage: lint
-  image: python:3.14
+  image: python:3.14.2
   before_script:
     - pip install ruff==0.15.6
   script:
@@ -100,7 +100,7 @@ e2e-tests:
 
 publish-pypi:
   stage: publish
-  image: python:3.14
+  image: python:3.14.2
   before_script:
     - pip install build twine
   script:
