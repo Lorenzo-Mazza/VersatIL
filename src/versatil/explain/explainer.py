@@ -5,6 +5,7 @@ interpretability techniques including GradCAM, saliency maps, and integrated gra
 """
 
 from collections.abc import Callable
+from typing import Any
 
 import cv2
 import numpy as np
@@ -36,7 +37,7 @@ class PolicyExplainerWrapper(nn.Module):
         self.policy = policy
 
     def forward(
-        self, observation: dict[str, torch.Tensor], **kwargs
+        self, observation: dict[str, torch.Tensor], **kwargs: Any
     ) -> tuple[dict[str, torch.Tensor], ...]:
         """Forward pass compatible with explainer signature.
 
@@ -57,7 +58,9 @@ class PolicyExplainerWrapper(nn.Module):
         return (predictions,)
 
 
-def create_target_layers_getter_from_policy(policy):
+def create_target_layers_getter_from_policy(
+    policy: Policy,
+) -> Callable[[str], list[nn.Module]]:
     """Create a target_layers_getter function from a Policy instance.
 
     This helper creates a closure that uses the Policy's standardized methods
@@ -108,7 +111,7 @@ def compute_gradcam_custom(
     output_selector: Callable[[dict[str, torch.Tensor]], torch.Tensor],
     target_camera: str | None = None,
     eigen_smooth: bool = False,
-    **forward_kwargs,
+    **forward_kwargs: Any,
 ) -> dict[str, torch.Tensor]:
     """Compute GradCAM-based explanations for model predictions.
 
@@ -278,7 +281,7 @@ def compute_saliency_maps(
     output_selector: Callable[[torch.Tensor], torch.Tensor],
     target_camera: str | None = None,
     smooth: bool = False,
-    **forward_kwargs,
+    **forward_kwargs: Any,
 ) -> dict[str, torch.Tensor]:
     """Compute vanilla saliency maps (input gradients) for input images.
 
@@ -342,7 +345,7 @@ def compute_integrated_grad_maps(
     num_steps: int = 50,
     baseline: torch.Tensor | None = None,
     smooth: bool = False,
-    **forward_kwargs,
+    **forward_kwargs: Any,
 ) -> dict[str, torch.Tensor]:
     """Compute Integrated Gradients attributions for input images.
 
@@ -409,7 +412,7 @@ def compute_integrated_grad_maps(
 
 
 def compute_gradcam_for_policy(
-    policy,
+    policy: Policy,
     observation: dict[str, torch.Tensor],
     explanation_type: str = ExplanationType.GRADCAM.value,
     output_selector: Callable[[dict[str, torch.Tensor]], torch.Tensor] | None = None,

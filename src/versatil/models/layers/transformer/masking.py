@@ -43,8 +43,8 @@ def create_full_padding_mask(
 
     Returns:
         Tuple with:
-          total_mask: Updated self-attention mask (B, 1, query_length, key_length) where True=masked.
-          full_key_padding_mask: Combined key padding mask (B, key_length) with True=padding.
+            total_mask: Updated self-attention mask (B, 1, query_length, key_length) where True=masked.
+            full_key_padding_mask: Combined key padding mask (B, key_length) with True=padding.
 
     Note:
         This function always applies causal masking if the self_attention_mask is None.

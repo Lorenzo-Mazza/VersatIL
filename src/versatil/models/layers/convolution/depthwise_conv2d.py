@@ -15,7 +15,7 @@ class DepthwiseConv2D(nn.Module):
             dimension, dimension, kernel_size, stride, padding, groups=dimension
         )
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
             x: input of shape (batch, height, width, channels).

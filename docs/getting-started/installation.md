@@ -1,0 +1,129 @@
+# Installation
+
+## Prerequisites
+
+| Requirement | Minimum Version | Notes |
+|-------------|----------------|-------|
+| Python | 3.11+ | Required |
+| CUDA | 12.4+ | Required for training (flash-attn needs CUDA runtime libraries) |
+| Git | Latest | Credentials for private repositories if applicable |
+
+## Setup
+
+### 1. Install Conda/Mamba
+
+Install [Miniforge](https://github.com/conda-forge/miniforge) to get `conda` and `mamba`. Mamba is recommended over conda for significantly faster dependency resolution.
+
+### 2. Clone and Create Environment
+
+```bash
+git clone https://gitlab.com/nct_tso_public/versatil.git
+cd versatil
+
+# Create environment (use mamba for faster installation)
+mamba env create -f environment.yml
+mamba activate versatil
+```
+
+The `environment.yml` creates a minimal conda environment with Python 3.11 and uv.
+
+### 3. Install Dependencies
+
+VersatIL uses [uv](https://github.com/astral-sh/uv) for fast, reproducible dependency management. All dependencies are declared in `pyproject.toml`.
+
+```bash
+UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
+```
+
+This installs all packages into the active conda environment, including:
+
+- **PyTorch 2.4.0** with CUDA 12.4 from the PyTorch index
+- **flash-attn** (built from source, requires CUDA toolkit)
+- **Hydra + OmegaConf** for configuration
+- **Lightning 2.5.5** for training
+- **timm**, **transformers**, **diffusers** for model backbones
+- **albumentations** for image augmentation
+- **wandb** for experiment tracking
+
+### 4. Install Pre-commit Hooks
+
+```bash
+pre-commit install
+```
+
+This enables automatic Ruff formatting and linting on every `git commit`.
+
+## SLURM Cluster Installation
+
+!!! warning "GPU Required During Installation"
+    `flash-attn` must be compiled against the CUDA runtime. On SLURM clusters where login nodes lack GPUs, request an interactive session first:
+
+    ```bash
+    srun --gres=gpu:1 --cpus-per-task=1 --pty bash
+    ```
+
+    Then run the installation commands above within that session.
+
+## Environment Configuration
+
+VersatIL uses a `.env` file for machine-specific paths. These variables are resolved at runtime by OmegaConf custom resolvers (e.g., `${checkpoint_dir:bowel_retraction}` in YAML configs).
+
+Copy the example file and edit it:
+
+```bash
+cp .env.example .env
+```
+
+### Required Variables
+
+```bash
+# Where model checkpoints are saved
+VERSATIL_CHECKPOINT_DIR=/path/to/checkpoints
+
+# Preprocessed Zarr datasets
+VERSATIL_ZARR_DIR=/path/to/zarr
+
+# HuggingFace/torch model cache (downloads from timm, transformers, etc.)
+VERSATIL_CACHE_DIR=/path/to/cache
+```
+
+### Dataset Path Variables
+
+Set only the variables for datasets you use:
+
+```bash
+# Pretrained models directory
+VERSATIL_PRETRAINED_DIR=/path/to/pretrained_models
+
+# Raw data paths (one per dataset)
+VERSATIL_BOWEL_RETRACTION_DIR=/path/to/bowel_retraction
+VERSATIL_LIBERO_HDF5_DIR=/path/to/libero/datasets
+VERSATIL_LIBERO_LEROBOT_DIR=/path/to/libero_lerobot
+VERSATIL_LIBERO_PLUS_LEROBOT_DIR=/path/to/libero_plus_lerobot
+VERSATIL_METAWORLD_LEROBOT_DIR=/path/to/metaworld_lerobot
+```
+
+### WandB Variables (Optional)
+
+```bash
+WANDB_PROJECT=versatil
+WANDB_ENTITY=your-team
+```
+
+!!! tip
+    If `VERSATIL_CACHE_DIR` is not set, it defaults to `~/.cache/versatil`. If `VERSATIL_CHECKPOINT_DIR` or `VERSATIL_ZARR_DIR` are not set, they default to the current working directory.
+
+## Verifying the Installation
+
+Activate the environment and run the unit tests:
+
+```bash
+mamba activate versatil
+pytest
+```
+
+To verify CUDA availability:
+
+```bash
+python -c "import torch; print(torch.cuda.is_available())"
+```

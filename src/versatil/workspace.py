@@ -545,7 +545,7 @@ class Workspace:
         else:
             self.tokenizer = None
 
-    def predict(self, obs_dict):
+    def predict(self, obs_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Predict actions from observations.
 
         Args:

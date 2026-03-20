@@ -202,11 +202,11 @@ class CachedAttention(nn.Module):
         Args:
             query_input: Query input (B, query_len, D)
             key_input: Key input (B, key_len, D). If None and use_cross_attention_cache=True,
-             uses precomputed K from layer_cache
+                uses precomputed K from layer_cache
             value_input: Value input (B, value_len, D). If None and use_cross_attention_cache=True,
-             uses precomputed V from layer_cache
+                uses precomputed V from layer_cache
             attention_mask: Optional attention mask (B,  1, query_len, key_len) where True means masked.
-             If None, no masking is applied.
+                If None, no masking is applied.
             layer_cache: Optional cached keys/values
             use_self_attention_cache: Whether to return updated cache for self-attention
             positional_encoding: Optional positional encoding module (for RoPE)

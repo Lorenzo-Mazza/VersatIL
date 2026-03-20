@@ -2,6 +2,7 @@
 
 import copy
 import io
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -88,8 +89,8 @@ class EMACallback(Callback):
         self,
         trainer: pl.Trainer,
         pl_module: pl.LightningModule,
-        outputs,
-        batch,
+        outputs: torch.Tensor | dict[str, Any] | None,
+        batch: Any,
         batch_idx: int,
     ) -> None:
         """Update EMA model after each training batch.
@@ -413,7 +414,7 @@ class GradientNormCallback(Callback):
         self,
         trainer: pl.Trainer,
         pl_module: pl.LightningModule,
-        optimizer,
+        optimizer: torch.optim.Optimizer,
     ) -> None:
         """Log gradient norms before optimizer step (after gradient clipping).
 
