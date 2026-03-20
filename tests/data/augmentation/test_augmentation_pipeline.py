@@ -139,6 +139,25 @@ class TestApplyRGBAugmentations:
             result = pipeline.apply_rgb_augmentations(images)
 
         expected = np.full((3, 224, 224, 3), 0.5, dtype=np.float32)
+        print(f"DEBUG numpy version: {np.__version__}")
+        print(
+            f"DEBUG result: shape={result.shape}, dtype={result.dtype}, size={result.size}"
+        )
+        print(
+            f"DEBUG expected: shape={expected.shape}, dtype={expected.dtype}, size={expected.size}"
+        )
+        print(
+            f"DEBUG result[:3]={result.ravel()[:3]}, expected[:3]={expected.ravel()[:3]}"
+        )
+        print(f"DEBUG result flags: {result.flags}")
+        print(f"DEBUG expected flags: {expected.flags}")
+        print(
+            f"DEBUG np.array_equal(result, expected): {np.array_equal(result, expected)}"
+        )
+        flagged = np.isnan(expected)
+        print(f"DEBUG flagged shape={flagged.shape}, any={flagged.any()}")
+        print(f"DEBUG expected[~flagged] shape={expected[~flagged].shape}")
+        print(f"DEBUG result[~flagged] shape={result[~flagged].shape}")
         assert result.shape == (3, 224, 224, 3)
         np.testing.assert_allclose(result, expected)
         assert mock_instance.call_count == 3
