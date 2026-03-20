@@ -7,12 +7,14 @@ from typing import Any
 
 import numpy as np
 import torch
-from transformers import AutoProcessor, AutoTokenizer, PreTrainedTokenizerFast
+from transformers import AutoTokenizer
+from transformers.processing_utils import ProcessorMixin
 
 from versatil.data.constants import (
     SampleKey,
     TokenizerType,
 )
+from versatil.data.tokenization.fast import load_fast_processor
 
 # Disable tokenizers parallelism to avoid fork warnings with DataLoader workers
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -78,7 +80,7 @@ class ActionTokenizer:
         self.eos_token_id: int | None = None  # Set when vocab_size is finalized
         self.device = device if device is not None else torch.device("cpu")
 
-        self.fast_processor: PreTrainedTokenizerFast | None = None
+        self.fast_processor: ProcessorMixin | None = None
         self.language_tokenizer: AutoTokenizer | None = None
         self.vocab_size: int | None = None
         self._is_fitted = False
@@ -88,9 +90,7 @@ class ActionTokenizer:
     def _build_tokenizers(self) -> None:
         """Build the tokenizer chain."""
         if TokenizerType.FAST.value in self.tokenizer_chain:
-            self.fast_processor = AutoProcessor.from_pretrained(
-                self.fast_tokenizer_model, trust_remote_code=True
-            )
+            self.fast_processor = load_fast_processor(self.fast_tokenizer_model)
             if self.use_pretrained_fast:
                 self._is_fitted = True
                 self.vocab_size = self.fast_vocab_size
@@ -555,9 +555,7 @@ class ActionTokenizer:
         tokenizer.load_state_dict(state_dict)
         fast_path = path / "fast_processor"
         if fast_path.exists() and tokenizer.fast_processor is not None:
-            tokenizer.fast_processor = AutoProcessor.from_pretrained(
-                str(fast_path), trust_remote_code=True
-            )
+            tokenizer.fast_processor = load_fast_processor(str(fast_path))
             tokenizer.fast_processor.time_horizon = state_dict.get("time_horizon")
             tokenizer.fast_processor.action_dim = state_dict.get("action_dim")
             tokenizer._is_fitted = True

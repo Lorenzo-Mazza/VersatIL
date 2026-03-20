@@ -12,7 +12,7 @@ variables:
 
 # Reusable setup template
 .setup:
-  image: python:3.13
+  image: python:3.14
   before_script:
     - pip install uv
     - |
@@ -40,7 +40,7 @@ variables:
 
 ruff-format:
   stage: lint
-  image: python:3.13
+  image: python:3.14
   before_script:
     - pip install ruff==0.15.6
   script:
@@ -51,7 +51,7 @@ ruff-format:
 
 ruff-lint:
   stage: lint
-  image: python:3.13
+  image: python:3.14
   before_script:
     - pip install ruff==0.15.6
   script:
@@ -100,7 +100,7 @@ e2e-tests:
 
 publish-pypi:
   stage: publish
-  image: python:3.13
+  image: python:3.14
   before_script:
     - pip install build twine
   script:

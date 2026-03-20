@@ -238,10 +238,9 @@ class VLMEncoder(Encoder):
             text_input_ids, language_mask
         )
         if not self.requires_fixed_size:
-            # SigLIP naflex requires padding
-            images = self.image_processor(
-                images=images, return_tensors="pt", padding=True
-            ).to(images.device)
+            images = self.image_processor(images=images, return_tensors="pt").to(
+                images.device
+            )
         else:
             images = self.image_processor(
                 images=images,

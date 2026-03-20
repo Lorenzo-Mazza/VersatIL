@@ -12,16 +12,18 @@ from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 
 @pytest.fixture
 def mock_auto_processor():
-    """Patches AutoProcessor in action_tokenizer module."""
-    with patch("versatil.data.tokenization.action_tokenizer.AutoProcessor") as mock:
-        mock.from_pretrained.return_value.time_horizon = None
-        mock.from_pretrained.return_value.action_dim = None
+    """Patches load_fast_processor in action_tokenizer module."""
+    with patch(
+        "versatil.data.tokenization.action_tokenizer.load_fast_processor"
+    ) as mock:
+        mock.return_value.time_horizon = None
+        mock.return_value.action_dim = None
         yield mock
 
 
 @pytest.fixture
 def action_tokenizer_factory(mock_auto_processor):
-    """Factory for ActionTokenizer with AutoProcessor mocked."""
+    """Factory for ActionTokenizer with load_fast_processor mocked."""
 
     def factory(
         tokenizer_chain: list[str] | None = None,
@@ -107,9 +109,7 @@ class TestActionTokenizerBuildTokenizers:
         ActionTokenizer(
             tokenizer_chain=[TokenizerType.FAST.value], use_pretrained_fast=True
         )
-        mock_auto_processor.from_pretrained.assert_called_once_with(
-            "physical-intelligence/fast", trust_remote_code=True
-        )
+        mock_auto_processor.assert_called_once_with("physical-intelligence/fast")
 
     def test_custom_fast_model_name(self, mock_auto_processor):
         ActionTokenizer(
@@ -117,9 +117,7 @@ class TestActionTokenizerBuildTokenizers:
             use_pretrained_fast=True,
             fast_tokenizer_model="custom/model",
         )
-        mock_auto_processor.from_pretrained.assert_called_once_with(
-            "custom/model", trust_remote_code=True
-        )
+        mock_auto_processor.assert_called_once_with("custom/model")
 
     @patch("versatil.data.tokenization.action_tokenizer.AutoTokenizer")
     def test_language_in_chain_loads_language_tokenizer(
@@ -919,9 +917,9 @@ class TestActionTokenizerFromPretrained:
             "is_fitted": True,
         }
         loaded = ActionTokenizer.from_pretrained(save_path)
-        assert mock_auto_processor.from_pretrained.call_count == 2
-        second_call = mock_auto_processor.from_pretrained.call_args_list[1]
-        assert str(save_path / "fast_processor") in second_call[0]
+        assert mock_auto_processor.call_count == 2
+        second_call = mock_auto_processor.call_args_list[1]
+        assert second_call[0][0] == str(save_path / "fast_processor")
         assert loaded._is_fitted is True
 
     @patch("versatil.data.tokenization.action_tokenizer.AutoTokenizer")
