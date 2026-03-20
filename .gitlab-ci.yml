@@ -47,7 +47,7 @@ ruff-format:
     - ruff format --check src/ tests/
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 ruff-lint:
   stage: lint
@@ -58,7 +58,7 @@ ruff-lint:
     - ruff check src/ tests/
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 tests:
   stage: test
@@ -79,7 +79,7 @@ tests:
         path: coverage.xml
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 e2e-tests:
   stage: test
