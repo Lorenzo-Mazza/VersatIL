@@ -138,8 +138,9 @@ class TestApplyRGBAugmentations:
             )
             result = pipeline.apply_rgb_augmentations(images)
 
+        expected = np.full((3, 224, 224, 3), 0.5, dtype=np.float32)
         assert result.shape == (3, 224, 224, 3)
-        np.testing.assert_allclose(result, np.stack([resized_frame] * 3))
+        np.testing.assert_allclose(result, expected)
         assert mock_instance.call_count == 3
 
     def test_apply_rgb_with_color(

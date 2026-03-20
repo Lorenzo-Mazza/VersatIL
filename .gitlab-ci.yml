@@ -65,7 +65,7 @@ tests:
   extends: .setup
   script:
     - uv pip install pytest-cov
-    - python -m pytest tests/ -m "not integration and not slow and not requires_gpu" --cov=versatil --tb=short -q --junitxml=report-unit.xml || true
+    - python -m pytest tests/ -m "not integration and not slow and not requires_gpu" --cov=versatil --tb=short -q --junitxml=report-unit.xml
     - python -m pytest tests/ -m "integration" --cov=versatil --cov-append --cov-fail-under=90 --cov-report=xml:coverage.xml --cov-report=term-missing --tb=short -q --junitxml=report-integration.xml
   coverage: '/(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
   artifacts:
