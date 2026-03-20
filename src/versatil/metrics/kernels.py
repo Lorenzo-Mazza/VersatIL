@@ -171,7 +171,7 @@ class IMQKernel(MMDKernel):
         return kernel
 
 
-class KernelType(str, enum.Enum):
+class KernelType(enum.StrEnum):
     """Kernel type for MMD computation."""
 
     RBF = "rbf"

@@ -52,7 +52,7 @@ class VLMEncoder(Encoder):
         config = AutoConfig.from_pretrained(model_name)
         if pretrained:
             self.encoder = AutoModel.from_pretrained(
-                model_name, attn_implementation=attention_type, use_safetensors=True
+                model_name, attn_implementation=attention_type
             )
         else:
             self.encoder = AutoModel.from_config(
@@ -219,7 +219,7 @@ class VLMEncoder(Encoder):
         if not isinstance(text_input_ids, torch.Tensor):
             raise ValueError("tokenized_observations must be a tensor")
 
-        language_mask = inputs.get(SampleKey.IS_PAD_OBSERVATION.value, None)
+        language_mask = inputs.get(SampleKey.IS_PAD_OBSERVATION.value)
 
         T = None
         if images.dim() == 5:
@@ -238,10 +238,9 @@ class VLMEncoder(Encoder):
             text_input_ids, language_mask
         )
         if not self.requires_fixed_size:
-            # SigLIP naflex requires padding
-            images = self.image_processor(
-                images=images, return_tensors="pt", padding=True
-            ).to(images.device)
+            images = self.image_processor(images=images, return_tensors="pt").to(
+                images.device
+            )
         else:
             images = self.image_processor(
                 images=images,

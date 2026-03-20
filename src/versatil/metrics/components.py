@@ -633,7 +633,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
 
         z_posterior = predictions[LatentKey.POSTERIOR_LATENT.value]  # (B, latent_dim)
         original_z_prior = predictions.get(
-            LatentKey.PRIOR_LATENT.value, None
+            LatentKey.PRIOR_LATENT.value
         )  # (B, latent_dim) or None
         if self.use_fixed_gaussian_as_prior:
             z_prior = torch.randn_like(z_posterior)  # (B, latent_dim)

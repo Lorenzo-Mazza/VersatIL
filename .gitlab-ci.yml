@@ -12,7 +12,7 @@ variables:
 
 # Reusable setup template
 .setup:
-  image: python:3.11
+  image: python:3.14
   before_script:
     - pip install uv
     - |
@@ -27,45 +27,45 @@ variables:
         rm -rf .venv
         uv venv .venv
         source .venv/bin/activate
-        uv pip install --extra-index-url https://download.pytorch.org/whl/cpu torch==2.4.0 torchaudio==2.4.0 torchvision==0.19.0
+        uv pip install --extra-index-url https://download.pytorch.org/whl/cpu torch==2.10.0 torchaudio==2.10.0 torchvision==0.25.0
       else
         source .venv/bin/activate
       fi
-    - uv sync --no-install-package flash-attn
+    - uv sync
   cache:
-    key: "$CI_COMMIT_REF_SLUG"
+    key: "$CI_COMMIT_REF_SLUG-$CI_COMMIT_SHORT_SHA"
     paths:
       - .cache/
       - .venv/
 
 ruff-format:
   stage: lint
-  image: python:3.11
+  image: python:3.14
   before_script:
-    - pip install ruff==0.14.3
+    - pip install ruff==0.15.6
   script:
     - ruff format --check src/ tests/
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 ruff-lint:
   stage: lint
-  image: python:3.11
+  image: python:3.14
   before_script:
-    - pip install ruff==0.14.3
+    - pip install ruff==0.15.6
   script:
     - ruff check src/ tests/
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 tests:
   stage: test
   extends: .setup
   script:
     - uv pip install pytest-cov
-    - python -m pytest tests/ -m "not integration and not slow and not requires_gpu" --cov=versatil --tb=short -q --junitxml=report-unit.xml || true
+    - python -m pytest tests/ -m "not integration and not slow and not requires_gpu" --cov=versatil --tb=short -q --junitxml=report-unit.xml
     - python -m pytest tests/ -m "integration" --cov=versatil --cov-append --cov-fail-under=90 --cov-report=xml:coverage.xml --cov-report=term-missing --tb=short -q --junitxml=report-integration.xml
   coverage: '/(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/'
   artifacts:
@@ -79,7 +79,7 @@ tests:
         path: coverage.xml
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 e2e-tests:
   stage: test
@@ -100,7 +100,7 @@ e2e-tests:
 
 publish-pypi:
   stage: publish
-  image: python:3.11
+  image: python:3.14
   before_script:
     - pip install build twine
   script:

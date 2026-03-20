@@ -150,7 +150,7 @@ class TransformerInputBuilder(nn.Module):
             - optional positional encodings (B, Total_Seq, Emb)
             - optional is-padding mask (B, Total_Seq), where True indicates padded tokens
         """
-        action_padding_mask = features.get(SampleKey.IS_PAD_ACTION.value, None)
+        action_padding_mask = features.get(SampleKey.IS_PAD_ACTION.value)
         clean_features = {
             k: v
             for k, v in features.items()
@@ -209,7 +209,7 @@ class TransformerInputBuilder(nn.Module):
             else:
                 raise ValueError(f"Feature '{name}' has unsupported shape {x.shape}")
 
-            padding_mask = features.get(f"{name}_padding_mask", None)
+            padding_mask = features.get(f"{name}_padding_mask")
             if (
                 padding_mask is None
                 and SampleKey.ACTION.value in name

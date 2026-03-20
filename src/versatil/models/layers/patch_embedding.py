@@ -6,7 +6,7 @@ import torch.nn as nn
 from versatil.models.layers.normalization.frozen_batchnorm import FrozenBatchNorm2d
 
 
-class PatchEmbedType(str, enum.Enum):
+class PatchEmbedType(enum.StrEnum):
     """Patch embedding implementation types."""
 
     STANDARD = "standard"  # Single conv, standard ViT

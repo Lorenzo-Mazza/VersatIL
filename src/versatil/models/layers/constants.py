@@ -1,19 +1,19 @@
 import enum
 
 
-class AttentionDecompositionMode(str, enum.Enum):
+class AttentionDecompositionMode(enum.StrEnum):
     """Attention computation strategies for DFormer."""
 
     FULL = "full"
     SEPARABLE = "separable"
 
 
-class Axis(str, enum.Enum):
+class Axis(enum.StrEnum):
     HEIGHT = "height"
     WIDTH = "width"
 
 
-class PositionalEncodingType(str, enum.Enum):
+class PositionalEncodingType(enum.StrEnum):
     """Types of positional encodings."""
 
     SINUSOIDAL = "sinusoidal"
@@ -21,14 +21,14 @@ class PositionalEncodingType(str, enum.Enum):
     ROPE = "rope"
 
 
-class AttentionType(str, enum.Enum):
+class AttentionType(enum.StrEnum):
     """Types of attention mechanisms."""
 
     MULTI_HEAD = "mha"
     GROUPED_QUERY = "gqa"
 
 
-class ConditioningType(str, enum.Enum):
+class ConditioningType(enum.StrEnum):
     """Types of conditional modulation for transformers."""
 
     ADALN = "adaln"  # Adaptive Layer Normalization (modulate after norm)

@@ -138,9 +138,7 @@ class TestWebPCodecEncode:
         nd_buffer = NDBuffer.from_ndarray_like(image)
         codec = WebPCodec(level=99)
 
-        result = asyncio.get_event_loop().run_until_complete(
-            codec._encode_single(nd_buffer, spec)
-        )
+        result = asyncio.run(codec._encode_single(nd_buffer, spec))
 
         assert result is not None
         encoded_bytes = np.asarray(result.as_array_like())
@@ -157,9 +155,7 @@ class TestWebPCodecEncode:
         nd_buffer = NDBuffer.from_ndarray_like(red_image)
         codec = WebPCodec(level=100)
 
-        result = asyncio.get_event_loop().run_until_complete(
-            codec._encode_single(nd_buffer, spec)
-        )
+        result = asyncio.run(codec._encode_single(nd_buffer, spec))
 
         # Decode with raw OpenCV to verify BGR storage
         encoded_bytes = np.asarray(result.as_array_like())
@@ -185,12 +181,8 @@ class TestWebPCodecEncode:
         low_codec = WebPCodec(level=1)
         high_codec = WebPCodec(level=level)
 
-        low_result = asyncio.get_event_loop().run_until_complete(
-            low_codec._encode_single(nd_buffer, spec)
-        )
-        high_result = asyncio.get_event_loop().run_until_complete(
-            high_codec._encode_single(nd_buffer, spec)
-        )
+        low_result = asyncio.run(low_codec._encode_single(nd_buffer, spec))
+        high_result = asyncio.run(high_codec._encode_single(nd_buffer, spec))
 
         low_size = np.asarray(low_result.as_array_like()).nbytes
         high_size = np.asarray(high_result.as_array_like()).nbytes
@@ -208,12 +200,8 @@ class TestWebPCodecDecode:
         nd_buffer = NDBuffer.from_ndarray_like(image)
         codec = WebPCodec(level=99)
 
-        encoded = asyncio.get_event_loop().run_until_complete(
-            codec._encode_single(nd_buffer, spec)
-        )
-        decoded = asyncio.get_event_loop().run_until_complete(
-            codec._decode_single(encoded, spec)
-        )
+        encoded = asyncio.run(codec._encode_single(nd_buffer, spec))
+        decoded = asyncio.run(codec._decode_single(encoded, spec))
 
         decoded_array = np.asarray(decoded.as_ndarray_like())
         assert decoded_array.shape == (1, 32, 32, 3)
@@ -230,12 +218,8 @@ class TestWebPCodecDecode:
         nd_buffer = NDBuffer.from_ndarray_like(red_image)
         codec = WebPCodec(level=100)
 
-        encoded = asyncio.get_event_loop().run_until_complete(
-            codec._encode_single(nd_buffer, spec)
-        )
-        decoded = asyncio.get_event_loop().run_until_complete(
-            codec._decode_single(encoded, spec)
-        )
+        encoded = asyncio.run(codec._encode_single(nd_buffer, spec))
+        decoded = asyncio.run(codec._decode_single(encoded, spec))
 
         decoded_array = np.asarray(decoded.as_ndarray_like())
         # Red channel should be dominant after round-trip
@@ -264,9 +248,7 @@ class TestWebPCodecDecode:
         nd_buffer = NDBuffer.from_ndarray_like(image)
         codec = WebPCodec(level=level)
 
-        encoded = asyncio.get_event_loop().run_until_complete(
-            codec._encode_single(nd_buffer, spec)
-        )
+        encoded = asyncio.run(codec._encode_single(nd_buffer, spec))
 
         encoded_size = np.asarray(encoded.as_array_like()).nbytes
         compression_ratio = encoded_size / image.nbytes
@@ -297,12 +279,8 @@ class TestWebPCodecDecode:
         nd_buffer = NDBuffer.from_ndarray_like(image)
         codec = WebPCodec(level=level)
 
-        encoded = asyncio.get_event_loop().run_until_complete(
-            codec._encode_single(nd_buffer, spec)
-        )
-        decoded = asyncio.get_event_loop().run_until_complete(
-            codec._decode_single(encoded, spec)
-        )
+        encoded = asyncio.run(codec._encode_single(nd_buffer, spec))
+        decoded = asyncio.run(codec._decode_single(encoded, spec))
 
         encoded_size = np.asarray(encoded.as_array_like()).nbytes
         compression_ratio = encoded_size / image.nbytes
@@ -335,12 +313,8 @@ class TestWebPCodecVsBloscOnImages:
         nd_buffer = NDBuffer.from_ndarray_like(image)
         webp_codec = WebPCodec(level=99)
 
-        webp_encoded = asyncio.get_event_loop().run_until_complete(
-            webp_codec._encode_single(nd_buffer, spec)
-        )
-        webp_decoded = asyncio.get_event_loop().run_until_complete(
-            webp_codec._decode_single(webp_encoded, spec)
-        )
+        webp_encoded = asyncio.run(webp_codec._encode_single(nd_buffer, spec))
+        webp_decoded = asyncio.run(webp_codec._decode_single(webp_encoded, spec))
         webp_size = np.asarray(webp_encoded.as_array_like()).nbytes
 
         blosc_codec = Blosc(cname="zstd", clevel=5, shuffle=Blosc.BITSHUFFLE)

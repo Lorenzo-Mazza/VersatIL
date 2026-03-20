@@ -16,7 +16,7 @@ def _iter_hdf5_episodes(
     schema: Hdf5DatasetSchema,
     resizer: A.Resize | A.NoOp,
     depth_resizer: A.Resize | A.NoOp,
-) -> Generator[dict[str, np.ndarray], None, None]:
+) -> Generator[dict[str, np.ndarray]]:
     """Yield episode data dicts from HDF5 files."""
     for hdf5_path in schema.hdf5_paths:
         logging.info(msg=f"  Processing: {hdf5_path}")

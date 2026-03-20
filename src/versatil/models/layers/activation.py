@@ -5,7 +5,7 @@ from torch import nn
 from versatil.models.layers.swiglu import SwiGLU
 
 
-class ActivationFunction(str, enum.Enum):
+class ActivationFunction(enum.StrEnum):
     """Available activation functions."""
 
     RELU = "relu"

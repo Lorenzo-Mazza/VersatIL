@@ -178,7 +178,7 @@ def setup_inference_timesteps(
     noise_scheduler.set_timesteps(num_inference_steps)
 
 
-class SchedulerType(str, enum.Enum):
+class SchedulerType(enum.StrEnum):
     """Diffusion scheduler types (compatible with diffusers API)."""
 
     DDIM = "ddim"

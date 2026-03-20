@@ -1,7 +1,7 @@
 import enum
 
 
-class ConcatDimension(str, enum.Enum):
+class ConcatDimension(enum.StrEnum):
     """Dimensions to concatenate along."""
 
     CHANNEL = "channel"

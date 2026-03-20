@@ -1157,7 +1157,7 @@ def get_module_by_path(module: nn.Module, path: list[int | str]) -> nn.Module:
 
     Args:
         module (nn.Module): The starting module (e.g., self.backbone).
-        path (List[Union[int, str]]): List of keys/indices to traverse (e.g., ['stem', 0]).
+        path (list[int | str]): List of keys/indices to traverse (e.g., ['stem', 0]).
 
     Returns:
         nn.Module: The module at the specified path.
@@ -1175,7 +1175,7 @@ def set_module_by_path(
 
     Args:
         module (nn.Module): The starting module (e.g., self.backbone).
-        path (List[Union[int, str]]): List of keys/indices to traverse (e.g., ['stem', 0]).
+        path (list[int | str]): List of keys/indices to traverse (e.g., ['stem', 0]).
         value (nn.Module): The new module to set at the path.
 
     Raises:

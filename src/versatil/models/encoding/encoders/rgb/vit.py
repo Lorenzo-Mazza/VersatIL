@@ -59,9 +59,7 @@ class ViTEncoder(Encoder):
             "dynamic_img_size": True
         }  # Allows the underlying timm model to accept input images of arbitrary sizes
         if self.pretrained:
-            self.backbone = AutoModel.from_pretrained(
-                self.backbone_name, config=config, use_safetensors=True
-            )
+            self.backbone = AutoModel.from_pretrained(self.backbone_name, config=config)
         else:
             self.backbone = AutoModel.from_config(config)
 

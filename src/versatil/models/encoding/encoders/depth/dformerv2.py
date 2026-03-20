@@ -26,7 +26,7 @@ from versatil.models.layers.patch_embedding import PatchEmbedType
 from versatil.models.layers.pooling.pooling_head import create_pooling_head
 
 
-class DFormerVariant(str, enum.Enum):
+class DFormerVariant(enum.StrEnum):
     """Available DFormerv2 model variants."""
 
     SMALL = "S"
@@ -292,7 +292,7 @@ class DFormerEncoder(Encoder):
 
     def _load_checkpoint(self, checkpoint_path: str):
         """Load pretrained weights from checkpoint."""
-        state_dict = torch.load(checkpoint_path, map_location="cpu")
+        state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
 
         if "model" in state_dict:
             state_dict = state_dict["model"]

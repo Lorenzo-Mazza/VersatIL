@@ -56,7 +56,7 @@ These decoders predict all action timesteps in parallel using bidirectional or D
 | **ActionTransformer** | `ActionTransformer` | Bidirectional transformer decoder with cross-attention to observation tokens. Configurable positional encoding, normalization, and activation. |
 | **ACT** | `ACT` | Action Chunking Transformer ([Zhao et al., 2023](https://arxiv.org/abs/2304.13705)). DETR-style non-autoregressive decoder with learnable queries. Optionally accepts a latent embedding from `VariationalAlgorithm`. |
 | **LACT** | `LACT` | Latent Action Transformer. Extends `ActionTransformer` with latent-conditioned decoding via AdaLN or FiLM modulation at each layer. Uses PixArt-style cross-attention DiT architecture. |
-| **PhaseACT** | `PhaseACT` | Phase-aware ACT with surgical phase prediction ([Mazzalovo et al., 2025](https://arxiv.org/abs/2601.21971)). Extends ACT with a phase classifier head whose predictions route through MoE action heads. |
+| **PhaseACT** | `PhaseACT` | Phase-aware ACT with surgical phase prediction ([Mazza et al., 2026](https://arxiv.org/abs/2601.21971)). Extends ACT with a phase classifier head whose predictions route through MoE action heads. |
 | **MODE-ACT** | `MixtureOfDensitiesActionTransformer` | Mixture Density Network Transformer. Predicts K mixture components per action using multiple Gaussian expert heads and a mode query token for routing. |
 
 ### Tokenized Decoders

@@ -68,6 +68,6 @@ Initial release of VersatIL — a modular Imitation Learning framework for robot
 - Ruff formatting and linting
 
 ### Main Dependencies
-- Python 3.11
-- CUDA 12.4
+- Python 3.13+
+- CUDA 12.8
 - PyTorch, PyTorch Lightning, Hydra, HuggingFace Transformers/Diffusers, Albumentations, OpenCV, ZMQ

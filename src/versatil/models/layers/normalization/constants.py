@@ -1,7 +1,7 @@
 import enum
 
 
-class NormalizationType(str, enum.Enum):
+class NormalizationType(enum.StrEnum):
     """Types of normalization layers."""
 
     LAYER_NORM = "layernorm"

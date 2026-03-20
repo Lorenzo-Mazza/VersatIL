@@ -24,7 +24,7 @@ from versatil.inference.protocol import ActionTransport, ObservationTransport
 from versatil.inference.temporal_aggregation import TemporalAggregator
 
 
-class EpisodeStatus(str, enum.Enum):
+class EpisodeStatus(enum.StrEnum):
     """Status values controlling the episode loop."""
 
     CONTINUE = "continue"

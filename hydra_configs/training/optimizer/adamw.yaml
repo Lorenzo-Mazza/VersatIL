@@ -1,5 +1,6 @@
 defaults:
-  - base
+  - adamw_schema
+  - _self_
 
 target_class : "torch.optim.AdamW"
 lr: 1.0e-4

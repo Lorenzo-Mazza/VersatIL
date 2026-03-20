@@ -1,7 +1,7 @@
 import enum
 
 
-class LatentKey(str, enum.Enum):
+class LatentKey(enum.StrEnum):
     """Enum for latent-related feature keys used in variational models."""
 
     POSTERIOR_LATENT = "latent"
@@ -15,21 +15,21 @@ class LatentKey(str, enum.Enum):
     PRIOR_LOG_PROB = "prior_log_prob"
 
 
-class MoERoutingType(str, enum.Enum):
+class MoERoutingType(enum.StrEnum):
     """Enum for different Mixture of Experts (MoE) routing strategies."""
 
     TOP_K = "top_k"
     SOFT = "soft"
 
 
-class GMMInitStrategy(str, enum.Enum):
+class GMMInitStrategy(enum.StrEnum):
     """Initialization strategies for GMM mixture components."""
 
     KMEANS_PLUS_PLUS = "kmeans_plus_plus"  # K-means++ style spread for means
     UNIFORM = "uniform"  # Simple uniform spread
 
 
-class PredictionType(str, enum.Enum):
+class PredictionType(enum.StrEnum):
     """What the diffusion model predicts."""
 
     EPSILON = "epsilon"  # Predict noise
@@ -37,7 +37,7 @@ class PredictionType(str, enum.Enum):
     VELOCITY = "velocity"  # Predict velocity
 
 
-class BetaSchedule(str, enum.Enum):
+class BetaSchedule(enum.StrEnum):
     """Beta schedule for diffusion models."""
 
     LINEAR = "linear"
@@ -45,7 +45,7 @@ class BetaSchedule(str, enum.Enum):
     SQUAREDCOS_CAP_V2 = "squaredcos_cap_v2"
 
 
-class VarianceType(str, enum.Enum):
+class VarianceType(enum.StrEnum):
     """Variance type for DDPM scheduler."""
 
     FIXED_SMALL = "fixed_small"
@@ -54,7 +54,7 @@ class VarianceType(str, enum.Enum):
     LEARNED_RANGE = "learned_range"
 
 
-class ODESolver(str, enum.Enum):
+class ODESolver(enum.StrEnum):
     """ODE solver types for flow matching."""
 
     EULER = "euler"  # First-order Euler method
@@ -63,14 +63,14 @@ class ODESolver(str, enum.Enum):
     DOPRI5 = "dopri5"  # Dormand-Prince 5th order adaptive step size
 
 
-class DenoisingAlgorithm(str, enum.Enum):
+class DenoisingAlgorithm(enum.StrEnum):
     """Algorithm type for denoising-based generative models."""
 
     DIFFUSION = "diffusion"
     FLOW_MATCHING = "flow_matching"
 
 
-class DiTType(str, enum.Enum):
+class DiTType(enum.StrEnum):
     """Types of Diffusion Transformer architectures."""
 
     CROSS_ATTENTION = "cross_attention"  # PixArt style Cross-Attention DiT
@@ -78,7 +78,7 @@ class DiTType(str, enum.Enum):
     DIT_BLOCK = "dit_block"  # DiT-Block (DiT Policy style)
 
 
-class DecoderOutputKey(str, enum.Enum):
+class DecoderOutputKey(enum.StrEnum):
     """Keys for decoder outputs and intermediate features."""
 
     TIMESTEP = "timestep"
@@ -100,7 +100,7 @@ class DecoderOutputKey(str, enum.Enum):
     LOGVAR = "logvar"
 
 
-class FeatureType(str, enum.Enum):
+class FeatureType(enum.StrEnum):
     """Feature types for decoder validation.
 
     - SPATIAL: (C, H, W) - image features from CNN/ViT

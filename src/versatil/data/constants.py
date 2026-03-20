@@ -34,7 +34,7 @@ class Cameras(enum.Enum):
     EYE_IN_HAND = LiberoCamera.EYE_IN_HAND.value
 
 
-class RawCameraKey(str, enum.Enum):
+class RawCameraKey(enum.StrEnum):
     """Raw dataset storage keys for camera observations.
 
     Each member maps to the key used in a specific raw data format.
@@ -78,7 +78,7 @@ RAW_TO_CAMERA_MAPPING: dict[str, str] = {
 }
 
 
-class ProprioKey(str, enum.Enum):
+class ProprioKey(enum.StrEnum):
     """Proprioceptive observation keys for all supported environments."""
 
     # TSO datasets proprioceptive keys
@@ -97,7 +97,7 @@ class ProprioKey(str, enum.Enum):
     GRIPPER_STATE_ACTION = "gripper_state_action"
 
 
-class ImageNormalizationType(str, enum.Enum):
+class ImageNormalizationType(enum.StrEnum):
     """Image normalization types."""
 
     MINUS_ONE_TO_ONE = "minus_one_to_one"
@@ -105,7 +105,7 @@ class ImageNormalizationType(str, enum.Enum):
     IMAGENET = "imagenet"
 
 
-class KinematicsNormalizationType(str, enum.Enum):
+class KinematicsNormalizationType(enum.StrEnum):
     """Kinematics normalization types."""
 
     MIN_MAX = "min_max"
@@ -113,7 +113,7 @@ class KinematicsNormalizationType(str, enum.Enum):
     DEMEAN = "demean"
 
 
-class ProprioceptiveType(str, enum.Enum):
+class ProprioceptiveType(enum.StrEnum):
     """Proprioceptive data types."""
 
     POSITION = ActionComponent.POSITION.value
@@ -122,14 +122,14 @@ class ProprioceptiveType(str, enum.Enum):
     CUSTOM = ActionComponent.CUSTOM.value
 
 
-class TokenizerType(str, enum.Enum):
+class TokenizerType(enum.StrEnum):
     """Tokenizer types in tokenization chains."""
 
     FAST = "fast"
     LANGUAGE = "language"
 
 
-class DatasetType(str, enum.Enum):
+class DatasetType(enum.StrEnum):
     """Dataset types, independent of storage format."""
 
     LIBERO = "libero"
@@ -137,7 +137,7 @@ class DatasetType(str, enum.Enum):
     METAWORLD = "metaworld"
 
 
-class LeRobotPathsV30(str, enum.Enum):
+class LeRobotPathsV30(enum.StrEnum):
     """LeRobot v3.0 dataset directory layout."""
 
     INFO_PATH = "meta/info.json"
@@ -158,7 +158,7 @@ class LeRobotPathsV30(str, enum.Enum):
         return self.value
 
 
-class SampleKey(str, enum.Enum):
+class SampleKey(enum.StrEnum):
     """Keys for sample dictionary structure in data pipeline."""
 
     OBSERVATION = "observation"
