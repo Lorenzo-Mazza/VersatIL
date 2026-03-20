@@ -501,9 +501,9 @@ def register_configs():
     cs.store(group="task/observation_space", name="base", node=ObservationSpaceConfig)
     cs.store(group="training", name="base", node=TrainingConfig)
     cs.store(group="training/optimizer", name="base", node=OptimizerConfig)
-    cs.store(group="training/optimizer", name="adamw", node=AdamWConfig)
-    cs.store(group="training/optimizer", name="adam", node=AdamConfig)
-    cs.store(group="training/optimizer", name="sgd", node=SGDConfig)
+    cs.store(group="training/optimizer", name="adamw_schema", node=AdamWConfig)
+    cs.store(group="training/optimizer", name="adam_schema", node=AdamConfig)
+    cs.store(group="training/optimizer", name="sgd_schema", node=SGDConfig)
     cs.store(
         group="training/optimizer/parameter_group",
         name="base",

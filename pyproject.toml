@@ -94,6 +94,7 @@ filterwarnings = [
     "ignore:.*autocast.*:UserWarning",
     "ignore:.*self.log.*:UserWarning",
     "ignore::DeprecationWarning:geomloss",
+    "ignore::SyntaxWarning:geomloss",
     "ignore:.*are not valid for transform.*:UserWarning",
     "ignore:ShiftScaleRotate is a special case.*:UserWarning",
     "ignore:Initializing zero-element tensors.*:UserWarning",
