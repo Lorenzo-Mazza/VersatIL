@@ -171,7 +171,7 @@ Key fields in `TrainingConfig`:
 
 ### CUDA Issues
 
-Verify CUDA 12.4+ with `nvidia-smi` and check that `torch.cuda.is_available()` returns `True`.
+Verify CUDA 12.8+ with `nvidia-smi` and check that `torch.cuda.is_available()` returns `True`.
 
 ### Data Loading
 

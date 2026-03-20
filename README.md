@@ -3,7 +3,7 @@
 [![pipeline status](https://gitlab.com/nct_tso_public/versatil/badges/main/pipeline.svg)](https://gitlab.com/nct_tso_public/versatil/-/commits/main)
 [![coverage report](https://gitlab.com/nct_tso_public/versatil/badges/main/coverage.svg)](https://gitlab.com/nct_tso_public/versatil/-/commits/main)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PyPI](https://img.shields.io/pypi/v/versatil.svg)](https://pypi.org/project/versatil/)
 [![Docs](https://img.shields.io/badge/docs-online-blue)](https://lorenzo-mazza.github.io/VersatIL)
@@ -170,8 +170,8 @@ We plan to add support for post-training quantization of the trained policies, t
 ### Installation
 
 **Prerequisites:**
-- Python 3.11+
-- CUDA 12.4+ (required for training)
+- Python 3.13+
+- CUDA 12.8+ (required for training)
 - Git credentials for private repositories
 
 **Setup:**
@@ -501,7 +501,7 @@ pytest -m "not slow"       # Skip slow tests
 
 - **Docstrings**: Google-style, concise (avoid LLM patterns like numbered lists or excessive words)
 - **Type hints**: Required for all function signatures
-- **Formatter/Linter**: [Ruff](https://docs.astral.sh/ruff/) (line length 88, Python 3.11)
+- **Formatter/Linter**: [Ruff](https://docs.astral.sh/ruff/) (line length 88, Python 3.13)
 - **No inline imports**: All imports at module top
 - **Minimal comments**: Only for tensor shapes or non-obvious logic
 - **Variables**: Use English words, avoid abbreviations
@@ -533,7 +533,7 @@ Pre-commit hooks run ruff automatically on every `git commit`.
 ## 🐛 Troubleshooting
 
 ### CUDA Issues
-- Verify CUDA 12.4 with `nvidia-smi`
+- Verify CUDA 12.8 with `nvidia-smi`
 - Check `torch.cuda.is_available()` returns `True`
 
 ### SLURM/NCCL Errors

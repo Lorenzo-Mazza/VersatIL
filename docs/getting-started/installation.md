@@ -4,8 +4,8 @@
 
 | Requirement | Minimum Version | Notes |
 |-------------|----------------|-------|
-| Python | 3.11+ | Required |
-| CUDA | 12.4+ | Required for training (flash-attn needs CUDA runtime libraries) |
+| Python | 3.13+ | Required |
+| CUDA | 12.8+ | Required for training |
 | Git | Latest | Credentials for private repositories if applicable |
 
 ## Setup
@@ -25,7 +25,7 @@ mamba env create -f environment.yml
 mamba activate versatil
 ```
 
-The `environment.yml` creates a minimal conda environment with Python 3.11 and uv.
+The `environment.yml` creates a minimal conda environment with Python 3.13 and uv.
 
 ### 3. Install Dependencies
 
@@ -37,10 +37,9 @@ UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
 
 This installs all packages into the active conda environment, including:
 
-- **PyTorch 2.4.0** with CUDA 12.4 from the PyTorch index
-- **flash-attn** (built from source, requires CUDA toolkit)
+- **PyTorch 2.10.0** with CUDA 12.8 from the PyTorch index
 - **Hydra + OmegaConf** for configuration
-- **Lightning 2.5.5** for training
+- **Lightning 2.6.1** for training
 - **timm**, **transformers**, **diffusers** for model backbones
 - **albumentations** for image augmentation
 - **wandb** for experiment tracking
