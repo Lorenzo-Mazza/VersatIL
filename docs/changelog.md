@@ -5,6 +5,29 @@ All notable changes to VersatIL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-03-20
+
+Migrate to Python 3.13+ and PyTorch 2.10 with CUDA 12.8.
+
+### Changed
+- Minimum Python version raised from 3.11 to 3.13
+- PyTorch upgraded to 2.10 with CUDA 12.8 (was 2.4 with CUDA 12.4)
+- HuggingFace Transformers bumped to 5.x, with compatibility fixes for FAST tokenizer and SigLIP VLM encoder
+- NumPy dependency bumped for Python 3.14 compatibility
+- Ruff target version updated to `py313`
+- `str, enum.Enum` replaced with `enum.StrEnum` (PEP 659, Python 3.11+)
+- `torch.load` now uses `weights_only=False` by default to match PyTorch 2.10 behavior
+- CI/CD Docker image updated to Python 3.14, pipelines now trigger only on merge requests
+
+### Removed
+- `flash-attn` dependency — PyTorch 2.10 SDPA natively dispatches to FlashAttention kernels
+- `FLASH_ATTENTION_2` attention implementation type (replaced by `SDPA`)
+
+### Fixed
+- `asyncio.get_event_loop()` replaced with `asyncio.run()` for Python 3.14 compatibility in WebP codec
+- OpenCV dependency conflict resolved
+- CI/CD pipeline no longer passes silently when unit tests fail
+
 ## [0.1.0] - 2026-03-19
 
 Initial release of VersatIL — a modular Imitation Learning framework for robotic manipulation.
