@@ -216,7 +216,7 @@ def map_tensor_ndarray(x, tensor_func, ndarray_func):
     Args:
         x (dict or list or tuple): a possibly nested dictionary or list or tuple
         tensor_func (function): function to apply to each tensor
-        ndarray_Func (function): function to apply to each array
+        ndarray_func (function): function to apply to each array
 
     Returns:
         y (dict or list or tuple): new nested dict-list-tuple
@@ -657,17 +657,11 @@ def reshape_dimensions(x, begin_axis, end_axis, target_dims):
     return recursive_dict_list_tuple_apply(
         x,
         {
-            torch.Tensor: lambda x,
-            b=begin_axis,
-            e=end_axis,
-            t=target_dims: reshape_dimensions_single(
-                x, begin_axis=b, end_axis=e, target_dims=t
+            torch.Tensor: lambda x, b=begin_axis, e=end_axis, t=target_dims: (
+                reshape_dimensions_single(x, begin_axis=b, end_axis=e, target_dims=t)
             ),
-            np.ndarray: lambda x,
-            b=begin_axis,
-            e=end_axis,
-            t=target_dims: reshape_dimensions_single(
-                x, begin_axis=b, end_axis=e, target_dims=t
+            np.ndarray: lambda x, b=begin_axis, e=end_axis, t=target_dims: (
+                reshape_dimensions_single(x, begin_axis=b, end_axis=e, target_dims=t)
             ),
             type(None): lambda x: x,
         },
@@ -888,10 +882,9 @@ def gather_along_dim_with_dim(x, target_dim, source_dim, indices):
     """
     return map_tensor(
         x,
-        lambda y,
-        t=target_dim,
-        s=source_dim,
-        i=indices: gather_along_dim_with_dim_single(y, t, s, i),
+        lambda y, t=target_dim, s=source_dim, i=indices: (
+            gather_along_dim_with_dim_single(y, t, s, i)
+        ),
     )
 
 
@@ -928,7 +921,9 @@ def gather_sequence(seq, indices):
     return gather_along_dim_with_dim(seq, target_dim=1, source_dim=0, indices=indices)
 
 
-def pad_sequence_single(seq, padding, batched=False, pad_same=True, pad_values=None):
+def pad_sequence_single(
+    seq, padding, batched=False, pad_same=True, pad_values=None
+) -> np.ndarray | torch.Tensor:
     """
     Pad input tensor or array @seq in the time dimension (dimension 1).
 
@@ -970,7 +965,9 @@ def pad_sequence_single(seq, padding, batched=False, pad_same=True, pad_values=N
     return concat_func(begin_pad + [seq] + end_pad, seq_dim)
 
 
-def pad_sequence(seq, padding, batched=False, pad_same=True, pad_values=None):
+def pad_sequence(
+    seq, padding, batched=False, pad_same=True, pad_values=None
+) -> dict | list | tuple:
     """
     Pad a nested dictionary or list or tuple of sequence tensors in the time dimension (dimension 1).
 
@@ -988,16 +985,12 @@ def pad_sequence(seq, padding, batched=False, pad_same=True, pad_values=None):
     return recursive_dict_list_tuple_apply(
         seq,
         {
-            torch.Tensor: lambda x,
-            p=padding,
-            b=batched,
-            ps=pad_same,
-            pv=pad_values: pad_sequence_single(x, p, b, ps, pv),
-            np.ndarray: lambda x,
-            p=padding,
-            b=batched,
-            ps=pad_same,
-            pv=pad_values: pad_sequence_single(x, p, b, ps, pv),
+            torch.Tensor: lambda x, p=padding, b=batched, ps=pad_same, pv=pad_values: (
+                pad_sequence_single(x, p, b, ps, pv)
+            ),
+            np.ndarray: lambda x, p=padding, b=batched, ps=pad_same, pv=pad_values: (
+                pad_sequence_single(x, p, b, ps, pv)
+            ),
             type(None): lambda x: x,
         },
     )
@@ -1116,7 +1109,12 @@ def flatten_nested_dict_list(d, parent_key="", sep="_", item_key=""):
 
 
 def time_distributed(
-    inputs, op, activation=None, inputs_as_kwargs=False, inputs_as_args=False, **kwargs
+    inputs,
+    op: Callable,
+    activation: Callable | None = None,
+    inputs_as_kwargs=False,
+    inputs_as_args=False,
+    **kwargs,
 ):
     """
     Apply function @op to all tensors in nested dictionary or list or tuple @inputs in both the
@@ -1130,7 +1128,7 @@ def time_distributed(
         op: a layer op that accepts inputs
         activation: activation to apply at the output
         inputs_as_kwargs (bool): whether to feed input as a kwargs dict to the op
-        inputs_as_args (bool) whether to feed input as a args list to the op
+        inputs_as_args (bool): whether to feed input as a args list to the op
         kwargs (dict): other kwargs to supply to the op
 
     Returns:

@@ -60,7 +60,7 @@ class ActionTokenizer:
                 - [TokenizerType.FAST.value, TokenizerType.LANGUAGE.value]: FAST → language vocab mapping
             use_pretrained_fast: Whether to use pretrained FAST weights
             language_tokenizer_model: HuggingFace model if TokenizerType.LANGUAGE in chain
-            fast_tokenizer_model : HuggingFace model for FAST tokenizer
+            fast_tokenizer_model: HuggingFace model for FAST tokenizer
             num_special_tokens_to_skip: Number of special tokens at end of language vocab to skip
             max_token_len: Maximum token sequence length (for padding)
             pad_token_id: Token ID to use for padding

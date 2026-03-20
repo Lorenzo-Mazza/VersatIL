@@ -178,7 +178,7 @@ class TransformerDecoder(nn.Module):
 
         Returns:
             If return_intermediate is True, a tensor with shape (number_of_layers, batch_size, target_length,
-             embedding_dimension). Otherwise, with shape  (1, batch_size, target_length, embedding_dimension).
+                embedding_dimension). Otherwise, with shape  (1, batch_size, target_length, embedding_dimension).
         """
         output = target
         intermediate = []

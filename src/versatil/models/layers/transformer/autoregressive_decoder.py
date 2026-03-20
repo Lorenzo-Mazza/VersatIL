@@ -225,7 +225,7 @@ class GPTDecoder(nn.Module):
             hidden_states: Input token embeddings (B, query_length, D)
             encoded_features: Encoder visual features (B, num_features, D). Required if self.use_cross_attention=True
             self_attention_mask: Optional custom self-attention mask (B, 1, query_length, query_length) where True means masked.
-               If None, generates standard triangular causal mask.
+                If None, generates standard triangular causal mask.
             cross_attention_mask: Optional mask for cross-attention, where True means masked position with shape (B,1, query length, key length).
             key_padding_mask: Optional current key padding mask for padded observation tokens (B, query_length) where True means masked.
             decoder_cache: Optional cached K/V from previous steps

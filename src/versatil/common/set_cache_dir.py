@@ -1,3 +1,5 @@
+"""Configuration of HuggingFace and Torch cache directories."""
+
 import os
 from pathlib import Path
 

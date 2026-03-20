@@ -142,9 +142,9 @@ class TransformerDecoderLayer(nn.Module):
             hidden_states: Input embeddings (B, seq_len, D)
             encoded_features: Encoded visual features (B, num_features, D). Required if use_cross_attention=True
             self_attention_mask: Optional causal mask for self-attention with shape (B,1, query length, key length)
-             where True=masked. If None, no causal masking is applied.
+                where True=masked. If None, no causal masking is applied.
             cross_attention_mask: Optional mask for cross-attention, with shape (B,1, query length, key length)
-             where True=masked. If None, no cross-attention masking is applied.
+                where True=masked. If None, no cross-attention masking is applied.
             layer_cache: Optional cached K/V from previous steps
             use_cache: Whether to return updated cache. Only valid if autoregressive=True
             positional_encoding: Optional rotary positional encoding module

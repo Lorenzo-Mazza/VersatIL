@@ -3,6 +3,7 @@ import math
 import numbers
 import os
 from functools import cached_property
+from typing import Any
 
 import numba
 import numpy as np
@@ -15,7 +16,7 @@ from versatil.data.preprocessing.codecs import WebPCodec
 WEBP_QUALITY = 99
 
 
-def check_chunks_compatible(chunks: tuple[int, ...], shape: tuple[int, ...]):
+def check_chunks_compatible(chunks: tuple[int, ...], shape: tuple[int, ...]) -> None:
     """Checks if given chunks are compatible with the array shape.
 
     Ensures that chunks and shape have the same dimensionality, each chunk size is a positive integer,
@@ -94,7 +95,12 @@ def rechunk_recompress_array(
     return arr
 
 
-def get_optimal_chunks(shape, dtype, target_chunk_bytes=2e6, max_chunk_length=None):
+def get_optimal_chunks(
+    shape: tuple[int, ...],
+    dtype: np.dtype | type,
+    target_chunk_bytes: float = 2e6,
+    max_chunk_length: int | None = None,
+) -> tuple[int, ...]:
     """Computes optimal chunk sizes for an array to target a specific chunk byte size.
 
     Reverses shape to prioritize inner dimensions, caps outer dimension if max_chunk_length given.
@@ -285,7 +291,11 @@ class ReplayBuffer:
         self.root = root
 
     @classmethod
-    def create_empty_zarr(cls, storage=None, root=None):
+    def create_empty_zarr(
+        cls,
+        storage: LocalStore | MemoryStore | None = None,
+        root: zarr.Group | None = None,
+    ) -> "ReplayBuffer":
         """Creates an empty Zarr-based ReplayBuffer.
 
         Initializes 'data' and 'meta' groups, with 'episode_ends' as an empty int64 array.
@@ -310,7 +320,7 @@ class ReplayBuffer:
         return cls(root=root)
 
     @classmethod
-    def create_empty_numpy(cls):
+    def create_empty_numpy(cls) -> "ReplayBuffer":
         """Creates an empty NumPy-based ReplayBuffer.
 
         Initializes root as dict with empty 'data' dict and 'meta' with zero-length episode_ends array.
@@ -322,7 +332,7 @@ class ReplayBuffer:
         return cls(root=root)
 
     @classmethod
-    def create_from_group(cls, group, **kwargs):
+    def create_from_group(cls, group: zarr.Group, **kwargs: Any) -> "ReplayBuffer":
         """Creates ReplayBuffer from an existing Zarr group.
 
         If 'data' missing, creates empty; else loads existing.
@@ -341,7 +351,7 @@ class ReplayBuffer:
         return buffer
 
     @classmethod
-    def create_from_path(cls, zarr_path, **kwargs):
+    def create_from_path(cls, zarr_path: str, **kwargs: Any) -> "ReplayBuffer":
         """Loads ReplayBuffer from a Zarr file path in read mode.
 
         Args:
@@ -357,14 +367,14 @@ class ReplayBuffer:
     @classmethod
     def copy_from_store(
         cls,
-        src_store,
-        store=None,
-        keys=None,
+        src_store: LocalStore | MemoryStore,
+        store: LocalStore | MemoryStore | None = None,
+        keys: list[str] | None = None,
         chunks: dict[str, tuple] | None = None,
         compressors: dict | str | BloscCodec | None = None,
-        if_exists="replace",
-        **kwargs,
-    ):
+        if_exists: str = "replace",
+        **kwargs: Any,
+    ) -> "ReplayBuffer":
         """Copies a ReplayBuffer from source store to new store or NumPy dict.
 
         If store None, copies to NumPy dict; else to Zarr store. Selectively copies keys,
@@ -442,15 +452,15 @@ class ReplayBuffer:
     @classmethod
     def copy_from_path(
         cls,
-        zarr_path,
-        backend=None,
-        store=None,
-        keys=None,
+        zarr_path: str,
+        backend: str | None = None,
+        store: LocalStore | MemoryStore | None = None,
+        keys: list[str] | None = None,
         chunks: dict[str, tuple] | None = None,
         compressors: dict | str | BloscCodec | None = None,
-        if_exists="replace",
-        **kwargs,
-    ):
+        if_exists: str = "replace",
+        **kwargs: Any,
+    ) -> "ReplayBuffer":
         """Copies ReplayBuffer from Zarr path, optionally to store or NumPy.
 
         Warns if backend specified (deprecated). Expands user path.
@@ -459,7 +469,10 @@ class ReplayBuffer:
             zarr_path: Source Zarr directory path.
             backend: Deprecated; use store=None for NumPy.
             store: Destination store (None for NumPy).
-            keys/chunks/compressors/if_exists: As in copy_from_store.
+            keys: Optional list of data keys to copy (all if None).
+            chunks: Dict of key to chunks tuple, or fallback to source/optimal.
+            compressors: Dict or single compressor, resolved per key.
+            if_exists: Zarr copy behavior ('replace', etc.).
             **kwargs: Passed to copy_from_store.
 
         Returns:
@@ -481,12 +494,12 @@ class ReplayBuffer:
 
     def save_to_store(
         self,
-        store,
+        store: LocalStore | MemoryStore,
         chunks: dict[str, tuple] | None = None,
         compressors: str | BloscCodec | dict | None = None,
-        if_exists="replace",
+        if_exists: str = "replace",
         **kwargs,
-    ):
+    ) -> LocalStore | MemoryStore:
         if chunks is None:
             chunks = {}
         if compressors is None:
@@ -526,17 +539,20 @@ class ReplayBuffer:
 
     def save_to_path(
         self,
-        zarr_path,
+        zarr_path: str,
         chunks: dict[str, tuple] | None = None,
         compressors: str | BloscCodec | dict | None = None,
-        if_exists="replace",
-        **kwargs,
-    ):
+        if_exists: str = "replace",
+        **kwargs: Any,
+    ) -> LocalStore:
         """Saves to a local Zarr path using LocalStore.
 
         Args:
             zarr_path: Destination path.
-            chunks/compressors/if_exists/**kwargs: As in save_to_store.
+            chunks: Per-key chunks for arrays.
+            compressors: Per-key or global compressor.
+            if_exists: Zarr write mode ('replace', etc.).
+            **kwargs: Passed to save_to_store.
 
         Returns:
             The store.
@@ -547,7 +563,9 @@ class ReplayBuffer:
         )
 
     @staticmethod
-    def resolve_compressor(compressor="default"):
+    def resolve_compressor(
+        compressor: str | BloscCodec = "default",
+    ) -> BloscCodec:
         """Resolves compressor string to BloscCodec instance.
 
         'default': lz4 level 5, no shuffle.
@@ -604,7 +622,12 @@ class ReplayBuffer:
         return cpr
 
     @classmethod
-    def _resolve_array_chunks(cls, chunks: dict | tuple, key, array):
+    def _resolve_array_chunks(
+        cls,
+        chunks: dict[str, tuple] | tuple,
+        key: str,
+        array: zarr.Array | np.ndarray,
+    ) -> tuple[int, ...]:
         """Resolves chunks for a specific array key.
 
         From dict (key-specific), tuple (global), fallback to array's or optimal.
@@ -636,16 +659,18 @@ class ReplayBuffer:
         return cks
 
     @cached_property
-    def data(self):
+    def data(self) -> zarr.Group | dict[str, np.ndarray]:
         """Cached access to the 'data' group or dict."""
         return self.root["data"]
 
     @cached_property
-    def meta(self):
+    def meta(self) -> zarr.Group | dict[str, np.ndarray]:
         """Cached access to the 'meta' group or dict."""
         return self.root["meta"]
 
-    def update_meta(self, data):
+    def update_meta(
+        self, data: dict[str, np.ndarray | list | int | float]
+    ) -> zarr.Group | dict[str, np.ndarray]:
         """Updates meta with new key-value pairs as NumPy arrays.
 
         Converts values to arrays if needed, overwrites existing keys.
@@ -685,11 +710,11 @@ class ReplayBuffer:
         return meta_group
 
     @property
-    def episode_ends(self):
+    def episode_ends(self) -> zarr.Array | np.ndarray:
         """Property for the episode_ends array."""
         return self.meta["episode_ends"]
 
-    def get_episode_idxs(self):
+    def get_episode_idxs(self) -> np.ndarray:
         """Computes array mapping each step to its episode index.
 
         Uses Numba-jitted function for efficiency.
@@ -715,7 +740,7 @@ class ReplayBuffer:
         return _get_episode_idxs(episode_ends_np)
 
     @property
-    def backend(self):
+    def backend(self) -> str:
         """Detects backend as 'zarr' or 'numpy' based on root type."""
         backend = "numpy"
         if isinstance(self.root, zarr.Group):
@@ -733,53 +758,53 @@ class ReplayBuffer:
         else:
             return super().__repr__()
 
-    def keys(self):
+    def keys(self) -> list[str]:
         """Keys of the data dict/group."""
         return self.data.keys()
 
-    def values(self):
+    def values(self) -> list[zarr.Array | np.ndarray]:
         """Values of the data dict/group."""
         if self.backend == "zarr":
             return self.data.array_values()
         else:
             return self.data.values()
 
-    def items(self):
+    def items(self) -> list[tuple[str, zarr.Array | np.ndarray]]:
         """Items of the data dict/group."""
         if self.backend == "zarr":
             return self.data.members()
         else:
             return self.data.items()
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> zarr.Array | np.ndarray:
         """Getitem for data[key]."""
         return self.data[key]
 
-    def __contains__(self, key):
+    def __contains__(self, key: str) -> bool:
         """Contains check for data."""
         return key in self.data
 
     @property
-    def n_steps(self):
+    def n_steps(self) -> int:
         """Total steps: last episode_end or 0."""
         if self.episode_ends.shape[0] == 0:
             return 0
         return self.episode_ends[-1]
 
     @property
-    def n_episodes(self):
+    def n_episodes(self) -> int:
         """Number of episodes: length of episode_ends."""
         return self.episode_ends.shape[0]
 
     @property
-    def chunk_size(self):
+    def chunk_size(self) -> int | None:
         """First dimension chunk size of first data array (Zarr only)."""
         if self.backend == "zarr":
             return next(iter(self.data.arrays()))[-1].chunks[0]
         return None
 
     @property
-    def episode_lengths(self):
+    def episode_lengths(self) -> np.ndarray:
         """Array of episode lengths from diffs of episode_ends."""
         ends = self.episode_ends[:]
         ends = np.insert(ends, 0, 0)
@@ -791,7 +816,7 @@ class ReplayBuffer:
         data: dict[str, np.ndarray],
         chunks: dict[str, tuple] | None = None,
         compressors: str | BloscCodec | dict | None = None,
-    ):
+    ) -> None:
         """Adds an episode as dict of arrays, resizing all data arrays.
 
         Creates new keys if needed with resolved chunks/compressors.
@@ -872,7 +897,7 @@ class ReplayBuffer:
                 self.meta, "episode_ends", chunk_length=int(episode_ends.shape[0] * 1.5)
             )
 
-    def drop_episode(self):
+    def drop_episode(self) -> None:
         """Drops the last episode by resizing arrays backward.
 
         Raises:
@@ -898,7 +923,7 @@ class ReplayBuffer:
         else:
             self.episode_ends.resize(len(episode_ends) - 1, refcheck=False)
 
-    def pop_episode(self):
+    def pop_episode(self) -> dict[str, np.ndarray]:
         """Gets the last episode and drops it.
 
         Returns:
@@ -913,7 +938,7 @@ class ReplayBuffer:
         self.drop_episode()
         return episode
 
-    def extend(self, data):
+    def extend(self, data: dict[str, np.ndarray]) -> None:
         """Alias for add_episode.
 
         Args:
@@ -921,7 +946,7 @@ class ReplayBuffer:
         """
         self.add_episode(data)
 
-    def get_episode(self, idx, copy=False):
+    def get_episode(self, idx: int, copy: bool = False) -> dict[str, np.ndarray]:
         """Gets an episode by index as dict of sliced arrays.
 
         Args:
@@ -939,7 +964,7 @@ class ReplayBuffer:
         result = self.get_steps_slice(start_idx, end_idx, copy=copy)
         return result
 
-    def get_episode_slice(self, idx):
+    def get_episode_slice(self, idx: int) -> slice:
         """Gets the slice object for an episode's steps.
 
         Args:
@@ -954,11 +979,19 @@ class ReplayBuffer:
         end_idx = self.episode_ends[idx]
         return slice(start_idx, end_idx)
 
-    def get_steps_slice(self, start, stop, step=None, copy=False):
+    def get_steps_slice(
+        self,
+        start: int,
+        stop: int,
+        step: int | None = None,
+        copy: bool = False,
+    ) -> dict[str, np.ndarray]:
         """Gets dict of sliced arrays for a step range.
 
         Args:
-            start/stop/step: Slice parameters.
+            start: Start step index.
+            stop: Stop step index.
+            step: Step size for slicing.
             copy: Copy if NumPy backend.
 
         Returns:
@@ -976,7 +1009,7 @@ class ReplayBuffer:
             result[key] = x
         return result
 
-    def get_chunks(self) -> dict:
+    def get_chunks(self) -> dict[str, tuple[int, ...]]:
         """Gets current chunks per data key (Zarr only).
 
         Returns:
@@ -993,7 +1026,7 @@ class ReplayBuffer:
             chunks[key] = value.chunks
         return chunks
 
-    def set_chunks(self, chunks: dict):
+    def set_chunks(self, chunks: dict[str, tuple[int, ...]]) -> None:
         """Sets new chunks per data key if changed (Zarr only).
 
         Uses rechunk_recompress_array.
@@ -1014,7 +1047,7 @@ class ReplayBuffer:
                     check_chunks_compatible(chunks=value, shape=arr.shape)
                     rechunk_recompress_array(self.data, key, chunks=value)
 
-    def get_compressors(self) -> dict:
+    def get_compressors(self) -> dict[str, BloscCodec | WebPCodec | None]:
         """Gets current codec per data key (Zarr only).
 
         Returns BloscCodec for numerically compressed arrays, WebPCodec for
@@ -1037,7 +1070,9 @@ class ReplayBuffer:
                 compressors[key] = _get_serializer_codec(array)
         return compressors
 
-    def set_compressors(self, compressors: dict):
+    def set_compressors(
+        self, compressors: dict[str, str | BloscCodec | WebPCodec]
+    ) -> None:
         """Sets new compressor per data key if changed (Zarr only).
 
         Resolves strings, uses rechunk_recompress_array.
