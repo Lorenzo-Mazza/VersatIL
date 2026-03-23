@@ -7,8 +7,6 @@ import torch.nn as nn
 
 from versatil.models.exportable_policy import ExportablePolicy
 
-logger = logging.getLogger(__name__)
-
 
 def _export_with_dynamic_batch(
     model: nn.Module,
@@ -59,7 +57,7 @@ def export_policy(
     Returns:
         Exported FX GraphModule.
     """
-    logger.info("Materializing lazy modules with eager forward pass...")
+    logging.info("Materializing lazy modules with eager forward pass...")
     with torch.no_grad():
         exportable(*example_inputs)
 
