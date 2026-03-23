@@ -1,0 +1,17 @@
+# @package _global_
+defaults:
+  - /post_training_compression
+  - _self_
+
+checkpoint_path: ???
+checkpoint_name: last.ckpt
+output_directory: null
+device: cpu
+preparation:
+  replace_frozen_batchnorm: true
+  fuse_conv_batchnorm: true
+quantization:
+  _target_: versatil.quantization.strategies.PT2EStrategy
+  pt2e_backend:
+    _target_: versatil.quantization.backends.x86_inductor.X86InductorBackend
+    is_dynamic: false

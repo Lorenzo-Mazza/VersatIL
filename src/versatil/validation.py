@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
+from versatil.configs.main import MainConfig
 from versatil.data.constants import ImageNormalizationType, ObsKey, SampleKey
 from versatil.data.metadata import CameraMetadata
 from versatil.data.task import ActionSpace, ObservationSpace
@@ -20,9 +20,7 @@ from versatil.models.decoding.decoders.factory.mode_act import (
 )
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.pipeline import EncodingPipeline
-
-if TYPE_CHECKING:
-    from versatil.configs.main import MainConfig
+from versatil.quantization.strategies import PT2EStrategy, QuantizeApiStrategy
 
 
 class ExperimentValidationError(Exception):
@@ -49,6 +47,7 @@ class ExperimentValidator:
         is_tokenized: bool = False,
         tokenized_obs_keys: set[str] | None = None,
         image_norm_type: str | None = None,
+        quantization_config: object | None = None,
     ):
         """Initialize validator with policy components.
 
@@ -62,6 +61,7 @@ class ExperimentValidator:
             is_tokenized: Whether observations are tokenized.
             tokenized_obs_keys: Keys of observations that are tokenized.
             image_norm_type: Image normalization type for DINOv3 validation.
+            quantization_config: Optional quantization configuration to validate.
         """
         self.encoding_pipeline = encoding_pipeline
         self.algorithm = algorithm
@@ -72,6 +72,7 @@ class ExperimentValidator:
         self.is_tokenized = is_tokenized
         self.tokenized_obs_keys = tokenized_obs_keys or set()
         self.image_norm_type = image_norm_type
+        self.quantization_config = quantization_config
         self.errors: list[str] = []
         self.warnings: list[str] = []
 
@@ -85,6 +86,8 @@ class ExperimentValidator:
         self.validate_decoder_encoder_compatibility()
         if validate_loss_keys:
             self.validate_loss_keys()
+        if self.quantization_config is not None:
+            self.validate_quantization()
         if self.errors:
             error_msg = "\n".join([f"  - {err}" for err in self.errors])
             raise ExperimentValidationError(
@@ -261,6 +264,16 @@ class ExperimentValidator:
                 f"Please update your loss configuration or decoder."
             )
 
+    def validate_quantization(self) -> None:
+        """Validate that quantization config is present and is a valid strategy."""
+        config = self.quantization_config
+        if not isinstance(config, (PT2EStrategy, QuantizeApiStrategy)):
+            self.warnings.append(
+                f"Quantization config is type {type(config).__name__}, "
+                f"expected PT2EStrategy or QuantizeApiStrategy. "
+                f"This may indicate incorrect Hydra instantiation."
+            )
+
 
 def validate_experiment(config: MainConfig) -> None:
     """Validate experiment configuration from instantiated MainConfig.
@@ -290,5 +303,6 @@ def validate_experiment(config: MainConfig) -> None:
         is_tokenized=is_tokenized,
         tokenized_obs_keys=tokenized_obs_keys,
         image_norm_type=dataloader.image_norm_type,
+        quantization_config=config.quantization,
     )
     validator.validate_all(validate_loss_keys=config.experiment.validate_loss_keys)

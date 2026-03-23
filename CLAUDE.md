@@ -476,6 +476,7 @@ Plus a separate `action_metadata` dict with `ActionMetadataField` entries (dimen
 - Avoid try catch blocks.
 - Use double quotes for strings: "foo" and not 'foo'.
 - Avoid plain hardcoded strings. Use constant string values through Enum.value
+- **Never use `object` as a type annotation** for return types or parameters. Use the actual type, a protocol, or a union.
 
 Additional standards:
 - Ruff formatter and linter (line length 88, Python 3.13 target). Configuration in `pyproject.toml`.

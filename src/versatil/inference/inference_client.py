@@ -19,7 +19,7 @@ from versatil_constants.shared import ObsKey
 from versatil.inference.action_postprocessor import ActionPostprocessor
 from versatil.inference.observation_buffer import ObservationBuffer
 from versatil.inference.observation_preprocessor import ObservationPreprocessor
-from versatil.inference.policy_loader import PolicyLoader
+from versatil.inference.policy_loading import BasePolicyLoader
 from versatil.inference.protocol import ActionTransport, ObservationTransport
 from versatil.inference.temporal_aggregation import TemporalAggregator
 
@@ -45,7 +45,7 @@ class InferenceClient:
 
     def __init__(
         self,
-        policy_loader: PolicyLoader,
+        policy_loader: BasePolicyLoader,
         observation_transport: ObservationTransport,
         action_transport: ActionTransport,
         temporal_aggregation: bool = False,

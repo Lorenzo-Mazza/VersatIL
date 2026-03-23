@@ -1,0 +1,31 @@
+# @package _global_
+defaults:
+  - /post_training_compression
+  - _self_
+
+checkpoint_path: ???
+device: cpu
+calibration_steps: 128
+
+preparation:
+  replace_frozen_batchnorm: true
+  fuse_conv_batchnorm: true
+quantization:
+  _target_: versatil.quantization.strategies.PT2EStrategy
+  pt2e_backend:
+    _target_: versatil.quantization.backends.x86_inductor.X86InductorBackend
+    is_dynamic: false
+
+modules:
+  - module_path: encoding_pipeline.encoders.left.backbone
+    pruning:
+      _target_: versatil.post_training_compression.pruning.UnstructuredPruner
+      amount: 0.3
+
+  - module_path: encoding_pipeline.encoders.right.backbone
+
+  - module_path: decoder.architecture
+    quantization:
+      _target_: versatil.quantization.strategies.QuantizeApiStrategy
+      quantize_config:
+        _target_: torchao.quantization.Int8DynamicActivationInt8WeightConfig

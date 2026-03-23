@@ -1,3 +1,5 @@
+"""Main Hydra configuration dataclass composing all sub-configurations."""
+
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -17,6 +19,7 @@ class MainConfig:
             {"training": "base"},
             {"policy": "base"},
             {"inference": "base"},
+            {"optional quantization": None},
         ]
     )
 
@@ -25,3 +28,4 @@ class MainConfig:
     training: TrainingConfig = field(default_factory=TrainingConfig)
     policy: PolicyConfig = field(default_factory=PolicyConfig)
     inference: InferenceConfig = field(default_factory=InferenceConfig)
+    quantization: Any = None

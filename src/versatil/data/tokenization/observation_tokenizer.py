@@ -114,6 +114,9 @@ class ObservationTokenizer:
         """
         if not self._is_fitted:
             raise RuntimeError("Tokenizer must be fitted before encoding")
+
+        # TODO: observation_horizon should be a field on the tokenizer
+        #  so temporal dimension detection is explicit, not inferred from inputs.
         first_tensor = next(
             (v for v in observations.values() if isinstance(v, torch.Tensor)), None
         )
@@ -122,11 +125,29 @@ class ObservationTokenizer:
         if has_time_dim:
             batch_size = first_tensor.shape[0]
             time_steps = first_tensor.shape[1]
-            # Flatten (B, T, ...) -> (B*T, ...)
             observations = {
                 k: v.reshape(-1, *v.shape[2:]) if isinstance(v, torch.Tensor) else v
                 for k, v in observations.items()
             }
+        elif not has_time_dim:
+            first_nested_list = next(
+                (
+                    v
+                    for v in observations.values()
+                    if isinstance(v, list) and len(v) > 0 and isinstance(v[0], list)
+                ),
+                None,
+            )
+            if first_nested_list is not None:
+                has_time_dim = True
+                batch_size = len(first_nested_list)
+                time_steps = len(first_nested_list[0])
+                observations = {
+                    k: [item for sublist in v for item in sublist]
+                    if isinstance(v, list) and len(v) > 0 and isinstance(v[0], list)
+                    else v
+                    for k, v in observations.items()
+                }
 
         prompts = self._build_prompts(observations)
         tokenized = self.language_tokenizer(

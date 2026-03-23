@@ -70,6 +70,119 @@ class TestPolicyInitialization:
         assert policy.tokenizer is None
 
 
+class TestInputOutputKeys:
+    def test_input_keys_from_single_encoder(
+        self,
+        policy_factory: Callable[..., Policy],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+        vision_encoder_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(input_keys=["right", "left"])
+        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        assert policy.input_keys == ["left", "right"]
+
+    def test_input_keys_from_multiple_encoders(
+        self,
+        policy_factory: Callable[..., Policy],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+        vision_encoder_factory: Callable[..., MagicMock],
+    ):
+        rgb_encoder = vision_encoder_factory(input_keys=["left"])
+        proprio_encoder = vision_encoder_factory(input_keys=["proprio_robot_frame"])
+        pipeline = encoding_pipeline_factory(
+            encoders={"rgb": rgb_encoder, "proprio": proprio_encoder}
+        )
+        policy = policy_factory(encoding_pipeline=pipeline)
+        assert policy.input_keys == ["left", "proprio_robot_frame"]
+
+    def test_input_keys_includes_conditional_encoders(
+        self,
+        policy_factory: Callable[..., Policy],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+        vision_encoder_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(input_keys=["left"])
+        conditional_encoder = vision_encoder_factory(input_keys=["depth"])
+        pipeline = encoding_pipeline_factory(
+            encoders={"rgb": encoder},
+            conditional_encoders={"film": conditional_encoder},
+        )
+        policy = policy_factory(encoding_pipeline=pipeline)
+        assert policy.input_keys == ["depth", "left"]
+
+    def test_input_keys_deduplicates_shared_keys(
+        self,
+        policy_factory: Callable[..., Policy],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+        vision_encoder_factory: Callable[..., MagicMock],
+    ):
+        encoder_a = vision_encoder_factory(input_keys=["left", "right"])
+        encoder_b = vision_encoder_factory(input_keys=["left", "depth"])
+        pipeline = encoding_pipeline_factory(encoders={"a": encoder_a, "b": encoder_b})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        assert policy.input_keys == ["depth", "left", "right"]
+
+    def test_input_keys_adds_tokenized_keys_when_tokenizer_has_observation_tokenizer(
+        self,
+        policy_factory: Callable[..., Policy],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+        vision_encoder_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(input_keys=["left"])
+        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        tokenizer = MagicMock(spec=Tokenizer)
+        tokenizer.observation_tokenizer = MagicMock()
+        policy.tokenizer = tokenizer
+        result = policy.input_keys
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value in result
+        assert SampleKey.IS_PAD_OBSERVATION.value in result
+
+    def test_input_keys_omits_tokenized_keys_when_no_tokenizer(
+        self,
+        policy_factory: Callable[..., Policy],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+        vision_encoder_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(input_keys=["left"])
+        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        policy.tokenizer = None
+        result = policy.input_keys
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value not in result
+        assert SampleKey.IS_PAD_OBSERVATION.value not in result
+
+    def test_input_keys_omits_tokenized_keys_when_observation_tokenizer_is_none(
+        self,
+        policy_factory: Callable[..., Policy],
+        encoding_pipeline_factory: Callable[..., MagicMock],
+        vision_encoder_factory: Callable[..., MagicMock],
+    ):
+        encoder = vision_encoder_factory(input_keys=["left"])
+        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
+        policy = policy_factory(encoding_pipeline=pipeline)
+        tokenizer = MagicMock(spec=Tokenizer)
+        tokenizer.observation_tokenizer = None
+        policy.tokenizer = tokenizer
+        result = policy.input_keys
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value not in result
+        assert SampleKey.IS_PAD_OBSERVATION.value not in result
+
+    def test_output_keys_returns_sorted_action_head_keys(
+        self,
+        policy_factory: Callable[..., Policy],
+    ):
+        decoder = MagicMock(spec=ActionDecoder)
+        decoder.action_heads = {
+            "position": MagicMock(),
+            "gripper": MagicMock(),
+            "orientation": MagicMock(),
+        }
+        policy = policy_factory(decoder=decoder)
+        assert policy.output_keys == ["gripper", "orientation", "position"]
+
+
 class TestSetNormalizer:
     def test_loads_normalizer_state_dict(self, policy_factory: Callable[..., Policy]):
         policy = policy_factory()

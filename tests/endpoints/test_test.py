@@ -12,11 +12,11 @@ from versatil.endpoints.test import main
 @patch("versatil.endpoints.test.InferenceClient")
 @patch("versatil.endpoints.test.SocketActionTransport")
 @patch("versatil.endpoints.test.SocketObservationTransport")
-@patch("versatil.endpoints.test.PolicyLoader")
+@patch("versatil.endpoints.test.load_policy")
 @patch("versatil.endpoints.test.parse_args")
 def test_main_creates_policy_loader_with_parsed_args(
     mock_parse_args,
-    mock_policy_loader_class,
+    mock_load_policy,
     mock_obs_transport_class,
     mock_action_transport_class,
     mock_client_class,
@@ -37,7 +37,7 @@ def test_main_creates_policy_loader_with_parsed_args(
 
     main()
 
-    mock_policy_loader_class.assert_called_once_with(
+    mock_load_policy.assert_called_once_with(
         device=torch.device("cpu"),
         checkpoint_path="/tmp/ckpt",
         checkpoint_name="best.ckpt",
@@ -64,11 +64,11 @@ def test_main_creates_policy_loader_with_parsed_args(
 @patch("versatil.endpoints.test.InferenceClient")
 @patch("versatil.endpoints.test.SocketActionTransport")
 @patch("versatil.endpoints.test.SocketObservationTransport")
-@patch("versatil.endpoints.test.PolicyLoader")
+@patch("versatil.endpoints.test.load_policy")
 @patch("versatil.endpoints.test.parse_args")
 def test_main_defaults_to_cuda_when_available(
     mock_parse_args,
-    mock_policy_loader_class,
+    mock_load_policy,
     mock_obs_transport_class,
     mock_action_transport_class,
     mock_client_class,
@@ -89,7 +89,7 @@ def test_main_defaults_to_cuda_when_available(
     with patch("versatil.endpoints.test.torch.cuda.is_available", return_value=False):
         main()
 
-    device_used = mock_policy_loader_class.call_args.kwargs["device"]
+    device_used = mock_load_policy.call_args.kwargs["device"]
     assert device_used == torch.device("cpu")
 
 
@@ -97,11 +97,11 @@ def test_main_defaults_to_cuda_when_available(
 @patch("versatil.endpoints.test.InferenceClient")
 @patch("versatil.endpoints.test.SocketActionTransport")
 @patch("versatil.endpoints.test.SocketObservationTransport")
-@patch("versatil.endpoints.test.PolicyLoader")
+@patch("versatil.endpoints.test.load_policy")
 @patch("versatil.endpoints.test.parse_args")
 def test_main_calls_shutdown_even_on_keyboard_interrupt(
     mock_parse_args,
-    mock_policy_loader_class,
+    mock_load_policy,
     mock_obs_transport_class,
     mock_action_transport_class,
     mock_client_class,

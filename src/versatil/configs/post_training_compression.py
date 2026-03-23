@@ -1,0 +1,94 @@
+"""Hydra configuration dataclasses for the post-training compression endpoint."""
+
+from dataclasses import dataclass, field
+from typing import Any
+
+from omegaconf import MISSING
+
+from versatil.training.constants import CheckpointFilename
+
+
+@dataclass
+class PreparationConfig:
+    """Pre-quantization model preparation settings."""
+
+    replace_frozen_batchnorm: bool = True
+    fuse_conv_batchnorm: bool = True
+
+
+@dataclass
+class BasePrunerConfig:
+    """Base config for pruning strategies."""
+
+    amount: float = MISSING
+
+
+@dataclass
+class UnstructuredPrunerConfig(BasePrunerConfig):
+    """Global L1 unstructured weight pruning.
+
+    Note:
+        When layer_types is null, targets all modules with a weight
+        parameter. Use ${prunable_layer:*} resolver in YAML to constrain which layer to prune.
+    """
+
+    _target_: str = "versatil.post_training_compression.pruning.UnstructuredPruner"
+    layer_types: list[str] | None = None
+
+
+@dataclass
+class StructuredPrunerConfig(BasePrunerConfig):
+    """Per-layer structured weight pruning using Lp-norm channel ranking.
+
+    Note:
+        When layer_types is null, defaults to Conv1d, Linear and Conv2d.
+        Use ${prunable_layer:*} resolver in YAML to add types.
+    """
+
+    _target_: str = "versatil.post_training_compression.pruning.StructuredPruner"
+    norm_order: int = 1
+    dimension: int = 0
+    layer_types: list[str] | None = None
+
+
+@dataclass
+class ModuleCompressorConfig:
+    """Per-module compression scheme with optimizer-pattern inheritance.
+
+    Note:
+        Absent fields in YAML inherit from the global config via Hydra
+        interpolation defaults. Explicit null means skip.
+    """
+
+    _target_: str = "versatil.post_training_compression.compressor.ModuleCompressor"
+    module_path: str = MISSING
+    preparation: PreparationConfig | None = "${preparation}"  # type: ignore[assignment]
+    pruning: Any | None = "${pruning}"  # BasePrunerConfig | None
+    quantization: Any | None = (
+        "${quantization}"  # PT2EStrategyConfig | QuantizeApiStrategyConfig | None
+    )
+
+
+@dataclass
+class PostTrainingCompressorConfig:
+    """Top-level config for the post-training compression endpoint.
+
+    Note:
+        Global fields serve as defaults inherited by per-module configs
+        via Hydra interpolation.
+    """
+
+    _target_: str = (
+        "versatil.post_training_compression.compressor.PostTrainingCompressor"
+    )
+    checkpoint_path: str = MISSING
+    checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value
+    output_directory: str | None = None
+    device: str = "cpu"
+    calibration_steps: int = 128
+    modules: list[ModuleCompressorConfig] = field(default_factory=list)
+    preparation: PreparationConfig = field(default_factory=PreparationConfig)
+    pruning: Any | None = None  # BasePrunerConfig | None
+    quantization: Any | None = (
+        None  # PT2EStrategyConfig | QuantizeApiStrategyConfig | None
+    )

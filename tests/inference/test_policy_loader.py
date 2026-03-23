@@ -11,10 +11,11 @@ import torch
 import torch.nn as nn
 
 from versatil.data.constants import Cameras
-from versatil.inference.policy_loader import PolicyLoader
+from versatil.inference.policy_loading import PolicyLoader
 from versatil.training.constants import PrecisionType
 
-POLICY_LOADER_MODULE = "versatil.inference.policy_loader"
+BASE_LOADER_MODULE = "versatil.inference.policy_loading.base"
+FLOAT_LOADER_MODULE = "versatil.inference.policy_loading.float_loader"
 
 
 @pytest.fixture
@@ -75,24 +76,24 @@ def policy_loader_factory(
 
         with (
             patch(
-                f"{POLICY_LOADER_MODULE}.OmegaConf.load",
+                f"{BASE_LOADER_MODULE}.OmegaConf.load",
                 return_value=MagicMock(),
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.hydra.utils.instantiate",
+                f"{BASE_LOADER_MODULE}.hydra.utils.instantiate",
                 return_value=config,
             ),
-            patch(f"{POLICY_LOADER_MODULE}.validate_experiment"),
+            patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
             patch(
-                f"{POLICY_LOADER_MODULE}.torch.load",
+                f"{FLOAT_LOADER_MODULE}.torch.load",
                 return_value=checkpoint,
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.LightningPolicy",
+                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
                 return_value=mock_lightning,
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.Tokenizer.from_pretrained",
+                f"{BASE_LOADER_MODULE}.Tokenizer.from_pretrained",
                 return_value=MagicMock(),
             ),
         ):
@@ -139,14 +140,14 @@ class TestPolicyLoaderInitialization:
 
         with (
             patch(
-                f"{POLICY_LOADER_MODULE}.OmegaConf.load",
+                f"{BASE_LOADER_MODULE}.OmegaConf.load",
                 return_value=MagicMock(),
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.hydra.utils.instantiate",
+                f"{BASE_LOADER_MODULE}.hydra.utils.instantiate",
                 return_value=mock_config,
             ),
-            patch(f"{POLICY_LOADER_MODULE}.validate_experiment"),
+            patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
             pytest.raises(
                 FileNotFoundError,
                 match=re.escape(f"No checkpoint found at {tmp_path / 'last.ckpt'}."),
@@ -243,24 +244,24 @@ class TestPolicyLoaderTokenizer:
 
         with (
             patch(
-                f"{POLICY_LOADER_MODULE}.OmegaConf.load",
+                f"{BASE_LOADER_MODULE}.OmegaConf.load",
                 return_value=MagicMock(),
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.hydra.utils.instantiate",
+                f"{BASE_LOADER_MODULE}.hydra.utils.instantiate",
                 return_value=mock_config,
             ),
-            patch(f"{POLICY_LOADER_MODULE}.validate_experiment"),
+            patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
             patch(
-                f"{POLICY_LOADER_MODULE}.torch.load",
+                f"{FLOAT_LOADER_MODULE}.torch.load",
                 return_value=mock_checkpoint,
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.LightningPolicy",
+                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
                 return_value=mock_lightning,
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.Tokenizer.from_pretrained",
+                f"{BASE_LOADER_MODULE}.Tokenizer.from_pretrained",
                 return_value=mock_tokenizer,
             ),
         ):
@@ -306,20 +307,20 @@ class TestPolicyLoaderPrecisionConversion:
 
         with (
             patch(
-                f"{POLICY_LOADER_MODULE}.OmegaConf.load",
+                f"{BASE_LOADER_MODULE}.OmegaConf.load",
                 return_value=MagicMock(),
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.hydra.utils.instantiate",
+                f"{BASE_LOADER_MODULE}.hydra.utils.instantiate",
                 return_value=mock_config,
             ),
-            patch(f"{POLICY_LOADER_MODULE}.validate_experiment"),
+            patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
             patch(
-                f"{POLICY_LOADER_MODULE}.torch.load",
+                f"{FLOAT_LOADER_MODULE}.torch.load",
                 return_value=mock_checkpoint,
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.LightningPolicy",
+                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
                 return_value=mock_lightning,
             ),
         ):
@@ -362,27 +363,26 @@ class TestPolicyLoaderCheckpointValidation:
         checkpoint_file.write_text("dummy")
 
         mock_lightning = MagicMock()
-        # Model has NO keys matching "policy.decoder." prefix
         mock_lightning.state_dict.return_value = {
             "policy.other.weight": torch.tensor([5.0]),
         }
 
         with (
             patch(
-                f"{POLICY_LOADER_MODULE}.OmegaConf.load",
+                f"{BASE_LOADER_MODULE}.OmegaConf.load",
                 return_value=MagicMock(),
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.hydra.utils.instantiate",
+                f"{BASE_LOADER_MODULE}.hydra.utils.instantiate",
                 return_value=mock_config,
             ),
-            patch(f"{POLICY_LOADER_MODULE}.validate_experiment"),
+            patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
             patch(
-                f"{POLICY_LOADER_MODULE}.torch.load",
+                f"{FLOAT_LOADER_MODULE}.torch.load",
                 return_value=mock_checkpoint,
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.LightningPolicy",
+                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
                 return_value=mock_lightning,
             ),
             pytest.raises(
@@ -419,20 +419,20 @@ class TestPolicyLoaderCheckpointValidation:
 
         with (
             patch(
-                f"{POLICY_LOADER_MODULE}.OmegaConf.load",
+                f"{BASE_LOADER_MODULE}.OmegaConf.load",
                 return_value=MagicMock(),
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.hydra.utils.instantiate",
+                f"{BASE_LOADER_MODULE}.hydra.utils.instantiate",
                 return_value=mock_config,
             ),
-            patch(f"{POLICY_LOADER_MODULE}.validate_experiment"),
+            patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
             patch(
-                f"{POLICY_LOADER_MODULE}.torch.load",
+                f"{FLOAT_LOADER_MODULE}.torch.load",
                 return_value=mock_checkpoint,
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.LightningPolicy",
+                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
                 return_value=mock_lightning,
             ),
             pytest.raises(
@@ -472,20 +472,20 @@ class TestPolicyLoaderCheckpointValidation:
 
         with (
             patch(
-                f"{POLICY_LOADER_MODULE}.OmegaConf.load",
+                f"{BASE_LOADER_MODULE}.OmegaConf.load",
                 return_value=MagicMock(),
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.hydra.utils.instantiate",
+                f"{BASE_LOADER_MODULE}.hydra.utils.instantiate",
                 return_value=mock_config,
             ),
-            patch(f"{POLICY_LOADER_MODULE}.validate_experiment"),
+            patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
             patch(
-                f"{POLICY_LOADER_MODULE}.torch.load",
+                f"{FLOAT_LOADER_MODULE}.torch.load",
                 return_value=mock_checkpoint,
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.LightningPolicy",
+                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
                 return_value=mock_lightning,
             ),
             pytest.raises(
@@ -735,20 +735,20 @@ class TestCheckpointValidationWarning:
 
         with (
             patch(
-                f"{POLICY_LOADER_MODULE}.OmegaConf.load",
+                f"{BASE_LOADER_MODULE}.OmegaConf.load",
                 return_value=MagicMock(),
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.hydra.utils.instantiate",
+                f"{BASE_LOADER_MODULE}.hydra.utils.instantiate",
                 return_value=mock_config,
             ),
-            patch(f"{POLICY_LOADER_MODULE}.validate_experiment"),
+            patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
             patch(
-                f"{POLICY_LOADER_MODULE}.torch.load",
+                f"{FLOAT_LOADER_MODULE}.torch.load",
                 return_value=mock_checkpoint,
             ),
             patch(
-                f"{POLICY_LOADER_MODULE}.LightningPolicy",
+                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
                 return_value=mock_lightning,
             ),
             caplog.at_level(logging.WARNING),

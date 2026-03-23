@@ -33,8 +33,8 @@ class PrecisionType(StrEnum):
         """
         if self == PrecisionType.INT8:
             raise NotImplementedError(
-                "INT8 precision requires specialized quantization. "
-                "Use torch.quantization or a quantization library like bitsandbytes."
+                "INT8 precision requires post-training quantization. "
+                "Use the versatil.quantization module or the post_training_compress endpoint."
             )
         dtype_map = {
             PrecisionType.FP32: torch.float32,
@@ -69,6 +69,21 @@ MAP_PRECISION_TO_DTYPE = {
     PrecisionType.BF16_TRUE: torch.bfloat16,
     PrecisionType.FP64: torch.float64,
 }
+
+
+class CheckpointFilename(StrEnum):
+    """Standard filenames within a training checkpoint directory."""
+
+    CONFIG = "config.yaml"
+    TOKENIZER_DIR = "tokenizer"
+    DEFAULT_CHECKPOINT = "last.ckpt"
+
+
+class CheckpointKey(StrEnum):
+    """Keys used within checkpoint state dicts and normalizer params."""
+
+    STATE_DICT = "state_dict"
+    INPUT_STATS = "input_stats"
 
 
 class Float32MatmulPrecision(StrEnum):
