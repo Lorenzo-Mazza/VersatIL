@@ -111,12 +111,13 @@ def load_policy(
             device=device,
             checkpoint_path=checkpoint_path,
         )
-    return PolicyLoader(
-        device=device,
-        checkpoint_path=checkpoint_path,
-        checkpoint_name=checkpoint_name,
-        precision=precision,
-    )
+    else:
+        return PolicyLoader(
+            device=device,
+            checkpoint_path=checkpoint_path,
+            checkpoint_name=checkpoint_name,
+            precision=precision,
+        )
 
 
 def main() -> None:

@@ -25,7 +25,4 @@ modules:
   - module_path: encoding_pipeline.encoders.right.backbone
 
   - module_path: decoder.architecture
-    quantization:
-      _target_: versatil.quantization.strategies.QuantizeApiStrategy
-      quantize_config:
-        _target_: torchao.quantization.Int8DynamicActivationInt8WeightConfig
+    quantization: null
