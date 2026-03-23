@@ -1,10 +1,8 @@
 defaults:
-  - x86_pt2e_schema
+  - /quantization/strategy/pt2e
   - _self_
 
-_target_: versatil.quantization.strategies.PT2EStrategy
 pt2e_backend:
-  _target_: versatil.quantization.backends.x86_inductor.X86InductorBackend
   is_dynamic: false
   is_qat: false
   reduce_range: false
