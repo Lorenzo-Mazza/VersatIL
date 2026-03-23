@@ -16,6 +16,7 @@ from versatil.data.dataloader import get_dataloaders
 from versatil.inference.policy_loading import PolicyLoader
 from versatil.models.exportable_policy import ExportablePolicy
 from versatil.post_training_compression.compressor import PostTrainingCompressor
+from versatil.post_training_compression.constants import QuantizationStrategy
 from versatil.post_training_compression.export import (
     build_example_inputs,
     export_policy,
@@ -24,6 +25,7 @@ from versatil.post_training_compression.preparation import (
     fuse_all_conv_batchnorm_pairs,
     prepare_batchnorms_for_quantization,
 )
+from versatil.post_training_compression.report import QuantizationReport
 from versatil.post_training_compression.serialization import save_compressed_model
 from versatil.quantization.calibration import CalibrationDataProvider
 from versatil.quantization.quantize import (
@@ -151,6 +153,18 @@ def main(config: DictConfig) -> None:
         )
     else:
         converted = exported
+    if quantize_api_modules:
+        strategy = QuantizationStrategy.QUANTIZE_API.value
+    else:
+        strategy = QuantizationStrategy.PT2E.value
+    report = QuantizationReport(
+        float_model=exported,
+        quantized_model=converted,
+        example_inputs=example_inputs,
+        action_keys=policy.output_keys,
+        quantization_strategy=strategy,
+    )
+    logger.info("\n%s", report.generate_report())
     output_directory = compressor.output_directory
     if output_directory is None:
         output_directory = str(Path(compressor.checkpoint_path) / "compressed")
@@ -163,6 +177,7 @@ def main(config: DictConfig) -> None:
         normalizer=policy.normalizer,
         training_checkpoint_path=compressor.checkpoint_path,
         quantization_config=config,
+        quantization_strategy=strategy,
     )
     logger.info("Compressed model saved to %s", output_directory)
 

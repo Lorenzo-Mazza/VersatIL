@@ -20,20 +20,6 @@ class QuantizableOperatorType(StrEnum):
     LINEAR = "linear"
 
 
-class QuantizationMetadataKey(StrEnum):
-    """Keys used in legacy quantization metadata JSON files."""
-
-    WEIGHTS_FILE = "weights_file"
-    OBSERVATION_KEYS = "observation_keys"
-    ACTION_KEYS = "action_keys"
-    TORCHAO_VERSION = "torchao_version"
-    TORCH_VERSION = "torch_version"
-    IS_DYNAMIC = "is_dynamic"
-    IS_QAT = "is_qat"
-    REDUCE_RANGE = "reduce_range"
-    TRAINING_CHECKPOINT_PATH = "training_checkpoint_path"
-
-
 class FXNodePattern(StrEnum):
     """FX graph node target patterns for operator classification."""
 

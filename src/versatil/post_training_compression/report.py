@@ -1,10 +1,13 @@
 """Post-Training-Quantization report: operator coverage, output divergence, size and timing analysis."""
 
+import os
 import time
 
 import torch
+import torch._inductor.config as inductor_config
 import torch.nn as nn
 
+from versatil.post_training_compression.constants import QuantizationStrategy
 from versatil.quantization.constants import (
     FXNodePattern,
     QuantizableOperatorType,
@@ -21,6 +24,7 @@ class QuantizationReport:
         quantized_model: nn.Module,
         example_inputs: tuple[torch.Tensor, ...],
         action_keys: list[str],
+        quantization_strategy: str = QuantizationStrategy.PT2E.value,
     ) -> None:
         """Initialize with float and quantized models for comparison.
 
@@ -29,11 +33,15 @@ class QuantizationReport:
             quantized_model: Quantized model to compare against.
             example_inputs: Example inputs for running inference.
             action_keys: Ordered list of action output keys.
+            quantization_strategy: QuantizationStrategy value. PT2E
+                benchmarks with inductor compilation, QUANTIZE_API
+                benchmarks eager execution.
         """
         self._float_model = float_model
         self._quantized_model = quantized_model
         self._example_inputs = example_inputs
         self._action_keys = action_keys
+        self._quantization_strategy = quantization_strategy
 
     def compute_operator_coverage(self) -> dict[str, dict[str, int]]:
         """Count quantized vs total operators in the quantized model's FX graph.
@@ -70,12 +78,9 @@ class QuantizationReport:
                 or FXNodePattern.ADDMM.value in target_name
             ):
                 operator_type = QuantizableOperatorType.LINEAR.value
-
             if operator_type is None:
                 continue
-
             coverage[operator_type][ReportMetricKey.TOTAL.value] += 1
-
             has_dequantize_input = any(
                 hasattr(arg, "target")
                 and FXNodePattern.DEQUANTIZE.value in str(arg.target)
@@ -150,6 +155,10 @@ class QuantizationReport:
     ) -> dict[str, float]:
         """Compare float vs quantized model inference latency.
 
+        For PT2E models, compiles the quantized model with
+        torch.compile(backend="inductor") to match the real inference
+        path. For quantize_api models, benchmarks eager execution.
+
         Args:
             warmup_runs: Number of warmup iterations before timing.
             benchmark_runs: Number of iterations to time.
@@ -158,11 +167,15 @@ class QuantizationReport:
             Dict with "float_milliseconds", "quantized_milliseconds",
             "speedup".
         """
+        if self._quantization_strategy == QuantizationStrategy.PT2E.value:
+            quantized_model = self._compile_for_benchmark()
+        else:
+            quantized_model = self._quantized_model
+
         with torch.no_grad():
             for _ in range(warmup_runs):
                 self._float_model(*self._example_inputs)
-                self._quantized_model(*self._example_inputs)
-
+                quantized_model(*self._example_inputs)
             start = time.perf_counter()
             for _ in range(benchmark_runs):
                 self._float_model(*self._example_inputs)
@@ -170,7 +183,7 @@ class QuantizationReport:
 
             start = time.perf_counter()
             for _ in range(benchmark_runs):
-                self._quantized_model(*self._example_inputs)
+                quantized_model(*self._example_inputs)
             quantized_time = (time.perf_counter() - start) / benchmark_runs
 
         return {
@@ -178,6 +191,21 @@ class QuantizationReport:
             ReportMetricKey.QUANTIZED_MS.value: quantized_time * 1000,
             ReportMetricKey.SPEEDUP.value: float_time / max(quantized_time, 1e-9),
         }
+
+    def _compile_for_benchmark(self) -> nn.Module:
+        """Compile the quantized model with inductor for benchmarking."""
+        saved_freezing = os.environ.get("TORCHINDUCTOR_FREEZING")
+        saved_cpp_wrapper = inductor_config.cpp_wrapper
+        os.environ["TORCHINDUCTOR_FREEZING"] = "1"
+        inductor_config.cpp_wrapper = True
+        try:
+            return torch.compile(self._quantized_model, backend="inductor")
+        finally:
+            if saved_freezing is None:
+                os.environ.pop("TORCHINDUCTOR_FREEZING", None)
+            else:
+                os.environ["TORCHINDUCTOR_FREEZING"] = saved_freezing
+            inductor_config.cpp_wrapper = saved_cpp_wrapper
 
     def generate_report(self) -> str:
         """Generate human-readable report string.
@@ -211,7 +239,6 @@ class QuantizationReport:
         lines.append(
             f"  Compression ratio: {size[ReportMetricKey.COMPRESSION_RATIO.value]:.2f}x"
         )
-
         lines.append("\nInference Timing:")
         timing = self.compute_inference_timing()
         lines.append(f"  Float model: {timing[ReportMetricKey.FLOAT_MS.value]:.2f} ms")

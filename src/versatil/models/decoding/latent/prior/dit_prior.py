@@ -6,7 +6,6 @@ or flow matching, where z is the latent variable and s is the conditioning (obse
 
 import torch
 import torch.nn as nn
-from torchcfm.conditional_flow_matching import ConditionalFlowMatcher
 
 from versatil.models.decoding.constants import (
     BetaSchedule,
@@ -114,6 +113,11 @@ class DiTPrior(PriorLatentEncoder):
         self.exclude_keys = exclude_keys or []
 
         if algorithm_type == DenoisingAlgorithm.FLOW_MATCHING.value:
+            # Lazy import: torchcfm → ot → geomloss → pykeops triggers CUDA JIT at import time.
+            from torchcfm.conditional_flow_matching import (  # noqa: PLC0415
+                ConditionalFlowMatcher,
+            )
+
             self.flow_matcher = ConditionalFlowMatcher(sigma=sigma)
             self.ode_solver = ode_solver
             self.noise_scheduler = None

@@ -31,6 +31,7 @@ class PolicyLoader(BasePolicyLoader):
         checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value,
         precision: str = PrecisionType.BF16_MIXED.value,
         seed: int = 42,
+        compile_model: bool = True,
     ) -> None:
         """Initialize the policy loader.
 
@@ -40,10 +41,13 @@ class PolicyLoader(BasePolicyLoader):
             checkpoint_name: Name of the checkpoint file.
             precision: Precision type for model inference.
             seed: Random seed for reproducibility.
+            compile_model: Whether to compile the policy with
+                torch.compile for optimized inference.
         """
         super().__init__(device=device, checkpoint_path=checkpoint_path)
         self._checkpoint_name = checkpoint_name
         self._precision = precision
+        self._compile_model = compile_model
         self._set_seed(seed)
         self._load_model()
 
@@ -98,6 +102,10 @@ class PolicyLoader(BasePolicyLoader):
         precision_type = PrecisionType(self._precision)
         if precision_type.should_convert_model():
             self._policy = self._policy.to(precision_type.get_model_dtype())
+
+        if self._compile_model:
+            self._policy = torch.compile(self._policy)
+            logging.info("Compiled policy with torch.compile")
 
         logging.info("Model and config successfully loaded.")
 

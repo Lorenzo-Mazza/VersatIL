@@ -86,6 +86,18 @@ class CheckpointKey(StrEnum):
     INPUT_STATS = "input_stats"
 
 
+class CompileMode(StrEnum):
+    """torch.compile optimization modes.
+
+    See: https://pytorch.org/docs/stable/generated/torch.compile.html
+    """
+
+    DEFAULT = "default"
+    REDUCE_OVERHEAD = "reduce-overhead"
+    MAX_AUTOTUNE = "max-autotune"
+    MAX_AUTOTUNE_NO_CUDAGRAPHS = "max-autotune-no-cudagraphs"
+
+
 class Float32MatmulPrecision(StrEnum):
     """Float32 matrix multiplication precision for Tensor Cores.
 

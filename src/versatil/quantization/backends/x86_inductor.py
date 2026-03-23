@@ -46,6 +46,11 @@ class X86InductorBackend(BasePT2EBackend):
         """Whether this backend uses dynamic activation quantization."""
         return self._is_dynamic
 
+    @property
+    def supported_device_types(self) -> tuple[str, ...]:
+        """X86 inductor only supports CPU inference."""
+        return ("cpu",)
+
     def create_quantizer(self, module_path: str) -> Quantizer:
         """Create an X86InductorQuantizer targeting a specific module.
 

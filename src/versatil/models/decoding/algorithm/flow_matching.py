@@ -1,7 +1,6 @@
 """Flow Matching algorithm for action generation via continuous normalizing flows."""
 
 import torch
-from torchcfm.conditional_flow_matching import ConditionalFlowMatcher
 
 from versatil.data.constants import SampleKey
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
@@ -56,6 +55,11 @@ class FlowMatching(DecodingAlgorithm):
     ):
         """Initialize Flow Matching algorithm."""
         super().__init__()
+
+        # Lazy import: torchcfm → ot → geomloss → pykeops triggers CUDA JIT at import time.
+        from torchcfm.conditional_flow_matching import (  # noqa: PLC0415
+            ConditionalFlowMatcher,
+        )
 
         self.flow_matcher = ConditionalFlowMatcher(sigma=sigma)
         self.num_inference_steps = num_inference_steps

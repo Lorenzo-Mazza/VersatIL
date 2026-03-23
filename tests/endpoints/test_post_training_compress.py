@@ -1,6 +1,7 @@
 """Tests for versatil.endpoints.post_training_compress module."""
 
 import gc
+import logging
 import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -37,6 +38,7 @@ from versatil.inference.socket_transport import (
     SocketObservationTransport,
 )
 from versatil.models.exportable_policy import ExportablePolicy
+from versatil.post_training_compression.constants import QuantizationStrategy
 from versatil.post_training_compression.export import export_policy
 from versatil.post_training_compression.preparation import (
     fuse_all_conv_batchnorm_pairs,
@@ -205,6 +207,7 @@ def _save_and_verify_inference(
     output_dir: Path,
     tmp_path: Path,
     float_outputs: tuple[torch.Tensor, ...],
+    quantization_strategy: str,
     expect_divergence: bool = True,
 ) -> None:
     """Save compressed model, verify files exist, verify inference, check divergence."""
@@ -225,6 +228,7 @@ def _save_and_verify_inference(
         normalizer=policy.normalizer,
         training_checkpoint_path=str(output_dir),
         quantization_config=ptq_config,
+        quantization_strategy=quantization_strategy,
     )
 
     assert (Path(compressed_dir) / "compressed_policy.pt2").exists()
@@ -363,6 +367,7 @@ class TestGlobalPT2EQuantization:
             output_dir=output_dir,
             tmp_path=tmp_path,
             float_outputs=float_outputs,
+            quantization_strategy=QuantizationStrategy.PT2E.value,
         )
 
 
@@ -413,6 +418,7 @@ class TestPerModulePT2EWithPruning:
             output_dir=output_dir,
             tmp_path=tmp_path,
             float_outputs=float_outputs,
+            quantization_strategy=QuantizationStrategy.PT2E.value,
         )
 
 
@@ -479,5 +485,21 @@ class TestGlobalQuantizeApiDynamic:
             output_dir=output_dir,
             tmp_path=tmp_path,
             float_outputs=float_outputs,
+            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
             expect_divergence=expect_divergence,
         )
+
+
+@pytest.mark.slow
+class TestCompiledTraining:
+    def test_training_with_torch_compile(self, trained_checkpoint, caplog):
+        with caplog.at_level(logging.INFO):
+            output_dir = trained_checkpoint(
+                extra_overrides=[
+                    "training.compile=true",
+                    "training.compile_mode=${compile_mode:DEFAULT}",
+                ],
+            )
+
+        assert (output_dir / "last.ckpt").exists()
+        assert "Compiling policy with torch.compile" in caplog.text

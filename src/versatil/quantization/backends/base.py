@@ -21,6 +21,11 @@ class BasePT2EBackend(ABC):
     def is_dynamic(self) -> bool:
         """Whether this backend uses dynamic activation quantization."""
 
+    @property
+    @abstractmethod
+    def supported_device_types(self) -> tuple[str, ...]:
+        """Device types this backend supports (e.g., ('cpu',) for x86)."""
+
     @abstractmethod
     def create_quantizer(self, module_path: str) -> Quantizer:
         """Create a configured quantizer targeting a specific module.

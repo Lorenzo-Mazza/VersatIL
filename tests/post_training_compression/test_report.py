@@ -1,15 +1,19 @@
 """Tests for versatil.post_training_compression.report module."""
 
+import os
 from collections.abc import Callable
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 import torch
 import torch.nn as nn
 
+from versatil.post_training_compression.constants import QuantizationStrategy
 from versatil.post_training_compression.report import QuantizationReport
 from versatil.quantization.constants import ReportMetricKey
+
+REPORT_MODULE = "versatil.post_training_compression.report"
 
 
 @pytest.fixture
@@ -74,6 +78,7 @@ def report_factory(
         batch_size: int = 2,
         action_keys: list[str] | None = None,
         quantized_model: nn.Module | None = None,
+        quantization_strategy: str = QuantizationStrategy.QUANTIZE_API.value,
     ) -> QuantizationReport:
         if action_keys is None:
             action_keys = [f"action_{index}" for index in range(num_outputs)]
@@ -97,6 +102,7 @@ def report_factory(
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=action_keys,
+            quantization_strategy=quantization_strategy,
         )
 
     return factory
@@ -170,6 +176,7 @@ class TestOperatorCoverage:
             quantized_model=quantized_model,
             example_inputs=example_inputs_factory(),
             action_keys=["action_0"],
+            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
         )
 
         coverage = report.compute_operator_coverage()
@@ -226,6 +233,7 @@ class TestOutputDivergence:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
+            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
         )
 
         divergence = report.compute_output_divergence()
@@ -233,20 +241,12 @@ class TestOutputDivergence:
         assert "position" in divergence
         expected_max = 0.2
         expected_mean = (0.1 + 0.0 + 0.1 + 0.2) / 4.0
-        assert (
-            abs(
-                divergence["position"][ReportMetricKey.MAX_DIFFERENCE.value]
-                - expected_max
-            )
-            < 1e-5
-        )
-        assert (
-            abs(
-                divergence["position"][ReportMetricKey.MEAN_DIFFERENCE.value]
-                - expected_mean
-            )
-            < 1e-5
-        )
+        assert divergence["position"][
+            ReportMetricKey.MAX_DIFFERENCE.value
+        ] == pytest.approx(expected_max, abs=1e-5)
+        assert divergence["position"][
+            ReportMetricKey.MEAN_DIFFERENCE.value
+        ] == pytest.approx(expected_mean, abs=1e-5)
 
     def test_returns_zero_divergence_for_identical_models(
         self,
@@ -267,12 +267,42 @@ class TestOutputDivergence:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
+            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
         )
 
         divergence = report.compute_output_divergence()
 
         assert divergence["position"][ReportMetricKey.MAX_DIFFERENCE.value] == 0.0
         assert divergence["position"][ReportMetricKey.MEAN_DIFFERENCE.value] == 0.0
+
+    def test_wraps_single_tensor_output_as_tuple(
+        self,
+        example_inputs_factory: Callable[..., tuple[torch.Tensor, ...]],
+    ):
+        example_inputs = example_inputs_factory()
+
+        float_model = MagicMock(spec=nn.Module)
+        float_model.return_value = torch.tensor([[1.0, 2.0]])
+
+        quantized_model = MagicMock(spec=nn.Module)
+        quantized_model.return_value = torch.tensor([[1.5, 2.0]])
+
+        report = QuantizationReport(
+            float_model=float_model,
+            quantized_model=quantized_model,
+            example_inputs=example_inputs,
+            action_keys=["position"],
+            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
+        )
+
+        divergence = report.compute_output_divergence()
+
+        assert divergence["position"][
+            ReportMetricKey.MAX_DIFFERENCE.value
+        ] == pytest.approx(0.5)
+        assert divergence["position"][
+            ReportMetricKey.MEAN_DIFFERENCE.value
+        ] == pytest.approx(0.25)
 
     def test_computes_divergence_per_action_key(
         self,
@@ -297,6 +327,7 @@ class TestOutputDivergence:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position", "gripper"],
+            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
         )
 
         divergence = report.compute_output_divergence()
@@ -319,6 +350,7 @@ class TestSizeReduction:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
+            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
         )
 
         size = report.compute_size_reduction()
@@ -345,6 +377,7 @@ class TestSizeReduction:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
+            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
         )
 
         size = report.compute_size_reduction()
@@ -372,6 +405,7 @@ class TestSizeReduction:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
+            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
         )
 
         size = report.compute_size_reduction()
@@ -379,6 +413,82 @@ class TestSizeReduction:
         # max(0, 1) = 1, so ratio = float_bytes / 1
         assert size[ReportMetricKey.QUANTIZED_BYTES.value] == 0.0
         assert size[ReportMetricKey.COMPRESSION_RATIO.value] == float(4 * 2 * 4)
+
+
+@pytest.mark.unit
+class TestCompileForBenchmark:
+    @pytest.mark.parametrize(
+        "initial_freezing",
+        ["0", None],
+        ids=["previously_set", "originally_unset"],
+    )
+    def test_restores_env_after_compilation(
+        self,
+        report_factory: Callable[..., QuantizationReport],
+        initial_freezing: str | None,
+    ):
+        if initial_freezing is not None:
+            os.environ["TORCHINDUCTOR_FREEZING"] = initial_freezing
+        else:
+            os.environ.pop("TORCHINDUCTOR_FREEZING", None)
+
+        report = report_factory(num_outputs=1, action_keys=["position"])
+
+        with (
+            patch(
+                f"{REPORT_MODULE}.torch.compile",
+                return_value=MagicMock(spec=nn.Module),
+            ),
+            patch(f"{REPORT_MODULE}.inductor_config") as mock_inductor_config,
+        ):
+            mock_inductor_config.cpp_wrapper = False
+            report._compile_for_benchmark()
+
+        if initial_freezing is None:
+            assert "TORCHINDUCTOR_FREEZING" not in os.environ
+        else:
+            assert os.environ.get("TORCHINDUCTOR_FREEZING") == initial_freezing
+        assert mock_inductor_config.cpp_wrapper is False
+
+    def test_restores_env_on_compile_error(
+        self,
+        report_factory: Callable[..., QuantizationReport],
+    ):
+        os.environ["TORCHINDUCTOR_FREEZING"] = "original"
+        report = report_factory(num_outputs=1, action_keys=["position"])
+
+        with patch(f"{REPORT_MODULE}.inductor_config") as mock_inductor_config:
+            mock_inductor_config.cpp_wrapper = False
+            with (
+                patch(
+                    f"{REPORT_MODULE}.torch.compile",
+                    side_effect=RuntimeError("compile failed"),
+                ),
+                pytest.raises(RuntimeError, match="compile failed"),
+            ):
+                report._compile_for_benchmark()
+
+        assert os.environ.get("TORCHINDUCTOR_FREEZING") == "original"
+        assert mock_inductor_config.cpp_wrapper is False
+
+    def test_compiles_with_inductor_backend(
+        self,
+        report_factory: Callable[..., QuantizationReport],
+    ):
+        report = report_factory(num_outputs=1, action_keys=["position"])
+
+        with (
+            patch(
+                f"{REPORT_MODULE}.torch.compile",
+                return_value=MagicMock(spec=nn.Module),
+            ) as mock_compile,
+            patch(f"{REPORT_MODULE}.inductor_config"),
+        ):
+            report._compile_for_benchmark()
+
+        mock_compile.assert_called_once_with(
+            report._quantized_model, backend="inductor"
+        )
 
 
 @pytest.mark.unit
@@ -415,6 +525,7 @@ class TestInferenceTiming:
             quantized_model=quantized_model,
             example_inputs=example_inputs,
             action_keys=["position"],
+            quantization_strategy=QuantizationStrategy.QUANTIZE_API.value,
         )
 
         timing = report.compute_inference_timing(
@@ -426,7 +537,68 @@ class TestInferenceTiming:
             timing[ReportMetricKey.FLOAT_MS.value]
             / timing[ReportMetricKey.QUANTIZED_MS.value]
         )
-        assert abs(timing[ReportMetricKey.SPEEDUP.value] - expected_speedup) < 0.01
+        assert timing[ReportMetricKey.SPEEDUP.value] == pytest.approx(
+            expected_speedup, abs=0.01
+        )
+
+    @pytest.mark.parametrize(
+        "strategy, should_compile",
+        [
+            (QuantizationStrategy.PT2E.value, True),
+            (QuantizationStrategy.QUANTIZE_API.value, False),
+        ],
+        ids=["pt2e_compiles", "quantize_api_skips_compile"],
+    )
+    @patch("versatil.post_training_compression.report.torch.compile")
+    def test_pt2e_strategy_compiles_quantize_api_does_not(
+        self,
+        mock_compile,
+        report_factory,
+        strategy,
+        should_compile,
+    ):
+        mock_compile.return_value = MagicMock(
+            return_value=(torch.zeros(2, 2),),
+        )
+        report = report_factory(
+            num_outputs=1,
+            action_keys=["position"],
+            quantization_strategy=strategy,
+        )
+
+        report.compute_inference_timing(
+            warmup_runs=1,
+            benchmark_runs=1,
+        )
+
+        assert mock_compile.called == should_compile
+
+    def test_pt2e_strategy_uses_compiled_model_for_benchmark(
+        self,
+        report_factory: Callable[..., QuantizationReport],
+    ):
+        compiled_model = MagicMock()
+        report = report_factory(
+            num_outputs=1,
+            action_keys=["position"],
+            quantization_strategy=QuantizationStrategy.PT2E.value,
+        )
+
+        with (
+            patch(
+                f"{REPORT_MODULE}.torch.compile",
+                return_value=compiled_model,
+            ),
+            patch(f"{REPORT_MODULE}.inductor_config"),
+        ):
+            report.compute_inference_timing(
+                warmup_runs=1,
+                benchmark_runs=2,
+            )
+
+        warmup_calls = 1
+        benchmark_calls = 2
+        assert compiled_model.call_count == warmup_calls + benchmark_calls
 
 
 @pytest.mark.unit

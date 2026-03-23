@@ -76,6 +76,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Log per-step timing breakdown.",
     )
+    parser.add_argument(
+        "--no_compile",
+        action="store_true",
+        help="Disable torch.compile model optimization.",
+    )
     return parser.parse_args()
 
 
@@ -84,6 +89,7 @@ def load_policy(
     device: torch.device,
     checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value,
     precision: str = PrecisionType.BF16_MIXED.value,
+    compile_model: bool = True,
 ) -> PolicyInference:
     """Load a policy for inference, auto-detecting compressed checkpoints.
 
@@ -96,6 +102,7 @@ def load_policy(
         device: Device to load the model onto.
         checkpoint_name: Name of the checkpoint file (for float policies).
         precision: Precision type for float policy inference.
+        compile_model: Whether to compile the model with torch.compile.
 
     Returns:
         A PolicyInference-compatible loader.
@@ -103,13 +110,11 @@ def load_policy(
     compression_metadata = os.path.join(
         checkpoint_path, CompressionFilename.COMPRESSION_METADATA.value
     )
-    legacy_metadata = os.path.join(
-        checkpoint_path, CompressionFilename.QUANTIZATION_METADATA.value
-    )
-    if os.path.exists(compression_metadata) or os.path.exists(legacy_metadata):
+    if os.path.exists(compression_metadata):
         return CompressedPolicyLoader(
             device=device,
             checkpoint_path=checkpoint_path,
+            compile_model=compile_model,
         )
     else:
         return PolicyLoader(
@@ -117,6 +122,7 @@ def load_policy(
             checkpoint_path=checkpoint_path,
             checkpoint_name=checkpoint_name,
             precision=precision,
+            compile_model=compile_model,
         )
 
 
@@ -136,6 +142,7 @@ def main() -> None:
         checkpoint_path=args.checkpoint_path,
         device=device,
         checkpoint_name=args.checkpoint_name,
+        compile_model=not args.no_compile,
     )
 
     observation_transport = SocketObservationTransport(

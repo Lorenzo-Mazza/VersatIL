@@ -5,6 +5,7 @@ from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
 import pytest
+import torch
 import torch.nn as nn
 
 from versatil.quantization.backends.x86_inductor import (
@@ -45,27 +46,26 @@ class TestX86InductorBackendStorage:
         )
 
         assert backend.is_dynamic == is_dynamic
+        assert backend.supported_device_types == ("cpu",)
 
 
 @pytest.mark.integration
 class TestX86InductorBackendCreateQuantizer:
     @pytest.mark.parametrize(
-        "module_path, config_attr",
-        [
-            ("", "global_config"),
-            ("encoder.backbone", "module_name_qconfig"),
-        ],
+        "module_path",
+        ["", "encoder.backbone"],
         ids=["global", "per_module"],
     )
-    def test_targets_correct_scope(self, backend_factory, module_path, config_attr):
+    def test_targets_correct_scope(self, backend_factory, module_path):
         backend = backend_factory()
 
         quantizer = backend.create_quantizer(module_path=module_path)
 
-        config_value = getattr(quantizer, config_attr)
-        assert config_value is not None
-        if isinstance(config_value, dict):
-            assert len(config_value) > 0
+        if module_path == "":
+            assert quantizer.global_config.weight.dtype == torch.int8
+        else:
+            assert module_path in quantizer.module_name_qconfig
+            assert quantizer.module_name_qconfig[module_path].weight.dtype == torch.int8
 
     @pytest.mark.parametrize("is_dynamic", [True, False])
     def test_dynamic_flag_propagates(self, backend_factory, is_dynamic):
@@ -82,6 +82,15 @@ class TestX86InductorBackendCreateQuantizer:
         quantizer = backend.create_quantizer(module_path="")
 
         assert quantizer.global_config.is_qat == is_qat
+
+    @pytest.mark.parametrize("reduce_range", [True, False])
+    def test_reduce_range_flag_propagates(self, backend_factory, reduce_range):
+        backend = backend_factory(reduce_range=reduce_range)
+
+        quantizer = backend.create_quantizer(module_path="")
+
+        expected_quant_max = 127 if reduce_range else 255
+        assert quantizer.global_config.input_activation.quant_max == expected_quant_max
 
 
 @pytest.mark.unit

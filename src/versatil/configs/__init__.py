@@ -185,7 +185,11 @@ from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.post_training_compression.constants import PrunableLayerType
 from versatil.quantization.constants import QuantizationBackend
-from versatil.training.constants import Float32MatmulPrecision, PrecisionType
+from versatil.training.constants import (
+    CompileMode,
+    Float32MatmulPrecision,
+    PrecisionType,
+)
 
 __all__ = [
     "MainConfig",
@@ -379,6 +383,10 @@ def register_resolvers():
             "kernel_type", lambda name: KernelType[name].value
         )
 
+    if not OmegaConf.has_resolver("compile_mode"):
+        OmegaConf.register_new_resolver(
+            "compile_mode", lambda name: CompileMode[name].value
+        )
     if not OmegaConf.has_resolver("quantization_backend"):
         OmegaConf.register_new_resolver(
             "quantization_backend", lambda name: QuantizationBackend[name].value

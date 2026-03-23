@@ -1,13 +1,24 @@
 """Tests for versatil.configs.post_training_compression module."""
 
+from pathlib import Path
+
+import hydra
 import pytest
+from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
+import versatil.configs  # noqa: F401
 from versatil.configs.post_training_compression import (
     ModuleCompressorConfig,
     PostTrainingCompressorConfig,
     PreparationConfig,
 )
+from versatil.post_training_compression.compressor import (
+    PostTrainingCompressor,
+)
+from versatil.quantization.strategies import PT2EStrategy
+
+HYDRA_CONFIG_DIR = str(Path(__file__).parents[2] / "hydra_configs")
 
 
 @pytest.mark.unit
@@ -69,3 +80,20 @@ class TestPostTrainingCompressorConfig:
         assert omega.checkpoint_path == "/tmp/ckpt"
         assert omega.calibration_steps == 64
         assert omega.modules == []
+
+
+@pytest.mark.unit
+class TestPerModuleYamlInheritance:
+    def test_modules_inherit_global_quantization(self):
+        with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
+            yaml_config = compose(
+                config_name="end_to_end_ptq/per_module_example",
+                overrides=["checkpoint_path=/tmp/ckpt"],
+            )
+
+        compressor = hydra.utils.instantiate(yaml_config)
+
+        assert isinstance(compressor, PostTrainingCompressor)
+        for module in compressor.modules:
+            if module.quantization is not None:
+                assert isinstance(module.quantization, PT2EStrategy)

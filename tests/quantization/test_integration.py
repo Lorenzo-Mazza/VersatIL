@@ -1,13 +1,13 @@
 """Integration tests for the versatil.quantization pipeline."""
 
 import os
+import time
 from collections.abc import Callable
 
 import numpy as np
 import pytest
 import torch
 import torch._inductor.config as inductor_config
-from omegaconf import OmegaConf
 from torch import nn
 from torchao.quantization.pt2e.quantize_pt2e import (
     convert_pt2e,
@@ -33,12 +33,6 @@ from versatil.post_training_compression.pruning import (
     StructuredPruner,
     UnstructuredPruner,
 )
-from versatil.post_training_compression.serialization import (
-    _strip_redundant_weights,
-    load_quantization_metadata,
-    save_quantized_model,
-)
-from versatil.quantization.constants import QuantizationMetadataKey
 from versatil.quantization.torch_patches import patch_get_source_partitions
 
 
@@ -370,6 +364,59 @@ class TestPT2EQuantizationPipeline:
 
 
 @pytest.mark.integration
+class TestInductorCompilation:
+    def test_pt2e_compiled_produces_same_output_as_eager(
+        self,
+        quantized_model_factory,
+    ):
+        _, quantized_model, example_inputs = quantized_model_factory(
+            is_dynamic=False,
+        )
+
+        with torch.no_grad():
+            eager_output = quantized_model(*example_inputs)
+
+        compiled_model = torch.compile(quantized_model, backend="inductor")
+        with torch.no_grad():
+            compiled_output = compiled_model(*example_inputs)
+
+        assert torch.allclose(eager_output[0], compiled_output[0], atol=1e-5)
+
+    def test_pt2e_compiled_is_faster_than_eager(
+        self,
+        quantized_model_factory,
+    ):
+        _, quantized_model, example_inputs = quantized_model_factory(
+            is_dynamic=False,
+            hidden_channels=64,
+        )
+
+        number_of_runs = 30
+
+        with torch.no_grad():
+            for _ in range(10):
+                quantized_model(*example_inputs)
+            start = time.perf_counter()
+            for _ in range(number_of_runs):
+                quantized_model(*example_inputs)
+            eager_time = (time.perf_counter() - start) / number_of_runs
+
+        compiled_model = torch.compile(quantized_model, backend="inductor")
+        with torch.no_grad():
+            for _ in range(10):
+                compiled_model(*example_inputs)
+            start = time.perf_counter()
+            for _ in range(number_of_runs):
+                compiled_model(*example_inputs)
+            compiled_time = (time.perf_counter() - start) / number_of_runs
+
+        assert compiled_time < eager_time, (
+            f"Compiled PT2E ({compiled_time * 1000:.2f} ms) was not faster "
+            f"than eager PT2E ({eager_time * 1000:.2f} ms)"
+        )
+
+
+@pytest.mark.integration
 class TestExportPipeline:
     def test_exported_output_matches_eager(
         self,
@@ -414,26 +461,6 @@ class TestSaveLoadRoundtrip:
 
         for original, reloaded in zip(original_output, reloaded_output):
             assert torch.equal(original, reloaded)
-
-    def test_stripped_state_dict_has_int8_weights_and_produces_valid_output(
-        self,
-        quantized_model_factory,
-    ):
-        _, quantized_model, example_inputs = quantized_model_factory()
-
-        with torch.no_grad():
-            original_output = quantized_model(*example_inputs)
-
-        stripped = _strip_redundant_weights(state_dict=quantized_model.state_dict())
-
-        has_int8 = any(t.dtype == torch.int8 for t in stripped.values())
-        assert has_int8
-
-        # Verify stripped dict can be loaded and produces same output
-        quantized_model.load_state_dict(stripped, strict=False)
-        with torch.no_grad():
-            stripped_output = quantized_model(*example_inputs)
-        assert torch.allclose(original_output[0], stripped_output[0], atol=1e-6)
 
 
 @pytest.mark.integration
@@ -502,59 +529,3 @@ class TestPerModuleCompression:
             result = model(*example_inputs)
         assert torch.isfinite(result[0]).all()
         assert result[0].abs().sum() > 0
-
-
-@pytest.mark.integration
-class TestLegacySaveLoadRoundtrip:
-    def test_save_and_load_preserves_metadata(
-        self,
-        tmp_path,
-        quantized_model_factory,
-    ):
-        _, quantized_model, _ = quantized_model_factory()
-        observation_keys = ["image"]
-        action_keys = ["output_0"]
-
-        save_quantized_model(
-            quantized_model=quantized_model,
-            save_directory=str(tmp_path),
-            observation_keys=observation_keys,
-            action_keys=action_keys,
-            quantization_config=OmegaConf.create({"is_dynamic": False}),
-            training_checkpoint_path="/tmp/training",
-        )
-
-        metadata = load_quantization_metadata(
-            metadata_path=str(tmp_path / "quantization_metadata.json"),
-        )
-
-        assert (
-            metadata[QuantizationMetadataKey.OBSERVATION_KEYS.value] == observation_keys
-        )
-        assert metadata[QuantizationMetadataKey.ACTION_KEYS.value] == action_keys
-        assert (
-            metadata[QuantizationMetadataKey.TRAINING_CHECKPOINT_PATH.value]
-            == "/tmp/training"
-        )
-        assert QuantizationMetadataKey.WEIGHTS_FILE.value in metadata
-        assert QuantizationMetadataKey.TORCHAO_VERSION.value in metadata
-        assert QuantizationMetadataKey.TORCH_VERSION.value in metadata
-
-    def test_save_with_custom_filename(
-        self,
-        tmp_path,
-        quantized_model_factory,
-    ):
-        _, quantized_model, _ = quantized_model_factory()
-
-        save_quantized_model(
-            quantized_model=quantized_model,
-            save_directory=str(tmp_path),
-            observation_keys=["obs"],
-            action_keys=["act"],
-            quantization_config=OmegaConf.create({"is_dynamic": False}),
-            weights_filename="special_weights.pt",
-            training_checkpoint_path="/tmp/training",
-        )
-
-        assert (tmp_path / "special_weights.pt").exists()

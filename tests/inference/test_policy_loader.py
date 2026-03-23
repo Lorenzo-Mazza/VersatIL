@@ -18,6 +18,16 @@ BASE_LOADER_MODULE = "versatil.inference.policy_loading.base"
 FLOAT_LOADER_MODULE = "versatil.inference.policy_loading.float_loader"
 
 
+@pytest.fixture(autouse=True)
+def _patch_torch_compile():
+    # torch.compile on MagicMock causes infinite dynamo graph expansion.
+    with patch(
+        f"{FLOAT_LOADER_MODULE}.torch.compile",
+        side_effect=lambda model, **kwargs: model,
+    ):
+        yield
+
+
 @pytest.fixture
 def mock_config() -> MagicMock:
     config = MagicMock()
@@ -56,6 +66,7 @@ def policy_loader_factory(
         config: MagicMock | None = None,
         checkpoint: dict | None = None,
         create_tokenizer_dir: bool = False,
+        compile_model: bool = False,
     ) -> PolicyLoader:
         if config is None:
             config = mock_config
@@ -103,6 +114,7 @@ def policy_loader_factory(
                 checkpoint_name=checkpoint_name,
                 precision=precision,
                 seed=seed,
+                compile_model=compile_model,
             )
         return loader
 
@@ -501,6 +513,52 @@ class TestPolicyLoaderCheckpointValidation:
     def test_passes_when_checkpoint_matches_model(self, policy_loader_factory):
         loader = policy_loader_factory()
         assert loader.policy.prediction_horizon == 16
+
+
+@pytest.mark.unit
+class TestPolicyLoaderCompileFlag:
+    @pytest.mark.parametrize("compile_model", [True, False])
+    def test_compile_flag_controls_policy_compilation(
+        self,
+        tmp_path,
+        mock_config,
+        mock_checkpoint,
+        compile_model,
+    ):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("dummy: true")
+        (tmp_path / "last.ckpt").write_text("dummy")
+
+        mock_lightning = MagicMock()
+        mock_lightning.state_dict.return_value = dict(mock_checkpoint["state_dict"])
+        compiled_policy = MagicMock()
+
+        with (
+            patch(f"{BASE_LOADER_MODULE}.OmegaConf.load", return_value=MagicMock()),
+            patch(
+                f"{BASE_LOADER_MODULE}.hydra.utils.instantiate",
+                return_value=mock_config,
+            ),
+            patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
+            patch(f"{FLOAT_LOADER_MODULE}.torch.load", return_value=mock_checkpoint),
+            patch(
+                f"{FLOAT_LOADER_MODULE}.LightningPolicy", return_value=mock_lightning
+            ),
+            patch(
+                f"{BASE_LOADER_MODULE}.Tokenizer.from_pretrained",
+                return_value=MagicMock(),
+            ),
+            patch(
+                f"{FLOAT_LOADER_MODULE}.torch.compile", return_value=compiled_policy
+            ) as mock_compile,
+        ):
+            PolicyLoader(
+                device=torch.device("cpu"),
+                checkpoint_path=str(tmp_path),
+                compile_model=compile_model,
+            )
+
+        assert mock_compile.called == compile_model
 
 
 @pytest.mark.unit

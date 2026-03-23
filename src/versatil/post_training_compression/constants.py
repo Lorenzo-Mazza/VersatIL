@@ -5,6 +5,13 @@ from enum import StrEnum
 from torch import nn
 
 
+class QuantizationStrategy(StrEnum):
+    """Quantization strategy used during compression."""
+
+    PT2E = "pt2e"
+    QUANTIZE_API = "quantize_api"
+
+
 class CompressionMetadataKey(StrEnum):
     """Keys used in compression metadata JSON files (.pt2 format)."""
 
@@ -15,6 +22,7 @@ class CompressionMetadataKey(StrEnum):
     TORCHAO_VERSION = "torchao_version"
     TORCH_VERSION = "torch_version"
     TRAINING_CHECKPOINT_PATH = "training_checkpoint_path"
+    QUANTIZATION_STRATEGY = "quantization_strategy"
     IS_DYNAMIC = "is_dynamic"
     IS_QAT = "is_qat"
     REDUCE_RANGE = "reduce_range"
@@ -25,11 +33,9 @@ class CompressionFilename(StrEnum):
 
     QUANTIZATION_CONFIG = "quantization_config.yaml"
     COMPRESSION_METADATA = "compression_metadata.json"
-    QUANTIZATION_METADATA = "quantization_metadata.json"
     COMPRESSED_MODEL = "compressed_policy.pt2"
     NORMALIZER = "normalizer.pt"
     TOKENIZER_DIR = "tokenizer"
-    QUANTIZED_WEIGHTS = "quantized_policy_int8.pt"
 
 
 class PrunableLayerType(StrEnum):

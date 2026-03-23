@@ -11,12 +11,19 @@ import torch
 from packaging.version import Version
 from torch.fx.graph import Graph
 from torch.fx.passes.utils.source_matcher_utils import SourcePartition
+from torchao.quantization.pt2e.quantize_pt2e import convert_pt2e, prepare_pt2e
+from torchao.quantization.pt2e.quantizer import Quantizer
+from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
+    X86InductorQuantizer,
+)
 
 from versatil.quantization.torch_patches import (
+    _PT2E_MODULE_PATCHES,
     _VERSATIL_PATCHED_SENTINEL,
     _is_patch_needed,
     _make_patched_get_source_partitions,
     patch_get_source_partitions,
+    patch_pt2e_python314,
 )
 
 
@@ -362,3 +369,27 @@ class TestPatchGetSourcePartitions:
                 )
         finally:
             del sys.modules[fake_module.__name__]
+
+
+@pytest.mark.unit
+class TestPatchPT2EPython314:
+    def test_skips_on_python_below_314(self):
+        with patch(
+            "versatil.quantization.torch_patches.sys.version_info",
+            (3, 13, 0),
+        ):
+            patch_pt2e_python314()
+
+    def test_pt2e_imports_succeed_on_current_python(self):
+        assert Quantizer is not None
+        assert prepare_pt2e is not None
+        assert convert_pt2e is not None
+        assert X86InductorQuantizer is not None
+
+    def test_patch_targets_cover_all_known_crash_sites(self):
+        expected_modules = {
+            "torchao.quantization.pt2e",
+            "torchao.quantization.pt2e.quantizer.quantizer",
+        }
+
+        assert set(_PT2E_MODULE_PATCHES.keys()) == expected_modules

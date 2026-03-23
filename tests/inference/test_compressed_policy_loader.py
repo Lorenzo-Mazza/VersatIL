@@ -1,13 +1,18 @@
 """Tests for versatil.inference.compressed_policy_loader module."""
 
 import json
+import os
+import re
 from collections.abc import Callable
+from contextlib import nullcontext as does_not_raise
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 import torch
+import torch._inductor.config as inductor_config
+from omegaconf import OmegaConf
 
 from versatil.data.constants import Cameras
 from versatil.data.normalization.normalizer import LinearNormalizer
@@ -16,7 +21,10 @@ from versatil.inference.policy_loading import BasePolicyLoader, CompressedPolicy
 from versatil.post_training_compression.constants import (
     CompressionFilename,
     CompressionMetadataKey,
+    QuantizationStrategy,
 )
+from versatil.quantization.backends.base import BasePT2EBackend
+from versatil.quantization.backends.x86_inductor import X86InductorBackend
 
 COMPRESSED_LOADER_MODULE = "versatil.inference.policy_loading.compressed_loader"
 
@@ -75,6 +83,7 @@ def checkpoint_directory_factory(
         create_normalizer: bool = True,
         include_training_path: bool = True,
         exclude_metadata_keys: list[str] | None = None,
+        quantization_config: dict | None = None,
     ) -> str:
         checkpoint_dir = tmp_path / f"checkpoint_{rng.integers(0, 99999)}"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -96,6 +105,11 @@ def checkpoint_directory_factory(
             (checkpoint_dir / "compressed_policy.pt2").write_text("dummy")
         if create_normalizer:
             (checkpoint_dir / "normalizer.pt").write_text("dummy")
+        if quantization_config is not None:
+            OmegaConf.save(
+                config=OmegaConf.create(quantization_config),
+                f=checkpoint_dir / "quantization_config.yaml",
+            )
 
         return str(checkpoint_dir)
 
@@ -129,14 +143,22 @@ def loaded_loader_factory(
     def factory(
         input_keys: list[str] | None = None,
         output_keys: list[str] | None = None,
+        device: str = "cpu",
+        checkpoint_kwargs: dict | None = None,
     ) -> CompressedPolicyLoader:
+        if checkpoint_kwargs is None:
+            checkpoint_kwargs = {}
         checkpoint_path = checkpoint_directory_factory(
             input_keys=input_keys,
             output_keys=output_keys,
+            **checkpoint_kwargs,
         )
         mock_exported_program = MagicMock()
         mock_exported_program.module.return_value = MagicMock()
 
+        # torch.compile MUST be patched: calling it on a MagicMock
+        # triggers infinite dynamo graph expansion (the tracer follows
+        # mock attribute access endlessly), consuming all system memory.
         with (
             patch(
                 f"{COMPRESSED_LOADER_MODULE}.torch.export.load",
@@ -149,9 +171,12 @@ def loaded_loader_factory(
                 "_load_tokenizer",
                 return_value=None,
             ),
+            patch(
+                f"{COMPRESSED_LOADER_MODULE}.torch.compile", return_value=MagicMock()
+            ),
         ):
             return CompressedPolicyLoader(
-                device=torch.device("cpu"),
+                device=torch.device(device),
                 checkpoint_path=checkpoint_path,
             )
 
@@ -588,3 +613,241 @@ class TestCompressedPolicyLoaderTrainingConfig:
         mock_load_config.assert_called_once_with(
             config_path=str(compressed_dir / "config.yaml"),
         )
+
+
+@pytest.mark.unit
+class TestCompileModelForInference:
+    def test_pt2e_backend_sets_env_during_compilation(self):
+        os.environ.pop("TORCHINDUCTOR_FREEZING", None)
+        original_cpp_wrapper = inductor_config.cpp_wrapper
+
+        model = torch.nn.Sequential(torch.nn.Linear(4, 2))
+        model.eval()
+        mock_backend = MagicMock(spec=BasePT2EBackend)
+        mock_backend.environment_context = X86InductorBackend().environment_context
+
+        CompressedPolicyLoader._compile_model_for_inference(
+            model=model,
+            backend=mock_backend,
+        )
+
+        assert "TORCHINDUCTOR_FREEZING" not in os.environ
+        assert inductor_config.cpp_wrapper == original_cpp_wrapper
+
+    def test_restores_env_vars_when_previously_set(self):
+        os.environ["TORCHINDUCTOR_FREEZING"] = "0"
+        inductor_config.cpp_wrapper = False
+
+        model = torch.nn.Sequential(torch.nn.Linear(4, 2))
+        model.eval()
+        mock_backend = MagicMock(spec=BasePT2EBackend)
+        mock_backend.environment_context = X86InductorBackend().environment_context
+
+        CompressedPolicyLoader._compile_model_for_inference(
+            model=model,
+            backend=mock_backend,
+        )
+
+        assert os.environ.get("TORCHINDUCTOR_FREEZING") == "0"
+        assert inductor_config.cpp_wrapper is False
+
+    def test_returns_compiled_model(self):
+        model = torch.nn.Sequential(torch.nn.Linear(4, 2))
+        model.eval()
+
+        compiled = CompressedPolicyLoader._compile_model_for_inference(
+            model=model,
+            backend=None,
+        )
+
+        assert compiled is not model
+
+
+@pytest.mark.unit
+class TestLoadBackend:
+    @pytest.mark.parametrize(
+        "strategy",
+        [QuantizationStrategy.QUANTIZE_API.value, None],
+        ids=["quantize_api", "none"],
+    )
+    def test_returns_none_for_non_pt2e_strategy(self, loaded_loader_factory, strategy):
+        loader = loaded_loader_factory()
+
+        assert loader._load_backend(strategy=strategy) is None
+
+    def test_returns_none_when_config_file_missing(self, loaded_loader_factory):
+        loader = loaded_loader_factory()
+
+        assert (
+            loader._load_backend(
+                strategy=QuantizationStrategy.PT2E.value,
+            )
+            is None
+        )
+
+    def test_returns_none_when_full_config_has_no_pt2e_strategy(
+        self, loaded_loader_factory
+    ):
+        loader = loaded_loader_factory(
+            checkpoint_kwargs={
+                "quantization_config": {
+                    "_target_": "versatil.post_training_compression.compressor.PostTrainingCompressor",
+                    "checkpoint_path": "/tmp/test",
+                    "modules": [],
+                    "preparation": {
+                        "replace_frozen_batchnorm": True,
+                        "fuse_conv_batchnorm": True,
+                    },
+                },
+            },
+        )
+
+        assert (
+            loader._load_backend(
+                strategy=QuantizationStrategy.PT2E.value,
+            )
+            is None
+        )
+
+    def test_instantiates_backend_from_saved_config(self, loaded_loader_factory):
+        loader = loaded_loader_factory(
+            checkpoint_kwargs={
+                "quantization_config": {
+                    "_target_": "versatil.post_training_compression.compressor.PostTrainingCompressor",
+                    "checkpoint_path": "/tmp/test",
+                    "modules": [],
+                    "preparation": {
+                        "replace_frozen_batchnorm": True,
+                        "fuse_conv_batchnorm": True,
+                    },
+                    "quantization": {
+                        "_target_": "versatil.quantization.strategies.PT2EStrategy",
+                        "pt2e_backend": {
+                            "_target_": "versatil.quantization.backends.x86_inductor.X86InductorBackend",
+                            "is_dynamic": False,
+                        },
+                    },
+                },
+            },
+        )
+
+        backend = loader._load_backend(
+            strategy=QuantizationStrategy.PT2E.value,
+        )
+
+        assert isinstance(backend, BasePT2EBackend)
+        assert backend.supported_device_types == ("cpu",)
+
+
+@pytest.mark.unit
+class TestValidateDevice:
+    @pytest.mark.parametrize(
+        "device_type, supported_types, expectation",
+        [
+            ("cpu", ("cpu",), does_not_raise()),
+            (
+                "cuda",
+                ("cpu",),
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Backend MagicMock supports devices ('cpu',), got 'cuda'."
+                    ),
+                ),
+            ),
+        ],
+        ids=["supported", "unsupported"],
+    )
+    def test_device_validation(
+        self,
+        loaded_loader_factory,
+        device_type,
+        supported_types,
+        expectation,
+    ):
+        loader = loaded_loader_factory(device=device_type)
+        mock_backend = MagicMock(spec=BasePT2EBackend)
+        mock_backend.supported_device_types = supported_types
+
+        with expectation:
+            loader._validate_device(backend=mock_backend)
+
+
+@pytest.mark.unit
+class TestCompileModelFlag:
+    @pytest.mark.parametrize("compile_model", [True, False])
+    def test_compile_flag_controls_model_compilation(
+        self,
+        checkpoint_directory_factory: Callable[..., str],
+        compile_model: bool,
+    ):
+        checkpoint_path = checkpoint_directory_factory()
+        mock_exported_program = MagicMock()
+        raw_module = MagicMock()
+        mock_exported_program.module.return_value = raw_module
+        compiled_module = MagicMock()
+
+        with (
+            patch(
+                f"{COMPRESSED_LOADER_MODULE}.torch.export.load",
+                return_value=mock_exported_program,
+            ),
+            patch(f"{COMPRESSED_LOADER_MODULE}.torch.load", return_value={}),
+            patch.object(CompressedPolicyLoader, "_load_training_config"),
+            patch.object(
+                CompressedPolicyLoader,
+                "_load_tokenizer",
+                return_value=None,
+            ),
+            patch(
+                f"{COMPRESSED_LOADER_MODULE}.torch.compile",
+                return_value=compiled_module,
+            ),
+        ):
+            loader = CompressedPolicyLoader(
+                device=torch.device("cpu"),
+                checkpoint_path=checkpoint_path,
+                compile_model=compile_model,
+            )
+
+        if compile_model:
+            assert loader._compressed_model is compiled_module
+        else:
+            assert loader._compressed_model is raw_module
+
+
+@pytest.mark.unit
+class TestShouldCompile:
+    @pytest.mark.parametrize(
+        "strategy, device_type, expected",
+        [
+            (QuantizationStrategy.PT2E.value, "cpu", True),
+            (QuantizationStrategy.PT2E.value, "cuda", True),
+            (QuantizationStrategy.QUANTIZE_API.value, "cpu", True),
+            (QuantizationStrategy.QUANTIZE_API.value, "cuda", False),
+            (None, "cuda", True),
+        ],
+        ids=[
+            "pt2e_cpu",
+            "pt2e_cuda",
+            "quantize_api_cpu",
+            "quantize_api_cuda_skips",
+            "none_cuda",
+        ],
+    )
+    def test_should_compile_decision(self, strategy, device_type, expected):
+        result = CompressedPolicyLoader._should_compile(
+            strategy=strategy,
+            device=torch.device(device_type),
+        )
+
+        assert result == expected
+
+    def test_quantize_api_cuda_logs_warning(self, caplog):
+        CompressedPolicyLoader._should_compile(
+            strategy=QuantizationStrategy.QUANTIZE_API.value,
+            device=torch.device("cuda"),
+        )
+
+        assert "Skipping torch.compile" in caplog.text
+        assert "torch._int_mm" in caplog.text
