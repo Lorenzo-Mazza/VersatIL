@@ -115,8 +115,7 @@ class ObservationTokenizer:
         if not self._is_fitted:
             raise RuntimeError("Tokenizer must be fitted before encoding")
 
-        # TODO: observation_horizon should be a field on the tokenizer
-        #  so temporal dimension detection is explicit, not inferred from inputs.
+        # TODO: temporal dimension should be explicitly passed to this function, not inferred from inputs.
         first_tensor = next(
             (v for v in observations.values() if isinstance(v, torch.Tensor)), None
         )
