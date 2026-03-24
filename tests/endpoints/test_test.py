@@ -38,9 +38,10 @@ def test_main_creates_policy_loader_with_parsed_args(
     main()
 
     mock_load_policy.assert_called_once_with(
-        device=torch.device("cpu"),
         checkpoint_path="/tmp/ckpt",
+        device=torch.device("cpu"),
         checkpoint_name="best.ckpt",
+        compile_model=False,
     )
     mock_obs_transport_class.assert_called_once_with(
         server_address="10.0.0.1",

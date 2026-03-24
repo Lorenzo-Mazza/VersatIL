@@ -170,5 +170,7 @@ class TestTrainingConfig:
             "reduce_lr_on_plateau",
             "reduce_lr_patience",
             "reduce_lr_cooldown",
+            "compile",
+            "compile_mode",
         }
         assert expected == field_names

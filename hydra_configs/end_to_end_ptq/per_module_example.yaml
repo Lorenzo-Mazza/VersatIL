@@ -19,8 +19,8 @@ quantization:
 modules:
   - module_path: encoding_pipeline.encoders.left.backbone
     pruning:
-      _target_: versatil.post_training_compression.pruning.UnstructuredPruner
-      amount: 0.3
+      - _target_: versatil.post_training_compression.pruning.UnstructuredPruner
+        amount: 0.3
 
   - module_path: encoding_pipeline.encoders.right.backbone
 

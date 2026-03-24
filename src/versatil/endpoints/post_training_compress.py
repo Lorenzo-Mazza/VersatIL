@@ -161,14 +161,6 @@ def main(config: DictConfig) -> None:
         strategy = QuantizationStrategy.QUANTIZE_API.value
     else:
         strategy = QuantizationStrategy.PT2E.value
-    report = QuantizationReport(
-        float_model=exported,
-        quantized_model=converted,
-        example_inputs=example_inputs,
-        action_keys=policy.output_keys,
-        quantization_strategy=strategy,
-    )
-    logging.info("\n%s", report.generate_report())
     output_directory = compressor.output_directory
     if output_directory is None:
         output_directory = str(Path(compressor.checkpoint_path) / "compressed")
@@ -184,6 +176,15 @@ def main(config: DictConfig) -> None:
         quantization_strategy=strategy,
     )
     logging.info("Compressed model saved to %s", output_directory)
+    if compressor.generate_report:
+        report = QuantizationReport(
+            float_model=exported,
+            quantized_model=converted,
+            example_inputs=example_inputs,
+            action_keys=policy.output_keys,
+            quantization_strategy=strategy,
+        )
+        logging.info("\n%s", report.generate_report())
 
 
 if __name__ == "__main__":

@@ -242,7 +242,8 @@ class TestResolveModules:
 
         assert compressor.resolve_modules() is explicit
 
-    def test_falls_back_to_global_settings_when_empty(self):
+    @pytest.mark.parametrize("generate_report", [True, False])
+    def test_falls_back_to_global_settings_when_empty(self, generate_report):
         preparation = MagicMock()
         pruning = [MagicMock(), MagicMock()]
         quantization = PT2EStrategy(pt2e_backend=X86InductorBackend())
@@ -252,7 +253,10 @@ class TestResolveModules:
             preparation=preparation,
             pruning=pruning,
             quantization=quantization,
+            generate_report=generate_report,
         )
+
+        assert compressor.generate_report is generate_report
 
         resolved = compressor.resolve_modules()
 

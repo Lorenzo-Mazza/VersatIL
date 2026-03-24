@@ -72,6 +72,7 @@ class PostTrainingCompressor:
         calibration_steps: int = 32,
         checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value,
         output_directory: str | None = None,
+        generate_report: bool = False,
         pruning: list[BasePruner] | None = None,
         quantization: PT2EStrategy | QuantizeApiStrategy | None = None,
     ) -> None:
@@ -90,6 +91,9 @@ class PostTrainingCompressor:
             checkpoint_name: Checkpoint filename inside the directory.
             output_directory: Where to save compressed output.
                 Defaults to checkpoint_path/compressed.
+            generate_report: Whether to generate a quantization
+                report after saving. Disabled by default since
+                it runs additional forward passes for benchmarking.
             pruning: Global pruning strategies (inherited by modules).
             quantization: Global quantization strategy (inherited by
                 modules).
@@ -97,6 +101,7 @@ class PostTrainingCompressor:
         self.checkpoint_path = checkpoint_path
         self.checkpoint_name = checkpoint_name
         self.output_directory = output_directory
+        self.generate_report = generate_report
         self.device = device
         self.calibration_steps = calibration_steps
         self.modules = modules

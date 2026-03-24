@@ -100,6 +100,8 @@ def mock_training_config_factory() -> Callable[..., MagicMock]:
         reduce_lr_on_plateau: bool = False,
         reduce_lr_patience: int = 10,
         reduce_lr_cooldown: int = 10,
+        compile: bool = False,
+        compile_mode: str = "default",
         lr: float = 1e-4,
     ) -> MagicMock:
         config = MagicMock(spec=TrainingConfig)
@@ -117,6 +119,8 @@ def mock_training_config_factory() -> Callable[..., MagicMock]:
         config.reduce_lr_on_plateau = reduce_lr_on_plateau
         config.reduce_lr_patience = reduce_lr_patience
         config.reduce_lr_cooldown = reduce_lr_cooldown
+        config.compile = compile
+        config.compile_mode = compile_mode
         config.optimizer = MagicMock(spec=AdamWConfig)
         config.optimizer.lr = lr
         return config

@@ -86,6 +86,7 @@ class PostTrainingCompressorConfig:
     output_directory: str | None = None
     device: str = "cpu"  # Device for export and calibration ("cpu" or "cuda")
     calibration_steps: int = 32
+    generate_report: bool = False
     modules: list[ModuleCompressorConfig] = field(default_factory=list)
     preparation: PreparationConfig = field(default_factory=PreparationConfig)
     pruning: list[Any] | None = None  #  list[BasePrunerConfig] | None
