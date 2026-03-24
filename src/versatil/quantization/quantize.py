@@ -55,7 +55,7 @@ def apply_pt2e_quantization(
     with first_backend.environment_context():
         prepared = prepare_pt2e(exported, composed)
         if calibration is not None:
-            logger.info("Calibrating PT2E on %s...", calibration.device.type)
+            logger.info("Calibrating PT2E...")
             with torch.no_grad():
                 for batch in calibration:
                     prepared(*batch)

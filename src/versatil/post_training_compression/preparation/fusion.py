@@ -22,7 +22,8 @@ def fuse_conv_batchnorm(
             f"the required BatchNorm buffers"
         )
     running_mean, running_var, weight, bias, eps = parameters
-    scale = weight / torch.sqrt(running_var + eps)
+    device = conv.weight.device
+    scale = weight.to(device) / torch.sqrt(running_var.to(device) + eps)
     fused_conv = nn.Conv2d(
         in_channels=conv.in_channels,
         out_channels=conv.out_channels,
@@ -33,8 +34,11 @@ def fuse_conv_batchnorm(
         groups=conv.groups,
         bias=True,
         padding_mode=conv.padding_mode,
+        device=device,
     )
 
+    running_mean = running_mean.to(device)
+    bias = bias.to(device)
     reshape_dims = (-1,) + (1,) * (conv.weight.dim() - 1)
     fused_conv.weight.data = conv.weight.data * scale.reshape(reshape_dims)
     if conv.bias is not None:

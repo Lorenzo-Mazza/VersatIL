@@ -30,14 +30,13 @@ class CalibrationDataProvider:
             dataloader: VersatIL dataloader yielding normalized, tokenized samples.
             observation_keys: Keys defining positional argument order.
             num_calibration_steps: Maximum number of calibration batches.
-            device: Device for calibration tensors. Defaults to CUDA
-                if available, otherwise CPU.
+            device: Device for calibration tensors. Defaults to CPU.
         """
         self._dataloader = dataloader
         self._observation_keys = observation_keys
         self._num_calibration_steps = num_calibration_steps
         if device is None:
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            device = torch.device("cpu")
         self.device = device
 
     def __iter__(self) -> Iterator[tuple[torch.Tensor, ...]]:

@@ -92,7 +92,8 @@ def _create_replacement_batchnorm(
             f"the required BatchNorm buffers"
         )
     running_mean, running_var, weight, bias, eps = parameters
-    replacement = replacement_class(num_features=num_features, eps=eps)
+    device = running_mean.device
+    replacement = replacement_class(num_features=num_features, eps=eps, device=device)
     replacement.running_mean.data.copy_(running_mean.data)
     replacement.running_var.data.copy_(running_var.data)
     replacement.weight.data.copy_(weight.data)

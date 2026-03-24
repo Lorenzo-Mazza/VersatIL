@@ -317,3 +317,43 @@ class TestFuseAllConvBatchnormPairs:
         with torch.no_grad():
             actual = nn.Sequential(model[0], model[1])(input_data)
         assert torch.allclose(actual, expected, atol=1e-5)
+
+
+@pytest.mark.requires_gpu
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+class TestFusionOnCuda:
+    def test_fuse_conv_batchnorm_on_cuda(
+        self,
+        conv_factory: Callable[..., nn.Conv2d],
+        batchnorm_factory: Callable[..., nn.BatchNorm2d],
+        spatial_input_factory: Callable[..., torch.Tensor],
+    ):
+        conv = conv_factory(in_channels=3, out_channels=16).cuda()
+        batchnorm = batchnorm_factory(num_features=16).cuda()
+        input_data = spatial_input_factory(channels=3).cuda()
+        conv.eval()
+        with torch.no_grad():
+            expected = batchnorm(conv(input_data))
+        fused = fuse_conv_batchnorm(conv=conv, batchnorm=batchnorm)
+        fused.eval()
+        assert fused.weight.device.type == "cuda"
+        assert fused.bias.device.type == "cuda"
+        with torch.no_grad():
+            actual = fused(input_data)
+        assert torch.allclose(actual, expected, atol=1e-5)
+
+    def test_fuse_all_pairs_on_cuda(
+        self,
+        conv_bn_model_factory: Callable[..., nn.Module],
+        spatial_input_factory: Callable[..., torch.Tensor],
+    ):
+        model = conv_bn_model_factory(in_channels=3, num_pairs=2, conv_bias=True).cuda()
+        model.eval()
+        input_data = spatial_input_factory(channels=3).cuda()
+        with torch.no_grad():
+            expected = model(input_data)
+        count = fuse_all_conv_batchnorm_pairs(model)
+        assert count == 2
+        with torch.no_grad():
+            actual = model(input_data)
+        assert torch.allclose(actual, expected, atol=1e-5)

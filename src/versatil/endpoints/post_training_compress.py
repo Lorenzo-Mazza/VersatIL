@@ -73,7 +73,7 @@ def main(config: DictConfig) -> None:
     compressor: PostTrainingCompressor = hydra.utils.instantiate(config)
     logging.info("Loading policy from %s", compressor.checkpoint_path)
     policy_loader = PolicyLoader(
-        device=torch.device("cpu"),
+        device=torch.device(compressor.device),
         checkpoint_path=compressor.checkpoint_path,
         checkpoint_name=compressor.checkpoint_name,
         precision=PrecisionType.FP32.value,
@@ -137,7 +137,6 @@ def main(config: DictConfig) -> None:
             num_calibration_steps=compressor.calibration_steps,
             device=device,
         )
-    exportable.to(device)
     example_inputs = (
         calibration.get_single_batch()
         if calibration is not None
@@ -148,7 +147,7 @@ def main(config: DictConfig) -> None:
             tokenizer=policy_loader.tokenizer,
         )
     )
-    logging.info("Exporting on %s...", device.type)
+    logging.info("Exporting model...")
     exported = export_policy(exportable=exportable, example_inputs=example_inputs)
     if pt2e_modules:
         converted = apply_pt2e_quantization(
@@ -158,8 +157,6 @@ def main(config: DictConfig) -> None:
         )
     else:
         converted = exported
-    converted.to("cpu")
-    example_inputs = tuple(t.to("cpu") for t in example_inputs)
     if quantize_api_modules:
         strategy = QuantizationStrategy.QUANTIZE_API.value
     else:

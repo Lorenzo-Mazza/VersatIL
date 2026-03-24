@@ -233,7 +233,7 @@ class TestCalibrationDataProviderSingleBatch:
 
 @pytest.mark.unit
 class TestCalibrationDataProviderDevice:
-    def test_defaults_to_cuda_when_available(self):
+    def test_defaults_to_cpu(self):
         dataloader = MagicMock(spec=torch.utils.data.DataLoader)
         provider = CalibrationDataProvider(
             dataloader=dataloader,
@@ -241,10 +241,7 @@ class TestCalibrationDataProviderDevice:
             num_calibration_steps=1,
         )
 
-        if torch.cuda.is_available():
-            assert provider.device.type == "cuda"
-        else:
-            assert provider.device.type == "cpu"
+        assert provider.device.type == "cpu"
 
     def test_explicit_device_overrides_default(self):
         dataloader = MagicMock(spec=torch.utils.data.DataLoader)

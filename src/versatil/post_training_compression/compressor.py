@@ -69,7 +69,7 @@ class PostTrainingCompressor:
         modules: list[ModuleCompressor],
         preparation: PreparationConfig,
         device: str = "cpu",
-        calibration_steps: int = 128,
+        calibration_steps: int = 32,
         checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value,
         output_directory: str | None = None,
         pruning: list[BasePruner] | None = None,
