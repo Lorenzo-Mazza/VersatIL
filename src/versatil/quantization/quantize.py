@@ -52,13 +52,17 @@ def apply_pt2e_quantization(
 
     composed = ComposableQuantizer(quantizers)
     first_backend = pt2e_modules[0].quantization.pt2e_backend
+    calibration_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     with first_backend.environment_context():
         prepared = prepare_pt2e(exported, composed)
         if calibration is not None:
-            logger.info("Calibrating PT2E...")
+            logger.info("Calibrating PT2E on %s...", calibration_device.type)
+            prepared.to(calibration_device)
             with torch.no_grad():
                 for batch in calibration:
-                    prepared(*batch)
+                    device_batch = tuple(t.to(calibration_device) for t in batch)
+                    prepared(*device_batch)
+            prepared.to("cpu")
         converted = convert_pt2e(prepared)
     logger.info(
         "PT2E done, static ops: %d",
