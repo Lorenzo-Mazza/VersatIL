@@ -40,6 +40,7 @@ Rapid experimentation, cleaner code, and true reusability across projects.
     * **[HuggingFace Diffusers](https://github.com/huggingface/diffusers)** for diffusion schedulers.
     * **[TorchCFM](https://github.com/atong01/conditional-flow-matching)** for Flow Matching schedulers.
     * **[Albumentations](https://albumentations.ai/)** for image augmentations.
+    * **[torchao](https://github.com/pytorch/ao)** for post-training quantization (PT2E and quantize_() APIs).
 - 💡 **Invent What Matters** For performance-critical components, we wrote a custom `models/layers` package in pure PyTorch. This includes optimized implementations of:
     * Attention (FlashAttention).
     * Positional Encodings (Sinusoidal, Learned, Rotary).
@@ -144,11 +145,8 @@ Powered by **PyTorch Lightning**:
 
 #### 🔌 Inference (ZMQ)
 
-We provide ZMQ-based inference clients for TSO Lab Robot Testbed server, LIBERO simulation server and Metaworlds simulation server. 
-The clients handle 
-communication with the server through sockets, requesting for observations and sending back actions predicted by the trained policy. This design allows us to 
-decouple the policy training environment from the robot/simulation server implementation, enabling easy integration with different robot platforms or simulation
-environments.
+We provide ZMQ-based inference clients for TSO Lab Robot Testbed server, LIBERO simulation server and Metaworlds simulation server.
+The clients handle communication with the server through sockets, requesting for observations and sending back actions predicted by the trained policy. This design allows us to decouple the policy training environment from the robot/simulation server implementation, enabling easy integration with different robot platforms or simulation environments. Both float and compressed (quantized) checkpoints are supported through a unified inference interface.
 
 ---
 
@@ -159,9 +157,34 @@ We currently support Grad-CAM, Grad-CAM++, Ablation-CAM and Integrated Gradients
 ---
 
 
-#### 📦 Quantization
-We plan to add support for post-training quantization of the trained policies, to enable deployment on edge devices with limited computational resources.
+#### 📦 Post-Training Compression
 
+VersatIL includes a post-training compression (PTC) pipeline that reduces model size and improves CPU inference efficiency for deployment on edge or resource-constrained hardware where GPU acceleration is unavailable, without retraining.
+
+**What is post-training quantization?**
+Post-training quantization (PTQ) converts trained floating-point model weights and activations to lower-precision integer representations (e.g., INT8). This reduces memory footprint, improves cache utilization, and enables hardware-accelerated integer arithmetic — typically achieving inference speedup on x86 CPUs with minimal accuracy loss. Unlike quantization-aware training (QAT), PTQ is done after training. Static quantization uses a small calibration dataset to determine optimal activation ranges per layer; dynamic quantization computes ranges on-the-fly at inference time and needs no calibration.
+
+**How VersatIL implements PTC:**
+
+The compression pipeline is configurable via Hydra and supports three complementary techniques applied sequentially:
+
+1. **Preparation**: Frozen BatchNorm replacement and Conv+BN weight folding — standard pre-quantization model surgery that merges batch normalization parameters into convolution weights.
+
+2. **Pruning**: Weight pruning to introduce sparsity before quantization. Supports both unstructured (global L1 magnitude) and structured (per-channel Lp-norm) pruning, composable as a list — e.g., structured pruning followed by unstructured pruning on the same module.
+
+3. **Quantization**: Two paths via [torchao](https://github.com/pytorch/ao), PyTorch's quantization library:
+   - **PT2E** (PyTorch 2 Export): The graph-based quantization flow. The trained policy is exported to an FX graph via `torch.export`, then quantized using hardware-specific quantizers (e.g., X86InductorQuantizer for x86 CPUs). Static quantization requires a calibration pass over training data to determine activation ranges. This path supports per-module targeting, conv+linear fusion, and operator-level quantization control.
+   - **quantize_() API**: The eager-mode dynamic quantization flow. Applies weight-only or dynamic activation quantization (e.g., INT8 dynamic, INT4 weight-only) directly on the eager model before export. Simpler to use but less granular than PT2E.
+
+**Compressed inference:**
+
+Compressed models are saved as `.pt2` archives and loaded by `CompressedPolicyLoader`, which applies `torch.compile` with the Inductor backend for optimized execution. The first inference call triggers kernel compilation, after which subsequent calls run at full speed. Compressed checkpoints include the normalizer, tokenizer, training config, and compression metadata for self-contained deployment.
+
+**Per-module targeting:**
+
+Compression targets can be specified globally (applied to the entire policy) or per-module (targeting specific submodules like individual encoder backbones or the decoder). This allows, for example, aggressively quantizing the vision backbones while leaving the language encoder or decoder at higher precision.
+
+**Roadmap:** We plan to extend support to Quantization-Aware Training (QAT), where simulated quantization is inserted into the forward pass during training so the optimizer learns weights that are natively quantization-friendly, yielding higher accuracy than PTQ alone.
 
 ---
 

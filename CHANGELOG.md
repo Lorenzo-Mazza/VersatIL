@@ -5,6 +5,29 @@ All notable changes to VersatIL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Post-training compression pipeline** (`post_training_compression/` + `quantization/`):
+  - `PostTrainingCompressor` with `compress()` method orchestrating load → prepare → prune → export → quantize → save
+  - `CompressionTarget` for per-module or global compression configuration
+  - BatchNorm preparation (frozen BN replacement) and Conv+BN weight folding, device-agnostic
+  - Composable pruning: `UnstructuredPruner` (global L1) and `StructuredPruner` (per-channel Lp-norm) applied as a sequential list
+  - PT2E quantization via `X86InductorBackend` (static/dynamic) with calibration data provider
+  - quantize_() API path for dynamic/weight-only quantization via torchao
+  - `ExportablePolicy`: dict→positional tensor wrapper for `torch.export` compatibility
+  - `CompressedPolicyLoader`: loads `.pt2` archives with `torch.compile` + backend env activation
+  - Timestamped output directories (`compressed/<YYYYMMDD_HHMMSS>/`)
+  - Optional `QuantizationReport` (op coverage, size reduction, output divergence)
+  - Hydra configs for PTQ under `hydra_configs/end_to_end_ptq/`
+- `activate_environment()` on `BasePT2EBackend` for lazy `torch.compile` (env must persist past the compile call)
+- Python 3.14 compatibility patch for torchao `Union.__module__` assignment (applied in `versatil/__init__.py`)
+- Silenced `httpx` INFO logs and non-writable buffer warnings
+
+### Changed
+- `inference/__init__.py` and `inference/policy_loading/__init__.py` no longer re-export submodules (prevents circular imports)
+- All consumers import from concrete modules (e.g., `from versatil.inference.policy_loading.float_loader import PolicyLoader`)
+
 ## [0.1.1] - 2026-03-20
 
 Migrate to Python 3.13+ and PyTorch 2.10 with CUDA 12.8.

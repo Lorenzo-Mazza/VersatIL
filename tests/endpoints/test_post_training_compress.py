@@ -81,6 +81,13 @@ COMMON_OVERRIDES = [
     "experiment.device=cpu",
 ]
 
+PTQ_CONFIG_DIR = Path(HYDRA_CONFIG_DIR) / "end_to_end_ptq"
+PTQ_CONFIG_NAMES = [
+    f"end_to_end_ptq/{p.stem}"
+    for p in sorted(PTQ_CONFIG_DIR.glob("*.yaml"))
+    if "example" not in p.stem
+]
+
 PTQ_TEST_CONFIGS = [
     "end_to_end_training_runs/libero_lerobot/action_transformer_language",
     "end_to_end_training_runs/libero_lerobot/action_transformer",
@@ -583,7 +590,11 @@ class TestCompressorEndToEnd:
         output_dir = trained_checkpoint()
         compressed_dir = str(tmp_path / "compressed_output")
 
-        hydra_config = MagicMock()
+        with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
+            hydra_config = compose(
+                config_name=PTQ_CONFIG_NAMES[0],
+                overrides=[f"checkpoint_path={str(output_dir)}"],
+            )
         compressor = PostTrainingCompressor(
             checkpoint_path=str(output_dir),
             checkpoint_name="last.ckpt",
@@ -616,7 +627,11 @@ class TestCompressorEndToEnd:
         output_dir = trained_checkpoint()
         compressed_dir = str(tmp_path / "compressed_no_quant")
 
-        hydra_config = MagicMock()
+        with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
+            hydra_config = compose(
+                config_name=PTQ_CONFIG_NAMES[0],
+                overrides=[f"checkpoint_path={str(output_dir)}"],
+            )
         compressor = PostTrainingCompressor(
             checkpoint_path=str(output_dir),
             checkpoint_name="last.ckpt",
@@ -642,7 +657,11 @@ class TestCompressorEndToEnd:
     ):
         output_dir = trained_checkpoint()
 
-        hydra_config = MagicMock()
+        with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
+            hydra_config = compose(
+                config_name=PTQ_CONFIG_NAMES[0],
+                overrides=[f"checkpoint_path={str(output_dir)}"],
+            )
         compressor = PostTrainingCompressor(
             checkpoint_path=str(output_dir),
             checkpoint_name="last.ckpt",

@@ -35,7 +35,7 @@ The key features are:
 - **12 action decoders**: ACT, DiT, GPT, Free Transformer, LACT, MoDE-ACT, Phase-ACT, and more -- each with configurable positional encodings, normalization, and action heads.
 - **Any dataset**: Ingest CSV, HDF5, or LeRobot formats into Zarr. Define observation/action spaces per task. Normalize, augment, and tokenize automatically.
 - **Config-driven**: [Hydra](https://hydra.cc/) + typed [OmegaConf](https://omegaconf.readthedocs.io/) dataclasses. Every experiment is fully reproducible from a single YAML file. Errors are caught at startup, not mid-training.
-- **Inference-ready**: Pluggable transport protocols (ZMQ), observation buffering, temporal aggregation, structured actions. One client for simulation and hardware.
+- **Inference-ready**: Pluggable transport protocols (ZMQ), observation buffering, temporal aggregation, structured actions. One client for simulation and hardware. Post-training compression (pruning + quantization via [torchao](https://github.com/pytorch/ao)) for deployment on resource-constrained hardware.
 - **Tested**: >90% test coverage. Ruff formatting and linting enforced via CI/CD and pre-commit hooks.
 
 ---
@@ -121,6 +121,14 @@ The key features are:
     Transport protocols, preprocessing, temporal aggregation.
 
     [:octicons-arrow-right-24: Inference](architecture/inference.md)
+
+-   **Post-Training Compression**
+
+    ---
+
+    Pruning, quantization (PT2E + quantize_() via torchao), compressed inference.
+
+    [:octicons-arrow-right-24: Compression](architecture/post_training_compression.md)
 
 </div>
 

@@ -155,6 +155,20 @@ Inference runs under `torch.autocast` with the configured precision and `torch.n
 - `observation_space` / `action_space` -- The policy's task spaces
 - `prediction_horizon` / `observation_horizon` -- Temporal window sizes
 
+## Compressed Policy Loading
+
+`CompressedPolicyLoader` loads quantized `.pt2` checkpoints produced by the [post-training compression pipeline](post_training_compression.md). It shares the same `run_inference()` interface as `PolicyLoader`, so `InferenceClient` works with either.
+
+```python
+loader = CompressedPolicyLoader(
+    device=torch.device("cpu"),
+    checkpoint_path="/path/to/compressed/<timestamp>",
+)
+actions = loader.run_inference(obs_dict=observations)
+```
+
+The loader reads compression metadata to determine the quantization strategy and backend, applies `torch.compile` with the backend's environment configuration (e.g., inductor freezing, cpp_wrapper for x86), and runs compiled inference. The backend environment is activated permanently because `torch.compile` is lazy — actual kernel compilation happens on the first forward pass.
+
 ## Action Postprocessing
 
 `ActionPostprocessor` converts raw policy output tensors into structured action dictionaries for the server.
