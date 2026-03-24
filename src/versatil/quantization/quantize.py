@@ -52,17 +52,13 @@ def apply_pt2e_quantization(
 
     composed = ComposableQuantizer(quantizers)
     first_backend = pt2e_modules[0].quantization.pt2e_backend
-    calibration_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     with first_backend.environment_context():
         prepared = prepare_pt2e(exported, composed)
         if calibration is not None:
-            logger.info("Calibrating PT2E on %s...", calibration_device.type)
-            prepared.to(calibration_device)
+            logger.info("Calibrating PT2E on %s...", calibration.device.type)
             with torch.no_grad():
                 for batch in calibration:
-                    device_batch = tuple(t.to(calibration_device) for t in batch)
-                    prepared(*device_batch)
-            prepared.to("cpu")
+                    prepared(*batch)
         converted = convert_pt2e(prepared)
     logger.info(
         "PT2E done, static ops: %d",
@@ -75,7 +71,7 @@ def apply_quantize_api(
     model: nn.Module,
     quantize_api_modules: list[ModuleCompressor],
 ) -> None:
-    """Apply quantize_() to targeted modules with filter_fn scoping.
+    """Apply dynamic quantize_() to targeted modules with filter_fn scoping.
 
     Modifies the model in-place.
 

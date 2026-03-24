@@ -81,7 +81,10 @@ class PostTrainingCompressor:
             checkpoint_path: Path to the training checkpoint directory.
             modules: Per-module compression schemes (empty = global).
             preparation: Global preparation settings.
-            device: Device for loading and compression.
+            device: Device for policy loading, export, and
+                calibration. Use "cuda" for GPU-accelerated
+                calibration. The compressed output is always
+                saved on CPU regardless of this setting.
             calibration_steps: Number of calibration batches for
                 static quantization.
             checkpoint_name: Checkpoint filename inside the directory.

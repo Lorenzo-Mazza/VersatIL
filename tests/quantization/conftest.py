@@ -22,6 +22,7 @@ def mock_calibration_provider_factory(
         num_batches: int = 3,
     ) -> MagicMock:
         provider = MagicMock(spec=CalibrationDataProvider)
+        provider.device = torch.device("cpu")
         batches = []
         for _ in range(num_batches):
             data = rng.standard_normal((batch_size, input_dimension)).astype(np.float32)

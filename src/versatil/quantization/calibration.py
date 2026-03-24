@@ -22,6 +22,7 @@ class CalibrationDataProvider:
         dataloader: torch.utils.data.DataLoader,
         observation_keys: list[str],
         num_calibration_steps: int = 128,
+        device: torch.device | None = None,
     ) -> None:
         """Initialize calibration data provider.
 
@@ -29,18 +30,25 @@ class CalibrationDataProvider:
             dataloader: VersatIL dataloader yielding normalized, tokenized samples.
             observation_keys: Keys defining positional argument order.
             num_calibration_steps: Maximum number of calibration batches.
+            device: Device for calibration tensors. Defaults to CUDA
+                if available, otherwise CPU.
         """
         self._dataloader = dataloader
         self._observation_keys = observation_keys
         self._num_calibration_steps = num_calibration_steps
+        if device is None:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device
 
     def __iter__(self) -> Iterator[tuple[torch.Tensor, ...]]:
-        """Yield calibration batches as positional tensor tuples."""
+        """Yield calibration batches as positional tensor tuples on self.device."""
         for step, batch in enumerate(self._dataloader):
             if step >= self._num_calibration_steps:
                 break
             observation = batch[SampleKey.OBSERVATION.value]
-            yield tuple(observation[key] for key in self._observation_keys)
+            yield tuple(
+                observation[key].to(self.device) for key in self._observation_keys
+            )
 
     def get_single_batch(self) -> tuple[torch.Tensor, ...]:
         """Return the first calibration batch for torch.export example inputs.

@@ -127,6 +127,7 @@ def main(config: DictConfig) -> None:
     needs_calibration = any(
         module.quantization.needs_calibration for module in pt2e_modules
     )
+    device = torch.device(compressor.device)
     calibration = None
     if needs_calibration:
         train_loader, _, _, _, _ = get_dataloaders(config=policy_loader.config)  # type: ignore[arg-type]
@@ -134,7 +135,9 @@ def main(config: DictConfig) -> None:
             dataloader=train_loader,
             observation_keys=exportable.observation_keys,
             num_calibration_steps=compressor.calibration_steps,
+            device=device,
         )
+    exportable.to(device)
     example_inputs = (
         calibration.get_single_batch()
         if calibration is not None
@@ -145,7 +148,7 @@ def main(config: DictConfig) -> None:
             tokenizer=policy_loader.tokenizer,
         )
     )
-    logging.info("Exporting model...")
+    logging.info("Exporting on %s...", device.type)
     exported = export_policy(exportable=exportable, example_inputs=example_inputs)
     if pt2e_modules:
         converted = apply_pt2e_quantization(
@@ -155,6 +158,8 @@ def main(config: DictConfig) -> None:
         )
     else:
         converted = exported
+    converted.to("cpu")
+    example_inputs = tuple(t.to("cpu") for t in example_inputs)
     if quantize_api_modules:
         strategy = QuantizationStrategy.QUANTIZE_API.value
     else:

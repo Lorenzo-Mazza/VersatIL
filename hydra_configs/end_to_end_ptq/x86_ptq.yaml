@@ -6,7 +6,7 @@ defaults:
 checkpoint_path: ???
 checkpoint_name: last.ckpt
 output_directory: null
-device: cpu
+device: cuda
 preparation:
   replace_frozen_batchnorm: true
   fuse_conv_batchnorm: true

@@ -81,6 +81,7 @@ def calibration_provider_factory(
             dataloader=dataloader,
             observation_keys=observation_keys,
             num_calibration_steps=num_calibration_steps,
+            device=torch.device("cpu"),
         )
 
     return factory
@@ -133,6 +134,7 @@ class TestCalibrationDataProviderIteration:
             dataloader=dataloader,
             observation_keys=keys,
             num_calibration_steps=1,
+            device=torch.device("cpu"),
         )
 
         result = next(iter(provider))
@@ -204,6 +206,7 @@ class TestCalibrationDataProviderSingleBatch:
             dataloader=dataloader,
             observation_keys=keys,
             num_calibration_steps=2,
+            device=torch.device("cpu"),
         )
 
         single = provider.get_single_batch()
@@ -221,7 +224,81 @@ class TestCalibrationDataProviderSingleBatch:
             dataloader=dataloader,
             observation_keys=["left"],
             num_calibration_steps=0,
+            device=torch.device("cpu"),
         )
 
         with pytest.raises(StopIteration):
             provider.get_single_batch()
+
+
+@pytest.mark.unit
+class TestCalibrationDataProviderDevice:
+    def test_defaults_to_cuda_when_available(self):
+        dataloader = MagicMock(spec=torch.utils.data.DataLoader)
+        provider = CalibrationDataProvider(
+            dataloader=dataloader,
+            observation_keys=["left"],
+            num_calibration_steps=1,
+        )
+
+        if torch.cuda.is_available():
+            assert provider.device.type == "cuda"
+        else:
+            assert provider.device.type == "cpu"
+
+    def test_explicit_device_overrides_default(self):
+        dataloader = MagicMock(spec=torch.utils.data.DataLoader)
+        provider = CalibrationDataProvider(
+            dataloader=dataloader,
+            observation_keys=["left"],
+            num_calibration_steps=1,
+            device=torch.device("cpu"),
+        )
+
+        assert provider.device.type == "cpu"
+
+    def test_yielded_tensors_on_specified_device(
+        self,
+        rng: np.random.Generator,
+    ):
+        observation = {
+            "left": torch.from_numpy(rng.standard_normal((2, 4)).astype(np.float32)),
+        }
+        batch = {SampleKey.OBSERVATION.value: observation}
+        dataloader = MagicMock(spec=torch.utils.data.DataLoader)
+        dataloader.__iter__ = MagicMock(return_value=iter([batch]))
+
+        provider = CalibrationDataProvider(
+            dataloader=dataloader,
+            observation_keys=["left"],
+            num_calibration_steps=1,
+            device=torch.device("cpu"),
+        )
+
+        result = next(iter(provider))
+
+        assert result[0].device.type == "cpu"
+
+    @pytest.mark.requires_gpu
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_yielded_tensors_on_cuda(
+        self,
+        rng: np.random.Generator,
+    ):
+        observation = {
+            "left": torch.from_numpy(rng.standard_normal((2, 4)).astype(np.float32)),
+        }
+        batch = {SampleKey.OBSERVATION.value: observation}
+        dataloader = MagicMock(spec=torch.utils.data.DataLoader)
+        dataloader.__iter__ = MagicMock(return_value=iter([batch]))
+
+        provider = CalibrationDataProvider(
+            dataloader=dataloader,
+            observation_keys=["left"],
+            num_calibration_steps=1,
+            device=torch.device("cuda"),
+        )
+
+        result = next(iter(provider))
+
+        assert result[0].device.type == "cuda"
