@@ -602,6 +602,11 @@ Extensions:
 - Introduce pre-commit hooks.
 - Update README Code Style section to reference Ruff instead of Black.
 
+## Data Loading Optimization
+- **Selective preloading**: Add `preload_keys` parameter to `ReplayBuffer.copy_from_path` to preload only non-image keys (proprio, actions, language) into RAM (~20 MB) while keeping images lazy on disk. Eliminates ~33% of network I/O latency per sample at negligible memory cost. Useful for large datasets that don't fit in RAM.
+- **Zarr rechunking**: Current image chunks are `(16, H, W, 3)` = 3.1 MB. For `obs_horizon=1`, rechunking to `(1, H, W, 3)` gives 1.7x faster random reads. Add a `rechunk_for_training` utility that sets optimal chunk_t based on obs_horizon.
+- **uint8 transfer**: Keep images as uint8 in dataloader workers, do float conversion after collation on GPU. Reduces IPC data volume by 4x (uint8 vs float32).
+
 ## For future versions
 - **Implement LoRA config for parameter-efficient fine-tuning**:
   - Add `LoRAConfig` dataclass with `rank`, `alpha`, `dropout`, `target_modules` parameters

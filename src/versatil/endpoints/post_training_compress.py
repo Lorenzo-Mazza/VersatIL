@@ -11,6 +11,7 @@ import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
 
+from versatil.common.logging import override_log_format
 from versatil.configs.post_training_compression import PreparationConfig
 from versatil.data.dataloader import get_dataloaders
 from versatil.inference.policy_loading import PolicyLoader
@@ -38,12 +39,6 @@ from versatil.training.constants import PrecisionType
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 EXPERIMENTS_DIR = PROJECT_ROOT / "hydra_configs"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
-
 
 def _apply_preparation(
     submodule: torch.nn.Module,
@@ -59,10 +54,10 @@ def _apply_preparation(
     """
     if preparation.replace_frozen_batchnorm:
         count = prepare_batchnorms_for_quantization(submodule)
-        logger.info("Prepared %d BatchNorm modules in %s", count, module_path)
+        logging.info("Prepared %d BatchNorm modules in %s", count, module_path)
     if preparation.fuse_conv_batchnorm:
         count = fuse_all_conv_batchnorm_pairs(submodule)
-        logger.info("Fused %d Conv+BN pairs in %s", count, module_path)
+        logging.info("Fused %d Conv+BN pairs in %s", count, module_path)
 
 
 @hydra.main(
@@ -72,10 +67,11 @@ def _apply_preparation(
 )
 def main(config: DictConfig) -> None:
     """Post-training compression endpoint."""
-    logger.info("Post-Training Compression")
-    logger.info(OmegaConf.to_yaml(config))
+    override_log_format()
+    logging.info("Post-Training Compression")
+    logging.info(OmegaConf.to_yaml(config))
     compressor: PostTrainingCompressor = hydra.utils.instantiate(config)
-    logger.info("Loading policy from %s", compressor.checkpoint_path)
+    logging.info("Loading policy from %s", compressor.checkpoint_path)
     policy_loader = PolicyLoader(
         device=torch.device(compressor.device),
         checkpoint_path=compressor.checkpoint_path,
@@ -93,7 +89,7 @@ def main(config: DictConfig) -> None:
             else policy.get_submodule(module.module_path)
         )
         label = module.module_path or "(root)"
-        logger.info("Processing module %s", label)
+        logging.info("Processing module %s", label)
         if module.preparation is not None:
             _apply_preparation(
                 submodule=submodule,
@@ -102,7 +98,7 @@ def main(config: DictConfig) -> None:
             )
         if module.pruning is not None:
             total, zeroed = module.pruning.prune(module=submodule)
-            logger.info(
+            logging.info(
                 "Pruned %s: %d/%d zeroed (%.1f%%)",
                 label,
                 zeroed,
@@ -111,8 +107,8 @@ def main(config: DictConfig) -> None:
             )
 
     exportable = ExportablePolicy.from_policy(policy)
-    logger.info("Input keys: %s", exportable.observation_keys)
-    logger.info("Output keys: %s", exportable.action_keys)
+    logging.info("Input keys: %s", exportable.observation_keys)
+    logging.info("Output keys: %s", exportable.action_keys)
     pt2e_modules = [
         module for module in modules if isinstance(module.quantization, PT2EStrategy)
     ]
@@ -141,9 +137,14 @@ def main(config: DictConfig) -> None:
     example_inputs = (
         calibration.get_single_batch()
         if calibration is not None
-        else build_example_inputs(policy=policy, exportable=exportable)
+        else build_example_inputs(
+            exportable=exportable,
+            observation_space=policy_loader.observation_space,
+            dataloader_config=policy_loader.config.task.dataloader,
+            tokenizer=policy_loader.tokenizer,
+        )
     )
-    logger.info("Exporting model...")
+    logging.info("Exporting model...")
     exported = export_policy(exportable=exportable, example_inputs=example_inputs)
     if pt2e_modules:
         converted = apply_pt2e_quantization(
@@ -164,7 +165,7 @@ def main(config: DictConfig) -> None:
         action_keys=policy.output_keys,
         quantization_strategy=strategy,
     )
-    logger.info("\n%s", report.generate_report())
+    logging.info("\n%s", report.generate_report())
     output_directory = compressor.output_directory
     if output_directory is None:
         output_directory = str(Path(compressor.checkpoint_path) / "compressed")
@@ -179,7 +180,7 @@ def main(config: DictConfig) -> None:
         quantization_config=config,
         quantization_strategy=strategy,
     )
-    logger.info("Compressed model saved to %s", output_directory)
+    logging.info("Compressed model saved to %s", output_directory)
 
 
 if __name__ == "__main__":

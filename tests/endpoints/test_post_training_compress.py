@@ -39,7 +39,10 @@ from versatil.inference.socket_transport import (
 )
 from versatil.models.exportable_policy import ExportablePolicy
 from versatil.post_training_compression.constants import QuantizationStrategy
-from versatil.post_training_compression.export import export_policy
+from versatil.post_training_compression.export import (
+    build_example_inputs,
+    export_policy,
+)
 from versatil.post_training_compression.preparation import (
     fuse_all_conv_batchnorm_pairs,
     prepare_batchnorms_for_quantization,
@@ -503,3 +506,20 @@ class TestCompiledTraining:
 
         assert (output_dir / "last.ckpt").exists()
         assert "Compiling policy with torch.compile" in caplog.text
+
+
+@pytest.mark.slow
+class TestBuildExampleInputsFallback:
+    def test_build_example_inputs_with_real_policy(self, compression_pipeline):
+        policy_loader, _, exportable = compression_pipeline()
+
+        example_inputs = build_example_inputs(
+            exportable=exportable,
+            observation_space=policy_loader.observation_space,
+            dataloader_config=policy_loader.config.task.dataloader,
+            tokenizer=policy_loader.tokenizer,
+        )
+
+        assert len(example_inputs) == len(exportable.observation_keys)
+        assert all(isinstance(t, torch.Tensor) for t in example_inputs)
+        assert all(t.shape[0] == 2 for t in example_inputs)

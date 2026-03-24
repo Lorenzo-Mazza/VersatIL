@@ -8,6 +8,12 @@ import pytest
 import torch
 from torch import nn
 
+from versatil.configs.data.dataloader import DataLoaderConfig
+from versatil.data.constants import SampleKey
+from versatil.data.metadata import CameraMetadata
+from versatil.data.task import ObservationSpace
+from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
+from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.exportable_policy import ExportablePolicy
 from versatil.post_training_compression.export import (
     _export_with_dynamic_batch,
@@ -19,19 +25,49 @@ EXPORT_MODULE = "versatil.post_training_compression.export"
 
 
 @pytest.fixture
-def mock_encoder_factory() -> Callable[..., MagicMock]:
-    """Factory for mock encoders with input specification."""
+def dataloader_config_factory() -> Callable[..., DataLoaderConfig]:
+    """Factory for DataLoaderConfig with custom image dimensions."""
 
     def factory(
-        keys: list[str],
-        shape: tuple[int, ...],
+        image_height: int = 32,
+        image_width: int = 32,
+    ) -> DataLoaderConfig:
+        return DataLoaderConfig(
+            image_height=image_height,
+            image_width=image_width,
+        )
+
+    return factory
+
+
+@pytest.fixture
+def observation_space_factory() -> Callable[..., MagicMock]:
+    """Factory for mock ObservationSpace with camera and proprio metadata."""
+
+    def factory(
+        cameras: dict[str, CameraMetadata] | None = None,
+        proprioceptive_observations: dict[str, MagicMock] | None = None,
     ) -> MagicMock:
-        encoder = MagicMock()
-        spec = MagicMock()
-        spec.keys = keys
-        spec.shape = shape
-        encoder.input_specification = spec
-        return encoder
+        obs_space = MagicMock(spec=ObservationSpace)
+        obs_space.cameras = cameras or {}
+        obs_space.proprioceptive_observations = proprioceptive_observations or {}
+        return obs_space
+
+    return factory
+
+
+@pytest.fixture
+def tokenizer_factory() -> Callable[..., MagicMock]:
+    """Factory for mock Tokenizer with observation tokenizer."""
+
+    def factory(
+        max_token_len: int = 64,
+    ) -> MagicMock:
+        obs_tokenizer = MagicMock(spec=ObservationTokenizer)
+        obs_tokenizer.max_token_len = max_token_len
+        tokenizer = MagicMock(spec=Tokenizer)
+        tokenizer.observation_tokenizer = obs_tokenizer
+        return tokenizer
 
     return factory
 
@@ -75,59 +111,149 @@ def simple_exportable_model(
 
 @pytest.mark.unit
 class TestBuildExampleInputs:
-    @pytest.mark.parametrize(
-        "encoder_specs, conditional_specs, expected_keys",
-        [
-            (
-                [("rgb", ["left"], (3, 32, 32))],
-                [],
-                {"left"},
-            ),
-            (
-                [("rgb", ["left", "right"], (3, 32, 32))],
-                [],
-                {"left", "right"},
-            ),
-            (
-                [("rgb", ["left"], (3, 32, 32))],
-                [("depth", ["depth"], (1, 32, 32))],
-                {"left", "depth"},
-            ),
-        ],
-        ids=["single_key", "multi_key_encoder", "with_conditional"],
-    )
-    def test_collects_shapes_from_all_encoders(
+    def test_camera_shapes_from_metadata_and_config(
         self,
-        mock_encoder_factory,
-        encoder_specs,
-        conditional_specs,
-        expected_keys,
+        observation_space_factory,
+        dataloader_config_factory,
     ):
-        encoders = [
-            mock_encoder_factory(keys=keys, shape=shape)
-            for _, keys, shape in encoder_specs
-        ]
-        conditionals = [
-            mock_encoder_factory(keys=keys, shape=shape)
-            for _, keys, shape in conditional_specs
-        ]
+        cameras = {
+            "left": CameraMetadata(
+                camera_key="agentview_rgb",
+                dtype="float32",
+                channels=3,
+            ),
+        }
+        obs_space = observation_space_factory(cameras=cameras)
+        dataloader_config = dataloader_config_factory(image_height=48, image_width=64)
 
-        policy = MagicMock()
-        policy.encoding_pipeline.encoders.values.return_value = encoders
-        policy.encoding_pipeline.conditional_encoders.values.return_value = conditionals
+        exportable = MagicMock(spec=ExportablePolicy)
+        exportable.get_example_inputs.return_value = (torch.zeros(2, 3, 48, 64),)
+
+        build_example_inputs(
+            exportable=exportable,
+            observation_space=obs_space,
+            dataloader_config=dataloader_config,
+        )
+
+        call_shapes = exportable.get_example_inputs.call_args[1]["observation_shapes"]
+        assert call_shapes["left"] == (3, 48, 64)
+
+    def test_proprioceptive_shapes_from_metadata(
+        self,
+        observation_space_factory,
+        dataloader_config_factory,
+    ):
+        proprio = MagicMock()
+        proprio.dimension = 7
+        obs_space = observation_space_factory(
+            proprioceptive_observations={"proprio_robot_frame": proprio},
+        )
+
+        exportable = MagicMock(spec=ExportablePolicy)
+        exportable.get_example_inputs.return_value = (torch.zeros(2, 7),)
+
+        build_example_inputs(
+            exportable=exportable,
+            observation_space=obs_space,
+            dataloader_config=dataloader_config_factory(),
+        )
+
+        call_shapes = exportable.get_example_inputs.call_args[1]["observation_shapes"]
+        assert call_shapes["proprio_robot_frame"] == (7,)
+
+    def test_tokenized_shapes_from_tokenizer(
+        self,
+        observation_space_factory,
+        dataloader_config_factory,
+        tokenizer_factory,
+    ):
+        tokenizer = tokenizer_factory(max_token_len=128)
+
+        exportable = MagicMock(spec=ExportablePolicy)
+        exportable.get_example_inputs.return_value = (
+            torch.zeros(2, 128),
+            torch.zeros(2, 128),
+        )
+
+        build_example_inputs(
+            exportable=exportable,
+            observation_space=observation_space_factory(),
+            dataloader_config=dataloader_config_factory(),
+            tokenizer=tokenizer,
+        )
+
+        call_kwargs = exportable.get_example_inputs.call_args[1]
+        shapes = call_kwargs["observation_shapes"]
+        dtypes = call_kwargs["observation_dtypes"]
+        assert shapes[SampleKey.TOKENIZED_OBSERVATIONS.value] == (128,)
+        assert shapes[SampleKey.IS_PAD_OBSERVATION.value] == (128,)
+        assert dtypes[SampleKey.TOKENIZED_OBSERVATIONS.value] == torch.long
+        assert dtypes[SampleKey.IS_PAD_OBSERVATION.value] == torch.bool
+
+    def test_no_tokenizer_omits_language_keys(
+        self,
+        observation_space_factory,
+        dataloader_config_factory,
+    ):
+        cameras = {
+            "left": CameraMetadata(
+                camera_key="agentview_rgb",
+                dtype="float32",
+                channels=3,
+            ),
+        }
+        obs_space = observation_space_factory(cameras=cameras)
+
+        exportable = MagicMock(spec=ExportablePolicy)
+        exportable.get_example_inputs.return_value = (torch.zeros(2, 3, 32, 32),)
+
+        build_example_inputs(
+            exportable=exportable,
+            observation_space=obs_space,
+            dataloader_config=dataloader_config_factory(),
+            tokenizer=None,
+        )
+
+        call_shapes = exportable.get_example_inputs.call_args[1]["observation_shapes"]
+        assert SampleKey.TOKENIZED_OBSERVATIONS.value not in call_shapes
+        assert SampleKey.IS_PAD_OBSERVATION.value not in call_shapes
+
+    def test_mixed_cameras_and_tokenizer(
+        self,
+        observation_space_factory,
+        dataloader_config_factory,
+        tokenizer_factory,
+    ):
+        cameras = {
+            "left": CameraMetadata(
+                camera_key="agentview_rgb", dtype="float32", channels=3
+            ),
+            "right": CameraMetadata(
+                camera_key="eye_in_hand_rgb", dtype="float32", channels=3
+            ),
+        }
+        obs_space = observation_space_factory(cameras=cameras)
+        tokenizer = tokenizer_factory(max_token_len=64)
 
         exportable = MagicMock(spec=ExportablePolicy)
         exportable.get_example_inputs.return_value = tuple(
-            torch.zeros(2, *shape)
-            for _, keys, shape in encoder_specs + conditional_specs
-            for _ in keys
+            torch.zeros(2, 8) for _ in range(4)
         )
 
-        result = build_example_inputs(policy=policy, exportable=exportable)
+        build_example_inputs(
+            exportable=exportable,
+            observation_space=obs_space,
+            dataloader_config=dataloader_config_factory(),
+            tokenizer=tokenizer,
+        )
 
         call_shapes = exportable.get_example_inputs.call_args[1]["observation_shapes"]
-        assert set(call_shapes.keys()) == expected_keys
-        assert len(result) == len(expected_keys)
+        assert set(call_shapes.keys()) == {
+            "left",
+            "right",
+            SampleKey.TOKENIZED_OBSERVATIONS.value,
+            SampleKey.IS_PAD_OBSERVATION.value,
+        }
 
 
 @pytest.mark.unit

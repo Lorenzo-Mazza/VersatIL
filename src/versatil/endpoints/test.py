@@ -128,7 +128,10 @@ def load_policy(
 
 def main() -> None:
     """Main entry point for inference endpoint."""
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(module)s %(levelname)s %(message)s",
+    )
     args = parse_args()
     if args.device:
         device = torch.device(args.device)

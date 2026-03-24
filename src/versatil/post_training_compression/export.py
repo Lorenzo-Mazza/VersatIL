@@ -5,6 +5,10 @@ import logging
 import torch
 import torch.nn as nn
 
+from versatil.configs.data.dataloader import DataLoaderConfig
+from versatil.data.constants import SampleKey
+from versatil.data.task import ObservationSpace
+from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.exportable_policy import ExportablePolicy
 
 
@@ -69,28 +73,44 @@ def export_policy(
 
 
 def build_example_inputs(
-    policy: nn.Module,
     exportable: ExportablePolicy,
+    observation_space: ObservationSpace,
+    dataloader_config: DataLoaderConfig,
+    tokenizer: Tokenizer | None = None,
 ) -> tuple[torch.Tensor, ...]:
-    """Build example inputs from policy encoder specifications.
+    """Build example inputs from observation space metadata.
 
     Args:
-        policy: Policy with encoding_pipeline.
-        exportable: ExportablePolicy for shape inference.
+        exportable: ExportablePolicy defining required observation keys.
+        observation_space: Observation space with camera/proprio metadata.
+        dataloader_config: Dataloader config with runtime image dimensions.
+        tokenizer: Tokenizer for language token sequence length.
 
     Returns:
-        Tuple of example input tensors.
+        Tuple of example input tensors matching exportable.observation_keys.
     """
-    observation_shapes = {}
-    for encoder in policy.encoding_pipeline.encoders.values():
-        spec = encoder.input_specification
-        for key in spec.keys:
-            observation_shapes[key] = tuple(spec.shape)
-    for encoder in policy.encoding_pipeline.conditional_encoders.values():
-        spec = encoder.input_specification
-        for key in spec.keys:
-            observation_shapes[key] = tuple(spec.shape)
+    observation_shapes: dict[str, tuple[int, ...]] = {}
+    observation_dtypes: dict[str, torch.dtype] = {}
+
+    for key, camera_meta in observation_space.cameras.items():
+        observation_shapes[key] = (
+            camera_meta.channels,
+            dataloader_config.image_height,
+            dataloader_config.image_width,
+        )
+
+    for key, proprio_meta in observation_space.proprioceptive_observations.items():
+        observation_shapes[key] = (proprio_meta.dimension,)
+
+    if tokenizer is not None and tokenizer.observation_tokenizer is not None:
+        token_length = tokenizer.observation_tokenizer.max_token_len
+        observation_shapes[SampleKey.TOKENIZED_OBSERVATIONS.value] = (token_length,)
+        observation_dtypes[SampleKey.TOKENIZED_OBSERVATIONS.value] = torch.long
+        observation_shapes[SampleKey.IS_PAD_OBSERVATION.value] = (token_length,)
+        observation_dtypes[SampleKey.IS_PAD_OBSERVATION.value] = torch.bool
+
     return exportable.get_example_inputs(
         observation_shapes=observation_shapes,
+        observation_dtypes=observation_dtypes,
         batch_size=2,
     )
