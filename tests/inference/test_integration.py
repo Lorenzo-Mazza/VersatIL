@@ -31,7 +31,7 @@ from versatil.data.constants import Cameras, ProprioKey
 from versatil.data.metadata import OnTheFlyActionMetadata
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.inference.inference_client import InferenceClient
-from versatil.inference.policy_loading import PolicyLoader
+from versatil.inference.policy_loading.float_loader import PolicyLoader
 from versatil.inference.socket_transport import (
     SocketActionTransport,
     SocketObservationTransport,

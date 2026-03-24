@@ -10,7 +10,7 @@ from torchao.quantization.pt2e.quantizer.composable_quantizer import (
     ComposableQuantizer,
 )
 
-from versatil.post_training_compression.compressor import ModuleCompressor
+from versatil.post_training_compression.compression_target import CompressionTarget
 from versatil.quantization.calibration import CalibrationDataProvider
 from versatil.quantization.constants import FXNodePattern
 from versatil.quantization.torch_patches import patch_get_source_partitions
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def apply_pt2e_quantization(
     exported: nn.Module,
-    pt2e_modules: list[ModuleCompressor],
+    pt2e_modules: list[CompressionTarget],
     calibration: CalibrationDataProvider | None,
 ) -> nn.Module:
     """Apply PT2E quantization to targeted modules via ComposableQuantizer.
@@ -69,7 +69,7 @@ def apply_pt2e_quantization(
 
 def apply_quantize_api(
     model: nn.Module,
-    quantize_api_modules: list[ModuleCompressor],
+    quantize_api_modules: list[CompressionTarget],
 ) -> None:
     """Apply dynamic quantize_() to targeted modules with filter_fn scoping.
 

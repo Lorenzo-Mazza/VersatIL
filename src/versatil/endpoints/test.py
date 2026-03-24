@@ -7,7 +7,8 @@ import os
 import torch
 
 from versatil.inference.inference_client import InferenceClient
-from versatil.inference.policy_loading import CompressedPolicyLoader, PolicyLoader
+from versatil.inference.policy_loading.compressed_loader import CompressedPolicyLoader
+from versatil.inference.policy_loading.float_loader import PolicyLoader
 from versatil.inference.protocol import PolicyInference
 from versatil.inference.socket_transport import (
     SocketActionTransport,

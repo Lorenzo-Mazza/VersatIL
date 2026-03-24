@@ -52,7 +52,7 @@ class StructuredPrunerConfig(BasePrunerConfig):
 
 
 @dataclass
-class ModuleCompressorConfig:
+class CompressionTargetConfig:
     """Per-module compression scheme with optimizer-pattern inheritance.
 
     Note:
@@ -60,7 +60,9 @@ class ModuleCompressorConfig:
         interpolation defaults. Explicit null means skip.
     """
 
-    _target_: str = "versatil.post_training_compression.compressor.ModuleCompressor"
+    _target_: str = (
+        "versatil.post_training_compression.compression_target.CompressionTarget"
+    )
     module_path: str = MISSING
     preparation: PreparationConfig | None = "${preparation}"  #
     pruning: list[Any] | None = "${pruning}"  # list[BasePrunerConfig] | None
@@ -87,7 +89,7 @@ class PostTrainingCompressorConfig:
     device: str = "cpu"  # Device for export and calibration ("cpu" or "cuda")
     calibration_steps: int = 32
     generate_report: bool = False
-    modules: list[ModuleCompressorConfig] = field(default_factory=list)
+    modules: list[CompressionTargetConfig] = field(default_factory=list)
     preparation: PreparationConfig = field(default_factory=PreparationConfig)
     pruning: list[Any] | None = None  #  list[BasePrunerConfig] | None
     quantization: Any | None = (

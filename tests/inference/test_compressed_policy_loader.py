@@ -17,7 +17,8 @@ from omegaconf import OmegaConf
 from versatil.data.constants import Cameras
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.inference.policy_loading import BasePolicyLoader, CompressedPolicyLoader
+from versatil.inference.policy_loading.base import BasePolicyLoader
+from versatil.inference.policy_loading.compressed_loader import CompressedPolicyLoader
 from versatil.post_training_compression.constants import (
     CompressionFilename,
     CompressionMetadataKey,

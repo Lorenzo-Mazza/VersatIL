@@ -30,15 +30,21 @@ from tests.endpoints.conftest import (
     resolve_dataset_type,
     start_mock_observation_server,
 )
+from versatil.configs.post_training_compression import PreparationConfig
 from versatil.data.dataloader import get_dataloaders
 from versatil.inference.inference_client import InferenceClient
-from versatil.inference.policy_loading import CompressedPolicyLoader, PolicyLoader
+from versatil.inference.policy_loading.compressed_loader import CompressedPolicyLoader
+from versatil.inference.policy_loading.float_loader import PolicyLoader
 from versatil.inference.socket_transport import (
     SocketActionTransport,
     SocketObservationTransport,
 )
 from versatil.models.exportable_policy import ExportablePolicy
-from versatil.post_training_compression.constants import QuantizationStrategy
+from versatil.post_training_compression.compressor import PostTrainingCompressor
+from versatil.post_training_compression.constants import (
+    CompressionFilename,
+    QuantizationStrategy,
+)
 from versatil.post_training_compression.export import (
     build_example_inputs,
     export_policy,
@@ -52,7 +58,9 @@ from versatil.post_training_compression.pruning import (
     UnstructuredPruner,
 )
 from versatil.post_training_compression.serialization import save_compressed_model
+from versatil.quantization.backends.x86_inductor import X86InductorBackend
 from versatil.quantization.calibration import CalibrationDataProvider
+from versatil.quantization.strategies import PT2EStrategy
 from versatil.quantization.torch_patches import patch_get_source_partitions
 from versatil.workspace import Workspace
 
@@ -567,3 +575,83 @@ class TestGlobalFallbackPipeline:
         with torch.no_grad():
             outputs = exported(*example_inputs)
         assert all(t.isfinite().all() for t in outputs)
+
+
+@pytest.mark.slow
+class TestCompressorEndToEnd:
+    def test_compress_full_pipeline_with_pt2e(self, tmp_path, trained_checkpoint):
+        output_dir = trained_checkpoint()
+        compressed_dir = str(tmp_path / "compressed_output")
+
+        hydra_config = MagicMock()
+        compressor = PostTrainingCompressor(
+            checkpoint_path=str(output_dir),
+            checkpoint_name="last.ckpt",
+            modules=[],
+            preparation=PreparationConfig(
+                replace_frozen_batchnorm=True,
+                fuse_conv_batchnorm=True,
+            ),
+            pruning=[UnstructuredPruner(amount=0.3)],
+            quantization=PT2EStrategy(
+                pt2e_backend=X86InductorBackend(is_dynamic=False),
+            ),
+            calibration_steps=3,
+            output_directory=compressed_dir,
+        )
+
+        with LEROBOT_METADATA_PATCH:
+            result = compressor.compress(hydra_config=hydra_config)
+
+        assert result == compressed_dir
+        assert (
+            Path(compressed_dir) / CompressionFilename.COMPRESSED_MODEL.value
+        ).exists()
+        assert (Path(compressed_dir) / CompressionFilename.NORMALIZER.value).exists()
+        assert (
+            Path(compressed_dir) / CompressionFilename.COMPRESSION_METADATA.value
+        ).exists()
+
+    def test_compress_without_quantization(self, tmp_path, trained_checkpoint):
+        output_dir = trained_checkpoint()
+        compressed_dir = str(tmp_path / "compressed_no_quant")
+
+        hydra_config = MagicMock()
+        compressor = PostTrainingCompressor(
+            checkpoint_path=str(output_dir),
+            checkpoint_name="last.ckpt",
+            modules=[],
+            preparation=PreparationConfig(
+                replace_frozen_batchnorm=True,
+                fuse_conv_batchnorm=True,
+            ),
+            pruning=[UnstructuredPruner(amount=0.3)],
+            output_directory=compressed_dir,
+        )
+
+        with LEROBOT_METADATA_PATCH:
+            result = compressor.compress(hydra_config=hydra_config)
+
+        assert result == compressed_dir
+        assert (
+            Path(compressed_dir) / CompressionFilename.COMPRESSED_MODEL.value
+        ).exists()
+
+    def test_compress_generates_timestamped_directory(
+        self, tmp_path, trained_checkpoint
+    ):
+        output_dir = trained_checkpoint()
+
+        hydra_config = MagicMock()
+        compressor = PostTrainingCompressor(
+            checkpoint_path=str(output_dir),
+            checkpoint_name="last.ckpt",
+            modules=[],
+            preparation=PreparationConfig(),
+        )
+
+        with LEROBOT_METADATA_PATCH:
+            result = compressor.compress(hydra_config=hydra_config)
+
+        assert str(output_dir / "compressed") in result
+        assert (Path(result) / CompressionFilename.COMPRESSED_MODEL.value).exists()

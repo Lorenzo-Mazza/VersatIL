@@ -123,7 +123,7 @@ from versatil.configs.main import MainConfig
 from versatil.configs.policy import PolicyConfig
 from versatil.configs.post_training_compression import (
     BasePrunerConfig,
-    ModuleCompressorConfig,
+    CompressionTargetConfig,
     PostTrainingCompressorConfig,
     PreparationConfig,
     StructuredPrunerConfig,
@@ -250,7 +250,7 @@ __all__ = [
     "BasePrunerConfig",
     "Int4WeightOnlyQuantizeConfig",
     "Int8DynamicQuantizeConfig",
-    "ModuleCompressorConfig",
+    "CompressionTargetConfig",
     "PT2EStrategyConfig",
     "PostTrainingCompressorConfig",
     "PreparationConfig",
@@ -762,7 +762,7 @@ def register_configs():
     cs.store(
         group="compression/module",
         name="base",
-        node=ModuleCompressorConfig,
+        node=CompressionTargetConfig,
     )
     cs.store(
         group="compression/pruning",

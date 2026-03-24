@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from torch import nn
 
-from versatil.post_training_compression.compressor import ModuleCompressor
+from versatil.post_training_compression.compression_target import CompressionTarget
 from versatil.quantization.backends.base import BasePT2EBackend
 from versatil.quantization.quantize import (
     apply_pt2e_quantization,
@@ -33,18 +33,18 @@ def mock_pt2e_backend_factory():
 
 
 @pytest.fixture
-def module_compressor_factory(mock_pt2e_backend_factory):
-    """Factory for ModuleCompressor with PT2E quantization."""
+def compression_target_factory(mock_pt2e_backend_factory):
+    """Factory for CompressionTarget with PT2E quantization."""
 
     def factory(
         module_path: str = "",
         needs_calibration: bool = False,
-    ) -> ModuleCompressor:
+    ) -> CompressionTarget:
         backend = mock_pt2e_backend_factory(is_dynamic=not needs_calibration)
         quant = MagicMock(spec=PT2EStrategy)
         quant.needs_calibration = needs_calibration
         quant.pt2e_backend = backend
-        return ModuleCompressor(
+        return CompressionTarget(
             module_path=module_path,
             quantization=quant,
         )
@@ -54,12 +54,12 @@ def module_compressor_factory(mock_pt2e_backend_factory):
 
 @pytest.fixture
 def quantize_api_compressor_factory():
-    """Factory for ModuleCompressor with quantize_() API quantization."""
+    """Factory for CompressionTarget with quantize_() API quantization."""
 
-    def factory(module_path: str = "") -> ModuleCompressor:
+    def factory(module_path: str = "") -> CompressionTarget:
         mock_quantization = MagicMock()
         mock_quantization.quantize_config = MagicMock()
-        return ModuleCompressor(
+        return CompressionTarget(
             module_path=module_path,
             quantization=mock_quantization,
         )
@@ -120,14 +120,14 @@ class TestApplyPT2EQuantization:
     )
     def test_calibration_validation(
         self,
-        module_compressor_factory,
+        compression_target_factory,
         mock_calibration_provider_factory,
         pt2e_mocks,
         needs_calibration,
         has_calibration,
         expectation,
     ):
-        compressor = module_compressor_factory(needs_calibration=needs_calibration)
+        compressor = compression_target_factory(needs_calibration=needs_calibration)
         calibration = mock_calibration_provider_factory() if has_calibration else None
 
         with expectation:
@@ -140,11 +140,11 @@ class TestApplyPT2EQuantization:
     @pytest.mark.parametrize("module_path", ["", "encoder.backbone"])
     def test_delegates_to_backend_with_correct_module_path(
         self,
-        module_compressor_factory,
+        compression_target_factory,
         pt2e_mocks,
         module_path,
     ):
-        compressor = module_compressor_factory(module_path=module_path)
+        compressor = compression_target_factory(module_path=module_path)
 
         apply_pt2e_quantization(
             exported=MagicMock(spec=nn.Module),
@@ -158,11 +158,11 @@ class TestApplyPT2EQuantization:
 
     def test_multiple_modules_creates_quantizer_per_module(
         self,
-        module_compressor_factory,
+        compression_target_factory,
         pt2e_mocks,
     ):
-        compressor_a = module_compressor_factory(module_path="encoder")
-        compressor_b = module_compressor_factory(module_path="decoder")
+        compressor_a = compression_target_factory(module_path="encoder")
+        compressor_b = compression_target_factory(module_path="decoder")
 
         apply_pt2e_quantization(
             exported=MagicMock(spec=nn.Module),
@@ -175,11 +175,11 @@ class TestApplyPT2EQuantization:
 
     def test_prepare_convert_chain(
         self,
-        module_compressor_factory,
+        compression_target_factory,
         pt2e_mocks,
     ):
         exported = MagicMock(spec=nn.Module)
-        compressor = module_compressor_factory()
+        compressor = compression_target_factory()
         mock_prepared = MagicMock()
         pt2e_mocks["prepare"].return_value = mock_prepared
         mock_converted = MagicMock()
@@ -198,11 +198,11 @@ class TestApplyPT2EQuantization:
 
     def test_calibration_batches_flow_through_prepared_model(
         self,
-        module_compressor_factory,
+        compression_target_factory,
         mock_calibration_provider_factory,
         pt2e_mocks,
     ):
-        compressor = module_compressor_factory(needs_calibration=True)
+        compressor = compression_target_factory(needs_calibration=True)
         calibration = mock_calibration_provider_factory(num_batches=3)
         mock_prepared = MagicMock()
         pt2e_mocks["prepare"].return_value = mock_prepared
@@ -217,12 +217,12 @@ class TestApplyPT2EQuantization:
 
     def test_calls_patch_get_source_partitions(
         self,
-        module_compressor_factory,
+        compression_target_factory,
         pt2e_mocks,
     ):
         apply_pt2e_quantization(
             exported=MagicMock(spec=nn.Module),
-            pt2e_modules=[module_compressor_factory()],
+            pt2e_modules=[compression_target_factory()],
             calibration=None,
         )
 
@@ -230,10 +230,10 @@ class TestApplyPT2EQuantization:
 
     def test_enters_backend_environment_context(
         self,
-        module_compressor_factory,
+        compression_target_factory,
         pt2e_mocks,
     ):
-        compressor = module_compressor_factory()
+        compressor = compression_target_factory()
 
         apply_pt2e_quantization(
             exported=MagicMock(spec=nn.Module),

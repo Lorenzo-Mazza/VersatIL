@@ -51,6 +51,11 @@ warnings.filterwarnings("ignore", category=SyntaxWarning, module="geomloss")
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="torchao")
 warnings.filterwarnings(
     "ignore",
+    message="The given buffer is not writable",
+    category=UserWarning,
+)
+warnings.filterwarnings(
+    "ignore",
     message=".*self.log.*self.trainer.*not registered.*",
     module="pytorch_lightning",
 )

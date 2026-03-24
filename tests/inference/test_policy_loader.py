@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 
 from versatil.data.constants import Cameras
-from versatil.inference.policy_loading import PolicyLoader
+from versatil.inference.policy_loading.float_loader import PolicyLoader
 from versatil.training.constants import PrecisionType
 
 BASE_LOADER_MODULE = "versatil.inference.policy_loading.base"

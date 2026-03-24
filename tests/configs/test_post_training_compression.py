@@ -9,7 +9,7 @@ from omegaconf import OmegaConf
 
 import versatil.configs  # noqa: F401
 from versatil.configs.post_training_compression import (
-    ModuleCompressorConfig,
+    CompressionTargetConfig,
     PostTrainingCompressorConfig,
     PreparationConfig,
 )
@@ -36,16 +36,16 @@ class TestPreparationConfig:
 
 
 @pytest.mark.unit
-class TestModuleCompressorConfig:
+class TestCompressionTargetConfig:
     def test_stores_module_path(self):
-        config = ModuleCompressorConfig(
+        config = CompressionTargetConfig(
             module_path="encoding_pipeline.encoders.left.backbone",
         )
 
         assert config.module_path == "encoding_pipeline.encoders.left.backbone"
 
     def test_defaults_to_interpolation_for_inheritance(self):
-        config = ModuleCompressorConfig(
+        config = CompressionTargetConfig(
             module_path="decoder",
         )
 
