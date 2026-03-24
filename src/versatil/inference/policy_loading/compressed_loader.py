@@ -266,10 +266,9 @@ class CompressedPolicyLoader(BasePolicyLoader):
     ) -> nn.Module:
         """Compile model with torch.compile, using backend env if available.
 
-        For PT2E models, the backend's environment_context sets
-        backend-specific env vars (e.g., TORCHINDUCTOR_FREEZING,
-        cpp_wrapper) during compilation. For non-PT2E models,
-        applies plain torch.compile.
+        For PT2E models, activates the backend environment
+        permanently because torch.compile is lazy — the actual
+        inductor compilation happens on the first forward pass.
 
         Args:
             model: The model to compile.
@@ -279,8 +278,8 @@ class CompressedPolicyLoader(BasePolicyLoader):
             Compiled model.
         """
         if backend is not None:
-            with backend.environment_context():
-                compiled = torch.compile(model)
+            backend.activate_environment()
+            compiled = torch.compile(model)
             logging.info(
                 "Compiled PT2E model with %s backend",
                 type(backend).__name__,

@@ -617,39 +617,26 @@ class TestCompressedPolicyLoaderTrainingConfig:
 
 @pytest.mark.unit
 class TestCompileModelForInference:
-    def test_pt2e_backend_sets_env_during_compilation(self):
+    def test_pt2e_backend_activates_env_permanently(self):
         os.environ.pop("TORCHINDUCTOR_FREEZING", None)
-        original_cpp_wrapper = inductor_config.cpp_wrapper
+        saved_cpp_wrapper = inductor_config.cpp_wrapper
 
         model = torch.nn.Sequential(torch.nn.Linear(4, 2))
         model.eval()
         mock_backend = MagicMock(spec=BasePT2EBackend)
-        mock_backend.environment_context = X86InductorBackend().environment_context
+        mock_backend.activate_environment = X86InductorBackend().activate_environment
 
-        CompressedPolicyLoader._compile_model_for_inference(
-            model=model,
-            backend=mock_backend,
-        )
+        try:
+            CompressedPolicyLoader._compile_model_for_inference(
+                model=model,
+                backend=mock_backend,
+            )
 
-        assert "TORCHINDUCTOR_FREEZING" not in os.environ
-        assert inductor_config.cpp_wrapper == original_cpp_wrapper
-
-    def test_restores_env_vars_when_previously_set(self):
-        os.environ["TORCHINDUCTOR_FREEZING"] = "0"
-        inductor_config.cpp_wrapper = False
-
-        model = torch.nn.Sequential(torch.nn.Linear(4, 2))
-        model.eval()
-        mock_backend = MagicMock(spec=BasePT2EBackend)
-        mock_backend.environment_context = X86InductorBackend().environment_context
-
-        CompressedPolicyLoader._compile_model_for_inference(
-            model=model,
-            backend=mock_backend,
-        )
-
-        assert os.environ.get("TORCHINDUCTOR_FREEZING") == "0"
-        assert inductor_config.cpp_wrapper is False
+            assert os.environ.get("TORCHINDUCTOR_FREEZING") == "1"
+            assert inductor_config.cpp_wrapper is True
+        finally:
+            os.environ.pop("TORCHINDUCTOR_FREEZING", None)
+            inductor_config.cpp_wrapper = saved_cpp_wrapper
 
     def test_returns_compiled_model(self):
         model = torch.nn.Sequential(torch.nn.Linear(4, 2))

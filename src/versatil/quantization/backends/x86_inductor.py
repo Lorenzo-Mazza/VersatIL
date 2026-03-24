@@ -102,6 +102,12 @@ class X86InductorBackend(BasePT2EBackend):
                     os.environ[key] = value
             inductor_config.cpp_wrapper = saved_cpp_wrapper
 
+    def activate_environment(self) -> None:
+        """Set X86 Inductor env vars permanently."""
+        os.environ[_CUDA_VISIBLE_DEVICES_KEY] = ""
+        os.environ[_TORCHINDUCTOR_FREEZING_KEY] = "1"
+        inductor_config.cpp_wrapper = True
+
     def lower(
         self,
         converted_model: nn.Module,

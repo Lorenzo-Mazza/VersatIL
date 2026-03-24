@@ -44,6 +44,16 @@ class BasePT2EBackend(ABC):
         """Context manager that sets and restores backend-specific env vars."""
 
     @abstractmethod
+    def activate_environment(self) -> None:
+        """Set backend env vars permanently (no restore on exit).
+
+        Use this instead of environment_context when the env must
+        persist beyond a single scope — e.g., for torch.compile
+        where the actual compilation is deferred to the first
+        forward pass.
+        """
+
+    @abstractmethod
     def lower(
         self,
         converted_model: nn.Module,

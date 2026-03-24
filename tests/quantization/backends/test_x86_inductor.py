@@ -138,6 +138,24 @@ class TestX86InductorBackendEnvironmentContext:
 
 
 @pytest.mark.unit
+class TestX86InductorBackendActivateEnvironment:
+    @patch("versatil.quantization.backends.x86_inductor.inductor_config")
+    def test_sets_env_vars_permanently(self, mock_inductor_config):
+        backend = X86InductorBackend()
+        os.environ.pop("TORCHINDUCTOR_FREEZING", None)
+        os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+
+        backend.activate_environment()
+
+        assert os.environ.get("TORCHINDUCTOR_FREEZING") == "1"
+        assert os.environ.get("CUDA_VISIBLE_DEVICES") == ""
+        assert mock_inductor_config.cpp_wrapper is True
+
+        os.environ.pop("TORCHINDUCTOR_FREEZING", None)
+        os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+
+
+@pytest.mark.unit
 class TestX86InductorBackendLower:
     @patch("versatil.quantization.backends.x86_inductor.lower_pt2e_quantized_to_x86")
     def test_delegates_to_torchao_lowering(self, mock_lower):
