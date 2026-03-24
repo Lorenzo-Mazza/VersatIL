@@ -73,7 +73,7 @@ def main(config: DictConfig) -> None:
     compressor: PostTrainingCompressor = hydra.utils.instantiate(config)
     logging.info("Loading policy from %s", compressor.checkpoint_path)
     policy_loader = PolicyLoader(
-        device=torch.device(compressor.device),
+        device=torch.device("cpu"),
         checkpoint_path=compressor.checkpoint_path,
         checkpoint_name=compressor.checkpoint_name,
         precision=PrecisionType.FP32.value,
