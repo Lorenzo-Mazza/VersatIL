@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 
 from omegaconf import MISSING
 
+from versatil.training.constants import CompileMode
+
 
 @dataclass
 class ParameterGroupConfig:
@@ -89,6 +91,9 @@ class TrainingConfig:
     swa_annealing_epochs: int = (
         10  # Number of epochs to anneal learning rate to swa_lrs
     )
+
+    compile: bool = False
+    compile_mode: str = CompileMode.DEFAULT.value
 
     tune_lr: bool = (
         False  # If True, automatically find optimal learning rate before training

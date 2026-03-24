@@ -21,7 +21,7 @@ from versatil.inference.inference_client import (
     InferenceClient,
 )
 from versatil.inference.observation_preprocessor import ObservationPreprocessor
-from versatil.inference.policy_loader import PolicyLoader
+from versatil.inference.policy_loading.float_loader import PolicyLoader
 from versatil.inference.protocol import ActionTransport, ObservationTransport
 from versatil.inference.temporal_aggregation import TemporalAggregator
 

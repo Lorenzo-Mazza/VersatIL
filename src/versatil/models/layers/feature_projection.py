@@ -26,7 +26,8 @@ class FeatureProjection(nn.Module):
     dynamically from the state dict.
 
     Example:
-        >>> feature_projection = FeatureProjection(embedding_dim=256)
+        ```
+        feature_projection = FeatureProjection(embedding_dim=256)
         >>> flat_features = {
         ...     "language": torch.randn(8, 64),
         ...     "proprio": torch.randn(8, 128),
@@ -34,6 +35,7 @@ class FeatureProjection(nn.Module):
         >>> projected = feature_projection(flat_features)
         >>> projected["language"].shape  # (8, 256)
         >>> projected["proprio"].shape   # (8, 256)
+        ```
     """
 
     def __init__(

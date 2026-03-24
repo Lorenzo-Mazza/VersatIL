@@ -1,10 +1,9 @@
-"""Standalone utility for loading a trained policy from a checkpoint directory."""
+"""Base class for all policy loaders with shared config, tokenizer, and property accessors."""
 
 import logging
 import os
 
 import hydra
-import numpy as np
 import torch
 from omegaconf import OmegaConf
 
@@ -13,119 +12,90 @@ from versatil.data.constants import Cameras
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.policy import Policy
-from versatil.training.constants import MAP_PRECISION_TO_DTYPE, PrecisionType
-from versatil.training.lightning_policy import LightningPolicy
+from versatil.training.constants import CheckpointKey
 from versatil.validation import validate_experiment
 
 
-class PolicyLoader:
-    """Loads a trained policy from a checkpoint directory.
+class BasePolicyLoader:
+    """Base class for policy loaders.
 
-    Handles configuration loading, checkpoint validation, tokenizer setup,
-    precision conversion, and autocast inference wrapping.
+    Handles configuration loading, tokenizer setup, and provides
+    shared property accessors for observation/action spaces,
+    horizons, denoising thresholds, and depth clamp ranges.
+
+    Subclasses implement model loading and inference.
     """
 
     def __init__(
         self,
         device: torch.device,
         checkpoint_path: str,
-        checkpoint_name: str = "last.ckpt",
-        precision: str = PrecisionType.BF16_MIXED.value,
-        seed: int = 42,
-    ):
-        """Initialize the policy loader.
+    ) -> None:
+        """Initialize the base policy loader.
 
         Args:
             device: Device to load the model onto.
             checkpoint_path: Path to the checkpoint directory.
-            checkpoint_name: Name of the checkpoint file.
-            precision: Precision type for model inference.
-            seed: Random seed for reproducibility.
         """
         self._device = device
         self._checkpoint_path = checkpoint_path
-        self._checkpoint_name = checkpoint_name
-        self._precision = precision
         self._tokenizer: Tokenizer | None = None
         self._config: MainConfig | None = None
         self._policy: Policy | None = None
-        self._set_seed(seed)
-        self._load_model()
 
-    def _set_seed(self, seed: int) -> None:
-        """Set random seeds for reproducibility."""
-        torch.manual_seed(seed)
-        rng = np.random.default_rng(seed)
-        self._rng = rng
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
+    def _load_config(self, config_path: str) -> MainConfig:
+        """Load and validate experiment configuration from YAML.
 
-    def _load_model(self) -> None:
-        """Load config, policy, and tokenizer from checkpoint directory."""
-        config_path = os.path.join(self._checkpoint_path, "config.yaml")
+        Args:
+            config_path: Path to the config.yaml file.
+
+        Returns:
+            Instantiated MainConfig.
+
+        Raises:
+            FileNotFoundError: If config file does not exist.
+        """
         if not os.path.exists(config_path):
             raise FileNotFoundError(f"Config file not found at {config_path}.")
         logging.info(f"Loading config from {config_path}")
         config = hydra.utils.instantiate(OmegaConf.load(config_path))
         validate_experiment(config)
-        self._config = config
+        return config
 
-        checkpoint_file = os.path.join(self._checkpoint_path, self._checkpoint_name)
-        if not os.path.exists(checkpoint_file):
-            raise FileNotFoundError(f"No checkpoint found at {checkpoint_file}.")
-        logging.info(f"Loading model and tokenizer from {checkpoint_file}")
+    def _load_tokenizer(self, tokenizer_path: str) -> Tokenizer | None:
+        """Load tokenizer from disk if the directory exists.
 
-        tokenizer_path = os.path.join(self._checkpoint_path, "tokenizer")
-        if os.path.exists(tokenizer_path):
-            self._tokenizer = Tokenizer.from_pretrained(
-                tokenizer_path, device=self._device
-            )
-            logging.info(f"Tokenizer loaded from {tokenizer_path}")
+        Args:
+            tokenizer_path: Path to the tokenizer directory.
 
-        self._policy = self._config.policy
-        if self._tokenizer is not None:
-            self._tokenizer.to(self._device)
-            self._policy.set_tokenizer(self._tokenizer)
-
-        self._policy.to(self._device).eval()
-
-        checkpoint = torch.load(
-            checkpoint_file,
-            map_location=self._device,
-            weights_only=False,
-        )
-        lightning_module = LightningPolicy(
-            policy=self._policy,
-            training_config=self._config.training,
-        )
-        lightning_module.load_state_dict(checkpoint["state_dict"], strict=False)
-        self._validate_checkpoint_loading(
-            checkpoint_state_dict=checkpoint["state_dict"],
-            lightning_module=lightning_module,
-        )
-
-        precision_type = PrecisionType(self._precision)
-        if precision_type.should_convert_model():
-            self._policy = self._policy.to(precision_type.get_model_dtype())
-
-        logging.info("Model and config successfully loaded.")
+        Returns:
+            Loaded Tokenizer or None if path does not exist.
+        """
+        if not os.path.exists(tokenizer_path):
+            return None
+        tokenizer = Tokenizer.from_pretrained(tokenizer_path, device=self._device)
+        logging.info(f"Tokenizer loaded from {tokenizer_path}")
+        return tokenizer
 
     def _validate_checkpoint_loading(
         self,
         checkpoint_state_dict: dict[str, torch.Tensor],
-        lightning_module: LightningPolicy,
+        model_state_dict: dict[str, torch.Tensor],
     ) -> None:
         """Validate that critical checkpoint components were properly loaded.
 
         Catches issues with lazy-initialized modules where checkpoint
         weights might be silently ignored with strict=False.
 
+        Args:
+            checkpoint_state_dict: State dict from the checkpoint file.
+            model_state_dict: State dict from the loaded model.
+
         Raises:
             RuntimeError: If critical components failed to load.
         """
-        model_state = lightning_module.state_dict()
         checkpoint_keys = set(checkpoint_state_dict.keys())
-        model_keys = set(model_state.keys())
+        model_keys = set(model_state_dict.keys())
 
         critical_prefixes = [
             "policy.decoder.",
@@ -191,7 +161,7 @@ class PolicyLoader:
         sample_keys = [k for k in checkpoint_keys if k in model_keys][:5]
         for key in sample_keys:
             checkpoint_value = checkpoint_state_dict[key]
-            model_value = model_state[key]
+            model_value = model_state_dict[key]
             if not torch.allclose(
                 checkpoint_value.to(model_value.device),
                 model_value,
@@ -218,22 +188,15 @@ class PolicyLoader:
     def run_inference(
         self, obs_dict: dict[str, torch.Tensor]
     ) -> dict[str, torch.Tensor]:
-        """Run policy inference with autocast and no_grad.
+        """Run policy inference.
 
         Args:
             obs_dict: Observation dictionary for the policy.
 
         Returns:
-            Action dictionary from policy.predict_action.
+            Action dictionary from the policy.
         """
-        with (
-            torch.autocast(
-                device_type=str(self._device),
-                dtype=MAP_PRECISION_TO_DTYPE[self._precision],
-            ),
-            torch.no_grad(),
-        ):
-            return self._policy.predict_action(obs_dict=obs_dict)
+        raise NotImplementedError
 
     @property
     def device(self) -> torch.device:
@@ -244,11 +207,6 @@ class PolicyLoader:
     def checkpoint_path(self) -> str:
         """Get the checkpoint directory path."""
         return self._checkpoint_path
-
-    @property
-    def policy(self) -> Policy:
-        """Get the loaded policy."""
-        return self._policy
 
     @property
     def config(self) -> MainConfig:
@@ -307,7 +265,9 @@ class PolicyLoader:
         depth_key = Cameras.DEPTH.value
         if depth_key not in self._policy.normalizer.params_dict:
             return None
-        stats = self._policy.normalizer[depth_key].params_dict.get("input_stats")
+        stats = self._policy.normalizer[depth_key].params_dict.get(
+            CheckpointKey.INPUT_STATS.value
+        )
         if stats is None:
             return None
         return float(stats["min"].item()), float(stats["max"].item())

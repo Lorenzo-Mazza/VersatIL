@@ -32,6 +32,7 @@ class TestModuleAttrMixinDevice:
         assert module.device.type == "cpu"
 
     @pytest.mark.requires_gpu
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_reports_cuda_device_after_move(self, module_attr_mixin_factory):
         module = module_attr_mixin_factory(dimension=8).cuda()
         assert module.device.type == "cuda"

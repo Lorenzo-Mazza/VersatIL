@@ -212,6 +212,15 @@ class Workspace:
             total_training_steps=total_training_steps,
         )
         self._initialize_lazy_modules()
+        if self.config.training.compile:
+            logging.info(
+                "Compiling policy with torch.compile (mode=%s)...",
+                self.config.training.compile_mode,
+            )
+            self.policy = torch.compile(
+                self.policy, mode=self.config.training.compile_mode
+            )
+            self.lightning_policy.policy = self.policy
         logging.info(f"Policy created: {self.policy.__class__.__name__}")
         logging.info(f"Total training steps: {total_training_steps}")
 

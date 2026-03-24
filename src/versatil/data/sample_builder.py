@@ -179,7 +179,8 @@ class SampleBuilder:
             self.action_backward_shift : self.action_backward_shift + self.obs_horizon
         ]
         if metadata.dtype == "str":
-            return observation_data.tolist()
+            # TODO: get rid of squeeze when tokenizer todo is addressed
+            return observation_data.squeeze(axis=-1).tolist()
         elif "float" in metadata.dtype:
             return torch.from_numpy(observation_data).float()
         elif "int" in metadata.dtype or "bool" in metadata.dtype:

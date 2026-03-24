@@ -1,0 +1,8 @@
+defaults:
+  - /quantization/strategy/pt2e
+  - _self_
+
+pt2e_backend:
+  is_dynamic: false
+  is_qat: false
+  reduce_range: false

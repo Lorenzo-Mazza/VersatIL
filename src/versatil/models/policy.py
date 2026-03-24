@@ -38,7 +38,7 @@ class Policy(nn.Module):
         loss: BaseLoss,
         device: str,
         validate_loss_keys: bool = True,
-    ):
+    ) -> None:
         """Initialize policy.
 
         Args:
@@ -69,19 +69,40 @@ class Policy(nn.Module):
             DictOfTensorMixin()
         )  # Set later via set_denoising_thresholds()
 
-    def set_normalizer(self, normalizer: LinearNormalizer):
+    @property
+    def input_keys(self) -> list[str]:
+        """Sorted observation keys the policy expects as input."""
+        keys: set[str] = set()
+        for encoder in self.encoding_pipeline.encoders.values():
+            keys.update(encoder.input_specification.keys)
+        for encoder in self.encoding_pipeline.conditional_encoders.values():
+            keys.update(encoder.input_specification.keys)
+        if (
+            self.tokenizer is not None
+            and self.tokenizer.observation_tokenizer is not None
+        ):
+            keys.add(SampleKey.TOKENIZED_OBSERVATIONS.value)
+            keys.add(SampleKey.IS_PAD_OBSERVATION.value)
+        return sorted(keys)
+
+    @property
+    def output_keys(self) -> list[str]:
+        """Sorted action keys the policy produces as output."""
+        return sorted(self.decoder.action_heads.keys())
+
+    def set_normalizer(self, normalizer: LinearNormalizer) -> None:
         """Set normalizer for observations and actions."""
         self.normalizer.load_state_dict(normalizer.state_dict())
         self.normalizer.to(self.device)
         self.decoder.set_normalizer(self.normalizer)
 
-    def set_tokenizer(self, tokenizer: Tokenizer | None):
+    def set_tokenizer(self, tokenizer: Tokenizer | None) -> None:
         """Set tokenizer and pass it to the decoder."""
         self.tokenizer = tokenizer
         self.encoding_pipeline.set_tokenizer(tokenizer)
         self.decoder.set_tokenizer(tokenizer)
 
-    def set_denoising_thresholds(self, thresholds: dict[str, float]):
+    def set_denoising_thresholds(self, thresholds: dict[str, float]) -> None:
         """Set the denoising thresholds from training data.
 
         Args:
@@ -118,9 +139,9 @@ class Policy(nn.Module):
         Returns:
             Decoder output dictionary containing action predictions and any architecture-specific outputs.
         """
-        obs = batch[SampleKey.OBSERVATION.value]
+        observation = batch[SampleKey.OBSERVATION.value]
         actions = batch.get(SampleKey.ACTION.value)
-        features = self.encoding_pipeline(obs)
+        features = self.encoding_pipeline(observation)
         return self.algorithm.forward(
             features=features, actions=actions, network=self.decoder
         )
@@ -159,7 +180,7 @@ class Policy(nn.Module):
             Predicted actions (on same device as policy)
         """
         obs_dict = to_device(obs_dict, device=self.device)
-        normalized_obs = normalize_observation(
+        normalized_observation = normalize_observation(
             observation=obs_dict,
             normalizer=self.normalizer,
             observation_space=self.observation_space,
@@ -168,11 +189,11 @@ class Policy(nn.Module):
             self.tokenizer is not None
             and self.tokenizer.observation_tokenizer is not None
         ):
-            normalized_obs = tokenize_observation(
-                observation=normalized_obs,
+            normalized_observation = tokenize_observation(
+                observation=normalized_observation,
                 obs_tokenizer=self.tokenizer.observation_tokenizer,
             )
-        features = self.encoding_pipeline(normalized_obs)
+        features = self.encoding_pipeline(normalized_observation)
         predictions = self.algorithm.predict(features=features, network=self.decoder)
         if DecoderOutputKey.PREDICTED_ACTION_TOKENS.value in predictions:
             action_tokens = predictions[DecoderOutputKey.PREDICTED_ACTION_TOKENS.value]
@@ -214,7 +235,6 @@ class Policy(nn.Module):
         """
         vision_encoders = {}
 
-        # Check if encoder can produce spatial feature maps for explainability
         def is_vision_encoder(encoder: nn.Module) -> bool:
             # TIMM-based encoders (CNNEncoder, DepthCNNEncoder)
             if hasattr(encoder, "backbone"):
@@ -228,12 +248,10 @@ class Policy(nn.Module):
             # LightGeometric encoder
             return bool(hasattr(encoder, "attention_block"))
 
-        # Check unconditional encoders
         for encoder_name, encoder in self.encoding_pipeline.encoders.items():
             if is_vision_encoder(encoder):
                 vision_encoders[encoder_name] = encoder
 
-        # Check conditional encoders
         for (
             encoder_name,
             encoder,
@@ -353,7 +371,6 @@ class Policy(nn.Module):
             if not hasattr(encoder, "input_specification"):
                 continue
 
-            # Get the input keys this encoder expects
             input_keys = encoder.input_specification.keys
             for key in input_keys:
                 # Only include valid camera keys, not proprioceptive/language keys

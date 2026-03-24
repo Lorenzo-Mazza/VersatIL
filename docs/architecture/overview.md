@@ -185,3 +185,18 @@ On `TaskSpace.__init__()`:
 - Actions can be precomputed (stored in Zarr) or computed on-the-fly (e.g., deltas from consecutive states)
 
 Both spaces expose `get_required_zarr_keys()` to declare which keys must exist in the dataset. `TaskSpace` validates these keys against the dataset schema at initialization.
+
+## From Training to Deployment
+
+After training, a policy checkpoint can be deployed directly via `PolicyLoader` (float inference with `torch.compile`) or compressed first for edge deployment:
+
+```
+Training checkpoint (.ckpt)
+  → PostTrainingCompressor.compress()
+    → Preparation → Pruning → Quantization
+  → Compressed checkpoint (.pt2)
+    → CompressedPolicyLoader
+      → InferenceClient (ZMQ transport to robot/simulation)
+```
+
+Both `PolicyLoader` and `CompressedPolicyLoader` implement the same inference interface (`run_inference(obs_dict) → action_dict`), so the `InferenceClient` works with either. See [Post-Training Compression](post_training_compression.md) for details on the compression pipeline.

@@ -1033,6 +1033,7 @@ class TestValidateExperiment:
         mock_config.policy.loss_module = MagicMock(spec=BaseLoss)
         mock_config.policy.loss_module.get_required_keys.return_value = set()
         mock_config.experiment.validate_loss_keys = True
+        mock_config.quantization = None
 
         # No observation keys => no encoder mismatch errors
         mock_config.task.observation_space.observations_metadata = {}

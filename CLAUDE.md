@@ -60,6 +60,29 @@ python -m versatil.endpoints.train \
     experiment.resume_from=/path/to/checkpoint.ckpt
 ```
 
+### Post-Training Compression
+
+```bash
+# Compress a trained checkpoint with default x86 PT2E config
+python -m versatil.endpoints.post_training_compress \
+    --config-name end_to_end_ptq/unstructured_prune_x86.yaml \
+    checkpoint_path=/path/to/training/checkpoint
+
+# Override pruning amount and calibration steps
+python -m versatil.endpoints.post_training_compress \
+    --config-name end_to_end_ptq/unstructured_prune_x86 \
+    checkpoint_path=/path/to/checkpoint \
+    calibration_steps=32 \
+    generate_report=true
+
+# Run compressed model inference
+python -m versatil.endpoints.test \
+    --checkpoint_path /path/to/checkpoint/compressed/<timestamp> \
+    --device cpu \
+    --model_server_address 10.0.0.1 \
+    --model_server_port 5556
+```
+
 ### Code Formatting and Linting
 
 ```bash
@@ -100,6 +123,7 @@ src/versatil/
 │   ├── policy.py     # Policy = encoding + decoder + loss
 │   ├── inference.py  # Inference-specific settings (rotate_images, etc.)
 │   ├── loss.py       # Loss composition configs
+│   ├── post_training_compression.py  # PTC configs (CompressionTargetConfig, PostTrainingCompressorConfig)
 │   ├── data/         # Data configuration
 │   │   ├── task.py           # ActionSpace, ObservationSpace, TaskConfig
 │   │   ├── dataloader.py     # Batch size, num workers, augmentation config
@@ -121,6 +145,7 @@ src/versatil/
 │
 ├── models/           # Neural network implementations
 │   ├── policy.py             # Policy orchestrates encoding → decoding → loss
+│   ├── exportable_policy.py  # ExportablePolicy: dict→positional wrapper for torch.export
 │   ├── encoding/
 │   │   ├── pipeline.py       # EncodingPipeline: encoder orchestration + fusion
 │   │   ├── encoders/
@@ -195,7 +220,10 @@ src/versatil/
 │   ├── inference_client.py   # Unified client: orchestrates observe → infer → act loop
 │   ├── observation_preprocessor.py  # Response parsing, image transforms, depth clamping
 │   ├── action_postprocessor.py      # Structured actions, gripper sigmoid, denoising
-│   ├── policy_loader.py     # Checkpoint loading, autocast inference, normalizer access
+│   ├── policy_loading/       # Policy loaders for float and compressed checkpoints
+│   │   ├── base.py                  # BasePolicyLoader: config, tokenizer, shared properties
+│   │   ├── float_loader.py          # PolicyLoader: training checkpoint → eager inference
+│   │   └── compressed_loader.py     # CompressedPolicyLoader: .pt2 → compiled inference
 │   ├── observation_buffer.py # Per-environment temporal observation buffer
 │   └── temporal_aggregation.py  # Exponential-weighted action averaging
 │
@@ -224,9 +252,35 @@ src/versatil/
 │   ├── explainer.py
 │   └── constants.py
 │
+├── post_training_compression/  # Post-training model compression
+│   ├── compressor.py          # PostTrainingCompressor: orchestrates full pipeline
+│   ├── compression_target.py  # CompressionTarget: per-module prep/prune/quantize config
+│   ├── constants.py           # Enums (QuantizationStrategy, CompressionFilename, etc.)
+│   ├── export.py              # torch.export utilities (build_example_inputs, export_policy)
+│   ├── report.py              # QuantizationReport: size/speed/divergence analysis
+│   ├── serialization.py       # Save/load compressed .pt2 checkpoints with metadata
+│   ├── preparation/           # Pre-quantization model surgery
+│   │   ├── batchnorm.py              # FrozenBN → standard BN replacement
+│   │   └── fusion.py                 # Conv2d + BatchNorm2d folding
+│   └── pruning/               # Weight pruning strategies
+│       ├── base.py                    # BasePruner interface + sparsity computation
+│       ├── unstructured.py            # Global L1 unstructured pruning
+│       └── structured.py              # Per-layer Ln structured pruning
+│
+├── quantization/      # torchao quantization bridge
+│   ├── strategies.py          # PT2EStrategy, QuantizeApiStrategy
+│   ├── quantize.py            # apply_pt2e_quantization, apply_quantize_api
+│   ├── calibration.py         # CalibrationDataProvider for static quantization
+│   ├── constants.py           # FXNodePattern, QuantizableOperatorType
+│   ├── torch_patches.py       # Monkey-patches for torchao/torch bugs
+│   └── backends/              # Hardware-specific PT2E backends
+│       ├── base.py                    # BasePT2EBackend interface
+│       └── x86_inductor.py            # X86InductorBackend: quantizer + lowering + env
+│
 ├── endpoints/        # Training and inference entry points
 │   ├── train.py              # Hydra training endpoint
 │   ├── test.py               # Inference/evaluation endpoint
+│   ├── post_training_compress.py  # Hydra PTC endpoint (thin wrapper)
 │   └── explain.py            # Explanation endpoint
 │
 └── validation.py     # Experiment config validation
@@ -453,6 +507,70 @@ Plus a separate `action_metadata` dict with `ActionMetadataField` entries (dimen
 - `tso-robotics-sockets`: Generic socket transport + protocol keys (`ServerRoute`, `InferenceRequestKey`, etc.)
 - `versatil-constants`: Shared domain constants (`ActionComponent`, `ActionMetadataField`, `TSOCamera`, `ObsKey`, etc.)
 
+#### 8. Post-Training Compression
+
+The post-training compression (PTC) package reduces model size and improves CPU inference efficiency for deployment on edge or resource-constrained hardware, without retraining.
+
+**Pipeline** (`PostTrainingCompressor.compress()`):
+```
+Load policy (CPU)
+  → Resolve compression targets (per-module or global fallback)
+  → Validate module paths and strategy compatibility
+  → Per-target: BN replacement → Conv+BN fusion → Pruning (sequential list)
+  → Export to FX graph via torch.export (CPU, dynamic batch)
+  → Quantize: PT2E (static/dynamic) or quantize_() API
+  → Save .pt2 archive + normalizer + metadata → compressed/<timestamp>/
+  → (Optional) Generate report: op coverage, size reduction, output divergence
+```
+
+**Two quantization paths**:
+
+| Path | API | When to use | Calibration |
+|------|-----|-------------|-------------|
+| **PT2E** | `prepare_pt2e` → calibrate → `convert_pt2e` | Static quantization, per-module targeting, conv+linear fusion | Required for static, optional for dynamic |
+| **quantize_()** | `torchao.quantization.quantize_()` | Dynamic weight-only quantization (e.g., int8 dynamic, int4 weight-only) | Not needed |
+
+PT2E and quantize_() cannot be combined in a single run — PT2E operates on the exported FX graph while quantize_() modifies the eager model.
+
+**Compression targets** (`CompressionTarget`):
+Each target specifies a `module_path` (dotted path to a submodule, or `""` for the whole policy) and optional `preparation`, `pruning` (list of pruners, applied sequentially), and `quantization` strategy. When the global `modules` list is empty, `resolve_modules()` creates a single root target from the top-level config fields.
+
+**Pruning** is composable: structured and unstructured pruners can be applied sequentially to the same module. Each pruner in the list runs in order, and sparsity accumulates:
+```yaml
+pruning:
+  - _target_: versatil.post_training_compression.pruning.UnstructuredPruner
+    amount: 0.3
+  - _target_: versatil.post_training_compression.pruning.StructuredPruner
+    amount: 0.2
+```
+
+**Compressed inference** (`CompressedPolicyLoader`):
+Loads `.pt2` archives, applies `torch.compile` with backend-specific environment (freezing, cpp_wrapper), and runs compiled inference. The backend environment is activated permanently (not via context manager) because `torch.compile` is lazy — the actual inductor compilation happens on the first forward pass.
+
+**Supported backends**: Currently X86InductorBackend for x86 CPUs. Additional torchao-supported backends can be added by implementing `BasePT2EBackend`. The quantize_() API path is backend-agnostic and supports CUDA, though some torchao configs have batch size constraints on CUDA (see [pytorch/ao#2376](https://github.com/pytorch/ao/issues/2376)).
+
+**Known limitations**:
+- **PT2E export and calibration must run on CPU**: `torch.export` bakes device metadata (`_to_copy(device='cpu')`, `_assert_tensor_metadata(device='cpu')`) into the FX graph. Moving the prepared model to CUDA causes runtime device mismatches.
+- **Dynamic batch dimension**: `torch.export` with `batch=1` specializes to a constant. Always use `batch>=2` for dynamic dims.
+- **First inference latency**: `torch.compile` with inductor backend generates and compiles C++ kernels on the first forward pass. Compilation time depends on model size and quantized op count.
+
+**Running PTC**:
+```bash
+python -m versatil.endpoints.post_training_compress \
+    --config-name end_to_end_ptq/unstructured_prune_x86.yaml \
+    checkpoint_path=/path/to/training/checkpoint \
+    checkpoint_name=last.ckpt
+```
+
+Override calibration steps and report generation from CLI:
+```bash
+python -m versatil.endpoints.post_training_compress \
+    --config-name end_to_end_ptq/unstructured_prune_x86.yaml \
+    checkpoint_path=/path/to/checkpoint \
+    calibration_steps=32 \
+    generate_report=true
+```
+
 ### Adding New Components
 
 **When adding new components**:
@@ -476,6 +594,7 @@ Plus a separate `action_metadata` dict with `ActionMetadataField` entries (dimen
 - Avoid try catch blocks.
 - Use double quotes for strings: "foo" and not 'foo'.
 - Avoid plain hardcoded strings. Use constant string values through Enum.value
+- **Never use `object` as a type annotation** for return types or parameters. Use the actual type, a protocol, or a union.
 
 Additional standards:
 - Ruff formatter and linter (line length 88, Python 3.13 target). Configuration in `pyproject.toml`.
@@ -596,10 +715,16 @@ Fixes:
 Extensions:
 - The explainer is buggy and hardcoded. It needs a refactoring to fit into the new architecture as modular component: the explain endpoint should be agnostic of the data format (right now it assumes CSV Schema).
 - Distributed training needs to be re-integrated with the new workspace.
-- Quantize package needs to be developed.
+- ~~Quantize package needs to be developed.~~ **Done**: `post_training_compression/` and `quantization/` packages.
+- Migrate from MkDocs to [ProperDocs](https://properdocs.org/) before MkDocs 2.0 breaks all plugins/themes.
 - Integrate history buffer of proprioceptive observation only + uniform masking for causal confusion (https://arxiv.org/pdf/1905.11979)
 - Introduce pre-commit hooks.
 - Update README Code Style section to reference Ruff instead of Black.
+
+## Data Loading Optimization
+- **Selective preloading**: Add `preload_keys` parameter to `ReplayBuffer.copy_from_path` to preload only non-image keys (proprio, actions, language) into RAM (~20 MB) while keeping images lazy on disk. Eliminates ~33% of network I/O latency per sample at negligible memory cost. Useful for large datasets that don't fit in RAM.
+- **Zarr rechunking**: Current image chunks are `(16, H, W, 3)` = 3.1 MB. For `obs_horizon=1`, rechunking to `(1, H, W, 3)` gives 1.7x faster random reads. Add a `rechunk_for_training` utility that sets optimal chunk_t based on obs_horizon.
+- **uint8 transfer**: Keep images as uint8 in dataloader workers, do float conversion after collation on GPU. Reduces IPC data volume by 4x (uint8 vs float32).
 
 ## For future versions
 - **Implement LoRA config for parameter-efficient fine-tuning**:

@@ -5,13 +5,18 @@ import os
 import warnings
 from pathlib import Path
 
+import transformers
 from dotenv import load_dotenv
 
+from versatil.quantization.torch_patches import patch_pt2e_python314
+
+patch_pt2e_python314()
 load_dotenv()
 
 logging.getLogger("timm").setLevel(logging.ERROR)
-logging.getLogger("transformers").setLevel(logging.ERROR)
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+transformers.logging.set_verbosity_error()
 
 CACHE_DIR = Path(os.environ["VERSATIL_CACHE_DIR"])
 
@@ -43,6 +48,12 @@ warnings.filterwarnings("ignore", category=UserWarning, module="albumentations")
 warnings.filterwarnings("ignore", category=UserWarning, module="hydra")
 warnings.filterwarnings("ignore", message="Trying to infer the `batch_size`")
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="geomloss")
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="torchao")
+warnings.filterwarnings(
+    "ignore",
+    message="The given buffer is not writable",
+    category=UserWarning,
+)
 warnings.filterwarnings(
     "ignore",
     message=".*self.log.*self.trainer.*not registered.*",

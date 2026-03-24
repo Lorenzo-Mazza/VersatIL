@@ -121,6 +121,22 @@ from versatil.configs.loss import (
 )
 from versatil.configs.main import MainConfig
 from versatil.configs.policy import PolicyConfig
+from versatil.configs.post_training_compression import (
+    BasePrunerConfig,
+    CompressionTargetConfig,
+    PostTrainingCompressorConfig,
+    PreparationConfig,
+    StructuredPrunerConfig,
+    UnstructuredPrunerConfig,
+)
+from versatil.configs.quantization import (
+    BasePT2EBackendConfig,
+    Int4WeightOnlyQuantizeConfig,
+    Int8DynamicQuantizeConfig,
+    PT2EStrategyConfig,
+    QuantizeApiStrategyConfig,
+    X86InductorBackendConfig,
+)
 from versatil.configs.training import (
     AdamConfig,
     AdamWConfig,
@@ -167,7 +183,13 @@ from versatil.models.layers.constants import (
 from versatil.models.layers.denoising.diffusion_process import SchedulerType
 from versatil.models.layers.denoising.timestep_sampling import TimestepSampler
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.training.constants import Float32MatmulPrecision, PrecisionType
+from versatil.post_training_compression.constants import PrunableLayerType
+from versatil.quantization.constants import QuantizationBackend
+from versatil.training.constants import (
+    CompileMode,
+    Float32MatmulPrecision,
+    PrecisionType,
+)
 
 __all__ = [
     "MainConfig",
@@ -224,6 +246,18 @@ __all__ = [
     "TrajectoryLengthLossConfig",
     "TrajectorySmoothnessConfig",
     "PhaseClassificationLossConfig",
+    "BasePT2EBackendConfig",
+    "BasePrunerConfig",
+    "Int4WeightOnlyQuantizeConfig",
+    "Int8DynamicQuantizeConfig",
+    "CompressionTargetConfig",
+    "PT2EStrategyConfig",
+    "PostTrainingCompressorConfig",
+    "PreparationConfig",
+    "QuantizeApiStrategyConfig",
+    "StructuredPrunerConfig",
+    "UnstructuredPrunerConfig",
+    "X86InductorBackendConfig",
 ]
 
 
@@ -349,6 +383,14 @@ def register_resolvers():
             "kernel_type", lambda name: KernelType[name].value
         )
 
+    if not OmegaConf.has_resolver("compile_mode"):
+        OmegaConf.register_new_resolver(
+            "compile_mode", lambda name: CompileMode[name].value
+        )
+    if not OmegaConf.has_resolver("quantization_backend"):
+        OmegaConf.register_new_resolver(
+            "quantization_backend", lambda name: QuantizationBackend[name].value
+        )
     if not OmegaConf.has_resolver("env"):
         OmegaConf.register_new_resolver(
             "env", lambda key, default=None: os.environ.get(key, default)
@@ -415,6 +457,11 @@ def register_resolvers():
             lambda subpath="": str(
                 Path(os.environ.get("VERSATIL_METAWORLD_LEROBOT_DIR", ".")) / subpath
             ),
+        )
+    if not OmegaConf.has_resolver("prunable_layer"):
+        OmegaConf.register_new_resolver(
+            "prunable_layer",
+            lambda name: PrunableLayerType[name].value,
         )
 
 
@@ -706,6 +753,51 @@ def register_configs():
     )
     cs.store(
         group="policy/decoder/head_block", name="residual", node=ResidualBlockConfig
+    )
+
+    cs.store(
+        name="post_training_compression",
+        node=PostTrainingCompressorConfig,
+    )
+    cs.store(
+        group="compression/module",
+        name="base",
+        node=CompressionTargetConfig,
+    )
+    cs.store(
+        group="compression/pruning",
+        name="unstructured",
+        node=UnstructuredPrunerConfig,
+    )
+    cs.store(
+        group="compression/pruning",
+        name="structured",
+        node=StructuredPrunerConfig,
+    )
+    cs.store(
+        group="quantization/strategy",
+        name="pt2e",
+        node=PT2EStrategyConfig,
+    )
+    cs.store(
+        group="quantization/strategy",
+        name="quantize_api",
+        node=QuantizeApiStrategyConfig,
+    )
+    cs.store(
+        group="quantization/backend",
+        name="x86_inductor",
+        node=X86InductorBackendConfig,
+    )
+    cs.store(
+        group="quantization/quantize_config",
+        name="int8_dynamic",
+        node=Int8DynamicQuantizeConfig,
+    )
+    cs.store(
+        group="quantization/quantize_config",
+        name="int4_weight_only",
+        node=Int4WeightOnlyQuantizeConfig,
     )
 
 

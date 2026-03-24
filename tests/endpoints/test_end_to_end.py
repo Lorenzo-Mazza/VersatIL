@@ -29,7 +29,7 @@ from tests.endpoints.conftest import (
     start_mock_observation_server,
 )
 from versatil.inference.inference_client import InferenceClient
-from versatil.inference.policy_loader import PolicyLoader
+from versatil.inference.policy_loading.float_loader import PolicyLoader
 from versatil.inference.socket_transport import (
     SocketActionTransport,
     SocketObservationTransport,

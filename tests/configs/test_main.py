@@ -23,6 +23,7 @@ class TestMainConfig:
             "training",
             "policy",
             "inference",
+            "quantization",
         }
         assert expected == field_names
 
@@ -48,4 +49,4 @@ class TestMainConfig:
 
     def test_defaults_list_has_expected_structure(self):
         config = MainConfig()
-        assert len(config.defaults) == 5
+        assert len(config.defaults) == 6

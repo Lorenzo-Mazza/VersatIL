@@ -2,15 +2,20 @@
 
 import argparse
 import logging
+import os
 
 import torch
 
 from versatil.inference.inference_client import InferenceClient
-from versatil.inference.policy_loader import PolicyLoader
+from versatil.inference.policy_loading.compressed_loader import CompressedPolicyLoader
+from versatil.inference.policy_loading.float_loader import PolicyLoader
+from versatil.inference.protocol import PolicyInference
 from versatil.inference.socket_transport import (
     SocketActionTransport,
     SocketObservationTransport,
 )
+from versatil.post_training_compression.constants import CompressionFilename
+from versatil.training.constants import CheckpointFilename, PrecisionType
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint_name",
         type=str,
-        default="last.ckpt",
+        default=CheckpointFilename.DEFAULT_CHECKPOINT.value,
         help="Name of the checkpoint file.",
     )
     parser.add_argument(
@@ -72,12 +77,62 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Log per-step timing breakdown.",
     )
+    parser.add_argument(
+        "--no_compile",
+        action="store_true",
+        help="Disable torch.compile model optimization.",
+    )
     return parser.parse_args()
 
 
-def main():
+def load_policy(
+    checkpoint_path: str,
+    device: torch.device,
+    checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value,
+    precision: str = PrecisionType.BF16_MIXED.value,
+    compile_model: bool = True,
+) -> PolicyInference:
+    """Load a policy for inference, auto-detecting compressed checkpoints.
+
+    Inspects the checkpoint directory for compression/quantization metadata.
+    If found, returns a CompressedPolicyLoader. Otherwise returns a
+    standard PolicyLoader.
+
+    Args:
+        checkpoint_path: Path to the checkpoint directory.
+        device: Device to load the model onto.
+        checkpoint_name: Name of the checkpoint file (for float policies).
+        precision: Precision type for float policy inference.
+        compile_model: Whether to compile the model with torch.compile.
+
+    Returns:
+        A PolicyInference-compatible loader.
+    """
+    compression_metadata = os.path.join(
+        checkpoint_path, CompressionFilename.COMPRESSION_METADATA.value
+    )
+    if os.path.exists(compression_metadata):
+        return CompressedPolicyLoader(
+            device=device,
+            checkpoint_path=checkpoint_path,
+            compile_model=compile_model,
+        )
+    else:
+        return PolicyLoader(
+            device=device,
+            checkpoint_path=checkpoint_path,
+            checkpoint_name=checkpoint_name,
+            precision=precision,
+            compile_model=compile_model,
+        )
+
+
+def main() -> None:
     """Main entry point for inference endpoint."""
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(module)s %(levelname)s %(message)s",
+    )
     args = parse_args()
     if args.device:
         device = torch.device(args.device)
@@ -87,10 +142,11 @@ def main():
     if device == torch.device("cpu"):
         logging.warning("Running on CPU. Consider using a GPU for better performance.")
 
-    policy_loader = PolicyLoader(
-        device=device,
+    policy_loader = load_policy(
         checkpoint_path=args.checkpoint_path,
+        device=device,
         checkpoint_name=args.checkpoint_name,
+        compile_model=not args.no_compile,
     )
 
     observation_transport = SocketObservationTransport(
