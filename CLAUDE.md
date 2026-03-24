@@ -65,7 +65,7 @@ python -m versatil.endpoints.train \
 ```bash
 # Compress a trained checkpoint with default x86 PT2E config
 python -m versatil.endpoints.post_training_compress \
-    --config-name end_to_end_ptq/x86_ptq \
+    --config-name end_to_end_ptq/unstructured_prune_x86.yaml \
     checkpoint_path=/path/to/training/checkpoint
 
 # Override pruning amount and calibration steps
@@ -557,7 +557,7 @@ Loads `.pt2` archives, applies `torch.compile` with backend-specific environment
 **Running PTC**:
 ```bash
 python -m versatil.endpoints.post_training_compress \
-    --config-name end_to_end_ptq/x86_ptq \
+    --config-name end_to_end_ptq/unstructured_prune_x86.yaml \
     checkpoint_path=/path/to/training/checkpoint \
     checkpoint_name=last.ckpt
 ```
@@ -565,7 +565,7 @@ python -m versatil.endpoints.post_training_compress \
 Override calibration steps and report generation from CLI:
 ```bash
 python -m versatil.endpoints.post_training_compress \
-    --config-name end_to_end_ptq/x86_ptq \
+    --config-name end_to_end_ptq/unstructured_prune_x86.yaml \
     checkpoint_path=/path/to/checkpoint \
     calibration_steps=32 \
     generate_report=true

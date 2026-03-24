@@ -21,7 +21,7 @@ EXPERIMENTS_DIR = PROJECT_ROOT / "hydra_configs"
 @hydra.main(
     version_base=None,
     config_path=str(EXPERIMENTS_DIR),
-    config_name="end_to_end_ptq/x86_ptq",
+    config_name="end_to_end_ptq/unstructured_prune_x86.yaml",
 )
 def main(config: DictConfig) -> None:
     """Post-training compression endpoint."""

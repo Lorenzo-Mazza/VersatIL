@@ -87,7 +87,7 @@ class TestPerModuleYamlInheritance:
     def test_modules_inherit_global_quantization(self):
         with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
             yaml_config = compose(
-                config_name="end_to_end_ptq/per_module_example",
+                config_name="end_to_end_ptq/unstructured_prune_x86_decoder_only",
                 overrides=["checkpoint_path=/tmp/ckpt"],
             )
 

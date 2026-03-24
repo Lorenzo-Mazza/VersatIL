@@ -236,7 +236,7 @@ def _save_and_verify_inference(
 
     with initialize_config_dir(config_dir=HYDRA_CONFIG_DIR, version_base=None):
         ptq_config = compose(
-            config_name="end_to_end_ptq/x86_ptq",
+            config_name="end_to_end_ptq/unstructured_prune_x86.yaml",
             overrides=[f"checkpoint_path={str(output_dir)}"],
         )
 
