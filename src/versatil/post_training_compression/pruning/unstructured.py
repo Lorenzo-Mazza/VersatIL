@@ -63,7 +63,10 @@ class UnstructuredPruner(BasePruner):
         parameters_to_prune = [
             (child_module, PruningTargetAttribute.WEIGHT.value)
             for child_module in module.modules()
-            if hasattr(child_module, PruningTargetAttribute.WEIGHT.value)
+            if isinstance(
+                getattr(child_module, PruningTargetAttribute.WEIGHT.value, None),
+                nn.Parameter,
+            )
             and (
                 self._layer_types is None or isinstance(child_module, self._layer_types)
             )

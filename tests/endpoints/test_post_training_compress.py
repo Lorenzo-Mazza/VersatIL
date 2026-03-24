@@ -47,7 +47,10 @@ from versatil.post_training_compression.preparation import (
     fuse_all_conv_batchnorm_pairs,
     prepare_batchnorms_for_quantization,
 )
-from versatil.post_training_compression.pruning import UnstructuredPruner
+from versatil.post_training_compression.pruning import (
+    StructuredPruner,
+    UnstructuredPruner,
+)
 from versatil.post_training_compression.serialization import save_compressed_model
 from versatil.quantization.calibration import CalibrationDataProvider
 from versatil.quantization.torch_patches import patch_get_source_partitions
@@ -523,3 +526,44 @@ class TestBuildExampleInputsFallback:
         assert len(example_inputs) == len(exportable.observation_keys)
         assert all(isinstance(t, torch.Tensor) for t in example_inputs)
         assert all(t.shape[0] == 2 for t in example_inputs)
+
+
+@pytest.mark.slow
+class TestGlobalFallbackPipeline:
+    def test_prepare_prune_export_on_full_policy(self, tmp_path, compression_pipeline):
+        policy_loader, calibration, exportable = compression_pipeline()
+        policy = policy_loader.policy
+
+        prepare_batchnorms_for_quantization(policy)
+        fuse_all_conv_batchnorm_pairs(policy)
+
+        pruner = UnstructuredPruner(amount=0.3)
+        _, zeroed = pruner.prune(module=policy)
+        assert zeroed > 0
+
+        example_inputs = calibration.get_single_batch()
+        exported = export_policy(exportable=exportable, example_inputs=example_inputs)
+
+        with torch.no_grad():
+            outputs = exported(*example_inputs)
+        assert all(t.isfinite().all() for t in outputs)
+
+    def test_prepare_structured_and_unstructured_then_export(
+        self, tmp_path, compression_pipeline
+    ):
+        policy_loader, calibration, exportable = compression_pipeline()
+        policy = policy_loader.policy
+
+        prepare_batchnorms_for_quantization(policy)
+        fuse_all_conv_batchnorm_pairs(policy)
+
+        StructuredPruner(amount=0.2).prune(module=policy)
+        _, zeroed = UnstructuredPruner(amount=0.3).prune(module=policy)
+        assert zeroed > 0
+
+        example_inputs = calibration.get_single_batch()
+        exported = export_policy(exportable=exportable, example_inputs=example_inputs)
+
+        with torch.no_grad():
+            outputs = exported(*example_inputs)
+        assert all(t.isfinite().all() for t in outputs)

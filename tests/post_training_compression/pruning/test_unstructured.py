@@ -9,7 +9,31 @@ import torch
 from torch import nn
 
 from versatil.post_training_compression.constants import PrunableLayerType
+from versatil.post_training_compression.preparation import (
+    fuse_all_conv_batchnorm_pairs,
+    prepare_batchnorms_for_quantization,
+)
 from versatil.post_training_compression.pruning.unstructured import UnstructuredPruner
+
+
+@pytest.fixture
+def conv_batchnorm_model_factory() -> Callable[..., nn.Module]:
+    """Factory for a model with Conv+BN pairs that can be fused."""
+
+    def factory() -> nn.Module:
+        return nn.Sequential(
+            nn.Conv2d(3, 16, kernel_size=3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten(),
+            nn.Linear(32, 4),
+        )
+
+    return factory
 
 
 @pytest.mark.unit
@@ -171,3 +195,18 @@ class TestUnstructuredPruner:
     def test_amount_validation(self, amount: float, expectation):
         with expectation:
             UnstructuredPruner(amount=amount)
+
+    def test_prunes_after_batchnorm_fusion(
+        self,
+        conv_batchnorm_model_factory: Callable[..., nn.Module],
+    ):
+        model = conv_batchnorm_model_factory()
+        model.eval()
+        # BN fusion can leave residual modules with float weight attributes
+        prepare_batchnorms_for_quantization(model)
+        fuse_all_conv_batchnorm_pairs(model)
+
+        total, zeroed = UnstructuredPruner(amount=0.5).prune(module=model)
+
+        assert zeroed > 0
+        assert zeroed / total > 0.3
