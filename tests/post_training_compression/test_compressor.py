@@ -1,9 +1,11 @@
 """Tests for versatil.post_training_compression.compressor module."""
 
 import re
+from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 import torch
 import torch.nn as nn
@@ -12,6 +14,8 @@ from versatil.post_training_compression.compressor import (
     ModuleCompressor,
     PostTrainingCompressor,
 )
+from versatil.post_training_compression.pruning.structured import StructuredPruner
+from versatil.post_training_compression.pruning.unstructured import UnstructuredPruner
 from versatil.quantization.backends.x86_inductor import X86InductorBackend
 from versatil.quantization.strategies import PT2EStrategy, QuantizeApiStrategy
 
@@ -28,6 +32,47 @@ def policy_with_submodules() -> nn.Module:
             return self.decoder(self.backbone(x))
 
     return Policy()
+
+
+@pytest.fixture
+def pruning_model_factory(
+    rng: np.random.Generator,
+) -> Callable[..., nn.Module]:
+    """Factory for a model with Conv2d and Linear layers."""
+
+    def factory(
+        input_channels: int = 3,
+        hidden_channels: int = 32,
+        linear_features: int = 64,
+        output_features: int = 4,
+    ) -> nn.Module:
+        model = nn.Sequential(
+            nn.Conv2d(
+                in_channels=input_channels,
+                out_channels=hidden_channels,
+                kernel_size=3,
+                padding=1,
+            ),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d(output_size=1),
+            nn.Flatten(),
+            nn.Linear(
+                in_features=hidden_channels,
+                out_features=linear_features,
+            ),
+            nn.ReLU(),
+            nn.Linear(
+                in_features=linear_features,
+                out_features=output_features,
+            ),
+        )
+        with torch.no_grad():
+            for parameter in model.parameters():
+                data = rng.standard_normal(parameter.shape).astype(np.float32)
+                parameter.copy_(torch.from_numpy(data))
+        return model
+
+    return factory
 
 
 @pytest.mark.unit
@@ -183,3 +228,83 @@ class TestPostTrainingCompressorValidate:
             ),
         ):
             compressor.validate(policy=policy_with_submodules)
+
+
+@pytest.mark.unit
+class TestResolveModules:
+    def test_returns_explicit_modules_when_provided(self):
+        explicit = [ModuleCompressor(module_path="backbone")]
+        compressor = PostTrainingCompressor(
+            checkpoint_path="/tmp/ckpt",
+            modules=explicit,
+            preparation=MagicMock(),
+        )
+
+        assert compressor.resolve_modules() is explicit
+
+    def test_falls_back_to_global_settings_when_empty(self):
+        preparation = MagicMock()
+        pruning = [MagicMock(), MagicMock()]
+        quantization = PT2EStrategy(pt2e_backend=X86InductorBackend())
+        compressor = PostTrainingCompressor(
+            checkpoint_path="/tmp/ckpt",
+            modules=[],
+            preparation=preparation,
+            pruning=pruning,
+            quantization=quantization,
+        )
+
+        resolved = compressor.resolve_modules()
+
+        assert len(resolved) == 1
+        assert resolved[0].module_path == ""
+        assert resolved[0].preparation is preparation
+        assert resolved[0].pruning is pruning
+        assert resolved[0].quantization is quantization
+
+
+@pytest.mark.unit
+class TestSequentialPruning:
+    def test_structured_then_unstructured_increases_sparsity(
+        self,
+        pruning_model_factory: Callable[..., nn.Module],
+    ):
+        model = pruning_model_factory()
+        structured = StructuredPruner(amount=0.3)
+        unstructured = UnstructuredPruner(amount=0.3)
+
+        _, zeroed_after_structured = structured.prune(module=model)
+        _, zeroed_after_both = unstructured.prune(module=model)
+
+        assert zeroed_after_both > zeroed_after_structured
+
+    def test_unstructured_then_structured_increases_sparsity(
+        self,
+        pruning_model_factory: Callable[..., nn.Module],
+    ):
+        model = pruning_model_factory()
+        unstructured = UnstructuredPruner(amount=0.3)
+        structured = StructuredPruner(amount=0.3)
+
+        _, zeroed_after_unstructured = unstructured.prune(module=model)
+        _, zeroed_after_both = structured.prune(module=model)
+
+        assert zeroed_after_both > zeroed_after_unstructured
+
+    def test_model_produces_finite_output_after_both(
+        self,
+        pruning_model_factory: Callable[..., nn.Module],
+        rng: np.random.Generator,
+    ):
+        model = pruning_model_factory()
+        input_data = torch.from_numpy(
+            rng.standard_normal((2, 3, 8, 8)).astype(np.float32)
+        )
+
+        StructuredPruner(amount=0.3).prune(module=model)
+        UnstructuredPruner(amount=0.5).prune(module=model)
+
+        with torch.no_grad():
+            output = model(input_data)
+        assert output.shape == (2, 4)
+        assert output.isfinite().all()

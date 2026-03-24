@@ -10,6 +10,9 @@ device: cpu
 preparation:
   replace_frozen_batchnorm: true
   fuse_conv_batchnorm: true
+pruning:
+  - _target_: versatil.post_training_compression.pruning.UnstructuredPruner
+    amount: 0.5
 quantization:
   _target_: versatil.quantization.strategies.PT2EStrategy
   pt2e_backend:

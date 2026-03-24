@@ -79,7 +79,7 @@ def main(config: DictConfig) -> None:
         precision=PrecisionType.FP32.value,
     )
     policy = policy_loader.policy
-    modules = compressor.modules
+    modules = compressor.resolve_modules()
     compressor.validate(policy=policy)
 
     for module in modules:
@@ -96,11 +96,12 @@ def main(config: DictConfig) -> None:
                 preparation=module.preparation,
                 module_path=label,
             )
-        if module.pruning is not None:
-            total, zeroed = module.pruning.prune(module=submodule)
+        for pruner in module.pruning:
+            total, zeroed = pruner.prune(module=submodule)
             logging.info(
-                "Pruned %s: %d/%d zeroed (%.1f%%)",
+                "Pruned %s with %s: %d/%d zeroed (%.1f%%)",
                 label,
+                type(pruner).__name__,
                 zeroed,
                 total,
                 100.0 * zeroed / total if total > 0 else 0.0,

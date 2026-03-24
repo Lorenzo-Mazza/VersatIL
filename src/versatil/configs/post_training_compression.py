@@ -62,8 +62,8 @@ class ModuleCompressorConfig:
 
     _target_: str = "versatil.post_training_compression.compressor.ModuleCompressor"
     module_path: str = MISSING
-    preparation: PreparationConfig | None = "${preparation}"  # type: ignore[assignment]
-    pruning: Any | None = "${pruning}"  # BasePrunerConfig | None
+    preparation: PreparationConfig | None = "${preparation}"  #
+    pruning: list[Any] | None = "${pruning}"  # list[BasePrunerConfig] | None
     quantization: Any | None = (
         "${quantization}"  # PT2EStrategyConfig | QuantizeApiStrategyConfig | None
     )
@@ -88,7 +88,7 @@ class PostTrainingCompressorConfig:
     calibration_steps: int = 128
     modules: list[ModuleCompressorConfig] = field(default_factory=list)
     preparation: PreparationConfig = field(default_factory=PreparationConfig)
-    pruning: Any | None = None  # BasePrunerConfig | None
+    pruning: list[Any] | None = None  #  list[BasePrunerConfig] | None
     quantization: Any | None = (
         None  # PT2EStrategyConfig | QuantizeApiStrategyConfig | None
     )

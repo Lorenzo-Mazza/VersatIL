@@ -15,6 +15,7 @@ load_dotenv()
 
 logging.getLogger("timm").setLevel(logging.ERROR)
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 transformers.logging.set_verbosity_error()
 
 CACHE_DIR = Path(os.environ["VERSATIL_CACHE_DIR"])

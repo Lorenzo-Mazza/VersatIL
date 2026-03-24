@@ -21,7 +21,7 @@ class ModuleCompressor:
         self,
         module_path: str,
         preparation: PreparationConfig | None = None,
-        pruning: BasePruner | None = None,
+        pruning: list[BasePruner] | None = None,
         quantization: PT2EStrategy | QuantizeApiStrategy | None = None,
     ) -> None:
         """Initialize and validate compression components.
@@ -30,7 +30,7 @@ class ModuleCompressor:
             module_path: Dotted path to the target submodule,
                 or empty string for the full policy.
             preparation: BN replacement and fusion settings.
-            pruning: Pruning strategy or None to skip.
+            pruning: Pruning strategies to apply sequentially.
             quantization: Quantization strategy or None to skip.
 
         Raises:
@@ -39,7 +39,7 @@ class ModuleCompressor:
         """
         self.module_path = module_path
         self.preparation = preparation
-        self.pruning = pruning
+        self.pruning: list[BasePruner] = pruning or []
         self.quantization = quantization
         self._validate_quantization()
 
@@ -72,7 +72,7 @@ class PostTrainingCompressor:
         calibration_steps: int = 128,
         checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value,
         output_directory: str | None = None,
-        pruning: BasePruner | None = None,
+        pruning: list[BasePruner] | None = None,
         quantization: PT2EStrategy | QuantizeApiStrategy | None = None,
     ) -> None:
         """Initialize the compression pipeline.
@@ -87,7 +87,7 @@ class PostTrainingCompressor:
             checkpoint_name: Checkpoint filename inside the directory.
             output_directory: Where to save compressed output.
                 Defaults to checkpoint_path/compressed.
-            pruning: Global pruning strategy (inherited by modules).
+            pruning: Global pruning strategies (inherited by modules).
             quantization: Global quantization strategy (inherited by
                 modules).
         """
@@ -98,8 +98,30 @@ class PostTrainingCompressor:
         self.calibration_steps = calibration_steps
         self.modules = modules
         self.preparation = preparation
-        self.pruning = pruning
+        self.pruning: list[BasePruner] = pruning or []
         self.quantization = quantization
+
+    def resolve_modules(self) -> list[ModuleCompressor]:
+        """Return the compression targets for this run.
+
+        Supports two configuration modes: per-module (explicit
+        ``modules`` list targeting specific submodules) and global
+        (``modules`` is empty, applying the top-level preparation,
+        pruning, and quantization to the entire policy).
+
+        Returns:
+            Non-empty list of ModuleCompressor instances.
+        """
+        if self.modules:
+            return self.modules
+        return [
+            ModuleCompressor(
+                module_path="",
+                preparation=self.preparation,
+                pruning=self.pruning,
+                quantization=self.quantization,
+            )
+        ]
 
     def validate(self, policy: nn.Module) -> None:
         """Validate module paths and strategy compatibility.
