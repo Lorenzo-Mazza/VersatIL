@@ -1,0 +1,18 @@
+defaults:
+  - encoder/image/vlm@encoders.left
+  - _self_
+
+_target_: versatil.models.encoding.pipeline.EncodingPipeline
+
+encoders:
+  left:
+    _target_: versatil.models.encoding.encoders.multimodal.vlm.VLMEncoder
+    input_keys:
+    - ${cameras:LEFT}
+    - ${sample_key:TOKENIZED_OBSERVATIONS}
+    model_name: ${vlm_model:CLIP_VITB32}
+    pretrained: true
+    frozen: true
+    pooling_method: default
+
+fusion_stages: []

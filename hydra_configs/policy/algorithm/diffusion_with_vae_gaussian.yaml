@@ -1,0 +1,37 @@
+defaults:
+  - posterior/transformerencoder@posterior_encoder
+  - prior/gaussian@prior
+  - variational
+  - diffusion_process@base_algorithm
+
+_target_: versatil.models.decoding.algorithm.variational.VariationalAlgorithm
+sampling_from_prior_probability: 0.0
+
+base_algorithm:
+  _target_: versatil.models.decoding.algorithm.diffusion.Diffusion
+  scheduler_type: ddim
+  num_train_timesteps: 100
+  num_inference_steps: 10
+  beta_start: 0.0001
+  beta_end: 0.02
+  beta_schedule: squaredcos_cap_v2
+  prediction_type: sample
+  scheduler_variance_type: fixed_small
+  clip_sample: true
+  set_alpha_to_one: true
+  steps_offset: 0
+
+posterior_encoder:
+  _target_: versatil.models.decoding.latent.posterior.transformer_encoder.VAETransformerEncoder
+  latent_dimension: 32
+  embedding_dimension: 256
+  prediction_horizon: ${policy.prediction_horizon}
+  observation_horizon: ${policy.observation_horizon}
+  number_of_heads: 8
+  feedforward_dimension: 1024
+  number_of_encoder_layers: 4
+  dropout_rate: 0.1
+  device: ${policy.device}
+
+prior:
+  latent_dimension: 32

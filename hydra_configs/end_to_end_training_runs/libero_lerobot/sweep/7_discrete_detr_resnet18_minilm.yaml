@@ -1,0 +1,64 @@
+# @package _global_
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: default
+  - /task/dataset_schema: libero_lerobot
+  - /task/dataloader: libero_lerobot
+  - /task/action_space: libero_precomputed_lerobot
+  - /task/observation_space: libero_rgb_lerobot
+  - /training: default
+  - /policy/encoding_pipeline: stereo_rgb_language_encoder
+  - /policy/decoder: discrete_detr_transformer
+  - /policy/algorithm: behavioral_cloning
+  - /policy/loss: tokenCE
+  - /inference: libero_lerobot
+  - override /task/dataloader/tokenization@task.dataloader.tokenization: obs_language_action_fast
+  - _self_
+
+task:
+  observation_horizon: 1
+  prediction_horizon: 10
+  dataloader:
+    tokenization:
+      observation_tokenizer:
+        tokenizer_model: ${language_model:MINI_LM_L6}
+
+experiment:
+  precision: ${precision:FP32}
+  checkpoint_folder: ${checkpoint_dir:libero}
+  checkpoint_every: 5
+
+training:
+  num_epochs: 100
+  early_stopping_patience: 200
+  clip_gradient_norm: true
+  clip_max_norm: 1.0
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: true
+  encoding_pipeline:
+    encoders:
+      left:
+        backbone: ${rgb_backbone:RESNET18}
+        input_keys:
+          - ${cameras:AGENTVIEW}
+      right:
+        backbone: ${rgb_backbone:RESNET18}
+        input_keys:
+          - ${cameras:EYE_IN_HAND}
+      instruction:
+        model_name: ${language_model:MINI_LM_L6}
+  decoder:
+    input_keys:
+      - left_rgb
+      - right_rgb
+      - instruction_language

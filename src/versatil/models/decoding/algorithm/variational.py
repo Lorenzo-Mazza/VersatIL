@@ -210,8 +210,7 @@ class VariationalAlgorithm(DecodingAlgorithm):
             **features,
             LatentKey.POSTERIOR_LATENT.value: latent_embedding,
         }  # (B, latent_dimension)
-        return self.base_algorithm.forward(
+        return self.base_algorithm.predict(
             network=network,
             features=features_with_latent,
-            actions=None,
         )

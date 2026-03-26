@@ -1,0 +1,36 @@
+defaults:
+  - encoder/image/vit@encoders.left
+  - encoder/image/vit@encoders.right
+  - encoder/language@encoders.instruction
+  - _self_
+
+_target_: versatil.models.encoding.pipeline.EncodingPipeline
+
+encoders:
+  left:
+    _target_: versatil.models.encoding.encoders.rgb.vit.ViTEncoder
+    input_keys:
+    - ${cameras:LEFT}
+    backbone: ${rgb_backbone:DINOV2_VITS14}
+    pretrained: true
+    frozen: false
+    pooling_method: none
+
+  right:
+    _target_: versatil.models.encoding.encoders.rgb.vit.ViTEncoder
+    input_keys:
+    - ${cameras:RIGHT}
+    backbone: ${rgb_backbone:DINOV2_VITS14}
+    pretrained: true
+    frozen: false
+    pooling_method: none
+
+  instruction:
+    model_name: ${language_model:BERT_BASE}
+    pretrained: true
+    frozen: true
+    max_token_len: ${task.dataloader.tokenization.observation_tokenizer.max_token_len}
+    pooling_method: none
+    use_embeddings_only: true
+
+fusion_stages: []

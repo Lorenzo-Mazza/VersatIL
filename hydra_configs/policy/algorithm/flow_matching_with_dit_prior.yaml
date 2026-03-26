@@ -1,0 +1,46 @@
+defaults:
+  - posterior/transformerencoder@posterior_encoder
+  - prior/dit@prior
+  - variational
+  - flow@base_algorithm
+
+_target_: versatil.models.decoding.algorithm.variational.VariationalAlgorithm
+sampling_from_prior_probability: 0.0
+
+base_algorithm:
+  _target_: versatil.models.decoding.algorithm.flow_matching.FlowMatching
+  ode_solver: "euler"
+  num_inference_steps: 10
+  sigma: 0.0
+  timestep_sampler: ${timestep_sampler:BETA}
+  logit_mean: 0.0
+  logit_std: 1.0
+  beta_alpha: 1.5
+  beta_beta: 1.0
+  max_timestep: 0.999
+
+posterior_encoder:
+  _target_: versatil.models.decoding.latent.posterior.transformer_encoder.VAETransformerEncoder
+  latent_dimension: 64
+  embedding_dimension: 512
+  prediction_horizon: ${policy.prediction_horizon}
+  observation_horizon: ${policy.observation_horizon}
+  number_of_heads: 8
+  feedforward_dimension: 2048
+  number_of_encoder_layers: 4
+  dropout_rate: 0.1
+  device: ${policy.device}
+  min_logvar: -5.0
+
+prior:
+  latent_dimension: 64
+  embedding_dimension: 512
+  number_of_heads: 8
+  number_of_layers: 4
+  feedforward_dimension: 2048
+  dropout: 0.1
+  use_gating: True
+  algorithm_type: ${denoising_algorithm:FLOW_MATCHING}
+  sigma: 0.0
+  ode_solver: "euler"
+  num_inference_steps: 10

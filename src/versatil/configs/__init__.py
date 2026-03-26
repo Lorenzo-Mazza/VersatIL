@@ -87,6 +87,7 @@ from versatil.configs.encoding.encoder import (
     LanguageEncoderConfig,
     ProprioEncoderConfig,
     ViTEncoderConfig,
+    VLMEncoderConfig,
 )
 from versatil.configs.encoding.fusion import (
     AttentionFusionConfig,
@@ -157,6 +158,7 @@ from versatil.data.constants import (
     OrientationRepresentation,
     ProprioKey,
     RawCameraKey,
+    SampleKey,
     TokenizerType,
 )
 from versatil.metrics.constants import MetadataKey
@@ -170,6 +172,7 @@ from versatil.models.decoding.constants import (
 )
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
+    ImageTextModelType,
     LanguageEncoderType,
     PoolingMethod,
     RGBBackboneType,
@@ -302,6 +305,10 @@ def register_resolvers():
         OmegaConf.register_new_resolver(
             "language_model", lambda name: LanguageEncoderType[name].value
         )
+    if not OmegaConf.has_resolver("vlm_model"):
+        OmegaConf.register_new_resolver(
+            "vlm_model", lambda name: ImageTextModelType[name].value
+        )
     if not OmegaConf.has_resolver("activation_function"):
         OmegaConf.register_new_resolver(
             "activation_function", lambda name: ActivationFunction[name].value
@@ -332,6 +339,10 @@ def register_resolvers():
         )
     if not OmegaConf.has_resolver("obs_key"):
         OmegaConf.register_new_resolver("obs_key", lambda name: ObsKey[name].value)
+    if not OmegaConf.has_resolver("sample_key"):
+        OmegaConf.register_new_resolver(
+            "sample_key", lambda name: SampleKey[name].value
+        )
     if not OmegaConf.has_resolver("moe_routing_type"):
         OmegaConf.register_new_resolver(
             "moe_routing_type", lambda name: MoERoutingType[name].value
@@ -656,6 +667,11 @@ def register_configs():
         group="policy/encoding_pipeline/encoder/image",
         name="vit",
         node=ViTEncoderConfig,
+    )
+    cs.store(
+        group="policy/encoding_pipeline/encoder/image",
+        name="vlm",
+        node=VLMEncoderConfig,
     )
     cs.store(
         group="policy/encoding_pipeline/encoder",

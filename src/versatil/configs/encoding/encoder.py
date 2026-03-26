@@ -139,5 +139,4 @@ class ViTEncoderConfig(ImageEncoderConfig):
     """ViT-based image encoder configuration."""
 
     _target_: str = MISSING
-    feature_method: str = PoolingMethod.AVERAGE.value
     pooling_method: str = PoolingMethod.NONE.value

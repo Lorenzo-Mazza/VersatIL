@@ -81,9 +81,11 @@ def mock_base_algorithm_factory() -> Callable[..., MagicMock]:
 
     def factory() -> MagicMock:
         algorithm = MagicMock(spec=DecodingAlgorithm)
-        algorithm.forward.return_value = {
+        default_output = {
             "position_action": torch.zeros(2, 8, 3),
         }
+        algorithm.forward.return_value = default_output
+        algorithm.predict.return_value = default_output
         return algorithm
 
     return factory
@@ -486,7 +488,7 @@ class TestVariationalAlgorithmPredict:
         algo.predict(network=network, features=features)
         algo.prior.sample_prior.assert_called_once()
 
-    def test_delegates_to_base_algorithm_forward(
+    def test_delegates_to_base_algorithm_predict(
         self,
         variational_factory: Callable[..., VariationalAlgorithm],
         mock_action_decoder_factory: Callable[..., MagicMock],
@@ -496,7 +498,19 @@ class TestVariationalAlgorithmPredict:
         network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         algo.predict(network=network, features=features)
-        algo.base_algorithm.forward.assert_called_once()
+        algo.base_algorithm.predict.assert_called_once()
+
+    def test_does_not_call_base_algorithm_forward(
+        self,
+        variational_factory: Callable[..., VariationalAlgorithm],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        algo = variational_factory()
+        network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        algo.predict(network=network, features=features)
+        algo.base_algorithm.forward.assert_not_called()
 
     def test_features_include_latent(
         self,
@@ -508,10 +522,10 @@ class TestVariationalAlgorithmPredict:
         network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         algo.predict(network=network, features=features)
-        features_passed = algo.base_algorithm.forward.call_args.kwargs["features"]
+        features_passed = algo.base_algorithm.predict.call_args.kwargs["features"]
         assert LatentKey.POSTERIOR_LATENT.value in features_passed
 
-    def test_passes_actions_as_none(
+    def test_passes_network_to_base_algorithm(
         self,
         variational_factory: Callable[..., VariationalAlgorithm],
         mock_action_decoder_factory: Callable[..., MagicMock],
@@ -521,8 +535,8 @@ class TestVariationalAlgorithmPredict:
         network = mock_action_decoder_factory()
         features = feature_dictionary_factory()
         algo.predict(network=network, features=features)
-        actions_passed = algo.base_algorithm.forward.call_args.kwargs["actions"]
-        assert actions_passed is None
+        network_passed = algo.base_algorithm.predict.call_args.kwargs["network"]
+        assert network_passed is network
 
     def test_returns_base_algorithm_output(
         self,
@@ -532,7 +546,7 @@ class TestVariationalAlgorithmPredict:
         feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
     ):
         base = mock_base_algorithm_factory()
-        base.forward.return_value = {"position_action": torch.zeros(2, 8, 3)}
+        base.predict.return_value = {"position_action": torch.zeros(2, 8, 3)}
         algo = variational_factory(base_algorithm=base)
         network = mock_action_decoder_factory(action_keys=["position_action"])
         features = feature_dictionary_factory()

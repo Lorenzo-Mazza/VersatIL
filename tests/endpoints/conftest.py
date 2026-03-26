@@ -337,34 +337,55 @@ def build_tiny_overrides(config_name: str) -> list[str]:
                     f"policy.encoding_pipeline.encoders.{encoder_name}"
                     f".backbone=${{rgb_backbone:RESNET18}}"
                 )
+            elif "vit" in target.lower():
+                overrides.append(
+                    f"policy.encoding_pipeline.encoders.{encoder_name}"
+                    f".backbone=${{rgb_backbone:DEIT_TINY}}"
+                )
             else:
                 overrides.append(
                     f"policy.encoding_pipeline.encoders.{encoder_name}"
                     f".backbone=${{rgb_backbone:MOBILENETV4_SMALL_050}}"
                 )
         if "model_name" in encoder_cfg:
-            overrides.append(
-                f"policy.encoding_pipeline.encoders.{encoder_name}"
-                f".model_name=${{language_model:ALBERT_BASE}}"
-            )
+            target = encoder_cfg.get("_target_", "")
+            if "vlm" in target.lower():
+                overrides.append(
+                    f"policy.encoding_pipeline.encoders.{encoder_name}"
+                    f".model_name=${{vlm_model:CLIP_VITB32}}"
+                )
+            else:
+                overrides.append(
+                    f"policy.encoding_pipeline.encoders.{encoder_name}"
+                    f".model_name=${{language_model:ALBERT_BASE}}"
+                )
         target = encoder_cfg.get("_target_", "")
         if "light_geometric" not in target and "proprioceptive" not in target:
             overrides.append(
                 f"++policy.encoding_pipeline.encoders.{encoder_name}.frozen=true"
             )
 
-    # Match observation tokenizer model to language encoder model
+    # Match observation tokenizer model to the encoder type
     tokenization = OmegaConf.to_container(
         cfg.task.dataloader.get("tokenization", OmegaConf.create({})),
         resolve=False,
     )
+    has_vlm_encoder = any(
+        "vlm" in enc.get("_target_", "").lower() for enc in encoders_dict.values()
+    )
     if tokenization:
         obs_tok = tokenization.get("observation_tokenizer", {})
         if obs_tok and "tokenizer_model" in obs_tok:
-            overrides.append(
-                "task.dataloader.tokenization.observation_tokenizer"
-                ".tokenizer_model=${language_model:ALBERT_BASE}"
-            )
+            if has_vlm_encoder:
+                overrides.append(
+                    "task.dataloader.tokenization.observation_tokenizer"
+                    ".tokenizer_model=${vlm_model:CLIP_VITB32}"
+                )
+            else:
+                overrides.append(
+                    "task.dataloader.tokenization.observation_tokenizer"
+                    ".tokenizer_model=${language_model:ALBERT_BASE}"
+                )
 
     return overrides
 

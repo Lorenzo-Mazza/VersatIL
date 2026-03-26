@@ -14,6 +14,12 @@ class RGBBackboneType(enum.StrEnum):
     EDGENEXT_SMALL = "timm/edgenext_small.usi_in1k"  # https://huggingface.co/timm/edgenext_small.usi_in1k
     EDGENEXT_BASE = "timm/edgenext_base.usi_in1k"  # https://huggingface.co/timm/edgenext_base.usi_in1k
     MOBILENETV4_SMALL_050 = "timm/mobilenetv4_conv_small_050.e3000_r224_in1k"  # https://huggingface.co/timm/mobilenetv4_conv_small_050.e3000_r224_in1k
+    CONVNEXT_NANO = "timm/convnext_nano.in12k_ft_in1k"  # https://huggingface.co/timm/convnext_nano.in12k_ft_in1k
+    CONVNEXT_TINY = "timm/convnext_tiny.fb_in22k_ft_in1k"  # https://huggingface.co/timm/convnext_tiny.fb_in22k_ft_in1k
+    CONVNEXT_BASE = "timm/convnext_base.fb_in22k_ft_in1k"  # https://huggingface.co/timm/convnext_base.fb_in22k_ft_in1k
+    EFFICIENTNET_B2 = "timm/efficientnet_b2.ra_in1k"  # https://huggingface.co/timm/efficientnet_b2.ra_in1k
+    SWIN_TINY = "timm/swin_tiny_patch4_window7_224.ms_in22k_ft_in1k"  # https://huggingface.co/timm/swin_tiny_patch4_window7_224.ms_in22k_ft_in1k
+    SWIN_BASE = "timm/swin_base_patch4_window7_224.ms_in22k_ft_in1k"  # https://huggingface.co/timm/swin_base_patch4_window7_224.ms_in22k_ft_in1k
     # Vision Transformers (ViT)
     VIT_BASE = "timm/vit_base_patch16_clip_224.laion2b_ft_in12k_in1k"  # https://huggingface.co/timm/vit_base_patch16_clip_224.laion2b_ft_in12k_in1k
     DINOV2_VITS14 = "timm/vit_small_patch14_dinov2.lvd142m"  # https://huggingface.co/timm/vit_small_patch14_dinov2.lvd142m
@@ -22,6 +28,9 @@ class RGBBackboneType(enum.StrEnum):
     DINOV3_VITS16 = "timm/vit_small_patch16_dinov3.lvd1689m"  # https://huggingface.co/timm/vit_small_patch16_dinov3.lvd1689m
     DINOV3_VITS16PLUS = "timm/vit_small_plus_patch16_dinov3.lvd1689m"  # https://huggingface.co/timm/vit_small_plus_patch16_dinov3.lvd1689m
     DINOV3_VITB16 = "timm/vit_base_patch16_dinov3.lvd1689m"  # https://huggingface.co/timm/vit_base_patch16_dinov3.lvd1689m
+    DEIT_TINY = "timm/deit_tiny_patch16_224.fb_in1k"  # https://huggingface.co/timm/deit_tiny_patch16_224.fb_in1k
+    DEIT_SMALL = "timm/deit_small_patch16_224.fb_in1k"  # https://huggingface.co/timm/deit_small_patch16_224.fb_in1k
+    DEIT_BASE = "timm/deit_base_patch16_224.fb_in1k"  # https://huggingface.co/timm/deit_base_patch16_224.fb_in1k
 
 
 class ImageTextModelType(enum.StrEnum):
@@ -31,6 +40,8 @@ class ImageTextModelType(enum.StrEnum):
     CLIP_VITB32 = "openai/clip-vit-base-patch32"
     CLIP_VITB16 = "openai/clip-vit-base-patch16"
     SIGLIP_BASE_PATCH16 = "google/siglip2-base-patch16-naflex"
+    CLIP_VITL14 = "openai/clip-vit-large-patch14"
+    SIGLIP_SO400M = "google/siglip-so400m-patch14-384"
 
 
 class AttentionImplementation(enum.StrEnum):
@@ -71,8 +82,15 @@ class LanguageEncoderType(enum.StrEnum):
     DISTILBERT_BASE = "distilbert-base-uncased"
     MINI_LM_L6 = "sentence-transformers/all-MiniLM-L6-v2"
     GEMMA_2B = "google/gemma-2b"
+    QWEN_2_0_5B = "Qwen/Qwen2-0.5B"
     QWEN_2_1_5B = "Qwen/Qwen2-1.5B"
     ALBERT_BASE = "albert-base-v2"
+    ROBERTA_BASE = "roberta-base"
+    GPT2 = "gpt2"
+    T5_SMALL = "google-t5/t5-small"
+    DEBERTA_V3_BASE = "microsoft/deberta-v3-base"
+    PHI_2 = "microsoft/phi-2"
+    LLAMA_3_2_1B = "meta-llama/Llama-3.2-1B"
 
 
 class EncoderOutputKeys(enum.StrEnum):

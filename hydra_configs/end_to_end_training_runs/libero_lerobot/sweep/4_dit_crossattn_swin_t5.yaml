@@ -1,0 +1,74 @@
+# @package _global_
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: default
+  - /task/dataset_schema: libero_lerobot
+  - /task/dataloader: libero_lerobot
+  - /task/action_space: libero_precomputed_lerobot
+  - /task/observation_space: libero_rgb_lerobot
+  - /training: ema
+  - /policy/encoding_pipeline: stereo_vit_language_encoder
+  - /policy/decoder: dit_cross_attention_transformer
+  - /policy/algorithm: flow_matching
+  - /policy/loss: regressionMSE_gripper
+  - /inference: libero_lerobot
+  - override /policy/decoder/heads@policy.decoder.action_heads: unet_libero
+  - _self_
+
+task:
+  observation_horizon: 1
+  prediction_horizon: 10
+  dataloader:
+    tokenization:
+      observation_tokenizer:
+        tokenizer_model: ${language_model:T5_SMALL}
+
+experiment:
+  precision: ${precision:FP32}
+  checkpoint_folder: ${checkpoint_dir:libero}
+  checkpoint_every: 5
+
+training:
+  num_epochs: 200
+  early_stopping_patience: 100
+  clip_gradient_norm: true
+  clip_max_norm: 1.0
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: true
+  loss:
+    loss_modules:
+      regression_loss:
+        action_keys:
+          - ${proprio_key:EE_POS_ACTION}
+          - ${proprio_key:EE_ORI_ACTION}
+      gripper_loss:
+        key: ${proprio_key:GRIPPER_STATE_ACTION}
+      trajectory_length:
+        action_key: ${proprio_key:EE_POS_ACTION}
+  encoding_pipeline:
+    encoders:
+      left:
+        backbone: ${rgb_backbone:SWIN_TINY}
+        input_keys:
+          - ${cameras:AGENTVIEW}
+      right:
+        backbone: ${rgb_backbone:SWIN_TINY}
+        input_keys:
+          - ${cameras:EYE_IN_HAND}
+      instruction:
+        model_name: ${language_model:T5_SMALL}
+  decoder:
+    input_keys:
+      - left_rgb
+      - right_rgb
+      - instruction_language
