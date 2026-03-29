@@ -6,7 +6,23 @@ import pytest
 import torch
 
 from versatil.models.encoding.fusion.mlp import MLPFusion
+from versatil.models.feature_meta import FeatureMetadata, FeatureType
 from versatil.models.layers.activation import ActivationFunction
+
+
+def _make_registry(
+    dims: dict[str, tuple[int, ...]],
+) -> dict[str, FeatureMetadata]:
+    return {
+        name: FeatureMetadata(
+            key=name,
+            feature_type=FeatureType.FLAT.value
+            if len(dim) == 1
+            else FeatureType.SEQUENTIAL.value,
+            dimension=dim,
+        )
+        for name, dim in dims.items()
+    }
 
 
 @pytest.fixture
@@ -97,7 +113,9 @@ class TestMLPFusionForward:
             hidden_dim=32,
             mlp_hidden_dims=mlp_hidden_dims,
         )
-        module.setup(feature_keys_to_dims={"feat_a": 64, "feat_b": 128})
+        module.setup(
+            feature_registry=_make_registry({"feat_a": (64,), "feat_b": (128,)})
+        )
         features = [
             input_tensor_factory(
                 batch_size=batch_size,
@@ -137,7 +155,9 @@ class TestMLPFusionForward:
             mlp_hidden_dims=[32, 16],
             activation_name=activation_name,
         )
-        module.setup(feature_keys_to_dims={"feat_a": 32, "feat_b": 64})
+        module.setup(
+            feature_registry=_make_registry({"feat_a": (32,), "feat_b": (64,)})
+        )
         features = [
             input_tensor_factory(input_dimension=32),
             input_tensor_factory(input_dimension=64),
@@ -159,8 +179,8 @@ class TestMLPFusionForward:
             hidden_dim=hidden_dim,
             mlp_hidden_dims=[hidden_dim * num_features, 24],
         )
-        dims = dict.fromkeys(feature_names, 32)
-        module.setup(feature_keys_to_dims=dims)
+        dims = dict.fromkeys(feature_names, (32,))
+        module.setup(feature_registry=_make_registry(dims))
         features = [
             input_tensor_factory(input_dimension=32) for _ in range(num_features)
         ]
@@ -184,7 +204,7 @@ class TestMLPFusionGetOutputSpecification:
     ):
         module = mlp_fusion_factory(mlp_hidden_dims=mlp_hidden_dims)
         spec = module.get_output_specification()
-        assert spec.output_dim == expected_dim
+        assert spec.dimension[0] == expected_dim
 
     def test_output_name_matches(
         self,
@@ -192,7 +212,7 @@ class TestMLPFusionGetOutputSpecification:
     ):
         module = mlp_fusion_factory(output_name="test_mlp")
         spec = module.get_output_specification()
-        assert spec.output_name == "test_mlp"
+        assert spec.key == "test_mlp"
 
     def test_returns_specification_with_expected_fields(
         self,
@@ -200,5 +220,5 @@ class TestMLPFusionGetOutputSpecification:
     ):
         module = mlp_fusion_factory()
         spec = module.get_output_specification()
-        assert hasattr(spec, "output_name")
-        assert hasattr(spec, "output_dim")
+        assert hasattr(spec, "key")
+        assert hasattr(spec, "dimension")

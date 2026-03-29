@@ -8,6 +8,7 @@ import pytest
 import torch
 import torch.nn as nn
 
+from versatil.data.constants import SampleKey
 from versatil.data.tokenization import Tokenizer
 from versatil.models.decoding.action_heads.moe import MoEHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
@@ -468,3 +469,15 @@ class TestMoEFreeActionTransformerForward:
             outputs_a[routing_key],
             outputs_b[routing_key],
         )
+
+
+def test_auxiliary_output_keys(
+    moe_free_transformer_factory: Callable[..., MoEFreeActionTransformer],
+):
+    decoder = moe_free_transformer_factory()
+    assert decoder.get_auxiliary_output_keys() == {
+        DecoderOutputKey.ROUTING_WEIGHTS.value,
+        DecoderOutputKey.BINARY_LOGITS.value,
+        DecoderOutputKey.LATENT_CODES.value,
+        SampleKey.TOKENIZED_ACTIONS.value,
+    }

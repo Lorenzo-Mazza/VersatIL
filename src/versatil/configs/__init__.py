@@ -85,9 +85,12 @@ from versatil.configs.encoding.encoder import (
     EncoderConfig,
     ImageEncoderConfig,
     LanguageEncoderConfig,
+    PaliGemmaEncoderConfig,
     ProprioEncoderConfig,
+    SmolVLMEncoderConfig,
+    SwinEncoderConfig,
+    TwoTowerVLMEncoderConfig,
     ViTEncoderConfig,
-    VLMEncoderConfig,
 )
 from versatil.configs.encoding.fusion import (
     AttentionFusionConfig,
@@ -670,8 +673,23 @@ def register_configs():
     )
     cs.store(
         group="policy/encoding_pipeline/encoder/image",
-        name="vlm",
-        node=VLMEncoderConfig,
+        name="swin",
+        node=SwinEncoderConfig,
+    )
+    cs.store(
+        group="policy/encoding_pipeline/encoder/vlm",
+        name="two_tower_vlm",
+        node=TwoTowerVLMEncoderConfig,
+    )
+    cs.store(
+        group="policy/encoding_pipeline/encoder/vlm",
+        name="paligemma",
+        node=PaliGemmaEncoderConfig,
+    )
+    cs.store(
+        group="policy/encoding_pipeline/encoder/vlm",
+        name="smolvlm",
+        node=SmolVLMEncoderConfig,
     )
     cs.store(
         group="policy/encoding_pipeline/encoder",

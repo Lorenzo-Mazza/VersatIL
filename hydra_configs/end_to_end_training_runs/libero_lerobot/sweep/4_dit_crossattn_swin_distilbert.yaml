@@ -10,7 +10,7 @@ defaults:
   - /task/action_space: libero_precomputed_lerobot
   - /task/observation_space: libero_rgb_lerobot
   - /training: ema
-  - /policy/encoding_pipeline: stereo_vit_language_encoder
+  - /policy/encoding_pipeline: stereo_swin_language_encoder
   - /policy/decoder: dit_cross_attention_transformer
   - /policy/algorithm: flow_matching
   - /policy/loss: regressionMSE_gripper
@@ -24,7 +24,7 @@ task:
   dataloader:
     tokenization:
       observation_tokenizer:
-        tokenizer_model: ${language_model:T5_SMALL}
+        tokenizer_model: ${language_model:DISTILBERT_BASE}
 
 experiment:
   precision: ${precision:FP32}
@@ -66,7 +66,7 @@ policy:
         input_keys:
           - ${cameras:EYE_IN_HAND}
       instruction:
-        model_name: ${language_model:T5_SMALL}
+        model_name: ${language_model:DISTILBERT_BASE}
   decoder:
     input_keys:
       - left_rgb

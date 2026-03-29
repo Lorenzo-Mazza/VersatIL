@@ -481,6 +481,8 @@ class TestCameraMetadata:
                 camera_key=camera_key,
                 dtype="uint8",
                 channels=3,
+                image_height=224,
+                image_width=224,
             )
 
     def test_always_numerical_and_needs_normalization(self):
@@ -488,9 +490,32 @@ class TestCameraMetadata:
             camera_key=Cameras.LEFT.value,
             dtype="uint8",
             channels=3,
+            image_height=224,
+            image_width=224,
         )
         assert metadata.is_numerical
         assert metadata.needs_normalization
+
+    @pytest.mark.parametrize(
+        "channels, expected_single_channel, expected_rgb",
+        [
+            (1, True, False),
+            (3, False, True),
+            (4, False, False),
+        ],
+    )
+    def test_channel_type_properties(
+        self, channels, expected_single_channel, expected_rgb
+    ):
+        metadata = CameraMetadata(
+            camera_key=Cameras.LEFT.value,
+            dtype="uint8",
+            channels=channels,
+            image_height=224,
+            image_width=224,
+        )
+        assert metadata.is_single_channel == expected_single_channel
+        assert metadata.is_rgb == expected_rgb
 
     def test_optional_image_dimensions(self):
         metadata = CameraMetadata(
@@ -503,16 +528,7 @@ class TestCameraMetadata:
         assert metadata.image_width == 640
         assert metadata.image_height == 480
 
-    def test_default_image_dimensions_are_none(self):
-        metadata = CameraMetadata(
-            camera_key=Cameras.LEFT.value,
-            dtype="uint8",
-            channels=3,
-        )
-        assert metadata.image_width is None
-        assert metadata.image_height is None
-
-    def test_equality_includes_all_fields(self):
+    def test_equality_ignores_dimensions(self):
         first = CameraMetadata(
             camera_key=Cameras.LEFT.value,
             dtype="uint8",
@@ -527,13 +543,32 @@ class TestCameraMetadata:
             image_width=320,
             image_height=240,
         )
-        assert first != second
+        assert first == second
+
+    def test_equality_differs_on_structural_fields(self):
+        rgb = CameraMetadata(
+            camera_key=Cameras.LEFT.value,
+            dtype="uint8",
+            channels=3,
+            image_width=224,
+            image_height=224,
+        )
+        depth = CameraMetadata(
+            camera_key=Cameras.DEPTH.value,
+            dtype="uint8",
+            channels=1,
+            image_width=224,
+            image_height=224,
+        )
+        assert rgb != depth
 
     def test_equality_different_type_returns_not_implemented(self):
         metadata = CameraMetadata(
             camera_key=Cameras.LEFT.value,
             dtype="uint8",
             channels=3,
+            image_height=224,
+            image_width=224,
         )
         assert metadata.__eq__("not_camera") is NotImplemented
 

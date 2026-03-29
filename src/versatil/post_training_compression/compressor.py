@@ -279,7 +279,7 @@ class PostTrainingCompressor:
             else build_example_inputs(
                 exportable=exportable,
                 observation_space=policy_loader.observation_space,
-                dataloader_config=policy_loader.config.task.dataloader,
+                observation_horizon=policy_loader.observation_horizon,
                 tokenizer=policy_loader.tokenizer,
             )
         )

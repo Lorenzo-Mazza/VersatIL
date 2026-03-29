@@ -11,19 +11,24 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from versatil.data.constants import RGB_CAMERAS, Cameras
-from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
+from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
     PoolingMethod,
 )
 from versatil.models.encoding.encoders.unconditional import Encoder
+from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers import FrozenBatchNorm2d, PatchEmbedding, PatchMerging
 from versatil.models.layers.constants import AttentionDecompositionMode
 from versatil.models.layers.geometric_attention.geometric_attention_encoder import (
     GeometricAttentionEncoderBlock,
 )
 from versatil.models.layers.patch_embedding import PatchEmbedType
-from versatil.models.layers.pooling.pooling_head import create_pooling_head
+from versatil.models.layers.pooling.pooling_head import (
+    PoolingHead,
+    create_spatial_pooling_head,
+)
 
 
 class DFormerVariant(enum.StrEnum):
@@ -215,7 +220,8 @@ class DFormerEncoder(Encoder):
             initial_decay=initial_decay,
         )
         self.feature_dim = self.embed_dims[-1]
-        self._setup_pooling()
+        self.pooling_head: PoolingHead | None = None
+        self.output_dim: int | tuple[int, ...] = self.feature_dim
         if pretrained:
             self._load_checkpoint(checkpoint_path)
         if frozen:
@@ -227,12 +233,12 @@ class DFormerEncoder(Encoder):
         layer_scale_init_value: float = 1e-6,
         initial_decay: float = 2.0,
     ):
-        """Build DFormer backbone with multiple stages.
+        """Build the hierarchical backbone with multiple DFormer stages.
 
         Args:
-            drop_path_rate: Overall stochastic depth rate
-            layer_scale_init_value: Initial value for layer scale parameters
-            initial_decay: Initial decay rate for spatial biases
+            drop_path_rate: Overall stochastic depth rate distributed across stages.
+            layer_scale_init_value: Initial value for layer scale parameters.
+            initial_decay: Initial decay rate for spatial biases.
         """
         drop_path_rates = [
             x.item() for x in torch.linspace(0, drop_path_rate, sum(self.depths))
@@ -266,29 +272,20 @@ class DFormerEncoder(Encoder):
             self.stages.append(stage)
             depth_idx += self.depths[stage_idx]
 
-    def _setup_pooling(self):
-        """Setup pooling head based on final feature map size."""
-        with torch.no_grad():
-            mock_rgb = torch.zeros(1, 3, 224, 224)
-            features = self.patch_embed(mock_rgb)
-            depth_mock = torch.zeros(1, 1, 224, 224)
-            depth_map = F.interpolate(
-                depth_mock, size=features.shape[1:3], mode="bilinear"
-            )
-            for stage in self.stages:
-                _, features, depth_map = stage(features, depth_map)
-            B, H_final, W_final, C_final = features.shape
+    def _setup_pooling(self, spatial_height: int, spatial_width: int) -> None:
+        """Create pooling head from feature map spatial dimensions.
 
-        mock_pooling_head = create_pooling_head(
+        Args:
+            spatial_height: Height of the backbone's output feature map.
+            spatial_width: Width of the backbone's output feature map.
+        """
+        self.pooling_head = create_spatial_pooling_head(
             pooling_method=self.pooling_method,
-            feature_channels=self.feature_dim,
-            spatial_height=H_final,
-            spatial_width=W_final,
+            input_dimension=self.feature_dim,
+            spatial_height=spatial_height,
+            spatial_width=spatial_width,
         )
-        self.pooling_head = (
-            None  # Will be created in forward() with correct patch dimensions
-        )
-        self.output_dim = mock_pooling_head.get_output_dim(self.feature_dim)
+        self.output_dim = self.pooling_head.output_dim
 
     def _load_checkpoint(self, checkpoint_path: str):
         """Load pretrained weights from checkpoint."""
@@ -308,16 +305,14 @@ class DFormerEncoder(Encoder):
 
         self.load_state_dict(cleaned_state_dict, strict=False)
 
-    def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        """Forward pass through DFormer encoder.
+    def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """Encode RGB + depth through DFormer.
 
         Args:
-            inputs: Dictionary with RGB and depth inputs
-                - RGB: (B, C, H, W) or (B, T, C, H, W)
-                - Depth: (B, 1, H, W) or (B, T, 1, H, W)
+            inputs: Dict with RGB as (B, C, H, W) and depth as (B, 1, H, W).
 
         Returns:
-            Dictionary with RGBD features of shape (B, output_dim) or (B, T, output_dim)
+            Dict with RGBD features.
         """
         rgb_key = [
             k
@@ -328,46 +323,86 @@ class DFormerEncoder(Encoder):
 
         rgb = inputs[rgb_key]
         depth = inputs[depth_key]
-        has_time = rgb.dim() == 5
-        if has_time:
-            B, T, C, H, W = rgb.shape
-            rgb = rgb.reshape(B * T, C, H, W)
-            depth = depth.reshape(B * T, 1, H, W)
-        else:
-            B = rgb.shape[0]
-            T = 1
-        rgb_features, H_patches, W_patches = self.patch_embed(
+        rgb_features, patch_height, patch_width = self.patch_embed(
             rgb, return_patch_size=True
         )  # (B, H_patches, W_patches, C)
         depth_map = F.interpolate(
-            depth, size=(H_patches, W_patches), mode="bilinear", align_corners=False
+            depth,
+            size=(patch_height, patch_width),
+            mode="bilinear",
+            align_corners=False,
         )
         features = rgb_features
         for stage in self.stages:
             output_features, next_features, depth_map = stage(features, depth_map)
             features = next_features
 
-        final_features = features.permute(
-            0, 3, 1, 2
-        ).contiguous()  # (B, C, H_feature_maps, W_feature_maps)
-        _, _, H_feature_maps, W_feature_maps = final_features.shape
         if self.pooling_head is None:
-            self.pooling_head = create_pooling_head(
-                pooling_method=self.pooling_method,
-                feature_channels=self.feature_dim,
-                spatial_height=H_patches,
-                spatial_width=W_patches,
-            ).to(final_features.device)
+            raise RuntimeError(
+                "pooling_head is not initialized. Call set_image_size() before forward."
+            )
+        final_features = features.permute(0, 3, 1, 2).contiguous()
         pooled_features = self.pooling_head(final_features)
-        if has_time:
-            pooled_features = pooled_features.reshape(
-                B, T, *pooled_features.shape[1:]
-            )  # Batch, Time, Features
-
         return {EncoderOutputKeys.RGBD.value: pooled_features}
 
-    def get_output_specification(self) -> EncoderOutput:
-        return EncoderOutput(
-            features=[EncoderOutputKeys.RGBD.value],
-            dimensions={EncoderOutputKeys.RGBD.value: self.output_dim},
+    def set_image_size(self, image_height: int, image_width: int) -> None:
+        """Compute feature map dimensions and create pooling head.
+
+        Args:
+            image_height: Target image height.
+            image_width: Target image width.
+        """
+        with torch.no_grad():
+            mock_rgb = torch.zeros(1, 3, image_height, image_width)
+            features = self.patch_embed(mock_rgb)
+            depth_mock = torch.zeros(1, 1, image_height, image_width)
+            depth_map = F.interpolate(
+                depth_mock, size=features.shape[1:3], mode="bilinear"
+            )
+            for stage in self.stages:
+                _, features, depth_map = stage(features, depth_map)
+            _, spatial_height, spatial_width, _ = features.shape
+        self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)
+
+    def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
+        """Validate that RGB keys have 3-channel metadata and depth key is single-channel.
+
+        Args:
+            key: Observation key being validated.
+            metadata: Metadata from the observation space for this key.
+
+        Returns:
+            Error message if incompatible, None if valid.
+        """
+        if not isinstance(metadata, CameraMetadata):
+            return f"Expected CameraMetadata for '{key}', got {type(metadata).__name__}"
+        if key == Cameras.DEPTH.value:
+            if not metadata.is_single_channel:
+                return (
+                    f"Expected single-channel depth for '{key}', "
+                    f"got {metadata.channels} channels"
+                )
+        else:
+            if not metadata.is_rgb:
+                return (
+                    f"Expected 3-channel RGB for '{key}', "
+                    f"got {metadata.channels} channels"
+                )
+        return None
+
+    def get_output_specification(self) -> list[FeatureMetadata]:
+        """Return the output feature names and dimensions for this encoder.
+
+        Returns:
+            List of FeatureMetadata with RGBD feature name and its pooled dimension.
+        """
+        dimension = (
+            (self.output_dim,) if isinstance(self.output_dim, int) else self.output_dim
         )
+        return [
+            FeatureMetadata(
+                key=EncoderOutputKeys.RGBD.value,
+                feature_type=infer_feature_type(dimension),
+                dimension=dimension,
+            )
+        ]

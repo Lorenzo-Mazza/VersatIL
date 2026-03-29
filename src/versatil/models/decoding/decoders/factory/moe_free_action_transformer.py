@@ -118,6 +118,12 @@ class MoEFreeActionTransformer(FreeActionTransformer):
         ]
         self.expert_gating_projection = None
 
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """MoE free transformer adds routing weights to free transformer's auxiliary keys."""
+        keys = super().get_auxiliary_output_keys()
+        keys.add(DecoderOutputKey.ROUTING_WEIGHTS.value)
+        return keys
+
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
         if tokenizer is None or tokenizer.action_tokenizer is None:
             raise ValueError(

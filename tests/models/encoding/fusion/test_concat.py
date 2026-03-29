@@ -6,6 +6,22 @@ import pytest
 import torch
 
 from versatil.models.encoding.fusion.concat import ConcatFusion
+from versatil.models.feature_meta import FeatureMetadata, FeatureType
+
+
+def _make_registry(
+    dims: dict[str, tuple[int, ...]],
+) -> dict[str, FeatureMetadata]:
+    return {
+        name: FeatureMetadata(
+            key=name,
+            feature_type=FeatureType.FLAT.value
+            if len(dim) == 1
+            else FeatureType.SEQUENTIAL.value,
+            dimension=dim,
+        )
+        for name, dim in dims.items()
+    }
 
 
 @pytest.fixture
@@ -95,7 +111,9 @@ class TestConcatFusionForward:
             input_features=["feat_a", "feat_b"],
             hidden_dim=hidden_dim,
         )
-        module.setup(feature_keys_to_dims={"feat_a": 64, "feat_b": 128})
+        module.setup(
+            feature_registry=_make_registry({"feat_a": (64,), "feat_b": (128,)})
+        )
         features = [
             input_tensor_factory(
                 batch_size=batch_size,
@@ -128,8 +146,8 @@ class TestConcatFusionForward:
             input_features=feature_names,
             hidden_dim=hidden_dim,
         )
-        dims = dict.fromkeys(feature_names, 32)
-        module.setup(feature_keys_to_dims=dims)
+        dims = dict.fromkeys(feature_names, (32,))
+        module.setup(feature_registry=_make_registry(dims))
         features = [
             input_tensor_factory(input_dimension=32) for _ in range(num_features)
         ]
@@ -158,7 +176,7 @@ class TestConcatFusionGetOutputSpecification:
             hidden_dim=hidden_dim,
         )
         spec = module.get_output_specification()
-        assert spec.output_dim == expected_dim
+        assert spec.dimension[0] == expected_dim
 
     def test_output_name_matches(
         self,
@@ -166,7 +184,7 @@ class TestConcatFusionGetOutputSpecification:
     ):
         module = concat_fusion_factory(output_name="test_fused")
         spec = module.get_output_specification()
-        assert spec.output_name == "test_fused"
+        assert spec.key == "test_fused"
 
     def test_returns_specification_with_expected_fields(
         self,
@@ -174,5 +192,5 @@ class TestConcatFusionGetOutputSpecification:
     ):
         module = concat_fusion_factory()
         spec = module.get_output_specification()
-        assert hasattr(spec, "output_name")
-        assert hasattr(spec, "output_dim")
+        assert hasattr(spec, "key")
+        assert hasattr(spec, "dimension")

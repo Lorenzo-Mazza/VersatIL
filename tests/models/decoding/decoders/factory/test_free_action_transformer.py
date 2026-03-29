@@ -8,6 +8,7 @@ import pytest
 import torch
 from torch import nn
 
+from versatil.data.constants import SampleKey
 from versatil.data.tokenization import Tokenizer
 from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
@@ -438,3 +439,14 @@ class TestFreeActionTransformerForward:
             torch.no_grad(),
         ):
             decoder(features=features, actions=actions)
+
+
+def test_auxiliary_output_keys(
+    free_transformer_factory: Callable[..., FreeActionTransformer],
+):
+    decoder = free_transformer_factory()
+    assert decoder.get_auxiliary_output_keys() == {
+        DecoderOutputKey.BINARY_LOGITS.value,
+        DecoderOutputKey.LATENT_CODES.value,
+        SampleKey.TOKENIZED_ACTIONS.value,
+    }

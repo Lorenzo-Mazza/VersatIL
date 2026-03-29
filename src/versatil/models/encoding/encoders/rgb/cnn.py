@@ -1,60 +1,78 @@
+"""CNN encoder with multi-backbone support via timm."""
+
+import timm
 import torch
 from timm.layers import freeze_batch_norm_2d
-from transformers import TimmBackbone, TimmBackboneConfig
-from transformers.modeling_outputs import BackboneOutput
 
 from versatil.data.constants import RGB_CAMERAS
-from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
+from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
-    EncoderOutputKeys,
+    CNNBackboneType,
     PoolingMethod,
-    RGBBackboneType,
 )
+from versatil.models.encoding.encoders.image_mixin import ImageEncoderMixin
 from versatil.models.encoding.encoders.unconditional import Encoder
+from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers.convert_layers import replace_batchnorm_with_groupnorm
-from versatil.models.layers.pooling.pooling_head import create_pooling_head
+from versatil.models.layers.pooling.pooling_head import (
+    PoolingHead,
+    create_spatial_pooling_head,
+)
 
 
-class CNNEncoder(Encoder):
+class CNNEncoder(ImageEncoderMixin, Encoder):
     """Convolutional Neural Network encoder supporting multiple backbones via TIMM."""
 
     def __init__(
         self,
         input_keys: str | list[str],
-        backbone: str = RGBBackboneType.RESNET18.value,
+        backbone: str = CNNBackboneType.RESNET18.value,
         pooling_method: str = PoolingMethod.AVERAGE.value,
         batch_norm_handling: str = BatchNormHandling.FROZEN.value,
         pretrained: bool = False,
         frozen: bool = False,
     ):
-        specification = EncoderInput(keys=input_keys, one_of_groups=[RGB_CAMERAS])
+        """Initialize CNN encoder with timm backbone.
+
+        Args:
+            input_keys: Camera observation keys.
+            backbone: timm model name for the CNN backbone.
+            pooling_method: Feature pooling strategy.
+            batch_norm_handling: How to handle batch normalization layers.
+            pretrained: Whether to load pretrained weights.
+            frozen: Whether to freeze all parameters.
+        """
+        specification = EncoderInput(
+            keys=input_keys, at_least_one_of_groups=[RGB_CAMERAS]
+        )
         super().__init__(
             input_specification=specification, pretrained=pretrained, frozen=frozen
         )
-        # Validate backbone type at instantiation
-        if backbone not in [e.value for e in RGBBackboneType]:
-            valid_backbones = [e.value for e in RGBBackboneType if "vit" not in e.value]
+        valid_backbones = [e.value for e in CNNBackboneType]
+        if backbone not in valid_backbones:
             raise ValueError(
                 f"Invalid backbone '{backbone}'. Must be one of: {valid_backbones}"
             )
+        self._setup_camera_keys(input_keys=self.input_specification.keys)
         self.batch_norm_handling = batch_norm_handling
         self.pooling_method = pooling_method
         self.backbone_name = backbone
         self._build_backbone()
-        self.feature_dim = self.backbone.num_features[-1]
-        self._setup_pooling()
+        self.feature_dim = self.backbone.feature_info.channels()[-1]
+        self.pooling_head: PoolingHead | None = None
+        self.output_dim: int | tuple[int, ...] = self.feature_dim
         if frozen:
             super()._freeze_weights()
 
     def _build_backbone(self):
-        """Build backbone using TIMM library."""
-        backbone_config = TimmBackboneConfig(
+        """Build backbone using timm library."""
+        self.backbone = timm.create_model(
             self.backbone_name,
-            use_pretrained_backbone=self.pretrained,
+            pretrained=self.pretrained,
             features_only=True,
         )
-        self.backbone = TimmBackbone(config=backbone_config)
         match self.batch_norm_handling:
             case BatchNormHandling.FROZEN.value:
                 self.backbone.apply(freeze_batch_norm_2d)
@@ -67,66 +85,96 @@ class CNNEncoder(Encoder):
                     f"Unknown batch norm handling: {self.batch_norm_handling}"
                 )
 
-    def _setup_pooling(self):
-        """Setup mock pooling head. The actual pooling head will be created in forward()."""
-        with torch.no_grad():
-            mock_input = torch.zeros(1, 3, 224, 224)
-            mock_output: BackboneOutput = self.backbone(mock_input)
-            mock_features = mock_output.feature_maps[0]
-            _, c, h, w = mock_features.shape
-        mock_pooling_head = create_pooling_head(
-            pooling_method=self.pooling_method,
-            feature_channels=self.feature_dim,
-            spatial_height=h,
-            spatial_width=w,
-        )
-        self.pooling_head = (
-            None  # Will be created in forward() with correct patch dimensions
-        )
-        self.output_dim = mock_pooling_head.get_output_dim(self.feature_dim)
-
-    def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        """Forward pass to extract features from images.
+    def _setup_pooling(self, spatial_height: int, spatial_width: int) -> None:
+        """Create pooling head from feature map spatial dimensions.
 
         Args:
-            inputs: Dict with single key from input_keys
+            spatial_height: Height of the backbone's output feature map.
+            spatial_width: Width of the backbone's output feature map.
+        """
+        self.pooling_head = create_spatial_pooling_head(
+            pooling_method=self.pooling_method,
+            input_dimension=self.feature_dim,
+            spatial_height=spatial_height,
+            spatial_width=spatial_width,
+        )
+        self.output_dim = self.pooling_head.output_dim
+
+    def _encode_single_image(self, images: torch.Tensor) -> torch.Tensor:
+        """Encode a single camera's images through the backbone and pooling.
+
+        Args:
+            images: Image tensor of shape (B, C, H, W).
 
         Returns:
-            A dictionary containing key `RGB_FEATURES` and tensor with shape (batch size, feature dim) or
-            (batch size, time steps, feature dim) if input has temporal dimension.
-
-        Note:
-            Feature dimension size depends on the pooling method used. If no pooling is applied, the raw feature maps are returned and the output shape will
-            be (batch size, channels, height, width) or (batch size, time steps, channels, height, width).
-            If pooling is used, the output shape will be (batch size, channels).
+            Pooled feature tensor.
         """
-        img = inputs[self.input_specification.keys[0]]
-        T = None
-        if img.dim() == 5:
-            B, T, C, H, W = img.shape  # Batch, Time, Channels, Height, Width
-            img = img.reshape(B * T, C, H, W)
-            has_time = True
-        else:
-            B = img.shape[0]
-            has_time = False
-        backbone_output = self.backbone(img)
-        features = backbone_output.feature_maps[-1]
-        _, _, H_feature_maps, W_feature_maps = features.shape
         if self.pooling_head is None:
-            self.pooling_head = create_pooling_head(
-                pooling_method=self.pooling_method,
-                feature_channels=self.feature_dim,
-                spatial_height=H_feature_maps,
-                spatial_width=W_feature_maps,
-            ).to(features.device)
-        pooled_features = self.pooling_head(features)
-        if has_time:
-            # Reshape back to (B, T, C) or (B, T, C, H, W)
-            pooled_features = pooled_features.reshape(B, T, *pooled_features.shape[1:])
-        return {EncoderOutputKeys.RGB.value: pooled_features}
+            raise RuntimeError(
+                "pooling_head is not initialized. Call set_image_size() before forward."
+            )
+        feature_maps = self.backbone(images)
+        features = feature_maps[-1]
+        return self.pooling_head(features)
 
-    def get_output_specification(self) -> EncoderOutput:
-        return EncoderOutput(
-            features=[EncoderOutputKeys.RGB.value],
-            dimensions={EncoderOutputKeys.RGB.value: self.output_dim},
+    def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """Encode images into features.
+
+        Args:
+            inputs: Dict mapping camera keys to image tensors (B, C, H, W).
+
+        Returns:
+            Dict with RGB features. Single camera: key is ``rgb``.
+            Multiple cameras: keys are ``rgb.{camera_key}`` per camera.
+        """
+        return self._encode_vision(inputs)
+
+    def set_image_size(self, image_height: int, image_width: int) -> None:
+        """Compute feature map dimensions and create pooling head.
+
+        Args:
+            image_height: Target image height.
+            image_width: Target image width.
+        """
+        with torch.no_grad():
+            mock_input = torch.zeros(1, 3, image_height, image_width)
+            mock_features = self.backbone(mock_input)[-1]
+            _, _, spatial_height, spatial_width = mock_features.shape
+        self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)
+
+    def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
+        """Validate that input metadata is RGB camera metadata.
+
+        Args:
+            key: Observation key being validated.
+            metadata: Metadata from the observation space.
+
+        Returns:
+            Error message if incompatible, None if valid.
+        """
+        if not isinstance(metadata, CameraMetadata):
+            return f"Expected CameraMetadata for '{key}', got {type(metadata).__name__}"
+        if not metadata.is_rgb:
+            return (
+                f"Expected 3-channel RGB for '{key}', got {metadata.channels} channels"
+            )
+        return None
+
+    def get_output_specification(self) -> list[FeatureMetadata]:
+        """Get structured output specification with feature names and dimensions.
+
+        Returns:
+            List of FeatureMetadata with per-camera feature names and pooled dimensions.
+        """
+        feature_names = self._get_vision_feature_names()
+        dimension = (
+            (self.output_dim,) if isinstance(self.output_dim, int) else self.output_dim
         )
+        return [
+            FeatureMetadata(
+                key=name,
+                feature_type=infer_feature_type(dimension),
+                dimension=dimension,
+            )
+            for name in feature_names
+        ]

@@ -8,27 +8,20 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
-from transformers.models.timm_wrapper.modeling_timm_wrapper import (
-    TimmWrapperModelOutput,
-)
 
 from versatil.data.constants import RGB_CAMERAS
+from versatil.data.metadata import BaseMetadata, CameraMetadata
 from versatil.models.encoding.encoders.constants import (
+    CNNBackboneType,
     EncoderOutputKeys,
     PoolingMethod,
-    RGBBackboneType,
+    SwinBackboneType,
+    ViTBackboneType,
 )
 from versatil.models.encoding.encoders.rgb.vit import ViTEncoder
 
-VIT_BACKBONES = [e for e in RGBBackboneType if "vit" in e.value or "dino" in e.value]
-
-VIT_VALID_BACKBONES = [
-    e.value
-    for e in RGBBackboneType
-    if not any(
-        x in e.value for x in ["efficientnet", "resnet", "edgenext", "mobilenet"]
-    )
-]
+VIT_BACKBONES = list(ViTBackboneType)
+VIT_VALID_BACKBONES = [e.value for e in ViTBackboneType]
 
 FEATURE_DIM = 768
 SEQUENCE_LENGTH = 196
@@ -37,34 +30,24 @@ SEQUENCE_LENGTH = 196
 def _mock_build_backbone(self):
     """Side-effect to set self.backbone with expected attributes."""
     self.backbone = MagicMock()
-    self.backbone.config.num_features = FEATURE_DIM
-
-
-def _mock_setup_feature_extractor(self):
-    """Side-effect to set pooling-related attributes."""
-    self.pooling_head = None
-    self.output_dim = self.feature_dim
+    self.backbone.num_features = FEATURE_DIM
+    self.expected_image_size = None
+    self.requires_strict_image_size = False
+    self.patch_size = None
 
 
 @pytest.fixture
 def vit_encoder_factory() -> Callable[..., ViTEncoder]:
-    """Factory for ViTEncoder with mocked backbone and feature extractor."""
+    """Factory for ViTEncoder with mocked backbone."""
 
     def factory(
         input_keys: str | list[str] = "left",
-        backbone: str = RGBBackboneType.DINOV2_VITB14.value,
+        backbone: str = ViTBackboneType.DINOV2_VITB14.value,
         pooling_method: str = PoolingMethod.DEFAULT.value,
         pretrained: bool = False,
         frozen: bool = False,
     ) -> ViTEncoder:
-        with (
-            patch.object(ViTEncoder, "_build_backbone", _mock_build_backbone),
-            patch.object(
-                ViTEncoder,
-                "_setup_feature_extractor",
-                _mock_setup_feature_extractor,
-            ),
-        ):
+        with patch.object(ViTEncoder, "_build_backbone", _mock_build_backbone):
             return ViTEncoder(
                 input_keys=input_keys,
                 backbone=backbone,
@@ -79,20 +62,19 @@ def vit_encoder_factory() -> Callable[..., ViTEncoder]:
 @pytest.fixture
 def mock_backbone_output_factory(
     rng: np.random.Generator,
-) -> Callable[..., TimmWrapperModelOutput]:
-    """Factory for mock TimmWrapperModelOutput with last_hidden_state."""
+) -> Callable[..., torch.Tensor]:
+    """Factory for mock backbone output tensor (last_hidden_state)."""
 
     def factory(
         batch_size: int = 2,
         sequence_length: int = SEQUENCE_LENGTH + 1,
         feature_dim: int = FEATURE_DIM,
-    ) -> TimmWrapperModelOutput:
-        hidden_state = torch.from_numpy(
+    ) -> torch.Tensor:
+        return torch.from_numpy(
             rng.standard_normal((batch_size, sequence_length, feature_dim)).astype(
                 np.float32
             )
         )
-        return TimmWrapperModelOutput(last_hidden_state=hidden_state)
 
     return factory
 
@@ -101,16 +83,26 @@ class TestViTEncoderInitialization:
     @pytest.mark.parametrize(
         "backbone, expectation",
         [
-            (RGBBackboneType.DINOV2_VITB14.value, does_not_raise()),
-            (RGBBackboneType.VIT_BASE.value, does_not_raise()),
-            (RGBBackboneType.DINOV2_VITS14.value, does_not_raise()),
+            (ViTBackboneType.DINOV2_VITB14.value, does_not_raise()),
+            (ViTBackboneType.VIT_BASE.value, does_not_raise()),
+            (ViTBackboneType.DINOV2_VITS14.value, does_not_raise()),
             (
-                RGBBackboneType.RESNET18.value,
+                CNNBackboneType.RESNET18.value,
                 pytest.raises(
                     ValueError,
                     match=re.escape(
-                        f"Invalid backbone '{RGBBackboneType.RESNET18.value}'. "
-                        f"Must be one Vision Transformer of the following: {VIT_VALID_BACKBONES}"
+                        f"Invalid backbone '{CNNBackboneType.RESNET18.value}'. "
+                        f"Must be one of: {VIT_VALID_BACKBONES}"
+                    ),
+                ),
+            ),
+            (
+                SwinBackboneType.SWIN_TINY.value,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        f"Invalid backbone '{SwinBackboneType.SWIN_TINY.value}'. "
+                        f"Must be one of: {VIT_VALID_BACKBONES}"
                     ),
                 ),
             ),
@@ -120,7 +112,7 @@ class TestViTEncoderInitialization:
                     ValueError,
                     match=re.escape(
                         f"Invalid backbone 'invalid_backbone'. "
-                        f"Must be one Vision Transformer of the following: {VIT_VALID_BACKBONES}"
+                        f"Must be one of: {VIT_VALID_BACKBONES}"
                     ),
                 ),
             ),
@@ -134,11 +126,6 @@ class TestViTEncoderInitialization:
         with (
             expectation,
             patch.object(ViTEncoder, "_build_backbone", _mock_build_backbone),
-            patch.object(
-                ViTEncoder,
-                "_setup_feature_extractor",
-                _mock_setup_feature_extractor,
-            ),
         ):
             ViTEncoder(
                 input_keys="left",
@@ -153,11 +140,14 @@ class TestViTEncoderInitialization:
         [
             ("left", does_not_raise()),
             ("right", does_not_raise()),
+            (["left", "right"], does_not_raise()),
             (
-                ["left", "right"],
+                "invalid_camera",
                 pytest.raises(
                     ValueError,
-                    match=re.escape(f"Exactly one from {RGB_CAMERAS} required, got"),
+                    match=re.escape(
+                        f"At least one from {RGB_CAMERAS} required, got {set()}"
+                    ),
                 ),
             ),
         ],
@@ -171,21 +161,12 @@ class TestViTEncoderInitialization:
         with expectation:
             vit_encoder_factory(input_keys=input_keys)
 
-    def test_has_encoder_interface(
-        self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
-    ):
-        encoder = vit_encoder_factory()
-        assert hasattr(encoder, "forward")
-        assert hasattr(encoder, "get_output_specification")
-        assert hasattr(encoder, "input_specification")
-
     @pytest.mark.parametrize("input_keys", ["left", "right"])
     @pytest.mark.parametrize(
         "backbone",
         [
-            RGBBackboneType.DINOV2_VITS14.value,
-            RGBBackboneType.DINOV2_VITB14.value,
+            ViTBackboneType.DINOV2_VITS14.value,
+            ViTBackboneType.DINOV2_VITB14.value,
         ],
     )
     @pytest.mark.parametrize(
@@ -217,18 +198,18 @@ class TestViTEncoderInitialization:
         with patch.object(ViTEncoder, "_build_backbone", _mock_build_backbone):
             encoder = ViTEncoder(
                 input_keys="left",
-                backbone=RGBBackboneType.DINOV2_VITB14.value,
+                backbone=ViTBackboneType.DINOV2_VITB14.value,
                 pooling_method=PoolingMethod.NONE.value,
                 pretrained=False,
                 frozen=False,
             )
-        assert encoder.output_dim == (-1, FEATURE_DIM - 1)
+        assert encoder.output_dim == (-1, FEATURE_DIM)
 
     def test_non_none_pooling_sets_output_dim_to_int(self):
         with patch.object(ViTEncoder, "_build_backbone", _mock_build_backbone):
             encoder = ViTEncoder(
                 input_keys="left",
-                backbone=RGBBackboneType.DINOV2_VITB14.value,
+                backbone=ViTBackboneType.DINOV2_VITB14.value,
                 pooling_method=PoolingMethod.DEFAULT.value,
                 pretrained=False,
                 frozen=False,
@@ -236,161 +217,47 @@ class TestViTEncoderInitialization:
         assert encoder.output_dim == FEATURE_DIM
 
 
-class TestViTEncoderExtractFeatures:
-    def test_default_pooling_returns_cls_token(
-        self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
-        mock_backbone_output_factory: Callable[..., TimmWrapperModelOutput],
-    ):
-        batch_size = 2
-        encoder = vit_encoder_factory(pooling_method=PoolingMethod.DEFAULT.value)
-        outputs = mock_backbone_output_factory(batch_size=batch_size)
-        features = encoder._extract_features(outputs=outputs)
-        assert features.shape == (batch_size, FEATURE_DIM)
-        # CLS token is the first token
-        expected = outputs.last_hidden_state[:, 0]
-        assert torch.allclose(features, expected)
-
-    def test_average_pooling_returns_mean_of_patches(
-        self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
-        mock_backbone_output_factory: Callable[..., TimmWrapperModelOutput],
-    ):
-        batch_size = 2
-        encoder = vit_encoder_factory(pooling_method=PoolingMethod.AVERAGE.value)
-        outputs = mock_backbone_output_factory(batch_size=batch_size)
-        features = encoder._extract_features(outputs=outputs)
-        assert features.shape == (batch_size, FEATURE_DIM)
-        # Average over patches (exclude CLS token at index 0)
-        expected = outputs.last_hidden_state[:, 1:].mean(dim=1)
-        assert torch.allclose(features, expected)
-
-    def test_learned_aggregation_calls_pooling_head(
-        self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
-        mock_backbone_output_factory: Callable[..., TimmWrapperModelOutput],
-    ):
-        batch_size = 2
-        encoder = vit_encoder_factory(
-            pooling_method=PoolingMethod.LEARNED_AGGREGATION.value,
-        )
-        mock_pooling_head = MagicMock()
-        mock_pooling_head.return_value = torch.zeros(batch_size, FEATURE_DIM - 1)
-        encoder.pooling_head = mock_pooling_head
-        outputs = mock_backbone_output_factory(batch_size=batch_size)
-        features = encoder._extract_features(outputs=outputs)
-        mock_pooling_head.assert_called_once()
-        assert features.shape == (batch_size, FEATURE_DIM - 1)
-
-    def test_learned_aggregation_raises_without_pooling_head(
-        self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
-        mock_backbone_output_factory: Callable[..., TimmWrapperModelOutput],
-    ):
-        encoder = vit_encoder_factory(
-            pooling_method=PoolingMethod.LEARNED_AGGREGATION.value,
-        )
-        encoder.pooling_head = None
-        outputs = mock_backbone_output_factory()
-        with pytest.raises(RuntimeError, match="pooling_head must be initialized"):
-            encoder._extract_features(outputs=outputs)
-
-    def test_none_pooling_returns_all_patch_tokens(
-        self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
-        mock_backbone_output_factory: Callable[..., TimmWrapperModelOutput],
-    ):
-        batch_size = 2
-        encoder = vit_encoder_factory(pooling_method=PoolingMethod.NONE.value)
-        outputs = mock_backbone_output_factory(batch_size=batch_size)
-        features = encoder._extract_features(outputs=outputs)
-        assert features.shape == (batch_size, SEQUENCE_LENGTH, FEATURE_DIM)
-        # All patch tokens (exclude CLS at index 0)
-        expected = outputs.last_hidden_state[:, 1:]
-        assert torch.allclose(features, expected)
-
-    def test_invalid_pooling_method_raises_value_error(
-        self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
-        mock_backbone_output_factory: Callable[..., TimmWrapperModelOutput],
-    ):
-        encoder = vit_encoder_factory()
-        encoder.pooling_method = "invalid_method"
-        outputs = mock_backbone_output_factory()
-        with pytest.raises(ValueError, match="Unknown feature extraction method"):
-            encoder._extract_features(outputs=outputs)
-
-
 class TestViTEncoderForward:
-    @pytest.mark.parametrize(
-        "time_steps, expected_ndim",
-        [
-            (None, 2),
-            (3, 3),
-        ],
-    )
-    def test_output_shape_with_and_without_time(
+    @pytest.mark.parametrize("time_steps", [1, 3])
+    def test_output_shape_with_temporal_dimension(
         self,
         vit_encoder_factory: Callable[..., ViTEncoder],
         image_input_factory: Callable[..., dict[str, torch.Tensor]],
-        mock_backbone_output_factory: Callable[..., TimmWrapperModelOutput],
-        time_steps: int | None,
-        expected_ndim: int,
+        mock_backbone_output_factory: Callable[..., torch.Tensor],
+        time_steps: int,
     ):
         batch_size = 2
         encoder = vit_encoder_factory(pooling_method=PoolingMethod.DEFAULT.value)
-        effective_batch = batch_size * (time_steps or 1)
+        effective_batch = batch_size * time_steps
         backbone_output = mock_backbone_output_factory(batch_size=effective_batch)
-        encoder.backbone.return_value = backbone_output
+        encoder.backbone.forward_features.return_value = backbone_output
         inputs = image_input_factory(
             batch_size=batch_size,
             time_steps=time_steps,
         )
         output = encoder(inputs)
         features = output[EncoderOutputKeys.RGB.value]
-        assert features.ndim == expected_ndim
-        assert features.shape[0] == batch_size
-        if time_steps is not None:
-            assert features.shape[1] == time_steps
-
-    def test_forward_returns_rgb_key(
-        self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
-        image_input_factory: Callable[..., dict[str, torch.Tensor]],
-        mock_backbone_output_factory: Callable[..., TimmWrapperModelOutput],
-    ):
-        batch_size = 2
-        encoder = vit_encoder_factory()
-        backbone_output = mock_backbone_output_factory(batch_size=batch_size)
-        encoder.backbone.return_value = backbone_output
-        inputs = image_input_factory(batch_size=batch_size)
-        output = encoder(inputs)
-        assert EncoderOutputKeys.RGB.value in output
+        assert features.shape == (batch_size, time_steps, FEATURE_DIM)
 
     def test_none_pooling_output_shape_with_time(
         self,
         vit_encoder_factory: Callable[..., ViTEncoder],
         image_input_factory: Callable[..., dict[str, torch.Tensor]],
-        mock_backbone_output_factory: Callable[..., TimmWrapperModelOutput],
+        mock_backbone_output_factory: Callable[..., torch.Tensor],
     ):
         batch_size = 2
         time_steps = 3
         encoder = vit_encoder_factory(pooling_method=PoolingMethod.NONE.value)
         effective_batch = batch_size * time_steps
         backbone_output = mock_backbone_output_factory(batch_size=effective_batch)
-        encoder.backbone.return_value = backbone_output
+        encoder.backbone.forward_features.return_value = backbone_output
         inputs = image_input_factory(
             batch_size=batch_size,
             time_steps=time_steps,
         )
         output = encoder(inputs)
         features = output[EncoderOutputKeys.RGB.value]
-        # (B, T, Seq, Emb)
-        assert features.ndim == 4
-        assert features.shape[0] == batch_size
-        assert features.shape[1] == time_steps
-        assert features.shape[2] == SEQUENCE_LENGTH
-        assert features.shape[3] == FEATURE_DIM
+        assert features.shape == (batch_size, time_steps, SEQUENCE_LENGTH, FEATURE_DIM)
 
 
 class TestViTEncoderGetOutputSpecification:
@@ -400,19 +267,156 @@ class TestViTEncoderGetOutputSpecification:
     ):
         encoder = vit_encoder_factory()
         specification = encoder.get_output_specification()
-        assert specification.features == [EncoderOutputKeys.RGB.value]
+        feature_keys = [m.key for m in specification]
+        assert feature_keys == [EncoderOutputKeys.RGB.value]
+        output_dim = encoder.output_dim
+        expected_dim = output_dim if isinstance(output_dim, tuple) else (output_dim,)
         assert (
-            specification.dimensions[EncoderOutputKeys.RGB.value] == encoder.output_dim
+            next(
+                m for m in specification if m.key == EncoderOutputKeys.RGB.value
+            ).dimension
+            == expected_dim
         )
 
-    def test_output_specification_features_list_length(
+
+class TestViTEncoderBuildBackbone:
+    @pytest.mark.integration
+    def test_fixed_input_size_models_have_strict_image_size(self):
+        encoder = ViTEncoder(
+            input_keys="left",
+            backbone=ViTBackboneType.DINOV2_VITS14.value,
+            pooling_method=PoolingMethod.NONE.value,
+            pretrained=False,
+            frozen=False,
+        )
+        assert encoder.requires_strict_image_size is True
+        assert encoder.expected_image_size is not None
+
+    @pytest.mark.integration
+    def test_set_image_size_rebuilds_backbone(self):
+        encoder = ViTEncoder(
+            input_keys="left",
+            backbone=ViTBackboneType.DINOV2_VITS14.value,
+            pooling_method=PoolingMethod.DEFAULT.value,
+            pretrained=False,
+            frozen=False,
+        )
+        original_size = encoder.expected_image_size
+        encoder.set_image_size(image_height=256, image_width=256)
+        assert encoder.expected_image_size == (256, 256)
+        assert encoder.expected_image_size != original_size
+
+
+class TestViTEncoderValidateInputMetadata:
+    @pytest.mark.parametrize(
+        "metadata, expected_error",
+        [
+            (
+                CameraMetadata(
+                    camera_key="left",
+                    dtype="uint8",
+                    channels=3,
+                    image_height=224,
+                    image_width=224,
+                ),
+                None,
+            ),
+            (
+                CameraMetadata(
+                    camera_key="depth",
+                    dtype="uint8",
+                    channels=1,
+                    image_height=224,
+                    image_width=224,
+                ),
+                None,
+            ),
+            (
+                MagicMock(spec=BaseMetadata),
+                "Expected CameraMetadata for 'left', got MagicMock",
+            ),
+        ],
+    )
+    def test_validates_camera_metadata(
         self,
         vit_encoder_factory: Callable[..., ViTEncoder],
+        metadata,
+        expected_error: str | None,
     ):
         encoder = vit_encoder_factory()
+        result = encoder.validate_input_metadata(key="left", metadata=metadata)
+        assert result == expected_error
+
+
+class TestViTEncoderMultiCamera:
+    @pytest.mark.parametrize(
+        "input_keys, expected_feature_count, expected_multi_camera",
+        [
+            ("left", 1, False),
+            (["left", "right"], 2, True),
+        ],
+    )
+    def test_output_specification_scales_with_cameras(
+        self,
+        vit_encoder_factory: Callable[..., ViTEncoder],
+        input_keys: str | list[str],
+        expected_feature_count: int,
+        expected_multi_camera: bool,
+    ):
+        encoder = vit_encoder_factory(input_keys=input_keys)
         specification = encoder.get_output_specification()
-        assert len(specification.features) == 1
-        assert not specification.is_multi_output
+        feature_keys = [m.key for m in specification]
+        assert len(feature_keys) == expected_feature_count
+        assert encoder.is_multi_camera is expected_multi_camera
+        if expected_multi_camera:
+            camera_list = input_keys if isinstance(input_keys, list) else [input_keys]
+            for camera_key in camera_list:
+                feature_name = f"{EncoderOutputKeys.RGB.value}.{camera_key}"
+                assert feature_name in feature_keys
+        else:
+            assert feature_keys == [EncoderOutputKeys.RGB.value]
+
+    def test_multi_camera_forward_produces_per_camera_features(
+        self,
+        vit_encoder_factory: Callable[..., ViTEncoder],
+        image_input_factory: Callable[..., dict[str, torch.Tensor]],
+        mock_backbone_output_factory: Callable[..., torch.Tensor],
+    ):
+        batch_size = 2
+        encoder = vit_encoder_factory(
+            input_keys=["left", "right"],
+            pooling_method=PoolingMethod.DEFAULT.value,
+        )
+        backbone_output = mock_backbone_output_factory(batch_size=batch_size)
+        encoder.backbone.forward_features.return_value = backbone_output
+        inputs = {
+            **image_input_factory(key="left", batch_size=batch_size),
+            **image_input_factory(key="right", batch_size=batch_size),
+        }
+        output = encoder(inputs)
+        rgb = EncoderOutputKeys.RGB.value
+        assert f"{rgb}.left" in output
+        assert f"{rgb}.right" in output
+
+    def test_multi_camera_backbone_called_per_camera(
+        self,
+        vit_encoder_factory: Callable[..., ViTEncoder],
+        image_input_factory: Callable[..., dict[str, torch.Tensor]],
+        mock_backbone_output_factory: Callable[..., torch.Tensor],
+    ):
+        batch_size = 2
+        encoder = vit_encoder_factory(
+            input_keys=["left", "right"],
+            pooling_method=PoolingMethod.DEFAULT.value,
+        )
+        backbone_output = mock_backbone_output_factory(batch_size=batch_size)
+        encoder.backbone.forward_features.return_value = backbone_output
+        inputs = {
+            **image_input_factory(key="left", batch_size=batch_size),
+            **image_input_factory(key="right", batch_size=batch_size),
+        }
+        encoder(inputs)
+        assert encoder.backbone.forward_features.call_count == 2
 
 
 class TestViTEncoderIntegration:
@@ -434,20 +438,19 @@ class TestViTEncoderIntegration:
         inputs = image_input_factory(batch_size=batch_size)
         output = encoder(inputs)
         features = output[EncoderOutputKeys.RGB.value]
-        assert features.ndim == 2
-        assert features.shape[0] == batch_size
+        assert features.shape == (batch_size, 1, encoder.output_dim)
 
     @pytest.mark.integration
-    @pytest.mark.parametrize("time_steps", [None, 2])
+    @pytest.mark.parametrize("time_steps", [1, 2])
     def test_temporal_reshaping(
         self,
         image_input_factory: Callable[..., dict[str, torch.Tensor]],
-        time_steps: int | None,
+        time_steps: int,
     ):
         batch_size = 2
         encoder = ViTEncoder(
             input_keys="left",
-            backbone=RGBBackboneType.DINOV2_VITS14.value,
+            backbone=ViTBackboneType.DINOV2_VITS14.value,
             pooling_method=PoolingMethod.DEFAULT.value,
             pretrained=False,
             frozen=False,
@@ -458,10 +461,7 @@ class TestViTEncoderIntegration:
         )
         output = encoder(inputs)
         features = output[EncoderOutputKeys.RGB.value]
-        if time_steps is not None:
-            assert features.shape == (batch_size, time_steps, encoder.output_dim)
-        else:
-            assert features.shape == (batch_size, encoder.output_dim)
+        assert features.shape == (batch_size, time_steps, encoder.output_dim)
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
@@ -478,7 +478,7 @@ class TestViTEncoderIntegration:
     ):
         encoder = ViTEncoder(
             input_keys="left",
-            backbone=RGBBackboneType.DINOV2_VITS14.value,
+            backbone=ViTBackboneType.DINOV2_VITS14.value,
             pooling_method=PoolingMethod.DEFAULT.value,
             pretrained=False,
             frozen=frozen,

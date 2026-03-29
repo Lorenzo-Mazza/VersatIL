@@ -12,7 +12,6 @@ from versatil.models.decoding.action_heads.gaussian import GaussianHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import (
     DecoderOutputKey,
-    FeatureType,
     GMMInitStrategy,
 )
 from versatil.models.decoding.decoders.base import ActionDecoder
@@ -20,6 +19,7 @@ from versatil.models.decoding.decoders.factory.mode_act import (
     MixtureOfDensitiesActionTransformer,
 )
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
+from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -952,3 +952,12 @@ class TestModeACTTemporalObservation:
             assert isinstance(layer, LearnedPositionalEncoding1D)
         else:
             assert layer is None
+
+
+def test_auxiliary_output_keys(
+    mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+):
+    decoder = mode_act_factory()
+    assert decoder.get_auxiliary_output_keys() == {
+        DecoderOutputKey.ROUTING_WEIGHTS.value,
+    }

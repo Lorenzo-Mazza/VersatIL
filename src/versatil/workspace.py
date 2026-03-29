@@ -1,4 +1,3 @@
-# mypy: ignore-errors
 """Workspace for training and evaluating policies using PyTorch Lightning."""
 
 import logging

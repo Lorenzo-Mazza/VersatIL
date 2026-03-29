@@ -16,9 +16,6 @@ class DataLoaderConfig:
     num_workers: int = 16
     shuffle: bool = True
     # Data processing
-    # If the image dimensions of the zarr differ from these, a resize needs to be added in the augmentation module.
-    image_height: int = 270
-    image_width: int = 480
     image_norm_type: str = ImageNormalizationType.MINUS_ONE_TO_ONE.value
     depth_norm_type: str = ImageNormalizationType.MINUS_ONE_TO_ONE.value
     kinematics_norm_type: str = KinematicsNormalizationType.MIN_MAX.value

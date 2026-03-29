@@ -1,12 +1,13 @@
 """Tests for versatil.models.encoding.encoders.proprioceptive.base module."""
 
 from collections.abc import Callable
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 import torch
 
+from versatil.data.metadata import BaseMetadata, CameraMetadata
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.encoding.encoders.proprioceptive.base import ProprioceptiveEncoder
 from versatil.models.layers.activation import ActivationFunction
@@ -22,16 +23,13 @@ def proprioceptive_input_factory(
         keys: list[str] | None = None,
         batch_size: int = 4,
         input_dimension: int = 7,
-        time_steps: int | None = None,
+        time_steps: int = 1,
     ) -> dict[str, torch.Tensor]:
         if keys is None:
             keys = ["proprio_robot_frame"]
         result = {}
         for key in keys:
-            if time_steps is not None:
-                shape = (batch_size, time_steps, input_dimension)
-            else:
-                shape = (batch_size, input_dimension)
+            shape = (batch_size, time_steps, input_dimension)
             result[key] = torch.from_numpy(
                 rng.standard_normal(shape).astype(np.float32)
             )
@@ -117,9 +115,9 @@ class TestProprioceptiveEncoderInitialization:
         proprioceptive_encoder_factory: Callable[..., ProprioceptiveEncoder],
     ):
         encoder = proprioceptive_encoder_factory()
-        assert hasattr(encoder, "forward")
-        assert hasattr(encoder, "get_output_specification")
-        assert hasattr(encoder, "input_specification")
+        spec = encoder.get_output_specification()
+        feature_keys = [m.key for m in spec]
+        assert feature_keys == [EncoderOutputKeys.PROPRIOCEPTIVE.value]
 
 
 class TestProprioceptiveEncoderBuildNetwork:
@@ -147,19 +145,12 @@ class TestProprioceptiveEncoderBuildNetwork:
 
 
 class TestProprioceptiveEncoderForward:
-    @pytest.mark.parametrize(
-        "time_steps, expected_ndim",
-        [
-            (None, 2),
-            (3, 3),
-        ],
-    )
-    def test_output_shape_with_and_without_time(
+    @pytest.mark.parametrize("time_steps", [1, 3])
+    def test_output_shape_with_temporal_dimension(
         self,
         proprioceptive_encoder_factory: Callable[..., ProprioceptiveEncoder],
         proprioceptive_input_factory: Callable[..., dict[str, torch.Tensor]],
-        time_steps: int | None,
-        expected_ndim: int,
+        time_steps: int,
     ):
         batch_size = 4
         output_dimension = 64
@@ -171,11 +162,7 @@ class TestProprioceptiveEncoderForward:
         )
         output = encoder(inputs)
         features = output[EncoderOutputKeys.PROPRIOCEPTIVE.value]
-        assert features.ndim == expected_ndim
-        assert features.shape[0] == batch_size
-        assert features.shape[-1] == output_dimension
-        if time_steps is not None:
-            assert features.shape[1] == time_steps
+        assert features.shape == (batch_size, time_steps, output_dimension)
 
     def test_lazily_builds_network_on_first_forward(
         self,
@@ -219,7 +206,7 @@ class TestProprioceptiveEncoderForward:
         )
         output = encoder(inputs)
         features = output[EncoderOutputKeys.PROPRIOCEPTIVE.value]
-        assert features.shape == (batch_size, output_dimension)
+        assert features.shape == (batch_size, 1, output_dimension)
 
     @pytest.mark.parametrize("hidden_dimensions", [None, [128], [256, 128]])
     def test_forward_with_varying_hidden_layers(
@@ -250,9 +237,46 @@ class TestProprioceptiveEncoderForward:
                 ProprioceptiveEncoder,
                 "_build_network",
             ),
-            pytest.raises(RuntimeError, match="Network should be built"),
+            pytest.raises(
+                RuntimeError,
+                match="Network should be built by _build_network",
+            ),
         ):
             encoder(inputs)
+
+
+class TestProprioceptiveEncoderValidateInputMetadata:
+    @pytest.mark.parametrize(
+        "metadata, expected_error",
+        [
+            (
+                CameraMetadata(
+                    camera_key="left",
+                    dtype="uint8",
+                    channels=3,
+                    image_height=224,
+                    image_width=224,
+                ),
+                "ProprioceptiveEncoder cannot process image data for 'proprio_robot_frame'. "
+                "Got CameraMetadata, expected proprioceptive state input.",
+            ),
+            (
+                MagicMock(spec=BaseMetadata),
+                None,
+            ),
+        ],
+    )
+    def test_validates_non_camera_metadata(
+        self,
+        proprioceptive_encoder_factory: Callable[..., ProprioceptiveEncoder],
+        metadata,
+        expected_error: str | None,
+    ):
+        encoder = proprioceptive_encoder_factory()
+        result = encoder.validate_input_metadata(
+            key="proprio_robot_frame", metadata=metadata
+        )
+        assert result == expected_error
 
 
 class TestProprioceptiveEncoderGetOutputSpecification:
@@ -262,10 +286,11 @@ class TestProprioceptiveEncoderGetOutputSpecification:
     ):
         encoder = proprioceptive_encoder_factory(output_dimension=128)
         specification = encoder.get_output_specification()
-        assert specification.features == [EncoderOutputKeys.PROPRIOCEPTIVE.value]
-        assert specification.dimensions == {
-            EncoderOutputKeys.PROPRIOCEPTIVE.value: 128,
-        }
+        feature_keys = [m.key for m in specification]
+        assert feature_keys == [EncoderOutputKeys.PROPRIOCEPTIVE.value]
+        assert next(
+            m for m in specification if m.key == EncoderOutputKeys.PROPRIOCEPTIVE.value
+        ).dimension == (128,)
 
 
 class TestProprioceptiveEncoderGetOutputDims:

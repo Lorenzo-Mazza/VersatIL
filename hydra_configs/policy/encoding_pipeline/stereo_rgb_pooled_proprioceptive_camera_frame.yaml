@@ -2,6 +2,7 @@
 # Standard configuration for ACT models
 
 _target_: versatil.models.encoding.pipeline.EncodingPipeline
+observation_space: ${task.observation_space}
 
 encoders:
   left: # Output features will be accessible via "left_rgb"

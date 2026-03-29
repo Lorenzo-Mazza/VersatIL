@@ -12,4 +12,5 @@ class EncodingPipelineConfig:
 
     _target_: str = "versatil.models.encoding.pipeline.EncodingPipeline"
     encoders: dict[str, Any] = MISSING
+    observation_space: Any = MISSING
     fusion_stages: list[Any] | None = None

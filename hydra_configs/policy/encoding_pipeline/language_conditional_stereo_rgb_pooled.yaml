@@ -5,6 +5,7 @@ defaults:
   - _self_
 
 _target_: versatil.models.encoding.pipeline.EncodingPipeline
+observation_space: ${task.observation_space}
 
 encoders:
   instruction:

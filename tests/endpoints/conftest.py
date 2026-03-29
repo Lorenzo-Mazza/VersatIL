@@ -342,6 +342,11 @@ def build_tiny_overrides(config_name: str) -> list[str]:
                     f"policy.encoding_pipeline.encoders.{encoder_name}"
                     f".backbone=${{rgb_backbone:DEIT_TINY}}"
                 )
+            elif "swin" in target.lower():
+                overrides.append(
+                    f"policy.encoding_pipeline.encoders.{encoder_name}"
+                    f".backbone=${{rgb_backbone:SWIN_TINY}}"
+                )
             else:
                 overrides.append(
                     f"policy.encoding_pipeline.encoders.{encoder_name}"
@@ -360,7 +365,7 @@ def build_tiny_overrides(config_name: str) -> list[str]:
                     f".model_name=${{language_model:ALBERT_BASE}}"
                 )
         target = encoder_cfg.get("_target_", "")
-        if "light_geometric" not in target and "proprioceptive" not in target:
+        if "geometric_rgbd" not in target and "proprioceptive" not in target:
             overrides.append(
                 f"++policy.encoding_pipeline.encoders.{encoder_name}.frozen=true"
             )

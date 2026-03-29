@@ -1,4 +1,4 @@
-"""Tests for versatil.data.action_processor module."""
+"""Tests for versatil.data.processing.action_processor module."""
 
 import logging
 from collections.abc import Callable
@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from versatil.data.action_processor import ActionProcessor
 from versatil.data.constants import (
     ActionComputationMethod,
     GripperType,
@@ -21,6 +20,7 @@ from versatil.data.metadata import (
     OrientationObservationMetadata,
     PositionObservationMetadata,
 )
+from versatil.data.processing.action_processor import ActionProcessor
 from versatil.data.task import ActionSpace
 
 

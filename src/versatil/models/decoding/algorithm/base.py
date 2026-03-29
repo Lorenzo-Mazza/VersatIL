@@ -51,6 +51,16 @@ class DecodingAlgorithm(nn.Module, abc.ABC):
         """
         raise NotImplementedError
 
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """Get keys for auxiliary outputs this algorithm adds to the decoder output.
+
+        Override in subclasses that inject additional outputs (e.g. latent variables).
+
+        Returns:
+            Set of auxiliary output key strings.
+        """
+        return set()
+
     @abstractmethod
     def predict(
         self,

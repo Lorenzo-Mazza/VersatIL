@@ -2,14 +2,14 @@
 
 import logging
 
-import albumentations as A
 import numpy as np
 import torch
-from albumentations.pytorch import ToTensorV2
 from tso_robotics_sockets import CompressionType, decompress_array
 from versatil_constants.shared import ObsKey
 
 from versatil.data.constants import Cameras
+from versatil.data.metadata import CameraMetadata
+from versatil.data.processing.image_processor import ImageProcessor
 
 
 class ObservationPreprocessor:
@@ -24,8 +24,7 @@ class ObservationPreprocessor:
         camera_keys: list[str],
         proprioceptive_keys: list[str],
         has_language: bool,
-        image_height: int,
-        image_width: int,
+        camera_metadata: dict[str, CameraMetadata],
         compression_type: str = CompressionType.RAW.value,
         rotate_images: bool = False,
         depth_clamp_range: tuple[float, float] | None = None,
@@ -36,8 +35,7 @@ class ObservationPreprocessor:
             camera_keys: Camera observation keys (RGB + optional depth).
             proprioceptive_keys: Proprioceptive observation keys.
             has_language: Whether language instructions are expected.
-            image_height: Target image height for resizing.
-            image_width: Target image width for resizing.
+            camera_metadata: Per-camera metadata with training-time image dimensions.
             compression_type: Compression format used by the server for images.
             rotate_images: Whether to flip images 180 degrees.
             depth_clamp_range: Optional (min, max) for depth clamping.
@@ -55,17 +53,9 @@ class ObservationPreprocessor:
             key for key in self.camera_keys if key != self.depth_key
         ]
 
-        additional_targets = {}
-        for camera_key in self.rgb_camera_keys[1:]:
-            additional_targets[camera_key] = "image"
-        if self.has_depth:
-            additional_targets[self.depth_key] = "mask"
-        self.image_transform = A.Compose(
-            [
-                A.Resize(height=image_height, width=image_width),
-                ToTensorV2(),
-            ],
-            additional_targets=additional_targets,
+        self.image_processor = ImageProcessor(
+            camera_metadata=camera_metadata,
+            train=False,
         )
 
     def parse_response(self, response: dict) -> dict[int, dict[str, np.ndarray | str]]:
@@ -77,9 +67,9 @@ class ObservationPreprocessor:
         Returns:
             Dict mapping environment index to observation dict.
         """
-        first_camera = self.camera_keys[0] if self.camera_keys else None
-        is_multi_environment = first_camera is not None and isinstance(
-            response.get(first_camera), dict
+        first_key = next(iter(response), None)
+        is_multi_environment = first_key is not None and isinstance(
+            response.get(first_key), dict
         )
         if is_multi_environment:
             return self._parse_multi_environment(response=response)
@@ -123,8 +113,8 @@ class ObservationPreprocessor:
         Returns:
             Dict mapping each environment index to observation dict.
         """
-        first_camera = self.camera_keys[0]
-        environment_indices = [int(key) for key in response[first_camera]]
+        first_key = next(iter(response))
+        environment_indices = [int(key) for key in response[first_key]]
         per_environment: dict[int, dict[str, np.ndarray | str]] = {}
         for environment_index in environment_indices:
             index_string = str(environment_index)
@@ -154,68 +144,39 @@ class ObservationPreprocessor:
     ) -> dict[str, torch.Tensor]:
         """Transform a temporal sequence of camera images into model-ready tensors.
 
-        All RGB cameras are transformed together per timestep for consistent
-        spatial augmentation. Depth is resized and clamped separately.
+        Note:
+            Uses ImageProcessor for per-camera resize and normalization.
+            Depth images are additionally clamped if depth_clamp_range is set.
 
         Args:
-            recent_observations: Dict mapping key to list of images.
+            recent_observations: Dict mapping key to list of images per timestep.
 
         Returns:
             Dict mapping camera key to tensor (observation_horizon, C, H, W).
         """
         if not self.camera_keys:
             return {}
-        camera_tensors: dict[str, list[torch.Tensor]] = {
-            key: [] for key in self.camera_keys
-        }
-        first_rgb_key = self.rgb_camera_keys[0] if self.rgb_camera_keys else None
-        reference_key = first_rgb_key or self.depth_key
-        observation_count = len(recent_observations[reference_key])
-
-        depth_only = first_rgb_key is None and self.has_depth
-
-        for timestep in range(observation_count):
-            transform_kwargs: dict[str, np.ndarray] = {}
-            if first_rgb_key is not None:
-                transform_kwargs["image"] = recent_observations[first_rgb_key][timestep]
-                for rgb_key in self.rgb_camera_keys[1:]:
-                    transform_kwargs[rgb_key] = recent_observations[rgb_key][timestep]
-            if self.has_depth:
-                depth_image = recent_observations[self.depth_key][timestep]
-                if depth_only:
-                    transform_kwargs["image"] = depth_image
-                else:
-                    transform_kwargs[self.depth_key] = depth_image
-
-            transformed = self.image_transform(**transform_kwargs)
-
-            if first_rgb_key is not None:
-                camera_tensors[first_rgb_key].append(
-                    self._normalize_image_tensor(image=transformed["image"])
+        result = {}
+        for camera_key in self.camera_keys:
+            if camera_key not in recent_observations:
+                raise ValueError(
+                    f"Missing camera key '{camera_key}' in the server observation data."
                 )
-                for rgb_key in self.rgb_camera_keys[1:]:
-                    camera_tensors[rgb_key].append(
-                        self._normalize_image_tensor(image=transformed[rgb_key])
-                    )
-            if self.has_depth:
-                depth_result_key = "image" if depth_only else self.depth_key
-                depth_tensor = transformed[depth_result_key].float()
-                if depth_tensor.dim() == 2:
-                    depth_tensor = depth_tensor.unsqueeze(0)
-                if self.depth_clamp_range is not None:
-                    depth_min, depth_max = self.depth_clamp_range
-                    depth_tensor = torch.clamp(
-                        depth_tensor, min=depth_min, max=depth_max
-                    )
-                camera_tensors[self.depth_key].append(depth_tensor)
+            images = np.stack(recent_observations[camera_key])  # (T, H, W, C)
+            processed = self.image_processor.process(
+                images=images, camera_key=camera_key
+            )
+            # TODO: this currently assumes that only a camera with key "depth" is a depth camera - should ideally be specified in metadata
+            if camera_key == self.depth_key and self.depth_clamp_range is not None:
+                depth_min, depth_max = self.depth_clamp_range
+                processed = torch.clamp(processed, min=depth_min, max=depth_max)
+            result[camera_key] = processed
 
-        return {key: torch.stack(tensors) for key, tensors in camera_tensors.items()}
+        return result
 
     @staticmethod
     def _normalize_image_tensor(image: torch.Tensor) -> torch.Tensor:
         """Normalize image tensor to [0, 1] range.
-
-        Handles both uint8 [0, 255] and float [0, 1] inputs.
 
         Args:
             image: Image tensor from albumentations transform.

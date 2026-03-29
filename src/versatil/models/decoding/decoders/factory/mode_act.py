@@ -16,11 +16,11 @@ from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_heads.gaussian import GaussianHead
 from versatil.models.decoding.constants import (
     DecoderOutputKey,
-    FeatureType,
     GMMInitStrategy,
 )
 from versatil.models.decoding.decoders import ActionDecoder, DecoderInput
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
+from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.mlp import MLP
@@ -161,6 +161,12 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
             )
 
         self.to(self.device)
+
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """MoDEACT produces routing weights for mixture density prediction."""
+        keys = super().get_auxiliary_output_keys()
+        keys.add(DecoderOutputKey.ROUTING_WEIGHTS.value)
+        return keys
 
     def _build_transformer_components(self) -> None:
         """Build core transformer encoder-decoder and positional encodings."""

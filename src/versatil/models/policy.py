@@ -7,14 +7,14 @@ from versatil.common.dict_of_tensor_mixin import DictOfTensorMixin
 from versatil.common.tensor_ops import to_device
 from versatil.data.constants import Cameras, SampleKey
 from versatil.data.normalization.normalizer import LinearNormalizer
-from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.data.tokenization import Tokenizer
-from versatil.data.transform import (
+from versatil.data.processing.transform import (
     detokenize_actions,
     normalize_observation,
     tokenize_observation,
     unnormalize_actions,
 )
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.tokenization import Tokenizer
 from versatil.metrics.base import BaseLoss, LossOutput
 from versatil.metrics.components import GripperLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
@@ -224,7 +224,7 @@ class Policy(nn.Module):
         - DepthCNNEncoder: Has 'backbone' attribute
         - ConditionalCNNEncoder (FiLM): Has 'layer4' attribute
         - DFormerEncoder: Has 'stages' attribute
-        - LightGeometricEncoder: Has 'attention_block' attribute
+        - GeometricRGBDEncoder: Has 'attention_block' attribute
 
         Returns:
             Dictionary mapping encoder names to their encoder instances.
@@ -263,7 +263,7 @@ class Policy(nn.Module):
             raise RuntimeError(
                 "No compatible vision encoders found in the encoding pipeline. "
                 "Explainer requires encoders that produce spatial feature maps "
-                "(CNNEncoder, DepthCNNEncoder, ConditionalCNNEncoder, DFormerEncoder, LightGeometricEncoder). "
+                "(CNNEncoder, DepthCNNEncoder, ConditionalCNNEncoder, DFormerEncoder, GeometricRGBDEncoder). "
                 "Available encoders: "
                 + str(
                     list(self.encoding_pipeline.encoders.keys())
@@ -280,7 +280,7 @@ class Policy(nn.Module):
         - TIMM backbones (CNNEncoder, DepthCNNEncoder): Returns last stage
         - ConditionalCNNEncoder (FiLM): Returns last block of layer4
         - DFormerEncoder: Returns last stage
-        - LightGeometricEncoder: Returns attention block
+        - GeometricRGBDEncoder: Returns attention block
 
         Args:
             encoder_name: Name of the encoder in the encoding pipeline
@@ -301,28 +301,11 @@ class Policy(nn.Module):
 
         encoder = vision_encoders[encoder_name]
 
-        # TIMM-based encoders (CNNEncoder, DepthCNNEncoder)
+        # TIMM-based encoders (CNNEncoder, DepthCNNEncoder, ViTEncoder)
         if hasattr(encoder, "backbone"):
             backbone = encoder.backbone
-
-            # TimmBackbone wraps the actual model in _backbone
-            if hasattr(backbone, "_backbone"):
-                actual_backbone = backbone._backbone
-                # ResNet-style architectures have layer1, layer2, layer3, layer4
-                if hasattr(actual_backbone, "layer4"):
-                    return [actual_backbone.layer4]
-                # Other architectures might have stages
-                elif (
-                    hasattr(actual_backbone, "stages")
-                    and len(actual_backbone.stages) > 0
-                ):
-                    return [actual_backbone.stages[-1]]
-                else:
-                    raise RuntimeError(
-                        f"Encoder '{encoder_name}' backbone structure not recognized. "
-                        f"Backbone type: {type(actual_backbone).__name__}"
-                    )
-            # Direct TIMM models with stages attribute
+            if hasattr(backbone, "layer4"):
+                return [backbone.layer4]
             elif hasattr(backbone, "stages") and len(backbone.stages) > 0:
                 return [backbone.stages[-1]]
             else:
@@ -347,7 +330,7 @@ class Policy(nn.Module):
             f"Encoder '{encoder_name}' architecture not supported for GradCAM. "
             f"Encoder type: {type(encoder).__name__}. "
             f"Supported types: CNNEncoder, DepthCNNEncoder, ConditionalCNNEncoder, "
-            f"DFormerEncoder, LightGeometricEncoder."
+            f"DFormerEncoder, GeometricRGBDEncoder."
         )
 
     def get_camera_to_encoder_mapping(self) -> dict[str, str]:

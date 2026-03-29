@@ -1,6 +1,7 @@
 import torch
 
-from versatil.models.encoding.fusion.base import FusionOutput, SequentialFusion
+from versatil.models.encoding.fusion.base import SequentialFusion
+from versatil.models.feature_meta import FeatureMetadata, FeatureType
 from versatil.models.layers import MLP
 from versatil.models.layers.activation import ActivationFunction
 
@@ -60,9 +61,10 @@ class MLPFusion(SequentialFusion):
         result: torch.Tensor = self.mlp(concat)
         return result
 
-    def get_output_specification(self) -> FusionOutput:
+    def get_output_specification(self) -> FeatureMetadata:
         """Get output specification."""
-        return FusionOutput(
-            output_name=self.output_name,
-            output_dim=self.output_dim,
+        return FeatureMetadata(
+            key=self.output_name,
+            feature_type=FeatureType.FLAT.value,
+            dimension=(self.output_dim,),
         )

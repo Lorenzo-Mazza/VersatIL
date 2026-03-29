@@ -333,9 +333,11 @@ class TestForward:
         policy = policy_factory()
         batch = batch_dictionary_factory()
         policy.forward(batch=batch)
-        policy.encoding_pipeline.assert_called_once_with(
-            batch[SampleKey.OBSERVATION.value],
-        )
+        policy.encoding_pipeline.assert_called_once()
+        actual_obs = policy.encoding_pipeline.call_args[0][0]
+        expected_obs = batch[SampleKey.OBSERVATION.value]
+        for key in expected_obs:
+            assert torch.equal(actual_obs[key], expected_obs[key])
 
     def test_passes_features_and_actions_to_algorithm(
         self,
@@ -463,7 +465,10 @@ class TestPredictAction:
         result = policy.predict_action(obs_dict=observation)
 
         mock_normalize.assert_called_once()
-        policy.encoding_pipeline.assert_called_once_with(normalized_observation)
+        policy.encoding_pipeline.assert_called_once()
+        actual_obs = policy.encoding_pipeline.call_args[0][0]
+        for key in normalized_observation:
+            assert torch.equal(actual_obs[key], normalized_observation[key])
         algorithm.predict.assert_called_once_with(
             features=features, network=policy.decoder
         )
@@ -683,7 +688,7 @@ class TestGetVisionEncoderModules:
             match=re.escape(
                 "No compatible vision encoders found in the encoding pipeline. "
                 "Explainer requires encoders that produce spatial feature maps "
-                "(CNNEncoder, DepthCNNEncoder, ConditionalCNNEncoder, DFormerEncoder, LightGeometricEncoder). "
+                "(CNNEncoder, DepthCNNEncoder, ConditionalCNNEncoder, DFormerEncoder, GeometricRGBDEncoder). "
                 "Available encoders: ['proprio_encoder']"
             ),
         ):
@@ -691,40 +696,36 @@ class TestGetVisionEncoderModules:
 
 
 class TestGetGradcamTargetLayers:
-    def test_returns_layer4_for_timm_resnet_backbone(
+    def test_returns_layer4_for_resnet_backbone(
         self,
         policy_factory: Callable[..., Policy],
         vision_encoder_factory: Callable[..., MagicMock],
         encoding_pipeline_factory: Callable[..., MagicMock],
     ):
-        actual_backbone = MagicMock()
-        actual_backbone.layer4 = MagicMock()
         backbone = MagicMock()
-        backbone._backbone = actual_backbone
+        backbone.layer4 = MagicMock()
         encoder = vision_encoder_factory(has_backbone=True)
         encoder.backbone = backbone
         pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
         policy = policy_factory(encoding_pipeline=pipeline)
         result = policy.get_gradcam_target_layers(encoder_name="rgb")
-        assert result == [actual_backbone.layer4]
+        assert result == [backbone.layer4]
 
-    def test_returns_last_stage_for_timm_stages_backbone(
+    def test_returns_last_stage_for_stages_backbone(
         self,
         policy_factory: Callable[..., Policy],
         vision_encoder_factory: Callable[..., MagicMock],
         encoding_pipeline_factory: Callable[..., MagicMock],
     ):
-        actual_backbone = MagicMock()
-        del actual_backbone.layer4
-        actual_backbone.stages = [MagicMock(), MagicMock()]
         backbone = MagicMock()
-        backbone._backbone = actual_backbone
+        del backbone.layer4
+        backbone.stages = [MagicMock(), MagicMock()]
         encoder = vision_encoder_factory(has_backbone=True)
         encoder.backbone = backbone
         pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
         policy = policy_factory(encoding_pipeline=pipeline)
         result = policy.get_gradcam_target_layers(encoder_name="rgb")
-        assert result == [actual_backbone.stages[-1]]
+        assert result == [backbone.stages[-1]]
 
     def test_returns_last_stage_for_dformer_encoder(
         self,
@@ -764,54 +765,14 @@ class TestGetGradcamTargetLayers:
         result = policy.get_gradcam_target_layers(encoder_name="light_geo")
         assert result == [encoder.attention_block]
 
-    def test_returns_last_stage_for_direct_backbone_stages(
+    def test_raises_for_unrecognized_backbone_structure(
         self,
         policy_factory: Callable[..., Policy],
         vision_encoder_factory: Callable[..., MagicMock],
         encoding_pipeline_factory: Callable[..., MagicMock],
     ):
         backbone = MagicMock()
-        del backbone._backbone
-        backbone.stages = [MagicMock(), MagicMock()]
-        encoder = vision_encoder_factory(has_backbone=True)
-        encoder.backbone = backbone
-        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        result = policy.get_gradcam_target_layers(encoder_name="rgb")
-        assert result == [backbone.stages[-1]]
-
-    def test_raises_for_unrecognized_timm_backbone_with_wrapper(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        actual_backbone = MagicMock()
-        del actual_backbone.layer4
-        del actual_backbone.stages
-        backbone = MagicMock()
-        backbone._backbone = actual_backbone
-        encoder = vision_encoder_factory(has_backbone=True)
-        encoder.backbone = backbone
-        pipeline = encoding_pipeline_factory(encoders={"rgb": encoder})
-        policy = policy_factory(encoding_pipeline=pipeline)
-        with pytest.raises(
-            RuntimeError,
-            match=re.escape(
-                f"Encoder 'rgb' backbone structure not recognized. "
-                f"Backbone type: {type(actual_backbone).__name__}"
-            ),
-        ):
-            policy.get_gradcam_target_layers(encoder_name="rgb")
-
-    def test_raises_for_unrecognized_direct_backbone(
-        self,
-        policy_factory: Callable[..., Policy],
-        vision_encoder_factory: Callable[..., MagicMock],
-        encoding_pipeline_factory: Callable[..., MagicMock],
-    ):
-        backbone = MagicMock()
-        del backbone._backbone
+        del backbone.layer4
         del backbone.stages
         encoder = vision_encoder_factory(has_backbone=True)
         encoder.backbone = backbone

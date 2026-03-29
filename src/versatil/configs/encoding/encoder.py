@@ -9,6 +9,7 @@ from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
     LanguageEncoderType,
     PoolingMethod,
+    SwinBackboneType,
 )
 from versatil.models.layers.activation import ActivationFunction
 
@@ -39,7 +40,9 @@ class DepthCNNEncoderConfig(EncoderConfig):
 class DFormerEncoderConfig(EncoderConfig):
     """DFormer RGB+Depth encoder configuration."""
 
-    _target_: str = "versatil.models.encoding.encoders.depth.dformerv2.DFormerEncoder"
+    _target_: str = (
+        "versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.DFormerEncoder"
+    )
     input_keys: list[str] = field(
         default_factory=lambda: [Cameras.LEFT.value, Cameras.DEPTH.value]
     )
@@ -49,12 +52,10 @@ class DFormerEncoderConfig(EncoderConfig):
 
 
 @dataclass
-class LightGeometricEncoderConfig(EncoderConfig):
+class GeometricRGBDEncoderConfig(EncoderConfig):
     """Geometric RGB+Depth encoder configuration."""
 
-    _target_: str = (
-        "versatil.models.encoding.encoders.depth.light_geometric.LightGeometricEncoder"
-    )
+    _target_: str = "versatil.models.encoding.encoders.cross_modal.rgbd.geometric_rgbd.GeometricRGBDEncoder"
     input_keys: list[str] = field(
         default_factory=lambda: [Cameras.LEFT.value, Cameras.DEPTH.value]
     )
@@ -79,12 +80,39 @@ class ProprioEncoderConfig(EncoderConfig):
 
 
 @dataclass
-class VLMEncoderConfig(EncoderConfig):
-    """Vision-Language Model encoder configuration."""
+class TwoTowerVLMEncoderConfig(EncoderConfig):
+    """Two-tower VLM encoder configuration."""
 
-    _target_: str = "versatil.models.encoding.encoders.multimodal.vlm.VLMEncoder"
+    _target_: str = "versatil.models.encoding.encoders.cross_modal.vision_language.two_tower_vlm.TwoTowerVLMEncoder"
     model_name: str = MISSING
     pooling_method: str = PoolingMethod.NONE.value
+
+
+@dataclass
+class PaliGemmaEncoderConfig(EncoderConfig):
+    """PaliGemma VLM encoder configuration."""
+
+    _target_: str = "versatil.models.encoding.encoders.cross_modal.vision_language.paligemma.PaliGemmaEncoder"
+    model_name: str = MISSING
+    use_embeddings_only: bool = False
+
+
+@dataclass
+class SmolVLMEncoderConfig(EncoderConfig):
+    """SmolVLM/Idefics3 VLM encoder configuration."""
+
+    _target_: str = "versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm.SmolVLMEncoder"
+    model_name: str = MISSING
+    use_embeddings_only: bool = False
+
+
+@dataclass
+class SwinEncoderConfig(EncoderConfig):
+    """Swin Transformer image encoder configuration."""
+
+    _target_: str = "versatil.models.encoding.encoders.rgb.swin.SwinEncoder"
+    backbone: str = SwinBackboneType.SWIN_TINY.value
+    pooling_method: str = PoolingMethod.AVERAGE.value
 
 
 @dataclass

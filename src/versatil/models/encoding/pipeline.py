@@ -1,91 +1,138 @@
+"""Encoding pipeline for multi-modal observation encoding and fusion."""
+
 import logging
 
 import torch
 import torch.nn as nn
 
 from versatil.common.tensor_ops import dict_apply
+from versatil.data.constants import RGB_CAMERAS
+from versatil.data.metadata import CameraMetadata
+from versatil.data.task import ObservationSpace
 from versatil.data.tokenization import Tokenizer
-from versatil.models.encoding.encoders.base import EncoderOutput, EncodingMixin
+from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.encoders.conditional import ConditionalEncoder
 from versatil.models.encoding.fusion.base import FusionModule
+from versatil.models.feature_meta import FeatureMetadata
 
 
 class EncodingPipeline(nn.Module):
-    """
-    Pipeline that encodes inputs and fuses them hierarchically.
+    """Pipeline that encodes inputs and fuses them hierarchically.
 
-    Feature Consumption:
-        When fusion modules combine features, the input features are "consumed" and removed
-        from the output. Only the fusion output and non-consumed encoder features are kept.
-
-        Example:
-            - Encoders produce: A, B, C, D
-            - Fusion 1: B + C → E (consumes B and C)
-            - Fusion 2: E + D → F (consumes E and D)
-            - Final output: {A, F} (not {A, B, C, D, E, F})
-
-        This prevents feature duplication and ensures the decoder receives only
-        semantically meaningful final features.
+    All encoder outputs and fusion outputs are available in the final
+    feature dictionary — nothing is consumed or removed.
     """
 
     def __init__(
         self,
         encoders: dict[str, EncodingMixin],
+        observation_space: ObservationSpace,
         fusion_stages: list[FusionModule] | None = None,
     ):
-        """Initializes the encoding pipeline.
+        """Initialize the encoding pipeline.
 
         Args:
             encoders: Dictionary of instantiated encoders keyed by name.
+            observation_space: Observation space with task metadata.
             fusion_stages: List of instantiated fusion modules.
         """
         super().__init__()
+        self.observation_space = observation_space
         self.encoders = nn.ModuleDict()
         self.conditional_encoders = nn.ModuleDict()
-        #: encoder name -> `EncoderOutput`
-        self.encoder_to_outputs: dict[str, EncoderOutput] = {}
-        #: all feature_name (both encoders and fusion layers) -> dimension (for validation)
-        self._feature_keys_to_dims: dict[str, int | tuple[int, ...]] = {}
-        #: feature names consumed by fusion modules (removed from forward output)
-        self._consumed_features: set[str] = set()
+        #: all feature_name (both encoders and fusion layers) -> FeatureMetadata
+        self._feature_registry: dict[str, FeatureMetadata] = {}
+        self._encoder_feature_keys: dict[str, list[str]] = {}
         self._setup_encoders(encoders=encoders)
         self._setup_fusion_modules(fusion_stages=fusion_stages)
         self._validate_pipeline()
 
-    def flatten_encoder_feature_names(self) -> set[str]:
-        """Get a flat list of all encoder output feature names.
-
-        Note:
-            This is needed because some encoders could have several output features (e.g. a VLM).
-
-        Returns:
-            Set of prefixed output keys from all encoders.
-        """
-        result = set()
-        for encoder_name, output in self.encoder_to_outputs.items():
-            for feature in output.features:
-                result.add(f"{encoder_name}_{feature}")
-        return result
-
     def _setup_encoders(self, encoders: dict[str, EncodingMixin]):
-        """Setup encoders (already instantiated by Hydra)."""
+        """Register encoders and set per-camera image sizes from observation space.
+
+        Args:
+            encoders: Dictionary of instantiated encoders keyed by name.
+        """
+        camera_metadata = self.observation_space.cameras
         for encoder_name, encoder in encoders.items():
             encoder.name = encoder_name
-            output_info = encoder.get_output_specification()
-            self.encoder_to_outputs[encoder_name] = output_info
-            for feat_name, dim in output_info.dimensions.items():
-                self._feature_keys_to_dims[f"{encoder_name}_{feat_name}"] = dim
+            self._set_encoder_image_size(
+                encoder_name=encoder_name,
+                encoder=encoder,
+                camera_metadata=camera_metadata,
+            )
+            feature_list = encoder.get_output_specification()
+            keys = []
+            for meta in feature_list:
+                prefixed_key = f"{encoder_name}_{meta.key}"
+                if prefixed_key in self._feature_registry:
+                    raise ValueError(
+                        f"Duplicate feature key '{prefixed_key}' from encoder "
+                        f"'{encoder_name}'. Already registered."
+                    )
+                self._feature_registry[prefixed_key] = FeatureMetadata(
+                    key=prefixed_key,
+                    feature_type=meta.feature_type,
+                    dimension=meta.dimension,
+                )
+                keys.append(meta.key)
+            self._encoder_feature_keys[encoder_name] = keys
             if isinstance(encoder, ConditionalEncoder):
                 self.conditional_encoders[encoder_name] = encoder
             else:
                 self.encoders[encoder_name] = encoder
 
-    def _setup_fusion_modules(self, fusion_stages: list[FusionModule] | None):
-        """Setup fusion modules (already instantiated by Hydra).
+    def _set_encoder_image_size(
+        self,
+        encoder_name: str,
+        encoder: EncodingMixin,
+        camera_metadata: dict[str, CameraMetadata],
+    ) -> None:
+        """Pass per-camera image size to an encoder from observation space cameras.
 
-        Note:
-            Fusion modules consume their input features. After fusion, only the fusion
-            output is available - input features are removed from the feature dictionary.
+        Args:
+            encoder_name: Name of the encoder in the pipeline.
+            encoder: The encoder instance.
+            camera_metadata: Camera metadata from the observation space.
+
+        Raises:
+            ValueError: If cameras sharing an encoder have different resolutions.
+            ValueError: If encoder has camera keys but none are in the observation space.
+        """
+        camera_keys = [
+            key for key in encoder.input_specification.keys if key in RGB_CAMERAS
+        ]
+        if not camera_keys:
+            return
+        image_sizes = set()
+        for camera_key in camera_keys:
+            if camera_key not in camera_metadata:
+                raise ValueError(
+                    f"Encoder '{encoder_name}' expects camera key '{camera_key}' "
+                    f"but it is not in the observation space cameras: "
+                    f"{list(camera_metadata.keys())}"
+                )
+            metadata = camera_metadata[camera_key]
+            image_sizes.add((metadata.image_height, metadata.image_width))
+        if len(image_sizes) > 1:
+            raise ValueError(
+                f"Encoder '{encoder_name}' has cameras with different resolutions: "
+                f"{image_sizes}. All cameras sharing a backbone must have the "
+                f"same resolution."
+            )
+        image_height, image_width = image_sizes.pop()
+        encoder.set_image_size(image_height=image_height, image_width=image_width)
+
+    def _setup_fusion_modules(self, fusion_stages: list[FusionModule] | None):
+        """Resolve input feature names, initialize layers, and register outputs.
+
+        Fusion modules are instantiated by Hydra without knowledge of encoder output
+        dimensions. This method resolves their input feature names against the registry,
+        calls ``setup()`` to build projection layers, and registers each fusion output
+        as a new entry in the feature registry.
+
+        Args:
+            fusion_stages: List of instantiated fusion modules, or None.
         """
         self.fusion_stages = nn.ModuleList()
         if fusion_stages:
@@ -93,119 +140,82 @@ class EncodingPipeline(nn.Module):
                 fusion.input_features = [
                     self._resolve_feature_name(f) for f in fusion.input_features
                 ]
-                fusion.setup(self._feature_keys_to_dims)
-                self._feature_keys_to_dims[fusion.output_name] = fusion.get_output_dim()
-                # Track consumed features
-                for input_feat in fusion.input_features:
-                    self._consumed_features.add(input_feat)
+                fusion.setup(self._feature_registry)
+                output_meta = fusion.get_output_specification()
+                self._feature_registry[output_meta.key] = output_meta
                 self.fusion_stages.append(fusion)
 
-    def _resolve_feature_name(self, input_specification: str) -> str:
-        """Resolve 'encoder_name' or 'encoder_name.output_selector' to actual feature name."""
-        if "." in input_specification:
-            # Explicit output_selector: "vlm.language"
-            encoder_name, selector = input_specification.split(".", 1)
-            output = self.encoder_to_outputs[encoder_name]
-            if selector not in output.features:
-                raise ValueError(
-                    f"Invalid output_selector '{selector}' for '{encoder_name}. Available: {output.features}'"
-                )
-            else:
-                return f"{encoder_name}_{selector}"
-        elif input_specification in self.encoder_to_outputs:
-            # Otherwise check if it's a single-output encoder, does not need an output selector
-            output = self.encoder_to_outputs[input_specification]
-            if output.is_multi_output:
-                raise ValueError(
-                    f"Multi-output encoder '{input_specification}' requires selector. "
-                    f"Available: {list(output.features)}"
-                )
-            return f"{input_specification}_{output.features[0]}"
+    def _resolve_feature_name(self, name: str) -> str:
+        """Validate that a feature name exists in the registry.
 
-        else:
-            # Direct feature name (from fusion outputs) or invalid name (will be caught by the validation)
-            return input_specification
+        Args:
+            name: Prefixed feature key from fusion config (e.g. ``"left_rgb"``).
+
+        Returns:
+            The same name if it exists in the registry.
+
+        Raises:
+            ValueError: If the name is not in the registry.
+        """
+        if name in self._feature_registry:
+            return name
+        raise ValueError(
+            f"Feature '{name}' not found. "
+            f"Available: {list(self._feature_registry.keys())}"
+        )
 
     def _validate_pipeline(self) -> None:
         """Validates the entire pipeline configuration."""
-        self._validate_encoder_outputs()
-        available_features = self._validate_conditional_encoders()
-        self._validate_fusion_stages(available_features)
+        self._validate_conditional_encoders()
+        self._validate_fusion_stages()
 
-    def _validate_encoder_outputs(self) -> None:
-        """Validates encoder output keys for duplicates."""
-        all_outputs = []
-        for encoder_name, output in self.encoder_to_outputs.items():
-            for feature in output.features:
-                all_outputs.append(f"{encoder_name}_{feature}")
-        if len(all_outputs) != len(set(all_outputs)):
-            raise ValueError("Duplicate output keys detected from encoders")
+    def _validate_conditional_encoders(self) -> None:
+        """Validate that each conditional encoder's conditioning key exists in non-conditional outputs.
 
-    def _validate_conditional_encoders(self) -> set[str]:
-        """Validates conditional encoders and builds available features set.
-
-        Returns:
-            Set of available features after all non-conditional and conditional encoders.
+        Raises:
+            ValueError: If a conditioning key is not produced by any non-conditional encoder.
         """
-        available_features = set()
+        non_conditional_features = set()
         for encoder_name in self.encoders:
-            output = self.encoder_to_outputs[encoder_name]
-            for feature in output.features:
-                available_features.add(f"{encoder_name}_{feature}")
-
+            for key in self._encoder_feature_keys[encoder_name]:
+                non_conditional_features.add(f"{encoder_name}_{key}")
         for encoder_name, encoder in self.conditional_encoders.items():
-            if encoder.condition_key not in available_features:
+            if encoder.condition_key not in non_conditional_features:
                 raise ValueError(
-                    f"Condition key '{encoder.condition_key}' for encoder '{encoder_name}' not available. "
-                    f"Available: {available_features}"
+                    f"Condition key '{encoder.condition_key}' for encoder "
+                    f"'{encoder_name}' not available. "
+                    f"Available: {non_conditional_features}"
                 )
-            output = self.encoder_to_outputs[encoder_name]
-            for feature in output.features:
-                available_features.add(f"{encoder_name}_{feature}")
 
-        return available_features
+    def _validate_fusion_stages(self) -> None:
+        """Validate that all fusion input features exist in the feature registry.
 
-    def _validate_fusion_stages(self, available_features: set[str]) -> set[str]:
-        """Validates fusion stages' input features.
-
-        Args:
-            available_features: Current set of available features.
-
-        Returns:
-            Updated set of available features including fusion outputs.
+        Raises:
+            ValueError: If a fusion stage references a feature not in the registry.
         """
         for i, fusion in enumerate(self.fusion_stages):
             for input_feat in fusion.input_features:
-                if input_feat not in available_features:
+                if input_feat not in self._feature_registry:
                     raise ValueError(
                         f"Fusion stage {i} expects input feature '{input_feat}' "
-                        f"but it's not produced by any encoder or previous fusion. "
-                        f"Available features: {available_features}"
+                        f"but it's not in the registry. "
+                        f"Available: {list(self._feature_registry.keys())}"
                     )
-            available_features.add(fusion.output_name)
-        return available_features
 
     def _flatten_observation_dict(
         self, observation: dict[str, torch.Tensor]
     ) -> dict[str, torch.Tensor]:
         """Flatten nested observation dict (identity for flat dicts).
 
-        Flattens nested dictionaries (e.g., proprioceptive state) into a single-level dict.
-        For example:
-            {"left": tensor, "robot_proprio_state": {"proprio_camera_frame": tensor}}
-        Becomes:
-            {"left": tensor, "proprio_camera_frame": tensor}
-
         Args:
-            observation: Dictionary of observation tensors, possibly with nested dicts
+            observation: Dictionary of observation tensors, possibly with nested dicts.
 
         Returns:
-            Flattened observation dictionary
+            Flattened observation dictionary.
         """
         flattened = {}
         for key, value in observation.items():
             if isinstance(value, dict):
-                # Flatten nested dicts (e.g., robot_proprio_state)
                 for nested_key, nested_value in value.items():
                     flattened[nested_key] = nested_value
             else:
@@ -216,23 +226,22 @@ class EncodingPipeline(nn.Module):
         self,
         observation: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
-        """
-        Encode observations and fuse features hierarchically.
+        """Encode observations through all encoders and apply fusion stages.
+
+        Runs non-conditional encoders first, then conditional encoders (which may
+        depend on earlier outputs as conditioning), then fusion modules. All outputs
+        are kept in the returned dictionary. Encoders whose input keys are missing
+        from the observation are skipped with a warning.
 
         Args:
-            observation: Dictionary indexed by observation keys (defined in the task observation space), containing torch tensors.
+            observation: Dictionary mapping observation keys to tensors.
 
         Returns:
-            Dictionary of final features. Features consumed by fusion modules are NOT included.
-            Only encoder features not consumed by fusion and fusion outputs are returned.
-
-        Note:
-            Fusion modules consume their input features. For example, if fusion combines
-            features A and B into C, the returned dictionary will contain C but not A or B.
+            Dictionary mapping prefixed feature names to tensors. Includes all
+            encoder outputs and all fusion outputs.
         """
         flat_obs = self._flatten_observation_dict(observation)
         features = {}
-
         for encoder_name, encoder in self.encoders.items():
             input_keys = encoder.input_specification.keys
             missing_keys = [key for key in input_keys if key not in flat_obs]
@@ -243,12 +252,10 @@ class EncodingPipeline(nn.Module):
                 continue
             encoder_input = {key: flat_obs[key] for key in input_keys}
             encoded = encoder(encoder_input)
-            output_specification = self.encoder_to_outputs[encoder_name]
-            for feature_name in output_specification.features:
-                if feature_name in encoded:
-                    features[f"{encoder_name}_{feature_name}"] = encoded[feature_name]
+            for feature_key in self._encoder_feature_keys[encoder_name]:
+                if feature_key in encoded:
+                    features[f"{encoder_name}_{feature_key}"] = encoded[feature_key]
 
-        # Conditional encoders are always applied after non-conditional ones, because they may require their outputs as conditioning features.
         for encoder_name, encoder in self.conditional_encoders.items():
             input_keys = encoder.input_specification.keys
             missing_keys = [key for key in input_keys if key not in flat_obs]
@@ -260,10 +267,9 @@ class EncodingPipeline(nn.Module):
             condition_key = encoder.condition_key
             encoder_input = {key: flat_obs[key] for key in input_keys}
             encoded = encoder(encoder_input, features[condition_key])
-            output_specification = self.encoder_to_outputs[encoder_name]
-            for feature_name in output_specification.features:
-                if feature_name in encoded:
-                    features[f"{encoder_name}_{feature_name}"] = encoded[feature_name]
+            for feature_key in self._encoder_feature_keys[encoder_name]:
+                if feature_key in encoded:
+                    features[f"{encoder_name}_{feature_key}"] = encoded[feature_key]
 
         for fusion_module in self.fusion_stages:
             input_features = [
@@ -271,126 +277,70 @@ class EncodingPipeline(nn.Module):
             ]
             features[fusion_module.output_name] = fusion_module(input_features)
 
-        # Remove consumed features - fusion inputs are no longer needed
-        for consumed_feat in self._consumed_features:
-            features.pop(consumed_feat, None)
-
-        # Squeeze time dimension if it's 1
         features = dict_apply(
             features, lambda x: x.squeeze(1) if x.ndim > 1 and x.shape[1] == 1 else x
         )
         return features
 
     def get_feature_names(self) -> list[str]:
-        """Get all feature names produced by the encoding pipeline.
+        """Get all feature names produced by the encoding pipeline."""
+        return list(self._feature_registry.keys())
 
-        Note:
-            This includes all features (encoders + fusion outputs) for validation purposes.
-            Use get_final_feature_names() to get only features available after fusion consumption.
-        """
-        return list(self._feature_keys_to_dims.keys())
+    def get_features(self) -> dict[str, FeatureMetadata]:
+        """Get all feature metadata produced by the encoding pipeline."""
+        return dict(self._feature_registry)
 
-    def get_final_feature_names(self) -> list[str]:
-        """Get final feature names after fusion consumption.
-
-        Returns:
-            List of feature names that are actually available in forward() output.
-            Excludes features consumed by fusion modules.
-        """
-        return [
-            feat
-            for feat in self._feature_keys_to_dims
-            if feat not in self._consumed_features
-        ]
-
-    def get_features_to_dimensions(self) -> dict[str, int | tuple[int, ...]]:
-        """Get a dictionary of the feature names and dimensions produced by the encoding pipeline.
-
-        Note:
-            This includes all features (encoders + fusion outputs) for validation purposes.
-            Use get_final_features_to_dimensions() to get only features available after fusion consumption.
-        """
-        return self._feature_keys_to_dims
-
-    def get_final_features_to_dimensions(self) -> dict[str, int | tuple[int, ...]]:
-        """Get final features and dimensions after fusion consumption.
-
-        Returns:
-            Dictionary mapping feature names to dimensions for features actually available
-            in forward() output. Excludes features consumed by fusion modules.
-        """
-        return {
-            feat: dim
-            for feat, dim in self._feature_keys_to_dims.items()
-            if feat not in self._consumed_features
-        }
+    def get_features_to_dimensions(self) -> dict[str, tuple[int, ...]]:
+        """Get a dictionary of feature names to dimensions."""
+        return {key: meta.dimension for key, meta in self._feature_registry.items()}
 
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
         """Set tokenizer and validate vocab sizes.
 
-        This method is called by Policy.set_tokenizer() to pass the tokenizer
-        to the encoders. Also validates that observation tokenizer vocab size
-        matches language/VLM encoder vocab sizes.
-
         Args:
-            tokenizer: Tokenizer instance from data pipeline (can be None)
+            tokenizer: Tokenizer instance from data pipeline (can be None).
 
         Raises:
-            ValueError: If observation tokenizer vocab size doesn't match encoder vocab sizes
+            ValueError: If observation tokenizer vocab size doesn't match encoder vocab sizes.
         """
-        for encoder_name, encoder in self.encoders.items():
-            if encoder.input_specification.requires_tokenized:
-                if tokenizer is None or tokenizer.observation_tokenizer is None:
-                    raise ValueError(
-                        f"Encoder '{encoder_name}' requires tokenized input, "
-                        f"but no observation tokenizer is available."
-                    )
-                data_vocab_size = tokenizer.observation_tokenizer.vocab_size
-                encoder_vocab_size = encoder.get_vocab_size()
-                if encoder_vocab_size != data_vocab_size:
-                    raise ValueError(
-                        f"Vocab size mismatch: Observation tokenizer has vocab_size={data_vocab_size}, "
-                        f"but encoder '{encoder_name}' expects vocab_size={encoder_vocab_size}. "
-                        f"Ensure the observation tokenizer's tokenizer_model matches the encoder's model. "
-                        f"Observation tokenizer model: {tokenizer.observation_tokenizer.tokenizer_model}"
-                    )
-
-        for encoder_name, encoder in self.conditional_encoders.items():
-            if encoder.input_specification.requires_tokenized:
-                if tokenizer is None or tokenizer.observation_tokenizer is None:
-                    raise ValueError(
-                        f"Encoder '{encoder_name}' requires tokenized input, "
-                        f"but no observation tokenizer is available."
-                    )
-                data_vocab_size = tokenizer.observation_tokenizer.vocab_size
-                encoder_vocab_size = encoder.get_vocab_size()
-                if encoder_vocab_size != data_vocab_size:
-                    raise ValueError(
-                        f"Vocab size mismatch: Observation tokenizer has vocab_size={data_vocab_size}, "
-                        f"but encoder '{encoder_name}' expects vocab_size={encoder_vocab_size}. "
-                        f"Ensure the observation tokenizer's tokenizer_model matches the encoder's model. "
-                        f"Observation tokenizer model: {tokenizer.observation_tokenizer.tokenizer_model}"
-                    )
+        all_encoders = {**self.encoders, **self.conditional_encoders}
+        for encoder_name, encoder in all_encoders.items():
+            if not encoder.input_specification.requires_tokenized:
+                continue
+            if tokenizer is None or tokenizer.observation_tokenizer is None:
+                raise ValueError(
+                    f"Encoder '{encoder_name}' requires tokenized input, "
+                    f"but no observation tokenizer is available."
+                )
+            data_vocab_size = tokenizer.observation_tokenizer.vocab_size
+            encoder_vocab_size = encoder.get_vocab_size()
+            if encoder_vocab_size != data_vocab_size:
+                raise ValueError(
+                    f"Vocab size mismatch: Observation tokenizer has vocab_size={data_vocab_size}, "
+                    f"but encoder '{encoder_name}' expects vocab_size={encoder_vocab_size}. "
+                    f"Ensure the observation tokenizer's tokenizer_model matches the encoder's model. "
+                    f"Observation tokenizer model: {tokenizer.observation_tokenizer.tokenizer_model}"
+                )
 
     def __repr__(self) -> str:
         """Pretty print the pipeline structure."""
         lines = ["EncodingPipeline(", "  Encoders:"]
-
         for enc_name, encoder in {**self.encoders, **self.conditional_encoders}.items():
             input_keys = encoder.input_specification.keys
-            output = self.encoder_to_outputs[enc_name]
-            output_keys = [f"{enc_name}_{feat}" for feat in output.features]
+            output_keys = [
+                f"{enc_name}_{k}" for k in self._encoder_feature_keys[enc_name]
+            ]
             lines.append(
-                f"    {enc_name}: {input_keys} -> {output_keys} ({encoder.__class__.__name__})"
+                f"    {enc_name}: {input_keys} -> {output_keys} "
+                f"({encoder.__class__.__name__})"
             )
-
         if self.fusion_stages:
             lines.append("  Fusion stages:")
             for i, fusion in enumerate(self.fusion_stages):
                 inputs = ", ".join(fusion.input_features)
                 lines.append(
-                    f"    {i}: [{inputs}] -> {fusion.output_name} ({fusion.__class__.__name__})"
+                    f"    {i}: [{inputs}] -> {fusion.output_name} "
+                    f"({fusion.__class__.__name__})"
                 )
-
         lines.append(")")
         return "\n".join(lines)

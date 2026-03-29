@@ -733,7 +733,39 @@ Extensions:
   - For custom models (DFormer, custom CNNs), implement custom LoRA layers for attention/linear layers
   - Add LoRA config to all encoder configs (optional, enabled=False by default)
   - Benefits: Fine-tune large frozen models with <1% of original parameters
-- Create a synthetic dataset schema for 1D and 2D vanilla tasks. 
+- **Interleaved VLM+Expert Decoder (Pi0/SmolVLA architecture)**:
+  - Single `InterleavedExpertDecoder` class supporting Pi0, Pi0.5, and SmolVLA patterns.
+  - VLM encoder uses `use_embeddings_only=True` — returns raw image + language embeddings, LM layers stay available.
+  - Decoder borrows VLM's LM layers via `set_backbone()`, wired by Policy at init.
+  - Expert is a smaller LM (same architecture family, configurable width multiplier) with K/V projections reshaped for cross-attention from VLM hidden states.
+  - Layer-by-layer interleaved processing: joint Q/K/V attention, separate FFNs per model.
+  - Configurable time conditioning: `concat_mlp` (Pi0), `adarms` (Pi0.5), `none` (SmolVLA/BC).
+  - KV caching at inference: prefix (images+language) processed once and cached, denoising steps only reprocess suffix (actions).
+  - Asymmetric attention mask: prefix bidirectional, suffix causal, prefix cannot attend to suffix.
+  - Composes with existing VersatIL algorithms (FlowMatching, BC) and action heads.
+  - Reference implementations:
+    - Pi0/Pi0.5: https://github.com/Physical-Intelligence/openpi/blob/main/src/openpi/models_pytorch/pi0_pytorch.py
+    - Pi0 interleaved layers: https://github.com/Physical-Intelligence/openpi/blob/main/src/openpi/models_pytorch/gemma_pytorch.py
+    - SmolVLA: https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/smolvla/smolvlm_with_expert.py
+- **PolicyAssembler: Replace Hydra cross-tree interpolation with Python wiring**:
+  - **Problem**: Configs are coupled to the tree shape via `${task.observation_space}`, `${policy.device}`, etc. Every config knows its position in the hierarchy. This prevents config reuse (e.g., teacher-student with two policies), isolated testing, and hierarchy restructuring.
+  - **Solution**: Slim configs to intrinsic parameters only (decoder config has `embedding_dim`, not `observation_space`). A `PolicyAssembler` class in `src/versatil/assembly.py` wires shared dependencies via Python:
+    ```python
+    class PolicyAssembler:
+        def assemble(self, policy_config, task, device) -> Policy:
+            encoding_pipeline = instantiate(policy_config.encoding_pipeline)
+            decoder = instantiate(policy_config.decoder,
+                observation_space=task.observation_space,
+                action_space=task.action_space,
+                prediction_horizon=task.prediction_horizon,
+                observation_horizon=task.observation_horizon)
+            # ... wire everything, pass feature metadata to decoder
+    ```
+  - **Feature metadata injection**: The assembler passes `encoding_pipeline.get_features()` to the decoder after instantiation, replacing the current `has_time_dim` flag and runtime `ndim` shape guessing in `TransformerInputBuilder`/`UNetInputBuilder`/`FeatureProjection`. Decoders use `FeatureMetadata.feature_type` instead of inspecting tensor shapes. The pipeline squeeze of `T=1` is removed — encoders always output `(B, T, ...)`, decoders handle it consistently.
+  - **YAML simplification**: `policy.decoder.observation_space: ${policy.observation_space}` disappears. Shared params exist once in `task:` and flow through the assembler.
+  - **Migration path**: Incremental — start with decoder configs, then algorithm, then encoding pipeline, then PolicyConfig itself. Each step is independently testable.
+  - **Hydra still used for**: config composition (defaults lists), CLI overrides, leaf instantiation, config store.
+- Create a synthetic dataset schema for 1D and 2D vanilla tasks.
 - Introduce support for Pointcloud data and 3D encoders-decoders like RVT
 - Implement memory based encoders like V-JEPA and Masked Autoencoders.
 - Implement two-stage training somehow?

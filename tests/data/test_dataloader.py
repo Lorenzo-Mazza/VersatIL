@@ -29,8 +29,6 @@ def dataloader_config_factory() -> Callable[..., DataLoaderConfig]:
     def factory(
         batch_size: int = 32,
         num_workers: int = 4,
-        image_height: int = 224,
-        image_width: int = 224,
         val_ratio: float = 0.1,
         total_ratio: float = 1.0,
         skip_initial_episode_steps: int = 0,
@@ -40,8 +38,6 @@ def dataloader_config_factory() -> Callable[..., DataLoaderConfig]:
         return DataLoaderConfig(
             batch_size=batch_size,
             num_workers=num_workers,
-            image_height=image_height,
-            image_width=image_width,
             val_ratio=val_ratio,
             total_ratio=total_ratio,
             skip_initial_episode_steps=skip_initial_episode_steps,
@@ -170,40 +166,6 @@ class TestValidateDataloaderConfig:
         self, dataloader_config_factory, num_workers, expectation
     ):
         config = dataloader_config_factory(num_workers=num_workers)
-
-        with expectation:
-            validate_dataloader_config(config)
-
-    @pytest.mark.parametrize(
-        "image_height, expectation",
-        [
-            (1, does_not_raise()),
-            (270, does_not_raise()),
-            (0, pytest.raises(ValueError, match="image_height must be positive")),
-            (-1, pytest.raises(ValueError, match="image_height must be positive")),
-        ],
-    )
-    def test_image_height_validation(
-        self, dataloader_config_factory, image_height, expectation
-    ):
-        config = dataloader_config_factory(image_height=image_height)
-
-        with expectation:
-            validate_dataloader_config(config)
-
-    @pytest.mark.parametrize(
-        "image_width, expectation",
-        [
-            (1, does_not_raise()),
-            (480, does_not_raise()),
-            (0, pytest.raises(ValueError, match="image_width must be positive")),
-            (-1, pytest.raises(ValueError, match="image_width must be positive")),
-        ],
-    )
-    def test_image_width_validation(
-        self, dataloader_config_factory, image_width, expectation
-    ):
-        config = dataloader_config_factory(image_width=image_width)
 
         with expectation:
             validate_dataloader_config(config)
@@ -799,8 +761,6 @@ class TestGetDataloadersIntegration:
             orientation_dim=4,
             has_gripper=True,
             cameras=[],
-            image_height=16,
-            image_width=16,
         )
 
         position_metadata = position_observation_metadata_factory(dimension=3)
@@ -832,8 +792,6 @@ class TestGetDataloadersIntegration:
             batch_size=4,
             num_workers=1,
             val_ratio=0.2,
-            image_height=16,
-            image_width=16,
         )
         dataloader_config.color_augmentation = None
         dataloader_config.spatial_augmentation = None

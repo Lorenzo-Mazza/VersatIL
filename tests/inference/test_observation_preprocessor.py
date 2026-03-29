@@ -12,6 +12,7 @@ from versatil_constants.shared import ObsKey
 from versatil_constants.tso import TSOProprioKey
 
 from versatil.data.constants import Cameras
+from versatil.data.metadata import CameraMetadata
 from versatil.inference.observation_preprocessor import ObservationPreprocessor
 
 
@@ -31,12 +32,21 @@ def preprocessor_factory() -> Callable[..., ObservationPreprocessor]:
             camera_keys = [Cameras.LEFT.value]
         if proprioceptive_keys is None:
             proprioceptive_keys = []
+        camera_metadata = {}
+        for key in camera_keys:
+            channels = 1 if key == Cameras.DEPTH.value else 3
+            camera_metadata[key] = CameraMetadata(
+                camera_key=key,
+                dtype="uint8",
+                channels=channels,
+                image_height=image_height,
+                image_width=image_width,
+            )
         return ObservationPreprocessor(
             camera_keys=camera_keys,
             proprioceptive_keys=proprioceptive_keys,
             has_language=has_language,
-            image_height=image_height,
-            image_width=image_width,
+            camera_metadata=camera_metadata,
             compression_type=compression_type,
             rotate_images=rotate_images,
             depth_clamp_range=depth_clamp_range,
@@ -179,22 +189,6 @@ class TestObservationPreprocessorInitialization:
             Cameras.LEFT.value,
             Cameras.RIGHT.value,
         ]
-
-    def test_depth_registered_as_mask_in_albumentations(self, preprocessor_factory):
-        preprocessor = preprocessor_factory(
-            camera_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
-        )
-        additional_targets = preprocessor.image_transform.additional_targets
-        assert additional_targets[Cameras.DEPTH.value] == "mask"
-
-    def test_second_rgb_camera_registered_as_additional_image(
-        self, preprocessor_factory
-    ):
-        preprocessor = preprocessor_factory(
-            camera_keys=[Cameras.LEFT.value, Cameras.RIGHT.value],
-        )
-        additional_targets = preprocessor.image_transform.additional_targets
-        assert additional_targets[Cameras.RIGHT.value] == "image"
 
 
 @pytest.mark.unit
@@ -869,6 +863,19 @@ class TestTransformCameraObservations:
         )
         # No RGB keys should be present
         assert len(result) == 1
+
+    def test_missing_camera_key_raises(
+        self,
+        preprocessor_factory,
+    ):
+        preprocessor = preprocessor_factory(
+            camera_keys=[Cameras.LEFT.value],
+        )
+        with pytest.raises(
+            ValueError,
+            match=f"Missing camera key '{Cameras.LEFT.value}' in the server observation data.",
+        ):
+            preprocessor.transform_camera_observations(recent_observations={})
 
     def test_resize_applied_to_images(
         self,

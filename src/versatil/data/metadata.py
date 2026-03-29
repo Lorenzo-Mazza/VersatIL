@@ -275,12 +275,16 @@ ProprioceptiveObservationMetadata = (
 class CameraMetadata(BaseMetadata):
     """Camera observation metadata.
 
+    Note:
+        In the dataset schema context, image_width/image_height define storage dimensions.
+        In the observation space context, they define training-time resize targets.
+
     Attributes:
         raw_camera_key: Key in the raw dataset corresponding to the camera.
             It has to be one of `data.constants.VALID_RAW_CAMERA_KEYS` values.
         channels: Number of image channels.
-        image_width: Optional target image width for resizing when storing images.
-        image_height: Optional target image height for resizing when storing images.
+        image_width: Target image width.
+        image_height: Target image height.
     """
 
     def __init__(
@@ -288,8 +292,8 @@ class CameraMetadata(BaseMetadata):
         camera_key: str,
         dtype: str,
         channels: int,
-        image_width: int | None = None,
-        image_height: int | None = None,
+        image_width: int,
+        image_height: int,
     ):
         super().__init__(dtype, is_numerical=True, needs_normalization=True)
         if camera_key not in RAW_TO_CAMERA_MAPPING:
@@ -303,16 +307,29 @@ class CameraMetadata(BaseMetadata):
         self.image_width = image_width
         self.image_height = image_height
 
+    @property
+    def is_single_channel(self) -> bool:
+        """Whether this camera has a single channel (e.g. for depth maps)."""
+        return self.channels == 1
+
+    @property
+    def is_rgb(self) -> bool:
+        """Whether this camera is an RGB camera (3 channels)."""
+        return self.channels == 3
+
     def __eq__(self, other: object) -> bool:
-        """Equality function."""
+        """Structural equality — compares camera identity and format, not dimensions.
+
+        Dimensions are excluded because image_height/image_width have different
+        semantics depending on context: storage size in the dataset schema vs
+        training resize target in the observation space.
+        """
         if not isinstance(other, CameraMetadata):
             return NotImplemented
         return (
             super().__eq__(other)
             and self.raw_camera_key == other.raw_camera_key
             and self.channels == other.channels
-            and self.image_width == other.image_width
-            and self.image_height == other.image_height
         )
 
 

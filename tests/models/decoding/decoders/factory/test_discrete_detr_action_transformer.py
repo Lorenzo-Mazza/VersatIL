@@ -10,11 +10,12 @@ import torch.nn as nn
 
 from versatil.data.tokenization import Tokenizer
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey, FeatureType
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.discrete_detr_action_transformer import (
     DiscreteDETRActionTransformer,
 )
+from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer.transformer import Transformer
 

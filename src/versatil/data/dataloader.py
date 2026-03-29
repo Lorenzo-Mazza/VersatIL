@@ -154,10 +154,6 @@ def validate_dataloader_config(config: DataLoaderConfig) -> None:
         raise ValueError(f"batch_size must be positive, got {config.batch_size}")
     if config.num_workers < 0:
         raise ValueError(f"num_workers cannot be negative, got {config.num_workers}")
-    if config.image_height <= 0:
-        raise ValueError(f"image_height must be positive, got {config.image_height}")
-    if config.image_width <= 0:
-        raise ValueError(f"image_width must be positive, got {config.image_width}")
     if not 0 <= config.val_ratio < 1:
         raise ValueError(f"val_ratio must be in range [0, 1), got {config.val_ratio}")
     if not 0 < config.total_ratio <= 1:

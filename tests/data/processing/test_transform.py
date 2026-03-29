@@ -1,4 +1,4 @@
-"""Tests for versatil.data.transform module."""
+"""Tests for versatil.data.processing.transform module."""
 
 import logging
 from collections.abc import Callable
@@ -20,8 +20,7 @@ from versatil.data.metadata import (
     OnTheFlyActionMetadata,
     PositionObservationMetadata,
 )
-from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.data.transform import (
+from versatil.data.processing.transform import (
     detokenize_actions,
     normalize_actions,
     normalize_observation,
@@ -31,6 +30,7 @@ from versatil.data.transform import (
     tokenize_sample,
     unnormalize_actions,
 )
+from versatil.data.task import ActionSpace, ObservationSpace
 
 
 @pytest.fixture

@@ -9,15 +9,11 @@ from versatil.data.constants import ImageNormalizationType, ObsKey, SampleKey
 from versatil.data.metadata import CameraMetadata
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.metrics.base import BaseLoss
-from versatil.models.decoding.action_heads import MoEHead
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
-from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
+from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders import MoEDecoder
 from versatil.models.decoding.decoders.base import ActionDecoder
-from versatil.models.decoding.decoders.factory.mode_act import (
-    MixtureOfDensitiesActionTransformer,
-)
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.pipeline import EncodingPipeline
 from versatil.quantization.strategies import PT2EStrategy, QuantizeApiStrategy
@@ -164,6 +160,14 @@ class ExperimentValidator:
                     f"Please either add them to the observation space or modify encoder configuration."
                 )
 
+            for key in input_keys:
+                metadata = self.observation_space.observations_metadata.get(key)
+                if metadata is None:
+                    continue
+                error = encoder.validate_input_metadata(key=key, metadata=metadata)
+                if error:
+                    self.errors.append(f"Encoder '{encoder_name}': {error}")
+
         uncovered_keys = available_keys - configured_encoder_inputs
         uncovered_keys -= {
             SampleKey.TOKENIZED_OBSERVATIONS.value,
@@ -177,26 +181,24 @@ class ExperimentValidator:
 
     def validate_decoder_encoder_compatibility(self) -> None:
         """Validate that decoder inputs match encoder outputs."""
-        available_features_to_dims = (
-            self.encoding_pipeline.get_final_features_to_dimensions()
-        )
-        available_features = list(available_features_to_dims.keys())
+        available_features = self.encoding_pipeline.get_features()
+        available_feature_names = list(available_features.keys())
         decoder_input_keys = self.decoder.decoder_input.keys
 
         for expected_feature in decoder_input_keys:
-            if expected_feature not in available_features:
+            if expected_feature not in available_feature_names:
                 self.errors.append(
                     f"Action decoding network expects input feature '{expected_feature}' "
-                    f"but it's not produced by any encoder or fusion layer (or it was consumed by fusion). "
-                    f"Available final features: {available_features}"
+                    f"but it's not produced by any encoder or fusion layer. "
+                    f"Available features: {available_feature_names}"
                 )
 
         self.decoder.decoder_input.validate_feature_types(
-            available_features_to_dims=available_features_to_dims
+            available_features=available_features
         )
 
         if isinstance(self.decoder, MoEDecoder):
-            self._validate_moe_gating_feature(available_features)
+            self._validate_moe_gating_feature(available_feature_names)
 
     def _validate_moe_gating_feature(self, available_features: list[str]) -> None:
         """Validate MoE gating feature key exists."""
@@ -229,31 +231,8 @@ class ExperimentValidator:
             if not meta.requires_prediction_head:
                 valid_loss_keys.add(key)
 
-        if isinstance(self.algorithm, VariationalAlgorithm):
-            valid_loss_keys.update(
-                {
-                    LatentKey.POSTERIOR_LATENT.value,
-                    LatentKey.POSTERIOR_MU.value,
-                    LatentKey.POSTERIOR_LOGVAR.value,
-                    LatentKey.PRIOR_LATENT.value,
-                    LatentKey.PRIOR_MU.value,
-                    LatentKey.PRIOR_LOGVAR.value,
-                    LatentKey.PRIOR_PREDICTION.value,
-                    LatentKey.PRIOR_TARGET.value,
-                }
-            )
-
-        if isinstance(
-            self.decoder, (MoEDecoder, MixtureOfDensitiesActionTransformer)
-        ) or any(isinstance(h, MoEHead) for h in self.decoder.action_heads.values()):
-            valid_loss_keys.add(DecoderOutputKey.ROUTING_WEIGHTS.value)
-
-        if self.decoder.__class__.__name__ == "FreeActionTransformer":
-            valid_loss_keys.add(DecoderOutputKey.BINARY_LOGITS.value)
-
-        if self.decoder.supports_tokenized_actions:
-            valid_loss_keys.add(SampleKey.TOKENIZED_ACTIONS.value)
-
+        valid_loss_keys.update(self.algorithm.get_auxiliary_output_keys())
+        valid_loss_keys.update(self.decoder.get_auxiliary_output_keys())
         required_keys = self.loss.get_required_keys()
         invalid_keys = required_keys - valid_loss_keys
         if invalid_keys:

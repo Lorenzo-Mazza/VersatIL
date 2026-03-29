@@ -5,7 +5,6 @@ import torch
 
 from versatil.common.tensor_ops import tensor_to_str
 from versatil.configs.data.tokenizer import TokenizationConfig
-from versatil.data.action_processor import ActionProcessor
 from versatil.data.constants import (
     Cameras,
 )
@@ -20,6 +19,7 @@ from versatil.data.normalization.image_normalizer import (
 )
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.preprocessing.replay_buffer import ReplayBuffer
+from versatil.data.processing.action_processor import ActionProcessor
 from versatil.data.task import ObservationSpace
 from versatil.data.tokenization.action_tokenizer import ActionTokenizer
 from versatil.data.tokenization.observation_tokenizer import ObservationTokenizer
@@ -212,6 +212,7 @@ class TransformBuilder:
             winsorize_depth: Apply winsorization to depth
         """
         for camera_key, _camera_meta in self.observation_space.cameras.items():
+            # TODO: this currently assumes that only a camera with key "depth" is a depth camera - should ideally be specified in metadata
             if camera_key == Cameras.DEPTH.value:
                 depth_stats = self._compute_depth_stats_streaming(
                     camera_key, winsorize_depth

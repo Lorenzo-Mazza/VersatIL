@@ -77,6 +77,23 @@ class VariationalAlgorithm(DecodingAlgorithm):
         if isinstance(self.prior, VampPrior):
             self.prior.set_encoder(self.posterior_encoder)
 
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """Variational algorithm adds latent variable keys to the output."""
+        keys = self.base_algorithm.get_auxiliary_output_keys()
+        keys.update(
+            {
+                LatentKey.POSTERIOR_LATENT.value,
+                LatentKey.POSTERIOR_MU.value,
+                LatentKey.POSTERIOR_LOGVAR.value,
+                LatentKey.PRIOR_LATENT.value,
+                LatentKey.PRIOR_MU.value,
+                LatentKey.PRIOR_LOGVAR.value,
+                LatentKey.PRIOR_PREDICTION.value,
+                LatentKey.PRIOR_TARGET.value,
+            }
+        )
+        return keys
+
     def _variational_step(
         self,
         features: dict[str, torch.Tensor],

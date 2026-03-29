@@ -1,6 +1,7 @@
-"""Tests for versatil.models.encoding.encoders.depth.dformerv2 module."""
+"""Tests for versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2 module."""
 
 import os
+import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
@@ -12,11 +13,12 @@ import torch
 import torch.nn as nn
 
 from versatil.data.constants import RGB_CAMERAS, Cameras
+from versatil.data.metadata import BaseMetadata, CameraMetadata
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
     PoolingMethod,
 )
-from versatil.models.encoding.encoders.depth.dformerv2 import (
+from versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2 import (
     DFormerEncoder,
     DFormerStage,
     DFormerVariant,
@@ -37,15 +39,16 @@ def _mock_build_backbone(
     self.stages = nn.ModuleList()
 
 
-def _mock_setup_pooling(self):
-    """Side-effect to set pooling-related attributes."""
-    self.pooling_head = None
+def _mock_setup_pooling(self, spatial_height: int, spatial_width: int):
+    """Side-effect to create a mock pooling head with correct output dim."""
+    self.pooling_head = MagicMock()
+    self.pooling_head.return_value = torch.zeros(1, self.feature_dim)
     self.output_dim = self.feature_dim
 
 
 @pytest.fixture
 def dformer_encoder_factory() -> Callable[..., DFormerEncoder]:
-    """Factory for DFormerEncoder with mocked backbone and pooling."""
+    """Factory for DFormerEncoder with mocked backbone."""
 
     def factory(
         input_keys: str | list[str] | None = None,
@@ -63,10 +66,9 @@ def dformer_encoder_factory() -> Callable[..., DFormerEncoder]:
             input_keys = [Cameras.LEFT.value, Cameras.DEPTH.value]
         with (
             patch.object(DFormerEncoder, "_build_backbone", _mock_build_backbone),
-            patch.object(DFormerEncoder, "_setup_pooling", _mock_setup_pooling),
             patch.object(DFormerEncoder, "__init_subclass__", lambda **kw: None),
             patch(
-                "versatil.models.encoding.encoders.depth.dformerv2.PatchEmbedding",
+                "versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.PatchEmbedding",
             ) as mock_patch_embed,
         ):
             mock_patch_embed.return_value = MagicMock()
@@ -356,17 +358,20 @@ class TestDFormerEncoderInitialization:
         dformer_encoder_factory: Callable[..., DFormerEncoder],
     ):
         encoder = dformer_encoder_factory()
-        assert hasattr(encoder, "forward")
-        assert hasattr(encoder, "get_output_specification")
-        assert hasattr(encoder, "input_specification")
+        spec = encoder.get_output_specification()
+        feature_keys = [m.key for m in spec]
+        assert feature_keys == [EncoderOutputKeys.RGBD.value]
 
     def test_requires_depth_in_input_keys(self):
         with (
-            pytest.raises(ValueError, match="Missing required inputs"),
+            pytest.raises(
+                ValueError,
+                match=re.escape("Missing required inputs: {'depth'}"),
+            ),
             patch.object(DFormerEncoder, "_build_backbone", _mock_build_backbone),
             patch.object(DFormerEncoder, "_setup_pooling", _mock_setup_pooling),
             patch(
-                "versatil.models.encoding.encoders.depth.dformerv2.PatchEmbedding",
+                "versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.PatchEmbedding",
             ) as mock_patch_embed,
         ):
             mock_patch_embed.return_value = MagicMock()
@@ -377,11 +382,16 @@ class TestDFormerEncoderInitialization:
 
     def test_requires_rgb_camera_in_input_keys(self):
         with (
-            pytest.raises(ValueError, match="Exactly one from"),
+            pytest.raises(
+                ValueError,
+                match=re.escape(
+                    f"Exactly one from {RGB_CAMERAS} required, got {set()}"
+                ),
+            ),
             patch.object(DFormerEncoder, "_build_backbone", _mock_build_backbone),
             patch.object(DFormerEncoder, "_setup_pooling", _mock_setup_pooling),
             patch(
-                "versatil.models.encoding.encoders.depth.dformerv2.PatchEmbedding",
+                "versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.PatchEmbedding",
             ) as mock_patch_embed,
         ):
             mock_patch_embed.return_value = MagicMock()
@@ -429,7 +439,7 @@ class TestDFormerEncoderLoadCheckpoint:
 
         with (
             patch(
-                "versatil.models.encoding.encoders.depth.dformerv2.torch.load",
+                "versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.torch.load",
                 return_value=checkpoint_data,
             ),
             patch.object(DFormerEncoder, "load_state_dict") as mock_load,
@@ -455,7 +465,7 @@ class TestDFormerEncoderLoadCheckpoint:
 
         with (
             patch(
-                "versatil.models.encoding.encoders.depth.dformerv2.torch.load",
+                "versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.torch.load",
                 return_value=checkpoint_data,
             ),
             patch.object(DFormerEncoder, "load_state_dict") as mock_load,
@@ -481,7 +491,7 @@ class TestDFormerEncoderLoadCheckpoint:
 
         with (
             patch(
-                "versatil.models.encoding.encoders.depth.dformerv2.torch.load",
+                "versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.torch.load",
                 return_value=checkpoint_data,
             ),
             patch.object(DFormerEncoder, "load_state_dict") as mock_load,
@@ -501,10 +511,78 @@ class TestDFormerEncoderGetOutputSpecification:
     ):
         encoder = dformer_encoder_factory()
         specification = encoder.get_output_specification()
-        assert specification.features == [EncoderOutputKeys.RGBD.value]
-        assert (
-            specification.dimensions[EncoderOutputKeys.RGBD.value] == encoder.output_dim
-        )
+        feature_keys = [m.key for m in specification]
+        assert feature_keys == [EncoderOutputKeys.RGBD.value]
+        assert next(
+            m for m in specification if m.key == EncoderOutputKeys.RGBD.value
+        ).dimension == (encoder.output_dim,)
+
+
+class TestDFormerEncoderValidateInputMetadata:
+    @pytest.mark.parametrize(
+        "key, metadata, expected_error",
+        [
+            (
+                Cameras.LEFT.value,
+                CameraMetadata(
+                    camera_key="left",
+                    dtype="uint8",
+                    channels=3,
+                    image_height=224,
+                    image_width=224,
+                ),
+                None,
+            ),
+            (
+                Cameras.LEFT.value,
+                CameraMetadata(
+                    camera_key="left",
+                    dtype="uint8",
+                    channels=1,
+                    image_height=224,
+                    image_width=224,
+                ),
+                f"Expected 3-channel RGB for '{Cameras.LEFT.value}', got 1 channels",
+            ),
+            (
+                Cameras.DEPTH.value,
+                CameraMetadata(
+                    camera_key="depth",
+                    dtype="float32",
+                    channels=1,
+                    image_height=224,
+                    image_width=224,
+                ),
+                None,
+            ),
+            (
+                Cameras.DEPTH.value,
+                CameraMetadata(
+                    camera_key="depth",
+                    dtype="uint8",
+                    channels=3,
+                    image_height=224,
+                    image_width=224,
+                ),
+                f"Expected single-channel depth for '{Cameras.DEPTH.value}', got 3 channels",
+            ),
+            (
+                Cameras.LEFT.value,
+                MagicMock(spec=BaseMetadata),
+                f"Expected CameraMetadata for '{Cameras.LEFT.value}', got MagicMock",
+            ),
+        ],
+    )
+    def test_validates_rgb_and_depth_metadata(
+        self,
+        dformer_encoder_factory: Callable[..., DFormerEncoder],
+        key: str,
+        metadata,
+        expected_error: str | None,
+    ):
+        encoder = dformer_encoder_factory()
+        result = encoder.validate_input_metadata(key=key, metadata=metadata)
+        assert result == expected_error
 
 
 class TestDFormerEncoderIntegration:
@@ -528,18 +606,18 @@ class TestDFormerEncoderIntegration:
             checkpoint_path=None,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
+        encoder.set_image_size(image_height=224, image_width=224)
         inputs = rgbd_input_factory(batch_size=batch_size)
         output = encoder(inputs)
         features = output[EncoderOutputKeys.RGBD.value]
-        assert features.ndim == 2
-        assert features.shape[0] == batch_size
+        assert features.shape == (batch_size, 1, encoder.output_dim)
 
     @pytest.mark.integration
-    @pytest.mark.parametrize("time_steps", [None, 2])
+    @pytest.mark.parametrize("time_steps", [1, 2])
     def test_temporal_reshaping(
         self,
         rgbd_input_factory: Callable[..., dict[str, torch.Tensor]],
-        time_steps: int | None,
+        time_steps: int,
     ):
         batch_size = 1
         encoder = DFormerEncoder(
@@ -549,16 +627,14 @@ class TestDFormerEncoderIntegration:
             checkpoint_path=None,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
+        encoder.set_image_size(image_height=224, image_width=224)
         inputs = rgbd_input_factory(
             batch_size=batch_size,
             time_steps=time_steps,
         )
         output = encoder(inputs)
         features = output[EncoderOutputKeys.RGBD.value]
-        if time_steps is not None:
-            assert features.shape == (batch_size, time_steps, encoder.output_dim)
-        else:
-            assert features.shape == (batch_size, encoder.output_dim)
+        assert features.shape == (batch_size, time_steps, encoder.output_dim)
 
 
 @pytest.mark.integration

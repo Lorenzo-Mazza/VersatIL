@@ -1,4 +1,4 @@
-"""Pooling strategies for encoder feature extraction."""
+"""Pooling strategies for spatial feature maps and token sequences."""
 
 from abc import ABC, abstractmethod
 
@@ -10,43 +10,49 @@ from versatil.models.layers import LearnedAggregation, SpatialSoftmax
 
 
 class PoolingHead(nn.Module, ABC):
-    """Abstract base class for pooling operations."""
+    """Abstract base class for pooling operations on spatial feature maps or token sequences.
 
+    Args:
+        input_dimension: Feature vector size, i.e. channel count for spatial
+            feature maps (B, C, H, W), or hidden dimension for token
+            sequences (B, S, D).
+    """
+
+    def __init__(self, input_dimension: int):
+        super().__init__()
+        self.input_dimension = input_dimension
+
+    @property
     @abstractmethod
-    def get_output_dim(self, input_channels: int) -> int | tuple[int, ...]:
-        """Return output dimension after pooling.
-
-        Args:
-            input_channels: Number of input feature channels
-
-        Returns:
-            Output dimension (int for 1D, tuple for spatial dimensions)
-        """
+    def output_dim(self) -> int | tuple[int, ...]:
+        """Output dimension after pooling."""
         raise NotImplementedError
 
     @abstractmethod
     def forward(self, features: torch.Tensor) -> torch.Tensor:
-        """Apply pooling to features.
-
-        Args:
-            features: Input features of shape (B, C, H, W)
-
-        Returns:
-            Pooled features
-        """
+        """Apply pooling to input features."""
         raise NotImplementedError
 
 
 class SpatialSoftmaxPooling(PoolingHead):
     """Spatial softmax pooling on feature maps."""
 
-    def __init__(self, spatial_height: int, spatial_width: int, channels: int):
-        super().__init__()
-        self.spatial_softmax = SpatialSoftmax(spatial_height, spatial_width, channels)
-        self.channels = channels
+    def __init__(self, input_dimension: int, spatial_height: int, spatial_width: int):
+        """Initialize spatial softmax pooling.
 
-    def get_output_dim(self, input_channels: int) -> int:
-        return input_channels * 2
+        Args:
+            input_dimension: Number of feature channels.
+            spatial_height: Height of the feature map.
+            spatial_width: Width of the feature map.
+        """
+        super().__init__(input_dimension=input_dimension)
+        self.spatial_softmax = SpatialSoftmax(
+            spatial_height, spatial_width, input_dimension
+        )
+
+    @property
+    def output_dim(self) -> int:
+        return self.input_dimension * 2
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         result: torch.Tensor = self.spatial_softmax(features)
@@ -54,91 +60,180 @@ class SpatialSoftmaxPooling(PoolingHead):
 
 
 class GlobalAveragePooling(PoolingHead):
-    """Global average pooling for features."""
+    """Global average pooling over spatial dimensions."""
 
-    def get_output_dim(self, input_channels: int) -> int:
-        return input_channels
+    @property
+    def output_dim(self) -> int:
+        return self.input_dimension
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         return features.mean(dim=[2, 3])
 
 
 class MaxPooling(PoolingHead):
-    """Global max pooling for features."""
+    """Global max pooling over spatial dimensions."""
 
-    def get_output_dim(self, input_channels: int) -> int:
-        return input_channels
+    @property
+    def output_dim(self) -> int:
+        return self.input_dimension
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         return torch.amax(features, dim=[2, 3])
 
 
-class IdentityPooling(PoolingHead):
-    """No pooling - returns features unchanged."""
+class SpatialIdentityPooling(PoolingHead):
+    """No pooling — returns spatial feature maps unchanged."""
 
-    def __init__(self, channels: int):
-        super().__init__()
-        self.spatial_height = -1  # Unknown at initialization
-        self.spatial_width = -1  # Unknown at initialization
-        self.channels = channels
-
-    def get_output_dim(self, input_channels: int) -> tuple[int, int, int]:
-        return input_channels, self.spatial_height, self.spatial_width
+    @property
+    def output_dim(self) -> tuple[int, int, int]:
+        return self.input_dimension, -1, -1
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         return features
 
 
-class LearnedAggregationPooling(PoolingHead):
-    """Learned aggregation of feature maps through attention."""
+class SpatialLearnedAggregationPooling(PoolingHead):
+    """Learned aggregation of spatial feature maps through attention."""
 
-    def __init__(self, channels: int):
-        super().__init__()
-        self.channels = channels
-        self.pooling_head = LearnedAggregation(feature_dimension=channels)
+    def __init__(self, input_dimension: int):
+        super().__init__(input_dimension=input_dimension)
+        self.learned_aggregation = LearnedAggregation(feature_dimension=input_dimension)
 
-    def get_output_dim(self, input_channels: int) -> int:
-        return self.channels
+    @property
+    def output_dim(self) -> int:
+        return self.input_dimension
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
-        return self.pooling_head(features)
+        return self.learned_aggregation(features)
 
 
-def create_pooling_head(
+class TokenPoolingHead(PoolingHead):
+    """Pooling head for token sequences (B, S, D).
+
+    Reduces a sequence of token embeddings to a single vector (B, D) via
+    CLS token selection, mean pooling, or learned aggregation. With
+    ``pooling_method=NONE``, returns the (optionally CLS-excluded) sequence.
+
+    Args:
+        input_dimension: Hidden dimension of the token embeddings.
+        pooling_method: Pooling strategy from PoolingMethod enum.
+        sequence_length: Fixed sequence length for NONE output dim (-1 for variable).
+        exclude_cls: Whether to exclude the first token (CLS) for
+            AVERAGE, LEARNED_AGGREGATION, and NONE.
+    """
+
+    def __init__(
+        self,
+        input_dimension: int,
+        pooling_method: str,
+        sequence_length: int = -1,
+        exclude_cls: bool = True,
+    ):
+        super().__init__(input_dimension=input_dimension)
+        self.pooling_method = pooling_method
+        self.sequence_length = sequence_length
+        self.exclude_cls = exclude_cls
+        self.learned_aggregation: LearnedAggregation | None = None
+        if pooling_method == PoolingMethod.LEARNED_AGGREGATION.value:
+            self.learned_aggregation = LearnedAggregation(
+                feature_dimension=input_dimension
+            )
+
+    @property
+    def output_dim(self) -> int | tuple[int, int]:
+        if self.pooling_method == PoolingMethod.NONE.value:
+            return self.sequence_length, self.input_dimension
+        return self.input_dimension
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """Pool token sequence.
+
+        Args:
+            hidden_states: Token embeddings of shape (B, S, D).
+
+        Returns:
+            Pooled features of shape (B, D) or (B, S', D) for NONE.
+        """
+        start = 1 if self.exclude_cls else 0
+        match self.pooling_method:
+            case PoolingMethod.DEFAULT.value:
+                return hidden_states[:, 0]  # CLS token
+            case PoolingMethod.AVERAGE.value:
+                return hidden_states[:, start:].mean(dim=1)
+            case PoolingMethod.LEARNED_AGGREGATION.value:
+                return self.learned_aggregation(hidden_states[:, start:])
+            case PoolingMethod.NONE.value:
+                return hidden_states[:, start:]
+            case _:
+                raise ValueError(
+                    f"Unsupported token pooling method: {self.pooling_method}. "
+                    f"Supported: {[e.value for e in PoolingMethod]}"
+                )
+
+
+def create_spatial_pooling_head(
     pooling_method: str,
-    feature_channels: int,
+    input_dimension: int,
     spatial_height: int,
     spatial_width: int,
 ) -> PoolingHead:
-    """Factory function to create pooling heads.
+    """Create a pooling head for spatial feature maps (B, C, H, W).
 
     Args:
-        pooling_method: Pooling method from PoolingMethod enum
-        feature_channels: Number of feature channels
-        spatial_height: Spatial height of feature map
-        spatial_width: Spatial width of feature map
+        pooling_method: Pooling strategy from PoolingMethod enum.
+        input_dimension: Number of feature channels.
+        spatial_height: Height of the feature map.
+        spatial_width: Width of the feature map.
 
     Returns:
-        Configured pooling head
+        Configured spatial pooling head.
 
     Raises:
-        ValueError: If pooling_method is not supported
+        ValueError: If pooling_method is not supported for spatial features.
     """
     match pooling_method:
         case PoolingMethod.SPATIAL_SOFTMAX.value:
             return SpatialSoftmaxPooling(
-                spatial_height, spatial_width, feature_channels
+                input_dimension=input_dimension,
+                spatial_height=spatial_height,
+                spatial_width=spatial_width,
             )
         case PoolingMethod.AVERAGE.value:
-            return GlobalAveragePooling()
+            return GlobalAveragePooling(input_dimension=input_dimension)
         case PoolingMethod.MAX.value | PoolingMethod.DEFAULT.value:
-            return MaxPooling()
+            return MaxPooling(input_dimension=input_dimension)
         case PoolingMethod.NONE.value:
-            return IdentityPooling(feature_channels)
+            return SpatialIdentityPooling(input_dimension=input_dimension)
         case PoolingMethod.LEARNED_AGGREGATION.value:
-            return LearnedAggregationPooling(feature_channels)
+            return SpatialLearnedAggregationPooling(input_dimension=input_dimension)
         case _:
             raise ValueError(
-                f"Unsupported pooling method: {pooling_method}. "
+                f"Unsupported spatial pooling method: {pooling_method}. "
                 f"Supported: {[e.value for e in PoolingMethod]}"
             )
+
+
+def create_token_pooling_head(
+    pooling_method: str,
+    input_dimension: int,
+    sequence_length: int = -1,
+    exclude_cls: bool = True,
+) -> TokenPoolingHead:
+    """Create a pooling head for token sequences (B, S, D).
+
+    Args:
+        pooling_method: Pooling strategy from PoolingMethod enum.
+        input_dimension: Hidden dimension of the token embeddings.
+        sequence_length: Fixed sequence length for NONE output dim (-1 for variable).
+        exclude_cls: Whether to exclude the first token (CLS) for
+            AVERAGE, LEARNED_AGGREGATION, and NONE.
+
+    Returns:
+        Configured token pooling head.
+    """
+    return TokenPoolingHead(
+        input_dimension=input_dimension,
+        pooling_method=pooling_method,
+        sequence_length=sequence_length,
+        exclude_cls=exclude_cls,
+    )

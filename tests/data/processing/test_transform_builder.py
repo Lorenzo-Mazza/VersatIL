@@ -1,4 +1,4 @@
-"""Tests for versatil.data.transform_builder module."""
+"""Tests for versatil.data.processing.transform_builder module."""
 
 import logging
 from collections.abc import Callable
@@ -22,8 +22,8 @@ from versatil.data.metadata import (
     PositionObservationMetadata,
 )
 from versatil.data.normalization.normalizer import LinearNormalizer
+from versatil.data.processing.transform_builder import TransformBuilder
 from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.data.transform_builder import TransformBuilder
 
 
 def _numpy_to_zarr_array(array: np.ndarray) -> zarr.Array:
@@ -664,7 +664,7 @@ class TestCreateNormalizer:
         mock_normalizer = MagicMock()
         with (
             patch(
-                "versatil.data.transform_builder.LinearNormalizer",
+                "versatil.data.processing.transform_builder.LinearNormalizer",
                 return_value=mock_normalizer,
             ),
             patch.object(builder, "_setup_image_normalizers") as mock_setup_images,
@@ -704,7 +704,7 @@ class TestCreateNormalizer:
         mock_normalizer = MagicMock()
         with (
             patch(
-                "versatil.data.transform_builder.LinearNormalizer",
+                "versatil.data.processing.transform_builder.LinearNormalizer",
                 return_value=mock_normalizer,
             ),
             patch.object(builder, "_setup_image_normalizers"),
@@ -759,7 +759,7 @@ class TestCreateNormalizer:
         mock_normalizer = MagicMock()
         with (
             patch(
-                "versatil.data.transform_builder.LinearNormalizer",
+                "versatil.data.processing.transform_builder.LinearNormalizer",
                 return_value=mock_normalizer,
             ),
             patch.object(builder, "_setup_image_normalizers"),
@@ -913,10 +913,12 @@ class TestCreateTokenizer:
 
         with (
             patch(
-                "versatil.data.transform_builder.ObservationTokenizer",
+                "versatil.data.processing.transform_builder.ObservationTokenizer",
                 return_value=mock_obs_instance,
             ) as mock_obs_class,
-            patch("versatil.data.transform_builder.Tokenizer") as mock_tokenizer_class,
+            patch(
+                "versatil.data.processing.transform_builder.Tokenizer"
+            ) as mock_tokenizer_class,
         ):
             builder._create_tokenizer(
                 normalizer=MagicMock(), action_data={}, action_meta={}
@@ -943,10 +945,12 @@ class TestCreateTokenizer:
 
         with (
             patch(
-                "versatil.data.transform_builder.ActionTokenizer",
+                "versatil.data.processing.transform_builder.ActionTokenizer",
                 return_value=mock_action_instance,
             ) as mock_action_class,
-            patch("versatil.data.transform_builder.Tokenizer") as mock_tokenizer_class,
+            patch(
+                "versatil.data.processing.transform_builder.Tokenizer"
+            ) as mock_tokenizer_class,
         ):
             builder._create_tokenizer(
                 normalizer=MagicMock(), action_data={}, action_meta={}
@@ -984,10 +988,10 @@ class TestCreateTokenizer:
 
         with (
             patch(
-                "versatil.data.transform_builder.ActionTokenizer",
+                "versatil.data.processing.transform_builder.ActionTokenizer",
                 return_value=mock_action_instance,
             ),
-            patch("versatil.data.transform_builder.Tokenizer"),
+            patch("versatil.data.processing.transform_builder.Tokenizer"),
         ):
             builder._create_tokenizer(
                 normalizer=MagicMock(), action_data=action_data, action_meta=action_meta
@@ -1012,10 +1016,10 @@ class TestCreateTokenizer:
 
         with (
             patch(
-                "versatil.data.transform_builder.ObservationTokenizer",
+                "versatil.data.processing.transform_builder.ObservationTokenizer",
                 return_value=mock_obs_instance,
             ),
-            patch("versatil.data.transform_builder.Tokenizer"),
+            patch("versatil.data.processing.transform_builder.Tokenizer"),
             caplog.at_level(logging.WARNING),
         ):
             builder._create_tokenizer(

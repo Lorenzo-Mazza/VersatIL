@@ -6,7 +6,12 @@ from versatil.models.encoding.encoders.base import EncoderInput, EncodingMixin
 
 
 class ConditionalEncoder(EncodingMixin):
-    """Encoder that conditions its outputs based on an external feature."""
+    """Encoder that conditions its outputs based on an external feature.
+
+    Subclasses implement `encode()`. The base class `forward()` handles
+    temporal flatten/unflatten — `encode()` receives tensors without a
+    time dimension.
+    """
 
     def __init__(
         self,
@@ -25,18 +30,117 @@ class ConditionalEncoder(EncodingMixin):
         )
         self.condition_key = input_specification.conditioning_key
 
-    @abstractmethod
+    def _flatten_temporal(
+        self, inputs: dict[str, torch.Tensor], conditioning: torch.Tensor
+    ) -> tuple[dict[str, torch.Tensor], torch.Tensor, int, int]:
+        """Merge temporal dimension into batch for inputs and conditioning.
+
+        Args:
+            inputs: Dict mapping keys to tensors (B, T, ...).
+            conditioning: Conditioning tensor (B, T, D) or (B, D).
+
+        Returns:
+            Flattened inputs, flattened conditioning, batch_size, temporal_length.
+        """
+        first_tensor = next(iter(inputs.values()))
+        batch_size = first_tensor.shape[0]
+        temporal_length = first_tensor.shape[1]
+        flattened = {}
+        for key, tensor in inputs.items():
+            flattened[key] = tensor.reshape(
+                batch_size * temporal_length, *tensor.shape[2:]
+            )
+        if conditioning.dim() >= 3 and conditioning.shape[1] == temporal_length:
+            conditioning = conditioning.reshape(
+                batch_size * temporal_length, *conditioning.shape[2:]
+            )
+        elif conditioning.dim() == 2:
+            # Conditioning has no temporal dim — replicate across time
+            conditioning = (
+                conditioning.unsqueeze(1)
+                .expand(batch_size, temporal_length, *conditioning.shape[1:])
+                .reshape(batch_size * temporal_length, *conditioning.shape[1:])
+            )
+        return flattened, conditioning, batch_size, temporal_length
+
+    def _unflatten_temporal(
+        self,
+        outputs: dict[str, torch.Tensor],
+        batch_size: int,
+        temporal_length: int,
+    ) -> dict[str, torch.Tensor]:
+        """Restore temporal dimension in output tensors.
+
+        Args:
+            outputs: Dict mapping feature names to tensors (B*T, ...).
+            batch_size: Original batch size.
+            temporal_length: Temporal length to restore.
+
+        Returns:
+            Dict with shape (B, T, ...) for each tensor.
+        """
+        unflattened = {}
+        for key, tensor in outputs.items():
+            unflattened[key] = tensor.reshape(
+                batch_size, temporal_length, *tensor.shape[1:]
+            )
+        return unflattened
+
+    def _validate_inputs(self, inputs: dict[str, torch.Tensor]) -> None:
+        """Validate that all input tensors have a temporal dimension (B, T, ...).
+
+        Args:
+            inputs: Dict mapping keys to tensors.
+
+        Raises:
+            ValueError: If any value is not a tensor or has fewer than 3 dimensions.
+        """
+        for key, value in inputs.items():
+            if not isinstance(value, torch.Tensor):
+                raise ValueError(
+                    f"Encoder input '{key}' must be a torch.Tensor, "
+                    f"got {type(value).__name__}."
+                )
+            if value.dim() < 3:
+                raise ValueError(
+                    f"Encoder input '{key}' has shape {tuple(value.shape)} "
+                    f"but all inputs must have a temporal dimension (B, T, ...)."
+                )
+
     def forward(
         self,
         inputs: dict[str, torch.Tensor],
         conditioning: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
-        """Forward pass to extract features from images.
+        """Forward pass with temporal flatten/unflatten.
+
         Args:
-            inputs: Dict mapping input_keys to tensors
-            conditioning: Conditioning tensor from another encoder
+            inputs: Dict mapping input_keys to tensors with temporal dimension.
+            conditioning: Conditioning tensor from another encoder.
 
         Returns:
-            A dictionary with as keys the feature names and as values the corresponding feature torch tensors.
+            Dict mapping feature names to feature tensors with temporal dimension.
+        """
+        self._validate_inputs(inputs)
+        inputs, conditioning, batch_size, temporal_length = self._flatten_temporal(
+            inputs, conditioning
+        )
+        outputs = self.encode(inputs, conditioning)
+        return self._unflatten_temporal(outputs, batch_size, temporal_length)
+
+    @abstractmethod
+    def encode(
+        self,
+        inputs: dict[str, torch.Tensor],
+        conditioning: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        """Encode inputs with conditioning, without temporal dimension.
+
+        Args:
+            inputs: Dict mapping input_keys to tensors without temporal dimension.
+            conditioning: Conditioning tensor (B, D).
+
+        Returns:
+            Dict mapping feature names to feature tensors.
         """
         raise NotImplementedError

@@ -12,12 +12,12 @@ from versatil.configs.encoding.encoder import (
     DepthCNNEncoderConfig,
     DFormerEncoderConfig,
     EncoderConfig,
+    GeometricRGBDEncoderConfig,
     ImageEncoderConfig,
     LanguageEncoderConfig,
-    LightGeometricEncoderConfig,
     ProprioEncoderConfig,
+    TwoTowerVLMEncoderConfig,
     ViTEncoderConfig,
-    VLMEncoderConfig,
 )
 from versatil.data.constants import Cameras
 from versatil.models.encoding.encoders.constants import (
@@ -106,9 +106,9 @@ class TestViTEncoderConfig:
         config = ViTEncoderConfig(input_keys=["left"])
         assert config._target_ == MISSING
 
-    def test_feature_method_default_is_average_string(self):
+    def test_pooling_method_default_is_none_string(self):
         config = ViTEncoderConfig(input_keys=["left"])
-        assert config.feature_method == PoolingMethod.AVERAGE.value
+        assert config.pooling_method == PoolingMethod.NONE.value
 
 
 @pytest.mark.unit
@@ -132,7 +132,7 @@ class TestDFormerEncoderConfig:
         config = DFormerEncoderConfig()
         assert (
             config._target_
-            == "versatil.models.encoding.encoders.depth.dformerv2.DFormerEncoder"
+            == "versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.DFormerEncoder"
         )
 
     def test_default_input_keys_include_left_and_depth(self):
@@ -142,21 +142,21 @@ class TestDFormerEncoderConfig:
 
 
 @pytest.mark.unit
-class TestLightGeometricEncoderConfig:
+class TestGeometricRGBDEncoderConfig:
     def test_target_points_to_light_geometric_encoder(self):
-        config = LightGeometricEncoderConfig()
+        config = GeometricRGBDEncoderConfig()
         assert (
             config._target_
-            == "versatil.models.encoding.encoders.depth.light_geometric.LightGeometricEncoder"
+            == "versatil.models.encoding.encoders.cross_modal.rgbd.geometric_rgbd.GeometricRGBDEncoder"
         )
 
     def test_default_input_keys_include_left_and_depth(self):
-        config = LightGeometricEncoderConfig()
+        config = GeometricRGBDEncoderConfig()
         assert Cameras.LEFT.value in config.input_keys
         assert Cameras.DEPTH.value in config.input_keys
 
     def test_pooling_method_default_is_average_string(self):
-        config = LightGeometricEncoderConfig()
+        config = GeometricRGBDEncoderConfig()
         assert config.pooling_method == PoolingMethod.AVERAGE.value
 
 
@@ -175,16 +175,16 @@ class TestProprioEncoderConfig:
 
 
 @pytest.mark.unit
-class TestVLMEncoderConfig:
+class TestTwoTowerVLMEncoderConfig:
     def test_target_points_to_vlm_encoder(self):
-        config = VLMEncoderConfig(input_keys=["left"], model_name="clip")
+        config = TwoTowerVLMEncoderConfig(input_keys=["left"], model_name="clip")
         assert (
             config._target_
-            == "versatil.models.encoding.encoders.multimodal.vlm.VLMEncoder"
+            == "versatil.models.encoding.encoders.cross_modal.vision_language.two_tower_vlm.TwoTowerVLMEncoder"
         )
 
     def test_model_name_required(self):
-        config = VLMEncoderConfig(input_keys=["left"])
+        config = TwoTowerVLMEncoderConfig(input_keys=["left"])
         assert config.model_name == MISSING
 
 
@@ -246,10 +246,12 @@ class TestEncoderTargetResolutionIntegration:
                 "DepthCNNEncoder",
             ),
             (lambda: DFormerEncoderConfig(), "DFormerEncoder"),
-            (lambda: LightGeometricEncoderConfig(), "LightGeometricEncoder"),
+            (lambda: GeometricRGBDEncoderConfig(), "GeometricRGBDEncoder"),
             (
-                lambda: VLMEncoderConfig(input_keys=["left"], model_name="clip"),
-                "VLMEncoder",
+                lambda: TwoTowerVLMEncoderConfig(
+                    input_keys=["left"], model_name="clip"
+                ),
+                "TwoTowerVLMEncoder",
             ),
             (lambda: LanguageEncoderConfig(), "LanguageEncoder"),
         ],

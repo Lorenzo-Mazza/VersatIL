@@ -5,10 +5,11 @@ defaults:
   - _self_
 
 _target_: versatil.models.encoding.pipeline.EncodingPipeline
+observation_space: ${task.observation_space}
 
 encoders:
   left_depth:
-    _target_: versatil.models.encoding.encoders.depth.light_geometric.LightGeometricEncoder
+    _target_: versatil.models.encoding.encoders.cross_modal.rgbd.geometric_rgbd.GeometricRGBDEncoder
     input_keys:
       - ${cameras:LEFT}
       - ${cameras:DEPTH}

@@ -44,8 +44,18 @@ def sample_builder_factory(
             observations_metadata=observations_metadata or {},
         )
         mock_augmentation = MagicMock()
-        mock_augmentation.apply_rgb_augmentations.side_effect = lambda x: x
-        mock_augmentation.apply_depth_augmentations.side_effect = lambda x: x
+
+        def _mock_process(images: np.ndarray, camera_key: str) -> torch.Tensor:
+            is_depth = camera_key == Cameras.DEPTH.value
+            if is_depth:
+                if images.ndim == 3:
+                    return torch.from_numpy(images.astype(np.float32)[:, None])
+                return torch.from_numpy(np.moveaxis(images.astype(np.float32), -1, 1))
+            return torch.from_numpy(
+                np.moveaxis(images.astype(np.float32) / 255.0, -1, 1)
+            )
+
+        mock_augmentation.process.side_effect = _mock_process
 
         mock_action_processor = MagicMock()
 
@@ -55,7 +65,7 @@ def sample_builder_factory(
             obs_horizon=obs_horizon,
             pred_horizon=pred_horizon,
             action_backward_shift=action_backward_shift,
-            augmentation_pipeline=mock_augmentation,
+            image_processor=mock_augmentation,
             action_processor=mock_action_processor,
             tokenizer=tokenizer,
             normalizer=normalizer,
@@ -188,7 +198,7 @@ class TestGetSampleImages:
         # With shift=1, should take indices [1:3], skipping the zero-filled timestep 0
         assert result[Cameras.LEFT.value][0].sum() > 0
 
-    def test_depth_image_already_has_channel_dimension_skips_unsqueeze(
+    def test_depth_image_with_explicit_channel_dimension(
         self,
         sample_builder_factory: Callable[..., SampleBuilder],
         camera_metadata_factory: Callable[..., CameraMetadata],
@@ -203,8 +213,8 @@ class TestGetSampleImages:
             },
             obs_horizon=2,
         )
-        # (T, C, H, W) — already has channel dimension
-        padded_depth = rng.random((4, 1, 8, 8)).astype(np.float32)
+        # (T, H, W, 1) — depth with explicit channel dimension
+        padded_depth = rng.random((4, 8, 8, 1)).astype(np.float32)
         padded_data = {Cameras.DEPTH.value: padded_depth}
 
         result = builder._get_sample_images(padded_data=padded_data)
@@ -222,7 +232,7 @@ class TestGetSampleImages:
 
         assert result == {}
 
-    def test_calls_rgb_augmentation_pipeline(
+    def test_calls_rgb_image_processor(
         self,
         sample_builder_factory: Callable[..., SampleBuilder],
         camera_metadata_factory: Callable[..., CameraMetadata],
@@ -242,9 +252,9 @@ class TestGetSampleImages:
 
         builder._get_sample_images(padded_data=padded_data)
 
-        builder.augmentation_pipeline.apply_rgb_augmentations.assert_called_once()
+        builder.image_processor.process.assert_called_once()
 
-    def test_calls_depth_augmentation_pipeline(
+    def test_calls_depth_image_processor(
         self,
         sample_builder_factory: Callable[..., SampleBuilder],
         camera_metadata_factory: Callable[..., CameraMetadata],
@@ -265,7 +275,7 @@ class TestGetSampleImages:
 
         builder._get_sample_images(padded_data=padded_data)
 
-        builder.augmentation_pipeline.apply_depth_augmentations.assert_called_once()
+        builder.image_processor.process.assert_called_once()
 
 
 class TestSliceObservationTensor:

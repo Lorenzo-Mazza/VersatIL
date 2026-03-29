@@ -71,8 +71,6 @@ TIMESTEPS_PER_EPISODE = 15
 
 COMMON_OVERRIDES = [
     "task.dataloader.batch_size=2",
-    "task.dataloader.image_height=32",
-    "task.dataloader.image_width=32",
     "task.dataloader.num_workers=1",
     "task.dataloader.val_ratio=0.0",
     "training.num_epochs=1",
@@ -534,7 +532,7 @@ class TestBuildExampleInputsFallback:
         example_inputs = build_example_inputs(
             exportable=exportable,
             observation_space=policy_loader.observation_space,
-            dataloader_config=policy_loader.config.task.dataloader,
+            observation_horizon=policy_loader.config.task.observation_horizon,
             tokenizer=policy_loader.tokenizer,
         )
 

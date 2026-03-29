@@ -38,8 +38,6 @@ from versatil.workspace import Workspace
 
 COMMON_OVERRIDES = [
     "task.dataloader.batch_size=2",
-    "task.dataloader.image_height=32",
-    "task.dataloader.image_width=32",
     "task.dataloader.num_workers=1",
     "task.dataloader.val_ratio=0.0",
     "training.num_epochs=1",

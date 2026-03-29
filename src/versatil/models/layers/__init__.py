@@ -1,4 +1,3 @@
-# mypy: ignore-errors
 from versatil.models.layers.convolution.depthwise_conv2d import DepthwiseConv2D
 from versatil.models.layers.denoising.diffusion_process import (
     DiffusionSchedulerConfig,

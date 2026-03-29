@@ -11,9 +11,10 @@ import torch
 from versatil.data.constants import ObsKey
 from versatil.models.decoding.action_heads.moe import MoEHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey, FeatureType
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.factory.act import ACT
 from versatil.models.decoding.decoders.factory.phase_act import PhaseACT
+from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
@@ -348,3 +349,12 @@ class TestPhaseACTTemporalObservation:
             assert isinstance(layer, LearnedPositionalEncoding1D)
         else:
             assert layer is None
+
+
+def test_auxiliary_output_keys(
+    phase_act_factory: Callable[..., PhaseACT],
+):
+    decoder = phase_act_factory()
+    assert decoder.get_auxiliary_output_keys() == {
+        DecoderOutputKey.ROUTING_WEIGHTS.value,
+    }

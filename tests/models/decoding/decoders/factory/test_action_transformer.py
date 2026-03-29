@@ -7,12 +7,12 @@ import pytest
 import torch
 
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import FeatureType
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.action_transformer import (
     ActionTransformer,
 )
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
+from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType

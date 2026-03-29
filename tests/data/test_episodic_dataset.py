@@ -170,7 +170,7 @@ def episodic_dataset_factory(
             patch(
                 "versatil.data.episodic_dataset.ReplayBuffer"
             ) as mock_replay_buffer_class,
-            patch("versatil.data.episodic_dataset.AugmentationPipeline"),
+            patch("versatil.data.episodic_dataset.ImageProcessor"),
         ):
             mock_replay_buffer_class.create_from_path.return_value = buffer
             mock_replay_buffer_class.copy_from_path.return_value = buffer
@@ -265,7 +265,7 @@ class TestEpisodicDatasetInit:
             patch(
                 "versatil.data.episodic_dataset.ReplayBuffer"
             ) as mock_replay_buffer_class,
-            patch("versatil.data.episodic_dataset.AugmentationPipeline"),
+            patch("versatil.data.episodic_dataset.ImageProcessor"),
         ):
             mock_replay_buffer_class.create_from_path.return_value = buffer
             EpisodicDataset(
@@ -292,7 +292,7 @@ class TestEpisodicDatasetInit:
             patch(
                 "versatil.data.episodic_dataset.ReplayBuffer"
             ) as mock_replay_buffer_class,
-            patch("versatil.data.episodic_dataset.AugmentationPipeline"),
+            patch("versatil.data.episodic_dataset.ImageProcessor"),
         ):
             mock_replay_buffer_class.copy_from_path.return_value = buffer
             EpisodicDataset(
@@ -332,7 +332,7 @@ class TestEpisodicDatasetInit:
             patch(
                 "versatil.data.episodic_dataset.ReplayBuffer"
             ) as mock_replay_buffer_class,
-            patch("versatil.data.episodic_dataset.AugmentationPipeline"),
+            patch("versatil.data.episodic_dataset.ImageProcessor"),
         ):
             mock_replay_buffer_class.create_from_path.return_value = buffer
             with pytest.raises(KeyError, match="Missing required keys"):

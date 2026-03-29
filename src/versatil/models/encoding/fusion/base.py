@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 
+from versatil.models.feature_meta import FeatureMetadata, FeatureType
+
 
 @dataclass
 class FusionInput:
@@ -16,14 +18,6 @@ class FusionInput:
     max_count: int | None = (
         None  # Maximum number of features allowed (None = unlimited)
     )
-
-
-@dataclass
-class FusionOutput:
-    """Structured output specification for fusion modules."""
-
-    output_name: str
-    output_dim: int | tuple[int, ...]
 
 
 class FusionModule(nn.Module):
@@ -50,32 +44,28 @@ class FusionModule(nn.Module):
         self.input_specification.input_features = features
 
     @abc.abstractmethod
-    def get_output_specification(self) -> FusionOutput:
+    def get_output_specification(self) -> FeatureMetadata:
         """Get structured output specification."""
         raise NotImplementedError
 
-    def get_output_dim(self) -> int | tuple[int, ...]:
-        """Get output dimension for backward compatibility."""
-        return self.get_output_specification().output_dim
-
-    def setup(self, feature_keys_to_dims: dict[str, int | tuple]):
-        """Setup layers once feature dimensions are known.
+    def setup(self, feature_registry: dict[str, FeatureMetadata]):
+        """Setup layers once feature metadata is known.
 
         Note:
-            This method is called once by the encoding pipeline after feature dimensions are known. This allows the user to
-            create fusion modules without knowing the input feature dimensions ahead of time.
+            Called once by the encoding pipeline after feature metadata is available.
+            Allows fusion modules to be created without knowing input dimensions ahead of time.
 
         Args:
-            feature_keys_to_dims: Dict mapping available feature names to their dimensions
+            feature_registry: Dict mapping available feature names to their metadata.
         """
         if self._initialized:
             return
-        self._setup_layers(feature_keys_to_dims)
+        self._setup_layers(feature_registry)
         self._initialized = True
 
     @abc.abstractmethod
-    def _setup_layers(self, feature_keys_to_dims: dict[str, int | tuple]):
-        """Build layers once input feature dimensions are known."""
+    def _setup_layers(self, feature_registry: dict[str, FeatureMetadata]):
+        """Build layers once input feature metadata is known."""
         raise NotImplementedError("Must implement _setup_layers in subclass.")
 
     @abc.abstractmethod
@@ -84,7 +74,7 @@ class FusionModule(nn.Module):
 
 
 class SequentialFusion(FusionModule, abc.ABC):
-    """Base class for fusion modules that project features to a shared dimension"""
+    """Base class for fusion modules that project features to a shared dimension."""
 
     def __init__(
         self,
@@ -105,21 +95,18 @@ class SequentialFusion(FusionModule, abc.ABC):
         self.projections: nn.ModuleList | None = None
         self.hidden_dim = hidden_dim
 
-    def _setup_layers(self, feature_keys_to_dims: dict[str, int | tuple]):
+    def _setup_layers(self, feature_registry: dict[str, FeatureMetadata]):
         """Build projection layers for each input feature."""
-        input_dims_raw = [feature_keys_to_dims[feat] for feat in self.input_features]
         input_dims: list[int] = []
-        for feat_name, dim in zip(self.input_features, input_dims_raw):
-            if isinstance(dim, tuple):
-                if len(dim) > 2:
-                    raise ValueError(
-                        f"SequentialFusion requires flat or sequential dimensions, but '{feat_name}' has dimension {dim}. "
-                        f"Use SpatialFusion for spatial features."
-                    )
-                proj_dim = dim[-1]
-            else:
-                proj_dim = dim
-            input_dims.append(proj_dim)
+        for feat_name in self.input_features:
+            metadata = feature_registry[feat_name]
+            if metadata.feature_type == FeatureType.SPATIAL.value:
+                raise ValueError(
+                    f"SequentialFusion requires flat or sequential features, "
+                    f"but '{feat_name}' is spatial with dimension {metadata.dimension}. "
+                    f"Use SpatialFusion for spatial features."
+                )
+            input_dims.append(metadata.dimension[-1])
         self.projections = nn.ModuleList(
             [nn.Linear(dim, self.hidden_dim) for dim in input_dims]
         )

@@ -1,3 +1,5 @@
+"""Base classes and dataclasses for encoder input/output specifications."""
+
 import abc
 from abc import abstractmethod
 from dataclasses import dataclass, field
@@ -5,19 +7,8 @@ from dataclasses import dataclass, field
 import torch
 import torch.nn as nn
 
-
-@dataclass
-class EncoderOutput:
-    """Structured encoder output specification."""
-
-    features: list[str]  # list of feature names as `EncoderOutputKeys.value`.
-    dimensions: dict[
-        str, int | tuple
-    ]  # feature_name -> dimension (skips batch and time dimension)
-
-    @property
-    def is_multi_output(self) -> bool:
-        return len(self.features) > 1
+from versatil.data.metadata import BaseMetadata
+from versatil.models.feature_meta import FeatureMetadata
 
 
 @dataclass
@@ -39,10 +30,16 @@ class EncoderInput:
     requires_tokenized: bool = False
 
     def __post_init__(self):
+        """Normalize keys to a list if a single string is provided."""
         if isinstance(self.keys, str):
             self.keys = [self.keys]
 
     def validate(self):
+        """Validate input keys against required, one_of, and at_least_one_of constraints.
+
+        Raises:
+            ValueError: If any constraint is violated.
+        """
         key_set = set(self.keys)
         missing = set(self.required) - key_set
         if missing:
@@ -104,10 +101,39 @@ class EncodingMixin(nn.Module, abc.ABC):
             param.requires_grad = False
 
     @abstractmethod
-    def get_output_specification(self) -> EncoderOutput:
+    def get_output_specification(self) -> list[FeatureMetadata]:
         """Get encoder structured output specification."""
         raise NotImplementedError
 
     def get_vocab_size(self) -> int | None:
         """Get vocabulary size if applicable, else None."""
         return None
+
+    def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
+        """Check that observation metadata is compatible with this encoder.
+
+        Note:
+            Called by the encoding pipeline per input key during setup.
+            Subclasses override to check type, channels, dimensions, etc.
+
+        Args:
+            key: Observation key being validated.
+            metadata: Metadata from the observation space for this key.
+
+        Returns:
+            Error message if incompatible, None if valid.
+        """
+        return None
+
+    def set_image_size(self, image_height: int, image_width: int) -> None:
+        """Set the target image size for this encoder.
+
+        Called by the encoding pipeline after Hydra instantiation, with per-camera
+        image dimensions from the observation space. Image encoders override this
+        to configure their backbone (ViT img_size) or pooling head (CNN spatial dims).
+
+        Args:
+            image_height: Target image height.
+            image_width: Target image width.
+        """
+        pass

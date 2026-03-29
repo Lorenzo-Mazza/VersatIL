@@ -144,6 +144,13 @@ class FreeActionTransformer(ActionDecoder):
         self._build_transformer_components()
         self.to(self.device)
 
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """Free transformer produces binary logits and latent codes."""
+        keys = super().get_auxiliary_output_keys()
+        keys.add(DecoderOutputKey.BINARY_LOGITS.value)
+        keys.add(DecoderOutputKey.LATENT_CODES.value)
+        return keys
+
     def _build_transformer_components(self):
         """Build core free transformer, input token sequence builder and positional encodings."""
         image_positional_encoding = SinusoidalPositionalEncoding2D(

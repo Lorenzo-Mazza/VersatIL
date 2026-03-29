@@ -1,32 +1,39 @@
-# mypy: ignore-errors
+"""FiLM-conditioned CNN encoder for conditioned vision encoding."""
+
 import timm
 import torch
 import torch.nn as nn
 from timm.layers import freeze_batch_norm_2d
 
 from versatil.data.constants import RGB_CAMERAS
-from versatil.models.encoding.encoders.base import EncoderInput, EncoderOutput
+from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.conditional import ConditionalEncoder
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
+    CNNBackboneType,
     EncoderOutputKeys,
     PoolingMethod,
-    RGBBackboneType,
 )
+from versatil.models.encoding.encoders.image_mixin import ImageEncoderMixin
+from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers.convert_layers import replace_batchnorm_with_groupnorm
 from versatil.models.layers.modulation.film_residual_block import FiLMedResBlock
-from versatil.models.layers.pooling.pooling_head import create_pooling_head
+from versatil.models.layers.pooling.pooling_head import (
+    PoolingHead,
+    create_spatial_pooling_head,
+)
 
 
-class ConditionalCNNEncoder(ConditionalEncoder):
+class ConditionalCNNEncoder(ImageEncoderMixin, ConditionalEncoder):
     """CNN encoder with FiLM conditioning for conditioned vision, e.g. from language features."""
 
     BACKBONE_CONFIGS = {
-        RGBBackboneType.RESNET18.value: {
+        CNNBackboneType.RESNET18.value: {
             "layers": [2, 2, 2, 2],
             "feature_dim": 512,
         },
-        RGBBackboneType.RESNET34.value: {
+        CNNBackboneType.RESNET34.value: {
             "layers": [3, 4, 6, 3],
             "feature_dim": 512,
         },
@@ -37,18 +44,33 @@ class ConditionalCNNEncoder(ConditionalEncoder):
         input_keys: str | list[str],
         condition_key: str,
         condition_dim: int,
-        backbone: str = RGBBackboneType.RESNET18.value,
+        backbone: str = CNNBackboneType.RESNET18.value,
         pooling_method: str = PoolingMethod.SPATIAL_SOFTMAX.value,
         batch_norm_handling: str = BatchNormHandling.FROZEN.value,
         pretrained: bool = False,
         frozen: bool = False,
     ):
+        """Initialize FiLM-conditioned CNN encoder.
+
+        Args:
+            input_keys: Camera observation keys.
+            condition_key: Key for the conditioning feature tensor.
+            condition_dim: Dimensionality of the conditioning feature.
+            backbone: timm ResNet model name.
+            pooling_method: Feature pooling strategy.
+            batch_norm_handling: How to handle batch normalization layers.
+            pretrained: Whether to load pretrained weights.
+            frozen: Whether to freeze all parameters.
+        """
         specification = EncoderInput(
-            keys=input_keys, one_of_groups=[RGB_CAMERAS], conditioning_key=condition_key
+            keys=input_keys,
+            at_least_one_of_groups=[RGB_CAMERAS],
+            conditioning_key=condition_key,
         )
         super().__init__(
             input_specification=specification, pretrained=pretrained, frozen=frozen
         )
+        self._setup_camera_keys(input_keys=self.input_specification.keys)
         self.condition_key = condition_key
         self.condition_dim = condition_dim
         self.batch_norm_handling = batch_norm_handling
@@ -63,7 +85,8 @@ class ConditionalCNNEncoder(ConditionalEncoder):
 
         self._build_filmed_backbone()
         self.feature_dim = self.BACKBONE_CONFIGS[backbone]["feature_dim"]
-        self._setup_pooling()
+        self.pooling_head: PoolingHead | None = None
+        self.output_dim: int | tuple[int, ...] = self.feature_dim
         if frozen:
             super()._freeze_weights()
 
@@ -97,6 +120,7 @@ class ConditionalCNNEncoder(ConditionalEncoder):
                         block.apply(lambda m: freeze_batch_norm_2d(m) or None)
             case BatchNormHandling.CONVERT_TO_GROUPNORM.value:
                 num_channels = self.bn1.num_features
+                # 16 groups matches ResNet channel multiples (64, 128, 256, 512)
                 self.bn1 = nn.GroupNorm(num_channels // 16, num_channels)
                 self.layer1 = replace_batchnorm_with_groupnorm(self.layer1)
                 self.layer2 = replace_batchnorm_with_groupnorm(self.layer2)
@@ -112,7 +136,16 @@ class ConditionalCNNEncoder(ConditionalEncoder):
     def _make_filmed_layer(
         self, out_channels: int, num_blocks: int, stride: int
     ) -> nn.ModuleList:
-        """Create a layer with FiLMedResBlocks, for FiLM conditioning."""
+        """Create a ResNet layer composed of FiLMedResBlocks.
+
+        Args:
+            out_channels: Number of output channels for this layer.
+            num_blocks: Number of residual blocks in the layer.
+            stride: Stride for the first block's convolution.
+
+        Returns:
+            ModuleList of FiLMedResBlocks.
+        """
         downsample = None
         if stride != 1 or self.in_channels != out_channels:
             down_layers = [
@@ -180,71 +213,48 @@ class ConditionalCNNEncoder(ConditionalEncoder):
                             base_block.downsample[1].state_dict()
                         )
 
-    def _setup_pooling(self):
-        """Setup pooling layer."""
-        with torch.no_grad():
-            dummy_input = torch.zeros(1, 3, 224, 224)
-            dummy_condition = torch.zeros(1, self.condition_dim)
-            x = self.conv1(dummy_input)
-            x = self.bn1(x)
-            x = self.relu(x)
-            x = self.maxpool(x)
+    def _setup_pooling(self, spatial_height: int, spatial_width: int) -> None:
+        """Create pooling head from feature map spatial dimensions.
 
-            for block in self.layer1:
-                x = block(x, dummy_condition)
-            for block in self.layer2:
-                x = block(x, dummy_condition)
-            for block in self.layer3:
-                x = block(x, dummy_condition)
-            for block in self.layer4:
-                x = block(x, dummy_condition)
-            _, c, h, w = x.shape
-
-        mock_pooling_head = create_pooling_head(
-            pooling_method=self.pooling_method,
-            feature_channels=self.feature_dim,
-            spatial_height=h,
-            spatial_width=w,
-        )
-        self.pooling_head = (
-            None  # Will be created in forward() with correct patch dimensions
-        )
-        self.output_dim = mock_pooling_head.get_output_dim(self.feature_dim)
-
-    def forward(
-        self,
-        inputs: dict[str, torch.Tensor],
-        conditioning: torch.Tensor,
-    ) -> dict[str, torch.Tensor]:
-        """Forward pass to extract features from images.
-
-        Note:
-            Feature dimension size depends on the pooling method used. If no pooling is applied, the raw feature maps are returned and  the output shape will
-            be (batch size, channels, height, width) or (batch size, time steps, channels, height, width).
+        Args:
+            spatial_height: Height of the backbone's output feature map.
+            spatial_width: Width of the backbone's output feature map.
         """
-        img = inputs[self.input_specification.keys[0]]
-        B, T, C, H, W = None, None, None, None, None
-        if img.dim() == 5:
-            B, T, C, H, W = img.shape  # Batch, Time, Channels, Height, Width
-            img = img.reshape(B * T, C, H, W)
-            if (
-                conditioning.dim() == 3 and conditioning.shape[1] == T
-            ):  # Already (B, T, D)
-                conditioning = conditioning.reshape(B * T, -1)
-            elif conditioning.dim() == 2:  # (B, D), replicate over T
-                conditioning = (
-                    conditioning.unsqueeze(1).repeat(1, T, 1).reshape(B * T, -1)
-                )
-            else:
-                raise ValueError(
-                    f"Unexpected conditioning shape: {conditioning.shape}. Conditioning must be (B, D) or (B, T, D)."
-                )
-            has_time = True
-        else:
-            B = img.shape[0]
-            has_time = False
+        self.pooling_head = create_spatial_pooling_head(
+            pooling_method=self.pooling_method,
+            input_dimension=self.feature_dim,
+            spatial_height=spatial_height,
+            spatial_width=spatial_width,
+        )
+        self.output_dim = self.pooling_head.output_dim
 
-        x = self.conv1(img)
+    def _encode_single_image(self, images: torch.Tensor) -> torch.Tensor:
+        """Not used directly — conditioning requires ``_encode_conditioned_image``.
+
+        Raises:
+            RuntimeError: Always. Use ``encode()`` which passes conditioning.
+        """
+        raise RuntimeError(
+            "ConditionalCNNEncoder requires conditioning. Use encode() directly."
+        )
+
+    def _encode_conditioned_image(
+        self, images: torch.Tensor, conditioning: torch.Tensor
+    ) -> torch.Tensor:
+        """Encode a single camera's images through the FiLM backbone and pooling.
+
+        Args:
+            images: Image tensor of shape (B, C, H, W).
+            conditioning: Conditioning tensor of shape (B, D).
+
+        Returns:
+            Pooled feature tensor.
+        """
+        if self.pooling_head is None:
+            raise RuntimeError(
+                "pooling_head is not initialized. Call set_image_size() before forward."
+            )
+        x = self.conv1(images)
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
@@ -256,23 +266,95 @@ class ConditionalCNNEncoder(ConditionalEncoder):
             x = block(x, conditioning)
         for block in self.layer4:
             x = block(x, conditioning)
+        return self.pooling_head(x)
 
-        _, _, H_feature_maps, W_feature_maps = x.shape
-        if self.pooling_head is None:
-            self.pooling_head = create_pooling_head(
-                pooling_method=self.pooling_method,
-                feature_channels=self.feature_dim,
-                spatial_height=H_feature_maps,
-                spatial_width=W_feature_maps,
-            ).to(x.device)
-        pooled_features = self.pooling_head(x)
-        if has_time:
-            # Reshape back to (B, T, C) or (B, T, C, H, W)
-            pooled_features = pooled_features.reshape(B, T, *pooled_features.shape[1:])
-        return {EncoderOutputKeys.RGB.value: pooled_features}
+    def encode(
+        self,
+        inputs: dict[str, torch.Tensor],
+        conditioning: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        """Encode images with FiLM conditioning.
 
-    def get_output_specification(self) -> EncoderOutput:
-        return EncoderOutput(
-            features=[EncoderOutputKeys.RGB.value],
-            dimensions={EncoderOutputKeys.RGB.value: self.output_dim},
+        Args:
+            inputs: Dict with camera images as (B, C, H, W) per camera key.
+            conditioning: Conditioning tensor as (B, D).
+
+        Returns:
+            Dict with RGB features. Single camera: key is ``rgb``.
+            Multiple cameras: keys are ``rgb.{camera_key}`` per camera.
+        """
+        modality = EncoderOutputKeys.RGB.value
+        if self.is_multi_camera:
+            result = {}
+            for camera_key in self.camera_keys:
+                features = self._encode_conditioned_image(
+                    images=inputs[camera_key], conditioning=conditioning
+                )
+                result[f"{modality}.{camera_key}"] = features
+            return result
+        features = self._encode_conditioned_image(
+            images=inputs[self.camera_keys[0]], conditioning=conditioning
         )
+        return {modality: features}
+
+    def set_image_size(self, image_height: int, image_width: int) -> None:
+        """Compute feature map dimensions and create pooling head.
+
+        Args:
+            image_height: Target image height.
+            image_width: Target image width.
+        """
+        with torch.no_grad():
+            mock_input = torch.zeros(1, 3, image_height, image_width)
+            mock_condition = torch.zeros(1, self.condition_dim)
+            x = self.conv1(mock_input)
+            x = self.bn1(x)
+            x = self.relu(x)
+            x = self.maxpool(x)
+            for block in self.layer1:
+                x = block(x, mock_condition)
+            for block in self.layer2:
+                x = block(x, mock_condition)
+            for block in self.layer3:
+                x = block(x, mock_condition)
+            for block in self.layer4:
+                x = block(x, mock_condition)
+            _, _, spatial_height, spatial_width = x.shape
+        self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)
+
+    def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
+        """Validate that input metadata is RGB camera metadata.
+
+        Args:
+            key: Observation key being validated.
+            metadata: Metadata from the observation space.
+
+        Returns:
+            Error message if incompatible, None if valid.
+        """
+        if not isinstance(metadata, CameraMetadata):
+            return f"Expected CameraMetadata for '{key}', got {type(metadata).__name__}"
+        if not metadata.is_rgb:
+            return (
+                f"Expected 3-channel RGB for '{key}', got {metadata.channels} channels"
+            )
+        return None
+
+    def get_output_specification(self) -> list[FeatureMetadata]:
+        """Get structured output specification with feature names and dimensions.
+
+        Returns:
+            List of FeatureMetadata with per-camera feature names and pooled dimensions.
+        """
+        feature_names = self._get_vision_feature_names()
+        dimension = (
+            (self.output_dim,) if isinstance(self.output_dim, int) else self.output_dim
+        )
+        return [
+            FeatureMetadata(
+                key=name,
+                feature_type=infer_feature_type(dimension),
+                dimension=dimension,
+            )
+            for name in feature_names
+        ]

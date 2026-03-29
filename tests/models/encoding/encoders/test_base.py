@@ -1,5 +1,6 @@
 """Tests for versatil.models.encoding.encoders.base module."""
 
+import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
 from unittest.mock import patch
@@ -10,9 +11,9 @@ import torch.nn as nn
 
 from versatil.models.encoding.encoders.base import (
     EncoderInput,
-    EncoderOutput,
     EncodingMixin,
 )
+from versatil.models.feature_meta import FeatureMetadata, FeatureType
 
 
 class ConcreteEncodingMixin(EncodingMixin):
@@ -33,8 +34,14 @@ class ConcreteEncodingMixin(EncodingMixin):
         )
         self.linear = nn.Linear(64, 64)
 
-    def get_output_specification(self) -> EncoderOutput:
-        return EncoderOutput(features=["test"], dimensions={"test": 64})
+    def get_output_specification(self) -> list[FeatureMetadata]:
+        return [
+            FeatureMetadata(
+                key="test",
+                feature_type=FeatureType.FLAT.value,
+                dimension=(64,),
+            )
+        ]
 
 
 @pytest.fixture
@@ -58,26 +65,6 @@ def concrete_encoder_factory(
         )
 
     return factory
-
-
-class TestEncoderOutput:
-    @pytest.mark.parametrize(
-        "features, expected_is_multi_output",
-        [
-            (["embedding"], False),
-            (["language", "visual"], True),
-        ],
-    )
-    def test_is_multi_output_property(
-        self,
-        features: list[str],
-        expected_is_multi_output: bool,
-    ):
-        output = EncoderOutput(
-            features=features,
-            dimensions=dict.fromkeys(features, 64),
-        )
-        assert output.is_multi_output == expected_is_multi_output
 
 
 class TestEncoderInputPostInit:
@@ -105,7 +92,10 @@ class TestEncoderInputValidation:
             (
                 ["left"],
                 ["left", "right"],
-                pytest.raises(ValueError, match="Missing required"),
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("Missing required inputs: {'right'}"),
+                ),
             ),
         ],
     )
@@ -127,12 +117,20 @@ class TestEncoderInputValidation:
             (
                 ["left", "right"],
                 [["left", "right"]],
-                pytest.raises(ValueError, match="Exactly one"),
+                pytest.raises(
+                    ValueError,
+                    match=r"Exactly one from \['left', 'right'\] required, got \{'(left|right)', '(left|right)'\}",
+                ),
             ),
             (
                 ["depth"],
                 [["left", "right"]],
-                pytest.raises(ValueError, match="Exactly one"),
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        f"Exactly one from ['left', 'right'] required, got {set()}"
+                    ),
+                ),
             ),
         ],
     )
@@ -157,7 +155,12 @@ class TestEncoderInputValidation:
             (
                 ["depth"],
                 [["left", "right"]],
-                pytest.raises(ValueError, match="At least one"),
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        f"At least one from ['left', 'right'] required, got {set()}"
+                    ),
+                ),
             ),
         ],
     )
@@ -182,7 +185,10 @@ class TestEncoderInputValidation:
             (
                 "rgb_embedding",
                 ["missing_key"],
-                pytest.raises(ValueError, match="Missing required conditioning"),
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("Missing required conditioning: {'missing_key'}"),
+                ),
             ),
         ],
     )
@@ -207,7 +213,13 @@ class TestEncoderInputValidation:
             (
                 "other_key",
                 [["rgb_embedding", "depth_embedding"]],
-                pytest.raises(ValueError, match="Exactly one"),
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Exactly one from ['rgb_embedding', 'depth_embedding'] "
+                        "required for conditioning"
+                    ),
+                ),
             ),
         ],
     )
@@ -290,7 +302,10 @@ class TestEncodingMixinInitialization:
             keys=["left"],
             required=["left", "missing_key"],
         )
-        with pytest.raises(ValueError, match="Missing required"):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("Missing required inputs: {'missing_key'}"),
+        ):
             ConcreteEncodingMixin(
                 input_specification=invalid_specification,
                 device="cpu",

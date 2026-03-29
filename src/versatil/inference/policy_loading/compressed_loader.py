@@ -12,7 +12,7 @@ from omegaconf import OmegaConf
 from versatil.common.tensor_ops import to_device
 from versatil.data.constants import Cameras
 from versatil.data.normalization.normalizer import LinearNormalizer
-from versatil.data.transform import (
+from versatil.data.processing.transform import (
     normalize_observation,
     tokenize_observation,
     unnormalize_actions,

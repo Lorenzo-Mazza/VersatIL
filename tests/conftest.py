@@ -229,8 +229,8 @@ def camera_metadata_factory() -> Callable[..., CameraMetadata]:
         camera_key: str = Cameras.LEFT.value,
         dtype: str = "uint8",
         channels: int = 3,
-        image_width: int = None,
-        image_height: int = None,
+        image_width: int = 64,
+        image_height: int = 64,
     ) -> CameraMetadata:
         return CameraMetadata(
             camera_key=camera_key,
