@@ -765,6 +765,28 @@ Extensions:
   - **YAML simplification**: `policy.decoder.observation_space: ${policy.observation_space}` disappears. Shared params exist once in `task:` and flow through the assembler.
   - **Migration path**: Incremental — start with decoder configs, then algorithm, then encoding pipeline, then PolicyConfig itself. Each step is independently testable.
   - **Hydra still used for**: config composition (defaults lists), CLI overrides, leaf instantiation, config store.
+- **Extract GradCAM introspection from Policy god class**:
+  - Add `get_gradcam_target_layers() -> list[nn.Module]` to `EncodingMixin` base (returns `[]` by default).
+  - Each vision encoder overrides it to expose its last conv/attention layer (e.g., `self.backbone.layer4[-1]` for CNN, `self.backbone.blocks[-1]` for ViT).
+  - Add `is_vision_encoder() -> bool` that checks `len(get_gradcam_target_layers()) > 0`.
+  - Policy replaces ~175 lines of `hasattr()` checks with a 5-line loop over `encoding_pipeline.all_encoders`.
+  - Effort: Small. Each encoder gets a 3-line method.
+- **Callback registry — extract from Workspace god class**:
+  - `Workspace._create_callbacks()` currently hardcodes `isinstance()` checks for PhaseACT, VariationalAlgorithm, FreeActionTransformer, MoELoss.
+  - Define a `CallbackProvider` protocol with `get_callbacks(experiment_config) -> list[Callback]`.
+  - Components (decoders, algorithms, losses) implement it to declare their own callbacks.
+  - Workspace collects callbacks via protocol check instead of isinstance chains.
+  - Effort: Medium. Move callback creation into each component.
+- **Shared TransformerComponents builder — reduce decoder factory duplication**:
+  - ACT, ActionTransformer, DiffusionActionTransformer, MoDEACT all repeat identical positional encoding + TransformerInputBuilder + learnable query setup.
+  - Extract a `TransformerComponents` module that builds these from a `TransformerComponentSpec` dataclass.
+  - Each factory composes `TransformerComponents` instead of duplicating the setup.
+  - Effort: Medium. Mostly deletions from each factory.
+- **ObservationPipeline — shared preprocessing for training and inference**:
+  - Training preprocessing is spread across SampleBuilder, EpisodicDataset, and Policy. Inference must replicate it independently, causing train/inference drift.
+  - Extract an `ObservationPipeline` class that both training and inference use: normalize, tokenize, transform.
+  - Save alongside checkpoint so inference loads the exact same pipeline.
+  - Effort: Large but high-value. Prevents the most common deployment bugs.
 - Create a synthetic dataset schema for 1D and 2D vanilla tasks.
 - Introduce support for Pointcloud data and 3D encoders-decoders like RVT
 - Implement memory based encoders like V-JEPA and Masked Autoencoders.

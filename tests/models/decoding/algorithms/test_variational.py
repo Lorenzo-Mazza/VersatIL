@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import torch
 
+from versatil.configs.experiment import ExperimentConfig
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.algorithm.variational import VariationalAlgorithm
 from versatil.models.decoding.constants import LatentKey
@@ -17,6 +18,7 @@ from versatil.models.decoding.latent.posterior.base_posterior import (
 from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from versatil.models.decoding.latent.prior.gaussian_prior import GaussianPrior
 from versatil.models.decoding.latent.prior.vamp_prior import VampPrior
+from versatil.training.callbacks import LatentVisualizationCallback
 
 LATENT_DIMENSION = 32
 
@@ -552,3 +554,36 @@ class TestVariationalAlgorithmPredict:
         features = feature_dictionary_factory()
         result = algo.predict(network=network, features=features)
         assert set(result.keys()) == {"position_action"}
+
+
+def test_get_auxiliary_output_keys(
+    variational_factory: Callable[..., VariationalAlgorithm],
+    mock_base_algorithm_factory: Callable[..., MagicMock],
+):
+    base = mock_base_algorithm_factory()
+    base.get_auxiliary_output_keys.return_value = set()
+    algo = variational_factory(base_algorithm=base)
+    assert algo.get_auxiliary_output_keys() == {
+        LatentKey.POSTERIOR_LATENT.value,
+        LatentKey.POSTERIOR_MU.value,
+        LatentKey.POSTERIOR_LOGVAR.value,
+        LatentKey.PRIOR_LATENT.value,
+        LatentKey.PRIOR_MU.value,
+        LatentKey.PRIOR_LOGVAR.value,
+        LatentKey.PRIOR_PREDICTION.value,
+        LatentKey.PRIOR_TARGET.value,
+    }
+
+
+def test_get_callbacks_returns_latent_visualization(
+    variational_factory: Callable[..., VariationalAlgorithm],
+    mock_base_algorithm_factory: Callable[..., MagicMock],
+):
+    base = mock_base_algorithm_factory()
+    algo = variational_factory(base_algorithm=base)
+    experiment_config = MagicMock(spec=ExperimentConfig)
+    experiment_config.val_every = 4
+    callbacks = algo.get_callbacks(experiment_config=experiment_config)
+    assert len(callbacks) == 1
+    assert isinstance(callbacks[0], LatentVisualizationCallback)
+    assert callbacks[0].log_every_n_epochs == 4

@@ -8,6 +8,7 @@ import pytest
 import torch
 from torch import nn
 
+from versatil.configs.experiment import ExperimentConfig
 from versatil.data.constants import SampleKey
 from versatil.data.tokenization import Tokenizer
 from versatil.models.decoding.action_heads.single_output import ActionHead
@@ -18,6 +19,7 @@ from versatil.models.decoding.decoders.factory.free_action_transformer import (
 )
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.free_transformer.free_transformer import FreeTransformer
+from versatil.training.callbacks import LatentVisualizationCallback
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 2
@@ -450,3 +452,15 @@ def test_auxiliary_output_keys(
         DecoderOutputKey.LATENT_CODES.value,
         SampleKey.TOKENIZED_ACTIONS.value,
     }
+
+
+def test_get_callbacks_returns_latent_visualization(
+    free_transformer_factory: Callable[..., FreeActionTransformer],
+):
+    decoder = free_transformer_factory()
+    experiment_config = MagicMock(spec=ExperimentConfig)
+    experiment_config.val_every = 3
+    callbacks = decoder.get_callbacks(experiment_config=experiment_config)
+    assert len(callbacks) == 1
+    assert isinstance(callbacks[0], LatentVisualizationCallback)
+    assert callbacks[0].log_every_n_epochs == 3

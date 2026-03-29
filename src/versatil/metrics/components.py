@@ -7,6 +7,7 @@ import torch
 import torch.nn.functional as F
 
 from versatil.common.omegaconf_ops import resolve_dict_keys
+from versatil.configs.experiment import ExperimentConfig
 from versatil.data.constants import (
     BinaryGripperRange,
     GripperType,
@@ -25,6 +26,7 @@ from versatil.metrics.constants import (
 )
 from versatil.metrics.kernels import KernelType
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
+from versatil.training.callbacks import ExpertUsageCallback
 
 
 class RegressionLoss(BaseLoss):
@@ -1471,6 +1473,10 @@ class MoELoss(BaseLoss):
         super().__init__()
         self.base_loss = base_loss
         self.entropy_weight = entropy_weight
+
+    def get_callbacks(self, experiment_config: ExperimentConfig) -> list:
+        """Provide expert usage monitoring callback."""
+        return [ExpertUsageCallback(log_every_n_epochs=1)]
 
     def get_required_keys(self) -> set[str]:
         """Union of base loss keys plus routing weight."""

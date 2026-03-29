@@ -15,12 +15,14 @@ import logging
 
 import torch
 
+from versatil.configs.experiment import ExperimentConfig
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.latent import PosteriorLatentEncoder, PriorLatentEncoder
 from versatil.models.decoding.latent.prior.gaussian_prior import GaussianPrior
 from versatil.models.decoding.latent.prior.vamp_prior import VampPrior
+from versatil.training.callbacks import LatentVisualizationCallback
 
 
 class VariationalAlgorithm(DecodingAlgorithm):
@@ -76,6 +78,14 @@ class VariationalAlgorithm(DecodingAlgorithm):
             )
         if isinstance(self.prior, VampPrior):
             self.prior.set_encoder(self.posterior_encoder)
+
+    def get_callbacks(self, experiment_config: ExperimentConfig) -> list:
+        """Provide latent visualization callback for variational inference monitoring."""
+        return [
+            LatentVisualizationCallback(
+                log_every_n_epochs=experiment_config.val_every,
+            )
+        ]
 
     def get_auxiliary_output_keys(self) -> set[str]:
         """Variational algorithm adds latent variable keys to the output."""

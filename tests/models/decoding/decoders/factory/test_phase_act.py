@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
+from versatil.configs.experiment import ExperimentConfig
 from versatil.data.constants import ObsKey
 from versatil.models.decoding.action_heads.moe import MoEHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
@@ -18,6 +19,7 @@ from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
+from versatil.training.callbacks import ConfusionMatrixCallback
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 2
@@ -358,3 +360,15 @@ def test_auxiliary_output_keys(
     assert decoder.get_auxiliary_output_keys() == {
         DecoderOutputKey.ROUTING_WEIGHTS.value,
     }
+
+
+def test_get_callbacks_returns_confusion_matrix(
+    phase_act_factory: Callable[..., PhaseACT],
+):
+    decoder = phase_act_factory()
+    experiment_config = MagicMock(spec=ExperimentConfig)
+    experiment_config.val_every = 5
+    callbacks = decoder.get_callbacks(experiment_config=experiment_config)
+    assert len(callbacks) == 1
+    assert isinstance(callbacks[0], ConfusionMatrixCallback)
+    assert callbacks[0].log_every_n_epochs == 5

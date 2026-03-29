@@ -8,12 +8,14 @@ position and gripper predictions through phase-specific expert networks.
 import torch
 
 from versatil.common.omegaconf_ops import resolve_dict_keys
+from versatil.configs.experiment import ExperimentConfig
 from versatil.data.constants import ObsKey, SampleKey
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_heads.moe import MoEHead
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.factory.act import ACT
+from versatil.training.callbacks import ConfusionMatrixCallback
 
 
 class PhaseACT(ACT):
@@ -101,6 +103,14 @@ class PhaseACT(ACT):
             )
 
         self._initialize_moe_experts()
+
+    def get_callbacks(self, experiment_config: ExperimentConfig) -> list:
+        """Provide confusion matrix callback for phase classification monitoring."""
+        return [
+            ConfusionMatrixCallback(
+                log_every_n_epochs=experiment_config.val_every,
+            )
+        ]
 
     def _initialize_moe_experts(self) -> None:
         """Set num_experts on lazy MoE heads from phase metadata."""

@@ -26,19 +26,11 @@ from versatil.configs import MainConfig
 from versatil.data.dataloader import get_dataloaders
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.tokenization import Tokenizer
-from versatil.metrics import MoELoss
-from versatil.models.decoding.algorithm import VariationalAlgorithm
-from versatil.models.decoding.decoders.factory.free_action_transformer import (
-    FreeActionTransformer,
-)
-from versatil.models.decoding.decoders.factory.phase_act import PhaseACT
 from versatil.models.policy import Policy
+from versatil.training.callback_provider import CallbackProvider
 from versatil.training.callbacks import (
-    ConfusionMatrixCallback,
     EMACallback,
-    ExpertUsageCallback,
     GradientNormCallback,
-    LatentVisualizationCallback,
     ReduceLROnPlateauCallback,
     ResumableEarlyStopping,
 )
@@ -361,22 +353,6 @@ class Workspace:
                 f"start_epoch={swa_epoch_start}, annealing_epochs={self.config.training.swa_annealing_epochs})"
             )
 
-        if isinstance(self.policy.decoder, PhaseACT):
-            cm_callback = ConfusionMatrixCallback(
-                log_every_n_epochs=self.config.experiment.val_every,
-            )
-            callbacks.append(cm_callback)
-            logging.info("Added ConfusionMatrix callback for phase classification")
-
-        if isinstance(self.policy.algorithm, VariationalAlgorithm) or isinstance(
-            self.policy.decoder, FreeActionTransformer
-        ):
-            latent_vis_callback = LatentVisualizationCallback(
-                log_every_n_epochs=self.config.experiment.val_every,
-            )
-            callbacks.append(latent_vis_callback)
-            logging.info("Added LatentVisualization callback for variational algorithm")
-
         if self.config.training.reduce_lr_on_plateau:
             monitor = "val_loss" if has_validation else "train_loss"
             reduce_lr_callback = ReduceLROnPlateauCallback(
@@ -389,15 +365,43 @@ class Workspace:
                 f"Added ReduceLROnPlateau callback (monitor={monitor}, patience={self.config.training.reduce_lr_patience})"
             )
 
-        if any(
-            isinstance(module, MoELoss)
-            for module in self.policy.loss_module.loss_modules.values()
-        ):
-            expert_usage_callback = ExpertUsageCallback(log_every_n_epochs=1)
-            callbacks.append(expert_usage_callback)
-            logging.info("Added ExpertUsage callback for MoE loss")
+        component_callbacks = self._collect_component_callbacks()
+        callbacks.extend(component_callbacks)
 
         return callbacks
+
+    def _collect_component_callbacks(self) -> list:
+        """Collect callbacks declared by policy components via CallbackProvider protocol.
+
+        Iterates over the decoder, algorithm, and loss modules, calling
+        ``get_callbacks()`` on any that implement the protocol. Deduplicates
+        by callback class to avoid duplicates when multiple components declare
+        the same callback type.
+
+        Returns:
+            List of deduplicated Lightning callbacks from all components.
+        """
+        components = [
+            self.policy.decoder,
+            self.policy.algorithm,
+            *self.policy.loss_module.loss_modules.values(),
+        ]
+        seen_types: set[type] = set()
+        collected: list = []
+        for component in components:
+            if not isinstance(component, CallbackProvider):
+                continue
+            for callback in component.get_callbacks(
+                experiment_config=self.config.experiment
+            ):
+                if type(callback) not in seen_types:
+                    seen_types.add(type(callback))
+                    collected.append(callback)
+                    logging.info(
+                        f"Added {type(callback).__name__} from "
+                        f"{type(component).__name__}"
+                    )
+        return collected
 
     def _create_logger(self) -> WandbLogger | None:
         """Create WandB logger if enabled.

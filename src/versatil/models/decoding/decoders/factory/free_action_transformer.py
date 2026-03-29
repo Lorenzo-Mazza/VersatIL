@@ -10,6 +10,7 @@ and generates action tokens in autoregressive manner.
 import torch
 from torch import nn
 
+from versatil.configs.experiment import ExperimentConfig
 from versatil.data.constants import SampleKey
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import Tokenizer
@@ -29,6 +30,7 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
+from versatil.training.callbacks import LatentVisualizationCallback
 
 
 class FreeActionTransformer(ActionDecoder):
@@ -143,6 +145,14 @@ class FreeActionTransformer(ActionDecoder):
         self.vocab_size = None
         self._build_transformer_components()
         self.to(self.device)
+
+    def get_callbacks(self, experiment_config: ExperimentConfig) -> list:
+        """Provide latent visualization callback for free transformer latent codes."""
+        return [
+            LatentVisualizationCallback(
+                log_every_n_epochs=experiment_config.val_every,
+            )
+        ]
 
     def get_auxiliary_output_keys(self) -> set[str]:
         """Free transformer produces binary logits and latent codes."""
