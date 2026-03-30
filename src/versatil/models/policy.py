@@ -20,6 +20,7 @@ from versatil.metrics.components import GripperLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.pipeline import EncodingPipeline
 
 
@@ -65,9 +66,9 @@ class Policy(nn.Module):
         self.device = torch.device(device)
         self.normalizer: LinearNormalizer = LinearNormalizer()
         self.tokenizer = None  # Set later via set_tokenizer()
-        self.denoising_thresholds = (
-            DictOfTensorMixin()
-        )  # Set later via set_denoising_thresholds()
+        self.denoising_thresholds = DictOfTensorMixin()
+        if self.decoder.decoder_input.requires_vlm_backbone:
+            self._wire_vlm_backbone()
 
     @property
     def input_keys(self) -> list[str]:
@@ -89,6 +90,45 @@ class Policy(nn.Module):
     def output_keys(self) -> list[str]:
         """Sorted action keys the policy produces as output."""
         return sorted(self.decoder.action_heads.keys())
+
+    def _wire_vlm_backbone(self) -> None:
+        """Pass VLM backbone layers to the VLA decoders for interleaved processing.
+
+        Searches the encoding pipeline for a VLM encoder that exposes backbone
+        layers and injects them into the decoder via ``set_backbone()``.
+
+        Raises:
+            ValueError: If no VLM encoder with backbone access is found.
+        """
+        vlm_encoder = self._find_vlm_encoder()
+        self.decoder.set_backbone(
+            vlm_layers=vlm_encoder.get_backbone_layers(),
+            rotary_emb=vlm_encoder.get_rotary_embedding(),
+            vlm_hidden_dim=vlm_encoder.get_backbone_hidden_dim(),
+            vlm_text_config=vlm_encoder.get_text_config(),
+        )
+
+    def _find_vlm_encoder(self) -> EncodingMixin:
+        """Find the VLM encoder in the pipeline that exposes backbone layers.
+
+        Returns:
+            The VLM encoder instance.
+
+        Raises:
+            ValueError: If no encoder has ``get_backbone_layers``.
+        """
+        all_encoders = {
+            **self.encoding_pipeline.encoders,
+            **self.encoding_pipeline.conditional_encoders,
+        }
+        for encoder in all_encoders.values():
+            if hasattr(encoder, "get_backbone_layers"):
+                return encoder
+        raise ValueError(
+            "VLA decoders require a VLM encoder with get_backbone_layers(), "
+            "but none found in the encoding pipeline. "
+            "Use PaliGemmaEncoder or SmolVLMEncoder with use_embeddings_only=True."
+        )
 
     def set_normalizer(self, normalizer: LinearNormalizer) -> None:
         """Set normalizer for observations and actions."""

@@ -3,7 +3,8 @@
 import math
 
 import torch
-from transformers import AutoConfig, AutoModel
+import torch.nn as nn
+from transformers import AutoConfig, AutoModel, PretrainedConfig
 
 from versatil.data.constants import (
     RGB_CAMERAS,
@@ -230,3 +231,19 @@ class PaliGemmaEncoder(LanguageEncoderMixin, Encoder):
     def get_vocab_size(self) -> int:
         """Get the vocabulary size of the Gemma language model."""
         return self.vlm.language_model.config.vocab_size
+
+    def get_backbone_layers(self) -> nn.ModuleList:
+        """Return the Gemma LM transformer layers for interleaved decoding."""
+        return self.vlm.language_model.model.layers
+
+    def get_rotary_embedding(self) -> nn.Module:
+        """Return the Gemma RoPE module."""
+        return self.vlm.language_model.model.rotary_emb
+
+    def get_backbone_hidden_dim(self) -> int:
+        """Return the Gemma LM hidden dimension."""
+        return self.hidden_dim
+
+    def get_text_config(self) -> PretrainedConfig:
+        """Return the Gemma LM text config for expert creation."""
+        return self.vlm.language_model.config

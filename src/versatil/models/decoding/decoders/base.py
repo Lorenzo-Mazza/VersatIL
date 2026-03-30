@@ -26,6 +26,8 @@ class DecoderInput:
     raises_for_types: list[str] = field(default_factory=list)
     #: Requires actions during decoding
     requires_actions: bool = False
+    #: Requires VLM backbone layers for interleaved decoding (Pi0/SmolVLA)
+    requires_vlm_backbone: bool = False
     # For conditional decoders
     conditioning_key: str | None = None
     conditioning_required: list[str] = field(default_factory=list)
@@ -172,6 +174,12 @@ class ActionDecoder(nn.Module, ABC):
             normalizer: LinearNormalizer instance with loaded state.
         """
         self.normalizer = normalizer
+
+    def enable_encoder_cache(self) -> None:
+        """No-op. Override in decoders that support encoder caching."""
+
+    def disable_encoder_cache(self) -> None:
+        """No-op. Override in decoders that support encoder caching."""
 
     @abstractmethod
     def forward(

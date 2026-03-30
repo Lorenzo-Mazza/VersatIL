@@ -23,6 +23,7 @@ class CachedAttention(nn.Module):
         embedding_dimension: int,
         number_of_heads: int,
         number_of_key_value_heads: int | None = None,
+        head_dimension: int | None = None,
         dropout: float = 0.0,
         bias: bool = True,
         attention_type: str = AttentionType.MULTI_HEAD.value,
@@ -33,6 +34,8 @@ class CachedAttention(nn.Module):
             embedding_dimension: Model embedding dimension
             number_of_heads: Number of query heads
             number_of_key_value_heads: Number of key/value heads (for GQA)
+            head_dimension: Per-head dimension. Defaults to embedding_dimension // number_of_heads.
+                Override for architectures where hidden_size != num_heads * head_dim (e.g. Gemma2).
             dropout: Dropout probability for attention weights
             bias: Whether to include bias in projections
             attention_type: Type of attention (use AttentionType enum values)
@@ -41,14 +44,18 @@ class CachedAttention(nn.Module):
             ValueError: If dimensions don't match or invalid attention type
         """
         super().__init__()
-        if embedding_dimension % number_of_heads != 0:
+        if head_dimension is None and embedding_dimension % number_of_heads != 0:
             raise ValueError(
                 f"embedding_dimension ({embedding_dimension}) must be divisible "
                 f"by number_of_heads ({number_of_heads})"
             )
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
-        self.head_dimension = embedding_dimension // number_of_heads
+        self.head_dimension = (
+            head_dimension
+            if head_dimension is not None
+            else embedding_dimension // number_of_heads
+        )
         self.dropout = dropout
         self.attention_type = attention_type
         if attention_type == AttentionType.GROUPED_QUERY.value:

@@ -1,7 +1,8 @@
 """SmolVLM/Idefics3 encoder — decomposes the VLM into vision tower + LM for multi-camera support."""
 
 import torch
-from transformers import AutoConfig, AutoModel
+import torch.nn as nn
+from transformers import AutoConfig, AutoModel, PretrainedConfig
 
 from versatil.data.constants import (
     RGB_CAMERAS,
@@ -18,6 +19,7 @@ from versatil.models.encoding.encoders.image_mixin import resize_to_target_size
 from versatil.models.encoding.encoders.language_mixin import LanguageEncoderMixin
 from versatil.models.encoding.encoders.unconditional import Encoder
 from versatil.models.feature_meta import FeatureMetadata, FeatureType
+from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
 
 
 class SmolVLMEncoder(LanguageEncoderMixin, Encoder):
@@ -247,3 +249,119 @@ class SmolVLMEncoder(LanguageEncoderMixin, Encoder):
     def get_vocab_size(self) -> int:
         """Get the vocabulary size of the SmolLM text model."""
         return self.vlm.text_model.config.vocab_size
+
+    def get_backbone_layers(self) -> nn.ModuleList:
+        """Return the SmolLM transformer layers for interleaved decoding."""
+        return self.vlm.text_model.layers
+
+    def get_rotary_embedding(self) -> nn.Module:
+        """Return the SmolLM RoPE module."""
+        return self.vlm.text_model.rotary_emb
+
+    def get_backbone_hidden_dim(self) -> int:
+        """Return the SmolLM hidden dimension."""
+        return self.hidden_dim
+
+    def get_text_config(self) -> PretrainedConfig:
+        """Return the SmolLM text model config for expert creation."""
+        return self.vlm.config.text_config
+
+    @staticmethod
+    def extract_key_value(
+        vlm_layer: nn.Module,
+        hidden_states: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Extract flattened key/value states from a pretrained VLM layer.
+
+        Args:
+            vlm_layer: Pretrained VLM transformer layer.
+            hidden_states: VLM hidden states (B, P, D_vlm).
+
+        Returns:
+            Flattened (keys, values) each (B, P, key_value_dimension).
+        """
+        normalized = vlm_layer.input_layernorm(hidden_states)
+        return vlm_layer.self_attn.k_proj(normalized), vlm_layer.self_attn.v_proj(
+            normalized
+        )
+
+    @staticmethod
+    def extract_query_key_value(
+        vlm_layer: nn.Module,
+        hidden_states: torch.Tensor,
+        rotary_embedding: nn.Module,
+        position_ids: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Extract Q/K/V from a pretrained VLM layer with RoPE applied.
+
+        Args:
+            vlm_layer: Pretrained VLM transformer layer.
+            hidden_states: VLM hidden states (B, P, D_vlm).
+            rotary_embedding: VLM rotary positional encoding module.
+            position_ids: Position indices (B, total_length) for RoPE.
+
+        Returns:
+            (query, key, value) with RoPE applied, each (B, heads, P, head_dimension).
+        """
+        normalized = vlm_layer.input_layernorm(hidden_states)
+        attention = vlm_layer.self_attn
+        batch_size, sequence_length, _ = normalized.shape
+        head_dimension = attention.head_dim
+        number_of_heads = attention.config.num_attention_heads
+        number_of_key_value_heads = attention.config.num_key_value_heads
+        query = (
+            attention.q_proj(normalized)
+            .view(
+                batch_size,
+                sequence_length,
+                number_of_heads,
+                head_dimension,
+            )
+            .transpose(1, 2)
+        )  # (B, H, P, D_head)
+        key = (
+            attention.k_proj(normalized)
+            .view(
+                batch_size,
+                sequence_length,
+                number_of_key_value_heads,
+                head_dimension,
+            )
+            .transpose(1, 2)
+        )  # (B, KV_H, P, D_head)
+        value = (
+            attention.v_proj(normalized)
+            .view(
+                batch_size,
+                sequence_length,
+                number_of_key_value_heads,
+                head_dimension,
+            )
+            .transpose(1, 2)
+        )  # (B, KV_H, P, D_head)
+        cos, sin = rotary_embedding(value, position_ids[:, :sequence_length])
+        query = RotaryPositionalEncoding.apply_rotation_half(query, sin, cos)
+        key = RotaryPositionalEncoding.apply_rotation_half(key, sin, cos)
+        return query, key, value
+
+    @staticmethod
+    def apply_post_attention(
+        vlm_layer: nn.Module,
+        vlm_residual: torch.Tensor,
+        vlm_attention_output: torch.Tensor,
+    ) -> torch.Tensor:
+        """Apply VLM layer's O-projection, residual, and feedforward.
+
+        Args:
+            vlm_layer: Pretrained VLM transformer layer.
+            vlm_residual: VLM hidden states before attention (B, P, D_vlm).
+            vlm_attention_output: Raw attention output (B, P, H * D_head).
+
+        Returns:
+            Updated VLM hidden states (B, P, D_vlm).
+        """
+        hidden_states = vlm_residual + vlm_layer.self_attn.o_proj(vlm_attention_output)
+        residual = hidden_states
+        hidden_states = vlm_layer.post_attention_layernorm(hidden_states)
+        hidden_states = vlm_layer.mlp(hidden_states)
+        return residual + hidden_states

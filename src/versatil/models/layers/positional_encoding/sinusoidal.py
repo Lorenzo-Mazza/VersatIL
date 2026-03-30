@@ -1,3 +1,5 @@
+"""Sinusoidal positional encoding implementations."""
+
 import math
 from collections.abc import Callable
 
@@ -123,6 +125,63 @@ class SinusoidalPositionalEncoding1D(PositionalEncoding1D):
         else:
             raise ValueError(f"Invalid ordering mode: {self.ordering_mode}")
         return encodings
+
+
+class PeriodInterpolationPositionalEncoding1D(PositionalEncoding1D):
+    """Sinusoidal encoding with geometric period interpolation.
+
+    Computes frequencies by logarithmically interpolating between a minimum
+    and maximum period, giving direct control over the sensitivity range.
+    Suited for encoding continuous scalar values like normalized timesteps.
+
+    Frequency formula::
+
+        fraction = linspace(0, 1, dim // 2)
+        period = min_period * (max_period / min_period) ^ fraction
+        freq = 2π / period
+    """
+
+    def __init__(
+        self,
+        embedding_dimension: int,
+        min_period: float = 4e-3,
+        max_period: float = 4.0,
+        position_source: str = PositionSource.SCALAR.value,
+        mlp_hidden_dimensions: list[int] | None = None,
+        mlp_activation: Callable | None = nn.SiLU,
+    ):
+        if embedding_dimension % 2 != 0:
+            raise ValueError("embedding_dimension must be even")
+
+        self.min_period = min_period
+        self.max_period = max_period
+
+        half_dimension = embedding_dimension // 2
+        fraction = torch.linspace(0.0, 1.0, half_dimension, dtype=torch.float64)
+        periods = min_period * (max_period / min_period) ** fraction
+        frequencies = (2.0 * math.pi / periods).float()
+        self._temp_frequencies = frequencies
+
+        super().__init__(
+            embedding_dimension=embedding_dimension,
+            position_source=position_source,
+            precompute_encodings=False,
+            maximum_length=None,
+            mlp_hidden_dimensions=mlp_hidden_dimensions,
+            mlp_activation=mlp_activation,
+        )
+        self.register_buffer("frequencies", self._temp_frequencies)
+        del self._temp_frequencies
+
+    def _compute_encodings(self, input_values: torch.Tensor) -> torch.Tensor:
+        if input_values.dim() == 0:
+            input_values = input_values.unsqueeze(0)
+        scaled_values = (
+            input_values[:, None] * self.frequencies[None]
+            if input_values.dim() == 1
+            else input_values * self.frequencies
+        )
+        return torch.cat([torch.sin(scaled_values), torch.cos(scaled_values)], dim=-1)
 
 
 class SinusoidalPositionalEncoding2D(PositionalEncoding2D):

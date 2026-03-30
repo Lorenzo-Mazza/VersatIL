@@ -6,9 +6,6 @@ from versatil.data.constants import SampleKey
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey, ODESolver
 from versatil.models.decoding.decoders.base import ActionDecoder
-from versatil.models.decoding.decoders.factory.dit_block_action_transformer import (
-    DiTBlockActionTransformer,
-)
 from versatil.models.layers.denoising.ode_solvers import integrate_ode
 from versatil.models.layers.denoising.timestep_sampling import (
     TimestepSampler,
@@ -175,8 +172,7 @@ class FlowMatching(DecodingAlgorithm):
         device = first_feature.device
         dtype = first_feature.dtype
 
-        if isinstance(network, DiTBlockActionTransformer):
-            network.enable_encoder_cache()
+        network.enable_encoder_cache()
 
         trajectory: dict[str, torch.Tensor] = {}
         for key, meta in network.action_space.actions_metadata.items():
@@ -232,7 +228,6 @@ class FlowMatching(DecodingAlgorithm):
             ].view(shapes[key])  # (B, H, D_k)
             current_offset += flat_action_dimension
 
-        if isinstance(network, DiTBlockActionTransformer):
-            network.disable_encoder_cache()
+        network.disable_encoder_cache()
 
         return result

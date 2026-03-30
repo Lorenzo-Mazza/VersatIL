@@ -26,9 +26,6 @@ from versatil.models.decoding.constants import (
     VarianceType,
 )
 from versatil.models.decoding.decoders.base import ActionDecoder
-from versatil.models.decoding.decoders.factory.dit_block_action_transformer import (
-    DiTBlockActionTransformer,
-)
 from versatil.models.layers.denoising.diffusion_process import (
     DiffusionSchedulerConfig,
     SchedulerType,
@@ -220,8 +217,7 @@ class Diffusion(DecodingAlgorithm):
                 dtype=dtype,
             )
         setup_inference_timesteps(self.noise_scheduler, self.num_inference_steps)
-        if isinstance(network, DiTBlockActionTransformer):
-            network.enable_encoder_cache()
+        network.enable_encoder_cache()
 
         # Iteratively denoise
         for t in self.noise_scheduler.timesteps:
@@ -235,7 +231,6 @@ class Diffusion(DecodingAlgorithm):
                         model_output[key], t, noisy_actions[key]
                     ).prev_sample
 
-        if isinstance(network, DiTBlockActionTransformer):
-            network.disable_encoder_cache()
+        network.disable_encoder_cache()
 
         return noisy_actions
