@@ -82,6 +82,7 @@ class TestPolicyInstantiation:
                     input_keys=["proprio"],
                     output_dim=64,
                     pretrained=False,
+                    model_dtype=None,
                 ),
             },
         )

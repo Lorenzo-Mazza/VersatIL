@@ -19,6 +19,7 @@ class Encoder(EncodingMixin):
         pretrained: bool = False,
         frozen: bool = False,
         device: str | None = "cuda" if torch.cuda.is_available() else "cpu",
+        model_dtype: str | None = None,
     ):
         """Initialize base encoder.
 
@@ -27,12 +28,14 @@ class Encoder(EncodingMixin):
             pretrained: Whether to use pretrained weights
             frozen: Whether to freeze encoder weights
             device: Device to place the encoder on
+            model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
         super().__init__(
             input_specification=input_specification,
             pretrained=pretrained,
             frozen=frozen,
             device=device,
+            model_dtype=model_dtype,
         )
 
     def _validate_inputs(self, inputs: dict[str, torch.Tensor]) -> None:

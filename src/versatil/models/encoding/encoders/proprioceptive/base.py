@@ -23,6 +23,7 @@ class ProprioceptiveEncoder(Encoder):
         dropout: float = 0.0,
         pretrained: bool = False,
         frozen: bool = False,
+        model_dtype: str | None = None,
     ):
         """Initialize proprioceptive encoder.
 
@@ -35,10 +36,14 @@ class ProprioceptiveEncoder(Encoder):
             dropout: Dropout rate between layers
             pretrained: Whether to use pretrained weights (unused for proprio encoder)
             frozen: Whether to freeze encoder weights
+            model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
         specification = EncoderInput(keys=input_keys)
         super().__init__(
-            input_specification=specification, pretrained=pretrained, frozen=frozen
+            input_specification=specification,
+            pretrained=pretrained,
+            frozen=frozen,
+            model_dtype=model_dtype,
         )
         self.output_dim = output_dim
         self.hidden_dims = hidden_dims

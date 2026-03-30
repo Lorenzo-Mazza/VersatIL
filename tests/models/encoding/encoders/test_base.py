@@ -14,6 +14,7 @@ from versatil.models.encoding.encoders.base import (
     EncodingMixin,
 )
 from versatil.models.feature_meta import FeatureMetadata, FeatureType
+from versatil.training.constants import PrecisionType
 
 
 class ConcreteEncodingMixin(EncodingMixin):
@@ -25,12 +26,14 @@ class ConcreteEncodingMixin(EncodingMixin):
         pretrained: bool = False,
         frozen: bool = False,
         device: str | None = None,
+        model_dtype: str | None = None,
     ):
         super().__init__(
             input_specification=input_specification,
             pretrained=pretrained,
             frozen=frozen,
             device=device,
+            model_dtype=model_dtype,
         )
         self.linear = nn.Linear(64, 64)
 
@@ -55,6 +58,7 @@ def concrete_encoder_factory(
         pretrained: bool = False,
         frozen: bool = False,
         device: str | None = "cpu",
+        model_dtype: str | None = None,
     ) -> ConcreteEncodingMixin:
         input_specification = encoder_input_factory(keys=keys)
         return ConcreteEncodingMixin(
@@ -62,6 +66,7 @@ def concrete_encoder_factory(
             pretrained=pretrained,
             frozen=frozen,
             device=device,
+            model_dtype=model_dtype,
         )
 
     return factory
@@ -332,3 +337,48 @@ class TestEncodingMixinGetVocabSize:
     ):
         encoder = concrete_encoder_factory()
         assert encoder.get_vocab_size() is None
+
+
+class TestEncodingMixinModelDtype:
+    @pytest.mark.parametrize(
+        "model_dtype, expected_dtype, expectation",
+        [
+            (None, None, does_not_raise()),
+            (
+                PrecisionType.FP32.value,
+                torch.float32,
+                does_not_raise(),
+            ),
+            (
+                PrecisionType.BF16_MIXED.value,
+                torch.bfloat16,
+                does_not_raise(),
+            ),
+            (
+                PrecisionType.FP16_MIXED.value,
+                torch.float16,
+                does_not_raise(),
+            ),
+            (
+                "invalid_precision",
+                None,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Invalid model_dtype 'invalid_precision'. Must be one of: "
+                        f"{[p.value for p in PrecisionType]}"
+                    ),
+                ),
+            ),
+        ],
+    )
+    def test_resolves_precision_string_to_torch_dtype(
+        self,
+        concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
+        model_dtype: str | None,
+        expected_dtype: torch.dtype | None,
+        expectation,
+    ):
+        with expectation:
+            encoder = concrete_encoder_factory(model_dtype=model_dtype)
+            assert encoder.model_dtype == expected_dtype

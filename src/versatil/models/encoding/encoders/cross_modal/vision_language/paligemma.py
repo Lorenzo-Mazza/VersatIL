@@ -21,6 +21,7 @@ from versatil.models.encoding.encoders.image_mixin import resize_to_target_size
 from versatil.models.encoding.encoders.language_mixin import LanguageEncoderMixin
 from versatil.models.encoding.encoders.unconditional import Encoder
 from versatil.models.feature_meta import FeatureMetadata, FeatureType
+from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
 
 
 class PaliGemmaEncoder(LanguageEncoderMixin, Encoder):
@@ -42,6 +43,7 @@ class PaliGemmaEncoder(LanguageEncoderMixin, Encoder):
         model_name: str = PaliGemmaModelType.PALIGEMMA2_3B_224.value,
         attention_type: str = AttentionImplementation.SDPA.value,
         use_embeddings_only: bool = False,
+        model_dtype: str | None = None,
     ):
         """Initialize the PaliGemma encoder.
 
@@ -54,6 +56,7 @@ class PaliGemmaEncoder(LanguageEncoderMixin, Encoder):
             use_embeddings_only: If True, return raw image + language embeddings
                 without running the LM. The LM layers remain available for
                 external use (e.g. interleaved expert decoders).
+            model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
         specification = EncoderInput(
             keys=input_keys,
@@ -62,7 +65,10 @@ class PaliGemmaEncoder(LanguageEncoderMixin, Encoder):
             requires_tokenized=True,
         )
         super().__init__(
-            input_specification=specification, pretrained=pretrained, frozen=frozen
+            input_specification=specification,
+            pretrained=pretrained,
+            frozen=frozen,
+            model_dtype=model_dtype,
         )
         self.camera_keys = [
             key for key in self.input_specification.keys if key in RGB_CAMERAS
@@ -78,6 +84,8 @@ class PaliGemmaEncoder(LanguageEncoderMixin, Encoder):
             )
         else:
             self.vlm = AutoModel.from_config(config, attn_implementation=attention_type)
+        if self.model_dtype is not None:
+            self.vlm = self.vlm.to(self.model_dtype)
         self.image_size: int = config.vision_config.image_size
         self.hidden_dim: int = config.text_config.hidden_size
         self.num_image_tokens_per_camera: int = config.vision_config.num_image_tokens
@@ -234,11 +242,11 @@ class PaliGemmaEncoder(LanguageEncoderMixin, Encoder):
 
     def get_backbone_layers(self) -> nn.ModuleList:
         """Return the Gemma LM transformer layers for interleaved decoding."""
-        return self.vlm.language_model.model.layers
+        return self.vlm.language_model.layers
 
     def get_rotary_embedding(self) -> nn.Module:
         """Return the Gemma RoPE module."""
-        return self.vlm.language_model.model.rotary_emb
+        return self.vlm.language_model.rotary_emb
 
     def get_backbone_hidden_dim(self) -> int:
         """Return the Gemma LM hidden dimension."""
@@ -247,3 +255,83 @@ class PaliGemmaEncoder(LanguageEncoderMixin, Encoder):
     def get_text_config(self) -> PretrainedConfig:
         """Return the Gemma LM text config for expert creation."""
         return self.vlm.language_model.config
+
+    @staticmethod
+    def extract_query_key_value(
+        vlm_layer: nn.Module,
+        hidden_states: torch.Tensor,
+        rotary_embedding: nn.Module,
+        position_ids: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Extract Q/K/V from a Gemma2 layer with RoPE applied.
+
+        Args:
+            vlm_layer: Gemma2DecoderLayer.
+            hidden_states: VLM hidden states (B, P, D_vlm).
+            rotary_embedding: Gemma2 rotary embedding module.
+            position_ids: Position indices (B, total_length).
+
+        Returns:
+            (query, key, value) with RoPE applied to Q and K.
+        """
+        normalized = vlm_layer.input_layernorm(hidden_states)
+        attention = vlm_layer.self_attn
+        batch_size, sequence_length, _ = normalized.shape
+        head_dimension = attention.head_dim
+        number_of_heads = attention.config.num_attention_heads
+        number_of_key_value_heads = attention.config.num_key_value_heads
+        query = (
+            attention.q_proj(normalized)
+            .view(batch_size, sequence_length, number_of_heads, head_dimension)
+            .transpose(1, 2)
+        )
+        key = (
+            attention.k_proj(normalized)
+            .view(
+                batch_size, sequence_length, number_of_key_value_heads, head_dimension
+            )
+            .transpose(1, 2)
+        )
+        value = (
+            attention.v_proj(normalized)
+            .view(
+                batch_size, sequence_length, number_of_key_value_heads, head_dimension
+            )
+            .transpose(1, 2)
+        )
+        cos, sin = rotary_embedding(value, position_ids[:, :sequence_length])
+        # (B, S, head_dim) → (B, 1, S, head_dim) for head broadcast
+        cos = cos.unsqueeze(1)
+        sin = sin.unsqueeze(1)
+        query = RotaryPositionalEncoding.apply_rotation_half(query, sin, cos)
+        key = RotaryPositionalEncoding.apply_rotation_half(key, sin, cos)
+        return query, key, value
+
+    @staticmethod
+    def apply_post_attention(
+        vlm_layer: nn.Module,
+        vlm_residual: torch.Tensor,
+        vlm_attention_output: torch.Tensor,
+    ) -> torch.Tensor:
+        """Apply Gemma2 layer's O-projection, norms, residual, and feedforward.
+
+        Matches the Gemma2DecoderLayer forward pattern:
+        ``residual + post_attention_layernorm(o_proj(attn_output))``
+        then ``residual + post_feedforward_layernorm(mlp(pre_feedforward_layernorm(...)))``
+
+        Args:
+            vlm_layer: Gemma2DecoderLayer.
+            vlm_residual: VLM hidden states before attention (B, P, D_vlm).
+            vlm_attention_output: Raw attention output before O-projection (B, P, H*D_head).
+
+        Returns:
+            Updated VLM hidden states (B, P, D_vlm).
+        """
+        hidden_states = vlm_layer.self_attn.o_proj(vlm_attention_output)
+        hidden_states = vlm_layer.post_attention_layernorm(hidden_states)
+        hidden_states = vlm_residual + hidden_states
+        residual = hidden_states
+        hidden_states = vlm_layer.pre_feedforward_layernorm(hidden_states)
+        hidden_states = vlm_layer.mlp(hidden_states)
+        hidden_states = vlm_layer.post_feedforward_layernorm(hidden_states)
+        return residual + hidden_states

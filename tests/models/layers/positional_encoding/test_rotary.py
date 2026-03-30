@@ -230,6 +230,86 @@ class TestRotaryApplyRotation:
         assert not torch.allclose(result, tensor)
 
 
+class TestRotaryApplyRotationHalf:
+    def test_output_shape_matches_input(
+        self,
+        rotation_input_factory: Callable[..., torch.Tensor],
+    ):
+        tensor = rotation_input_factory(
+            batch_size=2, number_of_heads=4, sequence_length=8, head_dimension=16
+        )
+        sine = torch.zeros(1, 1, 8, 16)
+        cosine = torch.ones(1, 1, 8, 16)
+        result = RotaryPositionalEncoding.apply_rotation_half(
+            tensor=tensor, sine=sine, cosine=cosine
+        )
+        assert result.shape == tensor.shape
+
+    def test_identity_rotation_preserves_input(
+        self,
+        rotation_input_factory: Callable[..., torch.Tensor],
+    ):
+        tensor = rotation_input_factory(
+            batch_size=2, number_of_heads=4, sequence_length=8, head_dimension=16
+        )
+        sine = torch.zeros(1, 1, 8, 16)
+        cosine = torch.ones(1, 1, 8, 16)
+        result = RotaryPositionalEncoding.apply_rotation_half(
+            tensor=tensor, sine=sine, cosine=cosine
+        )
+        assert torch.allclose(result, tensor, atol=1e-6)
+
+    def test_rotation_changes_values(
+        self,
+        rotation_input_factory: Callable[..., torch.Tensor],
+        rng: np.random.Generator,
+    ):
+        tensor = rotation_input_factory(
+            batch_size=2, number_of_heads=4, sequence_length=8, head_dimension=16
+        )
+        angles = torch.from_numpy(rng.standard_normal((1, 1, 8, 16)).astype(np.float32))
+        result = RotaryPositionalEncoding.apply_rotation_half(
+            tensor=tensor, sine=torch.sin(angles), cosine=torch.cos(angles)
+        )
+        assert not torch.allclose(result, tensor)
+
+    def test_broadcasts_over_heads(
+        self,
+        rotation_input_factory: Callable[..., torch.Tensor],
+        rng: np.random.Generator,
+    ):
+        tensor = rotation_input_factory(
+            batch_size=2, number_of_heads=4, sequence_length=8, head_dimension=16
+        )
+        angles = torch.from_numpy(rng.standard_normal((1, 1, 8, 16)).astype(np.float32))
+        result = RotaryPositionalEncoding.apply_rotation_half(
+            tensor=tensor, sine=torch.sin(angles), cosine=torch.cos(angles)
+        )
+        assert result.shape == (2, 4, 8, 16)
+
+
+class TestComputeFrequenciesHalf:
+    @pytest.mark.parametrize("dimension", [8, 16, 32])
+    def test_output_shape(self, dimension: int):
+        frequencies = RotaryPositionalEncoding._compute_frequencies_half(
+            dimension=dimension, base_frequency=10000.0
+        )
+        assert frequencies.shape == (dimension // 2,)
+
+    def test_first_element_is_one(self):
+        frequencies = RotaryPositionalEncoding._compute_frequencies_half(
+            dimension=16, base_frequency=10000.0
+        )
+        assert frequencies[0].item() == pytest.approx(1.0)
+
+    def test_monotonically_decreasing(self):
+        frequencies = RotaryPositionalEncoding._compute_frequencies_half(
+            dimension=16, base_frequency=10000.0
+        )
+        for i in range(len(frequencies) - 1):
+            assert frequencies[i] > frequencies[i + 1]
+
+
 class TestRotaryPositionalEncoding1D:
     @pytest.mark.parametrize("seq_len", [8, 16])
     @pytest.mark.parametrize(

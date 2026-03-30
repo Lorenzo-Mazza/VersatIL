@@ -44,7 +44,7 @@ policy:
   loss:
     loss_modules:
       phase_passthrough:
-        _target_: versatil.metrics.MetadataPassthrough
+        _target_: versatil.metrics.components.MetadataPassthrough
         keys_mapping:
           ${obs_key:PHASE_LABEL}: ${metadata_key:PHASE_LABEL}
 

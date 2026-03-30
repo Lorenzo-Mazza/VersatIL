@@ -33,6 +33,7 @@ class DepthCNNEncoder(Encoder):
         batch_norm_handling: str = BatchNormHandling.FROZEN.value,
         pretrained: bool = False,
         frozen: bool = False,
+        model_dtype: str | None = None,
     ):
         """Initialize depth CNN encoder with single-channel timm backbone.
 
@@ -43,10 +44,14 @@ class DepthCNNEncoder(Encoder):
             batch_norm_handling: How to handle batch normalization layers.
             pretrained: Whether to load pretrained weights.
             frozen: Whether to freeze all parameters.
+            model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
         specification = EncoderInput(keys=input_keys, required=[Cameras.DEPTH.value])
         super().__init__(
-            input_specification=specification, pretrained=pretrained, frozen=frozen
+            input_specification=specification,
+            pretrained=pretrained,
+            frozen=frozen,
+            model_dtype=model_dtype,
         )
         self.batch_norm_handling = batch_norm_handling
         self.pooling_method = pooling_method

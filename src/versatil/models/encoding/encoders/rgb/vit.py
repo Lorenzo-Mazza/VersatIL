@@ -27,6 +27,7 @@ class ViTEncoder(ImageEncoderMixin, Encoder):
         frozen: bool,
         pooling_method: str = PoolingMethod.DEFAULT.value,
         backbone: str = ViTBackboneType.DINOV2_VITB14.value,
+        model_dtype: str | None = None,
     ):
         """Vision Transformer encoder using timm library.
 
@@ -37,12 +38,16 @@ class ViTEncoder(ImageEncoderMixin, Encoder):
             pooling_method: Feature pooling strategy for patch tokens.
                 Defaults to CLS token selection.
             backbone: timm model name for the ViT backbone.
+            model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
         specification = EncoderInput(
             keys=input_keys, at_least_one_of_groups=[RGB_CAMERAS]
         )
         super().__init__(
-            input_specification=specification, pretrained=pretrained, frozen=frozen
+            input_specification=specification,
+            pretrained=pretrained,
+            frozen=frozen,
+            model_dtype=model_dtype,
         )
         valid_backbones = [e.value for e in ViTBackboneType]
         if backbone not in valid_backbones:

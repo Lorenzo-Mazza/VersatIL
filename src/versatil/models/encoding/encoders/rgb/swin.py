@@ -31,6 +31,7 @@ class SwinEncoder(ImageEncoderMixin, Encoder):
         frozen: Whether to freeze all parameters.
         pooling_method: Spatial pooling strategy for feature maps.
         backbone: timm model name for the Swin backbone.
+        model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
     """
 
     def __init__(
@@ -40,12 +41,16 @@ class SwinEncoder(ImageEncoderMixin, Encoder):
         frozen: bool,
         pooling_method: str = PoolingMethod.AVERAGE.value,
         backbone: str = SwinBackboneType.SWIN_TINY.value,
+        model_dtype: str | None = None,
     ):
         specification = EncoderInput(
             keys=input_keys, at_least_one_of_groups=[RGB_CAMERAS]
         )
         super().__init__(
-            input_specification=specification, pretrained=pretrained, frozen=frozen
+            input_specification=specification,
+            pretrained=pretrained,
+            frozen=frozen,
+            model_dtype=model_dtype,
         )
         valid_backbones = [e.value for e in SwinBackboneType]
         if backbone not in valid_backbones:

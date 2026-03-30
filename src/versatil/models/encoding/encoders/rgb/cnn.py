@@ -33,6 +33,7 @@ class CNNEncoder(ImageEncoderMixin, Encoder):
         batch_norm_handling: str = BatchNormHandling.FROZEN.value,
         pretrained: bool = False,
         frozen: bool = False,
+        model_dtype: str | None = None,
     ):
         """Initialize CNN encoder with timm backbone.
 
@@ -43,12 +44,16 @@ class CNNEncoder(ImageEncoderMixin, Encoder):
             batch_norm_handling: How to handle batch normalization layers.
             pretrained: Whether to load pretrained weights.
             frozen: Whether to freeze all parameters.
+            model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
         specification = EncoderInput(
             keys=input_keys, at_least_one_of_groups=[RGB_CAMERAS]
         )
         super().__init__(
-            input_specification=specification, pretrained=pretrained, frozen=frozen
+            input_specification=specification,
+            pretrained=pretrained,
+            frozen=frozen,
+            model_dtype=model_dtype,
         )
         valid_backbones = [e.value for e in CNNBackboneType]
         if backbone not in valid_backbones:

@@ -165,6 +165,7 @@ class DFormerEncoder(Encoder):
         frozen: bool = False,
         checkpoint_path: str | None = None,
         pooling_method: str = PoolingMethod.AVERAGE.value,
+        model_dtype: str | None = None,
     ):
         """Initialize DFormer encoder.
 
@@ -179,12 +180,16 @@ class DFormerEncoder(Encoder):
             pretrained: Whether to use pretrained weights
             frozen: Whether to freeze encoder weights
             checkpoint_path: Path to checkpoint for loading weights
+            model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
         specification = EncoderInput(
             keys=input_keys, required=[Cameras.DEPTH.value], one_of_groups=[RGB_CAMERAS]
         )
         super().__init__(
-            input_specification=specification, pretrained=pretrained, frozen=frozen
+            input_specification=specification,
+            pretrained=pretrained,
+            frozen=frozen,
+            model_dtype=model_dtype,
         )
         if variant not in self.VARIANT_CONFIGS:
             raise ValueError(

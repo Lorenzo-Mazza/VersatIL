@@ -359,19 +359,16 @@ class SmolVLADecoder(ActionDecoder):
             (cos, sin) broadcastable to (B, 1, S, head_dim).
         """
         cos, sin = self.vlm_rotary_emb(hidden_states, position_ids)
-        return cos, sin
+        # (B, S, head_dim) → (B, 1, S, head_dim) for head broadcast
+        return cos.unsqueeze(1), sin.unsqueeze(1)
 
-    @staticmethod
     def _extract_key_value_with_rope(
+        self,
         vlm_layer: nn.Module,
         hidden_states: torch.Tensor,
         position_ids: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Extract K/V from a VLM layer with RoPE applied to keys.
-
-        Unlike ``extract_key_value`` which returns raw K/V without positional
-        information, this applies RoPE so that cross-attending expert tokens
-        see positionally-encoded keys.
 
         Args:
             vlm_layer: Pretrained VLM transformer layer.
@@ -393,13 +390,11 @@ class SmolVLADecoder(ActionDecoder):
         keys_headed = keys_flat.view(
             batch_size, sequence_length, number_of_key_value_heads, head_dimension
         ).transpose(1, 2)
-        # Apply RoPE to keys only (values don't get RoPE)
-        rotary_emb = attention.rotary_emb
-        cos, sin = rotary_emb(keys_headed, position_ids[:, :sequence_length])
+        cos, sin = self.vlm_rotary_emb(keys_headed, position_ids[:, :sequence_length])
+        # (B, S, head_dim) → (B, 1, S, head_dim) for head broadcast
         keys_headed = RotaryPositionalEncoding.apply_rotation_half(
-            keys_headed, sin, cos
+            keys_headed, sin.unsqueeze(1), cos.unsqueeze(1)
         )
-        # Flatten back to (B, P, kv_dim)
         keys_with_rope = (
             keys_headed.transpose(1, 2)
             .contiguous()
@@ -439,6 +434,10 @@ class SmolVLADecoder(ActionDecoder):
         """
         if self.expert_layers is None:
             raise RuntimeError("set_backbone() must be called before forward().")
+        if actions is None:
+            raise ValueError(
+                "SmolVLADecoder requires actions during forward (noisy actions for denoising)."
+            )
         prefix_embeddings = features[self.decoder_input.keys[0]]
         if DecoderOutputKey.TIMESTEP.value not in features:
             raise ValueError(
@@ -452,16 +451,14 @@ class SmolVLADecoder(ActionDecoder):
                 [prefix_embeddings, self.state_projection(state).unsqueeze(1)], dim=1
             )
         expert_hidden = self._embed_suffix(actions, timestep)
-        attention_mask, _ = make_attention_mask(
-            action_tokens=expert_hidden, feature_tokens=prefix_embeddings
+        attention_mask, key_padding_mask = make_attention_mask(
+            action_tokens=expert_hidden,
+            feature_tokens=prefix_embeddings,
+            causal_actions=False,
         )
-        batch_size = prefix_embeddings.shape[0]
-        total_length = prefix_embeddings.shape[1] + expert_hidden.shape[1]
-        position_ids = (
-            torch.arange(total_length, device=prefix_embeddings.device)
-            .unsqueeze(0)
-            .expand(batch_size, -1)
-        )
+        # Non-padded tokens get incrementing positions; padded tokens stay at 0
+        pad_mask = ~key_padding_mask.bool()
+        position_ids = (pad_mask.long().cumsum(dim=-1) - 1).clamp(min=0)
         prefix_length = prefix_embeddings.shape[1]
         expert_position_ids = position_ids[:, prefix_length:]
         expert_action_rope = self._compute_rope(expert_hidden, expert_position_ids)
@@ -479,7 +476,10 @@ class SmolVLADecoder(ActionDecoder):
             vlm_cache = self._fill_prefix_cache(prefix_embeddings, position_ids)
             self._prefix_cache = vlm_cache
             expert_hidden = self._run_expert_with_cache(
-                expert_hidden, vlm_cache, attention_mask, expert_action_rope
+                expert_hidden=expert_hidden,
+                vlm_cache=vlm_cache,
+                attention_mask=attention_mask,
+                expert_action_rope=expert_action_rope,
             )
         else:
             expert_hidden = self._run_training_forward(

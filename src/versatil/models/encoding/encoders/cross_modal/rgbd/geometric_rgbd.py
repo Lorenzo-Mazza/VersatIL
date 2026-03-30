@@ -44,6 +44,7 @@ class GeometricRGBDEncoder(Encoder):
         pooling_method: str = PoolingMethod.AVERAGE.value,
         pretrained: bool = False,
         frozen: bool = False,
+        model_dtype: str | None = None,
     ):
         """Initialize the geometric RGBD encoder.
 
@@ -59,12 +60,16 @@ class GeometricRGBDEncoder(Encoder):
             pooling_method: Feature pooling method applied after attention.
             pretrained: Whether to use pretrained weights (not supported).
             frozen: Whether to freeze encoder weights (not supported).
+            model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
         specification = EncoderInput(
             keys=input_keys, required=[Cameras.DEPTH.value], one_of_groups=[RGB_CAMERAS]
         )
         super().__init__(
-            input_specification=specification, pretrained=pretrained, frozen=frozen
+            input_specification=specification,
+            pretrained=pretrained,
+            frozen=frozen,
+            model_dtype=model_dtype,
         )
         if pretrained:
             logging.warning(

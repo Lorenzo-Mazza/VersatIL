@@ -39,6 +39,7 @@ class SmolVLMEncoder(LanguageEncoderMixin, Encoder):
         model_name: str = SmolVLMModelType.SMOLVLM_256M.value,
         attention_type: str = AttentionImplementation.SDPA.value,
         use_embeddings_only: bool = False,
+        model_dtype: str | None = None,
     ):
         """Initialize the SmolVLM encoder.
 
@@ -51,6 +52,7 @@ class SmolVLMEncoder(LanguageEncoderMixin, Encoder):
             use_embeddings_only: If True, return raw image + language embeddings
                 without running the LM. The LM layers remain available for
                 external use (e.g. interleaved expert decoders).
+            model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
         specification = EncoderInput(
             keys=input_keys,
@@ -59,7 +61,10 @@ class SmolVLMEncoder(LanguageEncoderMixin, Encoder):
             requires_tokenized=True,
         )
         super().__init__(
-            input_specification=specification, pretrained=pretrained, frozen=frozen
+            input_specification=specification,
+            pretrained=pretrained,
+            frozen=frozen,
+            model_dtype=model_dtype,
         )
         self.camera_keys = [
             key for key in self.input_specification.keys if key in RGB_CAMERAS
@@ -76,6 +81,8 @@ class SmolVLMEncoder(LanguageEncoderMixin, Encoder):
             )
         else:
             self.vlm = AutoModel.from_config(config, attn_implementation=attention_type)
+        if self.model_dtype is not None:
+            self.vlm = self.vlm.to(self.model_dtype)
 
         self.image_size: int = config.vision_config.image_size
         self.hidden_dim: int = config.text_config.hidden_size
@@ -340,6 +347,8 @@ class SmolVLMEncoder(LanguageEncoderMixin, Encoder):
             .transpose(1, 2)
         )  # (B, KV_H, P, D_head)
         cos, sin = rotary_embedding(value, position_ids[:, :sequence_length])
+        cos = cos.unsqueeze(1)
+        sin = sin.unsqueeze(1)
         query = RotaryPositionalEncoding.apply_rotation_half(query, sin, cos)
         key = RotaryPositionalEncoding.apply_rotation_half(key, sin, cos)
         return query, key, value

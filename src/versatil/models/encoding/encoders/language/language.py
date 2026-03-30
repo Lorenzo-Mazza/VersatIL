@@ -35,6 +35,7 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
         attention_type: str = AttentionImplementation.SDPA.value,
         max_token_len: int = 128,
         use_embeddings_only: bool = False,
+        model_dtype: str | None = None,
     ):
         """
         Args:
@@ -45,6 +46,7 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
             attention_type: Attention implementation to use
             max_token_len: Maximum token sequence length for the encoder
             use_embeddings_only: If True, use only the pretrained token embedding layer
+            model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
         specification = EncoderInput(
             keys=[
@@ -55,7 +57,10 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
             requires_tokenized=True,
         )
         super().__init__(
-            input_specification=specification, pretrained=pretrained, frozen=frozen
+            input_specification=specification,
+            pretrained=pretrained,
+            frozen=frozen,
+            model_dtype=model_dtype,
         )
         self._setup_language_keys(output_modality=EncoderOutputKeys.LANGUAGE.value)
         self.pooling_method = pooling_method
@@ -115,13 +120,14 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
         else:
             if self.pretrained:
                 self.encoder = AutoModel.from_pretrained(
-                    self.model_name,
-                    attn_implementation=self.attention_type,
+                    self.model_name, attn_implementation=self.attention_type
                 )
             else:
                 self.encoder = AutoModel.from_config(
                     self.config, attn_implementation=self.attention_type
                 )
+            if self.model_dtype is not None:
+                self.encoder = self.encoder.to(self.model_dtype)
 
     def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Encode pre-tokenized text into language features.

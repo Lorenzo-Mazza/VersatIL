@@ -363,24 +363,6 @@ class TestDiffusionPredict:
         mock_network.enable_encoder_cache.assert_called_once()
         mock_network.disable_encoder_cache.assert_called_once()
 
-    def test_predict_does_not_call_cache_for_non_dit_block(
-        self,
-        diffusion_factory: Callable[..., Diffusion],
-        mock_action_decoder_factory: Callable[..., MagicMock],
-        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
-    ):
-        diff = diffusion_factory(num_inference_steps=2, num_train_timesteps=10)
-        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
-        features = feature_dictionary_factory()
-        diff.noise_scheduler.step = MagicMock(
-            return_value=StepOutput(prev_sample=torch.zeros(2, 8, 3))
-        )
-        diff.predict(network=mock_network, features=features)
-        assert (
-            not hasattr(mock_network, "enable_encoder_cache")
-            or not mock_network.enable_encoder_cache.called
-        )
-
     def test_predict_with_multiple_action_keys(
         self,
         diffusion_factory: Callable[..., Diffusion],

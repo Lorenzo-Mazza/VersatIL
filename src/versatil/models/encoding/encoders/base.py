@@ -9,6 +9,7 @@ import torch.nn as nn
 
 from versatil.data.metadata import BaseMetadata
 from versatil.models.feature_meta import FeatureMetadata
+from versatil.training.constants import PrecisionType
 
 
 @dataclass
@@ -76,6 +77,7 @@ class EncodingMixin(nn.Module, abc.ABC):
         pretrained: bool = False,
         frozen: bool = False,
         device: str | None = None,
+        model_dtype: str | None = None,
     ):
         """Initialize base encoder.
 
@@ -84,13 +86,26 @@ class EncodingMixin(nn.Module, abc.ABC):
             pretrained: Whether to use pretrained weights
             frozen: Whether to freeze encoder weights
             device: Device to place the encoder on (will use "cuda" if available, else "cpu" if None)
+            model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
+                Resolved to ``torch.dtype`` via ``PrecisionType``.
         """
         super().__init__()
         input_specification.validate()
         self.input_specification = input_specification
         self.pretrained = pretrained
         self.frozen = frozen
-        # Store device as torch.device for consistency with Policy and Decoder
+        if model_dtype is not None:
+            valid_values = [p.value for p in PrecisionType]
+            if model_dtype not in valid_values:
+                raise ValueError(
+                    f"Invalid model_dtype '{model_dtype}'. "
+                    f"Must be one of: {valid_values}"
+                )
+            self.model_dtype: torch.dtype | None = PrecisionType(
+                model_dtype
+            ).get_model_dtype()
+        else:
+            self.model_dtype = None
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)

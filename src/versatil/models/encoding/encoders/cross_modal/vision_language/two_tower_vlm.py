@@ -41,6 +41,7 @@ class TwoTowerVLMEncoder(LanguageEncoderMixin, ImageEncoderMixin, Encoder):
         pooling_method: str,
         model_name: str = ImageTextModelType.CLIP_VITB32.value,
         attention_type: str = AttentionImplementation.SDPA.value,
+        model_dtype: str | None = None,
     ):
         """Initialize the two-tower VLM encoder.
 
@@ -51,6 +52,7 @@ class TwoTowerVLMEncoder(LanguageEncoderMixin, ImageEncoderMixin, Encoder):
             pooling_method: Feature pooling strategy for vision and language outputs.
             model_name: HuggingFace model identifier for the VLM.
             attention_type: Attention implementation (e.g. SDPA, eager).
+            model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
         specification = EncoderInput(
             keys=input_keys,
@@ -59,7 +61,10 @@ class TwoTowerVLMEncoder(LanguageEncoderMixin, ImageEncoderMixin, Encoder):
             requires_tokenized=True,
         )
         super().__init__(
-            input_specification=specification, pretrained=pretrained, frozen=frozen
+            input_specification=specification,
+            pretrained=pretrained,
+            frozen=frozen,
+            model_dtype=model_dtype,
         )
         self._setup_camera_keys(input_keys=self.input_specification.keys)
         self._setup_language_keys(output_modality=EncoderOutputKeys.LANGUAGE.value)
@@ -73,6 +78,8 @@ class TwoTowerVLMEncoder(LanguageEncoderMixin, ImageEncoderMixin, Encoder):
             self.encoder = AutoModel.from_config(
                 config, attn_implementation=attention_type
             )
+        if self.model_dtype is not None:
+            self.encoder = self.encoder.to(self.model_dtype)
         self.image_processor = AutoImageProcessor.from_pretrained(
             model_name,
             do_rescale=False,

@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
+import torch.nn as nn
+from transformers import AutoConfig
 
 from versatil.data.constants import Cameras, SampleKey
 from versatil.data.metadata import BaseMetadata, CameraMetadata
@@ -17,6 +19,7 @@ from versatil.models.encoding.encoders.constants import (
 from versatil.models.encoding.encoders.cross_modal.vision_language.paligemma import (
     PaliGemmaEncoder,
 )
+from versatil.training.constants import PrecisionType
 
 HIDDEN_DIM = 64
 IMAGE_SIZE = 56
@@ -169,6 +172,60 @@ def _setup_mock_vlm_for_batch(
         effective_batch_size, total_seq, HIDDEN_DIM
     )
     encoder.vlm.language_model.return_value = mock_lm_output
+
+
+def _make_tiny_paligemma_config():
+    """Create a real but tiny PaliGemma config for fast integration tests."""
+    config = AutoConfig.from_pretrained(PaliGemmaModelType.PALIGEMMA2_3B_224.value)
+    tiny_hidden = 32
+    config.text_config.num_hidden_layers = 1
+    config.text_config.hidden_size = tiny_hidden
+    config.text_config.intermediate_size = tiny_hidden * 2
+    config.text_config.num_attention_heads = 2
+    config.text_config.num_key_value_heads = 1
+    config.text_config.head_dim = tiny_hidden // 2
+    config.vision_config.hidden_size = tiny_hidden
+    config.vision_config.intermediate_size = tiny_hidden * 2
+    config.vision_config.num_hidden_layers = 1
+    config.vision_config.num_attention_heads = 2
+    config.vision_config.image_size = 56
+    config.vision_config.patch_size = 14
+    config.vision_config.num_image_tokens = 16
+    # projection_dim controls the multi-modal projector output;
+    # must match text_config.hidden_size for concatenation
+    config.projection_dim = tiny_hidden
+    config.vision_config.projection_dim = tiny_hidden
+    config.text_config.vocab_size = 1000
+    return config
+
+
+@pytest.fixture(scope="session")
+def real_paligemma_encoder() -> Callable[..., PaliGemmaEncoder]:
+    """Factory for a real but tiny PaliGemma encoder, cached per dtype."""
+    tiny_config = _make_tiny_paligemma_config()
+    cache: dict[str, PaliGemmaEncoder] = {}
+
+    def factory(
+        model_dtype: str = PrecisionType.FP32.value,
+    ) -> PaliGemmaEncoder:
+        if model_dtype not in cache:
+            with patch(
+                "versatil.models.encoding.encoders.cross_modal.vision_language.paligemma.AutoConfig.from_pretrained",
+                return_value=tiny_config,
+            ):
+                cache[model_dtype] = PaliGemmaEncoder(
+                    input_keys=[
+                        Cameras.LEFT.value,
+                        SampleKey.TOKENIZED_OBSERVATIONS.value,
+                    ],
+                    pretrained=False,
+                    frozen=True,
+                    model_name=PaliGemmaModelType.PALIGEMMA2_3B_224.value,
+                    model_dtype=model_dtype,
+                )
+        return cache[model_dtype]
+
+    return factory
 
 
 class TestPaliGemmaEncoderInitialization:
@@ -535,31 +592,141 @@ class TestPaliGemmaEncoderGetVocabSize:
         assert encoder.get_vocab_size() == VOCAB_SIZE
 
 
+class TestPaliGemmaEncoderBackboneAccessors:
+    def test_get_backbone_layers_accesses_language_model_layers(
+        self,
+        paligemma_encoder_factory: Callable[..., PaliGemmaEncoder],
+    ):
+        encoder = paligemma_encoder_factory()
+        result = encoder.get_backbone_layers()
+        assert result is encoder.vlm.language_model.layers
+
+    def test_get_rotary_embedding_accesses_language_model_rotary_emb(
+        self,
+        paligemma_encoder_factory: Callable[..., PaliGemmaEncoder],
+    ):
+        encoder = paligemma_encoder_factory()
+        result = encoder.get_rotary_embedding()
+        assert result is encoder.vlm.language_model.rotary_emb
+
+    def test_get_backbone_hidden_dim_returns_hidden_dim(
+        self,
+        paligemma_encoder_factory: Callable[..., PaliGemmaEncoder],
+    ):
+        encoder = paligemma_encoder_factory()
+        assert encoder.get_backbone_hidden_dim() == HIDDEN_DIM
+
+
 class TestPaliGemmaEncoderIntegration:
     @pytest.mark.integration
     def test_forward_pass_with_real_model(
         self,
-        paligemma_input_factory: Callable[..., dict[str, torch.Tensor]],
+        real_paligemma_encoder: Callable[..., PaliGemmaEncoder],
+        rng: np.random.Generator,
     ):
         batch_size = 1
-        encoder = PaliGemmaEncoder(
-            input_keys=[
-                Cameras.LEFT.value,
-                SampleKey.TOKENIZED_OBSERVATIONS.value,
-            ],
-            pretrained=False,
-            frozen=False,
-            model_name=PaliGemmaModelType.PALIGEMMA2_3B_224.value,
-        )
+        encoder = real_paligemma_encoder()
         encoder.eval()
-        inputs = paligemma_input_factory(
-            batch_size=batch_size,
-            height=encoder.image_size,
-            width=encoder.image_size,
-            sequence_length=10,
+        vocab_size = encoder.get_vocab_size()
+        images = torch.from_numpy(
+            rng.standard_normal(
+                (batch_size, 1, 3, encoder.image_size, encoder.image_size)
+            ).astype(np.float32)
         )
+        token_ids = torch.from_numpy(
+            rng.integers(low=0, high=vocab_size, size=(batch_size, 1, 10)).astype(
+                np.int64
+            )
+        )
+        inputs = {
+            Cameras.LEFT.value: images,
+            SampleKey.TOKENIZED_OBSERVATIONS.value: token_ids,
+        }
         with torch.no_grad():
             output = encoder(inputs=inputs)
         fused = output[EncoderOutputKeys.FUSED_RGB_LANGUAGE.value]
         assert fused.shape[0] == batch_size
         assert fused.shape[-1] == encoder.hidden_dim
+
+    @pytest.mark.integration
+    def test_backbone_accessors_return_real_modules(
+        self,
+        real_paligemma_encoder: Callable[..., PaliGemmaEncoder],
+    ):
+        encoder = real_paligemma_encoder()
+        layers = encoder.get_backbone_layers()
+        assert isinstance(layers, nn.ModuleList)
+        assert len(layers) > 0
+        assert isinstance(encoder.get_rotary_embedding(), nn.Module)
+        assert encoder.get_backbone_hidden_dim() == encoder.hidden_dim
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "precision, expected_dtype",
+        [
+            (PrecisionType.FP32.value, torch.float32),
+            (PrecisionType.BF16_MIXED.value, torch.bfloat16),
+        ],
+    )
+    def test_model_dtype_sets_vlm_parameter_dtype(
+        self,
+        real_paligemma_encoder: Callable[..., PaliGemmaEncoder],
+        precision: str,
+        expected_dtype: torch.dtype,
+    ):
+        encoder = real_paligemma_encoder(model_dtype=precision)
+        param_dtype = next(encoder.vlm.parameters()).dtype
+        assert param_dtype == expected_dtype
+
+    @pytest.mark.integration
+    def test_extract_query_key_value_applies_rope(
+        self,
+        real_paligemma_encoder: Callable[..., PaliGemmaEncoder],
+    ):
+        encoder = real_paligemma_encoder()
+        layer = encoder.get_backbone_layers()[0]
+        rotary_emb = encoder.get_rotary_embedding()
+        batch_size, sequence_length = 2, 8
+        hidden = torch.randn(batch_size, sequence_length, encoder.hidden_dim)
+        position_ids = torch.arange(sequence_length).unsqueeze(0).expand(batch_size, -1)
+        query, key, value = PaliGemmaEncoder.extract_query_key_value(
+            vlm_layer=layer,
+            hidden_states=hidden,
+            rotary_embedding=rotary_emb,
+            position_ids=position_ids,
+        )
+        normalized = layer.input_layernorm(hidden)
+        head_dim = layer.self_attn.head_dim
+        num_kv_heads = layer.self_attn.config.num_key_value_heads
+        raw_key = (
+            layer.self_attn.k_proj(normalized)
+            .view(batch_size, sequence_length, num_kv_heads, head_dim)
+            .transpose(1, 2)
+        )
+        assert not torch.allclose(key, raw_key, atol=1e-5)
+
+    @pytest.mark.integration
+    def test_apply_post_attention_matches_gemma2_forward(
+        self,
+        real_paligemma_encoder: Callable[..., PaliGemmaEncoder],
+    ):
+        encoder = real_paligemma_encoder()
+        layer = encoder.get_backbone_layers()[0]
+        attn = layer.self_attn
+        attention_output_dim = attn.config.num_attention_heads * attn.head_dim
+        batch_size, sequence_length = 2, 8
+        residual = torch.randn(batch_size, sequence_length, encoder.hidden_dim)
+        attn_output = torch.randn(batch_size, sequence_length, attention_output_dim)
+        result = PaliGemmaEncoder.apply_post_attention(
+            vlm_layer=layer,
+            vlm_residual=residual,
+            vlm_attention_output=attn_output,
+        )
+        o_proj_out = layer.self_attn.o_proj(attn_output)
+        post_attn_norm = layer.post_attention_layernorm(o_proj_out)
+        after_first_residual = residual + post_attn_norm
+        pre_ff = layer.pre_feedforward_layernorm(after_first_residual)
+        mlp_out = layer.mlp(pre_ff)
+        post_ff = layer.post_feedforward_layernorm(mlp_out)
+        expected = after_first_residual + post_ff
+        assert torch.allclose(result, expected, atol=1e-5)

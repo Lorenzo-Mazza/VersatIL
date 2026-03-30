@@ -553,6 +553,7 @@ Extensions:
 - **uint8 transfer**: Keep images as uint8 in dataloader workers, do float conversion after collation on GPU. Reduces IPC data volume by 4x (uint8 vs float32).
 
 ## For future versions
+- Make sure all integration tests use scope = session instead of recreating models from scratch.
 - **Implement LoRA config for parameter-efficient fine-tuning**:
   - Add `LoRAConfig` dataclass with `rank`, `alpha`, `dropout`, `target_modules` parameters
   - Use `peft` library for HuggingFace encoders: `get_peft_model(model, LoraConfig(...))`

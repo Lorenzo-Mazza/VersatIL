@@ -127,6 +127,38 @@ class TestMakeAttentionMask:
         assert key_mask[:, 2].all()
         assert not key_mask[:, 0].any()
 
+    def test_bidirectional_actions_when_causal_disabled(
+        self,
+        token_factory: Callable[..., torch.Tensor],
+    ):
+        prefix_len = 4
+        action_len = 4
+        feature_tokens = token_factory(sequence_length=prefix_len)
+        action_tokens = token_factory(sequence_length=action_len)
+        full_mask, _ = make_attention_mask(
+            action_tokens=action_tokens,
+            feature_tokens=feature_tokens,
+            causal_actions=False,
+        )
+        action_block = full_mask[0, 0, prefix_len:, prefix_len:]
+        assert not action_block.any()
+
+    def test_prefix_still_blocked_from_actions_when_bidirectional(
+        self,
+        token_factory: Callable[..., torch.Tensor],
+    ):
+        prefix_len = 4
+        action_len = 4
+        feature_tokens = token_factory(sequence_length=prefix_len)
+        action_tokens = token_factory(sequence_length=action_len)
+        full_mask, _ = make_attention_mask(
+            action_tokens=action_tokens,
+            feature_tokens=feature_tokens,
+            causal_actions=False,
+        )
+        prefix_to_action = full_mask[:, :, :prefix_len, prefix_len:]
+        assert prefix_to_action.all()
+
     @pytest.mark.parametrize(
         "prefix_len, action_len",
         [

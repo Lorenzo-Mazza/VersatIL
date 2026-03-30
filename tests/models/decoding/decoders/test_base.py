@@ -661,3 +661,20 @@ class TestGetAuxiliaryOutputKeys:
         decoder = concrete_decoder_factory()
         keys = decoder.get_auxiliary_output_keys()
         assert DecoderOutputKey.ROUTING_WEIGHTS.value not in keys
+
+
+class TestEncoderCache:
+    def test_forward_unchanged_after_enable_disable_cache(
+        self,
+        concrete_decoder_factory: Callable[..., ConcreteDecoder],
+    ):
+        decoder = concrete_decoder_factory()
+        features = {"rgb_features": torch.randn(2, 8, 64)}
+        output_before = decoder(features=features)
+        decoder.enable_encoder_cache()
+        output_cached = decoder(features=features)
+        decoder.disable_encoder_cache()
+        output_after = decoder(features=features)
+        for key in output_before:
+            assert torch.equal(output_before[key], output_cached[key])
+            assert torch.equal(output_before[key], output_after[key])

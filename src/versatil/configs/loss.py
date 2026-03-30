@@ -19,7 +19,7 @@ class BaseLossConfig:
 class RegressionLossConfig(BaseLossConfig):
     """Configuration for regression loss (position, orientation)."""
 
-    _target_: str = "versatil.metrics.RegressionLoss"
+    _target_: str = "versatil.metrics.components.RegressionLoss"
     action_keys: list[str] = MISSING
     mse_weight: float = 1.0
     l1_weight: float = 0.0
@@ -32,7 +32,7 @@ class RegressionLossConfig(BaseLossConfig):
 class GripperLossConfig(BaseLossConfig):
     """Configuration for gripper loss."""
 
-    _target_: str = "versatil.metrics.GripperLoss"
+    _target_: str = "versatil.metrics.components.GripperLoss"
     key: str = MISSING
     actions_metadata: Any = "${task.action_space.actions_metadata}"
     bce_weight: float = 1.0
@@ -44,7 +44,7 @@ class GripperLossConfig(BaseLossConfig):
 class KLDivergenceLossConfig(BaseLossConfig):
     """Configuration for KL divergence loss."""
 
-    _target_: str = "versatil.metrics.KLDivergenceLoss"
+    _target_: str = "versatil.metrics.components.KLDivergenceLoss"
     weight: float = 0.0001
     prior_regularization_weight: float = 0.0
 
@@ -53,7 +53,7 @@ class KLDivergenceLossConfig(BaseLossConfig):
 class GaussianEntropyLossConfig(BaseLossConfig):
     """Configuration for entropy loss."""
 
-    _target_: str = "versatil.metrics.GaussianEntropyLoss"
+    _target_: str = "versatil.metrics.components.GaussianEntropyLoss"
     key: str = MISSING
     weight: float = 0.0
 
@@ -62,7 +62,7 @@ class GaussianEntropyLossConfig(BaseLossConfig):
 class BinaryKLDivergenceLossConfig(BaseLossConfig):
     """Configuration for binary KL divergence loss."""
 
-    _target_: str = "versatil.metrics.BinaryKLDivergenceLoss"
+    _target_: str = "versatil.metrics.components.BinaryKLDivergenceLoss"
     weight: float = 0.0001
     free_bits: float = 0.0
     latent_bits: int = MISSING
@@ -73,7 +73,7 @@ class BinaryKLDivergenceLossConfig(BaseLossConfig):
 class MaximumMeanDiscrepancyLossConfig(BaseLossConfig):
     """Configuration for Maximum Mean Discrepancy (MMD) loss."""
 
-    _target_: str = "versatil.metrics.MaximumMeanDiscrepancyLoss"
+    _target_: str = "versatil.metrics.components.MaximumMeanDiscrepancyLoss"
     weight: float = 1.0
     prior_regularization_weight: float = 0.0
     kernel_type: str = KernelType.RBF.value
@@ -87,7 +87,7 @@ class MaximumMeanDiscrepancyLossConfig(BaseLossConfig):
 class BinaryMaximumMeanDiscrepancyLossConfig(BaseLossConfig):
     """Configuration for Binary Maximum Mean Discrepancy (MMD) loss."""
 
-    _target_: str = "versatil.metrics.BinaryMaximumMeanDiscrepancyLoss"
+    _target_: str = "versatil.metrics.components.BinaryMaximumMeanDiscrepancyLoss"
     weight: float = 1.0
 
 
@@ -95,7 +95,7 @@ class BinaryMaximumMeanDiscrepancyLossConfig(BaseLossConfig):
 class TrajectoryLengthLossConfig(BaseLossConfig):
     """Configuration for trajectory length loss."""
 
-    _target_: str = "versatil.metrics.TrajectoryLengthLoss"
+    _target_: str = "versatil.metrics.components.TrajectoryLengthLoss"
     weight: float = 0.1
     action_key: str = MISSING
 
@@ -104,7 +104,7 @@ class TrajectoryLengthLossConfig(BaseLossConfig):
 class TrajectorySmoothnessConfig(BaseLossConfig):
     """Configuration for trajectory smoothness loss."""
 
-    _target_: str = "versatil.metrics.TrajectorySmoothness"
+    _target_: str = "versatil.metrics.components.TrajectorySmoothness"
     weight: float = 0.01
     action_key: str = MISSING
 
@@ -113,7 +113,7 @@ class TrajectorySmoothnessConfig(BaseLossConfig):
 class ActionTokenLossConfig(BaseLossConfig):
     """Configuration for action token cross-entropy loss."""
 
-    _target_: str = "versatil.metrics.ActionTokenLoss"
+    _target_: str = "versatil.metrics.components.ActionTokenLoss"
     label_smoothing: float = 0.2
 
 
@@ -121,7 +121,7 @@ class ActionTokenLossConfig(BaseLossConfig):
 class PhaseClassificationLossConfig(BaseLossConfig):
     """Configuration for phase classification loss."""
 
-    _target_: str = "versatil.metrics.PhaseClassificationLoss"
+    _target_: str = "versatil.metrics.components.PhaseClassificationLoss"
     key: str = MISSING
     cross_entropy_weight: float = 1.0
     entropy_weight: float = 0.0
@@ -132,7 +132,7 @@ class PhaseClassificationLossConfig(BaseLossConfig):
 class GripperMixtureNLLossConfig(BaseLossConfig):
     """Configuration for gripper Mixture Negative Log-Likelihood loss."""
 
-    _target_: str = "versatil.metrics.GripperMixtureNLLoss"
+    _target_: str = "versatil.metrics.components.GripperMixtureNLLoss"
     key: str = MISSING
     actions_metadata: Any = "${task.action_space.actions_metadata}"
     weight: float = 1.0
@@ -145,7 +145,7 @@ class GripperMixtureNLLossConfig(BaseLossConfig):
 class CompositeLossConfig(BaseLossConfig):
     """Configuration for composite loss with custom modules."""
 
-    _target_: str = "versatil.metrics.CompositeLoss"
+    _target_: str = "versatil.metrics.composite.CompositeLoss"
     loss_modules: dict[str, Any] = field(default_factory=dict)
     weights: dict[str, float] | None = None
 
@@ -154,7 +154,7 @@ class CompositeLossConfig(BaseLossConfig):
 class PriorDenoisingLossConfig(BaseLossConfig):
     """Configuration for diffusion prior denoising loss."""
 
-    _target_: str = "versatil.metrics.PriorDenoisingLoss"
+    _target_: str = "versatil.metrics.components.PriorDenoisingLoss"
     weight: float = 1.0
 
 
@@ -162,7 +162,7 @@ class PriorDenoisingLossConfig(BaseLossConfig):
 class MoELossConfig:
     """Configuration for Mixture of Experts (MoE) loss."""
 
-    _target_: str = "versatil.metrics.MoELoss"
+    _target_: str = "versatil.metrics.components.MoELoss"
     base_loss: BaseLossConfig = MISSING
 
 
@@ -170,7 +170,7 @@ class MoELossConfig:
 class GaussianMixtureNLLossConfig(BaseLossConfig):
     """Configuration for Gaussian Mixture Negative Log-Likelihood loss."""
 
-    _target_: str = "versatil.metrics.GaussianMixtureNLLoss"
+    _target_: str = "versatil.metrics.components.GaussianMixtureNLLoss"
     action_keys: list[str] = MISSING
     weight: float = 1.0
     per_key_weights: dict[str, float] | None = None
@@ -183,7 +183,7 @@ class GaussianMixtureNLLossConfig(BaseLossConfig):
 class VICLatentLossConfig(BaseLossConfig):
     """Configuration for VICReg-style covariance + variance loss."""
 
-    _target_: str = "versatil.metrics.VICLatentLoss"
+    _target_: str = "versatil.metrics.components.VICLatentLoss"
     key: str = "${latent_key:POSTERIOR_MU}"
     covariance_weight: float = 3.0
     variance_weight: float = 10.0

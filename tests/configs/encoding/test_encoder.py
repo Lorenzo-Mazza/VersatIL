@@ -48,6 +48,10 @@ class TestEncoderConfig:
         assert config.pretrained == pretrained
         assert config.frozen == frozen
 
+    def test_model_dtype_defaults_to_experiment_precision_interpolation(self):
+        config = EncoderConfig()
+        assert config.model_dtype == "${experiment.precision}"
+
 
 @pytest.mark.unit
 class TestCNNEncoderConfig:
@@ -213,6 +217,7 @@ class TestEncoderInstantiation:
             input_keys=["proprio"],
             output_dim=64,
             pretrained=False,
+            model_dtype=None,
         )
         instance = instantiate(config)
         assert isinstance(instance, ProprioceptiveEncoder)

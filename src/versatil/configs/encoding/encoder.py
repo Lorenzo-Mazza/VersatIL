@@ -22,6 +22,7 @@ class EncoderConfig:
     input_keys: list[str] = MISSING
     pretrained: bool = False
     frozen: bool = False
+    model_dtype: str | None = "${experiment.precision}"
 
 
 @dataclass

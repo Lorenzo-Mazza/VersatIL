@@ -19,7 +19,17 @@ class ConditionalEncoder(EncodingMixin):
         pretrained: bool = False,
         frozen: bool = False,
         device: str | None = "cuda" if torch.cuda.is_available() else "cpu",
+        model_dtype: str | None = None,
     ):
+        """Initialize conditional encoder.
+
+        Args:
+            input_specification: Structured input specification with conditioning key.
+            pretrained: Whether to use pretrained weights.
+            frozen: Whether to freeze encoder weights.
+            device: Device to place the encoder on.
+            model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
+        """
         if not input_specification.conditioning_key:
             raise ValueError("Conditional encoder requires conditioning_key")
         super().__init__(
@@ -27,6 +37,7 @@ class ConditionalEncoder(EncodingMixin):
             pretrained=pretrained,
             frozen=frozen,
             device=device,
+            model_dtype=model_dtype,
         )
         self.condition_key = input_specification.conditioning_key
 

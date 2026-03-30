@@ -5,10 +5,10 @@ defaults:
   - traj_len@loss_modules.trajectory_length
   - _self_
 
-_target_: versatil.metrics.CompositeLoss
+_target_: versatil.metrics.composite.CompositeLoss
 loss_modules:
     regression_loss:
-      _target_: versatil.metrics.RegressionLoss
+      _target_: versatil.metrics.components.RegressionLoss
       action_keys:
         - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
       mse_weight: 1.0
@@ -16,7 +16,7 @@ loss_modules:
       huber_weight: 0.0
 
     gripper_loss:
-      _target_: versatil.metrics.GripperLoss
+      _target_: versatil.metrics.components.GripperLoss
       key: ${proprio_key:GRIPPER_STATE}
       actions_metadata: ${task.action_space.actions_metadata}
       bce_weight: 0.05
@@ -25,6 +25,6 @@ loss_modules:
         weight: 100.0
 
     trajectory_length:
-        _target_: versatil.metrics.TrajectoryLengthLoss
+        _target_: versatil.metrics.components.TrajectoryLengthLoss
         weight: 0.001
         action_key: ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}

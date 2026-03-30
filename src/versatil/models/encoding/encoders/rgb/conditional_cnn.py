@@ -49,6 +49,7 @@ class ConditionalCNNEncoder(ImageEncoderMixin, ConditionalEncoder):
         batch_norm_handling: str = BatchNormHandling.FROZEN.value,
         pretrained: bool = False,
         frozen: bool = False,
+        model_dtype: str | None = None,
     ):
         """Initialize FiLM-conditioned CNN encoder.
 
@@ -61,6 +62,7 @@ class ConditionalCNNEncoder(ImageEncoderMixin, ConditionalEncoder):
             batch_norm_handling: How to handle batch normalization layers.
             pretrained: Whether to load pretrained weights.
             frozen: Whether to freeze all parameters.
+            model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
         specification = EncoderInput(
             keys=input_keys,
@@ -68,7 +70,10 @@ class ConditionalCNNEncoder(ImageEncoderMixin, ConditionalEncoder):
             conditioning_key=condition_key,
         )
         super().__init__(
-            input_specification=specification, pretrained=pretrained, frozen=frozen
+            input_specification=specification,
+            pretrained=pretrained,
+            frozen=frozen,
+            model_dtype=model_dtype,
         )
         self._setup_camera_keys(input_keys=self.input_specification.keys)
         self.condition_key = condition_key

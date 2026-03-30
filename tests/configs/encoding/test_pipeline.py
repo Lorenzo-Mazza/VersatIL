@@ -48,6 +48,7 @@ class TestEncodingPipelineInstantiation:
                     input_keys=["proprio"],
                     output_dim=64,
                     pretrained=False,
+                    model_dtype=None,
                 ),
             },
             observation_space=empty_observation_space,

@@ -7,19 +7,22 @@ def make_attention_mask(
     action_tokens: torch.Tensor,
     feature_tokens: torch.Tensor,
     feature_token_mask: torch.Tensor | None = None,
+    causal_actions: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Compute attention mask with bidirectional prefix and causal actions.
+    """Compute attention mask with bidirectional prefix and configurable action masking.
 
     Args:
         action_tokens: Action token embeddings (B, action_token_len, emb_dim)
         feature_tokens: Feature token embeddings (B, feat_token_len, emb_dim)
         feature_token_mask: Optional feature token mask (B, feat_token_len)
+        causal_actions: If True, action tokens use causal (autoregressive) masking.
+            If False, action tokens attend bidirectionally to each other.
 
     Returns:
         full_padding_mask: Attention mask (B, 1, total_len, total_len)
         full_key_padding_mask: Key padding mask (B, total_len)
 
-    Note: True indicates masked tokens, False indicates valid tokens. Action padding is handled in loss computation.
+    Note: True indicates masked tokens, False indicates valid tokens.
     """
     batch_size = feature_tokens.shape[0]
     prefix_len = feature_tokens.shape[1]
@@ -29,22 +32,30 @@ def make_attention_mask(
         feature_token_mask = torch.zeros(
             batch_size, prefix_len, dtype=torch.bool, device=feature_tokens.device
         )
-    action_ar_pad_mask = (
-        torch.triu(
-            torch.ones(
-                action_tokens.shape[1],
-                action_tokens.shape[1],
-                device=action_tokens.device,
-                dtype=torch.bool,
-            ),
-            diagonal=1,  # `True`s start 1 position off the main diagonal, i.e. don't attend to future action tokens
+    if causal_actions:
+        action_ar_pad_mask = (
+            torch.triu(
+                torch.ones(
+                    action_len,
+                    action_len,
+                    device=action_tokens.device,
+                    dtype=torch.bool,
+                ),
+                diagonal=1,
+            )
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .expand(batch_size, 1, action_len, action_len)
         )
-        .unsqueeze(0)
-        .unsqueeze(0)
-    )  # (1, 1, action_len, action_len)
-    action_ar_pad_mask = action_ar_pad_mask.expand(
-        batch_size, 1, action_tokens.shape[1], action_tokens.shape[1]
-    )  # (B, 1, action_len, action_len)
+    else:
+        action_ar_pad_mask = torch.zeros(
+            batch_size,
+            1,
+            action_len,
+            action_len,
+            dtype=torch.bool,
+            device=action_tokens.device,
+        )
     full_padding_mask = torch.zeros(
         batch_size,
         1,
