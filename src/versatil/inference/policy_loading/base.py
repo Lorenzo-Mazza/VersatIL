@@ -69,9 +69,23 @@ class BasePolicyLoader:
             tokenizer_path: Path to the tokenizer directory.
 
         Returns:
-            Loaded Tokenizer or None if path does not exist.
+            Loaded Tokenizer or None if no encoder requires tokenization.
+
+        Raises:
+            FileNotFoundError: If the config requires observation tokenization
+                but the tokenizer directory does not exist.
         """
+        tokenization_required = (
+            self._config is not None
+            and self._config.task.dataloader.tokenization.tokenize_observations
+        )
         if not os.path.exists(tokenizer_path):
+            if tokenization_required:
+                raise FileNotFoundError(
+                    f"Config requires observation tokenization but no tokenizer "
+                    f"found at {tokenizer_path}. Save the tokenizer alongside "
+                    f"the checkpoint."
+                )
             return None
         tokenizer = Tokenizer.from_pretrained(tokenizer_path, device=self._device)
         logging.info(f"Tokenizer loaded from {tokenizer_path}")

@@ -71,18 +71,16 @@ class PolicyLoader(BasePolicyLoader):
             raise FileNotFoundError(f"No checkpoint found at {checkpoint_file}.")
         logging.info(f"Loading model and tokenizer from {checkpoint_file}")
 
+        self._policy = self._config.policy
         tokenizer_path = os.path.join(
             self._checkpoint_path, CheckpointFilename.TOKENIZER_DIR.value
         )
         self._tokenizer = self._load_tokenizer(tokenizer_path=tokenizer_path)
-
-        self._policy = self._config.policy
         if self._tokenizer is not None:
             self._tokenizer.to(self._device)
             self._policy.set_tokenizer(self._tokenizer)
 
         self._policy.to(self._device).eval()
-
         checkpoint = torch.load(
             checkpoint_file,
             map_location=self._device,

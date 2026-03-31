@@ -87,11 +87,13 @@ def convert_smolvla_checkpoint(
     self_attn_every_n_layers: int = 2,
     proprioceptive_feature_key: str = DEFAULT_PROPRIO_FEATURE_KEY,
     action_dim: int = 7,
+    state_dim: int = 8,
 ) -> None:
     """Convert LeRobot SmolVLA safetensors to VersatIL format.
 
-    LeRobot pads actions to max_action_dim (default 32). This function
-    slices action projection weights to the actual action_dim.
+    LeRobot pads actions to max_action_dim (default 32) and state to
+    max_state_dim (default 32). This function slices projection weights
+    to the actual action_dim and state_dim.
 
     Raises:
         ValueError: If any source key has no mapping.
@@ -102,6 +104,7 @@ def convert_smolvla_checkpoint(
             source_tensors[key] = f.get_tensor(key)
 
     encoder_state_dict: dict[str, torch.Tensor] = {}
+    proprio_encoder_state_dict: dict[str, torch.Tensor] = {}
     decoder_state_dict: dict[str, torch.Tensor] = {}
     normalizer_state_dict: dict[str, torch.Tensor] = {}
     matched_source_keys: set[str] = set()
@@ -153,11 +156,9 @@ def convert_smolvla_checkpoint(
 
         if key.startswith("model.state_proj."):
             param_name = key[len("model.state_proj.") :]
-            versatil_key = (
-                f"proprioceptive_projection.linear_projections."
-                f"{proprioceptive_feature_key}.{param_name}"
-            )
-            decoder_state_dict[versatil_key] = tensor
+            if param_name == "weight":
+                tensor = tensor[:, :state_dim]
+            proprio_encoder_state_dict[f"network.layers.0.{param_name}"] = tensor
             matched_source_keys.add(key)
             continue
 
@@ -212,6 +213,8 @@ def convert_smolvla_checkpoint(
     state_dict: dict[str, torch.Tensor] = {}
     for key, tensor in encoder_state_dict.items():
         state_dict[f"policy.encoding_pipeline.encoders.vlm.{key}"] = tensor
+    for key, tensor in proprio_encoder_state_dict.items():
+        state_dict[f"policy.encoding_pipeline.encoders.robot_state.{key}"] = tensor
     for key, tensor in decoder_state_dict.items():
         state_dict[f"policy.decoder.{key}"] = tensor
     for key, tensor in normalizer_state_dict.items():
@@ -246,6 +249,12 @@ def main():
         default=7,
         help="Actual action dimension (LeRobot pads to max_action_dim=32).",
     )
+    parser.add_argument(
+        "--state-dim",
+        type=int,
+        default=8,
+        help="Actual state dimension (LeRobot pads to max_state_dim=32).",
+    )
     args = parser.parse_args()
     convert_smolvla_checkpoint(
         input_path=args.input,
@@ -253,6 +262,7 @@ def main():
         self_attn_every_n_layers=args.self_attn_every_n,
         proprioceptive_feature_key=args.proprio_key,
         action_dim=args.action_dim,
+        state_dim=args.state_dim,
     )
 
 

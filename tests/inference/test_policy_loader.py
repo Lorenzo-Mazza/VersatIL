@@ -33,6 +33,7 @@ def mock_config() -> MagicMock:
     config = MagicMock()
     config.training = MagicMock()
     config.experiment.validate_loss_keys = True
+    config.task.dataloader.tokenization.tokenize_observations = False
     mock_policy = MagicMock()
     mock_policy.observation_space = MagicMock()
     mock_policy.action_space = MagicMock()
@@ -237,6 +238,16 @@ class TestPolicyLoaderTokenizer:
         loader = policy_loader_factory(create_tokenizer_dir=False)
         mock_config = loader._config
         mock_config.policy.set_tokenizer.assert_not_called()
+
+    def test_raises_when_tokenization_required_but_no_directory(
+        self, policy_loader_factory, mock_config
+    ):
+        mock_config.task.dataloader.tokenization.tokenize_observations = True
+        with pytest.raises(
+            FileNotFoundError,
+            match="Config requires observation tokenization but no tokenizer found",
+        ):
+            policy_loader_factory(config=mock_config, create_tokenizer_dir=False)
 
     def test_tokenizer_loaded_when_directory_exists(
         self, tmp_path, mock_config, mock_checkpoint
