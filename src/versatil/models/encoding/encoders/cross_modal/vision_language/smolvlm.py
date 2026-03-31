@@ -73,13 +73,18 @@ class SmolVLMEncoder(GenerativeVLMEncoder):
     ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
         """Stack all cameras along num_images dim and encode in a single call.
 
+        Stacks N camera images into (B, N, C, H, W), passes through the vision
+        encoder which returns (B*N, tokens_per_camera, hidden_dim), then reshapes
+        back to (B, N*tokens_per_camera, hidden_dim).
+
         Args:
             inputs: Dict with camera images as (B, C, H, W) per camera key.
             batch_size: Batch size.
 
         Returns:
-            ([combined_embeddings], [combined_pad_mask]) — single-element lists
-            since all cameras are processed together.
+            ([embeddings], [pad_mask]) where embeddings is
+            (B, N*tokens_per_camera, hidden_dim) and pad_mask is
+            (B, N*tokens_per_camera).
         """
         camera_images = []
         for camera_key in self.camera_keys:
@@ -90,9 +95,16 @@ class SmolVLMEncoder(GenerativeVLMEncoder):
                     target_width=self.image_size,
                 )
             )
-        pixel_values = torch.stack(camera_images, dim=1)
+        num_cameras = len(self.camera_keys)
+        pixel_values = torch.stack(camera_images, dim=1)  # (B, num_cameras, C, H, W)
         image_features = self.vlm.get_image_features(pixel_values)
+        # pooler_output: (B * num_cameras, tokens_per_camera, hidden_dim)
         image_embeddings = image_features.pooler_output
+        # Merge camera and token dims back into batch: (B, num_cameras * tokens_per_camera, hidden_dim)
+        tokens_per_camera = image_embeddings.shape[1]
+        image_embeddings = image_embeddings.reshape(
+            batch_size, num_cameras * tokens_per_camera, image_embeddings.shape[2]
+        )
         image_pad_mask = torch.zeros(
             batch_size,
             self.total_image_tokens,
