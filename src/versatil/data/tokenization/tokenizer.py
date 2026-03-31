@@ -109,7 +109,6 @@ class Tokenizer:
             observation_tokenizer = ObservationTokenizer.from_pretrained(
                 obs_path, device=device
             )
-            logging.info(f"Loaded observation tokenizer from {obs_path}")
 
         action_path = path / "action_tokenizer"
         if action_path.exists():
