@@ -63,6 +63,32 @@ class ProprioceptiveEncoder(Encoder):
         if self.frozen:
             super()._freeze_weights()
 
+    def _load_from_state_dict(
+        self,
+        state_dict: dict,
+        prefix: str,
+        local_metadata: dict,
+        strict: bool,
+        missing_keys: list,
+        unexpected_keys: list,
+        error_msgs: list,
+    ) -> None:
+        """Build the MLP from checkpoint weights before loading."""
+        network_prefix = prefix + "network."
+        has_network_keys = any(k.startswith(network_prefix) for k in state_dict)
+        if has_network_keys and self.network is None:
+            first_weight = state_dict[network_prefix + "layers.0.weight"]
+            self._build_network(input_dim=first_weight.shape[1])
+        super()._load_from_state_dict(
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
+
     def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Encode proprioceptive state.
 
