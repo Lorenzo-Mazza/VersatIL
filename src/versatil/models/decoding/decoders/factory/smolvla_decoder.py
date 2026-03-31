@@ -252,7 +252,7 @@ class SmolVLADecoder(ActionDecoder):
         vlm_key_value_dimension = vlm_num_key_value_heads * vlm_head_dimension
         expert_num_heads = vlm_num_heads
         expert_num_key_value_heads = vlm_num_key_value_heads
-        expert_head_dimension = expert_hidden_size // expert_num_heads
+        expert_head_dimension = vlm_head_dimension
         actual_expert_count = (
             self.num_expert_layers if self.num_expert_layers > 0 else actual_vlm_count
         )

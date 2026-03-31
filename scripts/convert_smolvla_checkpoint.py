@@ -86,8 +86,12 @@ def convert_smolvla_checkpoint(
     output_path: Path,
     self_attn_every_n_layers: int = 2,
     proprioceptive_feature_key: str = DEFAULT_PROPRIO_FEATURE_KEY,
+    action_dim: int = 7,
 ) -> None:
     """Convert LeRobot SmolVLA safetensors to VersatIL format.
+
+    LeRobot pads actions to max_action_dim (default 32). This function
+    slices action projection weights to the actual action_dim.
 
     Raises:
         ValueError: If any source key has no mapping.
@@ -188,6 +192,19 @@ def convert_smolvla_checkpoint(
             print(f"  {key}: {source_tensors[key].shape}")
         raise ValueError(f"{len(unmatched)} source keys have no mapping. See above.")
 
+    # Slice action projections from LeRobot's max_action_dim to actual action_dim
+    source_action_dim = decoder_state_dict["action_input_projection.weight"].shape[1]
+    if source_action_dim != action_dim:
+        print(f"\nSlicing action projections: {source_action_dim} → {action_dim}")
+        w = decoder_state_dict["action_input_projection.weight"]
+        decoder_state_dict["action_input_projection.weight"] = w[:, :action_dim]
+        b = decoder_state_dict["action_input_projection.bias"]
+        decoder_state_dict["action_input_projection.bias"] = b
+        w = decoder_state_dict["action_output_projection.weight"]
+        decoder_state_dict["action_output_projection.weight"] = w[:action_dim, :]
+        b = decoder_state_dict["action_output_projection.bias"]
+        decoder_state_dict["action_output_projection.bias"] = b[:action_dim]
+
     # Build Lightning-compatible flat state_dict with policy.* prefix
     # Encoder keys: policy.encoding_pipeline.encoders.vlm.<key>
     # Decoder keys: policy.decoder.<key>
@@ -223,12 +240,19 @@ def main():
         default=DEFAULT_PROPRIO_FEATURE_KEY,
         help="Feature key for proprioceptive state in the VersatIL decoder.",
     )
+    parser.add_argument(
+        "--action-dim",
+        type=int,
+        default=7,
+        help="Actual action dimension (LeRobot pads to max_action_dim=32).",
+    )
     args = parser.parse_args()
     convert_smolvla_checkpoint(
         input_path=args.input,
         output_path=args.output,
         self_attn_every_n_layers=args.self_attn_every_n,
         proprioceptive_feature_key=args.proprio_key,
+        action_dim=args.action_dim,
     )
 
 
