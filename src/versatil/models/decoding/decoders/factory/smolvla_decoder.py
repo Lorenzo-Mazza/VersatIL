@@ -12,10 +12,11 @@ from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_masking import make_attention_mask
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
-from versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm import (
-    SmolVLMEncoder,
+from versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm import (
+    GenerativeVLMEncoder,
 )
 from versatil.models.layers.diffusion_transformer.mmdit_layer import MMDiTLayer
+from versatil.models.layers.feature_projection import FeatureProjection
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.positional_encoding.base import PositionSource
@@ -144,8 +145,7 @@ class SmolVLADecoder(ActionDecoder):
         num_expert_layers: int = -1,
         num_vlm_layers: int = 16,
         self_attention_every_n_layers: int = 2,
-        state_dimension: int = 32,
-        proprioceptive_feature_key: str = "state",
+        proprioceptive_feature_key: str | None = None,
         min_period: float = 4e-3,
         max_period: float = 4.0,
         freeze_vlm: bool = True,
@@ -167,8 +167,9 @@ class SmolVLADecoder(ActionDecoder):
             num_vlm_layers: Number of VLM layers to use (truncates if fewer than available).
             self_attention_every_n_layers: Period for joint self-attention layers.
                 ``0`` disables joint self-attention (all cross-attention).
-            state_dimension: Dimension of proprioceptive state input.
-            proprioceptive_feature_key: Key for proprioceptive state in the features dict.
+            proprioceptive_feature_key: Feature key for proprioceptive state from the
+                encoding pipeline. When set, the feature is prepended to the VLM
+                prefix before interleaved processing. None disables state prepend.
             min_period: Minimum period for sinusoidal timestep embedding.
             max_period: Maximum period for sinusoidal timestep embedding.
             freeze_vlm: Whether to freeze VLM layer parameters (disable gradients).
@@ -191,7 +192,6 @@ class SmolVLADecoder(ActionDecoder):
         self.num_expert_layers = num_expert_layers
         self.num_vlm_layers = num_vlm_layers
         self.self_attention_every_n_layers = self_attention_every_n_layers
-        self.state_dimension = state_dimension
         self.proprioceptive_feature_key = proprioceptive_feature_key
         self.min_period = min_period
         self.max_period = max_period
@@ -206,7 +206,6 @@ class SmolVLADecoder(ActionDecoder):
         self.action_output_projection: nn.Linear | None = None
         self.action_time_fusion_input: nn.Linear | None = None
         self.action_time_fusion_output: nn.Linear | None = None
-        self.state_projection: nn.Linear | None = None
         self.timestep_embedding: PeriodInterpolationPositionalEncoding1D | None = None
         self.expert_final_norm: nn.Module | None = None
         self.vlm_hidden_dimension: int | None = None
@@ -231,7 +230,11 @@ class SmolVLADecoder(ActionDecoder):
         """Create layers and projections from VLM config."""
         self.vlm_hidden_dimension = vlm_hidden_dimension
         self.vlm_rotary_emb = rotary_emb
-        actual_vlm_count = min(self.num_vlm_layers, len(vlm_layers))
+        actual_vlm_count = (
+            len(vlm_layers)
+            if self.num_vlm_layers <= 0
+            else min(self.num_vlm_layers, len(vlm_layers))
+        )
         if self.freeze_vlm:
             for parameter in vlm_layers.parameters():
                 parameter.requires_grad = False
@@ -247,10 +250,8 @@ class SmolVLADecoder(ActionDecoder):
             vlm_text_config, "num_key_value_heads", vlm_num_heads
         )
         vlm_key_value_dimension = vlm_num_key_value_heads * vlm_head_dimension
-        expert_num_heads = max(1, int(vlm_num_heads * self.expert_width_multiplier))
-        expert_num_key_value_heads = max(
-            1, int(vlm_num_key_value_heads * self.expert_width_multiplier)
-        )
+        expert_num_heads = vlm_num_heads
+        expert_num_key_value_heads = vlm_num_key_value_heads
         expert_head_dimension = expert_hidden_size // expert_num_heads
         actual_expert_count = (
             self.num_expert_layers if self.num_expert_layers > 0 else actual_vlm_count
@@ -263,7 +264,10 @@ class SmolVLADecoder(ActionDecoder):
         self.action_time_fusion_output = nn.Linear(
             expert_hidden_size, expert_hidden_size
         )
-        self.state_projection = nn.Linear(self.state_dimension, vlm_hidden_dimension)
+        if self.proprioceptive_feature_key is not None:
+            self.proprioceptive_projection = FeatureProjection(
+                embedding_dim=vlm_hidden_dimension
+            )
         self.timestep_embedding = PeriodInterpolationPositionalEncoding1D(
             embedding_dimension=expert_hidden_size,
             min_period=self.min_period,
@@ -310,6 +314,7 @@ class SmolVLADecoder(ActionDecoder):
                         normalization_type=self.normalization_type,
                         use_conditioning=False,
                         use_gating=False,
+                        use_query_key_norm=False,
                         dropout=self._dropout,
                         bias=False,
                     )
@@ -445,11 +450,19 @@ class SmolVLADecoder(ActionDecoder):
                 "The algorithm should inject timesteps into features."
             )
         timestep = features[DecoderOutputKey.TIMESTEP.value]
-        state = features.get(self.proprioceptive_feature_key)
-        if state is not None and self.state_projection is not None:
-            prefix_embeddings = torch.cat(
-                [prefix_embeddings, self.state_projection(state).unsqueeze(1)], dim=1
+        proprio = (
+            features.get(self.proprioceptive_feature_key)
+            if self.proprioceptive_feature_key is not None
+            else None
+        )
+        if proprio is not None:
+            projected = self.proprioceptive_projection(
+                {self.proprioceptive_feature_key: proprio}
             )
+            proprio_token = projected[self.proprioceptive_feature_key]
+            if proprio_token.ndim == 2:
+                proprio_token = proprio_token.unsqueeze(1)  # (B, D) → (B, 1, D)
+            prefix_embeddings = torch.cat([prefix_embeddings, proprio_token], dim=1)
         expert_hidden = self._embed_suffix(actions, timestep)
         attention_mask, key_padding_mask = make_attention_mask(
             action_tokens=expert_hidden,
@@ -533,7 +546,7 @@ class SmolVLADecoder(ActionDecoder):
                 case SmolVLALayerType.SELF_ATTENTION.value:
                     with torch.no_grad():
                         vlm_query, vlm_key, vlm_value = (
-                            SmolVLMEncoder.extract_query_key_value(
+                            GenerativeVLMEncoder.extract_query_key_value(
                                 vlm_layer,
                                 vlm_hidden,
                                 self.vlm_rotary_emb,
@@ -551,7 +564,7 @@ class SmolVLADecoder(ActionDecoder):
                         precomputed_action_rope=expert_action_rope,
                     )
                     with torch.no_grad():
-                        vlm_hidden = SmolVLMEncoder.apply_post_attention(
+                        vlm_hidden = GenerativeVLMEncoder.apply_residual_feedforward(
                             vlm_layer,
                             vlm_hidden,
                             vlm_attention_output,
@@ -597,7 +610,7 @@ class SmolVLADecoder(ActionDecoder):
                 match layer_type:
                     case SmolVLALayerType.SELF_ATTENTION.value:
                         vlm_query, vlm_key, vlm_value = (
-                            SmolVLMEncoder.extract_query_key_value(
+                            GenerativeVLMEncoder.extract_query_key_value(
                                 vlm_layer,
                                 vlm_hidden,
                                 self.vlm_rotary_emb,

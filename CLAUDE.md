@@ -554,6 +554,8 @@ Extensions:
 
 ## For future versions
 - Make sure all integration tests use scope = session instead of recreating models from scratch.
+- Decouple Task Metadata from Storage Metadata. Right now the Metadata universal class defines overlapping properties according to the location of the yaml definitions.
+  But the Metadata objects at Task Runtime don't need things like storage key and some other properties actually differ (e.g. image size)
 - **Implement LoRA config for parameter-efficient fine-tuning**:
   - Add `LoRAConfig` dataclass with `rank`, `alpha`, `dropout`, `target_modules` parameters
   - Use `peft` library for HuggingFace encoders: `get_peft_model(model, LoraConfig(...))`
@@ -589,6 +591,7 @@ Extensions:
             # ... wire everything, pass feature metadata to decoder
     ```
   - **Feature metadata injection**: The assembler passes `encoding_pipeline.get_features()` to the decoder after instantiation, replacing the current `has_time_dim` flag and runtime `ndim` shape guessing in `TransformerInputBuilder`/`UNetInputBuilder`/`FeatureProjection`. Decoders use `FeatureMetadata.feature_type` instead of inspecting tensor shapes. The pipeline squeeze of `T=1` is removed — encoders always output `(B, T, ...)`, decoders handle it consistently.
+  - **Feature filtering in decoders**: Currently `DecoderInput.keys` is used only for validation at init — decoders pass the ENTIRE features dict to `TransformerInputBuilder`, which processes everything via a fragile denylist (`exclude_keys`, padding mask substring checks). Algorithm-injected keys (timestep, latent) are mixed with encoder outputs in the same dict. The fix: decoders filter features by `decoder_input.keys` (allowlist) before passing to input builders, and access algorithm-injected keys explicitly. The latent key changes between training (`POSTERIOR_LATENT`) and inference (`PRIOR_LATENT`) — the algorithm handles this, the decoder should be agnostic. This requires the assembler to distinguish between "encoder features" and "algorithm context" as separate dicts or namespaces.
   - **YAML simplification**: `policy.decoder.observation_space: ${policy.observation_space}` disappears. Shared params exist once in `task:` and flow through the assembler.
   - **Migration path**: Incremental — start with decoder configs, then algorithm, then encoding pipeline, then PolicyConfig itself. Each step is independently testable.
   - **Hydra still used for**: config composition (defaults lists), CLI overrides, leaf instantiation, config store.

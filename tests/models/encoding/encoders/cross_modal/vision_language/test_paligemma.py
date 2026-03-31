@@ -58,9 +58,10 @@ def mock_vlm_factory() -> Callable[..., MagicMock]:
         )
         mock_vlm.get_image_features.return_value = mock_image_output
 
-        mock_vlm.language_model.embed_tokens.return_value = torch.zeros(
-            batch_size, MAX_TEXT_LENGTH, HIDDEN_DIM
+        mock_embed = MagicMock(
+            return_value=torch.zeros(batch_size, MAX_TEXT_LENGTH, HIDDEN_DIM)
         )
+        mock_vlm.language_model.get_input_embeddings.return_value = mock_embed
 
         total_seq = total_image_tokens + MAX_TEXT_LENGTH
         mock_lm_output = MagicMock()
@@ -96,15 +97,15 @@ def paligemma_encoder_factory(
 
         with (
             patch(
-                "versatil.models.encoding.encoders.cross_modal.vision_language.paligemma.AutoConfig.from_pretrained",
+                "versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm.AutoConfig.from_pretrained",
                 return_value=mock_config,
             ),
             patch(
-                "versatil.models.encoding.encoders.cross_modal.vision_language.paligemma.AutoModel.from_pretrained",
+                "versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm.AutoModel.from_pretrained",
                 return_value=mock_vlm,
             ),
             patch(
-                "versatil.models.encoding.encoders.cross_modal.vision_language.paligemma.AutoModel.from_config",
+                "versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm.AutoModel.from_config",
                 return_value=mock_vlm,
             ),
         ):
@@ -163,9 +164,10 @@ def _setup_mock_vlm_for_batch(
         effective_batch_size, NUM_IMAGE_TOKENS, HIDDEN_DIM
     )
     encoder.vlm.get_image_features.return_value = mock_image_output
-    encoder.vlm.language_model.embed_tokens.return_value = torch.zeros(
-        effective_batch_size, MAX_TEXT_LENGTH, HIDDEN_DIM
+    mock_embed = MagicMock(
+        return_value=torch.zeros(effective_batch_size, MAX_TEXT_LENGTH, HIDDEN_DIM)
     )
+    encoder.vlm.language_model.get_input_embeddings.return_value = mock_embed
     total_seq = encoder.total_image_tokens + MAX_TEXT_LENGTH
     mock_lm_output = MagicMock()
     mock_lm_output.last_hidden_state = torch.zeros(
@@ -210,7 +212,7 @@ def real_paligemma_encoder() -> Callable[..., PaliGemmaEncoder]:
     ) -> PaliGemmaEncoder:
         if model_dtype not in cache:
             with patch(
-                "versatil.models.encoding.encoders.cross_modal.vision_language.paligemma.AutoConfig.from_pretrained",
+                "versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm.AutoConfig.from_pretrained",
                 return_value=tiny_config,
             ):
                 cache[model_dtype] = PaliGemmaEncoder(
@@ -706,7 +708,7 @@ class TestPaliGemmaEncoderIntegration:
         assert not torch.allclose(key, raw_key, atol=1e-5)
 
     @pytest.mark.integration
-    def test_apply_post_attention_matches_gemma2_forward(
+    def test_apply_residual_feedforward_matches_gemma2_forward(
         self,
         real_paligemma_encoder: Callable[..., PaliGemmaEncoder],
     ):
@@ -717,7 +719,7 @@ class TestPaliGemmaEncoderIntegration:
         batch_size, sequence_length = 2, 8
         residual = torch.randn(batch_size, sequence_length, encoder.hidden_dim)
         attn_output = torch.randn(batch_size, sequence_length, attention_output_dim)
-        result = PaliGemmaEncoder.apply_post_attention(
+        result = PaliGemmaEncoder.apply_residual_feedforward(
             vlm_layer=layer,
             vlm_residual=residual,
             vlm_attention_output=attn_output,

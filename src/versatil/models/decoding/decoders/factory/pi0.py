@@ -20,8 +20,8 @@ from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_masking import make_attention_mask
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
-from versatil.models.encoding.encoders.cross_modal.vision_language.paligemma import (
-    PaliGemmaEncoder,
+from versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm import (
+    GenerativeVLMEncoder,
 )
 from versatil.models.layers.diffusion_transformer.mmdit_layer import MMDiTLayer
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -129,7 +129,7 @@ class Pi0Decoder(ActionDecoder):
                 )
         self.vlm_layers: nn.ModuleList | None = None
         self.vlm_rotary_embedding: nn.Module | None = None
-        self.vlm_hidden_dimension: int | None = None
+        self.vlm_hidden_dimensionension: int | None = None
         self.expert_layers: nn.ModuleList | None = None
         self.expert_final_normalization: nn.Module | None = None
         self._encoder_cache_enabled = False
@@ -140,7 +140,7 @@ class Pi0Decoder(ActionDecoder):
         self,
         vlm_layers: nn.ModuleList,
         rotary_emb: nn.Module,
-        vlm_hidden_dim: int,
+        vlm_hidden_dimension: int,
         vlm_text_config: PretrainedConfig,
     ) -> None:
         """Reference pretrained VLM layers and create expert layers.
@@ -148,7 +148,7 @@ class Pi0Decoder(ActionDecoder):
         Args:
             vlm_layers: VLM transformer layers (referenced directly, not copied).
             rotary_emb: VLM rotary positional encoding module.
-            vlm_hidden_dim: VLM hidden dimension.
+            vlm_hidden_dimension: VLM hidden dimension.
             vlm_text_config: VLM text model config.
 
         Raises:
@@ -161,12 +161,12 @@ class Pi0Decoder(ActionDecoder):
             )
         self.vlm_layers = vlm_layers
         self.vlm_rotary_embedding = rotary_emb
-        self.vlm_hidden_dimension = vlm_hidden_dim
+        self.vlm_hidden_dimensionension = vlm_hidden_dimension
         use_conditioning = self.time_conditioning == Pi0TimeConditioning.ADANORM.value
         self.expert_layers = nn.ModuleList(
             [
                 MMDiTLayer(
-                    embedding_dimension=vlm_hidden_dim,
+                    embedding_dimension=vlm_hidden_dimension,
                     conditioning_dimension=self.expert_hidden_size,
                     number_of_heads=self.expert_number_of_heads,
                     secondary_embedding_dimension=self.expert_hidden_size,
@@ -344,7 +344,7 @@ class Pi0Decoder(ActionDecoder):
             vlm_layer = self.vlm_layers[layer_index]
             with torch.no_grad():
                 vlm_query, vlm_key, vlm_value = (
-                    PaliGemmaEncoder.extract_query_key_value(
+                    GenerativeVLMEncoder.extract_query_key_value(
                         vlm_layer=vlm_layer,
                         hidden_states=vlm_hidden,
                         rotary_embedding=self.vlm_rotary_embedding,
@@ -360,7 +360,7 @@ class Pi0Decoder(ActionDecoder):
                 precomputed_action_rope=expert_action_rope,
             )
             with torch.no_grad():
-                vlm_hidden = PaliGemmaEncoder.apply_post_attention(
+                vlm_hidden = GenerativeVLMEncoder.apply_residual_feedforward(
                     vlm_layer=vlm_layer,
                     vlm_residual=vlm_hidden,
                     vlm_attention_output=vlm_attention_output,
@@ -379,7 +379,7 @@ class Pi0Decoder(ActionDecoder):
             for layer_index in range(self.expert_number_of_layers):
                 vlm_layer = self.vlm_layers[layer_index]
                 vlm_query, vlm_key, vlm_value = (
-                    PaliGemmaEncoder.extract_query_key_value(
+                    GenerativeVLMEncoder.extract_query_key_value(
                         vlm_layer=vlm_layer,
                         hidden_states=vlm_hidden,
                         rotary_embedding=self.vlm_rotary_embedding,

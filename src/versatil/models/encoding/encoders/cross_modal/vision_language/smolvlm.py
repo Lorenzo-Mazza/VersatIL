@@ -2,33 +2,24 @@
 
 import torch
 import torch.nn as nn
-from transformers import AutoConfig, AutoModel, PretrainedConfig
+from transformers import AutoConfig
 
-from versatil.data.constants import (
-    RGB_CAMERAS,
-    SampleKey,
-)
-from versatil.data.metadata import BaseMetadata, CameraMetadata
-from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.constants import (
     AttentionImplementation,
-    EncoderOutputKeys,
     SmolVLMModelType,
 )
+from versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm import (
+    GenerativeVLMEncoder,
+)
 from versatil.models.encoding.encoders.image_mixin import resize_to_target_size
-from versatil.models.encoding.encoders.language_mixin import LanguageEncoderMixin
-from versatil.models.encoding.encoders.unconditional import Encoder
-from versatil.models.feature_meta import FeatureMetadata, FeatureType
-from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
 
 
-class SmolVLMEncoder(LanguageEncoderMixin, Encoder):
-    """SmolVLM/Idefics3 encoder that decomposes the VLM into separate tower calls.
+class SmolVLMEncoder(GenerativeVLMEncoder):
+    """SmolVLM/Idefics3 encoder with native multi-image support.
 
-    Encodes camera images through SigLIP + connector, embeds language tokens
-    via the SmolLM embedding layer, concatenates all embeddings, and runs the
-    SmolLM to produce contextualized features. Natively supports multiple
-    cameras via the num_images dimension in pixel_values.
+    Camera images are stacked along the ``num_images`` dimension and processed
+    through SigLIP + connector in a single call, then concatenated with
+    language embeddings before the SmolLM pass.
     """
 
     def __init__(
@@ -54,56 +45,18 @@ class SmolVLMEncoder(LanguageEncoderMixin, Encoder):
                 external use (e.g. interleaved expert decoders).
             model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
-        specification = EncoderInput(
-            keys=input_keys,
-            at_least_one_of_groups=[RGB_CAMERAS],
-            required=[SampleKey.TOKENIZED_OBSERVATIONS.value],
-            requires_tokenized=True,
-        )
         super().__init__(
-            input_specification=specification,
+            input_keys=input_keys,
             pretrained=pretrained,
             frozen=frozen,
+            model_name=model_name,
+            attention_type=attention_type,
+            use_embeddings_only=use_embeddings_only,
             model_dtype=model_dtype,
         )
-        self.camera_keys = [
-            key for key in self.input_specification.keys if key in RGB_CAMERAS
-        ]
-        self._setup_language_keys(
-            output_modality=EncoderOutputKeys.FUSED_RGB_LANGUAGE.value
-        )
-        self.model_name = model_name
 
-        config = AutoConfig.from_pretrained(model_name)
-        if pretrained:
-            self.vlm = AutoModel.from_pretrained(
-                model_name, attn_implementation=attention_type
-            )
-        else:
-            self.vlm = AutoModel.from_config(config, attn_implementation=attention_type)
-        if self.model_dtype is not None:
-            self.vlm = self.vlm.to(self.model_dtype)
-
-        self.image_size: int = config.vision_config.image_size
-        self.hidden_dim: int = config.text_config.hidden_size
-        self.num_image_tokens_per_camera: int = self._compute_num_image_tokens(
-            config=config
-        )
-        self.max_text_length: int = config.text_config.max_position_embeddings
-        self.use_embeddings_only = use_embeddings_only
-        if frozen:
-            super()._freeze_weights()
-
-    @staticmethod
-    def _compute_num_image_tokens(config: AutoConfig) -> int:
-        """Compute the number of image tokens per camera from patch grid and scale factor.
-
-        Args:
-            config: HuggingFace model config with vision_config and scale_factor.
-
-        Returns:
-            Number of image tokens per camera image.
-        """
+    def _compute_num_image_tokens(self, config: AutoConfig) -> int:
+        """Idefics3 computes image tokens from patch grid and scale factor."""
         num_patches_per_side = (
             config.vision_config.image_size // config.vision_config.patch_size
         )
@@ -111,65 +64,23 @@ class SmolVLMEncoder(LanguageEncoderMixin, Encoder):
         scale_factor = config.scale_factor
         return num_patches // (scale_factor * scale_factor)
 
-    @property
-    def total_image_tokens(self) -> int:
-        """Total image tokens across all cameras."""
-        return self.num_image_tokens_per_camera * len(self.camera_keys)
+    def _get_language_model(self) -> nn.Module:
+        """SmolVLM wraps a Llama-style model as ``vlm.text_model``."""
+        return self.vlm.text_model
 
-    def _embed_images(self, camera_images: list[torch.Tensor]) -> torch.Tensor:
-        """Encode multiple camera images through SigLIP + connector.
-
-        Stacks camera images along the num_images dimension and processes them
-        through the vision tower in a single call (native Idefics3 multi-image).
+    def _embed_images(
+        self, inputs: dict[str, torch.Tensor], batch_size: int
+    ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+        """Stack all cameras along num_images dim and encode in a single call.
 
         Args:
-            camera_images: List of image tensors, each (B, C, H, W).
+            inputs: Dict with camera images as (B, C, H, W) per camera key.
+            batch_size: Batch size.
 
         Returns:
-            Image embeddings of shape (B, total_image_tokens, hidden_dim).
+            ([combined_embeddings], [combined_pad_mask]) — single-element lists
+            since all cameras are processed together.
         """
-        # Stack cameras along num_images dim: (B, num_cameras, C, H, W)
-        num_images_dim = 1
-        pixel_values = torch.stack(camera_images, dim=num_images_dim)
-        image_features = self.vlm.get_image_features(pixel_values)
-        return image_features.pooler_output
-
-    def _embed_language(self, token_ids: torch.Tensor) -> torch.Tensor:
-        """Convert pre-tokenized observation IDs to embeddings via the SmolLM embedding table.
-
-        The data pipeline's ObservationTokenizer produces integer token IDs.
-        This method maps them to dense vectors through the LM's embedding layer.
-
-        Args:
-            token_ids: Pre-tokenized observation IDs of shape (B, S), as integers.
-
-        Returns:
-            Token embeddings of shape (B, S, hidden_dim).
-        """
-        return self.vlm.text_model.get_input_embeddings()(token_ids)
-
-    def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        """Encode multi-camera images + text through decomposed SmolVLM.
-
-        Camera images are stacked along the num_images dimension and encoded
-        through SigLIP + connector in one call. Language tokens are embedded
-        via the SmolLM embedding layer. All embeddings are concatenated and
-        run through the SmolLM for cross-modal contextualization.
-
-        Args:
-            inputs: Dict with camera images as (B, C, H, W) per camera key,
-                tokenized text as (B, S), and optional padding mask.
-
-        Returns:
-            Dict with fused features and padding mask.
-        """
-        text_input_ids, language_mask = self._extract_text_inputs(inputs=inputs)
-        batch_size = text_input_ids.shape[0]
-        text_input_ids, language_mask = self._pad_text_inputs(
-            text_input_ids=text_input_ids,
-            language_mask=language_mask,
-            max_length=self.max_text_length,
-        )
         camera_images = []
         for camera_key in self.camera_keys:
             camera_images.append(
@@ -179,198 +90,13 @@ class SmolVLMEncoder(LanguageEncoderMixin, Encoder):
                     target_width=self.image_size,
                 )
             )
-        image_embeddings = self._embed_images(camera_images)
-        language_embeddings = self._embed_language(text_input_ids)
-        inputs_embeds = torch.cat([image_embeddings, language_embeddings], dim=1)
+        pixel_values = torch.stack(camera_images, dim=1)
+        image_features = self.vlm.get_image_features(pixel_values)
+        image_embeddings = image_features.pooler_output
         image_pad_mask = torch.zeros(
             batch_size,
             self.total_image_tokens,
             dtype=torch.bool,
-            device=inputs_embeds.device,
+            device=image_embeddings.device,
         )
-        text_attention_mask = self._build_attention_mask(
-            language_mask=language_mask, text_input_ids=text_input_ids
-        )
-        text_pad_mask = ~text_attention_mask.bool()
-        full_padding_mask = torch.cat([image_pad_mask, text_pad_mask], dim=1)
-        full_attention_mask = (~full_padding_mask).to(torch.long)
-        if self.use_embeddings_only:
-            fused_features = inputs_embeds
-        else:
-            lm_outputs = self.vlm.text_model(
-                inputs_embeds=inputs_embeds,
-                attention_mask=full_attention_mask,
-            )
-            fused_features = lm_outputs.last_hidden_state
-        return {
-            EncoderOutputKeys.FUSED_RGB_LANGUAGE.value: fused_features,
-            self.padding_mask_name: full_padding_mask,
-        }
-
-    def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
-        """Validate that camera keys have RGB metadata and non-camera keys are not images.
-
-        Args:
-            key: Observation key being validated.
-            metadata: Metadata from the observation space for this key.
-
-        Returns:
-            Error message if incompatible, None if valid.
-        """
-        if key in self.camera_keys:
-            if not isinstance(metadata, CameraMetadata):
-                return f"Expected CameraMetadata for '{key}', got {type(metadata).__name__}"
-            if not metadata.is_rgb:
-                return (
-                    f"Expected 3-channel RGB for '{key}', "
-                    f"got {metadata.channels} channels"
-                )
-        else:
-            if isinstance(metadata, CameraMetadata):
-                return (
-                    f"SmolVLMEncoder cannot process image data for '{key}'. "
-                    f"Got CameraMetadata, expected tokenized text input."
-                )
-        return None
-
-    def get_output_specification(self) -> list[FeatureMetadata]:
-        """Return the output feature names and dimensions for this encoder.
-
-        Returns:
-            List of FeatureMetadata with fused RGB-language features and padding mask.
-        """
-        total_sequence_length = self.total_image_tokens + self.max_text_length
-        return [
-            FeatureMetadata(
-                key=EncoderOutputKeys.FUSED_RGB_LANGUAGE.value,
-                feature_type=FeatureType.SEQUENTIAL.value,
-                dimension=(total_sequence_length, self.hidden_dim),
-            ),
-            FeatureMetadata(
-                key=self.padding_mask_name,
-                feature_type=FeatureType.FLAT.value,
-                dimension=(total_sequence_length,),
-            ),
-        ]
-
-    def get_vocab_size(self) -> int:
-        """Get the vocabulary size of the SmolLM text model."""
-        return self.vlm.text_model.config.vocab_size
-
-    def get_backbone_layers(self) -> nn.ModuleList:
-        """Return the SmolLM transformer layers for interleaved decoding."""
-        return self.vlm.text_model.layers
-
-    def get_rotary_embedding(self) -> nn.Module:
-        """Return the SmolLM RoPE module."""
-        return self.vlm.text_model.rotary_emb
-
-    def get_backbone_hidden_dim(self) -> int:
-        """Return the SmolLM hidden dimension."""
-        return self.hidden_dim
-
-    def get_text_config(self) -> PretrainedConfig:
-        """Return the SmolLM text model config for expert creation."""
-        return self.vlm.config.text_config
-
-    @staticmethod
-    def extract_key_value(
-        vlm_layer: nn.Module,
-        hidden_states: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Extract flattened key/value states from a pretrained VLM layer.
-
-        Args:
-            vlm_layer: Pretrained VLM transformer layer.
-            hidden_states: VLM hidden states (B, P, D_vlm).
-
-        Returns:
-            Flattened (keys, values) each (B, P, key_value_dimension).
-        """
-        normalized = vlm_layer.input_layernorm(hidden_states)
-        return vlm_layer.self_attn.k_proj(normalized), vlm_layer.self_attn.v_proj(
-            normalized
-        )
-
-    @staticmethod
-    def extract_query_key_value(
-        vlm_layer: nn.Module,
-        hidden_states: torch.Tensor,
-        rotary_embedding: nn.Module,
-        position_ids: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Extract Q/K/V from a pretrained VLM layer with RoPE applied.
-
-        Args:
-            vlm_layer: Pretrained VLM transformer layer.
-            hidden_states: VLM hidden states (B, P, D_vlm).
-            rotary_embedding: VLM rotary positional encoding module.
-            position_ids: Position indices (B, total_length) for RoPE.
-
-        Returns:
-            (query, key, value) with RoPE applied, each (B, heads, P, head_dimension).
-        """
-        normalized = vlm_layer.input_layernorm(hidden_states)
-        attention = vlm_layer.self_attn
-        batch_size, sequence_length, _ = normalized.shape
-        head_dimension = attention.head_dim
-        number_of_heads = attention.config.num_attention_heads
-        number_of_key_value_heads = attention.config.num_key_value_heads
-        query = (
-            attention.q_proj(normalized)
-            .view(
-                batch_size,
-                sequence_length,
-                number_of_heads,
-                head_dimension,
-            )
-            .transpose(1, 2)
-        )  # (B, H, P, D_head)
-        key = (
-            attention.k_proj(normalized)
-            .view(
-                batch_size,
-                sequence_length,
-                number_of_key_value_heads,
-                head_dimension,
-            )
-            .transpose(1, 2)
-        )  # (B, KV_H, P, D_head)
-        value = (
-            attention.v_proj(normalized)
-            .view(
-                batch_size,
-                sequence_length,
-                number_of_key_value_heads,
-                head_dimension,
-            )
-            .transpose(1, 2)
-        )  # (B, KV_H, P, D_head)
-        cos, sin = rotary_embedding(value, position_ids[:, :sequence_length])
-        cos = cos.unsqueeze(1)
-        sin = sin.unsqueeze(1)
-        query = RotaryPositionalEncoding.apply_rotation_half(query, sin, cos)
-        key = RotaryPositionalEncoding.apply_rotation_half(key, sin, cos)
-        return query, key, value
-
-    @staticmethod
-    def apply_post_attention(
-        vlm_layer: nn.Module,
-        vlm_residual: torch.Tensor,
-        vlm_attention_output: torch.Tensor,
-    ) -> torch.Tensor:
-        """Apply VLM layer's O-projection, residual, and feedforward.
-
-        Args:
-            vlm_layer: Pretrained VLM transformer layer.
-            vlm_residual: VLM hidden states before attention (B, P, D_vlm).
-            vlm_attention_output: Raw attention output (B, P, H * D_head).
-
-        Returns:
-            Updated VLM hidden states (B, P, D_vlm).
-        """
-        hidden_states = vlm_residual + vlm_layer.self_attn.o_proj(vlm_attention_output)
-        residual = hidden_states
-        hidden_states = vlm_layer.post_attention_layernorm(hidden_states)
-        hidden_states = vlm_layer.mlp(hidden_states)
-        return residual + hidden_states
+        return [image_embeddings], [image_pad_mask]

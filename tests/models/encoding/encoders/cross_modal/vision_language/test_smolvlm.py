@@ -100,15 +100,15 @@ def smolvlm_encoder_factory(
 
         with (
             patch(
-                "versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm.AutoConfig.from_pretrained",
+                "versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm.AutoConfig.from_pretrained",
                 return_value=mock_config,
             ),
             patch(
-                "versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm.AutoModel.from_pretrained",
+                "versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm.AutoModel.from_pretrained",
                 return_value=mock_vlm,
             ),
             patch(
-                "versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm.AutoModel.from_config",
+                "versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm.AutoModel.from_config",
                 return_value=mock_vlm,
             ),
         ):
@@ -211,7 +211,7 @@ def real_smolvlm_encoder() -> Callable[..., SmolVLMEncoder]:
     ) -> SmolVLMEncoder:
         if model_dtype not in cache:
             with patch(
-                "versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm.AutoConfig.from_pretrained",
+                "versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm.AutoConfig.from_pretrained",
                 return_value=tiny_config,
             ):
                 cache[model_dtype] = SmolVLMEncoder(
@@ -293,11 +293,11 @@ class TestSmolVLMEncoderInitialization:
 
         with (
             patch(
-                "versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm.AutoConfig.from_pretrained",
+                "versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm.AutoConfig.from_pretrained",
                 return_value=mock_config,
             ),
             patch(
-                "versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm.AutoModel.from_config",
+                "versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm.AutoModel.from_config",
                 return_value=mock_vlm,
             ),
         ):
@@ -675,7 +675,7 @@ class TestSmolVLMEncoderIntegration:
         assert not torch.allclose(key, raw_key, atol=1e-5)
 
     @pytest.mark.integration
-    def test_apply_post_attention_matches_llama_forward(
+    def test_apply_residual_feedforward_matches_llama_forward(
         self,
         real_smolvlm_encoder: Callable[..., SmolVLMEncoder],
     ):
@@ -686,7 +686,7 @@ class TestSmolVLMEncoderIntegration:
         batch_size, sequence_length = 2, 8
         residual = torch.randn(batch_size, sequence_length, encoder.hidden_dim)
         attn_output = torch.randn(batch_size, sequence_length, attention_output_dim)
-        result = SmolVLMEncoder.apply_post_attention(
+        result = SmolVLMEncoder.apply_residual_feedforward(
             vlm_layer=layer,
             vlm_residual=residual,
             vlm_attention_output=attn_output,

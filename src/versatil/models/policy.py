@@ -104,7 +104,7 @@ class Policy(nn.Module):
         self.decoder.set_backbone(
             vlm_layers=vlm_encoder.get_backbone_layers(),
             rotary_emb=vlm_encoder.get_rotary_embedding(),
-            vlm_hidden_dim=vlm_encoder.get_backbone_hidden_dim(),
+            vlm_hidden_dimension=vlm_encoder.get_backbone_hidden_dim(),
             vlm_text_config=vlm_encoder.get_text_config(),
         )
 
