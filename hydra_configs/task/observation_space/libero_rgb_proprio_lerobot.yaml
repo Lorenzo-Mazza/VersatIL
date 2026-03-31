@@ -21,28 +21,35 @@ observations_metadata:
     image_height: 256
 
   ${proprio_key:EE_POS}:
-    _target_: versatil.data.metadata.ObservationMetadata
+    _target_: versatil.data.metadata.PositionObservationMetadata
     raw_data_column_keys: [observation.state]
     dtype: float32
     dimension: 3
-    is_numerical: true
     needs_normalization: true
+    slice_start: 0
+    slice_end: 3
+    frame: ${coordinate_system:ROBOT_BASE}
 
   ${proprio_key:EE_ORI}:
-    _target_: versatil.data.metadata.ObservationMetadata
+    _target_: versatil.data.metadata.OrientationObservationMetadata
     raw_data_column_keys: [observation.state]
     dtype: float32
     dimension: 3
-    is_numerical: true
     needs_normalization: true
+    slice_start: 3
+    slice_end: 6
+    frame: ${coordinate_system:ROBOT_BASE}
+    orientation_representation: ${orientation:EULER}
 
   ${proprio_key:GRIPPER_STATE}:
-    _target_: versatil.data.metadata.ObservationMetadata
+    _target_: versatil.data.metadata.GripperObservationMetadata
     raw_data_column_keys: [observation.state]
     dtype: float32
     dimension: 2
-    is_numerical: true
     needs_normalization: false
+    slice_start: 6
+    slice_end: 8
+    gripper_type: ${gripper:CONTINUOUS}
 
   ${obs_key:LANGUAGE}:
     _target_: versatil.data.metadata.ObservationMetadata
