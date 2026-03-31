@@ -188,16 +188,25 @@ def convert_smolvla_checkpoint(
             print(f"  {key}: {source_tensors[key].shape}")
         raise ValueError(f"{len(unmatched)} source keys have no mapping. See above.")
 
-    checkpoint = {
-        "encoder_state_dict": encoder_state_dict,
-        "decoder_state_dict": decoder_state_dict,
-        "normalizer_state_dict": normalizer_state_dict,
-    }
+    # Build Lightning-compatible flat state_dict with policy.* prefix
+    # Encoder keys: policy.encoding_pipeline.encoders.vlm.<key>
+    # Decoder keys: policy.decoder.<key>
+    # Normalizer keys: policy.decoder.normalizer.<key>
+    state_dict: dict[str, torch.Tensor] = {}
+    for key, tensor in encoder_state_dict.items():
+        state_dict[f"policy.encoding_pipeline.encoders.vlm.{key}"] = tensor
+    for key, tensor in decoder_state_dict.items():
+        state_dict[f"policy.decoder.{key}"] = tensor
+    for key, tensor in normalizer_state_dict.items():
+        state_dict[f"policy.decoder.normalizer.{key}"] = tensor
+
+    checkpoint = {"state_dict": state_dict}
     output_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(checkpoint, str(output_path))
     print(f"\nEncoder: {len(encoder_state_dict)} keys")
     print(f"Decoder: {len(decoder_state_dict)} keys")
     print(f"Normalizer: {len(normalizer_state_dict)} keys")
+    print(f"Total state_dict: {len(state_dict)} keys")
     print(f"Saved to {output_path}")
 
 
