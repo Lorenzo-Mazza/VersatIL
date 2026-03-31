@@ -21,6 +21,7 @@ task:
   observation_horizon: 1
   prediction_horizon: 50
   dataloader:
+    kinematics_norm_type: ${kinematics_norm_type:GAUSSIAN}
     tokenization:
       tokenize_observations: true
       observation_tokenizer:

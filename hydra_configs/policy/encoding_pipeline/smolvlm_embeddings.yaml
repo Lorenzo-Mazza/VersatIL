@@ -16,6 +16,7 @@ encoders:
     pretrained: true
     frozen: true
     use_embeddings_only: true
+    max_text_length: ${task.dataloader.tokenization.observation_tokenizer.max_token_len}
 
   robot_state:
     input_keys:
