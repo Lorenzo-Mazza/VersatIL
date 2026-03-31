@@ -61,7 +61,7 @@ class ObservationTokenizer:
         if self.language_tokenizer.pad_token is None:
             self.language_tokenizer.pad_token = self.language_tokenizer.eos_token
 
-        self.vocab_size = self.language_tokenizer.vocab_size
+        self.vocab_size = len(self.language_tokenizer)
         self.binning_tokenizers: dict[str, BinningTokenizer] = {}
         self._is_fitted = False
 

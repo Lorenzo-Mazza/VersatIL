@@ -17,9 +17,9 @@ def mock_obs_auto_tokenizer():
     with patch(
         "versatil.data.tokenization.observation_tokenizer.AutoTokenizer"
     ) as mock:
-        mock.from_pretrained.return_value = MagicMock(
-            vocab_size=30000, pad_token="[PAD]"
-        )
+        mock_tok = MagicMock(vocab_size=30000, pad_token="[PAD]")
+        mock_tok.__len__ = lambda self: 30000
+        mock.from_pretrained.return_value = mock_tok
         yield mock
 
 
@@ -139,14 +139,14 @@ class TestObservationTokenizerInit:
         assert tokenizer.device == device
 
     def test_vocab_size_from_language_tokenizer(self, mock_obs_auto_tokenizer):
-        mock_obs_auto_tokenizer.from_pretrained.return_value = MagicMock(
-            vocab_size=32000, pad_token="[PAD]"
-        )
+        mock_tok = MagicMock(vocab_size=32000, pad_token="[PAD]")
+        mock_tok.__len__ = lambda self: 32128
+        mock_obs_auto_tokenizer.from_pretrained.return_value = mock_tok
         tokenizer = ObservationTokenizer(
             tokenizer_model="test-model",
             observation_keys=[ObsKey.LANGUAGE.value],
         )
-        assert tokenizer.vocab_size == 32000
+        assert tokenizer.vocab_size == 32128
 
     def test_is_fitted_false_on_init(self, observation_tokenizer_factory):
         tokenizer = observation_tokenizer_factory()
@@ -154,6 +154,7 @@ class TestObservationTokenizerInit:
 
     def test_sets_pad_token_from_eos_when_none(self, mock_obs_auto_tokenizer):
         mock_tok = MagicMock(vocab_size=30000, pad_token=None, eos_token="<eos>")
+        mock_tok.__len__ = lambda self: 30000
         mock_obs_auto_tokenizer.from_pretrained.return_value = mock_tok
         ObservationTokenizer(
             tokenizer_model="test-model",
@@ -760,9 +761,9 @@ class TestObservationTokenizerFromPretrained:
             "is_fitted": True,
             "binning_tokenizers": {},
         }
-        mock_auto_tokenizer.from_pretrained.return_value = MagicMock(
-            vocab_size=30000, pad_token="[PAD]"
-        )
+        mock_tok = MagicMock(vocab_size=30000, pad_token="[PAD]")
+        mock_tok.__len__ = lambda self: 30000
+        mock_auto_tokenizer.from_pretrained.return_value = mock_tok
         loaded = ObservationTokenizer.from_pretrained(save_path)
         assert loaded.tokenizer_model == "test-model"
         assert loaded._is_fitted is True
@@ -789,9 +790,9 @@ class TestObservationTokenizerFromPretrained:
             "is_fitted": True,
             "binning_tokenizers": {},
         }
-        mock_auto_tokenizer.from_pretrained.return_value = MagicMock(
-            vocab_size=30000, pad_token="[PAD]"
-        )
+        mock_tok = MagicMock(vocab_size=30000, pad_token="[PAD]")
+        mock_tok.__len__ = lambda self: 30000
+        mock_auto_tokenizer.from_pretrained.return_value = mock_tok
         with patch(
             "versatil.data.tokenization.observation_tokenizer.logging"
         ) as mock_logging:
