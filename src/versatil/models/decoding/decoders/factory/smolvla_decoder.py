@@ -367,6 +367,22 @@ class SmolVLADecoder(ActionDecoder):
         # (B, S, head_dim) → (B, 1, S, head_dim) for head broadcast
         return cos.unsqueeze(1), sin.unsqueeze(1)
 
+    def _compute_vlm_position_embeddings(
+        self,
+        hidden_states: torch.Tensor,
+        position_ids: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Compute position embeddings in HF format for VLM layer calls.
+
+        Args:
+            hidden_states: Tensor whose dtype/device to match.
+            position_ids: Position indices (B, S).
+
+        Returns:
+            (cos, sin) each (B, S, head_dim) — raw format for HF layers.
+        """
+        return self.vlm_rotary_emb(hidden_states, position_ids)
+
     def _extract_key_value_with_rope(
         self,
         vlm_layer: nn.Module,
@@ -529,6 +545,9 @@ class SmolVLADecoder(ActionDecoder):
         """
 
         vlm_hidden = prefix_embeddings
+        vlm_position_embeddings = self._compute_vlm_position_embeddings(
+            prefix_embeddings, position_ids[:, : prefix_embeddings.shape[1]]
+        )
         vlm_layer_index = 0
         expert_layer_index = 0
         for layer_type in self._layer_types:
@@ -536,7 +555,10 @@ class SmolVLADecoder(ActionDecoder):
             match layer_type:
                 case SmolVLALayerType.VLM_ONLY.value:
                     with torch.no_grad():
-                        vlm_output = vlm_layer(vlm_hidden)
+                        vlm_output = vlm_layer(
+                            vlm_hidden,
+                            position_embeddings=vlm_position_embeddings,
+                        )
                         vlm_hidden = (
                             vlm_output[0]
                             if isinstance(vlm_output, tuple)
@@ -576,7 +598,10 @@ class SmolVLADecoder(ActionDecoder):
                         vlm_keys, vlm_values = self._extract_key_value_with_rope(
                             vlm_layer, vlm_hidden, position_ids
                         )
-                        vlm_output = vlm_layer(vlm_hidden)
+                        vlm_output = vlm_layer(
+                            vlm_hidden,
+                            position_embeddings=vlm_position_embeddings,
+                        )
                         vlm_hidden = (
                             vlm_output[0]
                             if isinstance(vlm_output, tuple)
@@ -604,6 +629,9 @@ class SmolVLADecoder(ActionDecoder):
         """
         vlm_cache: dict[int, dict[str, torch.Tensor]] = {}
         vlm_hidden = prefix_embeddings
+        vlm_position_embeddings = self._compute_vlm_position_embeddings(
+            prefix_embeddings, position_ids[:, : prefix_embeddings.shape[1]]
+        )
         with torch.no_grad():
             for vlm_layer_index, layer_type in enumerate(self._layer_types):
                 vlm_layer = self.vlm_layers[vlm_layer_index]
@@ -631,7 +659,9 @@ class SmolVLADecoder(ActionDecoder):
                             "key": vlm_keys,
                             "value": vlm_values,
                         }
-                vlm_output = vlm_layer(vlm_hidden)
+                vlm_output = vlm_layer(
+                    vlm_hidden, position_embeddings=vlm_position_embeddings
+                )
                 vlm_hidden = (
                     vlm_output[0] if isinstance(vlm_output, tuple) else vlm_output
                 )
