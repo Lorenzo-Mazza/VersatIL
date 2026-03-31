@@ -163,7 +163,7 @@ class BasePolicyLoader:
             checkpoint_value = checkpoint_state_dict[key]
             model_value = model_state_dict[key]
             if not torch.allclose(
-                checkpoint_value.to(model_value.device),
+                checkpoint_value.to(device=model_value.device, dtype=model_value.dtype),
                 model_value,
                 atol=1e-6,
             ):
