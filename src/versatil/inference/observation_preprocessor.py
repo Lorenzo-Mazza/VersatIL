@@ -67,9 +67,9 @@ class ObservationPreprocessor:
         Returns:
             Dict mapping environment index to observation dict.
         """
-        first_key = next(iter(response), None)
-        is_multi_environment = first_key is not None and isinstance(
-            response.get(first_key), dict
+        observation_keys = self.camera_keys + self.proprioceptive_keys
+        is_multi_environment = any(
+            isinstance(response.get(key), dict) for key in observation_keys
         )
         if is_multi_environment:
             return self._parse_multi_environment(response=response)
