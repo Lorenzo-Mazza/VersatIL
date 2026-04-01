@@ -79,6 +79,7 @@ class ProprioceptiveEncoder(Encoder):
         if has_network_keys and self.network is None:
             first_weight = state_dict[network_prefix + "layers.0.weight"]
             self._build_network(input_dim=first_weight.shape[1])
+            self.network = self.network.to(first_weight.device)
         super()._load_from_state_dict(
             state_dict,
             prefix,

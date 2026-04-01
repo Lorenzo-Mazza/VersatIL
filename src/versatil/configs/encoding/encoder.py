@@ -105,6 +105,7 @@ class SmolVLMEncoderConfig(EncoderConfig):
     _target_: str = "versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm.SmolVLMEncoder"
     model_name: str = MISSING
     use_embeddings_only: bool = False
+    max_text_length: int | None = None
 
 
 @dataclass

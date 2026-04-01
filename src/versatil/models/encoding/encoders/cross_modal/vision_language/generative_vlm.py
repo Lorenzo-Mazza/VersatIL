@@ -43,6 +43,7 @@ class GenerativeVLMEncoder(LanguageEncoderMixin, Encoder, abc.ABC):
         attention_type: str = AttentionImplementation.SDPA.value,
         use_embeddings_only: bool = False,
         model_dtype: str | None = None,
+        max_text_length: int | None = None,
     ):
         specification = EncoderInput(
             keys=input_keys,
@@ -75,7 +76,11 @@ class GenerativeVLMEncoder(LanguageEncoderMixin, Encoder, abc.ABC):
         self.image_size: int = config.vision_config.image_size
         self.hidden_dim: int = config.text_config.hidden_size
         self.num_image_tokens_per_camera: int = self._compute_num_image_tokens(config)
-        self.max_text_length: int = config.text_config.max_position_embeddings
+        self.max_text_length: int = (
+            max_text_length
+            if max_text_length is not None
+            else config.text_config.max_position_embeddings
+        )
         self.use_embeddings_only = use_embeddings_only
         if frozen:
             super()._freeze_weights()
@@ -135,10 +140,15 @@ class GenerativeVLMEncoder(LanguageEncoderMixin, Encoder, abc.ABC):
         """
         text_input_ids, language_mask = self._extract_text_inputs(inputs=inputs)
         batch_size = text_input_ids.shape[0]
+        pad_length = (
+            text_input_ids.shape[1]
+            if self.use_embeddings_only
+            else self.max_text_length
+        )
         text_input_ids, language_mask = self._pad_text_inputs(
             text_input_ids=text_input_ids,
             language_mask=language_mask,
-            max_length=self.max_text_length,
+            max_length=pad_length,
         )
         image_embeddings, image_pad_masks = self._embed_images(
             inputs=inputs, batch_size=batch_size

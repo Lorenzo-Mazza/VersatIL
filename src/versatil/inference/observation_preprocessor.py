@@ -68,6 +68,14 @@ class ObservationPreprocessor:
             Dict mapping environment index to observation dict.
         """
         observation_keys = self.camera_keys + self.proprioceptive_keys
+        if self.has_language:
+            observation_keys = observation_keys + [ObsKey.LANGUAGE.value]
+        missing_keys = [key for key in observation_keys if key not in response]
+        if missing_keys:
+            raise KeyError(
+                f"Server response missing requested keys: {missing_keys}. "
+                f"Available keys: {list(response.keys())}"
+            )
         is_multi_environment = any(
             isinstance(response.get(key), dict) for key in observation_keys
         )
@@ -88,17 +96,13 @@ class ObservationPreprocessor:
         """
         observations: dict[str, np.ndarray | str] = {}
         for camera_key in self.camera_keys:
-            if camera_key in response:
-                image = decompress_array(
-                    response[camera_key], method=self.compression_type
-                )
-                if self.rotate_images:
-                    image = np.ascontiguousarray(image[::-1, ::-1])
-                observations[camera_key] = image
+            image = decompress_array(response[camera_key], method=self.compression_type)
+            if self.rotate_images:
+                image = np.ascontiguousarray(image[::-1, ::-1])
+            observations[camera_key] = image
         for key in self.proprioceptive_keys:
-            if key in response:
-                observations[key] = np.array(response[key], dtype=np.float32)
-        if self.has_language and ObsKey.LANGUAGE.value in response:
+            observations[key] = np.array(response[key], dtype=np.float32)
+        if self.has_language:
             observations[ObsKey.LANGUAGE.value] = response[ObsKey.LANGUAGE.value]
         return {0: observations}
 
@@ -128,11 +132,10 @@ class ObservationPreprocessor:
                     image = np.ascontiguousarray(image[::-1, ::-1])
                 observations[camera_key] = image
             for key in self.proprioceptive_keys:
-                if key in response:
-                    observations[key] = np.array(
-                        response[key][index_string], dtype=np.float32
-                    )
-            if self.has_language and ObsKey.LANGUAGE.value in response:
+                observations[key] = np.array(
+                    response[key][index_string], dtype=np.float32
+                )
+            if self.has_language:
                 observations[ObsKey.LANGUAGE.value] = response[ObsKey.LANGUAGE.value][
                     index_string
                 ]
