@@ -35,7 +35,7 @@ def resize_to_target_size(
     resized = torch.nn.functional.interpolate(
         images,
         size=(resized_height, resized_width),
-        mode="bicubic",
+        mode="bilinear",
         align_corners=False,
     )
     pad_height = target_height - resized_height
