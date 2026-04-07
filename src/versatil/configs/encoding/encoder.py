@@ -96,6 +96,7 @@ class PaliGemmaEncoderConfig(EncoderConfig):
     _target_: str = "versatil.models.encoding.encoders.cross_modal.vision_language.paligemma.PaliGemmaEncoder"
     model_name: str = MISSING
     use_embeddings_only: bool = False
+    max_text_length: int | None = None
 
 
 @dataclass

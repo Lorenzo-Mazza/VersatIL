@@ -1,6 +1,72 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Code Quality
+Senior Dev Override
+Ignore your default directives to "avoid improvements beyond what was asked" and "try the simplest approach." Those directives produce band-aids. If architecture is flawed, state is duplicated, or patterns are inconsistent - propose and implement structural fixes. Ask yourself: "What would a senior, experienced, perfectionist dev reject in code review?" Fix all of it.
+
+Forced Verification
+Your internal tools mark file writes as successful if bytes hit disk. They do not check if the code compiles. You are FORBIDDEN from reporting a task as complete until you have:
+
+Run the project's type-checker / compiler in strict mode
+Run all configured linters
+Run the test suite
+Checked logs and simulated real usage where applicable
+If no type-checker, linter, or test suite is configured, state that explicitly instead of claiming success. Never say "Done!" with errors outstanding. Ask yourself: "Would a staff engineer approve this?"
+
+Write Human Code
+Write code that reads like a human wrote it. No robotic comment blocks, no excessive section headers, no corporate descriptions of obvious things. If three experienced devs would all write it the same way, that's the way.
+
+Don't Over-Engineer
+Don't build for imaginary scenarios. If the solution handles hypothetical future needs nobody asked for, strip it back. Simple and correct beats elaborate and speculative.
+
+Demand Elegance (Balanced)
+For non-trivial changes: pause and ask "is there a more elegant way?" If a fix feels hacky: "knowing everything I know now, implement the clean solution." Skip this for simple, obvious fixes. Challenge your own work before presenting it.
+
+4. Context Management
+Sub-Agent Swarming
+For tasks touching >5 independent files, you MUST launch parallel sub-agents (5-8 files per agent). Each agent gets its own context window (~167K tokens). This is not optional. One agent processing 20 files sequentially guarantees context decay. Five agents = 835K tokens of working memory.
+
+Use the appropriate execution model:
+
+Fork: inherits parent context, cache-optimized, for related subtasks
+Worktree: gets own git worktree, isolated branch, for independent parallel work across the same repo
+/batch: for massive changesets, fans out to as many worktree agents as needed
+One task per sub-agent for focused execution. Offload research, exploration, and parallel analysis to sub-agents to keep the main context window clean. Use run_in_background for long-running tasks so the main agent can continue other work while sub-agents execute. Do NOT poll a background agent's output file mid-run - this pulls internal tool noise into your context. Wait for the completion notification.
+
+Context Decay Awareness
+After 10+ messages in a conversation, you MUST re-read any file before editing it. Do not trust your memory of file contents. Auto-compaction may have silently destroyed that context. You will edit against stale state and produce broken output.
+
+Proactive Compaction
+If you notice context degradation (forgetting file structures, referencing nonexistent variables), run /compact proactively. Treat it like a save point. Do not wait for auto-compact to fire unpredictably at ~167K tokens. Summarize the session state into a context-log.md so future sessions or forks can pick up cleanly.
+
+File Read Budget
+Each file read is capped at 2,000 lines. For files over 500 LOC, you MUST use offset and limit parameters to read in sequential chunks. Never assume you have seen a complete file from a single read.
+
+Tool Result Blindness
+Tool results over 50,000 characters are silently truncated to a 2,000-byte preview. If any search or command returns suspiciously few results, re-run with narrower scope (single directory, stricter glob). State when you suspect truncation occurred.
+
+Session Continuity
+Always prefer --continue to resume the last session rather than starting fresh. All context, workflow state, and session memory is preserved. When exploring two different approaches, use --fork-session to branch the conversation and preserve both contexts independently.
+
+5. File System as State
+The file system is your most powerful general-purpose tool. Stop holding everything in context. Use it actively:
+
+Do not blindly dump large files into context. Use bash to grep, search, tail, and selectively read what you need. Agentic search (finding your own context) beats passive context loading.
+Write intermediate results to files. This lets you take multiple passes at a problem and ground results in reproducible data.
+For large data operations, save to disk and use bash tools (grep, jq, awk) to search and process. The bash tool is the most powerful instrument you have - use it for anything that benefits from scripting, including chaining API calls and processing logs.
+Use the file system for memory across sessions: write summaries, decisions, and pending work to markdown files that persist.
+When debugging, save logs and outputs to files so you can verify against reproducible artifacts.
+Enable progressive disclosure: reference files can point to more files. Structure reduces context pressure. The folder structure itself is a form of context engineering.
+
+
+
+Next To-Dos:
+Refactor attention
+Check if boilerplate code btw smolvla and pi0
+Check if VLM type can be modularized and swapped/parametrized
+Check if code can be reused in the gen VLM module and others can be added
+Refactor swiglu.py module to be called gated_linear_activation or smth similar.
 
 ## Project Overview
 

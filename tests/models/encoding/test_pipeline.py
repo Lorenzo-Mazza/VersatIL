@@ -746,14 +746,15 @@ class TestSetTokenizer:
         "encoder_vocab_size, data_vocab_size, expectation",
         [
             (50000, 50000, does_not_raise()),
+            (50000, 30000, does_not_raise()),
             (
-                50000,
                 30000,
+                50000,
                 pytest.raises(
                     ValueError,
                     match=re.escape(
-                        "Vocab size mismatch: Observation tokenizer has vocab_size=30000, "
-                        "but encoder 'language' expects vocab_size=50000. "
+                        "Vocab size mismatch: Observation tokenizer has vocab_size=50000, "
+                        "but encoder 'language' only supports vocab_size=30000. "
                     ),
                 ),
             ),
@@ -849,14 +850,15 @@ class TestSetTokenizer:
         "encoder_vocab_size, data_vocab_size, expectation",
         [
             (50000, 50000, does_not_raise()),
+            (50000, 30000, does_not_raise()),
             (
-                50000,
                 30000,
+                50000,
                 pytest.raises(
                     ValueError,
                     match=re.escape(
-                        "Vocab size mismatch: Observation tokenizer has vocab_size=30000, "
-                        "but encoder 'film' expects vocab_size=50000. "
+                        "Vocab size mismatch: Observation tokenizer has vocab_size=50000, "
+                        "but encoder 'film' only supports vocab_size=30000. "
                     ),
                 ),
             ),

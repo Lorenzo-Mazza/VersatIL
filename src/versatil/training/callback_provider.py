@@ -14,7 +14,7 @@ class CallbackProvider(Protocol):
     Decoders, algorithms, and loss modules can declare callbacks by adding
     a ``get_callbacks`` method. The workspace collects these at training setup.
     Uses ``@runtime_checkable`` so components don't need to import or inherit
-    this protocol — structural subtyping via duck typing.
+    this protocol.
     """
 
     def get_callbacks(self, experiment_config: ExperimentConfig) -> list[Callback]: ...

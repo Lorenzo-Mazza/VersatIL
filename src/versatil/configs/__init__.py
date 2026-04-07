@@ -67,6 +67,8 @@ from versatil.configs.decoding.decoder import (
     MixtureOfExpertsDecoderConfig,
     MoEFreeActionTransformerConfig,
     PhaseACTConfig,
+    Pi0DecoderConfig,
+    SmolVLADecoderConfig,
 )
 from versatil.configs.decoding.latent import (
     DiTPriorConfig,
@@ -163,6 +165,7 @@ from versatil.data.constants import (
     RawCameraKey,
     SampleKey,
     TokenizerType,
+    TokenPaddingStrategy,
 )
 from versatil.metrics.constants import MetadataKey
 from versatil.metrics.kernels import KernelType
@@ -172,6 +175,7 @@ from versatil.models.decoding.constants import (
     DiTType,
     LatentKey,
     MoERoutingType,
+    TimeConditioning,
 )
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
@@ -213,6 +217,8 @@ __all__ = [
     "DecodingNetworkConfig",
     "ACTConfig",
     "ConditionalActionUNetConfig",
+    "Pi0DecoderConfig",
+    "SmolVLADecoderConfig",
     "DiTBlockActionTransformerConfig",
     "DiffusionActionTransformerConfig",
     "FreeActionTransformerConfig",
@@ -384,6 +390,10 @@ def register_resolvers():
         )
     if not OmegaConf.has_resolver("dit_type"):
         OmegaConf.register_new_resolver("dit_type", lambda name: DiTType[name].value)
+    if not OmegaConf.has_resolver("time_conditioning"):
+        OmegaConf.register_new_resolver(
+            "time_conditioning", lambda name: TimeConditioning[name].value
+        )
     if not OmegaConf.has_resolver("timestep_sampler"):
         OmegaConf.register_new_resolver(
             "timestep_sampler", lambda name: TimestepSampler[name].value
@@ -395,6 +405,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("kernel_type"):
         OmegaConf.register_new_resolver(
             "kernel_type", lambda name: KernelType[name].value
+        )
+    if not OmegaConf.has_resolver("token_padding"):
+        OmegaConf.register_new_resolver(
+            "token_padding", lambda name: TokenPaddingStrategy[name].value
         )
 
     if not OmegaConf.has_resolver("compile_mode"):
@@ -768,6 +782,8 @@ def register_configs():
         node=DiffusionActionTransformerConfig,
     )
     cs.store(group="policy/decoder", name="unet", node=ConditionalActionUNetConfig)
+    cs.store(group="policy/decoder", name="smolvla", node=SmolVLADecoderConfig)
+    cs.store(group="policy/decoder", name="pi0", node=Pi0DecoderConfig)
     cs.store(group="policy/decoder/action_head", name="base", node=ActionHeadConfig)
     cs.store(
         group="policy/decoder/action_head", name="gaussian", node=GaussianHeadConfig

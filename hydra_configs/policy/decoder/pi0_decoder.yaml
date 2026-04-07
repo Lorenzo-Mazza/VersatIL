@@ -1,7 +1,6 @@
 defaults:
+  - pi0
   - heads@action_heads: libero_vla
-
-_target_: versatil.models.decoding.decoders.factory.smolvla_decoder.SmolVLADecoder
 
 input_keys:
   - vlm_fused_rgb_language
@@ -12,13 +11,15 @@ action_space: ${task.action_space}
 observation_space: ${task.observation_space}
 device: ${experiment.device}
 
-expert_width_multiplier: 0.5
-num_expert_layers: -1
-num_vlm_layers: 0
-self_attention_every_n_layers: 2
-proprioceptive_feature_key: null
+expert_hidden_size: 1024
+expert_intermediate_size: 4096
+expert_number_of_heads: 8
+expert_number_of_key_value_heads: 1
+expert_number_of_layers: 18
+expert_head_dimension: 256
+time_conditioning: ${time_conditioning:CONCAT_MLP}
 min_period: 0.004
 max_period: 4.0
-freeze_vlm: true
+proprioceptive_feature_key: null
 normalization_type: ${normalization:RMS_NORM}
-dropout: 0.1
+dropout: 0.0

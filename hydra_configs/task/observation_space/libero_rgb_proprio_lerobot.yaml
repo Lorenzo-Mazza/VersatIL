@@ -46,7 +46,7 @@ observations_metadata:
     raw_data_column_keys: [observation.state]
     dtype: float32
     dimension: 2
-    needs_normalization: false
+    needs_normalization: true
     slice_start: 6
     slice_end: 8
     gripper_type: ${gripper:CONTINUOUS}

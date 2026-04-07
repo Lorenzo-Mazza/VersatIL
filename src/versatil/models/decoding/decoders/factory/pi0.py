@@ -8,8 +8,6 @@ References:
     Pi0: https://github.com/Physical-Intelligence/openpi
 """
 
-import enum
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,25 +16,20 @@ from transformers import PretrainedConfig
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_masking import make_attention_mask
-from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.decoding.constants import DecoderOutputKey, TimeConditioning
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm import (
     GenerativeVLMEncoder,
 )
+from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.diffusion_transformer.mmdit_layer import MMDiTLayer
+from versatil.models.layers.feature_projection import FeatureProjection
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.positional_encoding.base import PositionSource
 from versatil.models.layers.positional_encoding.sinusoidal import (
     PeriodInterpolationPositionalEncoding1D,
 )
-
-
-class Pi0TimeConditioning(enum.StrEnum):
-    """Timestep conditioning strategy for Pi0 variants."""
-
-    CONCAT_MLP = "concat_mlp"
-    ADANORM = "adanorm"
 
 
 class Pi0Decoder(ActionDecoder):
@@ -62,14 +55,12 @@ class Pi0Decoder(ActionDecoder):
         expert_number_of_key_value_heads: int,
         expert_number_of_layers: int,
         expert_head_dimension: int,
-        time_conditioning: str = Pi0TimeConditioning.CONCAT_MLP.value,
+        time_conditioning: str = TimeConditioning.CONCAT_MLP.value,
         min_period: float = 4e-3,
         max_period: float = 4.0,
-        use_state_token: bool = True,
-        state_dimension: int = 0,
-        proprioceptive_feature_key: str = "state",
+        proprioceptive_feature_key: str | None = None,
         normalization_type: str = NormalizationType.RMS_NORM.value,
-        dropout: float = 0.1,
+        dropout: float = 0.0,
     ):
         decoder_input = DecoderInput(
             keys=input_keys,
@@ -92,8 +83,6 @@ class Pi0Decoder(ActionDecoder):
         self.expert_number_of_key_value_heads = expert_number_of_key_value_heads
         self.expert_number_of_layers = expert_number_of_layers
         self.expert_head_dimension = expert_head_dimension
-        self.use_state_token = use_state_token
-        self.state_dimension = state_dimension
         self.proprioceptive_feature_key = proprioceptive_feature_key
         self.normalization_type = normalization_type
         self._dropout = dropout
@@ -106,26 +95,23 @@ class Pi0Decoder(ActionDecoder):
             position_source=PositionSource.SCALAR.value,
         )
         match time_conditioning:
-            case Pi0TimeConditioning.CONCAT_MLP.value:
+            case TimeConditioning.CONCAT_MLP.value:
                 self.action_time_fusion_input = nn.Linear(
                     expert_hidden_size * 2, expert_hidden_size
                 )
                 self.action_time_fusion_output = nn.Linear(
                     expert_hidden_size, expert_hidden_size
                 )
-                self.state_projection = (
-                    nn.Linear(state_dimension, expert_hidden_size)
-                    if use_state_token and state_dimension > 0
-                    else None
-                )
-            case Pi0TimeConditioning.ADANORM.value:
+                # Deferred to set_backbone — needs vlm_hidden_dimension
+                self.proprioceptive_projection: FeatureProjection | None = None
+            case TimeConditioning.ADANORM.value:
                 self.time_mlp_input = nn.Linear(expert_hidden_size, expert_hidden_size)
                 self.time_mlp_output = nn.Linear(expert_hidden_size, expert_hidden_size)
-                self.state_projection = None
+                self.proprioceptive_projection = None
             case _:
                 raise ValueError(
                     f"Unknown time_conditioning: {time_conditioning}. "
-                    f"Use {[m.value for m in Pi0TimeConditioning]}"
+                    f"Use {[m.value for m in TimeConditioning]}"
                 )
         self.vlm_layers: nn.ModuleList | None = None
         self.vlm_rotary_embedding: nn.Module | None = None
@@ -162,7 +148,7 @@ class Pi0Decoder(ActionDecoder):
         self.vlm_layers = vlm_layers
         self.vlm_rotary_embedding = rotary_emb
         self.vlm_hidden_dimensionension = vlm_hidden_dimension
-        use_conditioning = self.time_conditioning == Pi0TimeConditioning.ADANORM.value
+        use_conditioning = self.time_conditioning == TimeConditioning.ADANORM.value
         self.expert_layers = nn.ModuleList(
             [
                 MMDiTLayer(
@@ -175,8 +161,10 @@ class Pi0Decoder(ActionDecoder):
                     secondary_feedforward_dimension=self.expert_intermediate_size,
                     precomputed_primary_stream=True,
                     normalization_type=self.normalization_type,
+                    use_query_key_norm=False,
                     use_conditioning=use_conditioning,
                     use_gating=use_conditioning,
+                    activation=ActivationFunction.GEGLU.value,
                     dropout=self._dropout,
                     bias=False,
                 )
@@ -187,6 +175,13 @@ class Pi0Decoder(ActionDecoder):
             normalization_type=self.normalization_type,
             dimension=self.expert_hidden_size,
         )
+        if (
+            self.proprioceptive_feature_key is not None
+            and self.time_conditioning == TimeConditioning.CONCAT_MLP.value
+        ):
+            self.proprioceptive_projection = FeatureProjection(
+                embedding_dim=vlm_hidden_dimension
+            )
 
     def enable_encoder_cache(self) -> None:
         """Enable prefix caching for multi-step denoising inference."""
@@ -222,13 +217,13 @@ class Pi0Decoder(ActionDecoder):
         expert_hidden = self.action_input_projection(torch.cat(action_tensors, dim=-1))
         time_embedding = self.timestep_embedding(timestep)
         match self.time_conditioning:
-            case Pi0TimeConditioning.CONCAT_MLP.value:
+            case TimeConditioning.CONCAT_MLP.value:
                 time_expanded = time_embedding.unsqueeze(1).expand_as(expert_hidden)
                 fused = torch.cat([expert_hidden, time_expanded], dim=-1)
                 return self.action_time_fusion_output(
                     F.silu(self.action_time_fusion_input(fused))
                 ), None
-            case Pi0TimeConditioning.ADANORM.value:
+            case TimeConditioning.ADANORM.value:
                 conditioning = F.silu(
                     self.time_mlp_output(F.silu(self.time_mlp_input(time_embedding)))
                 )
@@ -264,19 +259,32 @@ class Pi0Decoder(ActionDecoder):
         expert_hidden, adaptive_norm_conditioning = self._embed_suffix(
             actions=actions, timestep=timestep
         )
+        causal_prefix_suffix_length = 0
         if (
-            self.state_projection is not None
-            and self.time_conditioning == Pi0TimeConditioning.CONCAT_MLP.value
+            self.proprioceptive_projection is not None
+            and self.time_conditioning == TimeConditioning.CONCAT_MLP.value
         ):
-            state = features.get(self.proprioceptive_feature_key)
-            if state is not None:
-                expert_hidden = torch.cat(
-                    [self.state_projection(state).unsqueeze(1), expert_hidden], dim=1
+            proprio = (
+                features.get(self.proprioceptive_feature_key)
+                if self.proprioceptive_feature_key is not None
+                else None
+            )
+            if proprio is not None:
+                projected = self.proprioceptive_projection(
+                    {self.proprioceptive_feature_key: proprio}
                 )
+                proprio_token = projected[self.proprioceptive_feature_key]
+                if proprio_token.ndim == 2:
+                    proprio_token = proprio_token.unsqueeze(1)  # (B, D) → (B, 1, D)
+                prefix_embeddings = torch.cat(
+                    [prefix_embeddings, proprio_token], dim=1
+                )
+                causal_prefix_suffix_length = 1
         attention_mask, key_padding_mask = make_attention_mask(
             action_tokens=expert_hidden,
             feature_tokens=prefix_embeddings,
             causal_actions=False,
+            causal_prefix_suffix_length=causal_prefix_suffix_length,
         )
         pad_mask = ~key_padding_mask.bool()
         position_ids = (pad_mask.long().cumsum(dim=-1) - 1).clamp(min=0)
@@ -375,6 +383,10 @@ class Pi0Decoder(ActionDecoder):
         """Run VLM layers and cache Q/K/V for inference."""
         vlm_cache: dict[int, dict[str, torch.Tensor]] = {}
         vlm_hidden = prefix_embeddings
+        prefix_position_ids = position_ids[:, : prefix_embeddings.shape[1]]
+        vlm_position_embeddings = self.vlm_rotary_embedding(
+            vlm_hidden, prefix_position_ids
+        )
         with torch.no_grad():
             for layer_index in range(self.expert_number_of_layers):
                 vlm_layer = self.vlm_layers[layer_index]
@@ -383,7 +395,7 @@ class Pi0Decoder(ActionDecoder):
                         vlm_layer=vlm_layer,
                         hidden_states=vlm_hidden,
                         rotary_embedding=self.vlm_rotary_embedding,
-                        position_ids=position_ids,
+                        position_ids=prefix_position_ids,
                     )
                 )
                 vlm_cache[layer_index] = {
@@ -392,7 +404,10 @@ class Pi0Decoder(ActionDecoder):
                     "value": vlm_value,
                     "hidden": vlm_hidden,
                 }
-                vlm_output = vlm_layer(vlm_hidden)
+                vlm_output = vlm_layer(
+                    vlm_hidden,
+                    position_embeddings=vlm_position_embeddings,
+                )
                 vlm_hidden = (
                     vlm_output[0] if isinstance(vlm_output, tuple) else vlm_output
                 )

@@ -18,7 +18,6 @@ from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
-from versatil.models.layers.swiglu import SwiGLU
 
 
 class MMDiTLayer(nn.Module):
@@ -208,16 +207,19 @@ class MMDiTLayer(nn.Module):
         dropout: float,
         bias: bool,
     ) -> nn.Sequential:
-        if activation == ActivationFunction.SWIGLU.value:
+        activation_enum = ActivationFunction(activation)
+        if activation_enum.is_gated:
+            gated_unit = activation_enum.to_torch_activation()(
+                embedding_dimension, feedforward_dimension, bias=bias
+            )
             return nn.Sequential(
-                SwiGLU(embedding_dimension, feedforward_dimension, bias=bias),
+                gated_unit,
                 nn.Dropout(dropout),
                 nn.Linear(feedforward_dimension, embedding_dimension, bias=bias),
             )
-        activation_function = ActivationFunction(activation).to_torch_activation()()
         return nn.Sequential(
             nn.Linear(embedding_dimension, feedforward_dimension, bias=bias),
-            activation_function,
+            activation_enum.to_torch_activation()(),
             nn.Dropout(dropout),
             nn.Linear(feedforward_dimension, embedding_dimension, bias=bias),
         )

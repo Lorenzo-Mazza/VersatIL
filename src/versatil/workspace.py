@@ -34,6 +34,7 @@ from versatil.training.callbacks import (
     ReduceLROnPlateauCallback,
     ResumableEarlyStopping,
 )
+from versatil.training.constants import PrecisionType
 from versatil.training.lightning_policy import LightningPolicy
 
 
@@ -465,14 +466,16 @@ class Workspace:
             raise RuntimeError(
                 "Train loader is not initialized or empty, cannot initialize lazy modules"
             )
-
         data_iter = iter(self.train_loader)
         batch = next(data_iter)
         device = torch.device(self.config.experiment.device)
         batch = to_device(batch, device)
         self.lightning_policy.to(device)
         self.lightning_policy.train()
-        with torch.no_grad():
+        with torch.no_grad(), torch.autocast(
+            device_type=device.type,
+            dtype=PrecisionType(str(self.config.experiment.precision)).get_model_dtype(),
+        ):
             _ = self.lightning_policy.training_step(batch, 0)
         logging.info("Lazy modules initialized successfully")
 

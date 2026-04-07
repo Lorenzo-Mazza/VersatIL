@@ -33,6 +33,7 @@ class PaliGemmaEncoder(GenerativeVLMEncoder):
         attention_type: str = AttentionImplementation.SDPA.value,
         use_embeddings_only: bool = False,
         model_dtype: str | None = None,
+        max_text_length: int | None = None
     ):
         """Initialize the PaliGemma encoder.
 
@@ -46,6 +47,8 @@ class PaliGemmaEncoder(GenerativeVLMEncoder):
                 without running the LM. The LM layers remain available for
                 external use (e.g. interleaved expert decoders).
             model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
+            max_text_length: Maximum text sequence length. Defaults to model's
+                max_position_embeddings if None.
         """
         super().__init__(
             input_keys=input_keys,
@@ -55,6 +58,7 @@ class PaliGemmaEncoder(GenerativeVLMEncoder):
             attention_type=attention_type,
             use_embeddings_only=use_embeddings_only,
             model_dtype=model_dtype,
+            max_text_length=max_text_length,
         )
 
     def _compute_num_image_tokens(self, config: AutoConfig) -> int:

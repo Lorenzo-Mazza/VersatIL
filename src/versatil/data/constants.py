@@ -113,6 +113,13 @@ class KinematicsNormalizationType(enum.StrEnum):
     DEMEAN = "demean"
 
 
+class TokenPaddingStrategy(enum.StrEnum):
+    """Padding strategy for language tokenization."""
+
+    MAX_LENGTH = "max_length"
+    LONGEST = "longest"
+
+
 class ProprioceptiveType(enum.StrEnum):
     """Proprioceptive data types."""
 

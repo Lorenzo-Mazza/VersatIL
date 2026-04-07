@@ -117,8 +117,13 @@ class ObservationPreprocessor:
         Returns:
             Dict mapping each environment index to observation dict.
         """
-        first_key = next(iter(response))
-        environment_indices = [int(key) for key in response[first_key]]
+        observation_keys = self.camera_keys + self.proprioceptive_keys
+        if self.has_language:
+            observation_keys = observation_keys + [ObsKey.LANGUAGE.value]
+        first_observation_key = next(
+            key for key in observation_keys if isinstance(response.get(key), dict)
+        )
+        environment_indices = [int(key) for key in response[first_observation_key]]
         per_environment: dict[int, dict[str, np.ndarray | str]] = {}
         for environment_index in environment_indices:
             index_string = str(environment_index)

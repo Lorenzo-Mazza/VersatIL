@@ -681,6 +681,24 @@ class TestPaliGemmaEncoderIntegration:
         assert param_dtype == expected_dtype
 
     @pytest.mark.integration
+    def test_extract_key_value_returns_unprojected_kv(
+        self,
+        real_paligemma_encoder: Callable[..., PaliGemmaEncoder],
+    ):
+        encoder = real_paligemma_encoder()
+        layer = encoder.get_backbone_layers()[0]
+        batch_size, sequence_length = 2, 8
+        hidden = torch.randn(batch_size, sequence_length, encoder.hidden_dim)
+        key, value = PaliGemmaEncoder.extract_key_value(
+            vlm_layer=layer, hidden_states=hidden,
+        )
+        normalized = layer.input_layernorm(hidden)
+        expected_key = layer.self_attn.k_proj(normalized)
+        expected_value = layer.self_attn.v_proj(normalized)
+        assert torch.allclose(key, expected_key, atol=1e-5)
+        assert torch.allclose(value, expected_value, atol=1e-5)
+
+    @pytest.mark.integration
     def test_extract_query_key_value_applies_rope(
         self,
         real_paligemma_encoder: Callable[..., PaliGemmaEncoder],

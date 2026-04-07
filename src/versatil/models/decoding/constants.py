@@ -78,6 +78,13 @@ class DiTType(enum.StrEnum):
     DIT_BLOCK = "dit_block"  # DiT-Block (DiT Policy style)
 
 
+class TimeConditioning(enum.StrEnum):
+    """Timestep conditioning strategy for denoising decoders."""
+
+    CONCAT_MLP = "concat_mlp"
+    ADANORM = "adanorm"
+
+
 class DecoderOutputKey(enum.StrEnum):
     """Keys for decoder outputs and intermediate features."""
 

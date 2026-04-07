@@ -125,8 +125,12 @@ class InferenceClient:
         self.observation_transport.register(
             client_name=self.policy_loader.checkpoint_path
         )
-        for _ in range(max_steps):
-            status = self.step()
+        for _step_idx in range(max_steps):
+            try:
+                status = self.step()
+            except Exception:
+                logging.exception("Fatal error at step %d", _step_idx)
+                raise
             if status == EpisodeStatus.FINISHED.value:
                 break
 
@@ -159,7 +163,6 @@ class InferenceClient:
         self._remove_inactive_environments(
             per_environment_observations=per_environment_observations
         )
-
         if self.timing_log:
             preprocessing_duration = time.time() - preprocessing_start
             inference_start = time.time()
@@ -408,6 +411,12 @@ class InferenceClient:
 
     def shutdown(self) -> None:
         """Close transport connections."""
-        self.observation_transport.close()
-        if hasattr(self.action_transport, "close"):
-            self.action_transport.close()
+        try:
+            self.observation_transport.close()
+        except Exception:
+            logging.warning("Error closing observation transport", exc_info=True)
+        try:
+            if hasattr(self.action_transport, "close"):
+                self.action_transport.close()
+        except Exception:
+            logging.warning("Error closing action transport", exc_info=True)

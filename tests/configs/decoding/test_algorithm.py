@@ -116,15 +116,20 @@ class TestFlowMatchingConfig:
     @pytest.mark.parametrize("sigma", [0.0, 0.1])
     @pytest.mark.parametrize("num_inference_steps", [5, 20])
     @pytest.mark.parametrize("max_timestep", [0.999, 0.99])
-    def test_stores_configuration(self, sigma, num_inference_steps, max_timestep):
+    @pytest.mark.parametrize("reverse_flow_convention", [True, False])
+    def test_stores_configuration(
+        self, sigma, num_inference_steps, max_timestep, reverse_flow_convention
+    ):
         config = FlowMatchingConfig(
             sigma=sigma,
             num_inference_steps=num_inference_steps,
             max_timestep=max_timestep,
+            reverse_flow_convention=reverse_flow_convention,
         )
         assert config.sigma == sigma
         assert config.num_inference_steps == num_inference_steps
         assert config.max_timestep == max_timestep
+        assert config.reverse_flow_convention == reverse_flow_convention
 
     def test_inherits_from_decoding_algorithm_config(self):
         config = FlowMatchingConfig()

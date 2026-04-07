@@ -7,7 +7,12 @@ from omegaconf import MISSING
 
 from versatil.configs.data.task import ActionSpaceConfig, ObservationSpaceConfig
 from versatil.configs.decoding.action_head import MixtureOfExpertsHeadConfig
-from versatil.models.decoding.constants import DiTType, GMMInitStrategy, MoERoutingType
+from versatil.models.decoding.constants import (
+    DiTType,
+    GMMInitStrategy,
+    MoERoutingType,
+    TimeConditioning,
+)
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import (
     AttentionType,
@@ -368,3 +373,41 @@ class ConditionalActionUNetConfig(DecodingNetworkConfig):
     num_groups: int = 8
     use_local_conditioning: bool = False
     condition_predict_scale: bool = False
+
+
+@dataclass
+class SmolVLADecoderConfig(DecodingNetworkConfig):
+    """SmolVLA decoder with interleaved VLM + expert cross-attention."""
+
+    _target_: str = (
+        "versatil.models.decoding.decoders.factory.smolvla_decoder.SmolVLADecoder"
+    )
+    expert_width_multiplier: float = 0.75
+    num_expert_layers: int = -1
+    num_vlm_layers: int = 16
+    self_attention_every_n_layers: int = 2
+    proprioceptive_feature_key: str | None = None
+    min_period: float = 4e-3
+    max_period: float = 4.0
+    freeze_vlm: bool = True
+    normalization_type: str = NormalizationType.RMS_NORM.value
+    dropout: float = 0.1
+
+
+@dataclass
+class Pi0DecoderConfig(DecodingNetworkConfig):
+    """Pi0 decoder with interleaved VLM + expert joint attention."""
+
+    _target_: str = "versatil.models.decoding.decoders.factory.pi0.Pi0Decoder"
+    expert_hidden_size: int = 1024
+    expert_intermediate_size: int = 4096
+    expert_number_of_heads: int = 8
+    expert_number_of_key_value_heads: int = 1
+    expert_number_of_layers: int = 18
+    expert_head_dimension: int = 256
+    time_conditioning: str = TimeConditioning.CONCAT_MLP.value
+    min_period: float = 4e-3
+    max_period: float = 4.0
+    proprioceptive_feature_key: str | None = None
+    normalization_type: str = NormalizationType.RMS_NORM.value
+    dropout: float = 0.0

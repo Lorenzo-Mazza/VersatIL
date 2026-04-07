@@ -21,12 +21,15 @@ from versatil.configs.decoding.decoder import (
     MixtureOfExpertsDecoderConfig,
     MoEFreeActionTransformerConfig,
     PhaseACTConfig,
+    Pi0DecoderConfig,
+    SmolVLADecoderConfig,
 )
 from versatil.models.decoding.constants import (
     DecoderOutputKey,
     DiTType,
     GMMInitStrategy,
     MoERoutingType,
+    TimeConditioning,
 )
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
@@ -304,6 +307,61 @@ class TestConditionalActionUNetConfig:
     def test_down_dimensions_default(self):
         config = ConditionalActionUNetConfig(input_keys=["features"])
         assert config.down_dimensions == [256, 512, 1024]
+
+
+@pytest.mark.unit
+class TestSmolVLADecoderConfig:
+    def test_defaults(self):
+        config = SmolVLADecoderConfig(input_keys=["features"])
+        assert isinstance(config, DecodingNetworkConfig)
+        assert (
+            config._target_
+            == "versatil.models.decoding.decoders.factory.smolvla_decoder.SmolVLADecoder"
+        )
+        assert config.normalization_type == NormalizationType.RMS_NORM.value
+        assert config.proprioceptive_feature_key is None
+
+    @pytest.mark.parametrize("expert_width_multiplier", [0.5, 0.75])
+    @pytest.mark.parametrize("num_vlm_layers", [8, 16])
+    @pytest.mark.parametrize("freeze_vlm", [True, False])
+    def test_stores_configuration(
+        self, expert_width_multiplier, num_vlm_layers, freeze_vlm
+    ):
+        config = SmolVLADecoderConfig(
+            input_keys=["features"],
+            expert_width_multiplier=expert_width_multiplier,
+            num_vlm_layers=num_vlm_layers,
+            freeze_vlm=freeze_vlm,
+        )
+        assert config.expert_width_multiplier == expert_width_multiplier
+        assert config.num_vlm_layers == num_vlm_layers
+        assert config.freeze_vlm == freeze_vlm
+
+
+@pytest.mark.unit
+class TestPi0DecoderConfig:
+    def test_defaults(self):
+        config = Pi0DecoderConfig(input_keys=["features"])
+        assert isinstance(config, DecodingNetworkConfig)
+        assert (
+            config._target_
+            == "versatil.models.decoding.decoders.factory.pi0.Pi0Decoder"
+        )
+        assert config.time_conditioning == TimeConditioning.CONCAT_MLP.value
+        assert config.normalization_type == NormalizationType.RMS_NORM.value
+        assert config.dropout == 0.0
+        assert config.proprioceptive_feature_key is None
+
+    @pytest.mark.parametrize("expert_hidden_size", [512, 1024])
+    @pytest.mark.parametrize("time_conditioning", ["concat_mlp", "adanorm"])
+    def test_stores_configuration(self, expert_hidden_size, time_conditioning):
+        config = Pi0DecoderConfig(
+            input_keys=["features"],
+            expert_hidden_size=expert_hidden_size,
+            time_conditioning=time_conditioning,
+        )
+        assert config.expert_hidden_size == expert_hidden_size
+        assert config.time_conditioning == time_conditioning
 
 
 @pytest.mark.unit

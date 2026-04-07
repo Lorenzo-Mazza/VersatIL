@@ -76,6 +76,7 @@ class FlowMatchingConfig(DecodingAlgorithmConfig):
     beta_alpha: float = 1.5
     beta_beta: float = 1.0
     max_timestep: float = 0.999
+    reverse_flow_convention: bool = False
 
 
 @dataclass

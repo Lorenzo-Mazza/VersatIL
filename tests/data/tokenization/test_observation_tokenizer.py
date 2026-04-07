@@ -34,6 +34,7 @@ def observation_tokenizer_factory(mock_obs_auto_tokenizer):
         num_bins: int = 256,
         max_token_len: int = 256,
         device: torch.device | None = None,
+        raw_text: bool = False,
     ) -> ObservationTokenizer:
         if observation_keys is None:
             observation_keys = [ObsKey.LANGUAGE.value]
@@ -44,6 +45,7 @@ def observation_tokenizer_factory(mock_obs_auto_tokenizer):
             num_bins=num_bins,
             max_token_len=max_token_len,
             device=device,
+            raw_text=raw_text,
         )
 
     return factory
@@ -414,7 +416,10 @@ class TestObservationTokenizerBuildPrompts:
         tokenizer = observation_tokenizer_factory(bin_continuous_data=False)
         tokenizer._is_fitted = True
         observations = observation_dict_factory(language=12345)
-        with pytest.raises(TypeError, match="Expected str for language data"):
+        with pytest.raises(
+            TypeError,
+            match=f"Expected str or list for language data, got {type(12345)}",
+        ):
             tokenizer._build_prompts(observations)
 
     def test_language_list_of_lists_joins_inner_list(
@@ -568,6 +573,7 @@ class TestObservationTokenizerStateDict:
             "num_bins",
             "max_token_len",
             "vocab_size",
+            "raw_text",
             "binning_tokenizers",
             "is_fitted",
         }
@@ -925,3 +931,153 @@ class TestObservationTokenizerIntegrationSaveLoad:
         original_pad = original_result[SampleKey.IS_PAD_OBSERVATION.value]
         loaded_pad = loaded_result[SampleKey.IS_PAD_OBSERVATION.value]
         assert torch.equal(original_pad, loaded_pad)
+
+
+class TestRawTextMode:
+    @pytest.mark.parametrize("raw_text", [True, False])
+    def test_stores_raw_text_flag(self, observation_tokenizer_factory, raw_text):
+        tokenizer = observation_tokenizer_factory(raw_text=raw_text)
+        assert tokenizer.raw_text is raw_text
+
+    @pytest.mark.parametrize(
+        "language_input, expected_prompt",
+        [
+            ("pick up the red block", "pick up the red block\n"),
+            ("Pick_Up\nBlock", "Pick_Up\nBlock\n"),
+            ("already has newline\n", "already has newline\n"),
+        ],
+    )
+    def test_raw_text_preserves_original_casing_and_formatting(
+        self,
+        observation_tokenizer_factory,
+        observation_dict_factory,
+        language_input,
+        expected_prompt,
+    ):
+        tokenizer = observation_tokenizer_factory(
+            raw_text=True, bin_continuous_data=False
+        )
+        tokenizer._is_fitted = True
+        observations = observation_dict_factory(language=[language_input])
+        prompts = tokenizer._build_prompts(observations)
+        assert len(prompts) == 1
+        assert prompts[0] == expected_prompt
+
+    def test_raw_text_does_not_add_task_prefix(
+        self,
+        observation_tokenizer_factory,
+        observation_dict_factory,
+    ):
+        tokenizer = observation_tokenizer_factory(
+            raw_text=True, bin_continuous_data=False
+        )
+        tokenizer._is_fitted = True
+        observations = observation_dict_factory(language=["grasp needle"])
+        prompts = tokenizer._build_prompts(observations)
+        assert "Task:" not in prompts[0]
+
+    def test_raw_text_ignores_continuous_keys(
+        self,
+        observation_tokenizer_factory,
+        observation_dict_factory,
+    ):
+        proprio_key = ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
+        tokenizer = observation_tokenizer_factory(
+            observation_keys=[ObsKey.LANGUAGE.value, proprio_key],
+            raw_text=True,
+            bin_continuous_data=False,
+        )
+        tokenizer._is_fitted = True
+        observations = observation_dict_factory(
+            language=["grasp needle"],
+            proprio_keys=[proprio_key],
+            observation_dim=3,
+        )
+        prompts = tokenizer._build_prompts(observations)
+        assert "proprio" not in prompts[0]
+        assert prompts[0] == "grasp needle\n"
+
+    def test_raw_text_raises_without_language_key(
+        self,
+        observation_tokenizer_factory,
+    ):
+        tokenizer = observation_tokenizer_factory(
+            observation_keys=[ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value],
+            raw_text=True,
+            bin_continuous_data=False,
+        )
+        tokenizer._is_fitted = True
+        observations = {
+            ProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value: np.array(
+                [[1.0, 2.0]], dtype=np.float32
+            )
+        }
+        with pytest.raises(
+            ValueError,
+            match=f"raw_text mode requires '{ObsKey.LANGUAGE.value}' in observations",
+        ):
+            tokenizer._build_prompts(observations)
+
+    def test_raw_text_batch_produces_correct_count(
+        self,
+        observation_tokenizer_factory,
+        observation_dict_factory,
+    ):
+        tokenizer = observation_tokenizer_factory(
+            raw_text=True, bin_continuous_data=False
+        )
+        tokenizer._is_fitted = True
+        observations = observation_dict_factory(
+            language=["text one", "text two", "text three"]
+        )
+        prompts = tokenizer._build_prompts(observations)
+        assert len(prompts) == 3
+        assert prompts[0] == "text one\n"
+        assert prompts[1] == "text two\n"
+        assert prompts[2] == "text three\n"
+
+    def test_state_dict_includes_raw_text(self, observation_tokenizer_factory):
+        tokenizer = observation_tokenizer_factory(raw_text=True)
+        state = tokenizer.state_dict()
+        assert state["raw_text"] is True
+
+    def test_load_state_dict_restores_raw_text(self, observation_tokenizer_factory):
+        tokenizer = observation_tokenizer_factory(raw_text=False)
+        state = tokenizer.state_dict()
+        state["raw_text"] = True
+        tokenizer.load_state_dict(state)
+        assert tokenizer.raw_text is True
+
+    def test_load_state_dict_defaults_raw_text_when_missing(
+        self, observation_tokenizer_factory
+    ):
+        tokenizer = observation_tokenizer_factory(raw_text=True)
+        state = tokenizer.state_dict()
+        del state["raw_text"]
+        tokenizer.load_state_dict(state)
+        assert tokenizer.raw_text is False
+
+
+class TestExtractLanguageText:
+    @pytest.mark.parametrize(
+        "data, index, batch_size, expected",
+        [
+            (["hello world"], 0, 1, "hello world"),
+            (["first", "second"], 1, 2, "second"),
+            ("single string", 0, 1, "single string"),
+        ],
+    )
+    def test_extracts_correct_string(self, data, index, batch_size, expected):
+        result = ObservationTokenizer._extract_language_text(
+            data=data, index=index, batch_size=batch_size
+        )
+        assert result == expected
+
+    def test_raises_on_invalid_type(self):
+        with pytest.raises(
+            TypeError,
+            match=f"Expected str or list for language data, got {type(123)}",
+        ):
+            ObservationTokenizer._extract_language_text(
+                data=123, index=0, batch_size=1
+            )

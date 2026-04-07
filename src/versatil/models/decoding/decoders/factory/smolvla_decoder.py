@@ -12,6 +12,7 @@ from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_masking import make_attention_mask
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm import (
     GenerativeVLMEncoder,
 )
@@ -459,7 +460,10 @@ class SmolVLADecoder(ActionDecoder):
             raise ValueError(
                 "SmolVLADecoder requires actions during forward (noisy actions for denoising)."
             )
-        prefix_embeddings = features[self.decoder_input.keys[0]]
+        feature_key = self.decoder_input.keys[0]
+        padding_mask_key = f"{feature_key}_{EncoderOutputKeys.PADDING_MASK.value}"
+        prefix_embeddings = features[feature_key]
+        prefix_padding_mask = features.get(padding_mask_key)
         if DecoderOutputKey.TIMESTEP.value not in features:
             raise ValueError(
                 f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
@@ -471,6 +475,7 @@ class SmolVLADecoder(ActionDecoder):
             if self.proprioceptive_feature_key is not None
             else None
         )
+        causal_prefix_suffix_length = 0
         if proprio is not None:
             projected = self.proprioceptive_projection(
                 {self.proprioceptive_feature_key: proprio}
@@ -479,11 +484,24 @@ class SmolVLADecoder(ActionDecoder):
             if proprio_token.ndim == 2:
                 proprio_token = proprio_token.unsqueeze(1)  # (B, D) → (B, 1, D)
             prefix_embeddings = torch.cat([prefix_embeddings, proprio_token], dim=1)
+            if prefix_padding_mask is not None:
+                proprio_valid = torch.zeros(
+                    prefix_padding_mask.shape[0],
+                    1,
+                    dtype=torch.bool,
+                    device=prefix_padding_mask.device,
+                )
+                prefix_padding_mask = torch.cat(
+                    [prefix_padding_mask, proprio_valid], dim=1
+                )
+            causal_prefix_suffix_length = 1
         expert_hidden = self._embed_suffix(actions, timestep)
         attention_mask, key_padding_mask = make_attention_mask(
             action_tokens=expert_hidden,
             feature_tokens=prefix_embeddings,
-            causal_actions=False,
+            feature_token_mask=prefix_padding_mask,
+            causal_actions=True,
+            causal_prefix_suffix_length=causal_prefix_suffix_length,
         )
         # Non-padded tokens get incrementing positions; padded tokens stay at 0
         pad_mask = ~key_padding_mask.bool()
@@ -502,7 +520,12 @@ class SmolVLADecoder(ActionDecoder):
                 expert_action_rope=expert_action_rope,
             )
         elif self._encoder_cache_enabled:
-            vlm_cache = self._fill_prefix_cache(prefix_embeddings, position_ids)
+            vlm_attention_mask = None
+            if prefix_padding_mask is not None and prefix_padding_mask.any():
+                vlm_attention_mask = (~prefix_padding_mask).unsqueeze(1).unsqueeze(1)  # (B, P) → (B, 1, 1, P)
+            vlm_cache = self._fill_prefix_cache(
+                prefix_embeddings, position_ids, vlm_attention_mask
+            )
             self._prefix_cache = vlm_cache
             expert_hidden = self._run_expert_with_cache(
                 expert_hidden=expert_hidden,
@@ -511,12 +534,16 @@ class SmolVLADecoder(ActionDecoder):
                 expert_action_rope=expert_action_rope,
             )
         else:
+            vlm_train_mask = None
+            if prefix_padding_mask is not None and prefix_padding_mask.any():
+                vlm_train_mask = (~prefix_padding_mask).unsqueeze(1).unsqueeze(1)  # (B, P) → (B, 1, 1, P)
             expert_hidden = self._run_training_forward(
                 prefix_embeddings=prefix_embeddings,
                 expert_hidden=expert_hidden,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
                 expert_action_rope=expert_action_rope,
+                vlm_prefix_attention_mask=vlm_train_mask,
             )
         expert_hidden = self.expert_final_norm(expert_hidden)
         action_output = self.action_output_projection(
@@ -537,11 +564,21 @@ class SmolVLADecoder(ActionDecoder):
         attention_mask: torch.Tensor,
         position_ids: torch.Tensor,
         expert_action_rope: tuple[torch.Tensor, torch.Tensor],
+        vlm_prefix_attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Interleaved VLM + expert forward for training.
 
         VLM sees expert tokens in joint attention layers, matching the
         reference where both streams are processed simultaneously.
+
+        Args:
+            prefix_embeddings: VLM prefix token embeddings (B, P, D).
+            expert_hidden: Expert action token embeddings (B, A, D_expert).
+            attention_mask: Full attention mask (B, 1, P+A, P+A).
+            position_ids: Position IDs (B, P+A).
+            expert_action_rope: Pre-computed (cos, sin) for expert RoPE.
+            vlm_prefix_attention_mask: Optional HF-style mask for VLM layers
+                (B, P) where 1=attend, 0=masked.
         """
 
         vlm_hidden = prefix_embeddings
@@ -557,6 +594,7 @@ class SmolVLADecoder(ActionDecoder):
                     with torch.no_grad():
                         vlm_output = vlm_layer(
                             vlm_hidden,
+                            attention_mask=vlm_prefix_attention_mask,
                             position_embeddings=vlm_position_embeddings,
                         )
                         vlm_hidden = (
@@ -600,6 +638,7 @@ class SmolVLADecoder(ActionDecoder):
                         )
                         vlm_output = vlm_layer(
                             vlm_hidden,
+                            attention_mask=vlm_prefix_attention_mask,
                             position_embeddings=vlm_position_embeddings,
                         )
                         vlm_hidden = (
@@ -621,16 +660,26 @@ class SmolVLADecoder(ActionDecoder):
         self,
         prefix_embeddings: torch.Tensor,
         position_ids: torch.Tensor,
+        prefix_attention_mask: torch.Tensor | None = None,
     ) -> dict[int, dict[str, torch.Tensor]]:
         """Run VLM layers as plain self-attention and cache K/V for inference.
 
         During cached inference, the VLM doesn't see expert tokens (matching
         the reference fill_kv_cache=True path).
+
+        Args:
+            prefix_embeddings: Prefix token embeddings (B, P, D).
+            position_ids: Full position IDs (B, P + A). Only the prefix
+                portion [:, :P] is used.
+            prefix_attention_mask: Optional (B, P) mask where 1 means attend
+                and 0 means ignore. Passed to each VLM layer so padded tokens
+                do not participate in self-attention.
         """
         vlm_cache: dict[int, dict[str, torch.Tensor]] = {}
         vlm_hidden = prefix_embeddings
+        prefix_position_ids = position_ids[:, : prefix_embeddings.shape[1]]
         vlm_position_embeddings = self._compute_vlm_position_embeddings(
-            prefix_embeddings, position_ids[:, : prefix_embeddings.shape[1]]
+            prefix_embeddings, prefix_position_ids
         )
         with torch.no_grad():
             for vlm_layer_index, layer_type in enumerate(self._layer_types):
@@ -642,7 +691,7 @@ class SmolVLADecoder(ActionDecoder):
                                 vlm_layer,
                                 vlm_hidden,
                                 self.vlm_rotary_emb,
-                                position_ids,
+                                prefix_position_ids,
                             )
                         )
                         vlm_cache[vlm_layer_index] = {
@@ -653,14 +702,16 @@ class SmolVLADecoder(ActionDecoder):
                         }
                     case SmolVLALayerType.CROSS_ATTENTION.value:
                         vlm_keys, vlm_values = self._extract_key_value_with_rope(
-                            vlm_layer, vlm_hidden, position_ids
+                            vlm_layer, vlm_hidden, prefix_position_ids
                         )
                         vlm_cache[vlm_layer_index] = {
                             "key": vlm_keys,
                             "value": vlm_values,
                         }
                 vlm_output = vlm_layer(
-                    vlm_hidden, position_embeddings=vlm_position_embeddings
+                    vlm_hidden,
+                    attention_mask=prefix_attention_mask,
+                    position_embeddings=vlm_position_embeddings,
                 )
                 vlm_hidden = (
                     vlm_output[0] if isinstance(vlm_output, tuple) else vlm_output

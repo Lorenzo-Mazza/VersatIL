@@ -8,15 +8,25 @@ def make_attention_mask(
     feature_tokens: torch.Tensor,
     feature_token_mask: torch.Tensor | None = None,
     causal_actions: bool = True,
+    causal_prefix_suffix_length: int = 0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Compute attention mask with bidirectional prefix and configurable action masking.
+
+    The prefix is split into a bidirectional region and an optional causal
+    suffix. Tokens in the causal suffix can see all earlier prefix tokens but
+    earlier prefix tokens cannot see them.
 
     Args:
         action_tokens: Action token embeddings (B, action_token_len, emb_dim)
         feature_tokens: Feature token embeddings (B, feat_token_len, emb_dim)
         feature_token_mask: Optional feature token mask (B, feat_token_len)
+            where True indicates padded (masked) tokens.
         causal_actions: If True, action tokens use causal (autoregressive) masking.
             If False, action tokens attend bidirectionally to each other.
+        causal_prefix_suffix_length: Number of tokens at the end of the prefix
+            that use causal masking. These tokens
+            can attend to all earlier prefix tokens, but earlier tokens cannot
+            attend to them. 0 disables (fully bidirectional prefix).
 
     Returns:
         full_padding_mask: Attention mask (B, 1, total_len, total_len)
@@ -83,6 +93,12 @@ def make_attention_mask(
     full_padding_mask[:, :, :prefix_len, prefix_len:] = (
         True  # Prefix tokens cannot attend to future action tokens
     )
+    # Causal suffix within the prefix: earlier bidirectional tokens cannot
+    # attend to these trailing causal tokens (e.g. state/proprio).
+    if causal_prefix_suffix_length > 0:
+        causal_start = prefix_len - causal_prefix_suffix_length
+        # Bidirectional prefix tokens [0, causal_start) cannot see causal tokens [causal_start, prefix_len)
+        full_padding_mask[:, :, :causal_start, causal_start:prefix_len] = True
     return (
         full_padding_mask,
         key_padding_mask,

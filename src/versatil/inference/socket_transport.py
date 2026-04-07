@@ -1,5 +1,6 @@
 """Concrete transport implementations for inference client communication."""
 
+import zmq
 from tso_robotics_sockets import (
     InferenceRequestKey,
     ServerRoute,
@@ -64,7 +65,8 @@ class SocketObservationTransport:
         )
 
     def close(self) -> None:
-        """Close the socket connection."""
+        """Close the socket connection without blocking."""
+        self.socket.request_socket.setsockopt(zmq.LINGER, 0)
         self.socket.close()
 
 
@@ -109,5 +111,6 @@ class SocketActionTransport:
         )
 
     def close(self) -> None:
-        """Close the socket connection."""
+        """Close the socket connection without blocking."""
+        self.socket.request_socket.setsockopt(zmq.LINGER, 0)
         self.socket.close()

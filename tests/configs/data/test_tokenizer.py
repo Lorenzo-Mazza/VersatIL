@@ -35,6 +35,15 @@ class TestObservationTokenizationConfig:
         config = ObservationTokenizationConfig(max_token_len=max_token_len)
         assert config.max_token_len == max_token_len
 
+    @pytest.mark.parametrize("raw_text", [True, False])
+    def test_stores_raw_text(self, raw_text):
+        config = ObservationTokenizationConfig(raw_text=raw_text)
+        assert config.raw_text == raw_text
+
+    def test_raw_text_default_is_false(self):
+        config = ObservationTokenizationConfig()
+        assert config.raw_text is False
+
 
 @pytest.mark.unit
 class TestActionTokenizationConfig:

@@ -1,5 +1,7 @@
 """SmolVLM/Idefics3 encoder — decomposes the VLM into vision tower + LM for multi-camera support."""
 
+import math
+
 import torch
 import torch.nn as nn
 from transformers import AutoConfig
@@ -72,6 +74,12 @@ class SmolVLMEncoder(GenerativeVLMEncoder):
         """SmolVLM wraps a Llama-style model as ``vlm.text_model``."""
         return self.vlm.text_model
 
+    def _scale_language_embeddings(
+        self, language_embeddings: torch.Tensor
+    ) -> torch.Tensor:
+        """Scale language embeddings by sqrt(hidden_dim) to match SmolVLM convention."""
+        return language_embeddings * math.sqrt(self.hidden_dim)
+
     def _embed_images(
         self, inputs: dict[str, torch.Tensor], batch_size: int
     ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
@@ -104,6 +112,9 @@ class SmolVLMEncoder(GenerativeVLMEncoder):
         image_features = self.vlm.get_image_features(pixel_values)
         # pooler_output: (B * num_cameras, tokens_per_camera, hidden_dim)
         image_embeddings = image_features.pooler_output
+        # SmolVLM convention: scale embeddings by sqrt(hidden_dim) to match the
+        # magnitude of the LM's token embeddings (which use the same scaling).
+        image_embeddings = image_embeddings * math.sqrt(image_embeddings.shape[-1])
         # Merge camera and token dims back into batch: (B, num_cameras * tokens_per_camera, hidden_dim)
         tokens_per_camera = image_embeddings.shape[1]
         image_embeddings = image_embeddings.reshape(

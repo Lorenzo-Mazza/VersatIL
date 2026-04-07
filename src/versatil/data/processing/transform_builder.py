@@ -386,6 +386,8 @@ class TransformBuilder:
                 num_bins=obs_config.num_bins,
                 max_token_len=obs_config.max_token_len,
                 device=device,
+                raw_text=obs_config.raw_text,
+                padding_strategy=obs_config.padding_strategy,
             )
             if obs_config.bin_continuous_data:
                 data_to_bin = {}

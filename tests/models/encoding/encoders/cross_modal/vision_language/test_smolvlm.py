@@ -54,10 +54,10 @@ def mock_vlm_factory() -> Callable[..., MagicMock]:
         mock_vlm = MagicMock()
         mock_vlm.text_model.config.vocab_size = VOCAB_SIZE
 
-        total_image_tokens = NUM_IMAGE_TOKENS * num_cameras
         mock_image_output = MagicMock()
+        # Real VLM returns (B * num_cameras, tokens_per_camera, hidden_dim)
         mock_image_output.pooler_output = torch.zeros(
-            batch_size, total_image_tokens, HIDDEN_DIM
+            batch_size * num_cameras, NUM_IMAGE_TOKENS, HIDDEN_DIM
         )
         mock_vlm.get_image_features.return_value = mock_image_output
 
@@ -65,7 +65,7 @@ def mock_vlm_factory() -> Callable[..., MagicMock]:
         mock_embed.return_value = torch.zeros(batch_size, MAX_TEXT_LENGTH, HIDDEN_DIM)
         mock_vlm.text_model.get_input_embeddings.return_value = mock_embed
 
-        total_seq = total_image_tokens + MAX_TEXT_LENGTH
+        total_seq = NUM_IMAGE_TOKENS * num_cameras + MAX_TEXT_LENGTH
         mock_lm_output = MagicMock()
         mock_lm_output.last_hidden_state = torch.zeros(
             batch_size, total_seq, HIDDEN_DIM
@@ -162,10 +162,14 @@ def _setup_mock_vlm_for_batch(
     effective_batch_size: int,
 ):
     """Configure mock VLM outputs for a given effective batch size (B*T)."""
+    num_cameras = len(encoder.camera_keys)
     total_image_tokens = encoder.total_image_tokens
     mock_image_output = MagicMock()
+    # Real VLM returns (B * num_cameras, tokens_per_camera, hidden_dim)
     mock_image_output.pooler_output = torch.zeros(
-        effective_batch_size, total_image_tokens, HIDDEN_DIM
+        effective_batch_size * num_cameras,
+        encoder.num_image_tokens_per_camera,
+        HIDDEN_DIM,
     )
     encoder.vlm.get_image_features.return_value = mock_image_output
 
@@ -347,6 +351,64 @@ class TestSmolVLMEncoderForward:
         assert EncoderOutputKeys.FUSED_RGB_LANGUAGE.value in output
         assert encoder.padding_mask_name in output
         assert len(output) == 2
+
+    def test_image_embeddings_scaled_by_sqrt_hidden_dim(
+        self,
+        smolvlm_encoder_factory: Callable[..., SmolVLMEncoder],
+        smolvlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+        rng: np.random.Generator,
+    ):
+        batch_size = 2
+        encoder = smolvlm_encoder_factory(use_embeddings_only=True)
+        raw_image_embeddings = torch.from_numpy(
+            rng.standard_normal(
+                (batch_size, NUM_IMAGE_TOKENS, HIDDEN_DIM)
+            ).astype(np.float32)
+        )
+        mock_image_output = MagicMock()
+        mock_image_output.pooler_output = raw_image_embeddings.clone()
+        encoder.vlm.get_image_features.return_value = mock_image_output
+        mock_embed = MagicMock()
+        mock_embed.return_value = torch.zeros(batch_size, MAX_TEXT_LENGTH, HIDDEN_DIM)
+        encoder.vlm.text_model.get_input_embeddings.return_value = mock_embed
+        inputs = smolvlm_input_factory(batch_size=batch_size)
+        output = encoder(inputs=inputs)
+        fused = output[EncoderOutputKeys.FUSED_RGB_LANGUAGE.value]
+        image_portion = fused[:, 0, :NUM_IMAGE_TOKENS, :]
+        expected_scale = HIDDEN_DIM**0.5
+        assert torch.allclose(
+            image_portion, raw_image_embeddings * expected_scale, atol=1e-5
+        )
+
+    def test_language_embeddings_scaled_by_sqrt_hidden_dim(
+        self,
+        smolvlm_encoder_factory: Callable[..., SmolVLMEncoder],
+        smolvlm_input_factory: Callable[..., dict[str, torch.Tensor]],
+        rng: np.random.Generator,
+    ):
+        batch_size = 2
+        encoder = smolvlm_encoder_factory(use_embeddings_only=True)
+        raw_language_embeddings = torch.from_numpy(
+            rng.standard_normal(
+                (batch_size, MAX_TEXT_LENGTH, HIDDEN_DIM)
+            ).astype(np.float32)
+        )
+        mock_image_output = MagicMock()
+        mock_image_output.pooler_output = torch.zeros(
+            batch_size, NUM_IMAGE_TOKENS, HIDDEN_DIM
+        )
+        encoder.vlm.get_image_features.return_value = mock_image_output
+        mock_embed = MagicMock()
+        mock_embed.return_value = raw_language_embeddings.clone()
+        encoder.vlm.text_model.get_input_embeddings.return_value = mock_embed
+        inputs = smolvlm_input_factory(batch_size=batch_size)
+        output = encoder(inputs=inputs)
+        fused = output[EncoderOutputKeys.FUSED_RGB_LANGUAGE.value]
+        language_portion = fused[:, 0, NUM_IMAGE_TOKENS:, :]
+        expected_scale = HIDDEN_DIM**0.5
+        assert torch.allclose(
+            language_portion, raw_language_embeddings * expected_scale, atol=1e-5
+        )
 
     def test_images_stacked_along_num_images_dim_for_idefics3(
         self,

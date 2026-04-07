@@ -314,11 +314,11 @@ class EncodingPipeline(nn.Module):
                 )
             data_vocab_size = tokenizer.observation_tokenizer.vocab_size
             encoder_vocab_size = encoder.get_vocab_size()
-            if encoder_vocab_size != data_vocab_size:
+            if encoder_vocab_size < data_vocab_size:
                 raise ValueError(
                     f"Vocab size mismatch: Observation tokenizer has vocab_size={data_vocab_size}, "
-                    f"but encoder '{encoder_name}' expects vocab_size={encoder_vocab_size}. "
-                    f"Ensure the observation tokenizer's tokenizer_model matches the encoder's model. "
+                    f"but encoder '{encoder_name}' only supports vocab_size={encoder_vocab_size}. "
+                    f"The encoder's embedding matrix must be at least as large as the tokenizer's vocabulary. "
                     f"Observation tokenizer model: {tokenizer.observation_tokenizer.tokenizer_model}"
                 )
 

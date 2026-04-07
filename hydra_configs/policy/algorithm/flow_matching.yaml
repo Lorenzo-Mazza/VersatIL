@@ -10,3 +10,4 @@ logit_std: 1.0
 beta_alpha: 1.5
 beta_beta: 1.0
 max_timestep: 0.999
+reverse_flow_convention: false

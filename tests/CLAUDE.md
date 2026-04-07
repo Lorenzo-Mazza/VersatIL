@@ -7,10 +7,10 @@ These guidelines define how tests in this codebase must be written.
 **Package status:** All test packages (`tests/data/`, `tests/models/`, `tests/configs/`, `tests/metrics/`, `tests/training/`, `tests/inference/`, `tests/common/`, `tests/hydra_configs/`) are fully up-to-date, guideline-compliant, and passing. Almost all source modules with testable logic have corresponding test files. Use any test in these packages as reference.
 
 Reference implementations:
-- `tests/data/augmentation/test_augmentation_pipeline.py` — mocking and factory fixtures
+- `tests/data/processing/test_image_processor.py` — mocking and factory fixtures
 - `tests/data/test_task.py` — using conftest factories, module-level fixtures, explicit value testing
 - `tests/data/conftest.py` — factory fixtures with type hints, RNG-based data generators
-- `tests/data/test_action_processor.py` — testing all code paths including logging/plotting, denoising logic
+- `tests/data/processing/test_action_processor.py` — testing all code paths including logging/plotting, denoising logic
 - `tests/data/tokenization/test_observation_tokenizer.py` — semantic dict factories, parametrized configs, observation_dict_factory pattern
 - `tests/data/tokenization/conftest.py` — shared semantic fixtures (action_chunk_factory, pad_mask_factory, binning_tokenizer_factory)
 - `tests/data/test_dataloader.py` — `does_not_raise()` parametrization pattern for validation tests, mock schema factories with `spec=` for `isinstance` dispatch
