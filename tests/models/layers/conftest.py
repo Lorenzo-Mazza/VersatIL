@@ -5,6 +5,12 @@ from collections.abc import Callable
 import numpy as np
 import pytest
 import torch
+import torch.nn as nn
+
+from versatil.models.layers.modulation.conditional_modulation import (
+    ConditionalModulation,
+)
+from versatil.models.layers.normalization.ada_norm import AdaNorm
 
 
 @pytest.fixture
@@ -150,5 +156,44 @@ def attention_mask_factory() -> Callable[..., torch.Tensor]:
             )
             return mask.unsqueeze(0).unsqueeze(0).expand(batch_size, -1, -1, -1)
         return torch.zeros(batch_size, 1, query_length, key_length, dtype=torch.bool)
+
+    return factory
+
+
+def reinit_modulation_layers(module: nn.Module) -> None:
+    """Re-initialize ConditionalModulation projections with xavier to break zero init.
+
+    At initialization, AdaNorm modulation layers have zero weights, so conditioning
+    has no effect. This helper enables conditioning sensitivity for behavioral tests.
+    """
+    for submodule in module.modules():
+        if isinstance(submodule, ConditionalModulation):
+            for linear in submodule.projection.modules():
+                if isinstance(linear, nn.Linear):
+                    nn.init.xavier_uniform_(linear.weight)
+                    if linear.bias is not None:
+                        nn.init.zeros_(linear.bias)
+
+
+@pytest.fixture
+def ada_norm_factory() -> Callable[..., AdaNorm]:
+    """Factory for AdaNorm instances with configurable parameters."""
+
+    def factory(
+        condition_dim: int = 32,
+        feature_dim: int = 64,
+        use_gate: bool = False,
+        base_norm: nn.Module | None = None,
+        init_strategy: str = "zero",
+    ) -> AdaNorm:
+        if base_norm is None:
+            base_norm = nn.LayerNorm(feature_dim, elementwise_affine=False)
+        return AdaNorm(
+            base_norm=base_norm,
+            condition_dim=condition_dim,
+            feature_dim=feature_dim,
+            use_gate=use_gate,
+            init_strategy=init_strategy,
+        )
 
     return factory

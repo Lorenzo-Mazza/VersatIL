@@ -1,11 +1,13 @@
 """Tests for versatil.models.layers.transformer.encoder_layer module."""
 
 from collections.abc import Callable
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 import torch
 
+from tests.models.layers.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -28,6 +30,8 @@ def encoder_layer_factory() -> Callable[..., TransformerEncoderLayer]:
         attention_type: str = AttentionType.MULTI_HEAD.value,
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
+        condition_dim: int | None = None,
+        use_gating: bool = False,
     ) -> TransformerEncoderLayer:
         return TransformerEncoderLayer(
             embedding_dimension=embedding_dimension,
@@ -41,6 +45,8 @@ def encoder_layer_factory() -> Callable[..., TransformerEncoderLayer]:
             attention_type=attention_type,
             bias=bias,
             normalization_epsilon=normalization_epsilon,
+            condition_dim=condition_dim,
+            use_gating=use_gating,
         )
 
     return factory
@@ -66,15 +72,13 @@ class TestTransformerEncoderLayerInitialization:
         self,
         encoder_layer_factory: Callable[..., TransformerEncoderLayer],
     ):
-        # SwiGLU and standard both use feedforward_dimension in the sequential;
-        # we test a non-SwiGLU to check linear layer sizes
-        layer_gelu = encoder_layer_factory(
+        layer = encoder_layer_factory(
             embedding_dimension=32,
             feedforward_dimension=None,
             activation=ActivationFunction.GELU.value,
         )
-        first_linear = layer_gelu.feedforward_network[0]
-        assert first_linear.out_features == 128
+        first_linear = layer.feedforward_block.feedforward[0]
+        assert first_linear.out_features == 128  # 4 * 32
 
     def test_custom_feedforward_dimension(
         self,
@@ -85,31 +89,19 @@ class TestTransformerEncoderLayerInitialization:
             feedforward_dimension=64,
             activation=ActivationFunction.GELU.value,
         )
-        first_linear = layer.feedforward_network[0]
+        first_linear = layer.feedforward_block.feedforward[0]
         assert first_linear.out_features == 64
-
-    @pytest.mark.parametrize(
-        "activation",
-        [ActivationFunction.SWIGLU.value, ActivationFunction.GELU.value],
-    )
-    def test_activation_variants_create_feedforward(
-        self,
-        encoder_layer_factory: Callable[..., TransformerEncoderLayer],
-        activation: str,
-    ):
-        layer = encoder_layer_factory(activation=activation)
-        assert layer.feedforward_network is not None
 
     def test_feedforward_last_layer_has_initialization_flag(
         self,
         encoder_layer_factory: Callable[..., TransformerEncoderLayer],
     ):
         layer = encoder_layer_factory()
-        assert layer.feedforward_network[-1].SQUARE_ROOT_WEIGHT is True
+        assert layer.feedforward_block.feedforward[-1].SQUARE_ROOT_WEIGHT is True
 
 
 class TestTransformerEncoderLayerForward:
-    def test_output_shape(
+    def test_output_shape_and_values_are_valid(
         self,
         encoder_layer_factory: Callable[..., TransformerEncoderLayer],
         sequence_tensor_factory: Callable[..., torch.Tensor],
@@ -120,24 +112,8 @@ class TestTransformerEncoderLayerForward:
         )
         output = layer(hidden_states=hidden_states)
         assert output.shape == (2, 6, 32)
-
-    def test_residual_connection_passes_input_through(
-        self,
-        encoder_layer_factory: Callable[..., TransformerEncoderLayer],
-        rng: np.random.Generator,
-    ):
-        layer = encoder_layer_factory(
-            embedding_dimension=32, number_of_heads=4, dropout=0.0
-        )
-        layer.eval()
-        hidden_states = torch.from_numpy(
-            rng.standard_normal((2, 4, 32)).astype(np.float32)
-        )
-        output = layer(hidden_states=hidden_states)
-        # Output should not be identical (attention + FFN change values)
-        assert not torch.equal(output, hidden_states)
-        # But due to residual connections, output should be correlated
-        assert output.shape == hidden_states.shape
+        assert torch.all(torch.isfinite(output))
+        assert not torch.allclose(output, hidden_states)
 
     def test_attention_mask_affects_output(
         self,
@@ -188,10 +164,167 @@ class TestTransformerEncoderLayerForward:
         )
         hidden_states.requires_grad_(True)
         output = layer(hidden_states=hidden_states)
-        # Compute gradient of the first token's output w.r.t. input
         output[0, 0].sum().backward()
-        # In bidirectional attention, the gradient should flow to ALL input positions
         gradient = hidden_states.grad
         assert gradient is not None
-        # Last token (position 3) should have nonzero gradient
+        # In bidirectional attention, last token should have nonzero gradient
         assert gradient[0, 3].abs().sum().item() > 1e-6
+
+    def test_positional_encoding_affects_output(
+        self,
+        encoder_layer_factory: Callable[..., TransformerEncoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        mock_rope_factory: Callable[..., MagicMock],
+    ):
+        embedding_dimension = 32
+        number_of_heads = 4
+        head_dimension = embedding_dimension // number_of_heads
+        layer = encoder_layer_factory(
+            embedding_dimension=embedding_dimension,
+            number_of_heads=number_of_heads,
+            dropout=0.0,
+        )
+        layer.eval()
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=6, embedding_dimension=embedding_dimension
+        )
+        mock_rope = mock_rope_factory(head_dimension=head_dimension)
+        output_with_rope = layer(
+            hidden_states=hidden_states, positional_encoding=mock_rope
+        )
+        output_without_rope = layer(hidden_states=hidden_states)
+        assert not torch.allclose(output_with_rope, output_without_rope)
+        mock_rope.compute_rotation_components.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "activation",
+        [ActivationFunction.GELU.value, ActivationFunction.SWIGLU.value],
+    )
+    def test_gated_and_nongated_activations_produce_valid_output(
+        self,
+        encoder_layer_factory: Callable[..., TransformerEncoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        activation: str,
+    ):
+        layer = encoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            activation=activation,
+        )
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
+        )
+        output = layer(hidden_states=hidden_states)
+        assert output.shape == hidden_states.shape
+        assert torch.all(torch.isfinite(output))
+
+    def test_grouped_query_attention(
+        self,
+        encoder_layer_factory: Callable[..., TransformerEncoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        layer = encoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            number_of_key_value_heads=2,
+            attention_type=AttentionType.GROUPED_QUERY.value,
+        )
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
+        )
+        output = layer(hidden_states=hidden_states)
+        assert output.shape == hidden_states.shape
+        assert torch.all(torch.isfinite(output))
+
+
+class TestTransformerEncoderLayerConditioning:
+    def test_adaptive_norm_different_conditioning_produces_different_outputs(
+        self,
+        encoder_layer_factory: Callable[..., TransformerEncoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        layer = encoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            normalization_type=NormalizationType.ADARMS.value,
+            condition_dim=32,
+            dropout=0.0,
+        )
+        reinit_modulation_layers(layer)
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
+        )
+        conditioning_a = condition_factory(batch_size=2, condition_dim=32)
+        conditioning_b = condition_factory(batch_size=2, condition_dim=32)
+        output_a = layer(hidden_states=hidden_states, conditioning=conditioning_a)
+        output_b = layer(hidden_states=hidden_states, conditioning=conditioning_b)
+        assert not torch.allclose(output_a, output_b)
+
+    def test_adaln_zero_gate_makes_output_equal_input_at_init(
+        self,
+        encoder_layer_factory: Callable[..., TransformerEncoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        layer = encoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            normalization_type=NormalizationType.ADARMS.value,
+            condition_dim=32,
+            use_gating=True,
+            dropout=0.0,
+        )
+        layer.eval()
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
+        )
+        conditioning = condition_factory(batch_size=2, condition_dim=32)
+        output = layer(hidden_states=hidden_states, conditioning=conditioning)
+        # With gating at zero init, gate=0 → output = input
+        assert torch.allclose(output, hidden_states, atol=1e-6)
+
+    def test_unconditioned_layer_ignores_conditioning_argument(
+        self,
+        encoder_layer_factory: Callable[..., TransformerEncoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        layer = encoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            normalization_type=NormalizationType.LAYER_NORM.value,
+            dropout=0.0,
+        )
+        layer.eval()
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
+        )
+        conditioning = condition_factory(batch_size=2, condition_dim=16)
+        output_with_cond = layer(hidden_states=hidden_states, conditioning=conditioning)
+        output_without_cond = layer(hidden_states=hidden_states)
+        assert torch.allclose(output_with_cond, output_without_cond)
+
+    def test_conditioning_gradient_flows_through_modulation(
+        self,
+        encoder_layer_factory: Callable[..., TransformerEncoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        layer = encoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            normalization_type=NormalizationType.ADARMS.value,
+            condition_dim=32,
+            dropout=0.0,
+        )
+        reinit_modulation_layers(layer)
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
+        )
+        conditioning = condition_factory(batch_size=2, condition_dim=32)
+        conditioning.requires_grad_(True)
+        output = layer(hidden_states=hidden_states, conditioning=conditioning)
+        output.sum().backward()
+        assert conditioning.grad is not None
+        assert conditioning.grad.abs().sum().item() > 0.0

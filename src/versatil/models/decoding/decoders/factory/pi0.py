@@ -22,13 +22,25 @@ from versatil.models.encoding.encoders.cross_modal.vision_language.generative_vl
     GenerativeVLMEncoder,
 )
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.diffusion_transformer.mmdit_layer import MMDiTLayer
 from versatil.models.layers.feature_projection import FeatureProjection
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.normalization.factory import create_normalization_layer
+from versatil.models.layers.normalization.factory import (
+    create_block_normalization,
+    create_normalization_layer,
+)
 from versatil.models.layers.positional_encoding.base import PositionSource
 from versatil.models.layers.positional_encoding.sinusoidal import (
     PeriodInterpolationPositionalEncoding1D,
+)
+from versatil.models.layers.transformer.attention.precomputed_primary_joint_attention import (
+    PrecomputedPrimaryJointAttention,
+)
+from versatil.models.layers.transformer.blocks.feedforward import (
+    FeedforwardBlock,
+    build_feedforward,
+)
+from versatil.models.layers.transformer.blocks.precomputed_dual_stream_attention import (
+    PrecomputedDualStreamAttentionBlock,
 )
 
 
@@ -149,24 +161,57 @@ class Pi0Decoder(ActionDecoder):
         self.vlm_rotary_embedding = rotary_emb
         self.vlm_hidden_dimensionension = vlm_hidden_dimension
         use_conditioning = self.time_conditioning == TimeConditioning.ADANORM.value
+        norm_is_adaptive = NormalizationType(self.normalization_type).is_adaptive
+        if use_conditioning and not norm_is_adaptive:
+            raise ValueError(
+                f"AdaNorm time conditioning requires adaptive normalization, "
+                f"got {self.normalization_type}."
+            )
+        if norm_is_adaptive and not use_conditioning:
+            raise ValueError(
+                f"Adaptive normalization {self.normalization_type} requires "
+                f"AdaNorm time conditioning, got {self.time_conditioning}."
+            )
         self.expert_layers = nn.ModuleList(
             [
-                MMDiTLayer(
-                    embedding_dimension=vlm_hidden_dimension,
-                    conditioning_dimension=self.expert_hidden_size,
-                    number_of_heads=self.expert_number_of_heads,
-                    secondary_embedding_dimension=self.expert_hidden_size,
-                    number_of_key_value_heads=self.expert_number_of_key_value_heads,
-                    head_dimension=self.expert_head_dimension,
-                    secondary_feedforward_dimension=self.expert_intermediate_size,
-                    precomputed_primary_stream=True,
-                    normalization_type=self.normalization_type,
-                    use_query_key_norm=False,
-                    use_conditioning=use_conditioning,
-                    use_gating=use_conditioning,
-                    activation=ActivationFunction.GEGLU.value,
+                PrecomputedDualStreamAttentionBlock(
+                    joint_attention=PrecomputedPrimaryJointAttention(
+                        primary_embedding_dimension=vlm_hidden_dimension,
+                        number_of_heads=self.expert_number_of_heads,
+                        secondary_embedding_dimension=self.expert_hidden_size,
+                        number_of_key_value_heads=self.expert_number_of_key_value_heads,
+                        head_dimension=self.expert_head_dimension,
+                        dropout=self._dropout,
+                        use_query_key_norm=False,
+                        bias=False,
+                    ),
+                    attention_normalization_secondary=create_block_normalization(
+                        normalization_type=self.normalization_type,
+                        dimension=self.expert_hidden_size,
+                        condition_dim=self.expert_hidden_size
+                        if use_conditioning
+                        else None,
+                        use_gating=use_conditioning,
+                    ),
+                    feedforward_block_secondary=FeedforwardBlock(
+                        feedforward=build_feedforward(
+                            embedding_dimension=self.expert_hidden_size,
+                            feedforward_dimension=self.expert_intermediate_size,
+                            activation=ActivationFunction.GEGLU.value,
+                            dropout=self._dropout,
+                            bias=False,
+                        ),
+                        normalization=create_block_normalization(
+                            normalization_type=self.normalization_type,
+                            dimension=self.expert_hidden_size,
+                            condition_dim=self.expert_hidden_size
+                            if use_conditioning
+                            else None,
+                            use_gating=use_conditioning,
+                        ),
+                        dropout=self._dropout,
+                    ),
                     dropout=self._dropout,
-                    bias=False,
                 )
                 for _ in range(self.expert_number_of_layers)
             ]
@@ -276,9 +321,7 @@ class Pi0Decoder(ActionDecoder):
                 proprio_token = projected[self.proprioceptive_feature_key]
                 if proprio_token.ndim == 2:
                     proprio_token = proprio_token.unsqueeze(1)  # (B, D) → (B, 1, D)
-                prefix_embeddings = torch.cat(
-                    [prefix_embeddings, proprio_token], dim=1
-                )
+                prefix_embeddings = torch.cat([prefix_embeddings, proprio_token], dim=1)
                 causal_prefix_suffix_length = 1
         attention_mask, key_padding_mask = make_attention_mask(
             action_tokens=expert_hidden,
@@ -360,12 +403,11 @@ class Pi0Decoder(ActionDecoder):
                     )
                 )
             vlm_attention_output, expert_hidden = self.expert_layers[layer_index](
-                hidden_states_observation=vlm_hidden,
-                hidden_states_action=expert_hidden,
+                precomputed_primary=(vlm_query, vlm_key, vlm_value),
+                hidden_states_secondary=expert_hidden,
                 conditioning=adaptive_norm_conditioning,
                 joint_attention_mask=attention_mask,
-                precomputed_observation=(vlm_query, vlm_key, vlm_value),
-                precomputed_action_rope=expert_action_rope,
+                precomputed_secondary_rope=expert_action_rope,
             )
             with torch.no_grad():
                 vlm_hidden = GenerativeVLMEncoder.apply_residual_feedforward(
@@ -425,15 +467,14 @@ class Pi0Decoder(ActionDecoder):
         for layer_index in range(self.expert_number_of_layers):
             cached = vlm_cache[layer_index]
             _, expert_hidden = self.expert_layers[layer_index](
-                hidden_states_observation=cached["hidden"],
-                hidden_states_action=expert_hidden,
-                conditioning=adaptive_norm_conditioning,
-                joint_attention_mask=attention_mask,
-                precomputed_observation=(
+                precomputed_primary=(
                     cached["query"],
                     cached["key"],
                     cached["value"],
                 ),
-                precomputed_action_rope=expert_action_rope,
+                hidden_states_secondary=expert_hidden,
+                conditioning=adaptive_norm_conditioning,
+                joint_attention_mask=attention_mask,
+                precomputed_secondary_rope=expert_action_rope,
             )
         return expert_hidden

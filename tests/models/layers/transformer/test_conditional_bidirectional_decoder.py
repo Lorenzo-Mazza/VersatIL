@@ -2,11 +2,13 @@
 
 import re
 from collections.abc import Callable
+from contextlib import nullcontext as does_not_raise
 
 import numpy as np
 import pytest
 import torch
 
+from tests.models.layers.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -31,14 +33,13 @@ def conditional_bidirectional_decoder_factory() -> Callable[
         dropout: float = 0.0,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.GELU.value,
-        normalization_type: str = NormalizationType.LAYER_NORM.value,
+        normalization_type: str = NormalizationType.ADALN.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 128,
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
         initializer_range: float = 0.02,
-        modulation_init_strategy: str = "identity",
     ) -> ConditionalBidirectionalDecoder:
         return ConditionalBidirectionalDecoder(
             number_of_layers=number_of_layers,
@@ -57,7 +58,6 @@ def conditional_bidirectional_decoder_factory() -> Callable[
             bias=bias,
             normalization_epsilon=normalization_epsilon,
             initializer_range=initializer_range,
-            modulation_init_strategy=modulation_init_strategy,
         )
 
     return factory
@@ -153,6 +153,37 @@ class TestConditionalBidirectionalDecoderInitialization:
         )
         assert decoder.number_of_key_value_heads == 8
 
+    @pytest.mark.parametrize(
+        "normalization_type, expectation",
+        [
+            (NormalizationType.ADARMS.value, does_not_raise()),
+            (NormalizationType.ADALN.value, does_not_raise()),
+            (
+                NormalizationType.RMS_NORM.value,
+                pytest.raises(
+                    ValueError,
+                    match="ConditionalBidirectionalDecoder requires adaptive normalization",
+                ),
+            ),
+        ],
+    )
+    def test_normalization_type_validation(
+        self,
+        conditional_bidirectional_decoder_factory: Callable[
+            ..., ConditionalBidirectionalDecoder
+        ],
+        normalization_type: str,
+        expectation,
+    ):
+        with expectation:
+            conditional_bidirectional_decoder_factory(
+                number_of_layers=1,
+                embedding_dimension=32,
+                condition_dimension=16,
+                number_of_heads=4,
+                normalization_type=normalization_type,
+            )
+
 
 class TestConditionalBidirectionalDecoderForward:
     def test_output_shape(
@@ -195,7 +226,6 @@ class TestConditionalBidirectionalDecoderForward:
             embedding_dimension=32,
             condition_dimension=16,
             number_of_heads=4,
-            modulation_init_strategy="identity",
         )
         decoder.eval()
         hidden_states = torch.from_numpy(
@@ -228,8 +258,8 @@ class TestConditionalBidirectionalDecoderForward:
             embedding_dimension=32,
             condition_dimension=16,
             number_of_heads=4,
-            modulation_init_strategy="xavier",
         )
+        reinit_modulation_layers(decoder)
         decoder.eval()
         hidden_states = torch.from_numpy(
             rng.standard_normal((2, 4, 32)).astype(np.float32)
@@ -261,9 +291,9 @@ class TestConditionalBidirectionalDecoderForward:
             embedding_dimension=32,
             condition_dimension=16,
             number_of_heads=4,
-            modulation_init_strategy="xavier",
             initializer_range=0.5,
         )
+        reinit_modulation_layers(decoder)
         decoder.eval()
         hidden_states = torch.from_numpy(
             rng.standard_normal((1, 4, 32)).astype(np.float32)

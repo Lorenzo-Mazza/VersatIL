@@ -2,11 +2,12 @@
 
 import re
 from collections.abc import Callable
+from unittest.mock import MagicMock
 
-import numpy as np
 import pytest
 import torch
 
+from tests.models.layers.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -32,6 +33,9 @@ def decoder_layer_factory() -> Callable[..., TransformerDecoderLayer]:
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
         autoregressive: bool = True,
+        condition_dim: int | None = None,
+        use_gating: bool = False,
+        cross_attention_normalization_type: str | None = None,
     ) -> TransformerDecoderLayer:
         return TransformerDecoderLayer(
             embedding_dimension=embedding_dimension,
@@ -47,6 +51,9 @@ def decoder_layer_factory() -> Callable[..., TransformerDecoderLayer]:
             bias=bias,
             normalization_epsilon=normalization_epsilon,
             autoregressive=autoregressive,
+            condition_dim=condition_dim,
+            use_gating=use_gating,
+            cross_attention_normalization_type=cross_attention_normalization_type,
         )
 
     return factory
@@ -71,76 +78,44 @@ class TestTransformerDecoderLayerInitialization:
         assert layer.embedding_dimension == embedding_dimension
         assert layer.number_of_heads == number_of_heads
         assert layer.use_cross_attention == use_cross_attention
-
-    def test_cross_attention_modules_created_when_enabled(
-        self, decoder_layer_factory: Callable[..., TransformerDecoderLayer]
-    ):
-        layer = decoder_layer_factory(use_cross_attention=True)
-        assert layer.cross_attention is not None
-        assert layer.cross_attention_normalization is not None
-
-    def test_cross_attention_modules_none_when_disabled(
-        self, decoder_layer_factory: Callable[..., TransformerDecoderLayer]
-    ):
-        layer = decoder_layer_factory(use_cross_attention=False)
-        assert layer.cross_attention is None
-        assert layer.cross_attention_normalization is None
-
-    @pytest.mark.parametrize(
-        "activation",
-        [ActivationFunction.SWIGLU.value, ActivationFunction.GELU.value],
-    )
-    def test_activation_variants(
-        self,
-        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
-        activation: str,
-    ):
-        layer = decoder_layer_factory(activation=activation)
-        assert layer.feedforward_network is not None
+        if use_cross_attention:
+            assert layer.cross_attention_block is not None
+        else:
+            assert layer.cross_attention_block is None
 
     def test_feedforward_last_layer_has_initialization_flag(
         self, decoder_layer_factory: Callable[..., TransformerDecoderLayer]
     ):
         layer = decoder_layer_factory()
-        assert layer.feedforward_network[-1].SQUARE_ROOT_WEIGHT is True
+        assert layer.feedforward_block.feedforward[-1].SQUARE_ROOT_WEIGHT is True
 
 
 class TestTransformerDecoderLayerForward:
-    def test_output_shape_with_cross_attention(
+    @pytest.mark.parametrize("use_cross_attention", [True, False])
+    def test_output_shape_and_values(
         self,
         decoder_layer_factory: Callable[..., TransformerDecoderLayer],
         sequence_tensor_factory: Callable[..., torch.Tensor],
+        use_cross_attention: bool,
     ):
         layer = decoder_layer_factory(
             embedding_dimension=32,
             number_of_heads=4,
-            use_cross_attention=True,
+            use_cross_attention=use_cross_attention,
         )
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=5, embedding_dimension=32
         )
-        memory = sequence_tensor_factory(
-            batch_size=2, sequence_length=8, embedding_dimension=32
-        )
-        output, cache = layer(hidden_states=hidden_states, encoded_features=memory)
+        kwargs = {}
+        if use_cross_attention:
+            kwargs["encoded_features"] = sequence_tensor_factory(
+                batch_size=2, sequence_length=8, embedding_dimension=32
+            )
+        output, cache = layer(hidden_states=hidden_states, **kwargs)
         assert output.shape == (2, 5, 32)
+        assert torch.all(torch.isfinite(output))
+        assert not torch.allclose(output, hidden_states)
         assert cache is None
-
-    def test_output_shape_without_cross_attention(
-        self,
-        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
-        sequence_tensor_factory: Callable[..., torch.Tensor],
-    ):
-        layer = decoder_layer_factory(
-            embedding_dimension=32,
-            number_of_heads=4,
-            use_cross_attention=False,
-        )
-        hidden_states = sequence_tensor_factory(
-            batch_size=2, sequence_length=5, embedding_dimension=32
-        )
-        output, cache = layer(hidden_states=hidden_states)
-        assert output.shape == (2, 5, 32)
 
     def test_use_cache_returns_updated_cache(
         self,
@@ -152,7 +127,9 @@ class TestTransformerDecoderLayerForward:
             number_of_heads=4,
             use_cross_attention=False,
             autoregressive=True,
+            dropout=0.0,
         )
+        layer.eval()
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=1, embedding_dimension=32
         )
@@ -167,6 +144,17 @@ class TestTransformerDecoderLayerForward:
         )
         assert new_cache is not None
         assert new_cache.get_length() == 1
+        # Second step with cache should produce valid output
+        step2_input = sequence_tensor_factory(
+            batch_size=2, sequence_length=1, embedding_dimension=32
+        )
+        output2, cache2 = layer(
+            hidden_states=step2_input,
+            layer_cache=new_cache,
+            use_cache=True,
+        )
+        assert torch.all(torch.isfinite(output2))
+        assert cache2.get_length() == 2
 
     def test_use_cache_on_non_autoregressive_raises(
         self,
@@ -205,7 +193,8 @@ class TestTransformerDecoderLayerForward:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                "encoded_features required when use_cross_attention=True and no cached cross KV"
+                "encoded_features required when use_cross_attention=True "
+                "and no cached cross KV"
             ),
         ):
             layer(hidden_states=hidden_states, encoded_features=None)
@@ -213,7 +202,7 @@ class TestTransformerDecoderLayerForward:
     def test_self_attention_mask_affects_output(
         self,
         decoder_layer_factory: Callable[..., TransformerDecoderLayer],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
         attention_mask_factory: Callable[..., torch.Tensor],
     ):
         layer = decoder_layer_factory(
@@ -223,8 +212,8 @@ class TestTransformerDecoderLayerForward:
             dropout=0.0,
         )
         layer.eval()
-        hidden_states = torch.from_numpy(
-            rng.standard_normal((2, 4, 32)).astype(np.float32)
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
         )
         causal_mask = attention_mask_factory(
             batch_size=2, query_length=4, key_length=4, causal=True
@@ -236,45 +225,75 @@ class TestTransformerDecoderLayerForward:
         output_no_mask, _ = layer(hidden_states=hidden_states)
         assert not torch.allclose(output_causal, output_no_mask, atol=1e-6)
 
-    def test_cross_attention_with_cached_kv(
+    def test_cross_attention_cached_kv_matches_fresh_forward(
         self,
         decoder_layer_factory: Callable[..., TransformerDecoderLayer],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        rng: np.random.Generator,
     ):
         layer = decoder_layer_factory(
             embedding_dimension=32,
             number_of_heads=4,
             use_cross_attention=True,
             autoregressive=True,
+            dropout=0.0,
         )
+        layer.eval()
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=1, embedding_dimension=32
         )
-        cross_keys = torch.from_numpy(
-            rng.standard_normal((2, 4, 6, 8)).astype(np.float32)
+        memory = sequence_tensor_factory(
+            batch_size=2, sequence_length=6, embedding_dimension=32
         )
-        cross_values = torch.from_numpy(
-            rng.standard_normal((2, 4, 6, 8)).astype(np.float32)
-        )
+        # Fresh forward with encoded_features
+        output_fresh, _ = layer(hidden_states=hidden_states, encoded_features=memory)
+        # Pre-compute cross K/V manually via the layer's projections
+        cross_attn = layer.cross_attention_block.attention
+        projected_keys = cross_attn.compute_key(memory)
+        projected_values = cross_attn.compute_value(memory)
         cache = LayerKVCache(
             self_attention_keys=torch.empty(2, 4, 0, 8),
             self_attention_values=torch.empty(2, 4, 0, 8),
-            cross_attention_keys=cross_keys,
-            cross_attention_values=cross_values,
+            cross_attention_keys=projected_keys,
+            cross_attention_values=projected_values,
         )
-        output, new_cache = layer(
+        output_cached, _ = layer(
             hidden_states=hidden_states,
             layer_cache=cache,
             use_cache=True,
         )
-        assert output.shape == (2, 1, 32)
-        assert new_cache is not None
+        assert torch.allclose(output_fresh, output_cached, atol=1e-5)
+
+    def test_positional_encoding_affects_output(
+        self,
+        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        mock_rope_factory: Callable[..., MagicMock],
+    ):
+        embedding_dimension = 32
+        number_of_heads = 4
+        head_dimension = embedding_dimension // number_of_heads
+        layer = decoder_layer_factory(
+            embedding_dimension=embedding_dimension,
+            number_of_heads=number_of_heads,
+            use_cross_attention=False,
+            dropout=0.0,
+        )
+        layer.eval()
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=embedding_dimension
+        )
+        mock_rope = mock_rope_factory(head_dimension=head_dimension)
+        output_with_rope, _ = layer(
+            hidden_states=hidden_states, positional_encoding=mock_rope
+        )
+        output_without_rope, _ = layer(hidden_states=hidden_states)
+        assert not torch.allclose(output_with_rope, output_without_rope)
+        mock_rope.compute_rotation_components.assert_called_once()
 
     def test_different_encoded_features_produce_different_output(
         self,
         decoder_layer_factory: Callable[..., TransformerDecoderLayer],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         layer = decoder_layer_factory(
             embedding_dimension=32,
@@ -283,11 +302,224 @@ class TestTransformerDecoderLayerForward:
             dropout=0.0,
         )
         layer.eval()
-        hidden_states = torch.from_numpy(
-            rng.standard_normal((2, 4, 32)).astype(np.float32)
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        memory_a = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
-        memory_b = torch.from_numpy(rng.standard_normal((2, 6, 32)).astype(np.float32))
+        memory_a = sequence_tensor_factory(
+            batch_size=2, sequence_length=6, embedding_dimension=32
+        )
+        memory_b = sequence_tensor_factory(
+            batch_size=2, sequence_length=6, embedding_dimension=32
+        )
         output_a, _ = layer(hidden_states=hidden_states, encoded_features=memory_a)
         output_b, _ = layer(hidden_states=hidden_states, encoded_features=memory_b)
         assert not torch.allclose(output_a, output_b, atol=1e-6)
+
+    @pytest.mark.parametrize(
+        "activation",
+        [ActivationFunction.GELU.value, ActivationFunction.SWIGLU.value],
+    )
+    def test_gated_and_nongated_activations_produce_valid_output(
+        self,
+        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        activation: str,
+    ):
+        layer = decoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            use_cross_attention=False,
+            activation=activation,
+        )
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
+        )
+        output, _ = layer(hidden_states=hidden_states)
+        assert output.shape == hidden_states.shape
+        assert torch.all(torch.isfinite(output))
+
+    def test_grouped_query_attention(
+        self,
+        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        layer = decoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            number_of_key_value_heads=2,
+            attention_type=AttentionType.GROUPED_QUERY.value,
+            use_cross_attention=False,
+        )
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
+        )
+        output, _ = layer(hidden_states=hidden_states)
+        assert output.shape == hidden_states.shape
+        assert torch.all(torch.isfinite(output))
+
+
+class TestTransformerDecoderLayerConditioning:
+    def test_adaptive_norm_different_conditioning_produces_different_outputs(
+        self,
+        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        layer = decoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            use_cross_attention=False,
+            normalization_type=NormalizationType.ADARMS.value,
+            condition_dim=32,
+            dropout=0.0,
+        )
+        reinit_modulation_layers(layer)
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
+        )
+        conditioning_a = condition_factory(batch_size=2, condition_dim=32)
+        conditioning_b = condition_factory(batch_size=2, condition_dim=32)
+        output_a, _ = layer(hidden_states=hidden_states, conditioning=conditioning_a)
+        output_b, _ = layer(hidden_states=hidden_states, conditioning=conditioning_b)
+        assert not torch.allclose(output_a, output_b)
+
+    def test_adaln_zero_gate_makes_output_equal_input_at_init(
+        self,
+        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        layer = decoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            use_cross_attention=False,
+            normalization_type=NormalizationType.ADARMS.value,
+            condition_dim=32,
+            use_gating=True,
+            dropout=0.0,
+        )
+        layer.eval()
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
+        )
+        conditioning = condition_factory(batch_size=2, condition_dim=32)
+        output, _ = layer(hidden_states=hidden_states, conditioning=conditioning)
+        assert torch.allclose(output, hidden_states, atol=1e-6)
+
+    def test_unconditioned_layer_ignores_conditioning_argument(
+        self,
+        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        layer = decoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            use_cross_attention=False,
+            normalization_type=NormalizationType.LAYER_NORM.value,
+            dropout=0.0,
+        )
+        layer.eval()
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
+        )
+        conditioning = condition_factory(batch_size=2, condition_dim=16)
+        output_with_cond, _ = layer(
+            hidden_states=hidden_states, conditioning=conditioning
+        )
+        output_without_cond, _ = layer(hidden_states=hidden_states)
+        assert torch.allclose(output_with_cond, output_without_cond)
+
+    def test_conditioning_with_cross_attention(
+        self,
+        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        layer = decoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            use_cross_attention=True,
+            normalization_type=NormalizationType.ADARMS.value,
+            condition_dim=32,
+            dropout=0.0,
+        )
+        reinit_modulation_layers(layer)
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
+        )
+        memory = sequence_tensor_factory(
+            batch_size=2, sequence_length=6, embedding_dimension=32
+        )
+        conditioning_a = condition_factory(batch_size=2, condition_dim=32)
+        conditioning_b = condition_factory(batch_size=2, condition_dim=32)
+        output_a, _ = layer(
+            hidden_states=hidden_states,
+            encoded_features=memory,
+            conditioning=conditioning_a,
+        )
+        output_b, _ = layer(
+            hidden_states=hidden_states,
+            encoded_features=memory,
+            conditioning=conditioning_b,
+        )
+        assert not torch.allclose(output_a, output_b)
+
+    def test_cross_attention_uses_separate_normalization_type(
+        self,
+        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        layer = decoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            use_cross_attention=True,
+            normalization_type=NormalizationType.ADARMS.value,
+            cross_attention_normalization_type=NormalizationType.RMS_NORM.value,
+            condition_dim=32,
+            use_gating=True,
+            dropout=0.0,
+        )
+        layer.eval()
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
+        )
+        memory = sequence_tensor_factory(
+            batch_size=2, sequence_length=6, embedding_dimension=32
+        )
+        conditioning = condition_factory(batch_size=2, condition_dim=32)
+        # Self-attn and FFN have AdaRMS with gating (zero-init → identity),
+        # but cross-attn has plain RMSNorm (always active).
+        # So output should differ from input because cross-attention is not gated.
+        output, _ = layer(
+            hidden_states=hidden_states,
+            encoded_features=memory,
+            conditioning=conditioning,
+        )
+        assert not torch.allclose(output, hidden_states)
+
+    def test_conditioning_gradient_flows_through_modulation(
+        self,
+        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        condition_factory: Callable[..., torch.Tensor],
+    ):
+        layer = decoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            use_cross_attention=False,
+            normalization_type=NormalizationType.ADARMS.value,
+            condition_dim=32,
+            dropout=0.0,
+        )
+        reinit_modulation_layers(layer)
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
+        )
+        conditioning = condition_factory(batch_size=2, condition_dim=32)
+        conditioning.requires_grad_(True)
+        output, _ = layer(hidden_states=hidden_states, conditioning=conditioning)
+        output.sum().backward()
+        assert conditioning.grad is not None
+        assert conditioning.grad.abs().sum().item() > 0.0

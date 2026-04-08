@@ -29,7 +29,7 @@ class ConditionalModulation(nn.Module):
         use_shift: bool = True,
         use_gate: bool = False,
         activation: str = ActivationFunction.SILU.value,
-        init_strategy: Literal["identity", "xavier", "zero"] = "identity",
+        init_strategy: Literal["zero", "xavier"] = "zero",
     ):
         """
         Args:
@@ -67,7 +67,7 @@ class ConditionalModulation(nn.Module):
         linear_layers = [
             m for m in self.projection.modules() if isinstance(m, nn.Linear)
         ]
-        if self.init_strategy == "identity" or self.init_strategy == "zero":
+        if self.init_strategy == "zero":
             for layer in linear_layers:
                 layer._is_modulation_layer = True
                 nn.init.constant_(layer.weight, 0)

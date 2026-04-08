@@ -8,7 +8,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
+from tests.models.layers.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.diffusion_transformer.dit_decoder import (
@@ -29,7 +29,7 @@ def dit_decoder_factory() -> Callable[..., DiffusionTransformerDecoder]:
         dropout: float = 0.0,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SILU.value,
-        normalization_type: str = NormalizationType.RMS_NORM.value,
+        normalization_type: str = NormalizationType.ADARMS.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 256,
@@ -122,11 +122,35 @@ class TestDiffusionTransformerDecoderInitialization:
             use_gating=True,
         )
         first_layer = decoder.layers[0]
-        for (
-            linear
-        ) in first_layer.self_attention_normalization.modulation.projection.modules():
+        for linear in first_layer.self_attention_block.normalization.modulation.projection.modules():
             if isinstance(linear, nn.Linear):
                 assert torch.all(linear.weight == 0.0)
+
+    @pytest.mark.parametrize(
+        "normalization_type, expectation",
+        [
+            (NormalizationType.ADARMS.value, does_not_raise()),
+            (NormalizationType.ADALN.value, does_not_raise()),
+            (
+                NormalizationType.RMS_NORM.value,
+                pytest.raises(
+                    ValueError,
+                    match="DiffusionTransformerDecoder requires adaptive normalization",
+                ),
+            ),
+        ],
+    )
+    def test_normalization_type_validation(
+        self,
+        dit_decoder_factory: Callable[..., DiffusionTransformerDecoder],
+        normalization_type: str,
+        expectation,
+    ):
+        with expectation:
+            dit_decoder_factory(
+                number_of_layers=1,
+                normalization_type=normalization_type,
+            )
 
 
 class TestDiffusionTransformerDecoderForward:

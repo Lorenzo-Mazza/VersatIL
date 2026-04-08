@@ -7,7 +7,6 @@ import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.diffusion_transformer.dit_decoder_layer import DecoderLayer
 from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
@@ -19,6 +18,7 @@ from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEn
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
 )
+from versatil.models.layers.transformer.encoder_layer import TransformerEncoderLayer
 from versatil.models.layers.transformer.positional_encoding import (
     create_positional_encoding,
 )
@@ -27,8 +27,8 @@ from versatil.models.layers.transformer.positional_encoding import (
 class DiffusionTransformerDecoder(nn.Module):
     """Diffusion Transformer decoder.
 
-    Stacks DecoderLayer blocks with timestep conditioning via AdaNorm/AdaNorm-Zero.
-    Uses learned positional encoding for action token positions.
+    Stacks TransformerEncoderLayer blocks with adaptive normalization
+    for timestep conditioning via AdaNorm/AdaNorm-Zero.
     """
 
     def __init__(
@@ -42,7 +42,7 @@ class DiffusionTransformerDecoder(nn.Module):
         dropout: float = 0.1,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SWIGLU.value,
-        normalization_type: str = NormalizationType.RMS_NORM.value,
+        normalization_type: str = NormalizationType.ADARMS.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 256,
@@ -64,17 +64,27 @@ class DiffusionTransformerDecoder(nn.Module):
             dropout: Dropout rate.
             attention_dropout: Dropout rate for attention weights.
             activation: Activation function name (use ActivationFunction enum values).
-            normalization_type: Type of normalization (use NormalizationType enum values).
+            normalization_type: Adaptive normalization type (use NormalizationType enum values).
             attention_type: Type of attention (use AttentionType enum values).
             positional_encoding_type: Type of positional encoding (or None).
             maximum_sequence_length: Maximum sequence length for positional encoding.
             bias: Whether to use bias in linear layers.
             normalization_epsilon: Epsilon for normalization layers.
-            use_gating: Whether to use gating in AdaNorm (often referred to as AdaLNZeroNorm).
+            use_gating: Whether to use gating in AdaNorm (AdaLN-Zero).
             use_final_normalization: Whether to apply final normalization after decoder layers.
             initializer_range: Standard deviation for weight initialization.
+
+        Raises:
+            ValueError: If normalization_type is not adaptive.
         """
         super().__init__()
+        norm_enum = NormalizationType(normalization_type)
+        if not norm_enum.is_adaptive:
+            raise ValueError(
+                f"DiffusionTransformerDecoder requires adaptive normalization, "
+                f"got {normalization_type}. Use {NormalizationType.ADALN.value} "
+                f"or {NormalizationType.ADARMS.value}."
+            )
         self.number_of_layers = number_of_layers
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
@@ -100,9 +110,8 @@ class DiffusionTransformerDecoder(nn.Module):
             )
         self.layers = nn.ModuleList(
             [
-                DecoderLayer(
+                TransformerEncoderLayer(
                     embedding_dimension=embedding_dimension,
-                    timestep_dimension=timestep_dimension,
                     number_of_heads=number_of_heads,
                     number_of_key_value_heads=number_of_key_value_heads,
                     feedforward_dimension=feedforward_dimension,
@@ -113,6 +122,7 @@ class DiffusionTransformerDecoder(nn.Module):
                     attention_type=attention_type,
                     bias=bias,
                     normalization_epsilon=normalization_epsilon,
+                    condition_dim=timestep_dimension,
                     use_gating=use_gating,
                 )
                 for _ in range(number_of_layers)
@@ -124,6 +134,7 @@ class DiffusionTransformerDecoder(nn.Module):
                 normalization_type=normalization_type,
                 dimension=embedding_dimension,
                 epsilon=normalization_epsilon,
+                condition_dim=timestep_dimension,
             )
         self.apply(self._init_weights)
 
@@ -201,10 +212,12 @@ class DiffusionTransformerDecoder(nn.Module):
         for layer in self.layers:
             hidden_states = layer(
                 hidden_states=hidden_states,
-                conditioning_embedding=conditioning_embedding,
+                conditioning=conditioning_embedding,
                 attention_mask=attention_mask,
                 positional_encoding=rotary_positional_encoding,
             )
         if self.final_normalization is not None:
-            hidden_states = self.final_normalization(hidden_states)
+            hidden_states, _ = self.final_normalization(
+                hidden_states, conditioning_embedding
+            )
         return hidden_states

@@ -1,6 +1,7 @@
-"""Tests for versatil.models.layers.transformer.attention module."""
+"""Tests for versatil.models.layers.transformer.attention.cached_attention module."""
 
 import re
+import unittest.mock
 from collections.abc import Callable
 
 import numpy as np
@@ -8,37 +9,15 @@ import pytest
 import torch
 
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.transformer.attention import CachedAttention
+from versatil.models.layers.transformer.attention.cached_attention import (
+    CachedAttention,
+)
 from versatil.models.layers.transformer.kv_cache import LayerKVCache
 
 
 @pytest.fixture
-def cached_attention_factory() -> Callable[..., CachedAttention]:
-    """Factory for CachedAttention modules."""
-
-    def factory(
-        embedding_dimension: int = 32,
-        number_of_heads: int = 4,
-        number_of_key_value_heads: int | None = None,
-        dropout: float = 0.0,
-        bias: bool = True,
-        attention_type: str = AttentionType.MULTI_HEAD.value,
-    ) -> CachedAttention:
-        return CachedAttention(
-            embedding_dimension=embedding_dimension,
-            number_of_heads=number_of_heads,
-            number_of_key_value_heads=number_of_key_value_heads,
-            dropout=dropout,
-            bias=bias,
-            attention_type=attention_type,
-        )
-
-    return factory
-
-
-@pytest.fixture
 def self_attention_cache_factory(
-    rng: np.random.Generator,
+    precomputed_kv_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
 ) -> Callable[..., LayerKVCache]:
     """Factory for LayerKVCache with populated self-attention keys/values."""
 
@@ -48,19 +27,15 @@ def self_attention_cache_factory(
         cached_length: int = 3,
         head_dimension: int = 8,
     ) -> LayerKVCache:
-        self_keys = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, number_of_heads, cached_length, head_dimension)
-            ).astype(np.float32)
-        )
-        self_values = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, number_of_heads, cached_length, head_dimension)
-            ).astype(np.float32)
+        keys, values = precomputed_kv_factory(
+            batch_size=batch_size,
+            key_value_length=cached_length,
+            number_of_heads=number_of_heads,
+            head_dimension=head_dimension,
         )
         return LayerKVCache(
-            self_attention_keys=self_keys,
-            self_attention_values=self_values,
+            self_attention_keys=keys,
+            self_attention_values=values,
         )
 
     return factory
@@ -68,40 +43,29 @@ def self_attention_cache_factory(
 
 @pytest.fixture
 def cross_attention_cache_factory(
-    rng: np.random.Generator,
+    precomputed_kv_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
 ) -> Callable[..., LayerKVCache]:
     """Factory for LayerKVCache with precomputed cross-attention keys/values."""
 
     def factory(
         batch_size: int = 2,
-        number_of_query_heads: int = 4,
         number_of_key_value_heads: int = 4,
         memory_length: int = 6,
         head_dimension: int = 8,
     ) -> LayerKVCache:
-        self_keys = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, number_of_key_value_heads, 0, head_dimension)
-            ).astype(np.float32)
-        )
-        self_values = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, number_of_key_value_heads, 0, head_dimension)
-            ).astype(np.float32)
-        )
-        cross_keys = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, number_of_key_value_heads, memory_length, head_dimension)
-            ).astype(np.float32)
-        )
-        cross_values = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, number_of_key_value_heads, memory_length, head_dimension)
-            ).astype(np.float32)
+        cross_keys, cross_values = precomputed_kv_factory(
+            batch_size=batch_size,
+            key_value_length=memory_length,
+            number_of_heads=number_of_key_value_heads,
+            head_dimension=head_dimension,
         )
         return LayerKVCache(
-            self_attention_keys=self_keys,
-            self_attention_values=self_values,
+            self_attention_keys=torch.empty(
+                batch_size, number_of_key_value_heads, 0, head_dimension
+            ),
+            self_attention_values=torch.empty(
+                batch_size, number_of_key_value_heads, 0, head_dimension
+            ),
             cross_attention_keys=cross_keys,
             cross_attention_values=cross_values,
         )
@@ -238,46 +202,6 @@ class TestCachedAttentionForward:
         assert output.shape == (2, 5, 32)
         assert cache is None
 
-    def test_cross_attention_output_shape(
-        self,
-        cached_attention_factory: Callable[..., CachedAttention],
-        sequence_tensor_factory: Callable[..., torch.Tensor],
-    ):
-        module = cached_attention_factory(embedding_dimension=32, number_of_heads=4)
-        query = sequence_tensor_factory(
-            batch_size=2, sequence_length=5, embedding_dimension=32
-        )
-        memory = sequence_tensor_factory(
-            batch_size=2, sequence_length=8, embedding_dimension=32
-        )
-        output, cache = module(
-            query_input=query,
-            key_input=memory,
-            value_input=memory,
-        )
-        assert output.shape == (2, 5, 32)
-
-    def test_grouped_query_attention_output_shape(
-        self,
-        cached_attention_factory: Callable[..., CachedAttention],
-        sequence_tensor_factory: Callable[..., torch.Tensor],
-    ):
-        module = cached_attention_factory(
-            embedding_dimension=32,
-            number_of_heads=4,
-            number_of_key_value_heads=2,
-            attention_type=AttentionType.GROUPED_QUERY.value,
-        )
-        sequence = sequence_tensor_factory(
-            batch_size=2, sequence_length=5, embedding_dimension=32
-        )
-        output, cache = module(
-            query_input=sequence,
-            key_input=sequence,
-            value_input=sequence,
-        )
-        assert output.shape == (2, 5, 32)
-
     def test_attention_mask_zeroes_padded_positions(
         self,
         cached_attention_factory: Callable[..., CachedAttention],
@@ -411,7 +335,6 @@ class TestCachedAttentionForward:
         )
         cache = cross_attention_cache_factory(
             batch_size=2,
-            number_of_query_heads=4,
             number_of_key_value_heads=4,
             memory_length=6,
             head_dimension=8,
@@ -469,7 +392,59 @@ class TestCachedAttentionForward:
 
 
 class TestCachedAttentionComputeQueryKeyValue:
-    def test_mha_projects_all_heads(
+    @pytest.mark.parametrize(
+        "attention_type, number_of_key_value_heads, expected_kv_heads",
+        [
+            (AttentionType.MULTI_HEAD.value, None, 4),
+            (AttentionType.GROUPED_QUERY.value, 2, 2),
+        ],
+        ids=["mha", "gqa"],
+    )
+    def test_projection_shapes_by_attention_type(
+        self,
+        cached_attention_factory: Callable[..., CachedAttention],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        attention_type: str,
+        number_of_key_value_heads: int | None,
+        expected_kv_heads: int,
+    ):
+        module = cached_attention_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            number_of_key_value_heads=number_of_key_value_heads,
+            attention_type=attention_type,
+        )
+        sequence = sequence_tensor_factory(
+            batch_size=2, sequence_length=5, embedding_dimension=32
+        )
+        queries, keys, values = module.compute_query_key_value(
+            query_input=sequence,
+            key_input=sequence,
+            value_input=sequence,
+        )
+        assert queries.shape == (2, 4, 5, 8)  # (B, H, S, D_head)
+        assert keys.shape == (2, expected_kv_heads, 5, 8)  # (B, KV_H, S, D_head)
+        assert values.shape == (2, expected_kv_heads, 5, 8)
+
+    def test_head_dimension_override(
+        self,
+        cached_attention_factory: Callable[..., CachedAttention],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        module = cached_attention_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            head_dimension=16,
+            attention_type=AttentionType.MULTI_HEAD.value,
+        )
+        assert module.head_dimension == 16
+        sequence = sequence_tensor_factory(
+            batch_size=2, sequence_length=5, embedding_dimension=32
+        )
+        queries = module.compute_query(query_input=sequence)
+        assert queries.shape == (2, 4, 5, 16)  # (B, H, S, overridden_D_head)
+
+    def test_individual_projections_match_combined(
         self,
         cached_attention_factory: Callable[..., CachedAttention],
         sequence_tensor_factory: Callable[..., torch.Tensor],
@@ -482,37 +457,89 @@ class TestCachedAttentionComputeQueryKeyValue:
         sequence = sequence_tensor_factory(
             batch_size=2, sequence_length=5, embedding_dimension=32
         )
-        queries, keys, values = module.compute_query_key_value(
-            query_input=sequence,
-            key_input=sequence,
-            value_input=sequence,
+        queries_combined, keys_combined, values_combined = (
+            module.compute_query_key_value(
+                query_input=sequence,
+                key_input=sequence,
+                value_input=sequence,
+            )
         )
-        assert queries.shape == (2, 4, 5, 8)
-        assert keys.shape == (2, 4, 5, 8)
-        assert values.shape == (2, 4, 5, 8)
+        queries_individual = module.compute_query(query_input=sequence)
+        keys_individual = module.compute_key(key_input=sequence)
+        values_individual = module.compute_value(value_input=sequence)
+        assert torch.equal(queries_combined, queries_individual)
+        assert torch.equal(keys_combined, keys_individual)
+        assert torch.equal(values_combined, values_individual)
 
-    def test_gqa_produces_fewer_kv_heads(
+
+class TestComputeAttention:
+    @pytest.mark.parametrize(
+        "query_length, key_value_length",
+        [(5, 8), (3, 6)],
+    )
+    def test_output_shape_and_mask_sensitivity(
+        self,
+        cached_attention_factory: Callable[..., CachedAttention],
+        precomputed_kv_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+        rng: np.random.Generator,
+        query_length: int,
+        key_value_length: int,
+    ):
+        module = cached_attention_factory(embedding_dimension=32, number_of_heads=4)
+        module.eval()
+        query_input = torch.from_numpy(
+            rng.standard_normal((2, query_length, 32)).astype(np.float32)
+        )
+        queries = module.compute_query(query_input=query_input)
+        keys, values = precomputed_kv_factory(
+            batch_size=2, key_value_length=key_value_length
+        )
+        output_no_mask = module.compute_attention(
+            queries=queries, keys=keys, values=values
+        )
+        assert output_no_mask.shape == (2, query_length, 32)
+        mask = torch.zeros(2, 1, query_length, key_value_length, dtype=torch.bool)
+        mask[:, :, :, key_value_length // 2 :] = True
+        output_masked = module.compute_attention(
+            queries=queries, keys=keys, values=values, attention_mask=mask
+        )
+        assert not torch.allclose(output_no_mask, output_masked)
+
+    def test_cross_cache_path_only_projects_queries(
         self,
         cached_attention_factory: Callable[..., CachedAttention],
         sequence_tensor_factory: Callable[..., torch.Tensor],
+        cross_attention_cache_factory: Callable[..., LayerKVCache],
     ):
-        module = cached_attention_factory(
-            embedding_dimension=32,
-            number_of_heads=4,
-            number_of_key_value_heads=2,
-            attention_type=AttentionType.GROUPED_QUERY.value,
+        module = cached_attention_factory(embedding_dimension=32, number_of_heads=4)
+        query = sequence_tensor_factory(
+            batch_size=2, sequence_length=3, embedding_dimension=32
         )
-        sequence = sequence_tensor_factory(
-            batch_size=2, sequence_length=5, embedding_dimension=32
+        cache = cross_attention_cache_factory(
+            batch_size=2,
+            number_of_key_value_heads=4,
+            memory_length=6,
+            head_dimension=8,
         )
-        queries, keys, values = module.compute_query_key_value(
-            query_input=sequence,
-            key_input=sequence,
-            value_input=sequence,
-        )
-        assert queries.shape == (2, 4, 5, 8)
-        assert keys.shape == (2, 2, 5, 8)
-        assert values.shape == (2, 2, 5, 8)
+        with (
+            unittest.mock.patch.object(
+                module, "compute_query", wraps=module.compute_query
+            ) as mock_query,
+            unittest.mock.patch.object(
+                module, "compute_key", wraps=module.compute_key
+            ) as mock_key,
+            unittest.mock.patch.object(
+                module, "compute_value", wraps=module.compute_value
+            ) as mock_value,
+        ):
+            module(
+                query_input=query,
+                layer_cache=cache,
+                use_cross_attention_cache=True,
+            )
+            mock_query.assert_called_once()
+            mock_key.assert_not_called()
+            mock_value.assert_not_called()
 
 
 class TestCachedAttentionCrossAttentionBehavior:

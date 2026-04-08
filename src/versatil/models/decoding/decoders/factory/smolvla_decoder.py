@@ -16,16 +16,33 @@ from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm import (
     GenerativeVLMEncoder,
 )
-from versatil.models.layers.diffusion_transformer.mmdit_layer import MMDiTLayer
 from versatil.models.layers.feature_projection import FeatureProjection
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.normalization.factory import create_normalization_layer
+from versatil.models.layers.normalization.factory import (
+    create_block_normalization,
+    create_normalization_layer,
+)
 from versatil.models.layers.positional_encoding.base import PositionSource
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
 from versatil.models.layers.positional_encoding.sinusoidal import (
     PeriodInterpolationPositionalEncoding1D,
 )
-from versatil.models.layers.transformer.cross_attention_layer import CrossAttentionLayer
+from versatil.models.layers.transformer.attention.cached_attention import (
+    CachedAttention,
+)
+from versatil.models.layers.transformer.attention.precomputed_primary_joint_attention import (
+    PrecomputedPrimaryJointAttention,
+)
+from versatil.models.layers.transformer.blocks.feedforward import (
+    FeedforwardBlock,
+    build_feedforward,
+)
+from versatil.models.layers.transformer.blocks.precomputed_cross_attention import (
+    PrecomputedCrossAttentionBlock,
+)
+from versatil.models.layers.transformer.blocks.precomputed_dual_stream_attention import (
+    PrecomputedDualStreamAttentionBlock,
+)
 
 
 class SmolVLALayerType(enum.StrEnum):
@@ -37,7 +54,7 @@ class SmolVLALayerType(enum.StrEnum):
 
 
 class CrossAttentionExpertLayer(nn.Module):
-    """Bridges VLM key/value states to expert dimension, then delegates to ``CrossAttentionLayer``."""
+    """Projects VLM key/value states to expert dimension, then cross-attends + FFN."""
 
     def __init__(
         self,
@@ -49,28 +66,46 @@ class CrossAttentionExpertLayer(nn.Module):
         expert_feedforward_dimension: int,
         normalization_type: str = NormalizationType.RMS_NORM.value,
         dropout: float = 0.1,
+        activation: str = "silu",
     ):
         super().__init__()
         expert_key_value_dimension = (
             expert_number_of_key_value_heads * expert_head_dimension
         )
-        self.key_bridge = nn.Linear(
+        self.key_projection = nn.Linear(
             vlm_key_value_dimension, expert_key_value_dimension, bias=False
         )
-        self.value_bridge = nn.Linear(
+        self.value_projection = nn.Linear(
             vlm_key_value_dimension, expert_key_value_dimension, bias=False
         )
-        self.number_of_key_value_heads = expert_number_of_key_value_heads
-        self.head_dimension = expert_head_dimension
-        self.layer = CrossAttentionLayer(
-            embedding_dimension=expert_embedding_dimension,
-            number_of_heads=expert_number_of_heads,
-            number_of_key_value_heads=expert_number_of_key_value_heads,
-            head_dimension=expert_head_dimension,
-            feedforward_dimension=expert_feedforward_dimension,
-            normalization_type=normalization_type,
+        self.cross_attention_block = PrecomputedCrossAttentionBlock(
+            attention=CachedAttention(
+                embedding_dimension=expert_embedding_dimension,
+                number_of_heads=expert_number_of_heads,
+                number_of_key_value_heads=expert_number_of_key_value_heads,
+                head_dimension=expert_head_dimension,
+                dropout=dropout,
+                bias=False,
+            ),
+            normalization=create_block_normalization(
+                normalization_type=normalization_type,
+                dimension=expert_embedding_dimension,
+            ),
             dropout=dropout,
-            bias=False,
+        )
+        self.feedforward_block = FeedforwardBlock(
+            feedforward=build_feedforward(
+                embedding_dimension=expert_embedding_dimension,
+                feedforward_dimension=expert_feedforward_dimension,
+                activation=activation,
+                dropout=dropout,
+                bias=False,
+            ),
+            normalization=create_block_normalization(
+                normalization_type=normalization_type,
+                dimension=expert_embedding_dimension,
+            ),
+            dropout=dropout,
         )
 
     def forward(
@@ -81,47 +116,31 @@ class CrossAttentionExpertLayer(nn.Module):
         attention_mask: torch.Tensor | None = None,
         precomputed_query_rope: tuple[torch.Tensor, torch.Tensor] | None = None,
     ) -> torch.Tensor:
-        """Bridge VLM key/value states and cross-attend.
+        """Project VLM K/V to expert dimension, cross-attend with optional RoPE, then FFN.
 
         Args:
             expert_hidden_states: Expert tokens (B, S, D_expert).
-            vlm_key_states: Flattened VLM keys (B, P, vlm_key_value_dim).
-            vlm_value_states: Flattened VLM values (B, P, vlm_key_value_dim).
+            vlm_key_states: VLM keys (B, P, vlm_kv_dim).
+            vlm_value_states: VLM values (B, P, vlm_kv_dim).
             attention_mask: Optional mask (B, 1, S, P).
-            precomputed_query_rope: Pre-computed (cos, sin) for expert query positions.
+            precomputed_query_rope: Precomputed (cos, sin) for expert query positions.
 
         Returns:
             Updated expert hidden states (B, S, D_expert).
         """
-        batch_size = vlm_key_states.shape[0]
-        vlm_sequence_length = vlm_key_states.shape[1]
-        bridged_keys = (
-            self.key_bridge(vlm_key_states)
-            .view(
-                batch_size,
-                vlm_sequence_length,
-                self.number_of_key_value_heads,
-                self.head_dimension,
-            )
-            .transpose(1, 2)
-        )
-        bridged_values = (
-            self.value_bridge(vlm_value_states)
-            .view(
-                batch_size,
-                vlm_sequence_length,
-                self.number_of_key_value_heads,
-                self.head_dimension,
-            )
-            .transpose(1, 2)
-        )
-        return self.layer(
+        projected_keys = self.key_projection(vlm_key_states)  # (B, P, kv_dim)
+        projected_values = self.value_projection(vlm_value_states)  # (B, P, kv_dim)
+        expert_hidden_states = self.cross_attention_block(
             hidden_states=expert_hidden_states,
-            keys=bridged_keys,
-            values=bridged_values,
+            keys=projected_keys,
+            values=projected_values,
             attention_mask=attention_mask,
             precomputed_query_rope=precomputed_query_rope,
         )
+        expert_hidden_states = self.feedforward_block(
+            hidden_states=expert_hidden_states,
+        )
+        return expert_hidden_states
 
 
 class SmolVLADecoder(ActionDecoder):
@@ -303,21 +322,35 @@ class SmolVLADecoder(ActionDecoder):
             ):
                 self._expert_to_vlm_index[len(self.expert_layers)] = vlm_idx
                 self.expert_layers.append(
-                    MMDiTLayer(
-                        embedding_dimension=vlm_hidden_dimension,
-                        conditioning_dimension=expert_hidden_size,
-                        number_of_heads=expert_num_heads,
-                        secondary_embedding_dimension=expert_hidden_size,
-                        number_of_key_value_heads=expert_num_key_value_heads,
-                        head_dimension=expert_head_dimension,
-                        secondary_feedforward_dimension=expert_intermediate_size,
-                        precomputed_primary_stream=True,
-                        normalization_type=self.normalization_type,
-                        use_conditioning=False,
-                        use_gating=False,
-                        use_query_key_norm=False,
+                    PrecomputedDualStreamAttentionBlock(
+                        joint_attention=PrecomputedPrimaryJointAttention(
+                            primary_embedding_dimension=vlm_hidden_dimension,
+                            number_of_heads=expert_num_heads,
+                            secondary_embedding_dimension=expert_hidden_size,
+                            number_of_key_value_heads=expert_num_key_value_heads,
+                            head_dimension=expert_head_dimension,
+                            dropout=self._dropout,
+                            use_query_key_norm=False,
+                            bias=False,
+                        ),
+                        attention_normalization_secondary=create_block_normalization(
+                            normalization_type=self.normalization_type,
+                            dimension=expert_hidden_size,
+                        ),
+                        feedforward_block_secondary=FeedforwardBlock(
+                            feedforward=build_feedforward(
+                                embedding_dimension=expert_hidden_size,
+                                feedforward_dimension=expert_intermediate_size,
+                                dropout=self._dropout,
+                                bias=False,
+                            ),
+                            normalization=create_block_normalization(
+                                normalization_type=self.normalization_type,
+                                dimension=expert_hidden_size,
+                            ),
+                            dropout=self._dropout,
+                        ),
                         dropout=self._dropout,
-                        bias=False,
                     )
                 )
                 self._layer_types.append(SmolVLALayerType.SELF_ATTENTION.value)
@@ -522,7 +555,9 @@ class SmolVLADecoder(ActionDecoder):
         elif self._encoder_cache_enabled:
             vlm_attention_mask = None
             if prefix_padding_mask is not None and prefix_padding_mask.any():
-                vlm_attention_mask = (~prefix_padding_mask).unsqueeze(1).unsqueeze(1)  # (B, P) → (B, 1, 1, P)
+                vlm_attention_mask = (
+                    (~prefix_padding_mask).unsqueeze(1).unsqueeze(1)
+                )  # (B, P) → (B, 1, 1, P)
             vlm_cache = self._fill_prefix_cache(
                 prefix_embeddings, position_ids, vlm_attention_mask
             )
@@ -536,7 +571,9 @@ class SmolVLADecoder(ActionDecoder):
         else:
             vlm_train_mask = None
             if prefix_padding_mask is not None and prefix_padding_mask.any():
-                vlm_train_mask = (~prefix_padding_mask).unsqueeze(1).unsqueeze(1)  # (B, P) → (B, 1, 1, P)
+                vlm_train_mask = (
+                    (~prefix_padding_mask).unsqueeze(1).unsqueeze(1)
+                )  # (B, P) → (B, 1, 1, P)
             expert_hidden = self._run_training_forward(
                 prefix_embeddings=prefix_embeddings,
                 expert_hidden=expert_hidden,
@@ -616,12 +653,10 @@ class SmolVLADecoder(ActionDecoder):
                     vlm_attention_output, expert_hidden = self.expert_layers[
                         expert_layer_index
                     ](
-                        hidden_states_observation=vlm_hidden,
-                        hidden_states_action=expert_hidden,
-                        conditioning=None,
+                        precomputed_primary=(vlm_query, vlm_key, vlm_value),
+                        hidden_states_secondary=expert_hidden,
                         joint_attention_mask=attention_mask,
-                        precomputed_observation=(vlm_query, vlm_key, vlm_value),
-                        precomputed_action_rope=expert_action_rope,
+                        precomputed_secondary_rope=expert_action_rope,
                     )
                     with torch.no_grad():
                         vlm_hidden = GenerativeVLMEncoder.apply_residual_feedforward(
@@ -735,16 +770,14 @@ class SmolVLADecoder(ActionDecoder):
                 case SmolVLALayerType.SELF_ATTENTION.value:
                     cached = vlm_cache[vlm_layer_index]
                     _, expert_hidden = self.expert_layers[expert_layer_index](
-                        hidden_states_observation=cached["hidden"],
-                        hidden_states_action=expert_hidden,
-                        conditioning=None,
-                        joint_attention_mask=attention_mask,
-                        precomputed_observation=(
+                        precomputed_primary=(
                             cached["query"],
                             cached["key"],
                             cached["value"],
                         ),
-                        precomputed_action_rope=expert_action_rope,
+                        hidden_states_secondary=expert_hidden,
+                        joint_attention_mask=attention_mask,
+                        precomputed_secondary_rope=expert_action_rope,
                     )
                     vlm_layer_index += 1
                     expert_layer_index += 1

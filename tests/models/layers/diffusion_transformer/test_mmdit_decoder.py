@@ -2,11 +2,12 @@
 
 import math
 from collections.abc import Callable
+from contextlib import nullcontext as does_not_raise
 
 import pytest
 import torch
 
-from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
+from tests.models.layers.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import PositionalEncodingType
 from versatil.models.layers.diffusion_transformer.mmdit_decoder import MMDiTDecoder
@@ -24,7 +25,7 @@ def mmdit_decoder_factory() -> Callable[..., MMDiTDecoder]:
         dropout: float = 0.0,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SILU.value,
-        normalization_type: str = NormalizationType.RMS_NORM.value,
+        normalization_type: str = NormalizationType.ADARMS.value,
         normalization_epsilon: float = 1e-6,
         use_query_key_norm: bool = True,
         use_gating: bool = True,
@@ -237,7 +238,7 @@ class TestMMDiTDecoderInitialization:
             initializer_range=initializer_range,
         )
         first_layer = decoder.layers[0]
-        weight = first_layer.joint_attention.query_projection_observation.weight
+        weight = first_layer.joint_attention.query_projection_primary.weight
         measured_std = weight.std().item()
         assert abs(measured_std - initializer_range) < 0.01
 
@@ -253,7 +254,7 @@ class TestMMDiTDecoderInitialization:
         )
         expected_sqrt_std = initializer_range / math.sqrt(3 * number_of_layers)
         first_layer = decoder.layers[0]
-        sqrt_weight = first_layer.joint_attention.output_projection_observation.weight
+        sqrt_weight = first_layer.joint_attention.output_projection_primary.weight
         measured_std = sqrt_weight.std().item()
         assert measured_std < initializer_range
         assert abs(measured_std - expected_sqrt_std) < 0.01
@@ -267,8 +268,41 @@ class TestMMDiTDecoderInitialization:
             bias=True,
         )
         first_layer = decoder.layers[0]
-        bias = first_layer.joint_attention.query_projection_observation.bias
+        bias = first_layer.joint_attention.query_projection_primary.bias
         assert torch.allclose(bias, torch.zeros_like(bias))
+
+    @pytest.mark.parametrize(
+        "normalization_type, expectation",
+        [
+            (NormalizationType.ADARMS.value, does_not_raise()),
+            (NormalizationType.ADALN.value, does_not_raise()),
+            (
+                NormalizationType.RMS_NORM.value,
+                pytest.raises(
+                    ValueError,
+                    match="MMDiTDecoder requires adaptive normalization",
+                ),
+            ),
+            (
+                NormalizationType.LAYER_NORM.value,
+                pytest.raises(
+                    ValueError,
+                    match="MMDiTDecoder requires adaptive normalization",
+                ),
+            ),
+        ],
+    )
+    def test_normalization_type_validation(
+        self,
+        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        normalization_type: str,
+        expectation,
+    ):
+        with expectation:
+            mmdit_decoder_factory(
+                number_of_layers=1,
+                normalization_type=normalization_type,
+            )
 
 
 class TestMMDiTDecoderForward:
@@ -511,7 +545,6 @@ class TestMMDiTDecoderForward:
             number_of_layers=1,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=embedding_dimension,
-            normalization_type=NormalizationType.RMS_NORM.value,
             use_gating=False,
         )
         observation = sequence_tensor_factory(

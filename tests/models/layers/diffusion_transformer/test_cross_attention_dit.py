@@ -6,7 +6,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
+from tests.models.layers.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.diffusion_transformer.cross_attention_dit import (
@@ -27,7 +27,7 @@ def cross_attention_dit_factory() -> Callable[..., CrossAttentionDiT]:
         dropout: float = 0.0,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SILU.value,
-        normalization_type: str = NormalizationType.RMS_NORM.value,
+        normalization_type: str = NormalizationType.ADARMS.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 256,

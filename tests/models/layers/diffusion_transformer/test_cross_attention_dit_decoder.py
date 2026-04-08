@@ -27,7 +27,7 @@ def cross_decoder_factory() -> Callable[..., CrossConditioningDecoder]:
         dropout: float = 0.0,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SILU.value,
-        normalization_type: str = NormalizationType.RMS_NORM.value,
+        normalization_type: str = NormalizationType.ADARMS.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 256,
@@ -103,6 +103,39 @@ class TestCrossConditioningDecoderInitialization:
             cross_decoder_factory(
                 attention_type=attention_type,
                 number_of_key_value_heads=number_of_key_value_heads,
+            )
+
+    @pytest.mark.parametrize(
+        "normalization_type, expectation",
+        [
+            (NormalizationType.ADARMS.value, does_not_raise()),
+            (NormalizationType.ADALN.value, does_not_raise()),
+            (
+                NormalizationType.RMS_NORM.value,
+                pytest.raises(
+                    ValueError,
+                    match="CrossConditioningDecoder requires adaptive normalization",
+                ),
+            ),
+            (
+                NormalizationType.LAYER_NORM.value,
+                pytest.raises(
+                    ValueError,
+                    match="CrossConditioningDecoder requires adaptive normalization",
+                ),
+            ),
+        ],
+    )
+    def test_normalization_type_validation(
+        self,
+        cross_conditioning_decoder_factory: Callable[..., CrossConditioningDecoder],
+        normalization_type: str,
+        expectation,
+    ):
+        with expectation:
+            cross_conditioning_decoder_factory(
+                number_of_layers=1,
+                normalization_type=normalization_type,
             )
 
 

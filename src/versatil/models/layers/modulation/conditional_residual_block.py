@@ -34,7 +34,7 @@ class ConditionalResidualBlock1D(nn.Module):
             feature_dim=output_channels,
             use_shift=condition_predict_scale,
             activation=ActivationFunction.MISH.value,
-            init_strategy="identity",
+            init_strategy="zero",
         )
         self.residual_convolution = (
             nn.Conv1d(input_channels, output_channels, 1)

@@ -118,19 +118,25 @@ class LatentConditionedDecoderLayer(TransformerDecoderLayer):
                 "use_self_attention_cache=True only valid for autoregressive models"
             )
 
+        attention_block = self.self_attention_block
+        normalization = attention_block.normalization
+        attention = attention_block.attention
+
         residual = hidden_states
-        hidden_states = self.self_attention_normalization(hidden_states)
+        hidden_states, gate = normalization(x=hidden_states, condition=None)
         if latent is not None:
-            R = self.latent_proj(latent)
+            projected_latent = self.latent_proj(latent)
             if (
-                R.shape[1] == 1 and hidden_states.shape[1] > 1
-            ):  # (B, 1, embedding_dim) -> (B, T, embedding_dim)
-                R = R.expand(-1, hidden_states.shape[1], -1)
-            kv_residual = residual + R  # X + R
-            norm_kv = self.self_attention_normalization(
-                kv_residual
-            )  # norm(X + R) for KV
-            attention_output, cache = self.self_attention(
+                projected_latent.shape[1] == 1 and hidden_states.shape[1] > 1
+            ):  # (B, 1, D) -> (B, T, D)
+                projected_latent = projected_latent.expand(
+                    -1, hidden_states.shape[1], -1
+                )
+            kv_residual = residual + projected_latent  # X + R
+            norm_kv, _ = normalization(
+                x=kv_residual, condition=None
+            )  # norm(X + R) for K/V
+            attention_output, cache = attention(
                 query_input=hidden_states,
                 key_input=norm_kv,
                 value_input=norm_kv,
@@ -140,7 +146,7 @@ class LatentConditionedDecoderLayer(TransformerDecoderLayer):
                 positional_encoding=positional_encoding,
             )
         else:
-            attention_output, cache = self.self_attention(
+            attention_output, cache = attention(
                 query_input=hidden_states,
                 key_input=hidden_states,
                 value_input=hidden_states,
@@ -150,11 +156,8 @@ class LatentConditionedDecoderLayer(TransformerDecoderLayer):
                 positional_encoding=positional_encoding,
             )
 
-        hidden_states = residual + self.dropout(attention_output)
-        residual = hidden_states
-        hidden_states = self.feedforward_normalization(hidden_states)
-        ff_output = self.feedforward_network(hidden_states)
-        hidden_states = residual + self.dropout(ff_output)
+        hidden_states = attention_block.apply_residual(residual, attention_output, gate)
+        hidden_states = self.feedforward_block(hidden_states=hidden_states)
 
         return hidden_states, cache
 

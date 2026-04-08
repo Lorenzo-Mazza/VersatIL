@@ -118,4 +118,6 @@ def update_layer_cache(
         self_attention_values=torch.cat(
             [cache.self_attention_values, new_values], dim=2
         ),
+        cross_attention_keys=cache.cross_attention_keys,
+        cross_attention_values=cache.cross_attention_values,
     )

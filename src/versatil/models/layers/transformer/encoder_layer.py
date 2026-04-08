@@ -6,13 +6,27 @@ import torch.nn as nn
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.normalization.factory import create_normalization_layer
+from versatil.models.layers.normalization.factory import create_block_normalization
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
-from versatil.models.layers.transformer.attention import CachedAttention
+from versatil.models.layers.transformer.attention.cached_attention import (
+    CachedAttention,
+)
+from versatil.models.layers.transformer.blocks.feedforward import (
+    FeedforwardBlock,
+    build_feedforward,
+)
+from versatil.models.layers.transformer.blocks.self_attention import (
+    SelfAttentionBlock,
+)
 
 
 class TransformerEncoderLayer(nn.Module):
-    """Single transformer encoder layer with self-attention and feed-forward network."""
+    """Self-attention + feedforward blocks.
+
+    Note:
+        Supports optional conditioning when constructed with adaptive
+        normalization types.
+    """
 
     def __init__(
         self,
@@ -27,95 +41,95 @@ class TransformerEncoderLayer(nn.Module):
         attention_type: str = AttentionType.GROUPED_QUERY.value,
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
+        condition_dim: int | None = None,
+        use_gating: bool = False,
     ):
         """Initialize Transformer encoder layer.
 
         Args:
-            embedding_dimension: Model embedding dimension
-            number_of_heads: Number of attention heads
-            number_of_key_value_heads: Number of K/V heads (for GQA)
-            feedforward_dimension: FFN hidden dimension (defaults to 4 * embedding_dimension)
-            dropout: Dropout probability for residual connections
-            attention_dropout: Dropout probability for attention weights
-            activation: Activation function (use ActivationFunction enum values)
-            normalization_type: Type of normalization (use NormalizationType enum values)
-            attention_type: Type of attention (use AttentionType enum values)
-            bias: Whether to use bias in linear layers
-            normalization_epsilon: Epsilon for normalization layers
+            embedding_dimension: Model embedding dimension.
+            number_of_heads: Number of attention heads.
+            number_of_key_value_heads: Number of K/V heads (for GQA).
+            feedforward_dimension: FFN hidden dimension (defaults to 4 * embedding_dimension).
+            dropout: Dropout probability for residual connections.
+            attention_dropout: Dropout probability for attention weights.
+            activation: Activation function (use ActivationFunction enum values).
+            normalization_type: Type of normalization (use NormalizationType enum values).
+            attention_type: Type of attention (use AttentionType enum values).
+            bias: Whether to use bias in linear layers.
+            normalization_epsilon: Epsilon for normalization layers.
+            condition_dim: Conditioning dimension for adaptive normalization.
+                Required when normalization_type is adaptive.
+            use_gating: Whether to use gating in adaptive normalization (AdaLN-Zero).
         """
         super().__init__()
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
         if feedforward_dimension is None:
             feedforward_dimension = 4 * embedding_dimension
-        self.self_attention = CachedAttention(
-            embedding_dimension=embedding_dimension,
-            number_of_heads=number_of_heads,
-            number_of_key_value_heads=number_of_key_value_heads,
-            dropout=attention_dropout,
-            bias=bias,
-            attention_type=attention_type,
+        self.self_attention_block = SelfAttentionBlock(
+            attention=CachedAttention(
+                embedding_dimension=embedding_dimension,
+                number_of_heads=number_of_heads,
+                number_of_key_value_heads=number_of_key_value_heads,
+                dropout=attention_dropout,
+                bias=bias,
+                attention_type=attention_type,
+            ),
+            normalization=create_block_normalization(
+                normalization_type=normalization_type,
+                dimension=embedding_dimension,
+                epsilon=normalization_epsilon,
+                condition_dim=condition_dim,
+                use_gating=use_gating,
+            ),
+            dropout=dropout,
         )
-        self.self_attention_normalization = create_normalization_layer(
-            normalization_type=normalization_type,
-            dimension=embedding_dimension,
-            epsilon=normalization_epsilon,
+        self.feedforward_block = FeedforwardBlock(
+            feedforward=build_feedforward(
+                embedding_dimension=embedding_dimension,
+                feedforward_dimension=feedforward_dimension,
+                activation=activation,
+                dropout=dropout,
+                bias=bias,
+            ),
+            normalization=create_block_normalization(
+                normalization_type=normalization_type,
+                dimension=embedding_dimension,
+                epsilon=normalization_epsilon,
+                condition_dim=condition_dim,
+                use_gating=use_gating,
+            ),
+            dropout=dropout,
         )
-        activation_enum = ActivationFunction(activation)
-        if activation_enum.is_gated:
-            self.feedforward_network = nn.Sequential(
-                activation_enum.to_torch_activation()(
-                    input_dim=embedding_dimension,
-                    hidden_dim=feedforward_dimension,
-                    bias=bias,
-                ),
-                nn.Dropout(dropout),
-                nn.Linear(feedforward_dimension, embedding_dimension, bias=bias),
-            )
-        else:
-            self.feedforward_network = nn.Sequential(
-                nn.Linear(embedding_dimension, feedforward_dimension, bias=bias),
-                activation_enum.to_torch_activation()(),
-                nn.Dropout(dropout),
-                nn.Linear(feedforward_dimension, embedding_dimension, bias=bias),
-            )
-        self.feedforward_normalization = create_normalization_layer(
-            normalization_type=normalization_type,
-            dimension=embedding_dimension,
-            epsilon=normalization_epsilon,
-        )
-        # Flag for initialization (GPT2 style)
-        self.feedforward_network[-1].SQUARE_ROOT_WEIGHT = True
-        self.dropout = nn.Dropout(dropout)
 
     def forward(
         self,
         hidden_states: torch.Tensor,
+        conditioning: torch.Tensor | None = None,
         attention_mask: torch.Tensor | None = None,
         positional_encoding: RotaryPositionalEncoding | None = None,
     ) -> torch.Tensor:
         """Forward pass through encoder layer.
 
         Args:
-            hidden_states: Input embeddings (B, seq_len, D)
-            attention_mask: Optional mask (B, 1, seq_len, seq_len) where True means masked.
-            positional_encoding: Optional rotary positional encoding module
+            hidden_states: Input embeddings (B, S, D).
+            conditioning: Conditioning vector for adaptive normalization (B, C).
+                Ignored when constructed with plain normalization.
+            attention_mask: Optional mask (B, 1, S, S) where True means masked.
+            positional_encoding: Optional rotary positional encoding module.
 
         Returns:
-            Output hidden states (B, seq_len, D)
+            Output hidden states (B, S, D).
         """
-        residual = hidden_states
-        hidden_states = self.self_attention_normalization(hidden_states)
-        self_attention_output, _ = self.self_attention(
-            query_input=hidden_states,
-            key_input=hidden_states,
-            value_input=hidden_states,
+        hidden_states, _ = self.self_attention_block(
+            hidden_states=hidden_states,
+            conditioning=conditioning,
             attention_mask=attention_mask,
             positional_encoding=positional_encoding,
         )
-        hidden_states = residual + self.dropout(self_attention_output)
-        residual = hidden_states
-        hidden_states = self.feedforward_normalization(hidden_states)
-        feedforward_output = self.feedforward_network(hidden_states)
-        hidden_states = residual + self.dropout(feedforward_output)
+        hidden_states = self.feedforward_block(
+            hidden_states=hidden_states,
+            conditioning=conditioning,
+        )
         return hidden_states

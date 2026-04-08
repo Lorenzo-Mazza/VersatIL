@@ -9,3 +9,7 @@ class NormalizationType(enum.StrEnum):
     ADALN = "adaptive_layernorm"
     ADARMS = "adaptive_rms"
     FROZEN_BATCHNORM2D = "frozen_batchnorm_2D"
+
+    @property
+    def is_adaptive(self) -> bool:
+        return self in (NormalizationType.ADALN, NormalizationType.ADARMS)

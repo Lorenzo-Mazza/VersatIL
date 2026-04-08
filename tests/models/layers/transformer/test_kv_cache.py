@@ -2,7 +2,6 @@
 
 from collections.abc import Callable
 
-import numpy as np
 import pytest
 import torch
 
@@ -16,7 +15,7 @@ from versatil.models.layers.transformer.kv_cache import (
 
 @pytest.fixture
 def layer_cache_factory(
-    rng: np.random.Generator,
+    precomputed_kv_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
 ) -> Callable[..., LayerKVCache]:
     """Factory for LayerKVCache with populated self-attention keys/values."""
 
@@ -28,38 +27,20 @@ def layer_cache_factory(
         include_cross_attention: bool = False,
         cross_attention_length: int = 5,
     ) -> LayerKVCache:
-        self_keys = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, number_of_heads, cached_length, head_dimension)
-            ).astype(np.float32)
-        )
-        self_values = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, number_of_heads, cached_length, head_dimension)
-            ).astype(np.float32)
+        self_keys, self_values = precomputed_kv_factory(
+            batch_size=batch_size,
+            key_value_length=cached_length,
+            number_of_heads=number_of_heads,
+            head_dimension=head_dimension,
         )
         cross_keys = None
         cross_values = None
         if include_cross_attention:
-            cross_keys = torch.from_numpy(
-                rng.standard_normal(
-                    (
-                        batch_size,
-                        number_of_heads,
-                        cross_attention_length,
-                        head_dimension,
-                    )
-                ).astype(np.float32)
-            )
-            cross_values = torch.from_numpy(
-                rng.standard_normal(
-                    (
-                        batch_size,
-                        number_of_heads,
-                        cross_attention_length,
-                        head_dimension,
-                    )
-                ).astype(np.float32)
+            cross_keys, cross_values = precomputed_kv_factory(
+                batch_size=batch_size,
+                key_value_length=cross_attention_length,
+                number_of_heads=number_of_heads,
+                head_dimension=head_dimension,
             )
         return LayerKVCache(
             self_attention_keys=self_keys,
@@ -73,7 +54,7 @@ def layer_cache_factory(
 
 @pytest.fixture
 def new_kv_factory(
-    rng: np.random.Generator,
+    precomputed_kv_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
 ) -> Callable[..., tuple[torch.Tensor, torch.Tensor]]:
     """Factory for new key/value tensors to append to cache."""
 
@@ -83,31 +64,19 @@ def new_kv_factory(
         new_length: int = 1,
         head_dimension: int = 8,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        new_keys = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, number_of_heads, new_length, head_dimension)
-            ).astype(np.float32)
+        return precomputed_kv_factory(
+            batch_size=batch_size,
+            key_value_length=new_length,
+            number_of_heads=number_of_heads,
+            head_dimension=head_dimension,
         )
-        new_values = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, number_of_heads, new_length, head_dimension)
-            ).astype(np.float32)
-        )
-        return new_keys, new_values
 
     return factory
 
 
 class TestLayerKVCache:
+    @pytest.mark.parametrize("cached_length", [0, 5, 10])
     def test_get_length_returns_cached_sequence_length(
-        self,
-        layer_cache_factory: Callable[..., LayerKVCache],
-    ):
-        cache = layer_cache_factory(cached_length=7)
-        assert cache.get_length() == 7
-
-    @pytest.mark.parametrize("cached_length", [0, 5])
-    def test_get_length_with_various_sizes(
         self,
         layer_cache_factory: Callable[..., LayerKVCache],
         cached_length: int,
@@ -186,18 +155,9 @@ class TestInitializeDecoderCache:
         )
         assert len(caches) == number_of_layers
 
-    def test_initial_caches_have_zero_length(self, device: torch.device):
-        caches = initialize_decoder_cache(
-            batch_size=2,
-            num_layers=2,
-            num_heads=4,
-            head_dimension=8,
-            device=device,
-        )
-        for cache in caches:
-            assert cache.get_length() == 0
-
-    def test_cache_tensor_shapes(self, device: torch.device):
+    def test_initial_caches_have_zero_length_and_correct_shape(
+        self, device: torch.device
+    ):
         caches = initialize_decoder_cache(
             batch_size=3,
             num_layers=2,
@@ -206,6 +166,7 @@ class TestInitializeDecoderCache:
             device=device,
         )
         for cache in caches:
+            assert cache.get_length() == 0
             assert cache.self_attention_keys.shape == (3, 4, 0, 16)
             assert cache.self_attention_values.shape == (3, 4, 0, 16)
 
@@ -294,3 +255,21 @@ class TestUpdateLayerCache:
                 cache=cache, new_keys=new_keys, new_values=new_values
             )
         assert cache.get_length() == 5
+
+    def test_update_preserves_cross_attention_data(
+        self,
+        layer_cache_factory: Callable[..., LayerKVCache],
+        new_kv_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+    ):
+        cache = layer_cache_factory(
+            cached_length=3,
+            include_cross_attention=True,
+            cross_attention_length=6,
+        )
+        original_cross_keys = cache.cross_attention_keys.clone()
+        new_keys, new_values = new_kv_factory(new_length=1)
+        updated = update_layer_cache(
+            cache=cache, new_keys=new_keys, new_values=new_values
+        )
+        assert torch.equal(updated.cross_attention_keys, original_cross_keys)
+        assert updated.cross_attention_values is not None

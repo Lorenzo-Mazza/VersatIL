@@ -51,7 +51,7 @@ class CachedAttention(nn.Module):
             )
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
-        self.head_dimension = (
+        self.head_dimension: int = (
             head_dimension
             if head_dimension is not None
             else embedding_dimension // number_of_heads
@@ -100,6 +100,57 @@ class CachedAttention(nn.Module):
             True  # Flag for initialization (GPT2 style)
         )
 
+    def compute_query(self, query_input: torch.Tensor) -> torch.Tensor:
+        """Project and reshape query input.
+
+        Args:
+            query_input: (B, query_len, D)
+
+        Returns:
+            Projected queries (B, num_heads, query_len, head_dim).
+        """
+        batch_size, query_length, _ = query_input.shape
+        projected = self.query_projection(query_input)
+        # (B, L, num_heads * head_dim) -> (B, num_heads, L, head_dim)
+        return projected.view(
+            batch_size, query_length, self.number_of_heads, self.head_dimension
+        ).transpose(1, 2)
+
+    def compute_key(self, key_input: torch.Tensor) -> torch.Tensor:
+        """Project and reshape key input.
+
+        Args:
+            key_input: (B, key_len, D)
+
+        Returns:
+            Projected keys (B, kv_heads, key_len, head_dim).
+        """
+        batch_size, key_length, _ = key_input.shape
+        projected = self.key_projection(key_input)
+        # (B, L, kv_heads * head_dim) -> (B, kv_heads, L, head_dim)
+        return projected.view(
+            batch_size, key_length, self.number_of_key_value_heads, self.head_dimension
+        ).transpose(1, 2)
+
+    def compute_value(self, value_input: torch.Tensor) -> torch.Tensor:
+        """Project and reshape value input.
+
+        Args:
+            value_input: (B, value_len, D)
+
+        Returns:
+            Projected values (B, kv_heads, value_len, head_dim).
+        """
+        batch_size, value_length, _ = value_input.shape
+        projected = self.value_projection(value_input)
+        # (B, L, kv_heads * head_dim) -> (B, kv_heads, L, head_dim)
+        return projected.view(
+            batch_size,
+            value_length,
+            self.number_of_key_value_heads,
+            self.head_dimension,
+        ).transpose(1, 2)
+
     def compute_query_key_value(
         self,
         query_input: torch.Tensor,
@@ -114,30 +165,14 @@ class CachedAttention(nn.Module):
             value_input: Value input (B, value_len, D)
 
         Returns:
-            Tuple of (queries, keys, values). Queries have shape (B, num_heads, seq_len, head_dim).
-            For GQA, keys/values have compact shape (B, kv_heads, seq_len, head_dim) for efficient caching.
+            Tuple of (queries, keys, values). Queries: (B, num_heads, query_len, head_dim).
+            Keys/values: (B, kv_heads, key_len, head_dim).
         """
-        batch_size = query_input.shape[0]
-        query_length = query_input.shape[1]
-        key_length = key_input.shape[1]
-        projected_query = self.query_projection(query_input)
-        projected_key = self.key_projection(key_input)
-        projected_value = self.value_projection(value_input)
-        # Reshape: (B, L, num_heads * head_dim) -> (B, L, num_heads, head_dim)
-        projected_query = projected_query.view(
-            batch_size, query_length, self.number_of_heads, self.head_dimension
+        return (
+            self.compute_query(query_input),
+            self.compute_key(key_input),
+            self.compute_value(value_input),
         )
-        projected_key = projected_key.view(
-            batch_size, key_length, self.number_of_key_value_heads, self.head_dimension
-        )
-        projected_value = projected_value.view(
-            batch_size, key_length, self.number_of_key_value_heads, self.head_dimension
-        )
-        # Transpose: (B, length, num_heads, head_dim) -> (B, num_heads, length, head_dim)
-        projected_query = projected_query.transpose(1, 2)
-        projected_key = projected_key.transpose(1, 2)
-        projected_value = projected_value.transpose(1, 2)
-        return projected_query, projected_key, projected_value
 
     def compute_attention(
         self,
@@ -232,13 +267,7 @@ class CachedAttention(nn.Module):
                     "layer_cache must contain precomputed cross_attention K/V when use_cross_attention_cache=True"
                 )
             # Use precomputed cross K/V, only project queries
-            queries = self.query_projection(query_input)
-            batch_size = query_input.shape[0]
-            query_length = query_input.shape[1]
-            queries = queries.view(
-                batch_size, query_length, self.number_of_heads, self.head_dimension
-            )
-            queries = queries.transpose(1, 2)
+            queries = self.compute_query(query_input)
             keys = layer_cache.cross_attention_keys
             values = layer_cache.cross_attention_values
         else:

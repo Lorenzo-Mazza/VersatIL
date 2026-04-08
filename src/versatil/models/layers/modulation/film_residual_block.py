@@ -34,7 +34,7 @@ class FiLMedResBlock(nn.Module):
             feature_dim=out_channels,
             use_shift=True,
             activation=ActivationFunction.LINEAR.value,
-            init_strategy="identity",
+            init_strategy="zero",
         )
 
         self.conv2 = nn.Conv2d(
@@ -46,7 +46,7 @@ class FiLMedResBlock(nn.Module):
             feature_dim=out_channels,
             use_shift=True,
             activation=ActivationFunction.LINEAR.value,
-            init_strategy="identity",
+            init_strategy="zero",
         )
 
         self.relu = nn.ReLU()

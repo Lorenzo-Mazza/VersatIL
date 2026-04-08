@@ -1,4 +1,8 @@
-"""DiT decoder with cross-attention for conditioning (PixArt-style)."""
+"""DiT decoder with cross-attention for conditioning (PixArt-style).
+
+Uses adaptive normalization (AdaNorm+gating) for self-attention and FFN,
+but plain normalization for cross-attention to encoder features.
+"""
 
 import math
 
@@ -7,9 +11,6 @@ import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.diffusion_transformer.cross_attention_dit_layer import (
-    CrossConditioningDecoderLayer,
-)
 from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
@@ -21,6 +22,7 @@ from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEn
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
 )
+from versatil.models.layers.transformer.decoder_layer import TransformerDecoderLayer
 from versatil.models.layers.transformer.positional_encoding import (
     create_positional_encoding,
 )
@@ -29,8 +31,8 @@ from versatil.models.layers.transformer.positional_encoding import (
 class CrossConditioningDecoder(nn.Module):
     """DiT decoder with cross-attention for conditioning (PixArt-style).
 
-    Stacks CrossConditioningDecoderLayer blocks with timestep conditioning via AdaNorm
-    and encoder conditioning via cross-attention.
+    Each layer uses adaptive normalization for self-attention and feedforward,
+    but plain normalization for cross-attention to encoder features.
     """
 
     def __init__(
@@ -44,7 +46,7 @@ class CrossConditioningDecoder(nn.Module):
         dropout: float = 0.1,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SWIGLU.value,
-        normalization_type: str = NormalizationType.RMS_NORM.value,
+        normalization_type: str = NormalizationType.ADARMS.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 256,
@@ -65,7 +67,7 @@ class CrossConditioningDecoder(nn.Module):
             dropout: Dropout rate.
             attention_dropout: Dropout rate for attention weights.
             activation: Activation function name (use ActivationFunction enum values).
-            normalization_type: Type of normalization (use NormalizationType enum values).
+            normalization_type: Adaptive normalization type for self-attention and FFN.
             attention_type: Type of attention (use AttentionType enum values).
             positional_encoding_type: Type of positional encoding (or None).
             maximum_sequence_length: Maximum sequence length for positional encoding.
@@ -73,8 +75,18 @@ class CrossConditioningDecoder(nn.Module):
             normalization_epsilon: Epsilon for normalization layers.
             use_gating: Whether to use gating in AdaNorm (AdaLN-Zero style).
             initializer_range: Standard deviation for weight initialization.
+
+        Raises:
+            ValueError: If normalization_type is not adaptive.
         """
         super().__init__()
+        norm_enum = NormalizationType(normalization_type)
+        if not norm_enum.is_adaptive:
+            raise ValueError(
+                f"CrossConditioningDecoder requires adaptive normalization, "
+                f"got {normalization_type}. Use {NormalizationType.ADALN.value} "
+                f"or {NormalizationType.ADARMS.value}."
+            )
         self.number_of_layers = number_of_layers
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
@@ -87,8 +99,10 @@ class CrossConditioningDecoder(nn.Module):
         else:
             self.number_of_key_value_heads = number_of_heads
         self.head_dimension = embedding_dimension // number_of_heads
-        if feedforward_dimension is None:
-            feedforward_dimension = 4 * embedding_dimension
+        # Plain norm for cross-attention (not conditioned by timestep)
+        plain_normalization_type = NormalizationType.RMS_NORM.value
+        if normalization_type == NormalizationType.ADALN.value:
+            plain_normalization_type = NormalizationType.LAYER_NORM.value
         self.positional_encoding = None
         if positional_encoding_type is not None:
             self.positional_encoding = create_positional_encoding(
@@ -99,9 +113,8 @@ class CrossConditioningDecoder(nn.Module):
             )
         self.layers = nn.ModuleList(
             [
-                CrossConditioningDecoderLayer(
+                TransformerDecoderLayer(
                     embedding_dimension=embedding_dimension,
-                    timestep_dimension=timestep_dimension,
                     number_of_heads=number_of_heads,
                     number_of_key_value_heads=number_of_key_value_heads,
                     feedforward_dimension=feedforward_dimension,
@@ -110,15 +123,19 @@ class CrossConditioningDecoder(nn.Module):
                     activation=activation,
                     normalization_type=normalization_type,
                     attention_type=attention_type,
+                    use_cross_attention=True,
                     bias=bias,
                     normalization_epsilon=normalization_epsilon,
+                    autoregressive=False,
+                    condition_dim=timestep_dimension,
                     use_gating=use_gating,
+                    cross_attention_normalization_type=plain_normalization_type,
                 )
                 for _ in range(number_of_layers)
             ]
         )
         self.final_normalization = create_normalization_layer(
-            normalization_type=normalization_type,
+            normalization_type=plain_normalization_type,
             dimension=embedding_dimension,
             epsilon=normalization_epsilon,
         )
@@ -182,8 +199,8 @@ class CrossConditioningDecoder(nn.Module):
             hidden_states: Input tokens (B, T, D).
             conditioning_embedding: Timestep conditioning vector (B, D).
             encoder_hidden_states: Encoder output for cross-attention (B, S, D).
-            decoder_padding_mask: Optional padding mask for decoder (B, T) where True means masked.
-            encoder_padding_mask: Optional padding mask for encoder (B, S) where True means masked.
+            decoder_padding_mask: Optional padding mask for decoder (B, T).
+            encoder_padding_mask: Optional padding mask for encoder (B, S).
 
         Returns:
             Output hidden states (B, T, D).
@@ -212,14 +229,13 @@ class CrossConditioningDecoder(nn.Module):
             else None
         )
         for layer in self.layers:
-            hidden_states = layer(
+            hidden_states, _ = layer(
                 hidden_states=hidden_states,
-                conditioning_embedding=conditioning_embedding,
-                encoder_hidden_states=encoder_hidden_states,
+                encoded_features=encoder_hidden_states,
                 self_attention_mask=self_attention_mask,
                 cross_attention_mask=cross_attention_mask,
                 positional_encoding=rotary_positional_encoding,
+                conditioning=conditioning_embedding,
             )
-
         hidden_states = self.final_normalization(hidden_states)
         return hidden_states

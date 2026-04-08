@@ -183,10 +183,10 @@ class GPTDecoder(nn.Module):
         num_features = encoded_features.shape[1]
 
         for layer in self.layers:
-            projected_key = layer.cross_attention.key_projection(
+            projected_key = layer.cross_attention_block.attention.key_projection(
                 encoded_features
             )  # (B, len, embed_dim)
-            projected_value = layer.cross_attention.value_projection(
+            projected_value = layer.cross_attention_block.attention.value_projection(
                 encoded_features
             )  # (B, len, embed_dim)
             # Reshape to (B, len, kv_heads, head_dim)

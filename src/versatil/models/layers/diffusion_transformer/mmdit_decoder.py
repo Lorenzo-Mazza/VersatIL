@@ -1,7 +1,7 @@
-"""MMDiT Decoder that stacks MMDiTLayer blocks.
+"""MMDiT Decoder that stacks DualStreamAttentionBlock layers.
 
-Provides positional encoding and final normalization for both observation
-and action streams processed through joint attention layers.
+Provides positional encoding and final normalization for both
+streams processed through joint attention layers.
 
 References:
     Esser et al. "Scaling Rectified Flow Transformers for High-Resolution Image Synthesis"
@@ -14,12 +14,22 @@ import torch
 import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.diffusion_transformer.mmdit_layer import MMDiTLayer
 from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.normalization.factory import create_normalization_layer
+from versatil.models.layers.normalization.factory import (
+    create_block_normalization,
+    create_normalization_layer,
+)
 from versatil.models.layers.normalization.rms_norm import RMSNorm
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
+from versatil.models.layers.transformer.attention.joint_attention import JointAttention
+from versatil.models.layers.transformer.blocks.dual_stream_attention import (
+    DualStreamAttentionBlock,
+)
+from versatil.models.layers.transformer.blocks.feedforward import (
+    FeedforwardBlock,
+    build_feedforward,
+)
 from versatil.models.layers.transformer.positional_encoding import (
     create_positional_encoding,
 )
@@ -28,14 +38,8 @@ from versatil.models.layers.transformer.positional_encoding import (
 class MMDiTDecoder(nn.Module):
     """Multimodal Diffusion Transformer decoder.
 
-    Stacks multiple MMDiTLayer blocks with optional positional encodings
-    and final normalization for both streams.
-
-    Shape notation:
-        B: batch size
-        S: observation sequence length
-        T: action sequence length
-        D: embedding dimension
+    Stacks DualStreamAttentionBlock layers with optional positional
+    encodings and final normalization for both streams.
     """
 
     def __init__(
@@ -48,7 +52,7 @@ class MMDiTDecoder(nn.Module):
         dropout: float = 0.1,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SWIGLU.value,
-        normalization_type: str = NormalizationType.RMS_NORM.value,
+        normalization_type: str = NormalizationType.ADARMS.value,
         normalization_epsilon: float = 1e-6,
         use_query_key_norm: bool = True,
         use_gating: bool = True,
@@ -61,7 +65,7 @@ class MMDiTDecoder(nn.Module):
         """Initialize MMDiT decoder.
 
         Args:
-            number_of_layers: Number of MMDiT layers.
+            number_of_layers: Number of dual-stream attention layers.
             embedding_dimension: Hidden dimension for both streams.
             conditioning_dimension: Dimension of conditioning vector.
             number_of_heads: Number of attention heads.
@@ -69,20 +73,29 @@ class MMDiTDecoder(nn.Module):
             dropout: Dropout rate for residual connections.
             attention_dropout: Dropout rate for attention weights.
             activation: Activation function for FFN.
-            normalization_type: Type of normalization layer.
+            normalization_type: Adaptive normalization type.
             normalization_epsilon: Epsilon for normalization layers.
             use_query_key_norm: Whether to apply QK-normalization.
-            positional_encoding_type: Type of positional encoding (sinusoidal, learned, rope).
-            maximum_sequence_length_observation: Max observation sequence length.
-            maximum_sequence_length_action: Max action sequence length.
+            use_gating: Whether to use gating in adaptive normalization.
+            positional_encoding_type: Type of positional encoding.
+            maximum_sequence_length_observation: Max primary sequence length.
+            maximum_sequence_length_action: Max secondary sequence length.
             bias: Whether to use bias in linear layers.
             initializer_range: Standard deviation for weight initialization.
         """
         super().__init__()
+        norm_enum = NormalizationType(normalization_type)
+        if not norm_enum.is_adaptive:
+            raise ValueError(
+                f"MMDiTDecoder requires adaptive normalization, "
+                f"got {normalization_type}."
+            )
         self.number_of_layers = number_of_layers
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
         self.initializer_range = initializer_range
+        if feedforward_dimension is None:
+            feedforward_dimension = 4 * embedding_dimension
         self.positional_encoding_observation = None
         self.positional_encoding_action = None
         if positional_encoding_type is not None:
@@ -100,30 +113,79 @@ class MMDiTDecoder(nn.Module):
             )
         self.layers = nn.ModuleList(
             [
-                MMDiTLayer(
-                    embedding_dimension=embedding_dimension,
-                    conditioning_dimension=conditioning_dimension,
-                    number_of_heads=number_of_heads,
-                    feedforward_dimension=feedforward_dimension,
+                DualStreamAttentionBlock(
+                    joint_attention=JointAttention(
+                        primary_embedding_dimension=embedding_dimension,
+                        number_of_heads=number_of_heads,
+                        dropout=attention_dropout,
+                        use_query_key_norm=use_query_key_norm,
+                        normalization_epsilon=normalization_epsilon,
+                        bias=bias,
+                    ),
+                    attention_normalization_primary=create_block_normalization(
+                        normalization_type=normalization_type,
+                        dimension=embedding_dimension,
+                        epsilon=normalization_epsilon,
+                        condition_dim=conditioning_dimension,
+                        use_gating=use_gating,
+                    ),
+                    attention_normalization_secondary=create_block_normalization(
+                        normalization_type=normalization_type,
+                        dimension=embedding_dimension,
+                        epsilon=normalization_epsilon,
+                        condition_dim=conditioning_dimension,
+                        use_gating=use_gating,
+                    ),
+                    feedforward_block_primary=FeedforwardBlock(
+                        feedforward=build_feedforward(
+                            embedding_dimension=embedding_dimension,
+                            feedforward_dimension=feedforward_dimension,
+                            activation=activation,
+                            dropout=dropout,
+                            bias=bias,
+                        ),
+                        normalization=create_block_normalization(
+                            normalization_type=normalization_type,
+                            dimension=embedding_dimension,
+                            epsilon=normalization_epsilon,
+                            condition_dim=conditioning_dimension,
+                            use_gating=use_gating,
+                        ),
+                        dropout=dropout,
+                    ),
+                    feedforward_block_secondary=FeedforwardBlock(
+                        feedforward=build_feedforward(
+                            embedding_dimension=embedding_dimension,
+                            feedforward_dimension=feedforward_dimension,
+                            activation=activation,
+                            dropout=dropout,
+                            bias=bias,
+                        ),
+                        normalization=create_block_normalization(
+                            normalization_type=normalization_type,
+                            dimension=embedding_dimension,
+                            epsilon=normalization_epsilon,
+                            condition_dim=conditioning_dimension,
+                            use_gating=use_gating,
+                        ),
+                        dropout=dropout,
+                    ),
                     dropout=dropout,
-                    attention_dropout=attention_dropout,
-                    activation=activation,
-                    normalization_type=normalization_type,
-                    normalization_epsilon=normalization_epsilon,
-                    use_query_key_norm=use_query_key_norm,
-                    use_gating=use_gating,
-                    bias=bias,
                 )
                 for _ in range(number_of_layers)
             ]
         )
+        # Final norms are plain (unconditioned) — applied after all conditioned layers
+        plain_norm_type = NormalizationType.RMS_NORM.value
+        if normalization_type == NormalizationType.ADALN.value:
+            plain_norm_type = NormalizationType.LAYER_NORM.value
         self.final_normalization_observation = create_normalization_layer(
-            normalization_type=normalization_type,
+            normalization_type=plain_norm_type,
             dimension=embedding_dimension,
             epsilon=normalization_epsilon,
         )
         self.final_normalization_action = create_normalization_layer(
-            normalization_type=normalization_type,
+            normalization_type=plain_norm_type,
             dimension=embedding_dimension,
             epsilon=normalization_epsilon,
         )
@@ -163,14 +225,14 @@ class MMDiTDecoder(nn.Module):
         """Forward pass through MMDiT decoder.
 
         Args:
-            hidden_states_observation: Observation tokens (B, S, D).
-            hidden_states_action: Action tokens (B, T, D).
+            hidden_states_observation: Primary stream tokens (B, S, D).
+            hidden_states_action: Secondary stream tokens (B, T, D).
             conditioning: Conditioning vector (B, D).
-            attention_mask_observation: Padding mask for observations (B, S).
-            attention_mask_action: Padding mask for actions (B, T).
+            attention_mask_observation: Padding mask for primary (B, S).
+            attention_mask_action: Padding mask for secondary (B, T).
 
         Returns:
-            Tuple of (observation_output, action_output) with same shapes.
+            Tuple of (primary_output, secondary_output) with same shapes.
         """
         rope_observation = None
         rope_action = None
@@ -194,13 +256,13 @@ class MMDiTDecoder(nn.Module):
                 )
         for layer in self.layers:
             hidden_states_observation, hidden_states_action = layer(
-                hidden_states_observation=hidden_states_observation,
-                hidden_states_action=hidden_states_action,
+                hidden_states_primary=hidden_states_observation,
+                hidden_states_secondary=hidden_states_action,
                 conditioning=conditioning,
-                attention_mask_observation=attention_mask_observation,
-                attention_mask_action=attention_mask_action,
-                positional_encoding_observation=rope_observation,
-                positional_encoding_action=rope_action,
+                attention_mask_primary=attention_mask_observation,
+                attention_mask_secondary=attention_mask_action,
+                positional_encoding_primary=rope_observation,
+                positional_encoding_secondary=rope_action,
             )
         hidden_states_observation = self.final_normalization_observation(
             hidden_states_observation

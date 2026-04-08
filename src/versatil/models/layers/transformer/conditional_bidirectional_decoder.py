@@ -20,9 +20,7 @@ from versatil.models.layers.positional_encoding.rotary import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
 )
-from versatil.models.layers.transformer.conditional_decoder_layer import (
-    ConditionalTransformerDecoderLayer,
-)
+from versatil.models.layers.transformer.decoder_layer import TransformerDecoderLayer
 from versatil.models.layers.transformer.positional_encoding import (
     create_positional_encoding,
 )
@@ -31,11 +29,8 @@ from versatil.models.layers.transformer.positional_encoding import (
 class ConditionalBidirectionalDecoder(nn.Module):
     """Bidirectional transformer decoder with conditional modulation.
 
-    This decoder extends the standard bidirectional decoder to accept a conditioning
-    vector that modulates each transformer layer via AdaLN.
-
-    The conditioning is applied at each layer after normalization, enabling the model
-    to adapt its representations based on the conditioning signal throughout the network.
+    Each transformer layer uses adaptive normalization (AdaNorm) to condition
+    its representations on a conditioning signal throughout the network.
     """
 
     def __init__(
@@ -49,37 +44,45 @@ class ConditionalBidirectionalDecoder(nn.Module):
         dropout: float = 0.1,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SWIGLU.value,
-        normalization_type: str = NormalizationType.RMS_NORM.value,
+        normalization_type: str = NormalizationType.ADARMS.value,
         attention_type: str = AttentionType.GROUPED_QUERY.value,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 2048,
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
         initializer_range: float = 0.02,
-        modulation_init_strategy: str = "identity",
     ):
         """Initialize conditional bidirectional decoder.
 
         Args:
-            number_of_layers: Number of decoder layers
-            embedding_dimension: Model embedding dimension
-            condition_dimension: Dimension of conditioning vector (e.g., latent dim)
-            number_of_heads: Number of attention heads
-            number_of_key_value_heads: Number of K/V heads (for GQA)
-            feedforward_dimension: FFN hidden dimension
-            dropout: Dropout probability for residual connections
-            attention_dropout: Dropout probability for attention weights
-            activation: Activation function (use ActivationFunction enum values)
-            normalization_type: Type of normalization (use NormalizationType enum values)
-            attention_type: Type of attention (use AttentionType enum values)
-            positional_encoding_type: Type of positional encoding (or None)
-            maximum_sequence_length: Maximum sequence length for positional encoding
-            bias: Whether to use bias in linear layers
-            normalization_epsilon: Epsilon for normalization layers
-            initializer_range: Standard deviation for weight initialization
-            modulation_init_strategy: Initialization for modulation layers
+            number_of_layers: Number of decoder layers.
+            embedding_dimension: Model embedding dimension.
+            condition_dimension: Dimension of conditioning vector.
+            number_of_heads: Number of attention heads.
+            number_of_key_value_heads: Number of K/V heads (for GQA).
+            feedforward_dimension: FFN hidden dimension.
+            dropout: Dropout probability for residual connections.
+            attention_dropout: Dropout probability for attention weights.
+            activation: Activation function (use ActivationFunction enum values).
+            normalization_type: Adaptive normalization type.
+            attention_type: Type of attention (use AttentionType enum values).
+            positional_encoding_type: Type of positional encoding (or None).
+            maximum_sequence_length: Maximum sequence length for positional encoding.
+            bias: Whether to use bias in linear layers.
+            normalization_epsilon: Epsilon for normalization layers.
+            initializer_range: Standard deviation for weight initialization.
+
+        Raises:
+            ValueError: If normalization_type is not adaptive.
         """
         super().__init__()
+        norm_enum = NormalizationType(normalization_type)
+        if not norm_enum.is_adaptive:
+            raise ValueError(
+                f"ConditionalBidirectionalDecoder requires adaptive normalization, "
+                f"got {normalization_type}. Use {NormalizationType.ADALN.value} "
+                f"or {NormalizationType.ADARMS.value}."
+            )
         self.number_of_layers = number_of_layers
         self.embedding_dimension = embedding_dimension
         self.condition_dimension = condition_dimension
@@ -104,9 +107,8 @@ class ConditionalBidirectionalDecoder(nn.Module):
             )
         self.layers = nn.ModuleList(
             [
-                ConditionalTransformerDecoderLayer(
+                TransformerDecoderLayer(
                     embedding_dimension=embedding_dimension,
-                    condition_dimension=condition_dimension,
                     number_of_heads=number_of_heads,
                     number_of_key_value_heads=number_of_key_value_heads,
                     feedforward_dimension=feedforward_dimension,
@@ -118,7 +120,8 @@ class ConditionalBidirectionalDecoder(nn.Module):
                     use_cross_attention=True,
                     bias=bias,
                     normalization_epsilon=normalization_epsilon,
-                    modulation_init_strategy=modulation_init_strategy,
+                    autoregressive=False,
+                    condition_dim=condition_dimension,
                 )
                 for _ in range(number_of_layers)
             ]
@@ -127,6 +130,7 @@ class ConditionalBidirectionalDecoder(nn.Module):
             normalization_type=normalization_type,
             dimension=embedding_dimension,
             epsilon=normalization_epsilon,
+            condition_dim=condition_dimension,
         )
         self.apply(self._init_weights)
 
@@ -160,11 +164,11 @@ class ConditionalBidirectionalDecoder(nn.Module):
         """Expand 2D padding mask to 4D attention mask.
 
         Args:
-            padding_mask: (B, key_length) where True means masked/padded
-            query_length: Length of query sequence
+            padding_mask: (B, key_length) where True means masked/padded.
+            query_length: Length of query sequence.
 
         Returns:
-            Attention mask (B, 1, query_length, key_length) where True means masked
+            Attention mask (B, 1, query_length, key_length) where True means masked.
         """
         return padding_mask.unsqueeze(1).unsqueeze(2).expand(-1, -1, query_length, -1)
 
@@ -179,14 +183,14 @@ class ConditionalBidirectionalDecoder(nn.Module):
         """Forward pass through conditional bidirectional decoder.
 
         Args:
-            hidden_states: Query embeddings (B, query_length, D)
-            condition: Conditioning vector (B, condition_dim) - e.g., latent from VAE
-            encoded_features: Encoder features to cross-attend to (B, memory_length, D)
-            query_padding_mask: Optional padding mask for queries (B, query_length)
-            memory_padding_mask: Optional padding mask for memory (B, memory_length)
+            hidden_states: Query embeddings (B, query_length, D).
+            condition: Conditioning vector (B, condition_dim).
+            encoded_features: Encoder features to cross-attend to (B, memory_length, D).
+            query_padding_mask: Optional padding mask for queries (B, query_length).
+            memory_padding_mask: Optional padding mask for memory (B, memory_length).
 
         Returns:
-            Output hidden states (B, query_length, D)
+            Output hidden states (B, query_length, D).
         """
         query_length = hidden_states.shape[1]
         self_attention_mask = None
@@ -210,13 +214,13 @@ class ConditionalBidirectionalDecoder(nn.Module):
             else None
         )
         for layer in self.layers:
-            hidden_states = layer(
+            hidden_states, _ = layer(
                 hidden_states=hidden_states,
-                condition=condition,
                 encoded_features=encoded_features,
                 self_attention_mask=self_attention_mask,
                 cross_attention_mask=cross_attention_mask,
                 positional_encoding=rope_pe,
+                conditioning=condition,
             )
-        hidden_states = self.final_normalization(hidden_states)
+        hidden_states, _ = self.final_normalization(hidden_states, condition)
         return hidden_states

@@ -5,26 +5,6 @@ from collections.abc import Callable
 import numpy as np
 import pytest
 import torch
-import torch.nn as nn
-
-from versatil.models.layers.modulation.conditional_modulation import (
-    ConditionalModulation,
-)
-
-
-def reinit_modulation_layers(module: nn.Module) -> None:
-    """Re-initialize ConditionalModulation projections with xavier to break zero init.
-
-    At initialization, AdaNorm modulation layers have zero weights, so conditioning
-    has no effect. This helper enables conditioning sensitivity for behavioral tests.
-    """
-    for submodule in module.modules():
-        if isinstance(submodule, ConditionalModulation):
-            for linear in submodule.projection.modules():
-                if isinstance(linear, nn.Linear):
-                    nn.init.xavier_uniform_(linear.weight)
-                    if linear.bias is not None:
-                        nn.init.zeros_(linear.bias)
 
 
 @pytest.fixture

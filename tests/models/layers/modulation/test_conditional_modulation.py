@@ -25,7 +25,7 @@ def modulation_factory() -> Callable[..., ConditionalModulation]:
         use_shift: bool = True,
         use_gate: bool = False,
         activation: str = ActivationFunction.SILU.value,
-        init_strategy: str = "identity",
+        init_strategy: str = "zero",
     ) -> ConditionalModulation:
         return ConditionalModulation(
             condition_dim=condition_dim,
@@ -66,9 +66,8 @@ class TestConditionalModulationInitialization:
     @pytest.mark.parametrize(
         "init_strategy, expectation",
         [
-            ("identity", does_not_raise()),
-            ("xavier", does_not_raise()),
             ("zero", does_not_raise()),
+            ("xavier", does_not_raise()),
             (
                 "unknown_strategy",
                 pytest.raises(
@@ -88,13 +87,11 @@ class TestConditionalModulationInitialization:
             module = modulation_factory(init_strategy=init_strategy)
             assert module.init_strategy == init_strategy
 
-    @pytest.mark.parametrize("init_strategy", ["identity", "zero"])
-    def test_identity_and_zero_init_zero_all_projection_weights(
+    def test_zero_init_zeroes_all_projection_weights(
         self,
         modulation_factory: Callable[..., ConditionalModulation],
-        init_strategy: str,
     ):
-        module = modulation_factory(init_strategy=init_strategy)
+        module = modulation_factory(init_strategy="zero")
         for layer in module.projection.modules():
             if isinstance(layer, nn.Linear):
                 assert torch.all(layer.weight == 0)
@@ -114,7 +111,7 @@ class TestConditionalModulationInitialization:
         self,
         modulation_factory: Callable[..., ConditionalModulation],
     ):
-        module = modulation_factory(init_strategy="identity")
+        module = modulation_factory(init_strategy="zero")
         linear_layers = [
             m for m in module.projection.modules() if isinstance(m, nn.Linear)
         ]
@@ -156,7 +153,7 @@ class TestConditionalModulationForward:
             condition_dim=32,
             feature_dim=feature_dim,
             use_shift=use_shift,
-            init_strategy="identity",
+            init_strategy="zero",
         )
         tensor = sequence_tensor_factory(
             batch_size=2,

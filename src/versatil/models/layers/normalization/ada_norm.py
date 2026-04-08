@@ -1,3 +1,5 @@
+from typing import Literal
+
 import torch
 from torch import nn
 
@@ -15,6 +17,7 @@ class AdaNorm(nn.Module):
         feature_dim: int,
         use_gate: bool = False,
         activation: str = ActivationFunction.SILU.value,
+        init_strategy: Literal["zero", "xavier"] = "zero",
     ):
         super().__init__()
         self.norm = base_norm
@@ -27,7 +30,7 @@ class AdaNorm(nn.Module):
             use_shift=True,
             use_gate=use_gate,
             activation=ActivationFunction.SILU.value,
-            init_strategy="zero" if use_gate else "identity",
+            init_strategy=init_strategy,
         )
 
     def forward(
