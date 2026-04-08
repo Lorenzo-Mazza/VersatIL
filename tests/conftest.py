@@ -30,6 +30,18 @@ from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.metrics.base import LossOutput
 
 
+MINIMUM_VRAM_GB = 8.0
+
+
+def get_test_device() -> torch.device:
+    """Return CUDA device if available with sufficient VRAM, else CPU."""
+    if torch.cuda.is_available():
+        vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+        if vram_gb > MINIMUM_VRAM_GB:
+            return torch.device("cuda")
+    return torch.device("cpu")
+
+
 @pytest.fixture
 def rng() -> np.random.Generator:
     """Fixed-seed RNG for data generators. Fresh instance per test for isolation."""
@@ -38,8 +50,8 @@ def rng() -> np.random.Generator:
 
 @pytest.fixture
 def device() -> torch.device:
-    """Get available device (CUDA if available, else CPU)."""
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    """Get available device (CUDA if available with >8GB VRAM, else CPU)."""
+    return get_test_device()
 
 
 @pytest.fixture
