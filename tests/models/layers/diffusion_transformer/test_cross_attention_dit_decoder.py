@@ -3,6 +3,7 @@
 import re
 from collections.abc import Callable
 from contextlib import nullcontext as does_not_raise
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
@@ -27,7 +28,7 @@ def cross_decoder_factory() -> Callable[..., CrossConditioningDecoder]:
         dropout: float = 0.0,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SILU.value,
-        normalization_type: str = NormalizationType.ADARMS.value,
+        normalization_type: str = NormalizationType.RMS_NORM.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 256,
@@ -106,37 +107,36 @@ class TestCrossConditioningDecoderInitialization:
             )
 
     @pytest.mark.parametrize(
-        "normalization_type, expectation",
+        "normalization_type",
         [
-            (NormalizationType.ADARMS.value, does_not_raise()),
-            (NormalizationType.ADALN.value, does_not_raise()),
-            (
-                NormalizationType.RMS_NORM.value,
-                pytest.raises(
-                    ValueError,
-                    match="CrossConditioningDecoder requires adaptive normalization",
-                ),
-            ),
-            (
-                NormalizationType.LAYER_NORM.value,
-                pytest.raises(
-                    ValueError,
-                    match="CrossConditioningDecoder requires adaptive normalization",
-                ),
-            ),
+            NormalizationType.RMS_NORM.value,
+            NormalizationType.LAYER_NORM.value,
         ],
     )
-    def test_normalization_type_validation(
+    def test_normalization_type_accepted(
         self,
         cross_decoder_factory: Callable[..., CrossConditioningDecoder],
         normalization_type: str,
-        expectation,
     ):
-        with expectation:
-            cross_decoder_factory(
+        cross_decoder_factory(
+            number_of_layers=1,
+            normalization_type=normalization_type,
+        )
+
+    def test_cross_attention_layers_have_no_conditioning(self):
+        with patch(
+            "versatil.models.layers.diffusion_transformer.cross_attention_dit_decoder.TransformerDecoderLayer",
+            return_value=MagicMock(spec=torch.nn.Module),
+        ) as mock_layer:
+            CrossConditioningDecoder(
                 number_of_layers=1,
-                normalization_type=normalization_type,
+                embedding_dimension=32,
+                timestep_dimension=32,
+                number_of_heads=4,
             )
+            call_kwargs = mock_layer.call_args.kwargs
+            assert call_kwargs["cross_attention_conditioning_dimension"] is None
+            assert call_kwargs["conditioning_dimension"] == 32
 
 
 class TestCrossConditioningDecoderForward:

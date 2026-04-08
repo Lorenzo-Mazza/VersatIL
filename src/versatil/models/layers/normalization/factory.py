@@ -4,12 +4,47 @@ from typing import Literal
 
 import torch.nn as nn
 
-from versatil.models.layers import FrozenBatchNorm2d
 from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.rms_norm import RMSNorm
 from versatil.models.layers.normalization.typedefs import BlockNormalization
 from versatil.models.layers.normalization.unconditioned_norm import UnconditionedNorm
+
+
+def _create_base_norm(
+    normalization_type: str,
+    dimension: int,
+    epsilon: float,
+    elementwise_affine: bool = True,
+) -> nn.Module:
+    """Create the base normalization module.
+
+    Args:
+        normalization_type: Type of normalization (use NormalizationType enum values).
+        dimension: Feature dimension.
+        epsilon: Small constant for numerical stability.
+        elementwise_affine: Whether to include learnable affine parameters.
+
+    Returns:
+        Normalization base module.
+
+    Raises:
+        ValueError: If normalization_type is not supported.
+    """
+    match normalization_type:
+        case NormalizationType.LAYER_NORM.value:
+            return nn.LayerNorm(
+                dimension, eps=epsilon, elementwise_affine=elementwise_affine
+            )
+        case NormalizationType.RMS_NORM.value:
+            return RMSNorm(
+                dimension, eps=epsilon, elementwise_affine=elementwise_affine
+            )
+        case _:
+            raise ValueError(
+                f"Unsupported normalization type: {normalization_type}. "
+                f"Must be one of {[e.value for e in NormalizationType]}."
+            )
 
 
 def create_normalization_layer(
@@ -18,42 +53,41 @@ def create_normalization_layer(
     epsilon: float = 1e-6,
     condition_dim: int | None = None,
 ) -> nn.Module:
-    """Factory function to create normalization layer.
+    """Create a normalization layer, optionally wrapped with adaptive conditioning.
+
+    When ``condition_dim`` is provided, returns an AdaNorm that wraps the base
+    normalization with a learned modulation. Otherwise returns a plain norm.
 
     Args:
-        normalization_type: Type of normalization (use NormalizationType enum values)
-        dimension: Feature dimension
-        epsilon: Small constant for numerical stability
-        condition_dim: If provided, returns adaptive version (norm → ConditionalModulation)
+        normalization_type: Base normalization type (use NormalizationType enum values).
+        dimension: Feature dimension.
+        epsilon: Small constant for numerical stability.
+        condition_dim: Conditioning dimension. When set, wraps the base norm
+            in AdaNorm for adaptive modulation.
 
     Returns:
-        Normalization layer (LayerNorm or RMSNorm)
+        Plain normalization layer or AdaNorm.
 
     Raises:
-        ValueError: If normalization_type is not supported
+        ValueError: If normalization_type is not supported.
     """
-    if normalization_type in (
-        NormalizationType.ADALN.value,
-        NormalizationType.ADARMS.value,
-    ):
-        if condition_dim is None:
-            raise ValueError("condition_dim is required for ada_ln / ada_rms")
-        if normalization_type == NormalizationType.ADALN.value:
-            base_norm = nn.LayerNorm(dimension, eps=epsilon, elementwise_affine=False)
-        else:
-            base_norm = RMSNorm(dimension, eps=epsilon, elementwise_affine=False)
-        return AdaNorm(base_norm, condition_dim=condition_dim, feature_dim=dimension)
-    elif normalization_type == NormalizationType.LAYER_NORM.value:
-        return nn.LayerNorm(dimension, eps=epsilon)
-    elif normalization_type == NormalizationType.RMS_NORM.value:
-        return RMSNorm(dimension, eps=epsilon)
-    elif normalization_type == NormalizationType.FROZEN_BATCHNORM2D.value:
-        return FrozenBatchNorm2d(dimension)
-    else:
-        raise ValueError(
-            f"Unsupported normalization type: {normalization_type}. "
-            f"Must be one of {[e.value for e in NormalizationType]}."
+    if condition_dim is not None:
+        base_norm = _create_base_norm(
+            normalization_type=normalization_type,
+            dimension=dimension,
+            epsilon=epsilon,
+            elementwise_affine=False,
         )
+        return AdaNorm(
+            base_norm=base_norm,
+            condition_dim=condition_dim,
+            feature_dim=dimension,
+        )
+    return _create_base_norm(
+        normalization_type=normalization_type,
+        dimension=dimension,
+        epsilon=epsilon,
+    )
 
 
 def create_block_normalization(
@@ -64,48 +98,34 @@ def create_block_normalization(
     use_gating: bool = False,
     init_strategy: Literal["zero", "xavier"] = "zero",
 ) -> BlockNormalization:
-    """Create a normalization conforming to the block interface: (x, condition) -> (normed, gate).
+    """Create normalization for transformer blocks: ``(x, condition) -> (normed, gate)``.
+
+    When ``condition_dim`` is provided, returns an AdaNorm with learned
+    modulation (and optional gating for AdaLN-Zero). Otherwise returns
+    an UnconditionedNorm that wraps a plain normalization layer.
 
     Args:
-        normalization_type: Type of normalization (use NormalizationType enum values).
+        normalization_type: Base normalization type (use NormalizationType enum values).
         dimension: Feature dimension.
         epsilon: Small constant for numerical stability.
-        condition_dim: Conditioning dimension. Required for adaptive types.
+        condition_dim: Conditioning dimension. When set, creates AdaNorm.
         use_gating: Whether to produce a learned gate (AdaLN-Zero).
-            Only applies to adaptive normalization types.
+            Only applies when condition_dim is set.
         init_strategy: Initialization strategy for modulation weights.
 
     Returns:
-        AdaNorm for adaptive types, UnconditionedNorm for plain types.
+        AdaNorm when conditioned, UnconditionedNorm when not.
 
     Raises:
-        ValueError: If normalization_type is not supported, condition_dim
-            is missing for adaptive normalization types or provided for non-adaptive types.
+        ValueError: If normalization_type is not supported.
     """
-    valid_values = [e.value for e in NormalizationType]
-    if normalization_type not in valid_values:
-        raise ValueError(
-            f"Unsupported normalization type: {normalization_type}. "
-            f"Must be one of {valid_values}."
+    if condition_dim is not None:
+        base_norm = _create_base_norm(
+            normalization_type=normalization_type,
+            dimension=dimension,
+            epsilon=epsilon,
+            elementwise_affine=False,
         )
-    norm_enum = NormalizationType(normalization_type)
-    if norm_enum.is_adaptive:
-        if condition_dim is None:
-            raise ValueError(
-                f"condition_dim is required for adaptive normalization type "
-                f"{normalization_type}"
-            )
-        match norm_enum.value:
-            case NormalizationType.ADALN.value:
-                base_norm = nn.LayerNorm(
-                    dimension, eps=epsilon, elementwise_affine=False
-                )
-            case NormalizationType.ADARMS.value:
-                base_norm = RMSNorm(dimension, eps=epsilon, elementwise_affine=False)
-            case _:
-                raise ValueError(
-                    f"Unsupported adaptive normalization type: {normalization_type}"
-                )
         return AdaNorm(
             base_norm=base_norm,
             condition_dim=condition_dim,
@@ -113,21 +133,9 @@ def create_block_normalization(
             use_gate=use_gating,
             init_strategy=init_strategy,
         )
-    else:
-        if condition_dim is not None:
-            raise ValueError(
-                f"condition_dim should not be provided for non-adaptive normalization type "
-                f"{normalization_type}"
-            )
-        match norm_enum.value:
-            case NormalizationType.LAYER_NORM.value:
-                base_norm = nn.LayerNorm(dimension, eps=epsilon)
-            case NormalizationType.RMS_NORM.value:
-                base_norm = RMSNorm(dimension, eps=epsilon)
-            case _:
-                raise ValueError(
-                    f"Unsupported normalization type for blocks: {normalization_type}. "
-                    f"Use {NormalizationType.LAYER_NORM.value} or "
-                    f"{NormalizationType.RMS_NORM.value}."
-                )
-        return UnconditionedNorm(base_norm)
+    base_norm = _create_base_norm(
+        normalization_type=normalization_type,
+        dimension=dimension,
+        epsilon=epsilon,
+    )
+    return UnconditionedNorm(base_norm)

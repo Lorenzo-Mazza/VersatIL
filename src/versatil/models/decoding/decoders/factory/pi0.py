@@ -176,17 +176,6 @@ class Pi0Decoder(ActionDecoder):
         self.vlm_rotary_embedding = rotary_emb
         self.vlm_hidden_dimension = vlm_hidden_dimension
         use_conditioning = self.time_conditioning == TimeConditioning.ADANORM.value
-        norm_is_adaptive = NormalizationType(self.normalization_type).is_adaptive
-        if use_conditioning and not norm_is_adaptive:
-            raise ValueError(
-                f"AdaNorm time conditioning requires adaptive normalization, "
-                f"got {self.normalization_type}."
-            )
-        if norm_is_adaptive and not use_conditioning:
-            raise ValueError(
-                f"Adaptive normalization {self.normalization_type} requires "
-                f"AdaNorm time conditioning, got {self.time_conditioning}."
-            )
         self.expert_layers = nn.ModuleList(
             [
                 VLAJointAttentionLayer(

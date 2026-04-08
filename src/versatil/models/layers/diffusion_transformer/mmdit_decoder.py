@@ -52,7 +52,7 @@ class MMDiTDecoder(nn.Module):
         dropout: float = 0.1,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SWIGLU.value,
-        normalization_type: str = NormalizationType.ADARMS.value,
+        normalization_type: str = NormalizationType.RMS_NORM.value,
         normalization_epsilon: float = 1e-6,
         use_query_key_norm: bool = True,
         use_gating: bool = True,
@@ -73,7 +73,7 @@ class MMDiTDecoder(nn.Module):
             dropout: Dropout rate for residual connections.
             attention_dropout: Dropout rate for attention weights.
             activation: Activation function for FFN.
-            normalization_type: Adaptive normalization type.
+            normalization_type: Normalization type.
             normalization_epsilon: Epsilon for normalization layers.
             use_query_key_norm: Whether to apply QK-normalization.
             use_gating: Whether to use gating in adaptive normalization.
@@ -84,12 +84,6 @@ class MMDiTDecoder(nn.Module):
             initializer_range: Standard deviation for weight initialization.
         """
         super().__init__()
-        norm_enum = NormalizationType(normalization_type)
-        if not norm_enum.is_adaptive:
-            raise ValueError(
-                f"MMDiTDecoder requires adaptive normalization, "
-                f"got {normalization_type}."
-            )
         self.number_of_layers = number_of_layers
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
@@ -175,17 +169,13 @@ class MMDiTDecoder(nn.Module):
                 for _ in range(number_of_layers)
             ]
         )
-        # Final norms are plain (unconditioned) — applied after all conditioned layers
-        plain_norm_type = NormalizationType.RMS_NORM.value
-        if normalization_type == NormalizationType.ADALN.value:
-            plain_norm_type = NormalizationType.LAYER_NORM.value
         self.final_normalization_observation = create_normalization_layer(
-            normalization_type=plain_norm_type,
+            normalization_type=normalization_type,
             dimension=embedding_dimension,
             epsilon=normalization_epsilon,
         )
         self.final_normalization_action = create_normalization_layer(
-            normalization_type=plain_norm_type,
+            normalization_type=normalization_type,
             dimension=embedding_dimension,
             epsilon=normalization_epsilon,
         )

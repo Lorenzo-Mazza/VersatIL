@@ -161,9 +161,13 @@ class TestLACTInitialization:
         decoder = lact_decoder_factory(latent_dimension=latent_dimension)
         first_layer = decoder.action_decoder.layers[0]
         assert (
-            first_layer.self_attention_normalization.condition_dim == latent_dimension
+            first_layer.self_attention_block.normalization.condition_dim
+            == latent_dimension
         )
-        assert first_layer.feedforward_normalization.condition_dim == latent_dimension
+        assert (
+            first_layer.feedforward_block.normalization.condition_dim
+            == latent_dimension
+        )
 
     def test_excludes_latent_from_tokenization(
         self,

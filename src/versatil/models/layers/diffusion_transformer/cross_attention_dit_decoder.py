@@ -46,7 +46,7 @@ class CrossConditioningDecoder(nn.Module):
         dropout: float = 0.1,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SWIGLU.value,
-        normalization_type: str = NormalizationType.ADARMS.value,
+        normalization_type: str = NormalizationType.RMS_NORM.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 256,
@@ -54,6 +54,7 @@ class CrossConditioningDecoder(nn.Module):
         normalization_epsilon: float = 1e-6,
         use_gating: bool = True,
         initializer_range: float = 0.02,
+        cross_attention_normalization_type: str | None = None,
     ):
         """Initialize the cross-conditioning decoder.
 
@@ -67,7 +68,7 @@ class CrossConditioningDecoder(nn.Module):
             dropout: Dropout rate.
             attention_dropout: Dropout rate for attention weights.
             activation: Activation function name (use ActivationFunction enum values).
-            normalization_type: Adaptive normalization type for self-attention and FFN.
+            normalization_type: Normalization type for self-attention and FFN.
             attention_type: Type of attention (use AttentionType enum values).
             positional_encoding_type: Type of positional encoding (or None).
             maximum_sequence_length: Maximum sequence length for positional encoding.
@@ -75,18 +76,10 @@ class CrossConditioningDecoder(nn.Module):
             normalization_epsilon: Epsilon for normalization layers.
             use_gating: Whether to use gating in AdaNorm (AdaLN-Zero style).
             initializer_range: Standard deviation for weight initialization.
-
-        Raises:
-            ValueError: If normalization_type is not adaptive.
+            cross_attention_normalization_type: Normalization type for cross-attention.
+                Defaults to ``normalization_type`` when None.
         """
         super().__init__()
-        norm_enum = NormalizationType(normalization_type)
-        if not norm_enum.is_adaptive:
-            raise ValueError(
-                f"CrossConditioningDecoder requires adaptive normalization, "
-                f"got {normalization_type}. Use {NormalizationType.ADALN.value} "
-                f"or {NormalizationType.ADARMS.value}."
-            )
         self.number_of_layers = number_of_layers
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
@@ -99,10 +92,9 @@ class CrossConditioningDecoder(nn.Module):
         else:
             self.number_of_key_value_heads = number_of_heads
         self.head_dimension = embedding_dimension // number_of_heads
-        # Plain norm for cross-attention (not conditioned by timestep)
-        plain_normalization_type = NormalizationType.RMS_NORM.value
-        if normalization_type == NormalizationType.ADALN.value:
-            plain_normalization_type = NormalizationType.LAYER_NORM.value
+        cross_attention_normalization_type = (
+            cross_attention_normalization_type or normalization_type
+        )
         self.positional_encoding = None
         if positional_encoding_type is not None:
             self.positional_encoding = create_positional_encoding(
@@ -127,15 +119,16 @@ class CrossConditioningDecoder(nn.Module):
                     bias=bias,
                     normalization_epsilon=normalization_epsilon,
                     autoregressive=False,
-                    condition_dim=timestep_dimension,
+                    conditioning_dimension=timestep_dimension,
                     use_gating=use_gating,
-                    cross_attention_normalization_type=plain_normalization_type,
+                    cross_attention_normalization_type=cross_attention_normalization_type,
+                    cross_attention_conditioning_dimension=None,
                 )
                 for _ in range(number_of_layers)
             ]
         )
         self.final_normalization = create_normalization_layer(
-            normalization_type=plain_normalization_type,
+            normalization_type=cross_attention_normalization_type,
             dimension=embedding_dimension,
             epsilon=normalization_epsilon,
         )

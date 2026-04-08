@@ -2,7 +2,6 @@
 
 import math
 from collections.abc import Callable
-from contextlib import nullcontext as does_not_raise
 
 import pytest
 import torch
@@ -25,7 +24,7 @@ def mmdit_decoder_factory() -> Callable[..., MMDiTDecoder]:
         dropout: float = 0.0,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SILU.value,
-        normalization_type: str = NormalizationType.ADARMS.value,
+        normalization_type: str = NormalizationType.RMS_NORM.value,
         normalization_epsilon: float = 1e-6,
         use_query_key_norm: bool = True,
         use_gating: bool = True,
@@ -272,37 +271,21 @@ class TestMMDiTDecoderInitialization:
         assert torch.allclose(bias, torch.zeros_like(bias))
 
     @pytest.mark.parametrize(
-        "normalization_type, expectation",
+        "normalization_type",
         [
-            (NormalizationType.ADARMS.value, does_not_raise()),
-            (NormalizationType.ADALN.value, does_not_raise()),
-            (
-                NormalizationType.RMS_NORM.value,
-                pytest.raises(
-                    ValueError,
-                    match="MMDiTDecoder requires adaptive normalization",
-                ),
-            ),
-            (
-                NormalizationType.LAYER_NORM.value,
-                pytest.raises(
-                    ValueError,
-                    match="MMDiTDecoder requires adaptive normalization",
-                ),
-            ),
+            NormalizationType.RMS_NORM.value,
+            NormalizationType.LAYER_NORM.value,
         ],
     )
-    def test_normalization_type_validation(
+    def test_normalization_type_accepted(
         self,
         mmdit_decoder_factory: Callable[..., MMDiTDecoder],
         normalization_type: str,
-        expectation,
     ):
-        with expectation:
-            mmdit_decoder_factory(
-                number_of_layers=1,
-                normalization_type=normalization_type,
-            )
+        mmdit_decoder_factory(
+            number_of_layers=1,
+            normalization_type=normalization_type,
+        )
 
 
 class TestMMDiTDecoderForward:

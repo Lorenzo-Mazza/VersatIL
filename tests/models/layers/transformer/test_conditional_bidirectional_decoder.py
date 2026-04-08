@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Callable
-from contextlib import nullcontext as does_not_raise
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -33,7 +33,7 @@ def conditional_bidirectional_decoder_factory() -> Callable[
         dropout: float = 0.0,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.GELU.value,
-        normalization_type: str = NormalizationType.ADALN.value,
+        normalization_type: str = NormalizationType.LAYER_NORM.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 128,
@@ -93,6 +93,22 @@ class TestConditionalBidirectionalDecoderInitialization:
     ):
         decoder = conditional_bidirectional_decoder_factory(number_of_layers=3)
         assert len(decoder.layers) == 3
+
+    def test_cross_attention_conditioning_passed_explicitly(self):
+        with patch(
+            "versatil.models.layers.transformer.conditional_bidirectional_decoder.TransformerDecoderLayer",
+            return_value=MagicMock(spec=torch.nn.Module),
+        ) as mock_layer:
+            ConditionalBidirectionalDecoder(
+                number_of_layers=1,
+                embedding_dimension=32,
+                number_of_heads=4,
+                number_of_key_value_heads=2,
+                condition_dimension=16,
+            )
+            call_kwargs = mock_layer.call_args.kwargs
+            assert call_kwargs["cross_attention_conditioning_dimension"] == 16
+            assert call_kwargs["conditioning_dimension"] == 16
 
     def test_layers_have_cross_attention_enabled(
         self,
@@ -154,35 +170,26 @@ class TestConditionalBidirectionalDecoderInitialization:
         assert decoder.number_of_key_value_heads == 8
 
     @pytest.mark.parametrize(
-        "normalization_type, expectation",
+        "normalization_type",
         [
-            (NormalizationType.ADARMS.value, does_not_raise()),
-            (NormalizationType.ADALN.value, does_not_raise()),
-            (
-                NormalizationType.RMS_NORM.value,
-                pytest.raises(
-                    ValueError,
-                    match="ConditionalBidirectionalDecoder requires adaptive normalization",
-                ),
-            ),
+            NormalizationType.RMS_NORM.value,
+            NormalizationType.LAYER_NORM.value,
         ],
     )
-    def test_normalization_type_validation(
+    def test_normalization_type_accepted(
         self,
         conditional_bidirectional_decoder_factory: Callable[
             ..., ConditionalBidirectionalDecoder
         ],
         normalization_type: str,
-        expectation,
     ):
-        with expectation:
-            conditional_bidirectional_decoder_factory(
-                number_of_layers=1,
-                embedding_dimension=32,
-                condition_dimension=16,
-                number_of_heads=4,
-                normalization_type=normalization_type,
-            )
+        conditional_bidirectional_decoder_factory(
+            number_of_layers=1,
+            embedding_dimension=32,
+            condition_dimension=16,
+            number_of_heads=4,
+            normalization_type=normalization_type,
+        )
 
 
 class TestConditionalBidirectionalDecoderForward:

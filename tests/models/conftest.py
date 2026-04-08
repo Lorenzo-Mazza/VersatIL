@@ -284,7 +284,10 @@ def policy_factory(
             if algorithm_predict_return is not None:
                 algorithm.predict.return_value = algorithm_predict_return
         if decoder is None:
-            decoder = MagicMock(spec=ActionDecoder)
+            decoder = MagicMock(
+                spec=ActionDecoder,
+                decoder_input=MagicMock(requires_vlm_backbone=False),
+            )
         if observation_space is None:
             observation_space = MagicMock(spec=ObservationSpace)
         if action_space is None:

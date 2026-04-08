@@ -418,7 +418,7 @@ class TestObservationTokenizerBuildPrompts:
         observations = observation_dict_factory(language=12345)
         with pytest.raises(
             TypeError,
-            match=f"Expected str or list for language data, got {type(12345)}",
+            match=f"Expected str or list for language data, got {int}",
         ):
             tokenizer._build_prompts(observations)
 
@@ -574,6 +574,7 @@ class TestObservationTokenizerStateDict:
             "max_token_len",
             "vocab_size",
             "raw_text",
+            "padding_strategy",
             "binning_tokenizers",
             "is_fitted",
         }
@@ -1076,8 +1077,6 @@ class TestExtractLanguageText:
     def test_raises_on_invalid_type(self):
         with pytest.raises(
             TypeError,
-            match=f"Expected str or list for language data, got {type(123)}",
+            match=f"Expected str or list for language data, got {int}",
         ):
-            ObservationTokenizer._extract_language_text(
-                data=123, index=0, batch_size=1
-            )
+            ObservationTokenizer._extract_language_text(data=123, index=0, batch_size=1)

@@ -42,70 +42,63 @@ def norm_input_factory(
 
 class TestCreateNormalizationLayer:
     @pytest.mark.parametrize(
-        "normalization_type, spatial",
+        "normalization_type",
         [
-            (NormalizationType.LAYER_NORM.value, False),
-            (NormalizationType.RMS_NORM.value, False),
-            (NormalizationType.FROZEN_BATCHNORM2D.value, True),
-            (NormalizationType.ADALN.value, False),
-            (NormalizationType.ADARMS.value, False),
+            NormalizationType.LAYER_NORM.value,
+            NormalizationType.RMS_NORM.value,
         ],
     )
     def test_created_layer_produces_valid_output(
         self,
         norm_input_factory: Callable[..., torch.Tensor],
+        normalization_type: str,
+    ):
+        dimension = 64
+        layer = create_normalization_layer(
+            normalization_type=normalization_type,
+            dimension=dimension,
+        )
+        tensor = norm_input_factory(batch_size=2, channels=dimension)
+        output = layer(tensor)
+        assert output.shape == tensor.shape
+        assert torch.all(torch.isfinite(output))
+
+    @pytest.mark.parametrize(
+        "normalization_type",
+        [
+            NormalizationType.LAYER_NORM.value,
+            NormalizationType.RMS_NORM.value,
+        ],
+    )
+    def test_conditioned_layer_produces_valid_output(
+        self,
+        norm_input_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
         normalization_type: str,
-        spatial: bool,
     ):
         dimension = 64
         condition_dim = 32
-        kwargs = {
-            "normalization_type": normalization_type,
-            "dimension": dimension,
-        }
-        if normalization_type in (
-            NormalizationType.ADALN.value,
-            NormalizationType.ADARMS.value,
-        ):
-            kwargs["condition_dim"] = condition_dim
-        layer = create_normalization_layer(**kwargs)
-        tensor = norm_input_factory(batch_size=2, channels=dimension, spatial=spatial)
-        if normalization_type in (
-            NormalizationType.ADALN.value,
-            NormalizationType.ADARMS.value,
-        ):
-            condition = condition_factory(batch_size=2, condition_dim=condition_dim)
-            output, _ = layer(tensor, condition)
-        else:
-            output = layer(tensor)
+        layer = create_normalization_layer(
+            normalization_type=normalization_type,
+            dimension=dimension,
+            condition_dim=condition_dim,
+        )
+        tensor = norm_input_factory(batch_size=2, channels=dimension)
+        condition = condition_factory(batch_size=2, condition_dim=condition_dim)
+        output, _ = layer(tensor, condition)
         assert output.shape == tensor.shape
         assert torch.all(torch.isfinite(output))
 
     @pytest.mark.parametrize(
         "normalization_type, condition_dim, expectation",
         [
-            (
-                NormalizationType.ADALN.value,
-                None,
-                pytest.raises(
-                    ValueError,
-                    match=re.escape("condition_dim is required for ada_ln / ada_rms"),
-                ),
-            ),
-            (
-                NormalizationType.ADARMS.value,
-                None,
-                pytest.raises(
-                    ValueError,
-                    match=re.escape("condition_dim is required for ada_ln / ada_rms"),
-                ),
-            ),
-            (NormalizationType.ADALN.value, 32, does_not_raise()),
+            (NormalizationType.LAYER_NORM.value, 32, does_not_raise()),
+            (NormalizationType.RMS_NORM.value, 32, does_not_raise()),
             (NormalizationType.LAYER_NORM.value, None, does_not_raise()),
+            (NormalizationType.RMS_NORM.value, None, does_not_raise()),
         ],
     )
-    def test_adaptive_norm_requires_condition_dim(
+    def test_condition_dim_combinations(
         self,
         normalization_type: str,
         condition_dim: int | None,
@@ -134,7 +127,7 @@ class TestCreateNormalizationLayer:
 
     @pytest.mark.parametrize(
         "normalization_type",
-        [NormalizationType.ADALN.value, NormalizationType.ADARMS.value],
+        [NormalizationType.LAYER_NORM.value, NormalizationType.RMS_NORM.value],
     )
     def test_adaptive_base_norm_has_no_learnable_affine_parameters(
         self, normalization_type: str
@@ -172,30 +165,22 @@ class TestCreateNormalizationLayer:
             atol=1e-5,
         )
 
-    def test_frozen_batchnorm_default_acts_like_identity(
-        self,
-        norm_input_factory: Callable[..., torch.Tensor],
-    ):
-        dimension = 64
-        layer = create_normalization_layer(
-            normalization_type=NormalizationType.FROZEN_BATCHNORM2D.value,
-            dimension=dimension,
-        )
-        tensor = norm_input_factory(batch_size=2, channels=dimension, spatial=True)
-        output = layer(tensor)
-        assert torch.allclose(output, tensor, atol=1e-4)
-
 
 class TestCreateBlockNormalization:
     @pytest.mark.parametrize(
         "normalization_type, condition_dim, use_gating, expected_type",
         [
-            (NormalizationType.ADARMS.value, 32, False, AdaNorm),
-            (NormalizationType.ADALN.value, 32, True, AdaNorm),
+            (NormalizationType.RMS_NORM.value, 32, False, AdaNorm),
+            (NormalizationType.LAYER_NORM.value, 32, True, AdaNorm),
             (NormalizationType.RMS_NORM.value, None, False, UnconditionedNorm),
             (NormalizationType.LAYER_NORM.value, None, False, UnconditionedNorm),
         ],
-        ids=["adarms", "adaln_gated", "rms_unconditioned", "layernorm_unconditioned"],
+        ids=[
+            "rms_conditioned",
+            "layernorm_gated",
+            "rms_unconditioned",
+            "layernorm_unconditioned",
+        ],
     )
     def test_creates_correct_normalization_type(
         self,
@@ -212,74 +197,17 @@ class TestCreateBlockNormalization:
         )
         assert isinstance(norm, expected_type)
 
-    @pytest.mark.parametrize(
-        "normalization_type, condition_dim, expectation",
-        [
-            (
-                NormalizationType.ADARMS.value,
-                None,
-                pytest.raises(
-                    ValueError,
-                    match=re.escape(
-                        "condition_dim is required for adaptive normalization type "
-                        f"{NormalizationType.ADARMS.value}"
-                    ),
-                ),
+    def test_invalid_type_raises(self):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Unsupported normalization type: invalid_type. "
+                f"Must be one of {[e.value for e in NormalizationType]}."
             ),
-            (
-                NormalizationType.RMS_NORM.value,
-                32,
-                pytest.raises(
-                    ValueError,
-                    match=re.escape(
-                        "condition_dim should not be provided for non-adaptive "
-                        f"normalization type {NormalizationType.RMS_NORM.value}"
-                    ),
-                ),
-            ),
-            (
-                "invalid_type",
-                None,
-                pytest.raises(
-                    ValueError,
-                    match=re.escape(
-                        "Unsupported normalization type: invalid_type. "
-                        f"Must be one of {[e.value for e in NormalizationType]}."
-                    ),
-                ),
-            ),
-            (
-                NormalizationType.FROZEN_BATCHNORM2D.value,
-                None,
-                pytest.raises(
-                    ValueError,
-                    match=re.escape(
-                        f"Unsupported normalization type for blocks: "
-                        f"{NormalizationType.FROZEN_BATCHNORM2D.value}. "
-                        f"Use {NormalizationType.LAYER_NORM.value} or "
-                        f"{NormalizationType.RMS_NORM.value}."
-                    ),
-                ),
-            ),
-        ],
-        ids=[
-            "adaptive_missing_condition_dim",
-            "plain_with_condition_dim",
-            "invalid_type",
-            "unsupported_plain_type",
-        ],
-    )
-    def test_validation_errors(
-        self,
-        normalization_type: str,
-        condition_dim: int | None,
-        expectation,
-    ):
-        with expectation:
+        ):
             create_block_normalization(
-                normalization_type=normalization_type,
+                normalization_type="invalid_type",
                 dimension=64,
-                condition_dim=condition_dim,
             )
 
     def test_adaptive_norm_output_changes_with_condition(
@@ -290,7 +218,7 @@ class TestCreateBlockNormalization:
         dimension = 32
         condition_dim = 16
         norm = create_block_normalization(
-            normalization_type=NormalizationType.ADARMS.value,
+            normalization_type=NormalizationType.RMS_NORM.value,
             dimension=dimension,
             condition_dim=condition_dim,
             init_strategy="xavier",
@@ -333,7 +261,7 @@ class TestCreateBlockNormalization:
         dimension = 32
         condition_dim = 16
         norm = create_block_normalization(
-            normalization_type=NormalizationType.ADARMS.value,
+            normalization_type=NormalizationType.RMS_NORM.value,
             dimension=dimension,
             condition_dim=condition_dim,
             use_gating=True,
@@ -354,7 +282,7 @@ class TestCreateBlockNormalization:
         dimension = 32
         condition_dim = 16
         norm = create_block_normalization(
-            normalization_type=NormalizationType.ADALN.value,
+            normalization_type=NormalizationType.LAYER_NORM.value,
             dimension=dimension,
             condition_dim=condition_dim,
             use_gating=False,
@@ -375,13 +303,13 @@ class TestCreateBlockNormalization:
         dimension = 64
         condition_dim = 32
         zero_norm = create_block_normalization(
-            normalization_type=NormalizationType.ADARMS.value,
+            normalization_type=NormalizationType.RMS_NORM.value,
             dimension=dimension,
             condition_dim=condition_dim,
             init_strategy="zero",
         )
         xavier_norm = create_block_normalization(
-            normalization_type=NormalizationType.ADARMS.value,
+            normalization_type=NormalizationType.RMS_NORM.value,
             dimension=dimension,
             condition_dim=condition_dim,
             init_strategy="xavier",

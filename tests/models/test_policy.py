@@ -32,7 +32,10 @@ class TestPolicyInitialization:
     ):
         pipeline = encoding_pipeline_factory()
         algorithm = MagicMock(spec=DecodingAlgorithm)
-        decoder = MagicMock(spec=ActionDecoder)
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=MagicMock(requires_vlm_backbone=False),
+        )
         observation_space = MagicMock(spec=ObservationSpace)
         action_space = MagicMock(spec=ActionSpace)
         loss = MagicMock(spec=BaseLoss)
@@ -173,7 +176,10 @@ class TestInputOutputKeys:
         self,
         policy_factory: Callable[..., Policy],
     ):
-        decoder = MagicMock(spec=ActionDecoder)
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=MagicMock(requires_vlm_backbone=False),
+        )
         decoder.action_heads = {
             "position": MagicMock(),
             "gripper": MagicMock(),
@@ -206,7 +212,10 @@ class TestSetNormalizer:
     def test_propagates_normalizer_to_decoder(
         self, policy_factory: Callable[..., Policy]
     ):
-        decoder = MagicMock(spec=ActionDecoder)
+        decoder = MagicMock(
+            spec=ActionDecoder,
+            decoder_input=MagicMock(requires_vlm_backbone=False),
+        )
         policy = policy_factory(decoder=decoder)
         normalizer = MagicMock(spec=LinearNormalizer)
         normalizer.state_dict.return_value = {}

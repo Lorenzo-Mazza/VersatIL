@@ -319,10 +319,8 @@ class SmolVLADecoder(ActionDecoder):
         batch_size, sequence_length, _ = normalized.shape
         head_dimension = attention.head_dim
         number_of_key_value_heads = attention.config.num_key_value_heads
-
         keys_flat = attention.k_proj(normalized)
         values_flat = attention.v_proj(normalized)
-
         keys_headed = keys_flat.view(
             batch_size, sequence_length, number_of_key_value_heads, head_dimension
         ).transpose(1, 2)

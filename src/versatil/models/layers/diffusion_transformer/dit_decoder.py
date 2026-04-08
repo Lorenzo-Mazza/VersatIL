@@ -42,7 +42,7 @@ class DiffusionTransformerDecoder(nn.Module):
         dropout: float = 0.1,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SWIGLU.value,
-        normalization_type: str = NormalizationType.ADARMS.value,
+        normalization_type: str = NormalizationType.RMS_NORM.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 256,
@@ -64,7 +64,7 @@ class DiffusionTransformerDecoder(nn.Module):
             dropout: Dropout rate.
             attention_dropout: Dropout rate for attention weights.
             activation: Activation function name (use ActivationFunction enum values).
-            normalization_type: Adaptive normalization type (use NormalizationType enum values).
+            normalization_type: Normalization type (use NormalizationType enum values).
             attention_type: Type of attention (use AttentionType enum values).
             positional_encoding_type: Type of positional encoding (or None).
             maximum_sequence_length: Maximum sequence length for positional encoding.
@@ -73,18 +73,8 @@ class DiffusionTransformerDecoder(nn.Module):
             use_gating: Whether to use gating in AdaNorm (AdaLN-Zero).
             use_final_normalization: Whether to apply final normalization after decoder layers.
             initializer_range: Standard deviation for weight initialization.
-
-        Raises:
-            ValueError: If normalization_type is not adaptive.
         """
         super().__init__()
-        norm_enum = NormalizationType(normalization_type)
-        if not norm_enum.is_adaptive:
-            raise ValueError(
-                f"DiffusionTransformerDecoder requires adaptive normalization, "
-                f"got {normalization_type}. Use {NormalizationType.ADALN.value} "
-                f"or {NormalizationType.ADARMS.value}."
-            )
         self.number_of_layers = number_of_layers
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
@@ -122,7 +112,7 @@ class DiffusionTransformerDecoder(nn.Module):
                     attention_type=attention_type,
                     bias=bias,
                     normalization_epsilon=normalization_epsilon,
-                    condition_dim=timestep_dimension,
+                    conditioning_dimension=timestep_dimension,
                     use_gating=use_gating,
                 )
                 for _ in range(number_of_layers)

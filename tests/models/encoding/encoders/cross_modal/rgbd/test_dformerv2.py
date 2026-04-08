@@ -654,6 +654,7 @@ class TestDFormerEncoderPretrainedCheckpoint:
             checkpoint_path=str(DFORMER_CHECKPOINT_PATH),
             pooling_method=PoolingMethod.AVERAGE.value,
         )
+        encoder.set_image_size(height=224, width=224)
         encoder.eval()
         batch_size = 1
         inputs = rgbd_input_factory(batch_size=batch_size, height=224, width=224)
@@ -688,6 +689,8 @@ class TestDFormerEncoderPretrainedCheckpoint:
             checkpoint_path=None,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
+        pretrained_encoder.set_image_size(height=224, width=224)
+        random_encoder.set_image_size(height=224, width=224)
         pretrained_encoder.eval()
         random_encoder.eval()
         inputs = rgbd_input_factory(batch_size=1, height=224, width=224)

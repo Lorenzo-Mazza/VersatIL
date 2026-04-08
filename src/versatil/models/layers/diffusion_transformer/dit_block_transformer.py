@@ -61,7 +61,7 @@ class DiTBlock(nn.Module):
         dropout: float = 0.1,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SWIGLU.value,
-        normalization_type: str = NormalizationType.ADARMS.value,
+        normalization_type: str = NormalizationType.RMS_NORM.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 2048,
@@ -113,9 +113,6 @@ class DiTBlock(nn.Module):
             mlp_activation=nn.SiLU,
             mlp_hidden_dimensions=[embedding_dimension, embedding_dimension],
         )
-        encoder_normalization_type = NormalizationType.RMS_NORM.value
-        if normalization_type == NormalizationType.ADALN.value:
-            encoder_normalization_type = NormalizationType.LAYER_NORM.value
         self.encoder = TransformerEncoder(
             number_of_layers=number_of_encoder_layers,
             embedding_dimension=embedding_dimension,
@@ -125,7 +122,7 @@ class DiTBlock(nn.Module):
             dropout=dropout,
             attention_dropout=attention_dropout,
             activation=activation,
-            normalization_type=encoder_normalization_type,
+            normalization_type=normalization_type,
             attention_type=attention_type,
             positional_encoding_type=positional_encoding_type,
             maximum_sequence_length=maximum_sequence_length,

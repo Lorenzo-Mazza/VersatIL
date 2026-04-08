@@ -44,7 +44,7 @@ class ConditionalBidirectionalDecoder(nn.Module):
         dropout: float = 0.1,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SWIGLU.value,
-        normalization_type: str = NormalizationType.ADARMS.value,
+        normalization_type: str = NormalizationType.RMS_NORM.value,
         attention_type: str = AttentionType.GROUPED_QUERY.value,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 2048,
@@ -64,25 +64,15 @@ class ConditionalBidirectionalDecoder(nn.Module):
             dropout: Dropout probability for residual connections.
             attention_dropout: Dropout probability for attention weights.
             activation: Activation function (use ActivationFunction enum values).
-            normalization_type: Adaptive normalization type.
+            normalization_type: Normalization type.
             attention_type: Type of attention (use AttentionType enum values).
             positional_encoding_type: Type of positional encoding (or None).
             maximum_sequence_length: Maximum sequence length for positional encoding.
             bias: Whether to use bias in linear layers.
             normalization_epsilon: Epsilon for normalization layers.
             initializer_range: Standard deviation for weight initialization.
-
-        Raises:
-            ValueError: If normalization_type is not adaptive.
         """
         super().__init__()
-        norm_enum = NormalizationType(normalization_type)
-        if not norm_enum.is_adaptive:
-            raise ValueError(
-                f"ConditionalBidirectionalDecoder requires adaptive normalization, "
-                f"got {normalization_type}. Use {NormalizationType.ADALN.value} "
-                f"or {NormalizationType.ADARMS.value}."
-            )
         self.number_of_layers = number_of_layers
         self.embedding_dimension = embedding_dimension
         self.condition_dimension = condition_dimension
@@ -121,7 +111,8 @@ class ConditionalBidirectionalDecoder(nn.Module):
                     bias=bias,
                     normalization_epsilon=normalization_epsilon,
                     autoregressive=False,
-                    condition_dim=condition_dimension,
+                    conditioning_dimension=condition_dimension,
+                    cross_attention_conditioning_dimension=condition_dimension,
                 )
                 for _ in range(number_of_layers)
             ]
@@ -184,7 +175,7 @@ class ConditionalBidirectionalDecoder(nn.Module):
 
         Args:
             hidden_states: Query embeddings (B, query_length, D).
-            condition: Conditioning vector (B, condition_dim).
+            condition: Conditioning vector (B, conditioning_dimension).
             encoded_features: Encoder features to cross-attend to (B, memory_length, D).
             query_padding_mask: Optional padding mask for queries (B, query_length).
             memory_padding_mask: Optional padding mask for memory (B, memory_length).

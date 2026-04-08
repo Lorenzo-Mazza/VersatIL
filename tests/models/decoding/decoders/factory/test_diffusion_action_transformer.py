@@ -243,6 +243,7 @@ class TestDiffusionActionTransformerInitialization:
             number_of_layers=NUMBER_OF_LAYERS,
             feedforward_dimension=FEEDFORWARD_DIMENSION,
             activation=ActivationFunction.GELU.value,
+            normalization_type=NormalizationType.RMS_NORM.value,
         )
         for action_key in decoder.action_heads:
             assert len(decoder.action_heads[action_key].blocks) == 0

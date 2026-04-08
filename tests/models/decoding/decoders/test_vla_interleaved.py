@@ -283,7 +283,7 @@ class TestVLAJointAttentionLayer:
         condition_factory: Callable[..., torch.Tensor],
     ):
         layer = joint_attention_layer_factory(
-            normalization_type=NormalizationType.ADARMS.value,
+            normalization_type=NormalizationType.RMS_NORM.value,
             condition_dim=EXPERT_HIDDEN_SIZE,
         )
         reinit_modulation_layers(layer)
@@ -313,7 +313,7 @@ class TestVLAJointAttentionLayer:
         condition_factory: Callable[..., torch.Tensor],
     ):
         layer = joint_attention_layer_factory(
-            normalization_type=NormalizationType.ADARMS.value,
+            normalization_type=NormalizationType.RMS_NORM.value,
             condition_dim=EXPERT_HIDDEN_SIZE,
             use_gating=True,
         )

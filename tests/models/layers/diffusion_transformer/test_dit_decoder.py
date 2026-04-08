@@ -29,7 +29,7 @@ def dit_decoder_factory() -> Callable[..., DiffusionTransformerDecoder]:
         dropout: float = 0.0,
         attention_dropout: float = 0.0,
         activation: str = ActivationFunction.SILU.value,
-        normalization_type: str = NormalizationType.ADARMS.value,
+        normalization_type: str = NormalizationType.RMS_NORM.value,
         attention_type: str = AttentionType.MULTI_HEAD.value,
         positional_encoding_type: str | None = None,
         maximum_sequence_length: int = 256,
@@ -127,30 +127,21 @@ class TestDiffusionTransformerDecoderInitialization:
                 assert torch.all(linear.weight == 0.0)
 
     @pytest.mark.parametrize(
-        "normalization_type, expectation",
+        "normalization_type",
         [
-            (NormalizationType.ADARMS.value, does_not_raise()),
-            (NormalizationType.ADALN.value, does_not_raise()),
-            (
-                NormalizationType.RMS_NORM.value,
-                pytest.raises(
-                    ValueError,
-                    match="DiffusionTransformerDecoder requires adaptive normalization",
-                ),
-            ),
+            NormalizationType.RMS_NORM.value,
+            NormalizationType.LAYER_NORM.value,
         ],
     )
-    def test_normalization_type_validation(
+    def test_normalization_type_accepted(
         self,
         dit_decoder_factory: Callable[..., DiffusionTransformerDecoder],
         normalization_type: str,
-        expectation,
     ):
-        with expectation:
-            dit_decoder_factory(
-                number_of_layers=1,
-                normalization_type=normalization_type,
-            )
+        dit_decoder_factory(
+            number_of_layers=1,
+            normalization_type=normalization_type,
+        )
 
 
 class TestDiffusionTransformerDecoderForward:

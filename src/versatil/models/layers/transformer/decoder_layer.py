@@ -48,9 +48,10 @@ class TransformerDecoderLayer(nn.Module):
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
         autoregressive: bool = True,
-        condition_dim: int | None = None,
+        conditioning_dimension: int | None = None,
         use_gating: bool = False,
         cross_attention_normalization_type: str | None = None,
+        cross_attention_conditioning_dimension: int | None = None,
     ):
         """Initialize Transformer decoder layer.
 
@@ -68,11 +69,13 @@ class TransformerDecoderLayer(nn.Module):
             bias: Whether to use bias in linear layers.
             normalization_epsilon: Epsilon for normalization layers.
             autoregressive: Whether the model is autoregressive (affects caching).
-            condition_dim: Conditioning dimension for adaptive normalization.
-                Required when normalization_type is adaptive.
+            conditioning_dimension: Conditioning dimension for adaptive normalization.
+                When set, wraps normalization in AdaNorm.
             use_gating: Whether to use gating in adaptive normalization (AdaLN-Zero).
             cross_attention_normalization_type: Normalization type for the cross-attention
                 block. Defaults to ``normalization_type`` when None.
+            cross_attention_conditioning_dimension: Conditioning dimension for
+                cross-attention normalization. None means no conditioning.
         """
         super().__init__()
         self.embedding_dimension = embedding_dimension
@@ -94,19 +97,11 @@ class TransformerDecoderLayer(nn.Module):
                 normalization_type=normalization_type,
                 dimension=embedding_dimension,
                 epsilon=normalization_epsilon,
-                condition_dim=condition_dim,
+                condition_dim=conditioning_dimension,
                 use_gating=use_gating,
             ),
             dropout=dropout,
         )
-        cross_norm_type = cross_attention_normalization_type or normalization_type
-        cross_condition_dim = condition_dim
-        cross_use_gating = use_gating
-        if cross_attention_normalization_type is not None:
-            cross_is_adaptive = NormalizationType(cross_norm_type).is_adaptive
-            if not cross_is_adaptive:
-                cross_condition_dim = None
-                cross_use_gating = False
         if use_cross_attention:
             self.cross_attention_block = CrossAttentionBlock(
                 attention=CachedAttention(
@@ -118,11 +113,14 @@ class TransformerDecoderLayer(nn.Module):
                     attention_type=attention_type,
                 ),
                 normalization=create_block_normalization(
-                    normalization_type=cross_norm_type,
+                    normalization_type=cross_attention_normalization_type
+                    or normalization_type,
                     dimension=embedding_dimension,
                     epsilon=normalization_epsilon,
-                    condition_dim=cross_condition_dim,
-                    use_gating=cross_use_gating,
+                    condition_dim=cross_attention_conditioning_dimension,
+                    use_gating=use_gating
+                    if cross_attention_conditioning_dimension is not None
+                    else False,
                 ),
                 dropout=dropout,
             )
@@ -140,7 +138,7 @@ class TransformerDecoderLayer(nn.Module):
                 normalization_type=normalization_type,
                 dimension=embedding_dimension,
                 epsilon=normalization_epsilon,
-                condition_dim=condition_dim,
+                condition_dim=conditioning_dimension,
                 use_gating=use_gating,
             ),
             dropout=dropout,

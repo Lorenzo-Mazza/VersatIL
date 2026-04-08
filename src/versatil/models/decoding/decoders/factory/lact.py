@@ -27,12 +27,12 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
 
 
 class LACT(ActionDecoder):
-    """Latent ACtion Transformer for generative action decoding.
+    """Latent Action Transformer for generative action decoding.
 
     Forward pass steps:
         Build observation tokens from spatial/flat features
         Condition learnable queries with latent via AdaLN-Zero
-        Decode actions using Pix-Art style DiT (cross-attention to observation tokens) with latent modulation at each layer
+        Decode actions cross-attention to observation tokens with latent modulation at each layer
         Apply action heads to produce predictions
     """
 
@@ -76,7 +76,7 @@ class LACT(ActionDecoder):
             feedforward_dimension: FFN hidden dimension (default: 4 * embedding_dimension)
             number_of_layers: Number of conditional transformer decoder layers
             activation: Activation function name
-            normalization_type: Type of normalization layer
+            normalization_type: Type of adaptive normalization layer
             attention_type: Type of attention mechanism (multi-head, grouped query, etc.)
             positional_encoding_type: Type of positional encoding.
             dropout_rate: Dropout probability for residual connections

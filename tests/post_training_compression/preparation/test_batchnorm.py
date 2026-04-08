@@ -7,7 +7,7 @@ import pytest
 import torch
 from torch import nn
 
-from versatil.models.layers.normalization.frozen_batchnorm import FrozenBatchNorm2d
+from versatil.models.layers.frozen_batchnorm import FrozenBatchNorm2d
 from versatil.post_training_compression.preparation.batchnorm import (
     _create_replacement_batchnorm,
     extract_activation,

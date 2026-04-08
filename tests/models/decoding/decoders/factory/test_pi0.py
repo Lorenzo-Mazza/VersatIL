@@ -147,6 +147,7 @@ def initialized_decoder_factory(
         prediction_horizon: int = PREDICTION_HORIZON,
         time_conditioning: str = TimeConditioning.CONCAT_MLP.value,
         proprioceptive_feature_key: str | None = None,
+        normalization_type: str = NormalizationType.RMS_NORM.value,
         dropout: float = 0.0,
     ) -> Pi0Decoder:
         decoder = pi0_decoder_factory(
@@ -157,6 +158,7 @@ def initialized_decoder_factory(
             prediction_horizon=prediction_horizon,
             time_conditioning=time_conditioning,
             proprioceptive_feature_key=proprioceptive_feature_key,
+            normalization_type=normalization_type,
             dropout=dropout,
         )
         decoder.set_backbone(
@@ -297,47 +299,26 @@ class TestPi0DecoderInitialization:
         ):
             pi0_decoder_factory(time_conditioning="invalid_mode")
 
-    @pytest.mark.parametrize(
-        "time_conditioning, normalization_type, expected_error",
-        [
-            (
-                TimeConditioning.ADANORM.value,
-                NormalizationType.RMS_NORM.value,
-                f"AdaNorm time conditioning requires adaptive normalization, "
-                f"got {NormalizationType.RMS_NORM.value}.",
-            ),
-            (
-                TimeConditioning.CONCAT_MLP.value,
-                NormalizationType.ADARMS.value,
-                f"Adaptive normalization {NormalizationType.ADARMS.value} requires "
-                f"AdaNorm time conditioning, got {TimeConditioning.CONCAT_MLP.value}.",
-            ),
-        ],
-        ids=["adanorm_with_plain_norm", "adaptive_norm_without_adanorm_conditioning"],
-    )
-    def test_set_backbone_raises_on_mismatched_conditioning_and_normalization(
+    def test_set_backbone_accepts_adanorm_with_plain_norm(
         self,
         pi0_decoder_factory: Callable[..., Pi0Decoder],
-        time_conditioning: str,
-        normalization_type: str,
-        expected_error: str,
     ):
         decoder = pi0_decoder_factory(
-            time_conditioning=time_conditioning,
-            normalization_type=normalization_type,
+            time_conditioning=TimeConditioning.ADANORM.value,
+            normalization_type=NormalizationType.RMS_NORM.value,
         )
         mock_vlm_layers = nn.ModuleList(
             [MagicMock(spec=nn.Module) for _ in range(NUM_EXPERT_LAYERS)]
         )
         mock_rotary_emb = MagicMock(spec=nn.Module)
         mock_text_config = MagicMock(spec=PretrainedConfig)
-        with pytest.raises(ValueError, match=re.escape(expected_error)):
-            decoder.set_backbone(
-                vlm_layers=mock_vlm_layers,
-                rotary_emb=mock_rotary_emb,
-                vlm_hidden_dimension=VLM_HIDDEN_DIMENSION,
-                vlm_text_config=mock_text_config,
-            )
+        decoder.set_backbone(
+            vlm_layers=mock_vlm_layers,
+            rotary_emb=mock_rotary_emb,
+            vlm_hidden_dimension=VLM_HIDDEN_DIMENSION,
+            vlm_text_config=mock_text_config,
+        )
+        assert decoder.expert_layers is not None
 
 
 @pytest.mark.integration
@@ -350,22 +331,39 @@ class TestPi0DecoderSetBackbone:
         assert len(decoder.expert_layers) == NUM_EXPERT_LAYERS
 
     @pytest.mark.parametrize(
-        "time_conditioning, proprioceptive_feature_key, expect_projection",
+        "time_conditioning, normalization_type, proprioceptive_feature_key, expect_projection",
         [
-            (TimeConditioning.CONCAT_MLP.value, PROPRIO_KEY, True),
-            (TimeConditioning.CONCAT_MLP.value, None, False),
-            (TimeConditioning.ADANORM.value, PROPRIO_KEY, False),
+            (
+                TimeConditioning.CONCAT_MLP.value,
+                NormalizationType.RMS_NORM.value,
+                PROPRIO_KEY,
+                True,
+            ),
+            (
+                TimeConditioning.CONCAT_MLP.value,
+                NormalizationType.RMS_NORM.value,
+                None,
+                False,
+            ),
+            (
+                TimeConditioning.ADANORM.value,
+                NormalizationType.RMS_NORM.value,
+                PROPRIO_KEY,
+                False,
+            ),
         ],
     )
     def test_proprioceptive_projection_created_only_for_concat_mlp_with_key(
         self,
         initialized_decoder_factory: Callable[..., Pi0Decoder],
         time_conditioning: str,
+        normalization_type: str,
         proprioceptive_feature_key: str | None,
         expect_projection: bool,
     ):
         decoder = initialized_decoder_factory(
             time_conditioning=time_conditioning,
+            normalization_type=normalization_type,
             proprioceptive_feature_key=proprioceptive_feature_key,
         )
         has_projection = decoder.proprioceptive_projection is not None
@@ -553,6 +551,7 @@ class TestPi0DecoderBehavior:
         # at init. This is by design: the network starts as identity.
         decoder = initialized_decoder_factory(
             time_conditioning=TimeConditioning.ADANORM.value,
+            normalization_type=NormalizationType.RMS_NORM.value,
         )
         decoder.eval()
         features_low = prefix_features_factory()

@@ -45,7 +45,7 @@ def encoder_layer_factory() -> Callable[..., TransformerEncoderLayer]:
             attention_type=attention_type,
             bias=bias,
             normalization_epsilon=normalization_epsilon,
-            condition_dim=condition_dim,
+            conditioning_dimension=condition_dim,
             use_gating=use_gating,
         )
 
@@ -247,7 +247,7 @@ class TestTransformerEncoderLayerConditioning:
         layer = encoder_layer_factory(
             embedding_dimension=32,
             number_of_heads=4,
-            normalization_type=NormalizationType.ADARMS.value,
+            normalization_type=NormalizationType.RMS_NORM.value,
             condition_dim=32,
             dropout=0.0,
         )
@@ -270,7 +270,7 @@ class TestTransformerEncoderLayerConditioning:
         layer = encoder_layer_factory(
             embedding_dimension=32,
             number_of_heads=4,
-            normalization_type=NormalizationType.ADARMS.value,
+            normalization_type=NormalizationType.RMS_NORM.value,
             condition_dim=32,
             use_gating=True,
             dropout=0.0,
@@ -314,7 +314,7 @@ class TestTransformerEncoderLayerConditioning:
         layer = encoder_layer_factory(
             embedding_dimension=32,
             number_of_heads=4,
-            normalization_type=NormalizationType.ADARMS.value,
+            normalization_type=NormalizationType.RMS_NORM.value,
             condition_dim=32,
             dropout=0.0,
         )

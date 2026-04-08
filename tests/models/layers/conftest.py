@@ -17,7 +17,7 @@ from versatil.models.layers.normalization.ada_norm import AdaNorm
 def condition_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:
-    """Factory for conditioning vectors (B, condition_dim)."""
+    """Factory for conditioning vectors (B, conditioning_dimension)."""
 
     def factory(
         batch_size: int = 2,

@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_block_normalization
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
@@ -58,6 +59,10 @@ class VLACrossAttentionLayer(nn.Module):
         self.value_projection = nn.Linear(
             vlm_key_value_dimension, expert_key_value_dimension, bias=False
         )
+        if expert_number_of_key_value_heads == expert_number_of_heads:
+            attention_type = AttentionType.MULTI_HEAD.value
+        else:
+            attention_type = AttentionType.GROUPED_QUERY.value
         self.cross_attention_block = PrecomputedCrossAttentionBlock(
             attention=CachedAttention(
                 embedding_dimension=expert_embedding_dimension,
@@ -66,6 +71,7 @@ class VLACrossAttentionLayer(nn.Module):
                 head_dimension=expert_head_dimension,
                 dropout=dropout,
                 bias=False,
+                attention_type=attention_type,
             ),
             normalization=create_block_normalization(
                 normalization_type=normalization_type,

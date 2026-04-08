@@ -3,7 +3,7 @@ import enum
 import torch
 import torch.nn as nn
 
-from versatil.models.layers.normalization.frozen_batchnorm import FrozenBatchNorm2d
+from versatil.models.layers.frozen_batchnorm import FrozenBatchNorm2d
 
 
 class PatchEmbedType(enum.StrEnum):

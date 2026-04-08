@@ -41,7 +41,7 @@ class TransformerEncoderLayer(nn.Module):
         attention_type: str = AttentionType.GROUPED_QUERY.value,
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
-        condition_dim: int | None = None,
+        conditioning_dimension: int | None = None,
         use_gating: bool = False,
     ):
         """Initialize Transformer encoder layer.
@@ -58,7 +58,7 @@ class TransformerEncoderLayer(nn.Module):
             attention_type: Type of attention (use AttentionType enum values).
             bias: Whether to use bias in linear layers.
             normalization_epsilon: Epsilon for normalization layers.
-            condition_dim: Conditioning dimension for adaptive normalization.
+            conditioning_dimension: Conditioning dimension for adaptive normalization.
                 Required when normalization_type is adaptive.
             use_gating: Whether to use gating in adaptive normalization (AdaLN-Zero).
         """
@@ -80,7 +80,7 @@ class TransformerEncoderLayer(nn.Module):
                 normalization_type=normalization_type,
                 dimension=embedding_dimension,
                 epsilon=normalization_epsilon,
-                condition_dim=condition_dim,
+                condition_dim=conditioning_dimension,
                 use_gating=use_gating,
             ),
             dropout=dropout,
@@ -97,7 +97,7 @@ class TransformerEncoderLayer(nn.Module):
                 normalization_type=normalization_type,
                 dimension=embedding_dimension,
                 epsilon=normalization_epsilon,
-                condition_dim=condition_dim,
+                condition_dim=conditioning_dimension,
                 use_gating=use_gating,
             ),
             dropout=dropout,

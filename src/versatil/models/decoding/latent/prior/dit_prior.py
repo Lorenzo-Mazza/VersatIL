@@ -73,6 +73,7 @@ class DiTPrior(PriorLatentEncoder):
         clip_sample: Whether to clip samples during diffusion.
         variance_type: Variance type for DDPM scheduler.
         dropout: Dropout rate.
+        normalization_type: Type of adaptive normalization layer
         activation: Activation function name.
         use_gating: Whether to use AdaLN-Zero gating in DiT layers.
         exclude_keys: Keys to exclude from observations.
@@ -100,6 +101,7 @@ class DiTPrior(PriorLatentEncoder):
         clip_sample: bool = False,
         variance_type: str | None = None,
         dropout: float = 0.1,
+        normalization_type: str = NormalizationType.LAYER_NORM.value,
         activation: str = ActivationFunction.SILU.value,
         use_gating: bool = True,
         exclude_keys: list[str] | None = None,
@@ -183,7 +185,7 @@ class DiTPrior(PriorLatentEncoder):
             feedforward_dimension=feedforward_dimension,
             dropout=dropout,
             activation=activation,
-            normalization_type=NormalizationType.LAYER_NORM.value,
+            normalization_type=normalization_type,
             positional_encoding_type=None,  # Handled externally by input_builder
             use_gating=use_gating,
             use_final_normalization=False,  # FinalPredictionLayer has its own AdaNorm

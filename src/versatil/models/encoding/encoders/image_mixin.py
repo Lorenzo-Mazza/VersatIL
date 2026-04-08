@@ -42,7 +42,7 @@ def resize_to_target_size(
     pad_width = target_width - resized_width
     if pad_height > 0 or pad_width > 0:
         resized = torch.nn.functional.pad(
-            resized, (pad_width, 0, pad_height, 0), value=0.0
+            resized, (0, pad_width, 0, pad_height), value=0.0
         )
     return resized
 

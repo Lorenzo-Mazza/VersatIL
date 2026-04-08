@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Callable
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
@@ -33,9 +33,10 @@ def decoder_layer_factory() -> Callable[..., TransformerDecoderLayer]:
         bias: bool = True,
         normalization_epsilon: float = 1e-6,
         autoregressive: bool = True,
-        condition_dim: int | None = None,
+        conditioning_dimension: int | None = None,
         use_gating: bool = False,
         cross_attention_normalization_type: str | None = None,
+        cross_attention_conditioning_dimension: int | None = None,
     ) -> TransformerDecoderLayer:
         return TransformerDecoderLayer(
             embedding_dimension=embedding_dimension,
@@ -51,9 +52,10 @@ def decoder_layer_factory() -> Callable[..., TransformerDecoderLayer]:
             bias=bias,
             normalization_epsilon=normalization_epsilon,
             autoregressive=autoregressive,
-            condition_dim=condition_dim,
+            conditioning_dimension=conditioning_dimension,
             use_gating=use_gating,
             cross_attention_normalization_type=cross_attention_normalization_type,
+            cross_attention_conditioning_dimension=cross_attention_conditioning_dimension,
         )
 
     return factory
@@ -369,8 +371,8 @@ class TestTransformerDecoderLayerConditioning:
             embedding_dimension=32,
             number_of_heads=4,
             use_cross_attention=False,
-            normalization_type=NormalizationType.ADARMS.value,
-            condition_dim=32,
+            normalization_type=NormalizationType.RMS_NORM.value,
+            conditioning_dimension=32,
             dropout=0.0,
         )
         reinit_modulation_layers(layer)
@@ -393,8 +395,8 @@ class TestTransformerDecoderLayerConditioning:
             embedding_dimension=32,
             number_of_heads=4,
             use_cross_attention=False,
-            normalization_type=NormalizationType.ADARMS.value,
-            condition_dim=32,
+            normalization_type=NormalizationType.RMS_NORM.value,
+            conditioning_dimension=32,
             use_gating=True,
             dropout=0.0,
         )
@@ -440,8 +442,8 @@ class TestTransformerDecoderLayerConditioning:
             embedding_dimension=32,
             number_of_heads=4,
             use_cross_attention=True,
-            normalization_type=NormalizationType.ADARMS.value,
-            condition_dim=32,
+            normalization_type=NormalizationType.RMS_NORM.value,
+            conditioning_dimension=32,
             dropout=0.0,
         )
         reinit_modulation_layers(layer)
@@ -465,39 +467,37 @@ class TestTransformerDecoderLayerConditioning:
         )
         assert not torch.allclose(output_a, output_b)
 
-    def test_cross_attention_uses_separate_normalization_type(
+    @pytest.mark.parametrize(
+        "cross_attention_conditioning_dimension, expected_condition_dim",
+        [
+            (None, None),
+            (32, 32),
+            (16, 16),
+        ],
+        ids=["no_conditioning", "same_as_self_attention", "different_dimension"],
+    )
+    def test_cross_attention_conditioning_dimension_passed_to_factory(
         self,
-        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
-        sequence_tensor_factory: Callable[..., torch.Tensor],
-        condition_factory: Callable[..., torch.Tensor],
+        cross_attention_conditioning_dimension: int | None,
+        expected_condition_dim: int | None,
     ):
-        layer = decoder_layer_factory(
-            embedding_dimension=32,
-            number_of_heads=4,
-            use_cross_attention=True,
-            normalization_type=NormalizationType.ADARMS.value,
-            cross_attention_normalization_type=NormalizationType.RMS_NORM.value,
-            condition_dim=32,
-            use_gating=True,
-            dropout=0.0,
-        )
-        layer.eval()
-        hidden_states = sequence_tensor_factory(
-            batch_size=2, sequence_length=4, embedding_dimension=32
-        )
-        memory = sequence_tensor_factory(
-            batch_size=2, sequence_length=6, embedding_dimension=32
-        )
-        conditioning = condition_factory(batch_size=2, condition_dim=32)
-        # Self-attn and FFN have AdaRMS with gating (zero-init → identity),
-        # but cross-attn has plain RMSNorm (always active).
-        # So output should differ from input because cross-attention is not gated.
-        output, _ = layer(
-            hidden_states=hidden_states,
-            encoded_features=memory,
-            conditioning=conditioning,
-        )
-        assert not torch.allclose(output, hidden_states)
+        with patch(
+            "versatil.models.layers.transformer.decoder_layer.create_block_normalization"
+        ) as mock_factory:
+            mock_factory.return_value = MagicMock()
+            TransformerDecoderLayer(
+                embedding_dimension=32,
+                number_of_heads=4,
+                attention_type=AttentionType.MULTI_HEAD.value,
+                use_cross_attention=True,
+                conditioning_dimension=32,
+                cross_attention_conditioning_dimension=cross_attention_conditioning_dimension,
+            )
+            # Second call is cross-attention normalization
+            cross_attention_call = mock_factory.call_args_list[1]
+            assert (
+                cross_attention_call.kwargs["condition_dim"] == expected_condition_dim
+            )
 
     def test_conditioning_gradient_flows_through_modulation(
         self,
@@ -509,8 +509,8 @@ class TestTransformerDecoderLayerConditioning:
             embedding_dimension=32,
             number_of_heads=4,
             use_cross_attention=False,
-            normalization_type=NormalizationType.ADARMS.value,
-            condition_dim=32,
+            normalization_type=NormalizationType.RMS_NORM.value,
+            conditioning_dimension=32,
             dropout=0.0,
         )
         reinit_modulation_layers(layer)

@@ -18,7 +18,7 @@ from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
     get_default_x86_inductor_quantization_config,
 )
 
-from versatil.models.layers.normalization.frozen_batchnorm import (
+from versatil.models.layers.frozen_batchnorm import (
     FrozenBatchNorm2d,
 )
 from versatil.post_training_compression.constants import PrunableLayerType

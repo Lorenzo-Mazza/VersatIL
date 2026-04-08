@@ -75,6 +75,7 @@ def from_policy_factory(
             conditional_encoders=conditional_encoders,
         )
         decoder = MagicMock()
+        decoder.decoder_input.requires_vlm_backbone = False
         decoder.action_heads = nn.ModuleDict(
             {key: nn.Identity() for key in action_keys}
         )

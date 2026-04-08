@@ -183,6 +183,7 @@ class TestDiTBlockActionTransformerInitialization:
             number_of_decoder_layers=NUMBER_OF_DECODER_LAYERS,
             feedforward_dimension=FEEDFORWARD_DIMENSION,
             activation=ActivationFunction.GELU.value,
+            normalization_type=NormalizationType.RMS_NORM.value,
         )
         for action_key in decoder.action_heads:
             assert len(decoder.action_heads[action_key].blocks) == 0
