@@ -137,11 +137,18 @@ def mock_loss_factory() -> Callable[..., MagicMock]:
 
     def factory(
         required_keys: set[str] | None = None,
+        sub_losses: dict[str, MagicMock] | None = None,
     ) -> MagicMock:
         loss = MagicMock(spec=BaseLoss)
         if required_keys is None:
             required_keys = {"position"}
         loss.get_required_keys.return_value = required_keys
+        if sub_losses is None:
+            mock_sub = MagicMock(spec=BaseLoss)
+            mock_sub.requires_action_space_targets = False
+            loss.loss_modules = {"regression": mock_sub}
+        else:
+            loss.loss_modules = sub_losses
         return loss
 
     return factory
@@ -153,10 +160,14 @@ def mock_algorithm_factory() -> Callable[..., MagicMock]:
 
     def factory(
         is_variational: bool = False,
+        predicts_in_action_space: bool = True,
     ) -> MagicMock:
         if is_variational:
-            return MagicMock(spec=VariationalAlgorithm)
-        return MagicMock(spec=DecodingAlgorithm)
+            algorithm = MagicMock(spec=VariationalAlgorithm)
+        else:
+            algorithm = MagicMock(spec=DecodingAlgorithm)
+        algorithm.predicts_in_action_space = predicts_in_action_space
+        return algorithm
 
     return factory
 
@@ -1012,6 +1023,77 @@ class TestValidateLossKeys:
 
 
 @pytest.mark.unit
+@pytest.mark.unit
+class TestValidateLossAlgorithmCompatibility:
+    def test_passes_when_algorithm_predicts_in_action_space(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_algorithm_factory: Callable[..., MagicMock],
+        mock_loss_factory: Callable[..., MagicMock],
+    ):
+        bce_loss = MagicMock(spec=BaseLoss)
+        bce_loss.requires_action_space_targets = True
+        loss = mock_loss_factory(sub_losses={"gripper": bce_loss})
+        algorithm = mock_algorithm_factory(predicts_in_action_space=True)
+        validator = validator_factory(algorithm=algorithm, loss=loss)
+        validator.validate_loss_algorithm_compatibility()
+        assert len(validator.errors) == 0
+
+    def test_errors_when_bce_loss_with_non_action_space_algorithm(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_algorithm_factory: Callable[..., MagicMock],
+        mock_loss_factory: Callable[..., MagicMock],
+    ):
+        bce_loss = MagicMock(spec=BaseLoss)
+        bce_loss.requires_action_space_targets = True
+        loss = mock_loss_factory(sub_losses={"gripper": bce_loss})
+        algorithm = mock_algorithm_factory(predicts_in_action_space=False)
+        validator = validator_factory(algorithm=algorithm, loss=loss)
+        validator.validate_loss_algorithm_compatibility()
+        assert len(validator.errors) == 1
+        assert "gripper" in validator.errors[0]
+        assert "action space" in validator.errors[0]
+
+    def test_passes_when_regression_loss_with_non_action_space_algorithm(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_algorithm_factory: Callable[..., MagicMock],
+        mock_loss_factory: Callable[..., MagicMock],
+    ):
+        regression_loss = MagicMock(spec=BaseLoss)
+        regression_loss.requires_action_space_targets = False
+        loss = mock_loss_factory(sub_losses={"regression": regression_loss})
+        algorithm = mock_algorithm_factory(predicts_in_action_space=False)
+        validator = validator_factory(algorithm=algorithm, loss=loss)
+        validator.validate_loss_algorithm_compatibility()
+        assert len(validator.errors) == 0
+
+    def test_errors_for_each_incompatible_loss_module(
+        self,
+        validator_factory: Callable[..., ExperimentValidator],
+        mock_algorithm_factory: Callable[..., MagicMock],
+        mock_loss_factory: Callable[..., MagicMock],
+    ):
+        bce_1 = MagicMock(spec=BaseLoss)
+        bce_1.requires_action_space_targets = True
+        bce_2 = MagicMock(spec=BaseLoss)
+        bce_2.requires_action_space_targets = True
+        regression = MagicMock(spec=BaseLoss)
+        regression.requires_action_space_targets = False
+        loss = mock_loss_factory(
+            sub_losses={
+                "gripper_left": bce_1,
+                "gripper_right": bce_2,
+                "regression": regression,
+            }
+        )
+        algorithm = mock_algorithm_factory(predicts_in_action_space=False)
+        validator = validator_factory(algorithm=algorithm, loss=loss)
+        validator.validate_loss_algorithm_compatibility()
+        assert len(validator.errors) == 2
+
+
 class TestValidateExperiment:
     def test_validate_experiment_passes_with_valid_config(self):
         mock_config = MagicMock()

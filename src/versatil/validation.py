@@ -84,6 +84,7 @@ class ExperimentValidator:
         """
         self.validate_encoder_observation_consistency()
         self.validate_decoder_encoder_compatibility()
+        self.validate_loss_algorithm_compatibility()
         if validate_loss_keys:
             self.validate_loss_keys()
         if self.quantization_config is not None:
@@ -219,6 +220,20 @@ class ExperimentValidator:
             f"Available features from encoding pipeline: {available_features}. "
             f"Algorithm provides latent: {'Yes' if isinstance(self.algorithm, VariationalAlgorithm) else 'No'}."
         )
+
+    def validate_loss_algorithm_compatibility(self) -> None:
+        """Validate that no loss module requires action-space targets when the algorithm predicts outside it."""
+        if self.algorithm.predicts_in_action_space:
+            return
+        algorithm_name = type(self.algorithm).__name__
+        for name, loss_module in self.loss.loss_modules.items():
+            if loss_module.requires_action_space_targets:
+                self.errors.append(
+                    f"Loss module '{name}' requires action-space targets "
+                    f"but algorithm '{algorithm_name}' predicts outside the "
+                    f"action space (e.g. velocity or noise). Use a regression "
+                    f"loss (MSE/L1) instead."
+                )
 
     def validate_loss_keys(self) -> None:
         """Validate that loss keys reference valid action heads or auxiliary keys."""

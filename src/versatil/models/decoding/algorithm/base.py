@@ -51,6 +51,42 @@ class DecodingAlgorithm(nn.Module, abc.ABC):
         """
         raise NotImplementedError
 
+    @property
+    def predicts_in_action_space(self) -> bool:
+        """Whether the network output lives in the action space.
+
+        When True (e.g. Behavioral Cloning), the network directly
+        predicts actions and classification losses like BCE are valid.
+        When False (e.g. Flow Matching, Diffusion with epsilon/velocity),
+        the network predicts in a derived space (velocity field, noise)
+        and classification losses on those outputs are meaningless.
+        """
+        return True
+
+    def get_targets(
+        self,
+        algorithm_output: dict[str, torch.Tensor],
+        ground_truth_actions: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Return the correct regression targets for the loss.
+
+        The loss module is algorithm-agnostic: it computes error between
+        predictions and targets. This method lets each algorithm specify
+        what those targets are.
+
+        Default returns the ground-truth actions (correct for Behavioral
+        Cloning). Generative algorithms override to return their
+        algorithm-specific targets (velocity field, noise, etc.).
+
+        Args:
+            algorithm_output: Full output dict from ``forward()``.
+            ground_truth_actions: Ground-truth actions from the data batch.
+
+        Returns:
+            Per-key target tensors the loss should compare predictions against.
+        """
+        return ground_truth_actions
+
     @abstractmethod
     def predict(
         self,

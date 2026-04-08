@@ -677,10 +677,11 @@ class MyEncoder(Encoder):
 
 ### Adding a New Algorithm
 
-1. **Inherit from `Algorithm`** (`src/versatil/models/decoding/algorithm/base.py`)
+1. **Inherit from `DecodingAlgorithm`** (`src/versatil/models/decoding/algorithm/base.py`)
 2. **Implement `forward()`** for training (with actions)
 3. **Implement `predict()`** for inference (without actions)
-4. **Create config** in `src/versatil/configs/decoding/algorithm.py`
+4. **Override `get_targets()`** if the loss target differs from raw ground-truth actions (e.g., velocity field for flow matching, noise for diffusion epsilon mode). The default returns ground-truth actions (correct for BC). `Policy.compute_loss` calls `algorithm.get_targets()` to obtain the correct regression targets for the loss module.
+5. **Create config** in `src/versatil/configs/decoding/algorithm.py`
 
 ## WandB Integration
 

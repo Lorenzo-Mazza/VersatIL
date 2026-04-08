@@ -248,6 +248,25 @@ class TestGripperLossInit:
 
 
 @pytest.mark.unit
+class TestGripperLossRequiresActionSpaceTargets:
+    def test_true_when_bce_weight_positive(self, binary_gripper_metadata_factory):
+        loss = GripperLoss(
+            key="gripper",
+            actions_metadata=binary_gripper_metadata_factory(),
+            bce_weight=0.05,
+        )
+        assert loss.requires_action_space_targets is True
+
+    def test_false_when_bce_weight_zero(self, binary_gripper_metadata_factory):
+        loss = GripperLoss(
+            key="gripper",
+            actions_metadata=binary_gripper_metadata_factory(),
+            bce_weight=0.0,
+            mse_weight=1.0,
+        )
+        assert loss.requires_action_space_targets is False
+
+
 class TestGripperLossGetRequiredKeys:
     def test_returns_gripper_key(self, binary_gripper_metadata_factory):
         loss = GripperLoss(

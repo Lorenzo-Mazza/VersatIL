@@ -174,6 +174,10 @@ class GripperLoss(BaseLoss):
                 f"Expected gripper metadata for key '{key}', got {type(meta).__name__}"
             )
 
+    @property
+    def requires_action_space_targets(self) -> bool:
+        return self.bce_weight > 0
+
     def get_required_keys(self) -> set[str]:
         """Get required target keys for gripper loss.
 
