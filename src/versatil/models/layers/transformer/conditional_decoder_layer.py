@@ -13,7 +13,6 @@ from versatil.models.layers.modulation.conditional_modulation import (
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
-from versatil.models.layers.swiglu import SwiGLU
 from versatil.models.layers.transformer.attention import CachedAttention
 
 
@@ -115,9 +114,10 @@ class ConditionalTransformerDecoderLayer(nn.Module):
             self.cross_attention_normalization = None
             self.cross_attention_modulation = None
 
-        if activation == ActivationFunction.SWIGLU.value:
+        activation_enum = ActivationFunction(activation)
+        if activation_enum.is_gated:
             self.feedforward_network = nn.Sequential(
-                SwiGLU(
+                activation_enum.to_torch_activation()(
                     input_dim=embedding_dimension,
                     hidden_dim=feedforward_dimension,
                     bias=bias,
@@ -126,10 +126,9 @@ class ConditionalTransformerDecoderLayer(nn.Module):
                 nn.Linear(feedforward_dimension, embedding_dimension, bias=bias),
             )
         else:
-            activation_class = ActivationFunction(activation).to_torch_activation()
             self.feedforward_network = nn.Sequential(
                 nn.Linear(embedding_dimension, feedforward_dimension, bias=bias),
-                activation_class(),
+                activation_enum.to_torch_activation()(),
                 nn.Dropout(dropout),
                 nn.Linear(feedforward_dimension, embedding_dimension, bias=bias),
             )
@@ -172,7 +171,7 @@ class ConditionalTransformerDecoderLayer(nn.Module):
         """
         residual = hidden_states
         hidden_states = self.self_attention_normalization(hidden_states)
-        hidden_states = self.self_attention_modulation(hidden_states, condition)
+        hidden_states, _ = self.self_attention_modulation(hidden_states, condition)
         self_attention_output, _ = self.self_attention(
             query_input=hidden_states,
             key_input=hidden_states,
@@ -195,7 +194,7 @@ class ConditionalTransformerDecoderLayer(nn.Module):
                 )
             residual = hidden_states
             hidden_states = self.cross_attention_normalization(hidden_states)
-            hidden_states = self.cross_attention_modulation(hidden_states, condition)
+            hidden_states, _ = self.cross_attention_modulation(hidden_states, condition)
             cross_attention_output, _ = self.cross_attention(
                 query_input=hidden_states,
                 key_input=encoded_features,
@@ -209,7 +208,7 @@ class ConditionalTransformerDecoderLayer(nn.Module):
 
         residual = hidden_states
         hidden_states = self.feedforward_normalization(hidden_states)
-        hidden_states = self.feedforward_modulation(hidden_states, condition)
+        hidden_states, _ = self.feedforward_modulation(hidden_states, condition)
         feedforward_output = self.feedforward_network(hidden_states)
         hidden_states = residual + self.dropout(feedforward_output)
         return hidden_states

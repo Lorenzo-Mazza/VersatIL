@@ -71,7 +71,7 @@ class TestCreateNormalizationLayer:
             NormalizationType.ADARMS.value,
         ):
             condition = condition_factory(batch_size=2, condition_dim=condition_dim)
-            output = layer(tensor, condition)
+            output, _ = layer(tensor, condition)
         else:
             output = layer(tensor)
         assert output.shape == tensor.shape

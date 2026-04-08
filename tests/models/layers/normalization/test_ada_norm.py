@@ -77,12 +77,12 @@ class TestAdaNormInitialization:
         normalized = nn.LayerNorm(feature_dim, elementwise_affine=False)(tensor)
         with torch.no_grad():
             result = norm.modulation(normalized, condition)
+        modulated, gate = result
+        assert torch.allclose(modulated, normalized, atol=1e-6)
         if use_gate:
-            modulated, gate = result
-            assert torch.allclose(modulated, normalized, atol=1e-6)
             assert torch.allclose(gate, torch.zeros_like(gate))
         else:
-            assert torch.allclose(result, normalized, atol=1e-6)
+            assert torch.equal(gate, torch.ones(1, dtype=tensor.dtype))
 
 
 class TestAdaNormForward:
@@ -107,7 +107,7 @@ class TestAdaNormForward:
             embedding_dimension=feature_dim,
         )
         condition = condition_factory(batch_size=batch_size, condition_dim=32)
-        output = norm(features, condition)
+        output, _ = norm(features, condition)
         assert output.shape == features.shape
 
     def test_gate_returns_tuple_with_correct_shapes(
@@ -156,7 +156,7 @@ class TestAdaNormForward:
         condition = condition_factory(batch_size=2, condition_dim=32)
         base_norm = nn.LayerNorm(feature_dim, elementwise_affine=False)
         with torch.no_grad():
-            ada_output = norm(features, condition)
+            ada_output, _ = norm(features, condition)
             base_output = base_norm(features)
         # At init, modulation is identity → ada output == base norm output
         assert torch.allclose(ada_output, base_output, atol=1e-6)
@@ -185,8 +185,8 @@ class TestAdaNormForward:
         condition_a = condition_factory(batch_size=2, condition_dim=32)
         condition_b = condition_factory(batch_size=2, condition_dim=32)
         with torch.no_grad():
-            output_a = norm(features, condition_a)
-            output_b = norm(features, condition_b)
+            output_a, _ = norm(features, condition_a)
+            output_b, _ = norm(features, condition_b)
         assert not torch.allclose(output_a, output_b)
 
     def test_works_with_rms_norm_base(
@@ -210,7 +210,7 @@ class TestAdaNormForward:
         )
         condition = condition_factory(batch_size=2, condition_dim=32)
         with torch.no_grad():
-            ada_output = norm(features, condition)
+            ada_output, _ = norm(features, condition)
             rms_output = rms_base(features)
         # At init, modulation is identity → output equals RMSNorm output
         assert torch.allclose(ada_output, rms_output, atol=1e-6)

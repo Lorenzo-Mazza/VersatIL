@@ -57,12 +57,12 @@ class FiLMedResBlock(nn.Module):
 
         out = self.conv1(x)
         out = self.bn1(out)
-        out = self.film1(out, condition)
+        out, _ = self.film1(out, condition)
         out = self.relu(out)
 
         out = self.conv2(out)
         out = self.bn2(out)
-        out = self.film2(out, condition)
+        out, _ = self.film2(out, condition)
 
         out = out + identity
         result: torch.Tensor = self.relu(out)

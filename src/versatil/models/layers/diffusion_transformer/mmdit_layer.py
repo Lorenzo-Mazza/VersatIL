@@ -329,13 +329,11 @@ class MMDiTLayer(nn.Module):
         norm: nn.Module,
         hidden_states: torch.Tensor,
         conditioning: torch.Tensor | None,
-    ) -> tuple[torch.Tensor, float | torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Apply normalization, handling both AdaNorm and plain norm."""
         if self.use_conditioning:
-            if self.use_gating:
-                normed, gate = norm(x=hidden_states, condition=conditioning)
-                return normed, gate
-            else:
-                return norm(x=hidden_states, condition=conditioning), 1.0
+            return norm(x=hidden_states, condition=conditioning)
         else:
-            return norm(hidden_states), 1.0
+            return norm(hidden_states), torch.ones(
+                1, dtype=hidden_states.dtype, device=hidden_states.device
+            )

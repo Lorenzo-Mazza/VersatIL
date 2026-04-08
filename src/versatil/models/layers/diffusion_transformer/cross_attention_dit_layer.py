@@ -9,7 +9,6 @@ from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
-from versatil.models.layers.swiglu import SwiGLU
 from versatil.models.layers.transformer import CachedAttention
 
 
@@ -97,17 +96,20 @@ class CrossConditioningDecoderLayer(nn.Module):
             feature_dim=embedding_dimension,
             use_gate=use_gating,
         )
-        if activation == ActivationFunction.SWIGLU.value:
+        activation_enum = ActivationFunction(activation)
+        if activation_enum.is_gated:
             self.feedforward_network = nn.Sequential(
-                SwiGLU(embedding_dimension, feedforward_dimension),
+                activation_enum.to_torch_activation()(
+                    input_dim=embedding_dimension,
+                    hidden_dim=feedforward_dimension,
+                ),
                 nn.Dropout(dropout),
                 nn.Linear(feedforward_dimension, embedding_dimension),
             )
         else:
-            activation_function = ActivationFunction(activation).to_torch_activation()()
             self.feedforward_network = nn.Sequential(
                 nn.Linear(embedding_dimension, feedforward_dimension),
-                activation_function,
+                activation_enum.to_torch_activation()(),
                 nn.Dropout(dropout),
                 nn.Linear(feedforward_dimension, embedding_dimension),
             )
@@ -136,15 +138,9 @@ class CrossConditioningDecoderLayer(nn.Module):
             Output tokens (B, T, D).
         """
         residual = hidden_states
-        if self.use_gating:
-            hidden_states, gate_self_attention = self.self_attention_normalization(
-                x=hidden_states, condition=conditioning_embedding
-            )
-        else:
-            hidden_states = self.self_attention_normalization(
-                x=hidden_states, condition=conditioning_embedding
-            )
-            gate_self_attention = 1.0
+        hidden_states, gate_self_attention = self.self_attention_normalization(
+            x=hidden_states, condition=conditioning_embedding
+        )
         hidden_states, _ = self.self_attention(
             query_input=hidden_states,
             key_input=hidden_states,
@@ -165,16 +161,11 @@ class CrossConditioningDecoderLayer(nn.Module):
             attention_mask=cross_attention_mask,
         )
         hidden_states = residual + self.cross_attention_dropout(hidden_states)
+
         residual = hidden_states
-        if self.use_gating:
-            hidden_states, gate_feedforward = self.feedforward_normalization(
-                x=hidden_states, condition=conditioning_embedding
-            )
-        else:
-            hidden_states = self.feedforward_normalization(
-                x=hidden_states, condition=conditioning_embedding
-            )
-            gate_feedforward = 1.0
+        hidden_states, gate_feedforward = self.feedforward_normalization(
+            x=hidden_states, condition=conditioning_embedding
+        )
         hidden_states = self.feedforward_network(hidden_states)
         hidden_states = residual + gate_feedforward * self.feedforward_dropout(
             hidden_states

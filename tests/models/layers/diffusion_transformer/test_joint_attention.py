@@ -11,7 +11,7 @@ from versatil.models.layers.diffusion_transformer.joint_attention import JointAt
 @pytest.fixture
 def joint_attention_factory() -> Callable[..., JointAttention]:
     def factory(
-        embedding_dimension: int = 32,
+        primary_embedding_dimension: int = 32,
         number_of_heads: int = 4,
         dropout: float = 0.0,
         use_query_key_norm: bool = True,
@@ -19,7 +19,7 @@ def joint_attention_factory() -> Callable[..., JointAttention]:
         bias: bool = True,
     ) -> JointAttention:
         return JointAttention(
-            embedding_dimension=embedding_dimension,
+            primary_embedding_dimension=primary_embedding_dimension,
             number_of_heads=number_of_heads,
             dropout=dropout,
             use_query_key_norm=use_query_key_norm,
@@ -42,11 +42,11 @@ class TestJointAttentionInitialization:
         use_query_key_norm: bool,
     ):
         attention = joint_attention_factory(
-            embedding_dimension=embedding_dimension,
+            primary_embedding_dimension=embedding_dimension,
             number_of_heads=number_of_heads,
             use_query_key_norm=use_query_key_norm,
         )
-        assert attention.embedding_dimension == embedding_dimension
+        assert attention.primary_embedding_dimension == embedding_dimension
         assert attention.number_of_heads == number_of_heads
         assert attention.head_dimension == embedding_dimension // number_of_heads
         assert attention.use_query_key_norm == use_query_key_norm
@@ -55,7 +55,7 @@ class TestJointAttentionInitialization:
         self,
         joint_attention_factory: Callable[..., JointAttention],
     ):
-        attention = joint_attention_factory(embedding_dimension=32)
+        attention = joint_attention_factory(primary_embedding_dimension=32)
         # Mutate observation projection and verify action projection is unaffected
         original_action_weight = attention.query_projection_action.weight.data.clone()
         attention.query_projection_observation.weight.data.fill_(999.0)
@@ -67,7 +67,7 @@ class TestJointAttentionInitialization:
         self,
         joint_attention_factory: Callable[..., JointAttention],
     ):
-        attention = joint_attention_factory(embedding_dimension=32)
+        attention = joint_attention_factory(primary_embedding_dimension=32)
         assert attention.output_projection_observation.SQUARE_ROOT_WEIGHT is True
         assert attention.output_projection_action.SQUARE_ROOT_WEIGHT is True
 
@@ -101,7 +101,7 @@ class TestJointAttentionForward:
         embedding_dimension: int,
     ):
         attention = joint_attention_factory(
-            embedding_dimension=embedding_dimension,
+            primary_embedding_dimension=embedding_dimension,
             number_of_heads=4,
         )
         observation = sequence_tensor_factory(
@@ -131,7 +131,9 @@ class TestJointAttentionForward:
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
-        attention = joint_attention_factory(embedding_dimension=embedding_dimension)
+        attention = joint_attention_factory(
+            primary_embedding_dimension=embedding_dimension
+        )
         observation = sequence_tensor_factory(
             batch_size=2,
             sequence_length=6,
@@ -161,7 +163,9 @@ class TestJointAttentionForward:
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
-        attention = joint_attention_factory(embedding_dimension=embedding_dimension)
+        attention = joint_attention_factory(
+            primary_embedding_dimension=embedding_dimension
+        )
         observation = sequence_tensor_factory(
             batch_size=2,
             sequence_length=6,
@@ -192,7 +196,7 @@ class TestJointAttentionForward:
     ):
         embedding_dimension = 32
         attention = joint_attention_factory(
-            embedding_dimension=embedding_dimension,
+            primary_embedding_dimension=embedding_dimension,
             use_query_key_norm=use_query_key_norm,
         )
         observation = sequence_tensor_factory(
@@ -218,7 +222,9 @@ class TestJointAttentionForward:
         sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
-        attention = joint_attention_factory(embedding_dimension=embedding_dimension)
+        attention = joint_attention_factory(
+            primary_embedding_dimension=embedding_dimension
+        )
         observation = sequence_tensor_factory(
             batch_size=2,
             sequence_length=6,
@@ -250,7 +256,7 @@ class TestJointAttentionForward:
     ):
         embedding_dimension = 32
         attention = joint_attention_factory(
-            embedding_dimension=embedding_dimension,
+            primary_embedding_dimension=embedding_dimension,
             use_query_key_norm=False,
         )
         attention.eval()
@@ -288,7 +294,7 @@ class TestJointAttentionMask:
         self,
         joint_attention_factory: Callable[..., JointAttention],
     ):
-        attention = joint_attention_factory(embedding_dimension=32)
+        attention = joint_attention_factory(primary_embedding_dimension=32)
         result = attention._build_joint_attention_mask(
             mask_observation=None,
             mask_action=None,
@@ -303,7 +309,7 @@ class TestJointAttentionMask:
         joint_attention_factory: Callable[..., JointAttention],
         padding_mask_factory: Callable[..., torch.Tensor],
     ):
-        attention = joint_attention_factory(embedding_dimension=32)
+        attention = joint_attention_factory(primary_embedding_dimension=32)
         observation_mask = padding_mask_factory(
             batch_size=2,
             sequence_length=6,
@@ -328,7 +334,7 @@ class TestJointAttentionMask:
         joint_attention_factory: Callable[..., JointAttention],
         padding_mask_factory: Callable[..., torch.Tensor],
     ):
-        attention = joint_attention_factory(embedding_dimension=32)
+        attention = joint_attention_factory(primary_embedding_dimension=32)
         observation_mask = padding_mask_factory(
             batch_size=2,
             sequence_length=6,
@@ -353,7 +359,7 @@ class TestJointAttentionMask:
         joint_attention_factory: Callable[..., JointAttention],
         padding_mask_factory: Callable[..., torch.Tensor],
     ):
-        attention = joint_attention_factory(embedding_dimension=32)
+        attention = joint_attention_factory(primary_embedding_dimension=32)
         action_mask = padding_mask_factory(
             batch_size=2,
             sequence_length=4,
@@ -377,7 +383,7 @@ class TestJointAttentionMask:
         joint_attention_factory: Callable[..., JointAttention],
         padding_mask_factory: Callable[..., torch.Tensor],
     ):
-        attention = joint_attention_factory(embedding_dimension=32)
+        attention = joint_attention_factory(primary_embedding_dimension=32)
         observation_mask = padding_mask_factory(
             batch_size=2,
             sequence_length=6,

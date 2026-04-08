@@ -74,7 +74,7 @@ class TestFiLMedResBlockInitialization:
         # Identity init: gamma=0, beta=0 → film(x, cond) = x * (1+0) + 0 = x
         with torch.no_grad():
             bn_output = module.bn1(module.conv1(tensor))
-            film_output = module.film1(x=bn_output, condition=condition)
+            film_output, _ = module.film1(x=bn_output, condition=condition)
         assert torch.allclose(film_output, bn_output, atol=1e-6)
 
 

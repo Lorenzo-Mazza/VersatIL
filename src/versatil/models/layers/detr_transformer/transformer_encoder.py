@@ -32,8 +32,9 @@ class TransformerEncoderLayer(nn.Module):
         self.normalization2 = nn.LayerNorm(embedding_dimension)
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
-        if activation == ActivationFunction.SWIGLU.value:
-            self.activation = ActivationFunction(activation).to_torch_activation()(
+        activation_enum = ActivationFunction(activation)
+        if activation_enum.is_gated:
+            self.activation = activation_enum.to_torch_activation()(
                 input_dim=embedding_dimension, hidden_dim=feedforward_dimension
             )
             self.feedforward_network = nn.Sequential(
@@ -42,7 +43,7 @@ class TransformerEncoderLayer(nn.Module):
                 self.feedforward_linear2,
             )
         else:
-            self.activation = ActivationFunction(activation).to_torch_activation()()
+            self.activation = activation_enum.to_torch_activation()()
             self.feedforward_linear1 = nn.Linear(
                 embedding_dimension, feedforward_dimension
             )

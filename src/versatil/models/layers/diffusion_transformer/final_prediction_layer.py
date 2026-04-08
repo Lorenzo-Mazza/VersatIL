@@ -56,7 +56,7 @@ class FinalPredictionLayer(nn.Module):
         Returns:
             Predicted tensor (batch_size, sequence_length, output_dim).
         """
-        modulated_states = self.ada_norm(
+        modulated_states, _ = self.ada_norm(
             hidden_states, conditioning_embedding
         )  # (B, S, D)
         return self.output_linear(modulated_states)  # (B, S, output_dim)

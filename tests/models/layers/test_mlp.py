@@ -6,8 +6,8 @@ import pytest
 import torch
 import torch.nn as nn
 
+from versatil.models.layers.gated_linear_unit import SwiGLU
 from versatil.models.layers.mlp import MLP
-from versatil.models.layers.swiglu import SwiGLU
 
 
 @pytest.fixture

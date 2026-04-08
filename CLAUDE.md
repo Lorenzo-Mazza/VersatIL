@@ -66,7 +66,7 @@ Refactor attention
 Check if boilerplate code btw smolvla and pi0
 Check if VLM type can be modularized and swapped/parametrized
 Check if code can be reused in the gen VLM module and others can be added
-Refactor swiglu.py module to be called gated_linear_activation or smth similar.
+
 
 ## Project Overview
 

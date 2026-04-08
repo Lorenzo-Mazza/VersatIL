@@ -8,8 +8,8 @@ import torch
 from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.diffusion_transformer.mmdit_layer import MMDiTLayer
+from versatil.models.layers.gated_linear_unit import SwiGLU
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.swiglu import SwiGLU
 
 
 @pytest.fixture

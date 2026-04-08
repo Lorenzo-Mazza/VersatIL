@@ -8,7 +8,6 @@ from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
-from versatil.models.layers.swiglu import SwiGLU
 from versatil.models.layers.transformer.attention import CachedAttention
 
 
@@ -62,9 +61,10 @@ class TransformerEncoderLayer(nn.Module):
             dimension=embedding_dimension,
             epsilon=normalization_epsilon,
         )
-        if activation == ActivationFunction.SWIGLU.value:
+        activation_enum = ActivationFunction(activation)
+        if activation_enum.is_gated:
             self.feedforward_network = nn.Sequential(
-                SwiGLU(
+                activation_enum.to_torch_activation()(
                     input_dim=embedding_dimension,
                     hidden_dim=feedforward_dimension,
                     bias=bias,
@@ -73,10 +73,9 @@ class TransformerEncoderLayer(nn.Module):
                 nn.Linear(feedforward_dimension, embedding_dimension, bias=bias),
             )
         else:
-            activation_class = ActivationFunction(activation).to_torch_activation()
             self.feedforward_network = nn.Sequential(
                 nn.Linear(embedding_dimension, feedforward_dimension, bias=bias),
-                activation_class(),
+                activation_enum.to_torch_activation()(),
                 nn.Dropout(dropout),
                 nn.Linear(feedforward_dimension, embedding_dimension, bias=bias),
             )

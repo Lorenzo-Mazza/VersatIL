@@ -74,7 +74,8 @@ class ImageEncoderMixin(abc.ABC):
         modality = EncoderOutputKeys.RGB.value
         if self.is_multi_camera:
             return [f"{modality}.{key}" for key in self.camera_keys]
-        return [modality]
+        else:
+            return [modality]
 
     @abc.abstractmethod
     def _encode_single_image(self, images: torch.Tensor) -> torch.Tensor:

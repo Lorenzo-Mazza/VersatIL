@@ -1,4 +1,12 @@
-"""Inspired from FiLM,  https://arxiv.org/pdf/2212.09748 and https://github.com/sudeepdasari/dit-policy"""
+"""Conditional feature modulation via learned affine transform.
+
+Computes y = x * (1 + gamma) + beta, where gamma (scale) and beta (shift)
+are projected from a conditioning vector. Optionally produces a gate for
+residual connections (AdaLN-Zero).
+
+References:
+    FiLM: https://arxiv.org/pdf/2212.09748
+"""
 
 from typing import Literal
 
@@ -42,13 +50,14 @@ class ConditionalModulation(nn.Module):
             self.output_dim += feature_dim
         if use_gate:
             self.output_dim += feature_dim
-        if activation == ActivationFunction.SWIGLU.value:
-            self.projection = ActivationFunction(activation).to_torch_activation()(
+        activation_enum = ActivationFunction(activation)
+        if activation_enum.is_gated:
+            self.projection = activation_enum.to_torch_activation()(
                 input_dim=condition_dim, hidden_dim=self.output_dim
             )
         else:
             self.projection = nn.Sequential(
-                ActivationFunction(activation).to_torch_activation()(),
+                activation_enum.to_torch_activation()(),
                 nn.Linear(condition_dim, self.output_dim),
             )
         self.init_parameters()
@@ -75,7 +84,7 @@ class ConditionalModulation(nn.Module):
 
     def forward(
         self, x: torch.Tensor, condition: torch.Tensor
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
             x: Features to modulate
@@ -84,7 +93,8 @@ class ConditionalModulation(nn.Module):
             condition: Conditioning vector (B, condition_dim)
 
         Returns:
-            Modulated features (same shape as x) or tuple with modulated features (same shape as x) and gate, when `use_gate` is True.
+            Tuple of (modulated features, gate). Gate is a learned tensor
+            when use_gate=True, or ones(1) when use_gate=False.
         """
         projected_condition = self.projection(condition)
         chunks = projected_condition.split(self.feature_dim, dim=-1)
@@ -94,7 +104,7 @@ class ConditionalModulation(nn.Module):
         if self.use_shift:
             beta = chunks[current_chunk_index]
             current_chunk_index += 1
-        gate = None
+        gate = torch.ones(1, dtype=x.dtype, device=x.device)
         if self.use_gate:
             gate = chunks[current_chunk_index]
 
@@ -102,7 +112,7 @@ class ConditionalModulation(nn.Module):
             gamma = gamma.view(x.size(0), x.size(1), 1, 1)
             if beta is not None:
                 beta = beta.view(x.size(0), x.size(1), 1, 1)
-            if gate is not None:
+            if self.use_gate:
                 gate = gate.view(x.size(0), x.size(1), 1, 1)
         elif x.dim() == 3:
             if x.size(0) == condition.size(0):  # Batch size in dim 0
@@ -112,19 +122,19 @@ class ConditionalModulation(nn.Module):
                     gamma = gamma.unsqueeze(2)  # (B, C) -> (B, C, 1)
                     if beta is not None:
                         beta = beta.unsqueeze(2)
-                    if gate is not None:
+                    if self.use_gate:
                         gate = gate.unsqueeze(2)
                 else:  # Transformer format: (B, S, D) - features in dim 2
                     gamma = gamma.unsqueeze(1)  # (B, D) -> (B, 1, D)
                     if beta is not None:
                         beta = beta.unsqueeze(1)
-                    if gate is not None:
+                    if self.use_gate:
                         gate = gate.unsqueeze(1)
             elif x.size(1) == condition.size(0):
                 gamma = gamma.unsqueeze(0)
                 if beta is not None:
                     beta = beta.unsqueeze(0)
-                if gate is not None:
+                if self.use_gate:
                     gate = gate.unsqueeze(0)
             else:
                 raise ValueError(
@@ -136,6 +146,4 @@ class ConditionalModulation(nn.Module):
         result = x * (1 + gamma)
         if beta is not None:
             result = result + beta
-        if self.use_gate:
-            return result, gate
-        return result
+        return result, gate

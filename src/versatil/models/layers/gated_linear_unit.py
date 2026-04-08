@@ -1,9 +1,6 @@
-"""Swish-Gated Linear Unit activation.
+"""Gated Linear Unit activations.
 
-From Shazeer (2020): https://arxiv.org/abs/2002.05202
-
-SwiGLU is a gated activation function that has shown strong performance
-in large language models and transformers.
+Ref: Shazeer (2020), https://arxiv.org/abs/2002.05202
 """
 
 import torch

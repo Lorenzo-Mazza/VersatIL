@@ -9,8 +9,8 @@ from tests.models.layers.diffusion_transformer.conftest import reinit_modulation
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.diffusion_transformer.dit_decoder_layer import DecoderLayer
+from versatil.models.layers.gated_linear_unit import SwiGLU
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.swiglu import SwiGLU
 
 
 @pytest.fixture

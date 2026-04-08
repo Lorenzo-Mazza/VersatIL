@@ -3,7 +3,7 @@ from collections.abc import Callable
 import torch
 import torch.nn as nn
 
-from versatil.models.layers.swiglu import SwiGLU
+from versatil.models.layers.gated_linear_unit import GatedLinearUnit
 
 
 class MLP(nn.Module):
@@ -29,7 +29,7 @@ class MLP(nn.Module):
         layers: list[nn.Module] = []
         prev_dim = input_dim
         for hidden_dim in hidden_dims:
-            if issubclass(activation_function, SwiGLU):
+            if issubclass(activation_function, GatedLinearUnit):
                 layers.append(
                     activation_function(input_dim=prev_dim, hidden_dim=hidden_dim)
                 )

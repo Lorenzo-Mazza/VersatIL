@@ -2,7 +2,7 @@ import enum
 
 from torch import nn
 
-from versatil.models.layers.swiglu import GeGLU, SwiGLU
+from versatil.models.layers.gated_linear_unit import GeGLU, SwiGLU
 
 
 class ActivationFunction(enum.StrEnum):

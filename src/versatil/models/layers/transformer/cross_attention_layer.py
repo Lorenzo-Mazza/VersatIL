@@ -8,7 +8,6 @@ from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
-from versatil.models.layers.swiglu import SwiGLU
 from versatil.models.layers.transformer.attention import CachedAttention
 
 
@@ -75,17 +74,21 @@ class CrossAttentionLayer(nn.Module):
             normalization_type=normalization_type,
             dimension=embedding_dimension,
         )
-        if activation == ActivationFunction.SWIGLU.value:
+        activation_enum = ActivationFunction(activation)
+        if activation_enum.is_gated:
             self.feedforward = nn.Sequential(
-                SwiGLU(embedding_dimension, feedforward_dimension, bias=bias),
+                activation_enum.to_torch_activation()(
+                    input_dim=embedding_dimension,
+                    hidden_dim=feedforward_dimension,
+                    bias=bias,
+                ),
                 nn.Dropout(dropout),
                 nn.Linear(feedforward_dimension, embedding_dimension, bias=bias),
             )
         else:
-            activation_function = ActivationFunction(activation).to_torch_activation()()
             self.feedforward = nn.Sequential(
                 nn.Linear(embedding_dimension, feedforward_dimension, bias=bias),
-                activation_function,
+                activation_enum.to_torch_activation()(),
                 nn.Dropout(dropout),
                 nn.Linear(feedforward_dimension, embedding_dimension, bias=bias),
             )
