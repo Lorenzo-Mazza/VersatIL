@@ -153,6 +153,19 @@ class FlowMatching(DecodingAlgorithm):
             SampleKey.IS_PAD_ACTION.value: is_pad,
         }
 
+    @property
+    def predicts_in_action_space(self) -> bool:
+        """Network predicts velocity fields, not actions."""
+        return False
+
+    def get_targets(
+        self,
+        algorithm_output: dict[str, torch.Tensor],
+        ground_truth_actions: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Return the target velocity field for flow matching loss."""
+        return algorithm_output[DecoderOutputKey.TARGET_VELOCITY.value]
+
     def predict(
         self,
         network: ActionDecoder,

@@ -190,6 +190,19 @@ class VariationalAlgorithm(DecodingAlgorithm):
         predictions.update(prior_output)
         return predictions
 
+    @property
+    def predicts_in_action_space(self) -> bool:
+        """Delegates to the wrapped base algorithm."""
+        return self.base_algorithm.predicts_in_action_space
+
+    def get_targets(
+        self,
+        algorithm_output: dict[str, torch.Tensor],
+        ground_truth_actions: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Delegate to the base algorithm's target selection."""
+        return self.base_algorithm.get_targets(algorithm_output, ground_truth_actions)
+
     def predict(
         self,
         network: ActionDecoder,

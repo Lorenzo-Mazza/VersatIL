@@ -152,6 +152,11 @@ class Policy(nn.Module):
     ) -> LossOutput:
         """Compute loss using the configured loss module.
 
+        The algorithm determines what the regression targets are via
+        ``get_targets``. For BC this is the ground-truth actions; for
+        flow matching it is the target velocity field; for diffusion it
+        depends on the prediction type (noise, sample, or velocity).
+
         Args:
             batch: Batch dictionary containing observations and actions
 
@@ -159,12 +164,15 @@ class Policy(nn.Module):
             LossOutput with total loss and component losses
         """
         output = self.forward(batch)
+        ground_truth_actions = batch[SampleKey.ACTION.value]
+        targets = self.algorithm.get_targets(
+            algorithm_output=output,
+            ground_truth_actions=ground_truth_actions,
+        )
         return self.loss_module(
             predictions=output,
-            targets=batch[SampleKey.ACTION.value],
-            is_pad=batch[SampleKey.ACTION.value].get(
-                SampleKey.IS_PAD_ACTION.value, None
-            ),
+            targets=targets,
+            is_pad=ground_truth_actions.get(SampleKey.IS_PAD_ACTION.value),
         )
 
     def predict_action(
