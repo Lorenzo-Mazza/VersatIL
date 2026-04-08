@@ -7,7 +7,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
-from transformers import AutoConfig
+import torch.nn as nn
+from transformers import AutoConfig, PretrainedConfig
 
 from versatil.data.constants import Cameras, SampleKey
 from versatil.models.decoding.action_heads.single_output import ActionHead
@@ -194,9 +195,9 @@ def prefix_features_factory(
             )
         if include_proprioceptive:
             features[PROPRIO_KEY] = torch.from_numpy(
-                rng.standard_normal(
-                    (batch_size, proprioceptive_dimension)
-                ).astype(np.float32)
+                rng.standard_normal((batch_size, proprioceptive_dimension)).astype(
+                    np.float32
+                )
             )
         return features
 
@@ -295,6 +296,48 @@ class TestPi0DecoderInitialization:
             ),
         ):
             pi0_decoder_factory(time_conditioning="invalid_mode")
+
+    @pytest.mark.parametrize(
+        "time_conditioning, normalization_type, expected_error",
+        [
+            (
+                TimeConditioning.ADANORM.value,
+                NormalizationType.RMS_NORM.value,
+                f"AdaNorm time conditioning requires adaptive normalization, "
+                f"got {NormalizationType.RMS_NORM.value}.",
+            ),
+            (
+                TimeConditioning.CONCAT_MLP.value,
+                NormalizationType.ADARMS.value,
+                f"Adaptive normalization {NormalizationType.ADARMS.value} requires "
+                f"AdaNorm time conditioning, got {TimeConditioning.CONCAT_MLP.value}.",
+            ),
+        ],
+        ids=["adanorm_with_plain_norm", "adaptive_norm_without_adanorm_conditioning"],
+    )
+    def test_set_backbone_raises_on_mismatched_conditioning_and_normalization(
+        self,
+        pi0_decoder_factory: Callable[..., Pi0Decoder],
+        time_conditioning: str,
+        normalization_type: str,
+        expected_error: str,
+    ):
+        decoder = pi0_decoder_factory(
+            time_conditioning=time_conditioning,
+            normalization_type=normalization_type,
+        )
+        mock_vlm_layers = nn.ModuleList(
+            [MagicMock(spec=nn.Module) for _ in range(NUM_EXPERT_LAYERS)]
+        )
+        mock_rotary_emb = MagicMock(spec=nn.Module)
+        mock_text_config = MagicMock(spec=PretrainedConfig)
+        with pytest.raises(ValueError, match=re.escape(expected_error)):
+            decoder.set_backbone(
+                vlm_layers=mock_vlm_layers,
+                rotary_emb=mock_rotary_emb,
+                vlm_hidden_dimension=VLM_HIDDEN_DIMENSION,
+                vlm_text_config=mock_text_config,
+            )
 
 
 @pytest.mark.integration
@@ -429,7 +472,9 @@ class TestPi0DecoderForward:
         )
         decoder.eval()
         features_without = prefix_features_factory()
-        features_with = {key: tensor.clone() for key, tensor in features_without.items()}
+        features_with = {
+            key: tensor.clone() for key, tensor in features_without.items()
+        }
         features_with[PROPRIO_KEY] = torch.from_numpy(
             np.ones((BATCH_SIZE, PROPRIO_DIM), dtype=np.float32)
         )
@@ -490,9 +535,7 @@ class TestPi0DecoderBehavior:
         features_low = prefix_features_factory()
         features_low[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.01)
         features_high = {key: tensor.clone() for key, tensor in features_low.items()}
-        features_high[DecoderOutputKey.TIMESTEP.value] = torch.full(
-            (BATCH_SIZE,), 0.99
-        )
+        features_high[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.99)
         actions = noisy_actions_factory()
         with torch.no_grad():
             output_low = decoder(features=features_low, actions=actions)
@@ -515,17 +558,13 @@ class TestPi0DecoderBehavior:
         features_low = prefix_features_factory()
         features_low[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.01)
         features_high = {key: tensor.clone() for key, tensor in features_low.items()}
-        features_high[DecoderOutputKey.TIMESTEP.value] = torch.full(
-            (BATCH_SIZE,), 0.99
-        )
+        features_high[DecoderOutputKey.TIMESTEP.value] = torch.full((BATCH_SIZE,), 0.99)
         actions = noisy_actions_factory()
         with torch.no_grad():
             output_low = decoder(features=features_low, actions=actions)
             output_high = decoder(features=features_high, actions=actions)
         for action_key in actions:
-            torch.testing.assert_close(
-                output_low[action_key], output_high[action_key]
-            )
+            torch.testing.assert_close(output_low[action_key], output_high[action_key])
 
     def test_different_prefix_features_produce_different_outputs(
         self,
@@ -610,18 +649,14 @@ class TestPi0DecoderCaching:
         with torch.no_grad():
             output_stale = decoder(features=features_b, actions=actions)
         for action_key in actions:
-            torch.testing.assert_close(
-                output_a[action_key], output_stale[action_key]
-            )
+            torch.testing.assert_close(output_a[action_key], output_stale[action_key])
         # After disable + re-enable, new prefix takes effect
         decoder.disable_encoder_cache()
         decoder.enable_encoder_cache()
         with torch.no_grad():
             output_fresh = decoder(features=features_b, actions=actions)
         for action_key in actions:
-            assert not torch.allclose(
-                output_a[action_key], output_fresh[action_key]
-            )
+            assert not torch.allclose(output_a[action_key], output_fresh[action_key])
 
     def test_cached_forwards_are_self_consistent(
         self,
