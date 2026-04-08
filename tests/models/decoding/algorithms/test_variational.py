@@ -477,6 +477,31 @@ class TestVariationalAlgorithmForward:
         prior.sample_prior.assert_called_once()
 
 
+class TestVariationalAlgorithmGetTargets:
+    def test_delegates_to_base_algorithm(
+        self,
+        variational_factory: Callable[..., VariationalAlgorithm],
+        mock_base_algorithm_factory: Callable[..., MagicMock],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        base = mock_base_algorithm_factory()
+        expected_targets = {"position_action": torch.ones(2, 8, 3)}
+        base.get_targets.return_value = expected_targets
+        variational = variational_factory(base_algorithm=base)
+        output = {"position_action": torch.zeros(2, 8, 3)}
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+        targets = variational.get_targets(
+            algorithm_output=output,
+            ground_truth_actions=actions,
+        )
+        base.get_targets.assert_called_once_with(output, actions)
+        assert targets is expected_targets
+
+
 class TestVariationalAlgorithmPredict:
     def test_samples_from_prior(
         self,

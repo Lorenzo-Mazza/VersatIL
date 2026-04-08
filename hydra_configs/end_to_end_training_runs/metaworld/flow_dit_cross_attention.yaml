@@ -14,7 +14,7 @@ defaults:
   - /policy/encoding_pipeline: mono_rgb_language_encoder
   - /policy/decoder: dit_cross_attention_transformer
   - /policy/algorithm: flow_matching
-  - /policy/loss: regressionMSE_gripper
+  - /policy/loss: regression_gripper_mse
   - /inference: default
   - override /policy/decoder/heads@policy.decoder.action_heads: metaworld_mt50
   - _self_
@@ -52,9 +52,8 @@ policy:
         action_keys:
           - ${proprio_key:EE_POS_ACTION}
       gripper_loss:
-        key: ${proprio_key:GRIPPER_STATE_ACTION}
-        bce_weight: 0.0
-        mse_weight: 0.05
+        action_keys:
+          - ${proprio_key:GRIPPER_STATE_ACTION}
       trajectory_length:
         action_key: ${proprio_key:EE_POS_ACTION}
   encoding_pipeline:

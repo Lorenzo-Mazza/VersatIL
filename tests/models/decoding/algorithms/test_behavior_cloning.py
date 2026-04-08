@@ -27,6 +27,24 @@ class TestBehavioralCloningInitialization:
     ):
         bc = bc_factory()
         assert isinstance(bc, DecodingAlgorithm)
+        assert bc.predicts_in_action_space is True
+
+
+def test_get_targets_returns_ground_truth_actions(
+    bc_factory: Callable[..., BehavioralCloning],
+    action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+):
+    bc = bc_factory()
+    actions = action_dictionary_factory(
+        action_keys=["position_action"],
+        prediction_horizon=8,
+        action_dimension=3,
+    )
+    targets = bc.get_targets(
+        algorithm_output={"position_action": torch.zeros(2, 8, 3)},
+        ground_truth_actions=actions,
+    )
+    assert torch.equal(targets["position_action"], actions["position_action"])
 
 
 class TestBehavioralCloningForward:

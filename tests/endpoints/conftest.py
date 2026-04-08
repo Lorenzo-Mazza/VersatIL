@@ -4,8 +4,6 @@ import os
 import socket as socket_module
 import threading
 
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
-
 from collections.abc import Callable
 from pathlib import Path
 

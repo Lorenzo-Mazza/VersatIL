@@ -13,7 +13,7 @@ defaults:
   - /policy/encoding_pipeline: language_conditional_stereo_rgb_pooled
   - /policy/decoder: dit_block_transformer
   - /policy/algorithm: flow_matching
-  - /policy/loss: regressionMSE_gripper
+  - /policy/loss: regression_gripper_mse
   - /inference: default
   - override /policy/decoder/heads@policy.decoder.action_heads: libero
   - _self_
@@ -44,7 +44,8 @@ policy:
           - ${proprio_key:EE_POS_ACTION}
           - ${proprio_key:EE_ORI_ACTION}
       gripper_loss:
-        key: ${proprio_key:GRIPPER_STATE_ACTION}
+        action_keys:
+          - ${proprio_key:GRIPPER_STATE_ACTION}
       trajectory_length:
         action_key: ${proprio_key:EE_POS_ACTION}
   encoding_pipeline:

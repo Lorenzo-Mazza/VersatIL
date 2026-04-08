@@ -76,10 +76,11 @@ class TestDiffusionInitialization:
     @pytest.mark.parametrize("num_train_timesteps", [50, 200])
     @pytest.mark.parametrize("num_inference_steps", [5, 20])
     @pytest.mark.parametrize(
-        "prediction_type",
+        "prediction_type, expected_in_action_space",
         [
-            PredictionType.EPSILON.value,
-            PredictionType.VELOCITY.value,
+            (PredictionType.EPSILON.value, False),
+            (PredictionType.VELOCITY.value, False),
+            (PredictionType.SAMPLE.value, True),
         ],
     )
     @pytest.mark.parametrize(
@@ -95,6 +96,7 @@ class TestDiffusionInitialization:
         num_train_timesteps: int,
         num_inference_steps: int,
         prediction_type: str,
+        expected_in_action_space: bool,
         scheduler_type: str,
         expected_scheduler_class: type,
     ):
@@ -107,6 +109,7 @@ class TestDiffusionInitialization:
         assert diff.num_train_timesteps == num_train_timesteps
         assert diff.num_inference_steps == num_inference_steps
         assert diff.prediction_type == prediction_type
+        assert diff.predicts_in_action_space is expected_in_action_space
         assert isinstance(diff.noise_scheduler, expected_scheduler_class)
 
 
@@ -306,6 +309,100 @@ class TestDiffusionForward:
             ),
         ):
             diff.forward(network=mock_network, features=features, actions=actions)
+
+
+class TestDiffusionGetTargets:
+    @pytest.mark.parametrize(
+        "prediction_type",
+        [PredictionType.EPSILON.value, PredictionType.SAMPLE.value],
+    )
+    def test_returns_algorithm_target_not_raw_actions(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        prediction_type: str,
+    ):
+        diffusion = diffusion_factory(prediction_type=prediction_type)
+        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+        output = diffusion.forward(
+            network=mock_network,
+            features=features,
+            actions=actions,
+        )
+        targets = diffusion.get_targets(
+            algorithm_output=output,
+            ground_truth_actions=actions,
+        )
+        assert "position_action" in targets
+        assert torch.equal(
+            targets["position_action"],
+            output[DecoderOutputKey.TARGET_DIFFUSION.value]["position_action"],
+        )
+
+    def test_epsilon_target_is_noise(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        diffusion = diffusion_factory(prediction_type=PredictionType.EPSILON.value)
+        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+        output = diffusion.forward(
+            network=mock_network,
+            features=features,
+            actions=actions,
+        )
+        targets = diffusion.get_targets(
+            algorithm_output=output,
+            ground_truth_actions=actions,
+        )
+        noise = output[DecoderOutputKey.NOISE.value]["position_action"]
+        assert torch.equal(targets["position_action"], noise)
+
+    def test_sample_target_is_raw_actions(
+        self,
+        diffusion_factory: Callable[..., Diffusion],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        diffusion = diffusion_factory(prediction_type=PredictionType.SAMPLE.value)
+        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+        output = diffusion.forward(
+            network=mock_network,
+            features=features,
+            actions=actions,
+        )
+        targets = diffusion.get_targets(
+            algorithm_output=output,
+            ground_truth_actions=actions,
+        )
+        # For sample prediction, target IS the raw actions (stored in TARGET_DIFFUSION)
+        assert torch.equal(
+            targets["position_action"],
+            actions["position_action"],
+        )
 
 
 class TestDiffusionPredict:
