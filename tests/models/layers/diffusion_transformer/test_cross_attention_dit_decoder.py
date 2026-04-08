@@ -128,12 +128,12 @@ class TestCrossConditioningDecoderInitialization:
     )
     def test_normalization_type_validation(
         self,
-        cross_conditioning_decoder_factory: Callable[..., CrossConditioningDecoder],
+        cross_decoder_factory: Callable[..., CrossConditioningDecoder],
         normalization_type: str,
         expectation,
     ):
         with expectation:
-            cross_conditioning_decoder_factory(
+            cross_decoder_factory(
                 number_of_layers=1,
                 normalization_type=normalization_type,
             )
