@@ -316,7 +316,7 @@ class TestSmolVLADecoderConfig:
         assert isinstance(config, DecodingNetworkConfig)
         assert (
             config._target_
-            == "versatil.models.decoding.decoders.factory.smolvla_decoder.SmolVLADecoder"
+            == "versatil.models.decoding.decoders.factory.smolvla.SmolVLADecoder"
         )
         assert config.normalization_type == NormalizationType.RMS_NORM.value
         assert config.proprioceptive_feature_key is None

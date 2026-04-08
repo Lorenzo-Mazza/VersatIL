@@ -1,9 +1,5 @@
 """Pi0/Pi0.5 interleaved VLM-expert decoder with joint attention.
 
-All VLM layers are paired 1:1 with expert layers via ``MMDiTLayer``
-(``precomputed_primary_stream=True``). VLM Q/K/V are extracted with RoPE,
-expert Q/K receive RoPE via ``precomputed_action_rope``.
-
 References:
     Pi0: https://github.com/Physical-Intelligence/openpi
 """
@@ -18,38 +14,30 @@ from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_masking import make_attention_mask
 from versatil.models.decoding.constants import DecoderOutputKey, TimeConditioning
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.decoding.decoders.vla_interleaved import (
+    VLAJointAttentionLayer,
+)
 from versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm import (
     GenerativeVLMEncoder,
 )
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.feature_projection import FeatureProjection
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.normalization.factory import (
-    create_block_normalization,
-    create_normalization_layer,
-)
+from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.positional_encoding.base import PositionSource
 from versatil.models.layers.positional_encoding.sinusoidal import (
     PeriodInterpolationPositionalEncoding1D,
 )
-from versatil.models.layers.transformer.attention.precomputed_primary_joint_attention import (
-    PrecomputedPrimaryJointAttention,
-)
-from versatil.models.layers.transformer.blocks.feedforward import (
-    FeedforwardBlock,
-    build_feedforward,
-)
-from versatil.models.layers.transformer.blocks.precomputed_dual_stream_attention import (
-    PrecomputedDualStreamAttentionBlock,
-)
 
 
 class Pi0Decoder(ActionDecoder):
-    """Pi0/Pi0.5 decoder with pretrained PaliGemma backbone and learned action expert.
+    """Pi0/Pi0.5 decoder with pretrained VLM backbone and learned action expert.
 
-    All VLM layers are paired 1:1 with expert layers via joint attention
-    (``MMDiTLayer`` with ``precomputed_primary_stream=True``). VLM layers
-    are referenced directly from the encoder — not duplicated.
+    Each VLM layer is paired 1:1 with an expert layer via joint
+    self-attention. Pi0 fuses timestep into action tokens via MLP
+    before the expert layers. Pi0.5 modulates each expert layer
+    via adaptive normalization.
+    Modules are created lazily in ``set_backbone`` from the VLM text config.
     """
 
     def __init__(
@@ -72,8 +60,34 @@ class Pi0Decoder(ActionDecoder):
         max_period: float = 4.0,
         proprioceptive_feature_key: str | None = None,
         normalization_type: str = NormalizationType.RMS_NORM.value,
+        activation: str = ActivationFunction.GEGLU.value,
         dropout: float = 0.0,
     ):
+        """Initialize Pi0 decoder.
+
+        Args:
+            input_keys: Feature keys from the encoding pipeline.
+            action_space: Action space configuration.
+            action_heads: Action prediction heads.
+            observation_space: Observation space configuration.
+            observation_horizon: Number of observation timesteps.
+            prediction_horizon: Number of action steps to predict.
+            device: Device string.
+            expert_hidden_size: Expert network hidden dimension.
+            expert_intermediate_size: Expert feedforward intermediate dimension.
+            expert_number_of_heads: Number of attention heads in expert layers.
+            expert_number_of_key_value_heads: Number of K/V heads in expert layers.
+            expert_number_of_layers: Number of expert layers (must match VLM layers).
+            expert_head_dimension: Per-head dimension in expert layers.
+            time_conditioning: Timestep conditioning mode (use TimeConditioning enum values).
+            min_period: Minimum period for sinusoidal timestep embedding.
+            max_period: Maximum period for sinusoidal timestep embedding.
+            proprioceptive_feature_key: Feature key for proprioceptive state.
+                When set, the feature is prepended to the VLM prefix.
+            normalization_type: Normalization layer type.
+            activation: Activation function for expert feedforward layers.
+            dropout: Dropout rate.
+        """
         decoder_input = DecoderInput(
             keys=input_keys,
             requires_actions=True,
@@ -97,6 +111,7 @@ class Pi0Decoder(ActionDecoder):
         self.expert_head_dimension = expert_head_dimension
         self.proprioceptive_feature_key = proprioceptive_feature_key
         self.normalization_type = normalization_type
+        self.activation = activation
         self._dropout = dropout
         self.action_input_projection = nn.Linear(self.action_dim, expert_hidden_size)
         self.action_output_projection = nn.Linear(expert_hidden_size, self.action_dim)
@@ -127,7 +142,7 @@ class Pi0Decoder(ActionDecoder):
                 )
         self.vlm_layers: nn.ModuleList | None = None
         self.vlm_rotary_embedding: nn.Module | None = None
-        self.vlm_hidden_dimensionension: int | None = None
+        self.vlm_hidden_dimension: int | None = None
         self.expert_layers: nn.ModuleList | None = None
         self.expert_final_normalization: nn.Module | None = None
         self._encoder_cache_enabled = False
@@ -159,7 +174,7 @@ class Pi0Decoder(ActionDecoder):
             )
         self.vlm_layers = vlm_layers
         self.vlm_rotary_embedding = rotary_emb
-        self.vlm_hidden_dimensionension = vlm_hidden_dimension
+        self.vlm_hidden_dimension = vlm_hidden_dimension
         use_conditioning = self.time_conditioning == TimeConditioning.ADANORM.value
         norm_is_adaptive = NormalizationType(self.normalization_type).is_adaptive
         if use_conditioning and not norm_is_adaptive:
@@ -174,44 +189,18 @@ class Pi0Decoder(ActionDecoder):
             )
         self.expert_layers = nn.ModuleList(
             [
-                PrecomputedDualStreamAttentionBlock(
-                    joint_attention=PrecomputedPrimaryJointAttention(
-                        primary_embedding_dimension=vlm_hidden_dimension,
-                        number_of_heads=self.expert_number_of_heads,
-                        secondary_embedding_dimension=self.expert_hidden_size,
-                        number_of_key_value_heads=self.expert_number_of_key_value_heads,
-                        head_dimension=self.expert_head_dimension,
-                        dropout=self._dropout,
-                        use_query_key_norm=False,
-                        bias=False,
-                    ),
-                    attention_normalization_secondary=create_block_normalization(
-                        normalization_type=self.normalization_type,
-                        dimension=self.expert_hidden_size,
-                        condition_dim=self.expert_hidden_size
-                        if use_conditioning
-                        else None,
-                        use_gating=use_conditioning,
-                    ),
-                    feedforward_block_secondary=FeedforwardBlock(
-                        feedforward=build_feedforward(
-                            embedding_dimension=self.expert_hidden_size,
-                            feedforward_dimension=self.expert_intermediate_size,
-                            activation=ActivationFunction.GEGLU.value,
-                            dropout=self._dropout,
-                            bias=False,
-                        ),
-                        normalization=create_block_normalization(
-                            normalization_type=self.normalization_type,
-                            dimension=self.expert_hidden_size,
-                            condition_dim=self.expert_hidden_size
-                            if use_conditioning
-                            else None,
-                            use_gating=use_conditioning,
-                        ),
-                        dropout=self._dropout,
-                    ),
+                VLAJointAttentionLayer(
+                    vlm_embedding_dimension=vlm_hidden_dimension,
+                    expert_embedding_dimension=self.expert_hidden_size,
+                    number_of_heads=self.expert_number_of_heads,
+                    number_of_key_value_heads=self.expert_number_of_key_value_heads,
+                    head_dimension=self.expert_head_dimension,
+                    expert_feedforward_dimension=self.expert_intermediate_size,
+                    normalization_type=self.normalization_type,
+                    condition_dim=self.expert_hidden_size if use_conditioning else None,
+                    use_gating=use_conditioning,
                     dropout=self._dropout,
+                    activation=self.activation,
                 )
                 for _ in range(self.expert_number_of_layers)
             ]

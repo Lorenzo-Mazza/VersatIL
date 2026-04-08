@@ -379,9 +379,7 @@ class ConditionalActionUNetConfig(DecodingNetworkConfig):
 class SmolVLADecoderConfig(DecodingNetworkConfig):
     """SmolVLA decoder with interleaved VLM + expert cross-attention."""
 
-    _target_: str = (
-        "versatil.models.decoding.decoders.factory.smolvla_decoder.SmolVLADecoder"
-    )
+    _target_: str = "versatil.models.decoding.decoders.factory.smolvla.SmolVLADecoder"
     expert_width_multiplier: float = 0.75
     num_expert_layers: int = -1
     num_vlm_layers: int = 16
@@ -391,6 +389,7 @@ class SmolVLADecoderConfig(DecodingNetworkConfig):
     max_period: float = 4.0
     freeze_vlm: bool = True
     normalization_type: str = NormalizationType.RMS_NORM.value
+    activation: str = ActivationFunction.SWIGLU.value
     dropout: float = 0.1
 
 
@@ -410,4 +409,5 @@ class Pi0DecoderConfig(DecodingNetworkConfig):
     max_period: float = 4.0
     proprioceptive_feature_key: str | None = None
     normalization_type: str = NormalizationType.RMS_NORM.value
+    activation: str = ActivationFunction.GEGLU.value
     dropout: float = 0.0

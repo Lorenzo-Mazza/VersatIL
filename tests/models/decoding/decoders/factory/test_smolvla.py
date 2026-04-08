@@ -1,4 +1,4 @@
-"""Tests for versatil.models.decoding.decoders.factory.smolvla_decoder module."""
+"""Tests for versatil.models.decoding.decoders.factory.smolvla module."""
 
 import re
 from collections.abc import Callable
@@ -13,8 +13,7 @@ from versatil.data.constants import Cameras, SampleKey
 from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder
-from versatil.models.decoding.decoders.factory.smolvla_decoder import (
-    CrossAttentionExpertLayer,
+from versatil.models.decoding.decoders.factory.smolvla import (
     SmolVLADecoder,
     SmolVLALayerType,
 )
@@ -292,62 +291,6 @@ class TestGetIntermediateSize:
         result = SmolVLADecoder._get_intermediate_size(hidden_dimension)
         assert result == expected
         assert result % 256 == 0
-
-
-class TestCrossAttentionExpertLayer:
-    def test_output_shape(self, rng: np.random.Generator):
-        layer = CrossAttentionExpertLayer(
-            expert_embedding_dimension=EXPERT_HIDDEN_SIZE,
-            vlm_key_value_dimension=NUM_KEY_VALUE_HEADS * HEAD_DIMENSION,
-            expert_number_of_heads=NUM_ATTENTION_HEADS,
-            expert_number_of_key_value_heads=NUM_KEY_VALUE_HEADS,
-            expert_head_dimension=HEAD_DIMENSION,
-            expert_feedforward_dimension=EXPERT_HIDDEN_SIZE * 4,
-            dropout=0.0,
-        )
-        expert_hidden = torch.from_numpy(
-            rng.standard_normal(
-                (BATCH_SIZE, PREDICTION_HORIZON, EXPERT_HIDDEN_SIZE)
-            ).astype(np.float32)
-        )
-        vlm_kv_dim = NUM_KEY_VALUE_HEADS * HEAD_DIMENSION
-        vlm_keys = torch.from_numpy(
-            rng.standard_normal(
-                (BATCH_SIZE, PREFIX_SEQUENCE_LENGTH, vlm_kv_dim)
-            ).astype(np.float32)
-        )
-        vlm_values = torch.from_numpy(
-            rng.standard_normal(
-                (BATCH_SIZE, PREFIX_SEQUENCE_LENGTH, vlm_kv_dim)
-            ).astype(np.float32)
-        )
-        output = layer(
-            expert_hidden_states=expert_hidden,
-            vlm_key_states=vlm_keys,
-            vlm_value_states=vlm_values,
-        )
-        assert output.shape == (
-            BATCH_SIZE,
-            PREDICTION_HORIZON,
-            EXPERT_HIDDEN_SIZE,
-        )
-
-    def test_bridges_vlm_dimensions_to_expert_dimensions(self):
-        large_vlm_kv_dim = 128
-        layer = CrossAttentionExpertLayer(
-            expert_embedding_dimension=EXPERT_HIDDEN_SIZE,
-            vlm_key_value_dimension=large_vlm_kv_dim,
-            expert_number_of_heads=NUM_ATTENTION_HEADS,
-            expert_number_of_key_value_heads=NUM_KEY_VALUE_HEADS,
-            expert_head_dimension=HEAD_DIMENSION,
-            expert_feedforward_dimension=EXPERT_HIDDEN_SIZE * 4,
-            dropout=0.0,
-        )
-        expected_kv_out = NUM_KEY_VALUE_HEADS * HEAD_DIMENSION
-        assert layer.key_bridge.in_features == large_vlm_kv_dim
-        assert layer.key_bridge.out_features == expected_kv_out
-        assert layer.value_bridge.in_features == large_vlm_kv_dim
-        assert layer.value_bridge.out_features == expected_kv_out
 
 
 @pytest.mark.integration
