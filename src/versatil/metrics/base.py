@@ -89,6 +89,19 @@ class BaseLoss(nn.Module, ABC):
     Loss modules can be composed together to create complex loss functions.
     """
 
+    @property
+    def requires_action_space_targets(self) -> bool:
+        """Whether this loss expects targets in the action space.
+
+        When True, the loss uses classification-style objectives (e.g. BCE)
+        that only make sense when targets are actual action labels.
+        Algorithms that predict outside the action space (velocity,
+        noise) are incompatible with such losses.
+
+        Default is False (regression losses like MSE/L1 work in any space).
+        """
+        return False
+
     @abstractmethod
     def forward(
         self,

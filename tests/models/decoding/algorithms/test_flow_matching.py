@@ -153,6 +153,7 @@ class TestFlowMatchingInitialization:
         assert fm.beta_beta == beta_beta
         assert fm.max_timestep == max_timestep
         assert fm.reverse_flow_convention == reverse_flow_convention
+        assert fm.predicts_in_action_space is False
         assert isinstance(fm.flow_matcher, ConditionalFlowMatcher)
 
     @pytest.mark.parametrize(
@@ -304,6 +305,105 @@ class TestFlowMatchingForward:
         for key in action_keys:
             assert key in target_velocity
             assert key in noise
+
+
+class TestFlowMatchingGetTargets:
+    def test_returns_target_velocity_not_raw_actions(
+        self,
+        flow_matching_factory: Callable[..., FlowMatching],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        fm = flow_matching_factory()
+        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+        output = fm.forward(
+            network=mock_network,
+            features=features,
+            actions=actions,
+        )
+        targets = fm.get_targets(
+            algorithm_output=output,
+            ground_truth_actions=actions,
+        )
+        # Targets must be the velocity field, not the raw actions
+        assert "position_action" in targets
+        assert torch.equal(
+            targets["position_action"],
+            output[DecoderOutputKey.TARGET_VELOCITY.value]["position_action"],
+        )
+        assert not torch.equal(
+            targets["position_action"],
+            actions["position_action"],
+        )
+
+    def test_target_velocity_equals_action_minus_noise(
+        self,
+        flow_matching_factory: Callable[..., FlowMatching],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        fm = flow_matching_factory(sigma=0.0)
+        mock_network = mock_action_decoder_factory(action_keys=["position_action"])
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+        output = fm.forward(
+            network=mock_network,
+            features=features,
+            actions=actions,
+        )
+        targets = fm.get_targets(
+            algorithm_output=output,
+            ground_truth_actions=actions,
+        )
+        noise = output[DecoderOutputKey.NOISE.value]["position_action"]
+        expected_velocity = actions["position_action"] - noise
+        assert torch.allclose(
+            targets["position_action"],
+            expected_velocity,
+            atol=1e-5,
+        )
+
+    def test_targets_contain_all_action_keys(
+        self,
+        flow_matching_factory: Callable[..., FlowMatching],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        fm = flow_matching_factory()
+        action_keys = ["gripper_action", "position_action"]
+        mock_network = mock_action_decoder_factory(
+            action_keys=action_keys,
+            prediction_dimension=3,
+        )
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=action_keys,
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+        output = fm.forward(
+            network=mock_network,
+            features=features,
+            actions=actions,
+        )
+        targets = fm.get_targets(
+            algorithm_output=output,
+            ground_truth_actions=actions,
+        )
+        assert set(targets.keys()) == set(action_keys)
 
 
 class TestFlowMatchingPredict:

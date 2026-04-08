@@ -399,22 +399,28 @@ class TestComputeLoss:
         assert result is loss_output
         loss_module.assert_called_once()
 
-    def test_passes_predictions_and_targets_to_loss_module(
+    def test_passes_predictions_and_algorithm_targets_to_loss_module(
         self,
         policy_factory: Callable[..., Policy],
         batch_dictionary_factory: Callable[..., dict[str, dict[str, torch.Tensor]]],
     ):
         forward_output = {"prediction": torch.zeros(2, 4, 7)}
+        algorithm_targets = {"prediction": torch.ones(2, 4, 7)}
         loss_module = MagicMock(spec=BaseLoss)
         loss_module.return_value = LossOutput(total_loss=torch.tensor(0.1))
-        policy = policy_factory(
-            loss=loss_module, algorithm_forward_return=forward_output
-        )
+        algorithm = MagicMock(spec=DecodingAlgorithm)
+        algorithm.forward.return_value = forward_output
+        algorithm.get_targets.return_value = algorithm_targets
+        policy = policy_factory(loss=loss_module, algorithm=algorithm)
         batch = batch_dictionary_factory()
         policy.compute_loss(batch=batch)
         call_kwargs = loss_module.call_args.kwargs
         assert call_kwargs["predictions"] is forward_output
-        assert call_kwargs["targets"] is batch[SampleKey.ACTION.value]
+        assert call_kwargs["targets"] is algorithm_targets
+        algorithm.get_targets.assert_called_once_with(
+            algorithm_output=forward_output,
+            ground_truth_actions=batch[SampleKey.ACTION.value],
+        )
 
     def test_extracts_is_pad_from_action_dictionary(
         self,

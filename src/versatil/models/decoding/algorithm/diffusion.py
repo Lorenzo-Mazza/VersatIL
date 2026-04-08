@@ -183,6 +183,19 @@ class Diffusion(DecodingAlgorithm):
             DecoderOutputKey.TIMESTEP.value: timesteps,
         }
 
+    @property
+    def predicts_in_action_space(self) -> bool:
+        """Only 'sample' prediction type outputs actions directly; 'epsilon' and 'velocity' do not."""
+        return self.prediction_type == PredictionType.SAMPLE.value
+
+    def get_targets(
+        self,
+        algorithm_output: dict[str, torch.Tensor],
+        ground_truth_actions: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Return the diffusion target (noise, sample, or velocity)."""
+        return algorithm_output[DecoderOutputKey.TARGET_DIFFUSION.value]
+
     def predict(
         self,
         network: ActionDecoder,
