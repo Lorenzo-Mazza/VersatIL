@@ -200,7 +200,6 @@ class PostTrainingCompressor:
             device=torch.device("cpu"),
             checkpoint_path=self.checkpoint_path,
             checkpoint_name=self.checkpoint_name,
-            precision=PrecisionType.FP32.value,
         )
 
     def _prepare_and_prune(
