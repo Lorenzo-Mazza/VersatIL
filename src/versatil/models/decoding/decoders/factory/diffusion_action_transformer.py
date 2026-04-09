@@ -29,6 +29,7 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
+from versatil.models.layers.transformer.cache.conditioning import ConditioningCache
 
 
 class DiffusionActionTransformer(ActionDecoder):
@@ -131,7 +132,24 @@ class DiffusionActionTransformer(ActionDecoder):
             observation_horizon=observation_horizon,
             device=device,
         )
+        self._caching_enabled: bool = False
+        self._conditioning_cache: ConditioningCache | None = None
         self._build_transformer_components()
+
+    def enable_encoder_cache(self) -> None:
+        """Enable conditioning cache for multi-step denoising inference.
+
+        Only effective for CrossAttentionDiT, where encoder K/V projections
+        are static across denoising steps. MMDiT uses joint attention where
+        both streams change each step, so caching does not apply.
+        """
+        self._caching_enabled = True
+        self._conditioning_cache = None
+
+    def disable_encoder_cache(self) -> None:
+        """Disable conditioning cache and clear stored states."""
+        self._caching_enabled = False
+        self._conditioning_cache = None
 
     def _build_transformer_components(self):
         """Build transformer and input processing layers."""
@@ -271,13 +289,26 @@ class DiffusionActionTransformer(ActionDecoder):
         noisy_actions = torch.cat(action_tensors, dim=-1)
         noisy_embedding = self.noisy_input_projection(noisy_actions)
 
-        noise_predictions = self.transformer(
-            decoder_hidden_states=noisy_embedding,
-            timesteps=timesteps,
-            encoder_hidden_states=observation_tokens,
-            encoder_padding_mask=observation_padding_mask,
-            decoder_padding_mask=None,
-        )
+        if self._caching_enabled and isinstance(self.transformer, CrossAttentionDiT):
+            if self._conditioning_cache is None:
+                self._conditioning_cache = self.transformer.precompute_conditioning_kv(
+                    encoder_hidden_states=observation_tokens,
+                )
+            noise_predictions = self.transformer(
+                decoder_hidden_states=noisy_embedding,
+                timesteps=timesteps,
+                conditioning_cache=self._conditioning_cache,
+                encoder_padding_mask=observation_padding_mask,
+                decoder_padding_mask=None,
+            )
+        else:
+            noise_predictions = self.transformer(
+                decoder_hidden_states=noisy_embedding,
+                timesteps=timesteps,
+                encoder_hidden_states=observation_tokens,
+                encoder_padding_mask=observation_padding_mask,
+                decoder_padding_mask=None,
+            )
 
         outputs = {}
         start_index = 0

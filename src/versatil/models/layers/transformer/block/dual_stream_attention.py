@@ -35,12 +35,12 @@ class DualStreamAttentionBlock(DualStreamBlock):
             dropout: Dropout rate for attention residual connections.
         """
         super().__init__(
-            attention_normalization_secondary=attention_normalization_secondary,
+            attention_normalization_primary=attention_normalization_primary,
             dropout=dropout,
         )
         self.joint_attention = joint_attention
-        self.attention_normalization_primary = attention_normalization_primary
-        self.attention_dropout_primary = nn.Dropout(dropout)
+        self.attention_normalization_secondary = attention_normalization_secondary
+        self.attention_dropout_secondary = nn.Dropout(dropout)
 
     def forward(
         self,
@@ -85,13 +85,14 @@ class DualStreamAttentionBlock(DualStreamBlock):
             positional_encoding_primary=positional_encoding_primary,
             positional_encoding_secondary=positional_encoding_secondary,
         )
-        hidden_states_primary = (
-            residual_primary
-            + gate_primary * self.attention_dropout_primary(attention_output_primary)
+        hidden_states_primary = self._apply_primary_attention_residual(
+            residual=residual_primary,
+            attention_output=attention_output_primary,
+            gate=gate_primary,
         )
-        hidden_states_secondary = self._apply_secondary_attention_residual(
-            residual=residual_secondary,
-            attention_output=attention_output_secondary,
-            gate=gate_secondary,
+        hidden_states_secondary = (
+            residual_secondary
+            + gate_secondary
+            * self.attention_dropout_secondary(attention_output_secondary)
         )
         return hidden_states_primary, hidden_states_secondary

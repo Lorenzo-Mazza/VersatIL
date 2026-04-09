@@ -286,6 +286,38 @@ class TestPi0DecoderInitialization:
         )
         assert decoder.proprioceptive_projection is None
 
+    def test_compute_rope_raises_before_set_backbone(
+        self,
+        pi0_decoder_factory: Callable[..., Pi0Decoder],
+    ):
+        decoder = pi0_decoder_factory()
+        hidden = torch.zeros(BATCH_SIZE, PREFIX_SEQUENCE_LENGTH, EXPERT_HIDDEN_SIZE)
+        position_ids = torch.zeros(BATCH_SIZE, PREFIX_SEQUENCE_LENGTH, dtype=torch.long)
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape(
+                "VLM rotary embedding not set. set_backbone() must be called."
+            ),
+        ):
+            decoder._compute_rope(hidden_states=hidden, position_ids=position_ids)
+
+    def test_fill_prefix_cache_raises_before_set_backbone(
+        self,
+        pi0_decoder_factory: Callable[..., Pi0Decoder],
+    ):
+        decoder = pi0_decoder_factory()
+        prefix = torch.zeros(BATCH_SIZE, PREFIX_SEQUENCE_LENGTH, EXPERT_HIDDEN_SIZE)
+        position_ids = torch.zeros(BATCH_SIZE, PREFIX_SEQUENCE_LENGTH, dtype=torch.long)
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape(
+                "VLM rotary embedding not set. set_backbone() must be called."
+            ),
+        ):
+            decoder._fill_prefix_cache(
+                prefix_embeddings=prefix, position_ids=position_ids
+            )
+
     def test_raises_on_unknown_time_conditioning(
         self,
         pi0_decoder_factory: Callable[..., Pi0Decoder],
@@ -625,7 +657,7 @@ class TestPi0DecoderCaching:
         actions = noisy_actions_factory()
         with torch.no_grad():
             decoder(features=features, actions=actions)
-        assert len(decoder._prefix_cache) == NUM_EXPERT_LAYERS
+        assert len(decoder._prefix_cache.layers) == NUM_EXPERT_LAYERS
 
     def test_disable_cache_allows_new_prefix_to_take_effect(
         self,

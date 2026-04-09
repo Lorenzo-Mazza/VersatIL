@@ -1,4 +1,4 @@
-"""Cross-Attention Diffusion Transformer (PixArt style).
+"""Cross-Attention 1D Diffusion Transformer (PixArt style).
 
 DiT that conditions via cross-attention to observation tokens.
 

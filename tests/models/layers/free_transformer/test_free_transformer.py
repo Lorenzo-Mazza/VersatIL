@@ -13,6 +13,7 @@ from versatil.models.layers.free_transformer.free_transformer import (
     FreeTransformerLatentEncoder,
     LatentConditionedDecoderLayer,
 )
+from versatil.models.layers.transformer.transformer_mixin import TransformerMixin
 
 
 class TestLatentConditionedDecoderLayerInitialization:
@@ -409,6 +410,24 @@ class TestFreeTransformerInitialization:
         assert model.number_of_decoder_layers == number_of_decoder_layers
         assert model.embedding_dimension == embedding_dimension
         assert model.use_global_latent == use_global_latent
+
+    @pytest.mark.parametrize(
+        "number_of_decoder_layers, number_of_encoder_layers",
+        [(4, 2), (6, 0), (2, 4)],
+    )
+    def test_total_residual_streams_accounts_for_encoder_and_decoder(
+        self,
+        free_transformer_factory: Callable[..., FreeTransformer],
+        number_of_decoder_layers: int,
+        number_of_encoder_layers: int,
+    ):
+        model = free_transformer_factory(
+            number_of_decoder_layers=number_of_decoder_layers,
+            number_of_encoder_layers=number_of_encoder_layers,
+        )
+        expected = 2 * number_of_decoder_layers + 3 * number_of_encoder_layers
+        assert isinstance(model, TransformerMixin)
+        assert model._total_residual_streams == expected
 
     def test_raises_for_odd_number_of_layers(
         self,

@@ -3,7 +3,6 @@
 import re
 from collections.abc import Callable
 
-import numpy as np
 import pytest
 import torch
 
@@ -214,7 +213,7 @@ class TestGPTDecoderForward:
     def test_causal_masking_earlier_tokens_unaffected_by_later_changes(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         decoder = gpt_decoder_factory(
             number_of_layers=2,
@@ -224,8 +223,8 @@ class TestGPTDecoderForward:
             initializer_range=0.5,
         )
         decoder.eval()
-        hidden_states = torch.from_numpy(
-            rng.standard_normal((1, 6, 32)).astype(np.float32)
+        hidden_states = sequence_tensor_factory(
+            batch_size=1, sequence_length=6, embedding_dimension=32
         )
         output_original, _ = decoder(hidden_states=hidden_states)
         output_original = output_original.clone()
@@ -240,7 +239,7 @@ class TestGPTDecoderForward:
     def test_cached_forward_matches_full_forward(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         decoder = gpt_decoder_factory(
             number_of_layers=2,
@@ -251,8 +250,10 @@ class TestGPTDecoderForward:
         decoder.eval()
         sequence_length = 5
         batch_size = 2
-        full_sequence = torch.from_numpy(
-            rng.standard_normal((batch_size, sequence_length, 32)).astype(np.float32)
+        full_sequence = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=32,
         )
         full_output, _ = decoder(hidden_states=full_sequence)
         cache = decoder.create_empty_generation_cache(
@@ -272,7 +273,7 @@ class TestGPTDecoderForward:
     def test_cached_forward_with_cross_attention_matches_full(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         decoder = gpt_decoder_factory(
             number_of_layers=2,
@@ -283,11 +284,13 @@ class TestGPTDecoderForward:
         decoder.eval()
         sequence_length = 4
         batch_size = 2
-        full_sequence = torch.from_numpy(
-            rng.standard_normal((batch_size, sequence_length, 32)).astype(np.float32)
+        full_sequence = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=32,
         )
-        memory = torch.from_numpy(
-            rng.standard_normal((batch_size, 6, 32)).astype(np.float32)
+        memory = sequence_tensor_factory(
+            batch_size=batch_size, sequence_length=6, embedding_dimension=32
         )
         full_output, _ = decoder(hidden_states=full_sequence, encoded_features=memory)
         conditioning_cache = decoder.precompute_conditioning_kv(encoded_features=memory)
@@ -309,7 +312,7 @@ class TestGPTDecoderForward:
     def test_key_padding_mask_affects_output(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
         padding_mask_factory: Callable[..., torch.Tensor],
     ):
         decoder = gpt_decoder_factory(
@@ -319,8 +322,8 @@ class TestGPTDecoderForward:
             use_cross_attention=False,
         )
         decoder.eval()
-        hidden_states = torch.from_numpy(
-            rng.standard_normal((2, 4, 32)).astype(np.float32)
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
         )
         mask = padding_mask_factory(
             batch_size=2, sequence_length=4, padded_positions=[[1, 2], []]
@@ -332,7 +335,7 @@ class TestGPTDecoderForward:
     def test_custom_self_attention_mask(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         decoder = gpt_decoder_factory(
             number_of_layers=2,
@@ -341,8 +344,8 @@ class TestGPTDecoderForward:
             use_cross_attention=False,
         )
         decoder.eval()
-        hidden_states = torch.from_numpy(
-            rng.standard_normal((2, 4, 32)).astype(np.float32)
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
         )
         open_mask = torch.zeros(2, 1, 4, 4, dtype=torch.bool)
         output_open, _ = decoder(
@@ -396,7 +399,7 @@ class TestGPTDecoderForward:
     def test_cached_forward_with_rope_matches_full_forward(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         decoder = gpt_decoder_factory(
             number_of_layers=2,
@@ -408,8 +411,10 @@ class TestGPTDecoderForward:
         decoder.eval()
         sequence_length = 5
         batch_size = 2
-        full_sequence = torch.from_numpy(
-            rng.standard_normal((batch_size, sequence_length, 32)).astype(np.float32)
+        full_sequence = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=32,
         )
         full_output, _ = decoder(hidden_states=full_sequence)
         cache = decoder.create_empty_generation_cache(
@@ -429,7 +434,7 @@ class TestGPTDecoderForward:
     def test_cached_forward_with_sinusoidal_matches_full_forward(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         decoder = gpt_decoder_factory(
             number_of_layers=2,
@@ -441,8 +446,10 @@ class TestGPTDecoderForward:
         decoder.eval()
         sequence_length = 5
         batch_size = 2
-        full_sequence = torch.from_numpy(
-            rng.standard_normal((batch_size, sequence_length, 32)).astype(np.float32)
+        full_sequence = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=32,
         )
         full_output, _ = decoder(hidden_states=full_sequence)
         cache = decoder.create_empty_generation_cache(
@@ -523,7 +530,7 @@ class TestGPTDecoderCacheManagement:
     def test_cache_accumulates_across_steps(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         decoder = gpt_decoder_factory(
             number_of_layers=2,
@@ -536,10 +543,12 @@ class TestGPTDecoderCacheManagement:
         cache = decoder.create_empty_generation_cache(
             batch_size=batch_size, device=torch.device("cpu")
         )
+        # Generate all tokens at once, then slice per step
+        all_tokens = sequence_tensor_factory(
+            batch_size=batch_size, sequence_length=5, embedding_dimension=32
+        )
         for step in range(5):
-            token = torch.from_numpy(
-                rng.standard_normal((batch_size, 1, 32)).astype(np.float32)
-            )
+            token = all_tokens[:, step : step + 1, :]
             _, cache = decoder(
                 hidden_states=token,
                 generation_cache=cache,
@@ -549,7 +558,7 @@ class TestGPTDecoderCacheManagement:
     def test_cache_key_padding_mask_propagated(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         decoder = gpt_decoder_factory(
             number_of_layers=2,
@@ -559,8 +568,8 @@ class TestGPTDecoderCacheManagement:
         )
         decoder.eval()
         batch_size = 2
-        hidden_states = torch.from_numpy(
-            rng.standard_normal((batch_size, 3, 32)).astype(np.float32)
+        hidden_states = sequence_tensor_factory(
+            batch_size=batch_size, sequence_length=3, embedding_dimension=32
         )
         key_padding = torch.tensor([[False, True, False], [False, False, True]])
         initial_cache = decoder.create_empty_generation_cache(
@@ -577,7 +586,7 @@ class TestGPTDecoderCacheManagement:
     def test_conditioning_cache_reused_across_steps(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         decoder = gpt_decoder_factory(
             number_of_layers=2,
@@ -587,24 +596,23 @@ class TestGPTDecoderCacheManagement:
         )
         decoder.eval()
         batch_size = 2
-        memory = torch.from_numpy(
-            rng.standard_normal((batch_size, 6, 32)).astype(np.float32)
+        memory = sequence_tensor_factory(
+            batch_size=batch_size, sequence_length=6, embedding_dimension=32
         )
         conditioning_cache = decoder.precompute_conditioning_kv(encoded_features=memory)
         generation_cache = decoder.create_empty_generation_cache(
             batch_size=batch_size, device=torch.device("cpu")
         )
-        first_token = torch.from_numpy(
-            rng.standard_normal((batch_size, 1, 32)).astype(np.float32)
+        tokens = sequence_tensor_factory(
+            batch_size=batch_size, sequence_length=2, embedding_dimension=32
         )
+        first_token = tokens[:, 0:1, :]
         _, generation_cache = decoder(
             hidden_states=first_token,
             generation_cache=generation_cache,
             conditioning_cache=conditioning_cache,
         )
-        second_token = torch.from_numpy(
-            rng.standard_normal((batch_size, 1, 32)).astype(np.float32)
-        )
+        second_token = tokens[:, 1:2, :]
         output, generation_cache = decoder(
             hidden_states=second_token,
             generation_cache=generation_cache,

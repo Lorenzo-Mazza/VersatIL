@@ -17,7 +17,7 @@ from versatil.models.layers.transformer.block.cross_attention import (
 )
 from versatil.models.layers.transformer.cache.conditioning import ConditioningLayerCache
 
-from .conftest import EMBEDDING_DIMENSION
+EMBEDDING_DIMENSION = 32
 
 
 class TestCrossAttentionBlockForward:

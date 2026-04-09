@@ -13,7 +13,8 @@ from versatil.models.layers.transformer.block.dual_stream_attention import (
     DualStreamAttentionBlock,
 )
 
-from .conftest import EMBEDDING_DIMENSION, NUMBER_OF_HEADS
+EMBEDDING_DIMENSION = 32
+NUMBER_OF_HEADS = 4
 
 BATCH_SIZE = 2
 PRIMARY_SEQUENCE_LENGTH = 6

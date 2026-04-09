@@ -16,7 +16,8 @@ from versatil.models.layers.transformer.block.feedforward import (
     build_feedforward,
 )
 
-from .conftest import EMBEDDING_DIMENSION, FEEDFORWARD_DIMENSION
+EMBEDDING_DIMENSION = 32
+FEEDFORWARD_DIMENSION = 64
 
 
 class TestBuildFeedforward:

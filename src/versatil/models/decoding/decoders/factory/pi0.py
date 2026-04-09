@@ -25,6 +25,10 @@ from versatil.models.layers.positional_encoding.base import PositionSource
 from versatil.models.layers.positional_encoding.sinusoidal import (
     PeriodInterpolationPositionalEncoding1D,
 )
+from versatil.models.layers.transformer.cache.conditioning import (
+    ConditioningCache,
+    ConditioningLayerCache,
+)
 from versatil.models.layers.transformer.layer.precomputed_dual_stream_layer import (
     PrecomputedDualStreamLayer,
 )
@@ -146,7 +150,7 @@ class Pi0Decoder(ActionDecoder):
         self.expert_layers: nn.ModuleList | None = None
         self.expert_final_normalization: nn.Module | None = None
         self._encoder_cache_enabled = False
-        self._prefix_cache: dict[int, dict[str, torch.Tensor]] | None = None
+        self._prefix_cache: ConditioningCache | None = None
         self.to(self.device)
 
     def set_backbone(
@@ -179,12 +183,12 @@ class Pi0Decoder(ActionDecoder):
         self.expert_layers = nn.ModuleList(
             [
                 PrecomputedDualStreamLayer(
-                    primary_embedding_dimension=vlm_hidden_dimension,
-                    secondary_embedding_dimension=self.expert_hidden_size,
+                    primary_embedding_dimension=self.expert_hidden_size,
+                    secondary_embedding_dimension=vlm_hidden_dimension,
                     number_of_heads=self.expert_number_of_heads,
                     number_of_key_value_heads=self.expert_number_of_key_value_heads,
                     head_dimension=self.expert_head_dimension,
-                    secondary_feedforward_dimension=self.expert_intermediate_size,
+                    primary_feedforward_dimension=self.expert_intermediate_size,
                     normalization_type=self.normalization_type,
                     conditioning_dimension=self.expert_hidden_size
                     if use_conditioning
@@ -224,6 +228,10 @@ class Pi0Decoder(ActionDecoder):
         position_ids: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute (cos, sin) RoPE from the VLM rotary embedding."""
+        if self.vlm_rotary_embedding is None:
+            raise RuntimeError(
+                "VLM rotary embedding not set. set_backbone() must be called."
+            )
         cos, sin = self.vlm_rotary_embedding(hidden_states, position_ids)
         # (B, S, head_dim) → (B, 1, S, head_dim) for head broadcast
         return cos.unsqueeze(1), sin.unsqueeze(1)
@@ -268,7 +276,7 @@ class Pi0Decoder(ActionDecoder):
         Returns:
             Predicted action tensors keyed by action name.
         """
-        if self.expert_layers is None:
+        if self.expert_layers is None or self.expert_final_normalization is None:
             raise RuntimeError("set_backbone() must be called before forward().")
         if actions is None:
             raise ValueError(
@@ -382,12 +390,16 @@ class Pi0Decoder(ActionDecoder):
                         position_ids=position_ids,
                     )
                 )
-            vlm_attention_output, expert_hidden = self.expert_layers[layer_index](
-                precomputed_primary=(vlm_query, vlm_key, vlm_value),
-                hidden_states_secondary=expert_hidden,
+            expert_hidden, vlm_attention_output = self.expert_layers[
+                layer_index
+            ].forward_with_secondary(
+                hidden_states_primary=expert_hidden,
+                conditioning_cache=ConditioningLayerCache(
+                    queries=vlm_query, keys=vlm_key, values=vlm_value
+                ),
                 conditioning=adaptive_norm_conditioning,
                 joint_attention_mask=attention_mask,
-                precomputed_secondary_rope=expert_action_rope,
+                precomputed_primary_rope=expert_action_rope,
             )
             with torch.no_grad():
                 vlm_hidden = GenerativeVLMEncoder.apply_residual_feedforward(
@@ -401,9 +413,13 @@ class Pi0Decoder(ActionDecoder):
         self,
         prefix_embeddings: torch.Tensor,
         position_ids: torch.Tensor,
-    ) -> dict[int, dict[str, torch.Tensor]]:
+    ) -> ConditioningCache:
         """Run VLM layers and cache Q/K/V for inference."""
-        vlm_cache: dict[int, dict[str, torch.Tensor]] = {}
+        if self.vlm_rotary_embedding is None:
+            raise RuntimeError(
+                "VLM rotary embedding not set. set_backbone() must be called."
+            )
+        layer_caches: list[ConditioningLayerCache] = []
         vlm_hidden = prefix_embeddings
         prefix_position_ids = position_ids[:, : prefix_embeddings.shape[1]]
         vlm_position_embeddings = self.vlm_rotary_embedding(
@@ -420,12 +436,11 @@ class Pi0Decoder(ActionDecoder):
                         position_ids=prefix_position_ids,
                     )
                 )
-                vlm_cache[layer_index] = {
-                    "query": vlm_query,
-                    "key": vlm_key,
-                    "value": vlm_value,
-                    "hidden": vlm_hidden,
-                }
+                layer_caches.append(
+                    ConditioningLayerCache(
+                        queries=vlm_query, keys=vlm_key, values=vlm_value
+                    )
+                )
                 vlm_output = vlm_layer(
                     vlm_hidden,
                     position_embeddings=vlm_position_embeddings,
@@ -433,28 +448,23 @@ class Pi0Decoder(ActionDecoder):
                 vlm_hidden = (
                     vlm_output[0] if isinstance(vlm_output, tuple) else vlm_output
                 )
-        return vlm_cache
+        return ConditioningCache(layers=layer_caches)
 
     def _run_expert_with_cache(
         self,
         expert_hidden: torch.Tensor,
-        vlm_cache: dict[int, dict[str, torch.Tensor]],
+        vlm_cache: ConditioningCache,
         attention_mask: torch.Tensor,
         expert_action_rope: tuple[torch.Tensor, torch.Tensor],
         adaptive_norm_conditioning: torch.Tensor | None,
     ) -> torch.Tensor:
         """Run expert layers using cached VLM Q/K/V (inference only)."""
         for layer_index in range(self.expert_number_of_layers):
-            cached = vlm_cache[layer_index]
-            _, expert_hidden = self.expert_layers[layer_index](
-                precomputed_primary=(
-                    cached["query"],
-                    cached["key"],
-                    cached["value"],
-                ),
-                hidden_states_secondary=expert_hidden,
+            expert_hidden = self.expert_layers[layer_index](
+                hidden_states=expert_hidden,
+                conditioning_cache=vlm_cache.layers[layer_index],
                 conditioning=adaptive_norm_conditioning,
-                joint_attention_mask=attention_mask,
-                precomputed_secondary_rope=expert_action_rope,
+                attention_mask=attention_mask,
+                precomputed_rope=expert_action_rope,
             )
         return expert_hidden

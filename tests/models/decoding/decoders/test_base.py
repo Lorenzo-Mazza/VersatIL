@@ -667,9 +667,14 @@ class TestEncoderCache:
     def test_forward_unchanged_after_enable_disable_cache(
         self,
         concrete_decoder_factory: Callable[..., ConcreteDecoder],
+        input_tensor_factory: Callable[..., torch.Tensor],
     ):
         decoder = concrete_decoder_factory()
-        features = {"rgb_features": torch.randn(2, 8, 64)}
+        features = {
+            "rgb_features": input_tensor_factory(
+                batch_size=2, sequence_length=8, input_dimension=64
+            )
+        }
         output_before = decoder(features=features)
         decoder.enable_encoder_cache()
         output_cached = decoder(features=features)

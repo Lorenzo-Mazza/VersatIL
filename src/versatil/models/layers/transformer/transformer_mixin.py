@@ -33,12 +33,15 @@ class TransformerMixin:
     number_of_residual_blocks: int
     positional_encoding: nn.Module | None
 
+    @property
+    def _total_residual_streams(self) -> int:
+        """Total number of residual stream connections for init scaling."""
+        return self.number_of_residual_blocks * self.number_of_layers
+
     def _init_weights(self, module: nn.Module) -> None:
         """GPT-2 style weight initialization with residual stream scaling."""
         if hasattr(module, RESIDUAL_STREAM_FLAG):
-            std = self.initializer_range / math.sqrt(
-                self.number_of_residual_blocks * self.number_of_layers
-            )
+            std = self.initializer_range / math.sqrt(self._total_residual_streams)
         else:
             std = self.initializer_range
         if isinstance(module, nn.Linear):
@@ -100,11 +103,14 @@ class TransformerMixin:
     def _apply_positional_encoding(
         self,
         hidden_states: torch.Tensor,
+        offset: int = 0,
     ) -> tuple[torch.Tensor, RotaryPositionalEncoding | None]:
         """Apply additive positional encoding and extract rotary encoding.
 
         Args:
             hidden_states: Input tensor (B, T, D).
+            offset: Position offset for cached generation. Additive encodings
+                start from this position instead of 0.
 
         Returns:
             Tuple of (hidden_states with additive PE applied, rotary PE or None).
@@ -113,7 +119,9 @@ class TransformerMixin:
             self.positional_encoding,
             (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D),
         ):
-            hidden_states = hidden_states + self.positional_encoding(hidden_states)
+            hidden_states = hidden_states + self.positional_encoding(
+                hidden_states, offset=offset
+            )
         rotary_positional_encoding = (
             self.positional_encoding
             if isinstance(self.positional_encoding, RotaryPositionalEncoding)

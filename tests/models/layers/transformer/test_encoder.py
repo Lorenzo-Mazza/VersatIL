@@ -3,7 +3,6 @@
 import re
 from collections.abc import Callable
 
-import numpy as np
 import pytest
 import torch
 
@@ -164,15 +163,15 @@ class TestTransformerEncoderForward:
     def test_padding_mask_affects_output(
         self,
         encoder_factory: Callable[..., TransformerEncoder],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
         padding_mask_factory: Callable[..., torch.Tensor],
     ):
         encoder = encoder_factory(
             number_of_layers=2, embedding_dimension=32, number_of_heads=4
         )
         encoder.eval()
-        hidden_states = torch.from_numpy(
-            rng.standard_normal((2, 4, 32)).astype(np.float32)
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
         )
         mask = padding_mask_factory(
             batch_size=2,
@@ -189,7 +188,7 @@ class TestTransformerEncoderForward:
     def test_bidirectional_all_tokens_influence_all_outputs(
         self,
         encoder_factory: Callable[..., TransformerEncoder],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         encoder = encoder_factory(
             number_of_layers=2,
@@ -198,8 +197,8 @@ class TestTransformerEncoderForward:
             initializer_range=0.5,
         )
         encoder.eval()
-        hidden_states = torch.from_numpy(
-            rng.standard_normal((1, 4, 32)).astype(np.float32)
+        hidden_states = sequence_tensor_factory(
+            batch_size=1, sequence_length=4, embedding_dimension=32
         )
         output_original = encoder(hidden_states=hidden_states)
         # Modify the last position with a large perturbation

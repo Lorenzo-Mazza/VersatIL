@@ -684,13 +684,19 @@ class TestPaliGemmaEncoderIntegration:
     def test_extract_key_value_returns_unprojected_kv(
         self,
         real_paligemma_encoder: Callable[..., PaliGemmaEncoder],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         encoder = real_paligemma_encoder()
         layer = encoder.get_backbone_layers()[0]
         batch_size, sequence_length = 2, 8
-        hidden = torch.randn(batch_size, sequence_length, encoder.hidden_dim)
+        hidden = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=encoder.hidden_dim,
+        )
         key, value = PaliGemmaEncoder.extract_key_value(
-            vlm_layer=layer, hidden_states=hidden,
+            vlm_layer=layer,
+            hidden_states=hidden,
         )
         normalized = layer.input_layernorm(hidden)
         expected_key = layer.self_attn.k_proj(normalized)
@@ -702,12 +708,17 @@ class TestPaliGemmaEncoderIntegration:
     def test_extract_query_key_value_applies_rope(
         self,
         real_paligemma_encoder: Callable[..., PaliGemmaEncoder],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         encoder = real_paligemma_encoder()
         layer = encoder.get_backbone_layers()[0]
         rotary_emb = encoder.get_rotary_embedding()
         batch_size, sequence_length = 2, 8
-        hidden = torch.randn(batch_size, sequence_length, encoder.hidden_dim)
+        hidden = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=encoder.hidden_dim,
+        )
         position_ids = torch.arange(sequence_length).unsqueeze(0).expand(batch_size, -1)
         query, key, value = PaliGemmaEncoder.extract_query_key_value(
             vlm_layer=layer,
@@ -729,14 +740,23 @@ class TestPaliGemmaEncoderIntegration:
     def test_apply_residual_feedforward_matches_gemma2_forward(
         self,
         real_paligemma_encoder: Callable[..., PaliGemmaEncoder],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         encoder = real_paligemma_encoder()
         layer = encoder.get_backbone_layers()[0]
         attn = layer.self_attn
         attention_output_dim = attn.config.num_attention_heads * attn.head_dim
         batch_size, sequence_length = 2, 8
-        residual = torch.randn(batch_size, sequence_length, encoder.hidden_dim)
-        attn_output = torch.randn(batch_size, sequence_length, attention_output_dim)
+        residual = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=encoder.hidden_dim,
+        )
+        attn_output = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=attention_output_dim,
+        )
         result = PaliGemmaEncoder.apply_residual_feedforward(
             vlm_layer=layer,
             vlm_residual=residual,

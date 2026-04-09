@@ -6,6 +6,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
+from versatil.models.layers.transformer.cache.conditioning import (
+    ConditioningLayerCache,
+)
 from versatil.models.layers.transformer.layer.precomputed_dual_stream_layer import (
     PrecomputedDualStreamLayer,
 )
@@ -15,8 +18,8 @@ SECONDARY_EMBEDDING_DIMENSION = 16
 NUMBER_OF_HEADS = 2
 HEAD_DIMENSION = PRIMARY_EMBEDDING_DIMENSION // NUMBER_OF_HEADS
 BATCH_SIZE = 2
-PRIMARY_SEQUENCE_LENGTH = 8
-SECONDARY_SEQUENCE_LENGTH = 4
+SECONDARY_SEQUENCE_LENGTH = 8
+PRIMARY_SEQUENCE_LENGTH = 4
 
 
 class TestPrecomputedDualStreamLayerInitialization:
@@ -47,7 +50,7 @@ class TestPrecomputedDualStreamLayerInitialization:
                 number_of_heads=NUMBER_OF_HEADS,
                 number_of_key_value_heads=NUMBER_OF_HEADS,
                 head_dimension=HEAD_DIMENSION,
-                secondary_feedforward_dimension=SECONDARY_EMBEDDING_DIMENSION * 4,
+                primary_feedforward_dimension=PRIMARY_EMBEDDING_DIMENSION * 4,
                 conditioning_dimension=conditioning_dimension,
                 use_gating=use_gating,
             )
@@ -62,6 +65,7 @@ class TestPrecomputedDualStreamLayerForward:
     def test_attention_block_called_then_feedforward(
         self,
         sequence_tensor_factory: Callable[..., torch.Tensor],
+        conditioning_cache_with_queries_factory: Callable[..., ConditioningLayerCache],
     ):
         layer = PrecomputedDualStreamLayer(
             primary_embedding_dimension=PRIMARY_EMBEDDING_DIMENSION,
@@ -69,51 +73,56 @@ class TestPrecomputedDualStreamLayerForward:
             number_of_heads=NUMBER_OF_HEADS,
             number_of_key_value_heads=NUMBER_OF_HEADS,
             head_dimension=HEAD_DIMENSION,
-            secondary_feedforward_dimension=SECONDARY_EMBEDDING_DIMENSION * 4,
+            primary_feedforward_dimension=PRIMARY_EMBEDDING_DIMENSION * 4,
         )
-        precomputed = (
-            torch.randn(
-                BATCH_SIZE, NUMBER_OF_HEADS, PRIMARY_SEQUENCE_LENGTH, HEAD_DIMENSION
-            ),
-            torch.randn(
-                BATCH_SIZE, NUMBER_OF_HEADS, PRIMARY_SEQUENCE_LENGTH, HEAD_DIMENSION
-            ),
-            torch.randn(
-                BATCH_SIZE, NUMBER_OF_HEADS, PRIMARY_SEQUENCE_LENGTH, HEAD_DIMENSION
-            ),
+        conditioning_cache = conditioning_cache_with_queries_factory(
+            batch_size=BATCH_SIZE,
+            number_of_heads=NUMBER_OF_HEADS,
+            sequence_length=SECONDARY_SEQUENCE_LENGTH,
+            head_dimension=HEAD_DIMENSION,
         )
-        secondary = sequence_tensor_factory(
+        primary = sequence_tensor_factory(
+            batch_size=BATCH_SIZE,
+            sequence_length=PRIMARY_SEQUENCE_LENGTH,
+            embedding_dimension=PRIMARY_EMBEDDING_DIMENSION,
+        )
+        attention_primary_output = sequence_tensor_factory(
+            batch_size=BATCH_SIZE,
+            sequence_length=PRIMARY_SEQUENCE_LENGTH,
+            embedding_dimension=PRIMARY_EMBEDDING_DIMENSION,
+        )
+        secondary_attention_output = sequence_tensor_factory(
             batch_size=BATCH_SIZE,
             sequence_length=SECONDARY_SEQUENCE_LENGTH,
-            embedding_dimension=SECONDARY_EMBEDDING_DIMENSION,
+            embedding_dimension=NUMBER_OF_HEADS * HEAD_DIMENSION,
         )
-        raw_primary_output = torch.randn(
-            BATCH_SIZE, PRIMARY_SEQUENCE_LENGTH, NUMBER_OF_HEADS * HEAD_DIMENSION
+        feedforward_primary_output = sequence_tensor_factory(
+            batch_size=BATCH_SIZE,
+            sequence_length=PRIMARY_SEQUENCE_LENGTH,
+            embedding_dimension=PRIMARY_EMBEDDING_DIMENSION,
         )
-        attention_secondary_output = torch.randn_like(secondary)
-        feedforward_secondary_output = torch.randn_like(secondary)
         layer.attention_block = MagicMock(
             spec=torch.nn.Module,
-            return_value=(raw_primary_output, attention_secondary_output),
+            return_value=(attention_primary_output, secondary_attention_output),
         )
-        layer.feedforward_block_secondary = MagicMock(
+        layer.feedforward_block_primary = MagicMock(
             spec=torch.nn.Module,
-            return_value=feedforward_secondary_output,
+            return_value=feedforward_primary_output,
         )
-        primary_out, secondary_out = layer(
-            precomputed_primary=precomputed,
-            hidden_states_secondary=secondary,
+        primary_out = layer(
+            hidden_states=primary,
+            conditioning_cache=conditioning_cache,
         )
         layer.attention_block.assert_called_once()
-        layer.feedforward_block_secondary.assert_called_once_with(
-            hidden_states=attention_secondary_output, conditioning=None
+        layer.feedforward_block_primary.assert_called_once_with(
+            hidden_states=attention_primary_output, conditioning=None
         )
-        assert torch.equal(primary_out, raw_primary_output)
-        assert torch.equal(secondary_out, feedforward_secondary_output)
+        assert torch.equal(primary_out, feedforward_primary_output)
 
     def test_conditioning_forwarded_to_all_submodules(
         self,
         sequence_tensor_factory: Callable[..., torch.Tensor],
+        conditioning_cache_with_queries_factory: Callable[..., ConditioningLayerCache],
         condition_factory: Callable[..., torch.Tensor],
     ):
         layer = PrecomputedDualStreamLayer(
@@ -122,50 +131,95 @@ class TestPrecomputedDualStreamLayerForward:
             number_of_heads=NUMBER_OF_HEADS,
             number_of_key_value_heads=NUMBER_OF_HEADS,
             head_dimension=HEAD_DIMENSION,
-            secondary_feedforward_dimension=SECONDARY_EMBEDDING_DIMENSION * 4,
-            conditioning_dimension=SECONDARY_EMBEDDING_DIMENSION,
+            primary_feedforward_dimension=PRIMARY_EMBEDDING_DIMENSION * 4,
+            conditioning_dimension=PRIMARY_EMBEDDING_DIMENSION,
         )
-        precomputed = (
-            torch.randn(
-                BATCH_SIZE, NUMBER_OF_HEADS, PRIMARY_SEQUENCE_LENGTH, HEAD_DIMENSION
-            ),
-            torch.randn(
-                BATCH_SIZE, NUMBER_OF_HEADS, PRIMARY_SEQUENCE_LENGTH, HEAD_DIMENSION
-            ),
-            torch.randn(
-                BATCH_SIZE, NUMBER_OF_HEADS, PRIMARY_SEQUENCE_LENGTH, HEAD_DIMENSION
-            ),
-        )
-        secondary = sequence_tensor_factory(
+        conditioning_cache = conditioning_cache_with_queries_factory(
             batch_size=BATCH_SIZE,
+            number_of_heads=NUMBER_OF_HEADS,
             sequence_length=SECONDARY_SEQUENCE_LENGTH,
-            embedding_dimension=SECONDARY_EMBEDDING_DIMENSION,
+            head_dimension=HEAD_DIMENSION,
+        )
+        primary = sequence_tensor_factory(
+            batch_size=BATCH_SIZE,
+            sequence_length=PRIMARY_SEQUENCE_LENGTH,
+            embedding_dimension=PRIMARY_EMBEDDING_DIMENSION,
         )
         conditioning = condition_factory(
-            batch_size=BATCH_SIZE, condition_dim=SECONDARY_EMBEDDING_DIMENSION
+            batch_size=BATCH_SIZE, condition_dim=PRIMARY_EMBEDDING_DIMENSION
         )
-        attention_secondary_output = torch.randn_like(secondary)
+        attention_primary_output = sequence_tensor_factory(
+            batch_size=BATCH_SIZE,
+            sequence_length=PRIMARY_SEQUENCE_LENGTH,
+            embedding_dimension=PRIMARY_EMBEDDING_DIMENSION,
+        )
+        secondary_attention_output = sequence_tensor_factory(
+            batch_size=BATCH_SIZE,
+            sequence_length=SECONDARY_SEQUENCE_LENGTH,
+            embedding_dimension=NUMBER_OF_HEADS * HEAD_DIMENSION,
+        )
         layer.attention_block = MagicMock(
             spec=torch.nn.Module,
-            return_value=(
-                torch.randn(
-                    BATCH_SIZE,
-                    PRIMARY_SEQUENCE_LENGTH,
-                    NUMBER_OF_HEADS * HEAD_DIMENSION,
-                ),
-                attention_secondary_output,
+            return_value=(attention_primary_output, secondary_attention_output),
+        )
+        layer.feedforward_block_primary = MagicMock(
+            spec=torch.nn.Module,
+            return_value=sequence_tensor_factory(
+                batch_size=BATCH_SIZE,
+                sequence_length=PRIMARY_SEQUENCE_LENGTH,
+                embedding_dimension=PRIMARY_EMBEDDING_DIMENSION,
             ),
         )
-        layer.feedforward_block_secondary = MagicMock(
-            spec=torch.nn.Module,
-            return_value=torch.randn_like(secondary),
-        )
         layer(
-            precomputed_primary=precomputed,
-            hidden_states_secondary=secondary,
+            hidden_states=primary,
+            conditioning_cache=conditioning_cache,
             conditioning=conditioning,
         )
         attention_call_kwargs = layer.attention_block.call_args.kwargs
         assert torch.equal(attention_call_kwargs["conditioning"], conditioning)
-        feedforward_call_kwargs = layer.feedforward_block_secondary.call_args.kwargs
+        feedforward_call_kwargs = layer.feedforward_block_primary.call_args.kwargs
         assert torch.equal(feedforward_call_kwargs["conditioning"], conditioning)
+
+
+class TestPrecomputedDualStreamLayerForwardWithSecondary:
+    def test_returns_primary_and_secondary_with_correct_shapes(
+        self,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        conditioning_cache_with_queries_factory: Callable[..., ConditioningLayerCache],
+    ):
+        layer = PrecomputedDualStreamLayer(
+            primary_embedding_dimension=PRIMARY_EMBEDDING_DIMENSION,
+            secondary_embedding_dimension=SECONDARY_EMBEDDING_DIMENSION,
+            number_of_heads=NUMBER_OF_HEADS,
+            number_of_key_value_heads=NUMBER_OF_HEADS,
+            head_dimension=HEAD_DIMENSION,
+            primary_feedforward_dimension=PRIMARY_EMBEDDING_DIMENSION * 4,
+        )
+        conditioning_cache = conditioning_cache_with_queries_factory(
+            batch_size=BATCH_SIZE,
+            number_of_heads=NUMBER_OF_HEADS,
+            number_of_key_value_heads=NUMBER_OF_HEADS,
+            sequence_length=SECONDARY_SEQUENCE_LENGTH,
+            head_dimension=HEAD_DIMENSION,
+        )
+        primary = sequence_tensor_factory(
+            batch_size=BATCH_SIZE,
+            sequence_length=PRIMARY_SEQUENCE_LENGTH,
+            embedding_dimension=PRIMARY_EMBEDDING_DIMENSION,
+        )
+        primary_output, secondary_output = layer.forward_with_secondary(
+            hidden_states_primary=primary,
+            conditioning_cache=conditioning_cache,
+        )
+        assert isinstance(primary_output, torch.Tensor)
+        assert isinstance(secondary_output, torch.Tensor)
+        assert primary_output.shape == (
+            BATCH_SIZE,
+            PRIMARY_SEQUENCE_LENGTH,
+            PRIMARY_EMBEDDING_DIMENSION,
+        )
+        assert secondary_output.shape == (
+            BATCH_SIZE,
+            SECONDARY_SEQUENCE_LENGTH,
+            NUMBER_OF_HEADS * HEAD_DIMENSION,
+        )

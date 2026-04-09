@@ -13,28 +13,6 @@ from versatil.models.layers.transformer.cache.generation import (
 )
 
 
-@pytest.fixture
-def new_kv_factory(
-    precomputed_kv_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
-) -> Callable[..., tuple[torch.Tensor, torch.Tensor]]:
-    """Factory for new key/value tensors to append to generation cache."""
-
-    def factory(
-        batch_size: int = 2,
-        number_of_heads: int = 4,
-        new_length: int = 1,
-        head_dimension: int = 8,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        return precomputed_kv_factory(
-            batch_size=batch_size,
-            key_value_length=new_length,
-            number_of_heads=number_of_heads,
-            head_dimension=head_dimension,
-        )
-
-    return factory
-
-
 class TestGenerationLayerCache:
     @pytest.mark.parametrize("cached_length", [0, 5, 10])
     def test_get_length_returns_cached_sequence_length(

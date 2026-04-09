@@ -7,15 +7,6 @@ from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
-from versatil.models.layers.positional_encoding.learned import (
-    LearnedPositionalEncoding1D,
-)
-from versatil.models.layers.positional_encoding.rotary import (
-    RotaryPositionalEncoding,
-)
-from versatil.models.layers.positional_encoding.sinusoidal import (
-    SinusoidalPositionalEncoding1D,
-)
 from versatil.models.layers.transformer.cache.conditioning import (
     ConditioningCache,
     precompute_conditioning,
@@ -213,18 +204,8 @@ class GPTDecoder(TransformerMixin, nn.Module):
             cache_length=cache_length,
             device=device,
         )
-
-        if isinstance(
-            self.positional_encoding,
-            (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D),
-        ):
-            hidden_states = hidden_states + self.positional_encoding(
-                hidden_states, offset=cache_length
-            )
-        rope_pe = (
-            self.positional_encoding
-            if isinstance(self.positional_encoding, RotaryPositionalEncoding)
-            else None
+        hidden_states, rope_pe = self._apply_positional_encoding(
+            hidden_states=hidden_states, offset=cache_length
         )
         use_cache = generation_cache is not None
         new_layer_caches = []

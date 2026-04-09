@@ -98,10 +98,26 @@ class TestDualStreamLayerForward:
             sequence_length=SECONDARY_SEQUENCE_LENGTH,
             embedding_dimension=EMBEDDING_DIMENSION,
         )
-        attention_output_primary = torch.randn_like(primary)
-        attention_output_secondary = torch.randn_like(secondary)
-        ff_primary = torch.randn_like(primary)
-        ff_secondary = torch.randn_like(secondary)
+        attention_output_primary = sequence_tensor_factory(
+            batch_size=BATCH_SIZE,
+            sequence_length=PRIMARY_SEQUENCE_LENGTH,
+            embedding_dimension=EMBEDDING_DIMENSION,
+        )
+        attention_output_secondary = sequence_tensor_factory(
+            batch_size=BATCH_SIZE,
+            sequence_length=SECONDARY_SEQUENCE_LENGTH,
+            embedding_dimension=EMBEDDING_DIMENSION,
+        )
+        ff_primary = sequence_tensor_factory(
+            batch_size=BATCH_SIZE,
+            sequence_length=PRIMARY_SEQUENCE_LENGTH,
+            embedding_dimension=EMBEDDING_DIMENSION,
+        )
+        ff_secondary = sequence_tensor_factory(
+            batch_size=BATCH_SIZE,
+            sequence_length=SECONDARY_SEQUENCE_LENGTH,
+            embedding_dimension=EMBEDDING_DIMENSION,
+        )
         layer.attention_block = MagicMock(
             spec=torch.nn.Module,
             return_value=(attention_output_primary, attention_output_secondary),
@@ -151,17 +167,35 @@ class TestDualStreamLayerForward:
         conditioning = condition_factory(
             batch_size=BATCH_SIZE, condition_dim=EMBEDDING_DIMENSION
         )
-        attention_output_primary = torch.randn_like(primary)
-        attention_output_secondary = torch.randn_like(secondary)
+        attention_output_primary = sequence_tensor_factory(
+            batch_size=BATCH_SIZE,
+            sequence_length=PRIMARY_SEQUENCE_LENGTH,
+            embedding_dimension=EMBEDDING_DIMENSION,
+        )
+        attention_output_secondary = sequence_tensor_factory(
+            batch_size=BATCH_SIZE,
+            sequence_length=SECONDARY_SEQUENCE_LENGTH,
+            embedding_dimension=EMBEDDING_DIMENSION,
+        )
         layer.attention_block = MagicMock(
             spec=torch.nn.Module,
             return_value=(attention_output_primary, attention_output_secondary),
         )
         layer.feedforward_block_primary = MagicMock(
-            spec=torch.nn.Module, return_value=torch.randn_like(primary)
+            spec=torch.nn.Module,
+            return_value=sequence_tensor_factory(
+                batch_size=BATCH_SIZE,
+                sequence_length=PRIMARY_SEQUENCE_LENGTH,
+                embedding_dimension=EMBEDDING_DIMENSION,
+            ),
         )
         layer.feedforward_block_secondary = MagicMock(
-            spec=torch.nn.Module, return_value=torch.randn_like(secondary)
+            spec=torch.nn.Module,
+            return_value=sequence_tensor_factory(
+                batch_size=BATCH_SIZE,
+                sequence_length=SECONDARY_SEQUENCE_LENGTH,
+                embedding_dimension=EMBEDDING_DIMENSION,
+            ),
         )
         layer(
             hidden_states_primary=primary,

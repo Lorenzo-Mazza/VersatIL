@@ -237,7 +237,7 @@ class FlowMatching(DecodingAlgorithm):
 
     def get_targets(
         self,
-        algorithm_output: dict[str, torch.Tensor],
+        algorithm_output: dict[str, dict[str, torch.Tensor]],
         ground_truth_actions: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Return the target velocity field for flow matching loss."""

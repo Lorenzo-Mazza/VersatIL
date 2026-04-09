@@ -1,87 +1,91 @@
-"""Dual-stream attention block where primary Q/K/V come from an external backbone."""
+"""Dual-stream attention block where secondary Q/K/V are precomputed externally."""
 
 import torch
 
 from versatil.models.layers.normalization.typedefs import BlockNormalization
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
-from versatil.models.layers.transformer.attention.precomputed_primary_joint_attention import (
+from versatil.models.layers.transformer.attention.precomputed_joint_attention import (
     PrecomputedPrimaryJointAttention,
 )
 from versatil.models.layers.transformer.block.dual_stream_base import (
     DualStreamBlock,
 )
+from versatil.models.layers.transformer.cache.conditioning import (
+    ConditioningLayerCache,
+)
 
 
 class PrecomputedDualStreamAttentionBlock(DualStreamBlock):
-    """Dual-stream attention block where primary Q/K/V are precomputed externally.
+    """Dual-stream attention block where secondary Q/K/V are precomputed externally.
 
-    Only the secondary stream has normalization. The primary attention output
-    is returned raw for external post-processing by the backbone.
+    Only the primary stream has normalization. The secondary attention output
+    is returned raw for external post-processing.
     """
 
     def __init__(
         self,
         joint_attention: PrecomputedPrimaryJointAttention,
-        attention_normalization_secondary: BlockNormalization,
+        attention_normalization_primary: BlockNormalization,
         dropout: float = 0.1,
     ):
         """Initialize PrecomputedDualStreamAttentionBlock.
 
         Args:
             joint_attention: PrecomputedPrimaryJointAttention module.
-            attention_normalization_secondary: Normalization for secondary stream.
+            attention_normalization_primary: Normalization for primary stream.
             dropout: Dropout rate for attention residual connections.
         """
         super().__init__(
-            attention_normalization_secondary=attention_normalization_secondary,
+            attention_normalization_primary=attention_normalization_primary,
             dropout=dropout,
         )
         self.joint_attention = joint_attention
 
     def forward(
         self,
-        precomputed_primary: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
-        hidden_states_secondary: torch.Tensor,
+        hidden_states_primary: torch.Tensor,
+        conditioning_cache: ConditioningLayerCache,
         conditioning: torch.Tensor | None = None,
         attention_mask_primary: torch.Tensor | None = None,
         attention_mask_secondary: torch.Tensor | None = None,
         joint_attention_mask: torch.Tensor | None = None,
-        positional_encoding_secondary: RotaryPositionalEncoding | None = None,
-        precomputed_secondary_rope: tuple[torch.Tensor, torch.Tensor] | None = None,
+        positional_encoding_primary: RotaryPositionalEncoding | None = None,
+        precomputed_primary_rope: tuple[torch.Tensor, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Forward pass with precomputed primary Q/K/V.
+        """Forward pass with precomputed secondary Q/K/V from conditioning cache.
 
         Args:
-            precomputed_primary: Pre-projected primary (Q, K, V) tuple,
+            hidden_states_primary: Primary stream tokens (B, T, D_p).
+            conditioning_cache: Precomputed secondary Q/K/V. queries, keys, values
                 each shaped (B, H/KV_H, S, D_head).
-            hidden_states_secondary: Secondary stream tokens (B, T, D_s).
             conditioning: Conditioning vector for adaptive normalization (B, C).
-            attention_mask_primary: Padding mask (B, S), True = masked.
-            attention_mask_secondary: Padding mask (B, T), True = masked.
-            joint_attention_mask: Pre-built joint mask (B, 1, S+T, S+T).
-            positional_encoding_secondary: Optional RoPE for secondary stream.
-            precomputed_secondary_rope: Pre-computed (cos, sin) for secondary positions.
+            attention_mask_primary: Padding mask (B, T), True = masked.
+            attention_mask_secondary: Padding mask (B, S), True = masked.
+            joint_attention_mask: Pre-built joint mask (B, 1, T+S, T+S).
+            positional_encoding_primary: Optional RoPE for primary stream.
+            precomputed_primary_rope: Pre-computed (cos, sin) rotary positional
+              encodings for primary stream positions.
 
         Returns:
-            Tuple of (raw_primary_output (B, S, H*D_head),
-            processed_secondary_output (B, T, D_s)).
+            Tuple of (projected_primary_output (B, T, D_p),
+            raw_secondary_output (B, S, H*D_head)).
         """
-        residual_secondary = hidden_states_secondary
-        normed_secondary, gate_secondary = self.attention_normalization_secondary(
-            x=hidden_states_secondary, condition=conditioning
+        residual_primary = hidden_states_primary
+        normed_primary, gate_primary = self.attention_normalization_primary(
+            x=hidden_states_primary, condition=conditioning
         )
         attention_output_primary, attention_output_secondary = self.joint_attention(
-            precomputed_primary=precomputed_primary,
-            hidden_states_secondary=normed_secondary,
+            hidden_states_primary=normed_primary,
+            conditioning_cache=conditioning_cache,
             attention_mask_primary=attention_mask_primary,
             attention_mask_secondary=attention_mask_secondary,
             joint_attention_mask=joint_attention_mask,
-            positional_encoding_secondary=positional_encoding_secondary,
-            precomputed_secondary_rope=precomputed_secondary_rope,
+            positional_encoding_primary=positional_encoding_primary,
+            precomputed_primary_rope=precomputed_primary_rope,
         )
-        hidden_states_secondary = self._apply_secondary_attention_residual(
-            residual=residual_secondary,
-            attention_output=attention_output_secondary,
-            gate=gate_secondary,
+        hidden_states_primary = self._apply_primary_attention_residual(
+            residual=residual_primary,
+            attention_output=attention_output_primary,
+            gate=gate_primary,
         )
-        return attention_output_primary, hidden_states_secondary
+        return hidden_states_primary, attention_output_secondary

@@ -7,7 +7,6 @@ autoencoder framework.
 """
 
 import copy
-import math
 
 import torch
 import torch.nn as nn
@@ -16,18 +15,10 @@ import torch.nn.functional as F
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.free_transformer.binary_mapper import BinaryMapper
-from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
-from versatil.models.layers.normalization.rms_norm import RMSNorm
-from versatil.models.layers.positional_encoding.learned import (
-    LearnedPositionalEncoding1D,
-)
 from versatil.models.layers.positional_encoding.rotary import (
     RotaryPositionalEncoding,
-)
-from versatil.models.layers.positional_encoding.sinusoidal import (
-    SinusoidalPositionalEncoding1D,
 )
 from versatil.models.layers.transformer.cache.conditioning import (
     ConditioningLayerCache,
@@ -44,7 +35,7 @@ from versatil.models.layers.transformer.masking import create_full_padding_mask
 from versatil.models.layers.transformer.positional_encoding import (
     create_positional_encoding,
 )
-from versatil.models.layers.transformer.transformer_mixin import RESIDUAL_STREAM_FLAG
+from versatil.models.layers.transformer.transformer_mixin import TransformerMixin
 
 
 class LatentConditionedDecoderLayer(TransformerDecoderLayer):
@@ -236,7 +227,7 @@ class FreeTransformerLatentEncoder(nn.Module):
         return self.final_normalization(target)  # (B, T, embedding_dimension)
 
 
-class FreeTransformer(nn.Module):
+class FreeTransformer(TransformerMixin, nn.Module):
     """Free Transformer model (Fleuret, 2025).
 
     Contains:
@@ -368,33 +359,10 @@ class FreeTransformer(nn.Module):
         )
         self.apply(self._init_weights)
 
-    def _init_weights(self, module):
-        """Initialize the weights."""
-        # > A modified initialization which accounts for the accumulation on the residual path with model depth. Scale
-        # > the weights of residual layers at initialization by a factor of 1/√N where N is the # of residual layers.
-        # > -- GPT-2 :: https://openai.com/blog/better-language-models/
-        number_of_norm_layers = (
-            2 * self.number_of_decoder_layers + 3 * self.number_of_encoder_layers
-        )
-        if hasattr(module, RESIDUAL_STREAM_FLAG):
-            std = self.initializer_range / math.sqrt(number_of_norm_layers)
-        else:
-            std = self.initializer_range
-        if isinstance(module, nn.Linear):
-            if hasattr(module, "_is_modulation_layer") and module._is_modulation_layer:
-                return
-            module.weight.data.normal_(mean=0.0, std=std)
-            if module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.Embedding):
-            module.weight.data.normal_(mean=0.0, std=self.initializer_range)
-            if module.padding_idx is not None:
-                module.weight.data[module.padding_idx].zero_()
-        elif isinstance(module, (nn.LayerNorm, RMSNorm, AdaNorm)):
-            if hasattr(module, "bias") and module.bias is not None:
-                module.bias.data.zero_()
-            if hasattr(module, "weight") and module.weight is not None:
-                module.weight.data.fill_(1.0)
+    @property
+    def _total_residual_streams(self) -> int:
+        """Decoder layers have 2 residual streams, encoder layers have 3."""
+        return 2 * self.number_of_decoder_layers + 3 * self.number_of_encoder_layers
 
     def create_empty_generation_cache(
         self,
@@ -468,13 +436,9 @@ class FreeTransformer(nn.Module):
         device = hidden_states.device
         query_length = hidden_states.shape[1]
         cache_length = generation_cache.get_length() if generation_cache else 0
-        if isinstance(
-            self.positional_encoding,
-            (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D),
-        ):
-            hidden_states += self.positional_encoding(
-                hidden_states, offset=cache_length
-            )
+        hidden_states, rope_pe = self._apply_positional_encoding(
+            hidden_states=hidden_states, offset=cache_length
+        )
         cached_key_padding_mask = (
             generation_cache.key_padding_mask if generation_cache else None
         )
@@ -486,18 +450,13 @@ class FreeTransformer(nn.Module):
             query_length=query_length,
             cache_length=cache_length,
             device=device,
-        )  # (B, 1, query_length, key_length), (B, key_length), where key_length = cache_length + query_length
+        )
 
         use_cache = generation_cache is not None
         generation_caches = generation_cache.layers if use_cache else None
         new_decoder_generation_caches = []
         mid_features = hidden_states
         mid_cache_idx = 0
-        rope_pe = (
-            self.positional_encoding
-            if isinstance(self.positional_encoding, RotaryPositionalEncoding)
-            else None
-        )
         # Forward pass through first half of decoder layers
         for layer in self.decoder_layers[: self.number_of_decoder_layers // 2]:
             cache = (

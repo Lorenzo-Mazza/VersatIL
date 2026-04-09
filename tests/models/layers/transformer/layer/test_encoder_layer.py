@@ -3,7 +3,6 @@
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
-import numpy as np
 import pytest
 import torch
 
@@ -120,15 +119,15 @@ class TestTransformerEncoderLayerForward:
     def test_attention_mask_affects_output(
         self,
         encoder_layer_factory: Callable[..., TransformerEncoderLayer],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
         attention_mask_factory: Callable[..., torch.Tensor],
     ):
         layer = encoder_layer_factory(
             embedding_dimension=32, number_of_heads=4, dropout=0.0
         )
         layer.eval()
-        hidden_states = torch.from_numpy(
-            rng.standard_normal((2, 4, 32)).astype(np.float32)
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
         )
         mask = attention_mask_factory(
             batch_size=2, query_length=4, key_length=4, causal=True
@@ -156,13 +155,13 @@ class TestTransformerEncoderLayerForward:
     def test_bidirectional_all_positions_see_all_positions(
         self,
         encoder_layer_factory: Callable[..., TransformerEncoderLayer],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         layer = encoder_layer_factory(
             embedding_dimension=32, number_of_heads=4, dropout=0.0
         )
-        hidden_states = torch.from_numpy(
-            rng.standard_normal((1, 4, 32)).astype(np.float32)
+        hidden_states = sequence_tensor_factory(
+            batch_size=1, sequence_length=4, embedding_dimension=32
         )
         hidden_states.requires_grad_(True)
         output = layer(hidden_states=hidden_states)

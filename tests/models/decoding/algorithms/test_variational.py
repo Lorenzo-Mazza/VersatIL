@@ -276,10 +276,13 @@ class TestVariationalAlgorithmForward:
         mock_action_decoder_factory: Callable[..., MagicMock],
         feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
         action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        input_tensor_factory: Callable[..., torch.Tensor],
     ):
         algo = variational_factory()
         # Replace posterior output with a tensor that requires grad
-        posterior_z = torch.randn(2, LATENT_DIMENSION, requires_grad=True)
+        posterior_z = input_tensor_factory(
+            batch_size=2, input_dimension=LATENT_DIMENSION
+        ).requires_grad_(True)
         algo.posterior_encoder.encode.return_value = {
             LatentKey.POSTERIOR_LATENT.value: posterior_z,
             LatentKey.POSTERIOR_MU.value: torch.zeros(2, LATENT_DIMENSION),

@@ -361,9 +361,9 @@ class TestSmolVLMEncoderForward:
         batch_size = 2
         encoder = smolvlm_encoder_factory(use_embeddings_only=True)
         raw_image_embeddings = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, NUM_IMAGE_TOKENS, HIDDEN_DIM)
-            ).astype(np.float32)
+            rng.standard_normal((batch_size, NUM_IMAGE_TOKENS, HIDDEN_DIM)).astype(
+                np.float32
+            )
         )
         mock_image_output = MagicMock()
         mock_image_output.pooler_output = raw_image_embeddings.clone()
@@ -389,9 +389,9 @@ class TestSmolVLMEncoderForward:
         batch_size = 2
         encoder = smolvlm_encoder_factory(use_embeddings_only=True)
         raw_language_embeddings = torch.from_numpy(
-            rng.standard_normal(
-                (batch_size, MAX_TEXT_LENGTH, HIDDEN_DIM)
-            ).astype(np.float32)
+            rng.standard_normal((batch_size, MAX_TEXT_LENGTH, HIDDEN_DIM)).astype(
+                np.float32
+            )
         )
         mock_image_output = MagicMock()
         mock_image_output.pooler_output = torch.zeros(
@@ -713,12 +713,17 @@ class TestSmolVLMEncoderIntegration:
     def test_extract_query_key_value_applies_rope(
         self,
         real_smolvlm_encoder: Callable[..., SmolVLMEncoder],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         encoder = real_smolvlm_encoder()
         layer = encoder.get_backbone_layers()[0]
         rotary_emb = encoder.get_rotary_embedding()
         batch_size, sequence_length = 2, 8
-        hidden = torch.randn(batch_size, sequence_length, encoder.hidden_dim)
+        hidden = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=encoder.hidden_dim,
+        )
         position_ids = torch.arange(sequence_length).unsqueeze(0).expand(batch_size, -1)
         query, key, value = SmolVLMEncoder.extract_query_key_value(
             vlm_layer=layer,
@@ -740,14 +745,23 @@ class TestSmolVLMEncoderIntegration:
     def test_apply_residual_feedforward_matches_llama_forward(
         self,
         real_smolvlm_encoder: Callable[..., SmolVLMEncoder],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         encoder = real_smolvlm_encoder()
         layer = encoder.get_backbone_layers()[0]
         attn = layer.self_attn
         attention_output_dim = attn.config.num_attention_heads * attn.head_dim
         batch_size, sequence_length = 2, 8
-        residual = torch.randn(batch_size, sequence_length, encoder.hidden_dim)
-        attn_output = torch.randn(batch_size, sequence_length, attention_output_dim)
+        residual = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=encoder.hidden_dim,
+        )
+        attn_output = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=attention_output_dim,
+        )
         result = SmolVLMEncoder.apply_residual_feedforward(
             vlm_layer=layer,
             vlm_residual=residual,

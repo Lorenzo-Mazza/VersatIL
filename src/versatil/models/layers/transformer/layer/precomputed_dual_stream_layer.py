@@ -1,4 +1,4 @@
-"""Precomputed dual-stream layer: joint attention (precomputed primary) + secondary FFN."""
+"""Dual-stream layer where the secondary stream has precomputed Q/K/V: joint attention + primary FFN."""
 
 import torch
 import torch.nn as nn
@@ -6,8 +6,7 @@ import torch.nn as nn
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_block_normalization
-from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
-from versatil.models.layers.transformer.attention.precomputed_primary_joint_attention import (
+from versatil.models.layers.transformer.attention.precomputed_joint_attention import (
     PrecomputedPrimaryJointAttention,
 )
 from versatil.models.layers.transformer.block.feedforward import (
@@ -17,13 +16,16 @@ from versatil.models.layers.transformer.block.feedforward import (
 from versatil.models.layers.transformer.block.precomputed_dual_stream_attention import (
     PrecomputedDualStreamAttentionBlock,
 )
+from versatil.models.layers.transformer.cache.conditioning import (
+    ConditioningLayerCache,
+)
 
 
 class PrecomputedDualStreamLayer(nn.Module):
-    """Joint attention with precomputed primary Q/K/V, plus secondary feedforward.
+    """Joint attention with precomputed secondary Q/K/V, plus primary feedforward.
 
-    The primary stream provides pre-projected Q/K/V from an external source.
-    Only the secondary stream has learnable normalization and feedforward.
+    The secondary stream provides pre-projected Q/K/V from an external source.
+    Only the primary stream has learnable normalization and feedforward.
     """
 
     def __init__(
@@ -33,7 +35,7 @@ class PrecomputedDualStreamLayer(nn.Module):
         number_of_heads: int,
         number_of_key_value_heads: int,
         head_dimension: int,
-        secondary_feedforward_dimension: int,
+        primary_feedforward_dimension: int,
         normalization_type: str = NormalizationType.RMS_NORM.value,
         conditioning_dimension: int | None = None,
         use_gating: bool = False,
@@ -50,8 +52,8 @@ class PrecomputedDualStreamLayer(nn.Module):
             number_of_heads: Number of attention heads.
             number_of_key_value_heads: Number of K/V heads.
             head_dimension: Dimension per attention head.
-            secondary_feedforward_dimension: FFN hidden dimension for secondary stream.
-            normalization_type: Normalization type for secondary stream.
+            primary_feedforward_dimension: FFN hidden dimension for primary stream.
+            normalization_type: Normalization type for primary stream.
             conditioning_dimension: Conditioning dimension for adaptive normalization.
             use_gating: Whether to use gating in adaptive normalization.
             dropout: Dropout rate for residual connections.
@@ -71,25 +73,25 @@ class PrecomputedDualStreamLayer(nn.Module):
                 use_query_key_norm=use_query_key_norm,
                 bias=bias,
             ),
-            attention_normalization_secondary=create_block_normalization(
+            attention_normalization_primary=create_block_normalization(
                 normalization_type=normalization_type,
-                dimension=secondary_embedding_dimension,
+                dimension=primary_embedding_dimension,
                 condition_dim=conditioning_dimension,
                 use_gating=use_gating,
             ),
             dropout=dropout,
         )
-        self.feedforward_block_secondary = FeedforwardBlock(
+        self.feedforward_block_primary = FeedforwardBlock(
             feedforward=build_feedforward(
-                embedding_dimension=secondary_embedding_dimension,
-                feedforward_dimension=secondary_feedforward_dimension,
+                embedding_dimension=primary_embedding_dimension,
+                feedforward_dimension=primary_feedforward_dimension,
                 activation=activation,
                 dropout=dropout,
                 bias=bias,
             ),
             normalization=create_block_normalization(
                 normalization_type=normalization_type,
-                dimension=secondary_embedding_dimension,
+                dimension=primary_embedding_dimension,
                 condition_dim=conditioning_dimension,
                 use_gating=use_gating,
             ),
@@ -98,43 +100,68 @@ class PrecomputedDualStreamLayer(nn.Module):
 
     def forward(
         self,
-        precomputed_primary: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
-        hidden_states_secondary: torch.Tensor,
+        hidden_states: torch.Tensor,
+        conditioning_cache: ConditioningLayerCache,
         conditioning: torch.Tensor | None = None,
-        attention_mask_primary: torch.Tensor | None = None,
-        attention_mask_secondary: torch.Tensor | None = None,
-        joint_attention_mask: torch.Tensor | None = None,
-        positional_encoding_secondary: RotaryPositionalEncoding | None = None,
-        precomputed_secondary_rope: tuple[torch.Tensor, torch.Tensor] | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Forward pass with precomputed primary Q/K/V.
+        attention_mask: torch.Tensor | None = None,
+        precomputed_rope: tuple[torch.Tensor, torch.Tensor] | None = None,
+    ) -> torch.Tensor:
+        """Forward pass with precomputed secondary Q/K/V from conditioning cache.
 
         Args:
-            precomputed_primary: Pre-projected primary (Q, K, V) tuple,
+            hidden_states: Primary stream tokens (B, T, D).
+            conditioning_cache: Precomputed secondary Q/K/V. queries, keys, values
                 each shaped (B, H/KV_H, S, D_head).
-            hidden_states_secondary: Secondary stream tokens (B, T, D).
             conditioning: Conditioning vector for adaptive normalization (B, C).
-            attention_mask_primary: Padding mask (B, S), True = masked.
-            attention_mask_secondary: Padding mask (B, T), True = masked.
-            joint_attention_mask: Pre-built joint mask (B, 1, S+T, S+T).
-            positional_encoding_secondary: Optional RoPE module for secondary stream.
-            precomputed_secondary_rope: Pre-computed (cos, sin) for secondary positions.
+            attention_mask: Pre-built joint mask (B, 1, S+T, S+T).
+            precomputed_rope: Pre-computed (cos, sin) rotary positional encodings
+             for primary stream positions.
 
         Returns:
-            Tuple of (raw primary attention output (B, S, H*D_head),
-            processed secondary output (B, T, D)).
+            Processed primary stream output (B, T, D).
         """
-        attention_output_primary, hidden_states_secondary = self.attention_block(
-            precomputed_primary=precomputed_primary,
-            hidden_states_secondary=hidden_states_secondary,
+        hidden_states, _ = self.attention_block(
+            conditioning_cache=conditioning_cache,
+            hidden_states_primary=hidden_states,
             conditioning=conditioning,
-            attention_mask_primary=attention_mask_primary,
-            attention_mask_secondary=attention_mask_secondary,
+            joint_attention_mask=attention_mask,
+            precomputed_primary_rope=precomputed_rope,
+        )
+        hidden_states = self.feedforward_block_primary(
+            hidden_states=hidden_states, conditioning=conditioning
+        )
+        return hidden_states
+
+    def forward_with_secondary(
+        self,
+        hidden_states_primary: torch.Tensor,
+        conditioning_cache: ConditioningLayerCache,
+        conditioning: torch.Tensor | None = None,
+        joint_attention_mask: torch.Tensor | None = None,
+        precomputed_primary_rope: tuple[torch.Tensor, torch.Tensor] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass returning both primary hidden states and secondary attention output.
+
+        Args:
+            hidden_states_primary: Primary stream tokens (B, T, D).
+            conditioning_cache: Precomputed secondary Q/K/V.
+            conditioning: Conditioning vector for adaptive normalization (B, C).
+            joint_attention_mask: Pre-built joint mask (B, 1, S+T, S+T).
+            precomputed_primary_rope: Pre-computed (cos, sin) rotary positional encodings
+             for primary stream positions.
+
+        Returns:
+            Tuple of (`processed_primary_output` (B, T, D_s),
+            `raw_secondary_output` (B, S, H*D_head)).
+        """
+        hidden_states_primary, attention_output_secondary = self.attention_block(
+            conditioning_cache=conditioning_cache,
+            hidden_states_primary=hidden_states_primary,
+            conditioning=conditioning,
             joint_attention_mask=joint_attention_mask,
-            positional_encoding_secondary=positional_encoding_secondary,
-            precomputed_secondary_rope=precomputed_secondary_rope,
+            precomputed_primary_rope=precomputed_primary_rope,
         )
-        hidden_states_secondary = self.feedforward_block_secondary(
-            hidden_states=hidden_states_secondary, conditioning=conditioning
+        hidden_states_primary = self.feedforward_block_primary(
+            hidden_states=hidden_states_primary, conditioning=conditioning
         )
-        return attention_output_primary, hidden_states_secondary
+        return hidden_states_primary, attention_output_secondary

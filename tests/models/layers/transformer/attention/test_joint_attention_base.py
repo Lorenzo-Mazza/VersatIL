@@ -2,7 +2,6 @@
 
 from collections.abc import Callable
 
-import numpy as np
 import pytest
 import torch
 
@@ -23,34 +22,16 @@ def base_attention() -> JointAttentionBase:
     )
 
 
-@pytest.fixture
-def head_split_tensor_factory(
-    rng: np.random.Generator,
-) -> Callable[..., torch.Tensor]:
-    """Factory for head-split tensors (B, H, S, D_head)."""
-
-    def factory(
-        batch_size: int = 2,
-        number_of_heads: int = NUMBER_OF_HEADS,
-        sequence_length: int = 6,
-        head_dimension: int = HEAD_DIMENSION,
-    ) -> torch.Tensor:
-        shape = (batch_size, number_of_heads, sequence_length, head_dimension)
-        return torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
-
-    return factory
-
-
 class TestReshapeMethods:
     def test_reshape_for_query(
         self,
         base_attention: JointAttentionBase,
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
-        flat = torch.from_numpy(
-            rng.standard_normal((2, 6, NUMBER_OF_HEADS * HEAD_DIMENSION)).astype(
-                np.float32
-            )
+        flat = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=6,
+            embedding_dimension=NUMBER_OF_HEADS * HEAD_DIMENSION,
         )
         reshaped = base_attention._reshape_for_query(flat)
         assert reshaped.shape == (2, NUMBER_OF_HEADS, 6, HEAD_DIMENSION)
@@ -62,7 +43,7 @@ class TestReshapeMethods:
     )
     def test_reshape_for_key_value(
         self,
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
         number_of_kv_heads: int,
         expected_heads: int,
     ):
@@ -72,8 +53,10 @@ class TestReshapeMethods:
             head_dimension=HEAD_DIMENSION,
         )
         flat_dim = number_of_kv_heads * HEAD_DIMENSION
-        flat = torch.from_numpy(
-            rng.standard_normal((2, 6, flat_dim)).astype(np.float32)
+        flat = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=6,
+            embedding_dimension=flat_dim,
         )
         reshaped = attention._reshape_for_key_value(flat)
         assert reshaped.shape == (2, expected_heads, 6, HEAD_DIMENSION)

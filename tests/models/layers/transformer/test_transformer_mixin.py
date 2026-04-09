@@ -50,6 +50,25 @@ def mixin_factory() -> Callable[..., ConcreteMixin]:
     return factory
 
 
+class TestTotalResidualStreams:
+    @pytest.mark.parametrize(
+        "number_of_layers, number_of_residual_blocks, expected",
+        [(4, 3, 12), (2, 2, 4), (6, 1, 6)],
+    )
+    def test_product_of_layers_and_blocks(
+        self,
+        mixin_factory: Callable[..., ConcreteMixin],
+        number_of_layers: int,
+        number_of_residual_blocks: int,
+        expected: int,
+    ):
+        mixin = mixin_factory(
+            number_of_layers=number_of_layers,
+            number_of_residual_blocks=number_of_residual_blocks,
+        )
+        assert mixin._total_residual_streams == expected
+
+
 class TestInitWeights:
     @pytest.mark.parametrize(
         "number_of_layers, number_of_residual_blocks",
@@ -274,11 +293,13 @@ class TestApplyPositionalEncoding:
         assert torch.equal(output, hidden_states)
         assert rope is None
 
+    @pytest.mark.parametrize("offset", [0, 5])
     def test_additive_encoding_modifies_hidden_states(
         self,
         mixin_factory: Callable[..., ConcreteMixin],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         mock_sinusoidal_factory: Callable[..., MagicMock],
+        offset: int,
     ):
         mixin = mixin_factory()
         mock_pe = mock_sinusoidal_factory()
@@ -286,11 +307,11 @@ class TestApplyPositionalEncoding:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=32
         )
-        output, rope = mixin._apply_positional_encoding(hidden_states)
+        output, rope = mixin._apply_positional_encoding(hidden_states, offset=offset)
         expected = hidden_states + torch.ones_like(hidden_states)
         assert torch.equal(output, expected)
         assert rope is None
-        mock_pe.assert_called_once_with(hidden_states)
+        mock_pe.assert_called_once_with(hidden_states, offset=offset)
 
     def test_rope_returns_encoding_without_modifying_input(
         self,

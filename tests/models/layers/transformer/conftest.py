@@ -118,6 +118,103 @@ def conditioning_cache_factory(
 
 
 @pytest.fixture
+def conditioning_cache_with_queries_factory(
+    rng: np.random.Generator,
+    precomputed_kv_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+) -> Callable[..., ConditioningLayerCache]:
+    """Factory for ConditioningLayerCache with precomputed queries, keys, and values."""
+
+    def factory(
+        batch_size: int = 2,
+        number_of_heads: int = NUMBER_OF_HEADS,
+        number_of_key_value_heads: int = NUMBER_OF_HEADS,
+        sequence_length: int = 6,
+        head_dimension: int = HEAD_DIMENSION,
+    ) -> ConditioningLayerCache:
+        keys, values = precomputed_kv_factory(
+            batch_size=batch_size,
+            key_value_length=sequence_length,
+            number_of_heads=number_of_key_value_heads,
+            head_dimension=head_dimension,
+        )
+        query_shape = (batch_size, number_of_heads, sequence_length, head_dimension)
+        queries = torch.from_numpy(rng.standard_normal(query_shape).astype(np.float32))
+        return ConditioningLayerCache(keys=keys, values=values, queries=queries)
+
+    return factory
+
+
+@pytest.fixture
+def head_split_tensor_factory(
+    rng: np.random.Generator,
+) -> Callable[..., torch.Tensor]:
+    """Factory for head-split tensors (B, H, S, D_head)."""
+
+    def factory(
+        batch_size: int = 2,
+        number_of_heads: int = NUMBER_OF_HEADS,
+        sequence_length: int = 6,
+        head_dimension: int = HEAD_DIMENSION,
+    ) -> torch.Tensor:
+        shape = (batch_size, number_of_heads, sequence_length, head_dimension)
+        return torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
+
+    return factory
+
+
+@pytest.fixture
+def new_kv_factory(
+    precomputed_kv_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+) -> Callable[..., tuple[torch.Tensor, torch.Tensor]]:
+    """Factory for new key/value tensors to append to generation cache."""
+
+    def factory(
+        batch_size: int = 2,
+        number_of_heads: int = NUMBER_OF_HEADS,
+        new_length: int = 1,
+        head_dimension: int = HEAD_DIMENSION,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        return precomputed_kv_factory(
+            batch_size=batch_size,
+            key_value_length=new_length,
+            number_of_heads=number_of_heads,
+            head_dimension=head_dimension,
+        )
+
+    return factory
+
+
+@pytest.fixture
+def flat_conditioning_cache_factory(
+    sequence_tensor_factory: Callable[..., torch.Tensor],
+) -> Callable[..., ConditioningLayerCache]:
+    """Factory for ConditioningLayerCache with flat (B, S, D) keys/values.
+
+    Used by layers that project conditioning K/V internally (e.g.
+    PrecomputedKVCrossAttentionLayer).
+    """
+
+    def factory(
+        batch_size: int = 2,
+        sequence_length: int = 8,
+        kv_dimension: int = NUMBER_OF_HEADS * HEAD_DIMENSION,
+    ) -> ConditioningLayerCache:
+        keys = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=kv_dimension,
+        )
+        values = sequence_tensor_factory(
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            embedding_dimension=kv_dimension,
+        )
+        return ConditioningLayerCache(keys=keys, values=values)
+
+    return factory
+
+
+@pytest.fixture
 def mock_rope_factory() -> Callable[..., MagicMock]:
     """Factory for mock RotaryPositionalEncoding1D that scales Q/K by 0.5.
 
@@ -144,8 +241,9 @@ def mock_sinusoidal_factory() -> Callable[..., MagicMock]:
     def factory(
         embedding_dimension: int = EMBEDDING_DIMENSION,
     ) -> MagicMock:
-        mock = MagicMock(spec=SinusoidalPositionalEncoding1D)
-        mock.side_effect = lambda x: torch.ones_like(x)
+        mock = MagicMock()
+        mock.__class__ = SinusoidalPositionalEncoding1D
+        mock.side_effect = lambda x, offset=0: torch.ones_like(x)
         return mock
 
     return factory

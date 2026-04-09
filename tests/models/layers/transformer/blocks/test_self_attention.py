@@ -17,7 +17,8 @@ from versatil.models.layers.transformer.cache.generation import (
     initialize_generation_cache,
 )
 
-from .conftest import EMBEDDING_DIMENSION, NUMBER_OF_HEADS
+EMBEDDING_DIMENSION = 32
+NUMBER_OF_HEADS = 4
 
 
 class TestSelfAttentionBlockForward:

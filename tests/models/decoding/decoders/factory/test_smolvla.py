@@ -51,6 +51,7 @@ def _make_tiny_smolvlm_config() -> AutoConfig:
     config.text_config.intermediate_size = VLM_HIDDEN_DIMENSION * 4
     config.text_config.num_attention_heads = NUM_ATTENTION_HEADS
     config.text_config.num_key_value_heads = NUM_KEY_VALUE_HEADS
+    config.text_config.head_dim = HEAD_DIMENSION
     config.vision_config.hidden_size = VLM_HIDDEN_DIMENSION
     config.vision_config.intermediate_size = VLM_HIDDEN_DIMENSION * 4
     config.vision_config.num_hidden_layers = 1
@@ -623,7 +624,7 @@ class TestSmolVLADecoderCaching:
         with torch.no_grad():
             decoder(features=features, actions=actions)
         assert decoder._prefix_cache is not None
-        assert len(decoder._prefix_cache) > 0
+        assert len(decoder._prefix_cache.layers) > 0
 
     def test_cache_not_recomputed_on_second_forward(
         self,

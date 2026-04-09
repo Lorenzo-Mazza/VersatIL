@@ -13,7 +13,7 @@ from versatil.models.layers.transformer.block.precomputed_cross_attention import
     PrecomputedCrossAttentionBlock,
 )
 
-from .conftest import EMBEDDING_DIMENSION
+EMBEDDING_DIMENSION = 32
 
 
 class TestPrecomputedCrossAttentionBlockForward:

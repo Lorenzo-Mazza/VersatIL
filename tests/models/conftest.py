@@ -39,6 +39,25 @@ def input_tensor_factory(
 
 
 @pytest.fixture
+def sequence_tensor_factory(
+    rng: np.random.Generator,
+) -> Callable[..., torch.Tensor]:
+    """Factory for sequence tensors (B, S, D)."""
+
+    def factory(
+        batch_size: int = 2,
+        sequence_length: int = 4,
+        embedding_dimension: int = 32,
+    ) -> torch.Tensor:
+        data = rng.standard_normal(
+            (batch_size, sequence_length, embedding_dimension)
+        ).astype(np.float32)
+        return torch.from_numpy(data)
+
+    return factory
+
+
+@pytest.fixture
 def embedding_tensor_factory(
     rng: np.random.Generator,
 ) -> Callable[..., torch.Tensor]:

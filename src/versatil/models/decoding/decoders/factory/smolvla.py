@@ -12,7 +12,6 @@ from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_masking import make_attention_mask
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
-from versatil.models.decoding.decoders.vla_interleaved import VLACrossAttentionLayer
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm import (
     GenerativeVLMEncoder,
@@ -26,8 +25,15 @@ from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEn
 from versatil.models.layers.positional_encoding.sinusoidal import (
     PeriodInterpolationPositionalEncoding1D,
 )
+from versatil.models.layers.transformer.cache.conditioning import (
+    ConditioningCache,
+    ConditioningLayerCache,
+)
 from versatil.models.layers.transformer.layer.precomputed_dual_stream_layer import (
     PrecomputedDualStreamLayer,
+)
+from versatil.models.layers.transformer.layer.precomputed_kv_layer import (
+    PrecomputedKVCrossAttentionLayer,
 )
 
 
@@ -129,7 +135,7 @@ class SmolVLADecoder(ActionDecoder):
         self.expert_final_norm: nn.Module | None = None
         self.vlm_hidden_dimension: int | None = None
         self._encoder_cache_enabled = False
-        self._prefix_cache: dict[int, dict[str, torch.Tensor]] | None = None
+        self._prefix_cache: ConditioningCache | None = None
 
     @staticmethod
     def _get_intermediate_size(
@@ -222,12 +228,12 @@ class SmolVLADecoder(ActionDecoder):
                 self._expert_to_vlm_index[len(self.expert_layers)] = vlm_idx
                 self.expert_layers.append(
                     PrecomputedDualStreamLayer(
-                        primary_embedding_dimension=vlm_hidden_dimension,
-                        secondary_embedding_dimension=expert_hidden_size,
+                        primary_embedding_dimension=expert_hidden_size,
+                        secondary_embedding_dimension=vlm_hidden_dimension,
                         number_of_heads=expert_num_heads,
                         number_of_key_value_heads=expert_num_key_value_heads,
                         head_dimension=expert_head_dimension,
-                        secondary_feedforward_dimension=expert_intermediate_size,
+                        primary_feedforward_dimension=expert_intermediate_size,
                         normalization_type=self.normalization_type,
                         activation=self.activation,
                         dropout=self._dropout,
@@ -238,13 +244,13 @@ class SmolVLADecoder(ActionDecoder):
             else:
                 self._expert_to_vlm_index[len(self.expert_layers)] = vlm_idx
                 self.expert_layers.append(
-                    VLACrossAttentionLayer(
-                        expert_embedding_dimension=expert_hidden_size,
-                        vlm_key_value_dimension=vlm_key_value_dimension,
-                        expert_number_of_heads=expert_num_heads,
-                        expert_number_of_key_value_heads=expert_num_key_value_heads,
-                        expert_head_dimension=expert_head_dimension,
-                        expert_feedforward_dimension=expert_intermediate_size,
+                    PrecomputedKVCrossAttentionLayer(
+                        embedding_dimension=expert_hidden_size,
+                        conditioning_key_value_dimension=vlm_key_value_dimension,
+                        number_of_heads=expert_num_heads,
+                        number_of_key_value_heads=expert_num_key_value_heads,
+                        head_dimension=expert_head_dimension,
+                        feedforward_dimension=expert_intermediate_size,
                         normalization_type=self.normalization_type,
                         activation=self.activation,
                         dropout=self._dropout,
@@ -257,7 +263,7 @@ class SmolVLADecoder(ActionDecoder):
     def enable_encoder_cache(self) -> None:
         """Enable prefix caching for multi-step denoising inference."""
         self._encoder_cache_enabled = True
-        self._prefix_cache: dict[int, dict[str, torch.Tensor]] | None = None
+        self._prefix_cache: ConditioningCache | None = None
 
     def disable_encoder_cache(self) -> None:
         """Disable prefix caching and clear stored states."""
@@ -366,7 +372,11 @@ class SmolVLADecoder(ActionDecoder):
         Returns:
             Predicted action tensors keyed by action name.
         """
-        if self.expert_layers is None:
+        if (
+            self.expert_layers is None
+            or self.expert_final_norm is None
+            or self.action_output_projection is None
+        ):
             raise RuntimeError("set_backbone() must be called before forward().")
         if actions is None:
             raise ValueError(
@@ -529,13 +539,15 @@ class SmolVLADecoder(ActionDecoder):
                                 position_ids,
                             )
                         )
-                    vlm_attention_output, expert_hidden = self.expert_layers[
+                    expert_hidden, vlm_attention_output = self.expert_layers[
                         expert_layer_index
-                    ](
-                        precomputed_primary=(vlm_query, vlm_key, vlm_value),
-                        hidden_states_secondary=expert_hidden,
+                    ].forward_with_secondary(
+                        hidden_states_primary=expert_hidden,
+                        conditioning_cache=ConditioningLayerCache(
+                            queries=vlm_query, keys=vlm_key, values=vlm_value
+                        ),
                         joint_attention_mask=attention_mask,
-                        precomputed_secondary_rope=expert_action_rope,
+                        precomputed_primary_rope=expert_action_rope,
                     )
                     with torch.no_grad():
                         vlm_hidden = GenerativeVLMEncoder.apply_residual_feedforward(
@@ -561,10 +573,11 @@ class SmolVLADecoder(ActionDecoder):
                             else vlm_output
                         )
                     expert_hidden = self.expert_layers[expert_layer_index](
-                        expert_hidden_states=expert_hidden,
-                        vlm_key_states=vlm_keys,
-                        vlm_value_states=vlm_values,
-                        precomputed_query_rope=expert_action_rope,
+                        hidden_states=expert_hidden,
+                        conditioning_cache=ConditioningLayerCache(
+                            keys=vlm_keys, values=vlm_values
+                        ),
+                        precomputed_rope=expert_action_rope,
                     )
                     vlm_layer_index += 1
                     expert_layer_index += 1
@@ -575,7 +588,7 @@ class SmolVLADecoder(ActionDecoder):
         prefix_embeddings: torch.Tensor,
         position_ids: torch.Tensor,
         prefix_attention_mask: torch.Tensor | None = None,
-    ) -> dict[int, dict[str, torch.Tensor]]:
+    ) -> ConditioningCache:
         """Run VLM layers as plain self-attention and cache K/V for inference.
 
         During cached inference, the VLM doesn't see expert tokens (matching
@@ -588,8 +601,12 @@ class SmolVLADecoder(ActionDecoder):
             prefix_attention_mask: Optional (B, P) mask where 1 means attend
                 and 0 means ignore. Passed to each VLM layer so padded tokens
                 do not participate in self-attention.
+
+        Returns:
+            ConditioningCache with one entry per expert layer (VLM_ONLY layers
+            are skipped since they have no expert counterpart).
         """
-        vlm_cache: dict[int, dict[str, torch.Tensor]] = {}
+        layer_caches: list[ConditioningLayerCache] = []
         vlm_hidden = prefix_embeddings
         prefix_position_ids = position_ids[:, : prefix_embeddings.shape[1]]
         vlm_position_embeddings = self._compute_vlm_position_embeddings(
@@ -608,20 +625,18 @@ class SmolVLADecoder(ActionDecoder):
                                 prefix_position_ids,
                             )
                         )
-                        vlm_cache[vlm_layer_index] = {
-                            "query": vlm_query,
-                            "key": vlm_key,
-                            "value": vlm_value,
-                            "hidden": vlm_hidden,
-                        }
+                        layer_caches.append(
+                            ConditioningLayerCache(
+                                queries=vlm_query, keys=vlm_key, values=vlm_value
+                            )
+                        )
                     case SmolVLALayerType.CROSS_ATTENTION.value:
                         vlm_keys, vlm_values = self._extract_key_value_with_rope(
                             vlm_layer, vlm_hidden, prefix_position_ids
                         )
-                        vlm_cache[vlm_layer_index] = {
-                            "key": vlm_keys,
-                            "value": vlm_values,
-                        }
+                        layer_caches.append(
+                            ConditioningLayerCache(keys=vlm_keys, values=vlm_values)
+                        )
                 vlm_output = vlm_layer(
                     vlm_hidden,
                     attention_mask=prefix_attention_mask,
@@ -630,44 +645,28 @@ class SmolVLADecoder(ActionDecoder):
                 vlm_hidden = (
                     vlm_output[0] if isinstance(vlm_output, tuple) else vlm_output
                 )
-        return vlm_cache
+        return ConditioningCache(layers=layer_caches)
 
     def _run_expert_with_cache(
         self,
         expert_hidden: torch.Tensor,
-        vlm_cache: dict[int, dict[str, torch.Tensor]],
+        vlm_cache: ConditioningCache,
         attention_mask: torch.Tensor,
         expert_action_rope: tuple[torch.Tensor, torch.Tensor],
     ) -> torch.Tensor:
-        """Run expert layers using cached VLM states (inference only)."""
-        vlm_layer_index = 0
-        expert_layer_index = 0
-        for layer_type in self._layer_types:
-            match layer_type:
-                case SmolVLALayerType.VLM_ONLY.value:
-                    vlm_layer_index += 1
-                case SmolVLALayerType.SELF_ATTENTION.value:
-                    cached = vlm_cache[vlm_layer_index]
-                    _, expert_hidden = self.expert_layers[expert_layer_index](
-                        precomputed_primary=(
-                            cached["query"],
-                            cached["key"],
-                            cached["value"],
-                        ),
-                        hidden_states_secondary=expert_hidden,
-                        joint_attention_mask=attention_mask,
-                        precomputed_secondary_rope=expert_action_rope,
-                    )
-                    vlm_layer_index += 1
-                    expert_layer_index += 1
-                case SmolVLALayerType.CROSS_ATTENTION.value:
-                    cached = vlm_cache[vlm_layer_index]
-                    expert_hidden = self.expert_layers[expert_layer_index](
-                        expert_hidden_states=expert_hidden,
-                        vlm_key_states=cached["key"],
-                        vlm_value_states=cached["value"],
-                        precomputed_query_rope=expert_action_rope,
-                    )
-                    vlm_layer_index += 1
-                    expert_layer_index += 1
+        """Run expert layers using cached VLM states (inference only).
+
+        Note:
+            The joint attention mask is only passed to dual-stream layers.
+            Cross-attention layers use no mask in the cached path since
+            padding is already handled by the VLM during cache filling.
+        """
+        for expert_layer_index, expert_layer in enumerate(self.expert_layers):
+            is_dual_stream = isinstance(expert_layer, PrecomputedDualStreamLayer)
+            expert_hidden = expert_layer(
+                hidden_states=expert_hidden,
+                conditioning_cache=vlm_cache.layers[expert_layer_index],
+                attention_mask=attention_mask if is_dual_stream else None,
+                precomputed_rope=expert_action_rope,
+            )
         return expert_hidden
