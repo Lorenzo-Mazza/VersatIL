@@ -29,7 +29,6 @@ from versatil.data.metadata import (
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.metrics.base import LossOutput
 
-
 MINIMUM_VRAM_GB = 8.0
 
 

@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
 import torch
-import wandb
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.callbacks import (
@@ -21,6 +20,7 @@ from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.tuner import Tuner
 from torch.utils import data
 
+import wandb
 from versatil.common.tensor_ops import to_device
 from versatil.configs import MainConfig
 from versatil.data.dataloader import get_dataloaders
@@ -472,9 +472,14 @@ class Workspace:
         batch = to_device(batch, device)
         self.lightning_policy.to(device)
         self.lightning_policy.train()
-        with torch.no_grad(), torch.autocast(
-            device_type=device.type,
-            dtype=PrecisionType(str(self.config.experiment.precision)).get_model_dtype(),
+        with (
+            torch.no_grad(),
+            torch.autocast(
+                device_type=device.type,
+                dtype=PrecisionType(
+                    str(self.config.experiment.precision)
+                ).get_model_dtype(),
+            ),
         ):
             _ = self.lightning_policy.training_step(batch, 0)
         logging.info("Lazy modules initialized successfully")

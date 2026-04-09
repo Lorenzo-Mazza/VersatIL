@@ -34,7 +34,7 @@ from versatil.quantization.strategies import (
     PT2EStrategy,
     QuantizeApiStrategy,
 )
-from versatil.training.constants import CheckpointFilename, PrecisionType
+from versatil.training.constants import CheckpointFilename
 
 
 class PostTrainingCompressor:

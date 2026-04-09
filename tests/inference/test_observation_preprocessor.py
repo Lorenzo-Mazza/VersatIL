@@ -397,6 +397,7 @@ class TestParseSingleEnvironment:
 
         assert list(result.keys()) == [0]
 
+
 @pytest.mark.unit
 class TestParseMultiEnvironment:
     def test_parses_multiple_environments(
@@ -506,6 +507,7 @@ class TestParseMultiEnvironment:
 
             assert result[0][ObsKey.LANGUAGE.value] == "pick up block"
             assert result[1][ObsKey.LANGUAGE.value] == "place on table"
+
 
 @pytest.mark.unit
 class TestTransformCameraObservations:

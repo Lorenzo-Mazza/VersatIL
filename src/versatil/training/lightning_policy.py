@@ -97,23 +97,10 @@ class LightningPolicy(pl.LightningModule):
             epoch_duration = time.monotonic() - self._epoch_start_time
             self.log("train/epoch_time_seconds", epoch_duration, on_epoch=True)
 
-        # Log current learning rate at epoch level so it appears in WandB
-        # (LearningRateMonitor logs per-step, but define_metric("*", step_metric="epoch")
-        # prevents step-level metrics from rendering)
-        if self._trainer is not None and self.trainer.optimizers:
-            for param_group_idx, param_group in enumerate(
-                self.trainer.optimizers[0].param_groups
-            ):
-                if len(self.trainer.optimizers[0].param_groups) == 1:
-                    key = "train/learning_rate"
-                else:
-                    key = f"train/learning_rate_group_{param_group_idx}"
-                self.log(key, param_group["lr"], on_epoch=True)
-
         # Log peak GPU memory usage in GB, then reset for next epoch
         if torch.cuda.is_available() and self.device.type == "cuda":
-            peak_memory_gb = (
-                torch.cuda.max_memory_allocated(device=self.device) / (1024**3)
+            peak_memory_gb = torch.cuda.max_memory_allocated(device=self.device) / (
+                1024**3
             )
             self.log("train/gpu_memory_peak_gb", peak_memory_gb, on_epoch=True)
             torch.cuda.reset_peak_memory_stats(device=self.device)
@@ -251,6 +238,7 @@ class LightningPolicy(pl.LightningModule):
             optimizer=optimizer,
             num_warmup_steps=self.training_config.lr_warmup_steps,
             num_training_steps=total_steps,
+            scheduler_specific_kwargs=self.training_config.lr_scheduler_kwargs or None,
         )
 
         return {

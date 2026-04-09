@@ -33,7 +33,7 @@ class PaliGemmaEncoder(GenerativeVLMEncoder):
         attention_type: str = AttentionImplementation.SDPA.value,
         use_embeddings_only: bool = False,
         model_dtype: str | None = None,
-        max_text_length: int | None = None
+        max_text_length: int | None = None,
     ):
         """Initialize the PaliGemma encoder.
 

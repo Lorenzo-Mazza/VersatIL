@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from versatil.data.constants import TokenPaddingStrategy, TokenizerType
+from versatil.data.constants import TokenizerType, TokenPaddingStrategy
 from versatil.models.encoding.encoders.constants import LanguageEncoderType
 
 

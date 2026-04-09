@@ -140,10 +140,22 @@ class TestTrainingConfig:
         assert isinstance(config.optimizer, AdamWConfig)
         assert config.optimizer.target_class == "torch.optim.AdamW"
 
-    @pytest.mark.parametrize("lr_schedule", [None, "cosine", "linear"])
-    def test_stores_lr_schedule(self, lr_schedule):
-        config = TrainingConfig(lr_schedule=lr_schedule)
+    @pytest.mark.parametrize(
+        "lr_schedule, lr_scheduler_kwargs",
+        [
+            (None, {}),
+            ("cosine", {}),
+            ("linear", {}),
+            ("cosine_with_min_lr", {"min_lr": 2.5e-6}),
+        ],
+    )
+    def test_stores_lr_schedule(self, lr_schedule, lr_scheduler_kwargs):
+        config = TrainingConfig(
+            lr_schedule=lr_schedule,
+            lr_scheduler_kwargs=lr_scheduler_kwargs,
+        )
         assert config.lr_schedule == lr_schedule
+        assert config.lr_scheduler_kwargs == lr_scheduler_kwargs
 
     @pytest.mark.parametrize("swa_lrs", [None, 1e-5])
     def test_stores_swa_configuration(self, swa_lrs):
@@ -160,6 +172,7 @@ class TestTrainingConfig:
             "clip_max_norm",
             "lr_schedule",
             "lr_warmup_steps",
+            "lr_scheduler_kwargs",
             "use_ema",
             "ema_power",
             "swa_lrs",

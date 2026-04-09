@@ -13,7 +13,7 @@ defaults:
   - /policy/encoding_pipeline: paligemma_embeddings
   - /policy/decoder: pi0_decoder
   - /policy/algorithm: flow_matching
-  - /policy/loss: regressionMSE_gripper
+  - /policy/loss: regression_gripper_mse
   - /inference: libero_lerobot
   - _self_
 
@@ -39,12 +39,14 @@ experiment:
   checkpoint_every: 5
 
 training:
-  num_epochs: 200
-  early_stopping_patience: 100
+  num_epochs: 10
+  early_stopping_patience: 10
   clip_gradient_norm: true
   clip_max_norm: 1.0
-  lr_schedule: "cosine"
+  lr_schedule: "cosine_with_min_lr"
   lr_warmup_steps: 1000
+  lr_scheduler_kwargs:
+    min_lr: 2.5e-6
   optimizer:
     lr: 2.5e-5
     betas: [0.9, 0.95]
@@ -68,7 +70,8 @@ policy:
         mse_weight: 1.0
         l1_weight: 0.0
       gripper_loss:
-        key: ${proprio_key:GRIPPER_STATE_ACTION}
+        action_keys:
+          - ${proprio_key:GRIPPER_STATE_ACTION}
       trajectory_length:
         action_key: ${proprio_key:EE_POS_ACTION}
   decoder:

@@ -295,8 +295,9 @@ class TestOnTrainEpochEnd:
 
         assert lightning_policy.train_metrics.num_batches == 3
 
-        with patch.object(lightning_policy, "log_dict"), patch.object(
-            lightning_policy, "log"
+        with (
+            patch.object(lightning_policy, "log_dict"),
+            patch.object(lightning_policy, "log"),
         ):
             lightning_policy.on_train_epoch_end()
 
@@ -319,8 +320,9 @@ class TestOnTrainEpochEnd:
         lightning_policy = lightning_policy_factory(policy=policy)
         lightning_policy.training_step(batch={}, batch_idx=0)
 
-        with patch.object(lightning_policy, "log_dict") as mock_log_dict, patch.object(
-            lightning_policy, "log"
+        with (
+            patch.object(lightning_policy, "log_dict") as mock_log_dict,
+            patch.object(lightning_policy, "log"),
         ):
             lightning_policy.on_train_epoch_end()
 
@@ -342,9 +344,10 @@ class TestOnTrainEpochEnd:
         lightning_policy.on_train_epoch_start()
         lightning_policy.training_step(batch={}, batch_idx=0)
 
-        with patch.object(lightning_policy, "log_dict"), patch.object(
-            lightning_policy, "log"
-        ) as mock_log:
+        with (
+            patch.object(lightning_policy, "log_dict"),
+            patch.object(lightning_policy, "log") as mock_log,
+        ):
             lightning_policy.on_train_epoch_end()
 
             epoch_time_calls = [
@@ -355,112 +358,6 @@ class TestOnTrainEpochEnd:
             assert len(epoch_time_calls) == 1
             logged_duration = epoch_time_calls[0][0][1]
             assert logged_duration >= 0.0
-
-    def test_logs_learning_rate_when_trainer_attached(
-        self,
-        mock_policy_factory: Callable,
-        loss_output_factory: Callable,
-        lightning_policy_factory: Callable,
-        mock_trainer_factory: Callable,
-        rng: np.random.Generator,
-    ):
-        policy = mock_policy_factory()
-        loss_output = loss_output_factory(total_loss_value=1.0)
-        policy.compute_loss.return_value = loss_output
-
-        lightning_policy = lightning_policy_factory(policy=policy)
-        lightning_policy.on_train_epoch_start()
-        lightning_policy.training_step(batch={}, batch_idx=0)
-
-        # Create a real optimizer so param_groups have "lr"
-        param = torch.nn.Parameter(
-            torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
-        )
-        optimizer = torch.optim.AdamW([param], lr=3e-4)
-        trainer = mock_trainer_factory(optimizers=[optimizer])
-        lightning_policy._trainer = trainer
-
-        with patch.object(lightning_policy, "log_dict"), patch.object(
-            lightning_policy, "log"
-        ) as mock_log:
-            lightning_policy.on_train_epoch_end()
-
-            lr_calls = [
-                call
-                for call in mock_log.call_args_list
-                if call[0][0] == "train/learning_rate"
-            ]
-            assert len(lr_calls) == 1
-            assert lr_calls[0][0][1] == pytest.approx(3e-4)
-
-    def test_logs_per_group_learning_rate_with_multiple_param_groups(
-        self,
-        mock_policy_factory: Callable,
-        loss_output_factory: Callable,
-        lightning_policy_factory: Callable,
-        mock_trainer_factory: Callable,
-        rng: np.random.Generator,
-    ):
-        policy = mock_policy_factory()
-        loss_output = loss_output_factory(total_loss_value=1.0)
-        policy.compute_loss.return_value = loss_output
-
-        lightning_policy = lightning_policy_factory(policy=policy)
-        lightning_policy.on_train_epoch_start()
-        lightning_policy.training_step(batch={}, batch_idx=0)
-
-        param_a = torch.nn.Parameter(
-            torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
-        )
-        param_b = torch.nn.Parameter(
-            torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
-        )
-        optimizer = torch.optim.AdamW(
-            [{"params": [param_a], "lr": 1e-3}, {"params": [param_b], "lr": 1e-5}]
-        )
-        trainer = mock_trainer_factory(optimizers=[optimizer])
-        lightning_policy._trainer = trainer
-
-        with patch.object(lightning_policy, "log_dict"), patch.object(
-            lightning_policy, "log"
-        ) as mock_log:
-            lightning_policy.on_train_epoch_end()
-
-            lr_calls = {
-                call[0][0]: call[0][1]
-                for call in mock_log.call_args_list
-                if call[0][0].startswith("train/learning_rate")
-            }
-            assert "train/learning_rate_group_0" in lr_calls
-            assert "train/learning_rate_group_1" in lr_calls
-            assert lr_calls["train/learning_rate_group_0"] == pytest.approx(1e-3)
-            assert lr_calls["train/learning_rate_group_1"] == pytest.approx(1e-5)
-
-    def test_skips_lr_logging_without_trainer(
-        self,
-        mock_policy_factory: Callable,
-        loss_output_factory: Callable,
-        lightning_policy_factory: Callable,
-    ):
-        policy = mock_policy_factory()
-        loss_output = loss_output_factory(total_loss_value=1.0)
-        policy.compute_loss.return_value = loss_output
-
-        lightning_policy = lightning_policy_factory(policy=policy)
-        lightning_policy.on_train_epoch_start()
-        lightning_policy.training_step(batch={}, batch_idx=0)
-
-        with patch.object(lightning_policy, "log_dict"), patch.object(
-            lightning_policy, "log"
-        ) as mock_log:
-            lightning_policy.on_train_epoch_end()
-
-            lr_calls = [
-                call
-                for call in mock_log.call_args_list
-                if "learning_rate" in call[0][0]
-            ]
-            assert len(lr_calls) == 0
 
     @pytest.mark.requires_gpu
     def test_logs_gpu_memory_peak_on_cuda(
@@ -478,11 +375,15 @@ class TestOnTrainEpochEnd:
         lightning_policy.training_step(batch={}, batch_idx=0)
 
         cuda_device = torch.device("cuda")
-        with patch.object(
-            type(lightning_policy), "device", new_callable=lambda: property(lambda s: cuda_device)
-        ), patch.object(lightning_policy, "log_dict"), patch.object(
-            lightning_policy, "log"
-        ) as mock_log:
+        with (
+            patch.object(
+                type(lightning_policy),
+                "device",
+                new_callable=lambda: property(lambda s: cuda_device),
+            ),
+            patch.object(lightning_policy, "log_dict"),
+            patch.object(lightning_policy, "log") as mock_log,
+        ):
             lightning_policy.on_train_epoch_end()
 
             memory_calls = [
@@ -507,15 +408,14 @@ class TestOnTrainEpochEnd:
         lightning_policy.on_train_epoch_start()
         lightning_policy.training_step(batch={}, batch_idx=0)
 
-        with patch.object(lightning_policy, "log_dict"), patch.object(
-            lightning_policy, "log"
-        ) as mock_log:
+        with (
+            patch.object(lightning_policy, "log_dict"),
+            patch.object(lightning_policy, "log") as mock_log,
+        ):
             lightning_policy.on_train_epoch_end()
 
             memory_calls = [
-                call
-                for call in mock_log.call_args_list
-                if "gpu_memory" in call[0][0]
+                call for call in mock_log.call_args_list if "gpu_memory" in call[0][0]
             ]
             assert len(memory_calls) == 0
 
@@ -662,6 +562,53 @@ class TestConfigureOptimizers:
         # Attach mock trainer so estimated_stepping_batches is available
         lightning_policy._trainer = mock_trainer_factory(
             estimated_stepping_batches=2000
+        )
+
+        result = lightning_policy.configure_optimizers()
+
+        assert "lr_scheduler" in result
+
+    def test_cosine_with_min_lr_passes_scheduler_kwargs(
+        self,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+    ):
+        min_lr = 2.5e-6
+        peak_lr = 2.5e-5
+        config = training_config_factory(
+            lr_schedule="cosine_with_min_lr",
+            lr_warmup_steps=10,
+            lr_scheduler_kwargs={"min_lr": min_lr},
+            optimizer=AdamWConfig(lr=peak_lr),
+        )
+        lightning_policy = lightning_policy_factory(
+            training_config=config,
+            total_training_steps=1000,
+        )
+
+        result = lightning_policy.configure_optimizers()
+
+        assert "lr_scheduler" in result
+        scheduler = result["lr_scheduler"]["scheduler"]
+        # Step to the end to verify min_lr floor
+        for _ in range(1000):
+            scheduler.step()
+        actual_lr = result["optimizer"].param_groups[0]["lr"]
+        assert actual_lr == pytest.approx(min_lr, rel=0.1)
+
+    def test_empty_scheduler_kwargs_passes_none(
+        self,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+    ):
+        config = training_config_factory(
+            lr_schedule="cosine",
+            lr_warmup_steps=10,
+            lr_scheduler_kwargs={},
+        )
+        lightning_policy = lightning_policy_factory(
+            training_config=config,
+            total_training_steps=500,
         )
 
         result = lightning_policy.configure_optimizers()

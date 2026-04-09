@@ -1,9 +1,7 @@
 """Endpoint test fixtures: synthetic zarr factories and e2e config helpers."""
 
-import os
 import socket as socket_module
 import threading
-
 from collections.abc import Callable
 from pathlib import Path
 
