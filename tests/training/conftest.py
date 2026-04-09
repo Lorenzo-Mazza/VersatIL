@@ -79,6 +79,7 @@ def mock_trainer_factory() -> Callable[..., Mock]:
         estimated_stepping_batches: int = 1000,
         callback_metrics: dict[str, torch.Tensor] | None = None,
         logger: Mock | None = "default",
+        optimizers: list[torch.optim.Optimizer] | None = None,
     ) -> Mock:
         trainer = MagicMock(spec="pl.Trainer")
         trainer.current_epoch = current_epoch
@@ -91,6 +92,7 @@ def mock_trainer_factory() -> Callable[..., Mock]:
             trainer.logger = MagicMock()
         else:
             trainer.logger = logger
+        trainer.optimizers = optimizers if optimizers is not None else []
         return trainer
 
     return factory
