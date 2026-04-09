@@ -5,6 +5,72 @@ All notable changes to VersatIL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+#### VLA Decoder Support (Pi0, SmolVLA)
+- **Pi0Decoder** and **SmolVLADecoder** factories — interleaved VLM-expert joint attention architectures where a pretrained VLM backbone is paired 1:1 with learned expert layers. Pi0 fuses timestep via MLP, Pi0.5 via adaptive normalization. SmolVLA alternates cross-attention and joint self-attention layers.
+- **`GenerativeVLMEncoder`** abstract base for single-stream VLMs (embed images → embed text → concat → LM). Thin subclasses: `PaliGemmaEncoder`, `SmolVLMEncoder`. Replaces the monolithic `multimodal/vlm.py`.
+- **`TwoTowerVLMEncoder`** — CLIP-style separate vision/language towers with `ImageEncoderMixin` + `LanguageEncoderMixin`.
+
+#### Multi-Camera Encoding
+- **`ImageEncoderMixin`** — shared multi-camera dispatch with dotted feature naming (`rgb.left`, `rgb.right`). Encoders implement `_encode_single_image()`; the mixin handles iteration, resize, and feature registration. Mixed into CNN, ViT, Swin, ConditionalCNN, TwoTowerVLM.
+- **Per-camera image sizes** — encoding pipeline sets dimensions from `CameraMetadata` in observation space, not hardcoded in encoder configs. `set_image_size()` hook on encoders.
+- **`LanguageEncoderMixin`** — shared tokenized text pad/truncate, attention mask construction, and output padding mask. Mixed into LanguageEncoder, TwoTowerVLM, PaliGemma, SmolVLM.
+
+#### Feature Metadata
+- **`FeatureMetadata`** frozen dataclass `(key, feature_type, dimension)` with `FeatureType` enum (SPATIAL, SEQUENTIAL, FLAT). Replaces `EncoderOutput`. Travels from encoder through fusion to decoder validation — explicit typing over runtime shape guessing.
+
+#### KV Cache by Information Role
+- **`GenerationCache` / `GenerationLayerCache`** — append-only cache for the main sequence during autoregressive generation. Grows token-by-token.
+- **`ConditioningCache` / `ConditioningLayerCache`** — write-once cache for static context (observations, encoder features). Stores K/V and optionally Q for bidirectional conditioning (Pi0 joint attention). Mechanism-agnostic: works for cross-attention, joint attention, and prefix caching.
+- Cache presence implies behavior — no `use_cache` boolean. Passing `GenerationCache` triggers caching, `None` means no caching.
+- **Cross-attention caching for diffusion decoders** — `DiffusionActionTransformer` precomputes conditioning K/V once and reuses across all denoising steps.
+
+#### Transformer Package
+- **Decomposed into `attention/`, `block/`, `layer/`, `cache/` sub-packages** — each module has single responsibility. ~1600 lines of duplicated diffusion transformer internals deleted.
+- **`TransformerMixin`** — shared weight init (`_init_weights` with overridable `_total_residual_streams` property), positional encoding setup/application with `offset` for cached generation, padding mask expansion. `FreeTransformer` now inherits from it.
+- **Attention modules**: `CachedAttention`, `JointAttention`, `JointAttentionBase`, `PrecomputedJointAttention`, `QueryKeyNorm`
+- **Blocks**: `SelfAttentionBlock`, `CrossAttentionBlock`, `FeedforwardBlock`, `DualStreamAttentionBlock`, `PrecomputedDualStreamAttentionBlock`, `PrecomputedCrossAttentionBlock`
+- **Layers**: `TransformerDecoderLayer`, `TransformerEncoderLayer`, `DualStreamLayer`, `PrecomputedDualStreamLayer`, `PrecomputedKVCrossAttentionLayer`
+
+#### Normalization & Activation
+- **`BlockNormalization`** type (`AdaNorm | UnconditionedNorm`) — uniform `(x, condition) → (normed, gate)` interface. `UnconditionedNorm` wraps plain LayerNorm/RMSNorm, ignores condition, returns `gate=1`. Eliminates conditioning branches in transformer blocks.
+- **`create_block_normalization`** factory — returns `AdaNorm` when `condition_dim` is set (with optional gating for AdaLN-Zero), `UnconditionedNorm` otherwise.
+- **`GatedLinearUnit`** generalizes `SwiGLU` — base class with configurable gate activation, plus `SwiGLU` (SiLU gate) and `GeGLU` (GELU-tanh gate) subclasses.
+
+#### New Encoders
+- **`SwinEncoder`** — Swin Transformer via timm with spatial feature map output and configurable pooling.
+- **`GeometricRGBDEncoder`** — replaces `LightGeometricEncoder`.
+
+#### Image Processing
+- **`ImageProcessor`** — per-camera processing extracted into standalone class (resize, color augmentation, spatial augmentation, normalization). Uses `CameraMetadata` for per-camera interpolation (nearest for depth, bilinear for RGB).
+
+#### Training Infrastructure
+- **`CallbackProvider` protocol** — `@runtime_checkable` protocol with `get_callbacks()`. Decoders/algorithms declare their own callbacks; Workspace collects via protocol check instead of `isinstance` chains.
+- **Trainer logging** — `train/epoch_time_seconds` and `train/gpu_memory_peak_gb` per epoch.
+- **LR scheduler** — now uses HuggingFace `transformers.get_scheduler` with `lr_scheduler_kwargs` passthrough.
+- **Action masking** — `make_attention_mask` supports `causal_actions` flag and `causal_prefix_suffix_length` for VLA prefix-suffix patterns.
+
+#### Configs
+- New Hydra configs for Pi0, SmolVLA, Swin, PaliGemma, SmolVLM, TwoTowerVLM.
+- New OmegaConf resolvers: `vlm_model`, `sample_key`, `time_conditioning`, `token_padding`.
+
+### Changed
+- `DataLoaderConfig` no longer hardcodes `image_height`/`image_width` — dimensions come from per-camera `CameraMetadata`.
+- `ObservationPreprocessor` uses `ImageProcessor` + `CameraMetadata` instead of raw albumentations transforms.
+- `PolicyLoader` reads precision from checkpoint config instead of requiring a `precision` parameter.
+- `FlowMatchingConfig` adds `reverse_flow_convention` flag.
+- `data/augmentation/` restructured to `data/processing/` — `ActionProcessor` and `TransformBuilder` moved alongside `ImageProcessor`.
+- `depth/dformerv2` and `depth/light_geometric` encoders moved to `cross_modal/rgbd/`.
+- `multimodal/` package renamed by `cross_modal/`, `vlm.py` is now a `vision_language` package.
+- Loss `_target_` paths updated across all YAML configs for metrics package restructure (removed `__init__.py` exports).
+- Diffusion transformer high-level classes (`CrossAttentionDiT`, `MMDiTTransformer`, `DiTBlock`) now delegate to shared `transformer/` blocks and layers
+  instead of maintaining duplicated implementations.
+- All `__init__.py` re-exports removed across transformer, training, and inference packages — consumers import from concrete modules.
+
+
 ## [0.2.0] - 2026-04-09
 
 ### Fixed
