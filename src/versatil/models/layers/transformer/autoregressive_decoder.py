@@ -1,16 +1,12 @@
 """GPT-style transformer decoder with KV cache support."""
 
-import math
-
 import torch
 import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
-from versatil.models.layers.normalization.rms_norm import RMSNorm
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
@@ -20,21 +16,19 @@ from versatil.models.layers.positional_encoding.rotary import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
 )
-from versatil.models.layers.transformer.decoder_layer import TransformerDecoderLayer
 from versatil.models.layers.transformer.kv_cache import (
     DecoderKVCache,
     LayerKVCache,
     initialize_decoder_cache,
 )
-from versatil.models.layers.transformer.masking import create_full_padding_mask
-from versatil.models.layers.transformer.positional_encoding import (
-    create_positional_encoding,
+from versatil.models.layers.transformer.layer.decoder_layer import (
+    TransformerDecoderLayer,
 )
+from versatil.models.layers.transformer.masking import create_full_padding_mask
+from versatil.models.layers.transformer.transformer_mixin import TransformerMixin
 
-RESIDUAL_STREAM_FLAG = "SQUARE_ROOT_WEIGHT"  # Used for initialization flag
 
-
-class GPTDecoder(nn.Module):
+class GPTDecoder(TransformerMixin, nn.Module):
     """GPT-style autoregressive decoder, with KV caching, extended to support cross-attention.
 
     Stacks multiple TransformerDecoderLayer modules and manages KV cache across layers.
@@ -88,23 +82,22 @@ class GPTDecoder(nn.Module):
         self.maximum_sequence_length = maximum_sequence_length
         self.use_cross_attention = use_cross_attention
         self.initializer_range = initializer_range
+        self.number_of_residual_blocks = (
+            3 if use_cross_attention else 2
+        )  # Self-Attention + Feedforward
         if attention_type == AttentionType.GROUPED_QUERY.value:
             if number_of_key_value_heads is None:
                 raise ValueError("number_of_key_value_heads required for GQA")
             self.number_of_key_value_heads = number_of_key_value_heads
         else:
             self.number_of_key_value_heads = number_of_heads
-
         self.head_dimension = embedding_dimension // number_of_heads
-
-        self.positional_encoding = None
-        if positional_encoding_type is not None:
-            self.positional_encoding = create_positional_encoding(
-                encoding_type=positional_encoding_type,
-                embedding_dimension=embedding_dimension,
-                maximum_length=maximum_sequence_length,
-                num_heads=number_of_heads,
-            )
+        self._setup_positional_encoding(
+            positional_encoding_type=positional_encoding_type,
+            embedding_dimension=embedding_dimension,
+            maximum_sequence_length=maximum_sequence_length,
+            number_of_heads=number_of_heads,
+        )
 
         self.layers = nn.ModuleList(
             [
@@ -133,35 +126,6 @@ class GPTDecoder(nn.Module):
             epsilon=normalization_epsilon,
         )
         self.apply(self._init_weights)
-
-    def _init_weights(self, module):
-        """Initialize the weights."""
-        # Reinitialize selected weights subject to the OpenAI GPT-2 Paper Scheme:
-        # > A modified initialization which accounts for the accumulation on the residual path with model depth. Scale
-        # > the weights of residual layers at initialization by a factor of 1/√N where N is the # of residual layers.
-        # > -- GPT-2 :: https://openai.com/blog/better-language-models/
-        if hasattr(module, RESIDUAL_STREAM_FLAG):  # Residual stream correction
-            num_norm_layers = 3 if self.use_cross_attention else 2
-            std = self.initializer_range / math.sqrt(
-                num_norm_layers * self.number_of_layers
-            )
-        else:
-            std = self.initializer_range
-        if isinstance(module, nn.Linear):
-            if hasattr(module, "_is_modulation_layer") and module._is_modulation_layer:
-                return
-            module.weight.data.normal_(mean=0.0, std=std)
-            if module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.Embedding):
-            module.weight.data.normal_(mean=0.0, std=self.initializer_range)
-            if module.padding_idx is not None:
-                module.weight.data[module.padding_idx].zero_()
-        elif isinstance(module, (nn.LayerNorm, RMSNorm, AdaNorm)):
-            if hasattr(module, "bias") and module.bias is not None:
-                module.bias.data.zero_()
-            if hasattr(module, "weight") and module.weight is not None:
-                module.weight.data.fill_(1.0)
 
     def precompute_cross_attention_kv(
         self,
@@ -258,6 +222,11 @@ class GPTDecoder(nn.Module):
             hidden_states = hidden_states + self.positional_encoding(
                 hidden_states, offset=cache_length
             )
+        rope_pe = (
+            self.positional_encoding
+            if isinstance(self.positional_encoding, RotaryPositionalEncoding)
+            else None
+        )
 
         cross_kv_per_layer = None
         if self.use_cross_attention:
@@ -293,7 +262,6 @@ class GPTDecoder(nn.Module):
 
         new_layer_caches = []
 
-        # Compute decoder layers forward pass
         for layer_index, layer in enumerate(self.layers):
             original_layer_cache = (
                 layer_caches[layer_index] if layer_caches is not None else None
@@ -326,11 +294,6 @@ class GPTDecoder(nn.Module):
                 self_attention_values=self_values,
                 cross_attention_keys=cross_keys,
                 cross_attention_values=cross_values,
-            )
-            rope_pe = (
-                self.positional_encoding
-                if isinstance(self.positional_encoding, RotaryPositionalEncoding)
-                else None
             )
             hidden_states, new_layer_cache = layer(
                 hidden_states=hidden_states,

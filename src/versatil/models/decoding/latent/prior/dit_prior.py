@@ -27,9 +27,6 @@ from versatil.models.layers.denoising.diffusion_process import (
     setup_inference_timesteps,
 )
 from versatil.models.layers.denoising.ode_solvers import integrate_ode
-from versatil.models.layers.diffusion_transformer.dit_decoder import (
-    DiffusionTransformerDecoder,
-)
 from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
     FinalPredictionLayer,
 )
@@ -40,6 +37,9 @@ from versatil.models.layers.positional_encoding.learned import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
+)
+from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
+    ConditionalBidirectionalDecoder,
 )
 
 
@@ -177,16 +177,17 @@ class DiTPrior(PriorLatentEncoder):
             ),
             temporal_positional_encoding_layer=temporal_positional_encoding,
         )
-        self.decoder = DiffusionTransformerDecoder(
+        self.decoder = ConditionalBidirectionalDecoder(
             number_of_layers=number_of_layers,
             embedding_dimension=embedding_dimension,
-            timestep_dimension=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
             number_of_heads=number_of_heads,
             feedforward_dimension=feedforward_dimension,
             dropout=dropout,
             activation=activation,
             normalization_type=normalization_type,
             positional_encoding_type=None,  # Handled externally by input_builder
+            use_cross_attention=False,
             use_gating=use_gating,
             use_final_normalization=False,  # FinalPredictionLayer has its own AdaNorm
         )
@@ -253,8 +254,8 @@ class DiTPrior(PriorLatentEncoder):
             tokens = tokens + positional_encoding
         tokens = self.decoder(
             hidden_states=tokens,
-            conditioning_embedding=timestep_embedding,
-            padding_mask=padding_mask,
+            condition=timestep_embedding,
+            query_padding_mask=padding_mask,
         )  # (B, T+1, D)
         output_token = tokens[:, -1:, :]  # (B, 1, D)
         output = self.final_layer(

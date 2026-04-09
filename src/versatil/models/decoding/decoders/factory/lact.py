@@ -14,15 +14,15 @@ from versatil.models.decoding.transformer_input_builder import TransformerInputB
 from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
-from versatil.models.layers.diffusion_transformer.cross_attention_dit_decoder import (
-    CrossConditioningDecoder,
-)
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding2D,
+)
+from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
+    ConditionalBidirectionalDecoder,
 )
 
 
@@ -140,10 +140,10 @@ class LACT(ActionDecoder):
         self.learnable_query = nn.Embedding(
             self.prediction_horizon, self.embedding_dimension
         )
-        self.action_decoder = CrossConditioningDecoder(
+        self.action_decoder = ConditionalBidirectionalDecoder(
             number_of_layers=self.number_of_layers,
             embedding_dimension=self.embedding_dimension,
-            timestep_dimension=self.latent_dimension,
+            conditioning_dimension=self.latent_dimension,
             number_of_heads=self.number_of_heads,
             number_of_key_value_heads=self.number_of_key_value_heads,
             feedforward_dimension=self.feedforward_dimension,
@@ -154,6 +154,7 @@ class LACT(ActionDecoder):
             attention_type=self.attention_type,
             positional_encoding_type=self.positional_encoding_type,
             use_gating=self.use_gating,
+            condition_final_normalization=False,
         )
 
     def _apply_action_heads(
@@ -207,10 +208,10 @@ class LACT(ActionDecoder):
         )  # (B, pred_horizon, embedding_dim)
         action_embeddings = self.action_decoder(
             hidden_states=query,
-            conditioning_embedding=latent,
-            encoder_hidden_states=obs_tokens,
-            decoder_padding_mask=None,
-            encoder_padding_mask=obs_padding_mask,
+            condition=latent,
+            encoded_features=obs_tokens,
+            query_padding_mask=None,
+            memory_padding_mask=obs_padding_mask,
         )
         predictions = self._apply_action_heads(action_embeddings)
         return predictions

@@ -11,7 +11,9 @@ from tests.models.layers.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.transformer.encoder_layer import TransformerEncoderLayer
+from versatil.models.layers.transformer.layer.encoder_layer import (
+    TransformerEncoderLayer,
+)
 
 
 @pytest.fixture

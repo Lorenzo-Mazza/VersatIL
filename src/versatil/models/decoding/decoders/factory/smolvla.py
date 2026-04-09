@@ -12,10 +12,7 @@ from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_masking import make_attention_mask
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
-from versatil.models.decoding.decoders.vla_interleaved import (
-    VLACrossAttentionLayer,
-    VLAJointAttentionLayer,
-)
+from versatil.models.decoding.decoders.vla_interleaved import VLACrossAttentionLayer
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm import (
     GenerativeVLMEncoder,
@@ -28,6 +25,9 @@ from versatil.models.layers.positional_encoding.base import PositionSource
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
 from versatil.models.layers.positional_encoding.sinusoidal import (
     PeriodInterpolationPositionalEncoding1D,
+)
+from versatil.models.layers.transformer.layer.precomputed_dual_stream_layer import (
+    PrecomputedDualStreamLayer,
 )
 
 
@@ -221,13 +221,13 @@ class SmolVLADecoder(ActionDecoder):
             ):
                 self._expert_to_vlm_index[len(self.expert_layers)] = vlm_idx
                 self.expert_layers.append(
-                    VLAJointAttentionLayer(
-                        vlm_embedding_dimension=vlm_hidden_dimension,
-                        expert_embedding_dimension=expert_hidden_size,
+                    PrecomputedDualStreamLayer(
+                        primary_embedding_dimension=vlm_hidden_dimension,
+                        secondary_embedding_dimension=expert_hidden_size,
                         number_of_heads=expert_num_heads,
                         number_of_key_value_heads=expert_num_key_value_heads,
                         head_dimension=expert_head_dimension,
-                        expert_feedforward_dimension=expert_intermediate_size,
+                        secondary_feedforward_dimension=expert_intermediate_size,
                         normalization_type=self.normalization_type,
                         activation=self.activation,
                         dropout=self._dropout,

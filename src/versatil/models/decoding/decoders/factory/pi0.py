@@ -14,9 +14,6 @@ from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_masking import make_attention_mask
 from versatil.models.decoding.constants import DecoderOutputKey, TimeConditioning
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
-from versatil.models.decoding.decoders.vla_interleaved import (
-    VLAJointAttentionLayer,
-)
 from versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm import (
     GenerativeVLMEncoder,
 )
@@ -27,6 +24,9 @@ from versatil.models.layers.normalization.factory import create_normalization_la
 from versatil.models.layers.positional_encoding.base import PositionSource
 from versatil.models.layers.positional_encoding.sinusoidal import (
     PeriodInterpolationPositionalEncoding1D,
+)
+from versatil.models.layers.transformer.layer.precomputed_dual_stream_layer import (
+    PrecomputedDualStreamLayer,
 )
 
 
@@ -178,15 +178,17 @@ class Pi0Decoder(ActionDecoder):
         use_conditioning = self.time_conditioning == TimeConditioning.ADANORM.value
         self.expert_layers = nn.ModuleList(
             [
-                VLAJointAttentionLayer(
-                    vlm_embedding_dimension=vlm_hidden_dimension,
-                    expert_embedding_dimension=self.expert_hidden_size,
+                PrecomputedDualStreamLayer(
+                    primary_embedding_dimension=vlm_hidden_dimension,
+                    secondary_embedding_dimension=self.expert_hidden_size,
                     number_of_heads=self.expert_number_of_heads,
                     number_of_key_value_heads=self.expert_number_of_key_value_heads,
                     head_dimension=self.expert_head_dimension,
-                    expert_feedforward_dimension=self.expert_intermediate_size,
+                    secondary_feedforward_dimension=self.expert_intermediate_size,
                     normalization_type=self.normalization_type,
-                    condition_dim=self.expert_hidden_size if use_conditioning else None,
+                    conditioning_dimension=self.expert_hidden_size
+                    if use_conditioning
+                    else None,
                     use_gating=use_conditioning,
                     dropout=self._dropout,
                     activation=self.activation,

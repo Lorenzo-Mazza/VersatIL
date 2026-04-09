@@ -11,14 +11,18 @@ from versatil.models.layers.transformer.bidirectional_decoder import (
 from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
     ConditionalBidirectionalDecoder,
 )
-from versatil.models.layers.transformer.decoder_layer import TransformerDecoderLayer
 from versatil.models.layers.transformer.encoder import TransformerEncoder
-from versatil.models.layers.transformer.encoder_layer import TransformerEncoderLayer
 from versatil.models.layers.transformer.kv_cache import (
     DecoderKVCache,
     LayerKVCache,
     initialize_decoder_cache,
     update_layer_cache,
+)
+from versatil.models.layers.transformer.layer.decoder_layer import (
+    TransformerDecoderLayer,
+)
+from versatil.models.layers.transformer.layer.encoder_layer import (
+    TransformerEncoderLayer,
 )
 from versatil.models.layers.transformer.positional_encoding import (
     apply_rope_positional_encoding,

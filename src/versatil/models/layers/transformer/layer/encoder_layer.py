@@ -1,4 +1,5 @@
-"""Transformer encoder layer for bidirectional self-attention."""
+"""Transformer encoder layer inspired by the original "Attention is All You Need" paper, with
+bidirectional self-attention and optional conditioning."""
 
 import torch
 import torch.nn as nn

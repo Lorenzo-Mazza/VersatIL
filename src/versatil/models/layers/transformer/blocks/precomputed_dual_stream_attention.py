@@ -10,34 +10,30 @@ from versatil.models.layers.transformer.attention.precomputed_primary_joint_atte
 from versatil.models.layers.transformer.blocks.dual_stream_base import (
     DualStreamBlock,
 )
-from versatil.models.layers.transformer.blocks.feedforward import FeedforwardBlock
 
 
 class PrecomputedDualStreamAttentionBlock(DualStreamBlock):
     """Dual-stream attention block where primary Q/K/V are precomputed externally.
 
-    Only the secondary stream has normalization and feedforward. The primary
-    attention output is returned raw for external post-processing by the backbone.
+    Only the secondary stream has normalization. The primary attention output
+    is returned raw for external post-processing by the backbone.
     """
 
     def __init__(
         self,
         joint_attention: PrecomputedPrimaryJointAttention,
         attention_normalization_secondary: BlockNormalization,
-        feedforward_block_secondary: FeedforwardBlock,
         dropout: float = 0.1,
     ):
         """Initialize PrecomputedDualStreamAttentionBlock.
 
         Args:
             joint_attention: PrecomputedPrimaryJointAttention module.
-            attention_normalization_secondary: Normalization for secondary stream before attention.
-            feedforward_block_secondary: Feedforward block for secondary stream.
+            attention_normalization_secondary: Normalization for secondary stream.
             dropout: Dropout rate for attention residual connections.
         """
         super().__init__(
             attention_normalization_secondary=attention_normalization_secondary,
-            feedforward_block_secondary=feedforward_block_secondary,
             dropout=dropout,
         )
         self.joint_attention = joint_attention
@@ -87,8 +83,5 @@ class PrecomputedDualStreamAttentionBlock(DualStreamBlock):
             residual=residual_secondary,
             attention_output=attention_output_secondary,
             gate=gate_secondary,
-        )
-        hidden_states_secondary = self.feedforward_block_secondary(
-            hidden_states=hidden_states_secondary, conditioning=conditioning
         )
         return attention_output_primary, hidden_states_secondary

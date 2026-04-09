@@ -1,4 +1,4 @@
-"""Tests for versatil.models.layers.transformer.decoder_layer module."""
+"""Tests for versatil.models.layers.transformer.layer.decoder_layer module."""
 
 import re
 from collections.abc import Callable
@@ -11,8 +11,10 @@ from tests.models.layers.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.transformer.decoder_layer import TransformerDecoderLayer
 from versatil.models.layers.transformer.kv_cache import LayerKVCache
+from versatil.models.layers.transformer.layer.decoder_layer import (
+    TransformerDecoderLayer,
+)
 
 
 @pytest.fixture
@@ -173,9 +175,7 @@ class TestTransformerDecoderLayerForward:
         )
         with pytest.raises(
             ValueError,
-            match=re.escape(
-                "use_self_attention_cache=True only valid for autoregressive models"
-            ),
+            match=re.escape("use_cache=True only valid for autoregressive models"),
         ):
             layer(hidden_states=hidden_states, use_cache=True)
 
@@ -482,7 +482,7 @@ class TestTransformerDecoderLayerConditioning:
         expected_condition_dim: int | None,
     ):
         with patch(
-            "versatil.models.layers.transformer.decoder_layer.create_block_normalization"
+            "versatil.models.layers.transformer.layer.decoder_layer.create_block_normalization"
         ) as mock_factory:
             mock_factory.return_value = MagicMock()
             TransformerDecoderLayer(

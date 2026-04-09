@@ -114,9 +114,7 @@ class LatentConditionedDecoderLayer(TransformerDecoderLayer):
             ValueError: When use_self_attention_cache=True for non-autoregressive model
         """
         if use_cache and not self.autoregressive:
-            raise ValueError(
-                "use_self_attention_cache=True only valid for autoregressive models"
-            )
+            raise ValueError("use_cache=True only valid for autoregressive models")
 
         attention_block = self.self_attention_block
         normalization = attention_block.normalization

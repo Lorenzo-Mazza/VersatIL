@@ -253,9 +253,7 @@ class TestLatentConditionedDecoderLayerForward:
         )
         with pytest.raises(
             ValueError,
-            match=re.escape(
-                "use_self_attention_cache=True only valid for autoregressive models"
-            ),
+            match=re.escape("use_cache=True only valid for autoregressive models"),
         ):
             layer(hidden_states=hidden_states, use_cache=True)
 

@@ -9,13 +9,13 @@ import torch
 class LayerKVCache:
     """Key-Value cache for a single transformer layer.
 
-    Stores cached keys and values from self-attention and precomputed cross-attention K/V.
+    Stores cached keys and values from self-attention and optional precomputed cross-attention K/V.
 
     Attributes:
         self_attention_keys: Cached keys from self-attention (B, kv_heads, T, head_dim)
         self_attention_values: Cached values from self-attention (B, kv_heads, T, head_dim)
-        cross_attention_keys: Precomputed K from encoded features (B, kv_heads, S, head_dim)
-        cross_attention_values: Precomputed V from encoded features (B, kv_heads, S, head_dim)
+        cross_attention_keys: Optional precomputed K from encoded features (B, kv_heads, S, head_dim)
+        cross_attention_values: Optional precomputed V from encoded features (B, kv_heads, S, head_dim)
     """
 
     self_attention_keys: torch.Tensor

@@ -1,30 +1,19 @@
 """Bidirectional transformer encoder for sequence encoding."""
 
-import math
-
 import torch
 import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
-from versatil.models.layers.normalization.rms_norm import RMSNorm
-from versatil.models.layers.positional_encoding.learned import (
-    LearnedPositionalEncoding1D,
+from versatil.models.layers.transformer.layer.encoder_layer import (
+    TransformerEncoderLayer,
 )
-from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
-from versatil.models.layers.positional_encoding.sinusoidal import (
-    SinusoidalPositionalEncoding1D,
-)
-from versatil.models.layers.transformer.encoder_layer import TransformerEncoderLayer
-from versatil.models.layers.transformer.positional_encoding import (
-    create_positional_encoding,
-)
+from versatil.models.layers.transformer.transformer_mixin import TransformerMixin
 
 
-class TransformerEncoder(nn.Module):
+class TransformerEncoder(TransformerMixin, nn.Module):
     """Bidirectional transformer encoder for sequence encoding.
 
     Processes all tokens in parallel with bidirectional self-attention.
@@ -51,21 +40,21 @@ class TransformerEncoder(nn.Module):
         """Initialize transformer encoder.
 
         Args:
-            number_of_layers: Number of encoder layers
-            embedding_dimension: Model embedding dimension
-            number_of_heads: Number of attention heads
-            number_of_key_value_heads: Number of K/V heads (for GQA)
-            feedforward_dimension: FFN hidden dimension
-            dropout: Dropout probability for residual connections
-            attention_dropout: Dropout probability for attention weights
-            activation: Activation function (use ActivationFunction enum values)
-            normalization_type: Type of normalization (use NormalizationType enum values)
-            attention_type: Type of attention (use AttentionType enum values)
-            positional_encoding_type: Type of positional encoding (or None)
-            maximum_sequence_length: Maximum sequence length for positional encoding
-            bias: Whether to use bias in linear layers
-            normalization_epsilon: Epsilon for normalization layers
-            initializer_range: Standard deviation for weight initialization
+            number_of_layers: Number of encoder layers.
+            embedding_dimension: Model embedding dimension.
+            number_of_heads: Number of attention heads.
+            number_of_key_value_heads: Number of K/V heads (for GQA).
+            feedforward_dimension: FFN hidden dimension.
+            dropout: Dropout probability for residual connections.
+            attention_dropout: Dropout probability for attention weights.
+            activation: Activation function (use ActivationFunction enum values).
+            normalization_type: Type of normalization (use NormalizationType enum values).
+            attention_type: Type of attention (use AttentionType enum values).
+            positional_encoding_type: Type of positional encoding (or None).
+            maximum_sequence_length: Maximum sequence length for positional encoding.
+            bias: Whether to use bias in linear layers.
+            normalization_epsilon: Epsilon for normalization layers.
+            initializer_range: Standard deviation for weight initialization.
         """
         super().__init__()
         self.number_of_layers = number_of_layers
@@ -73,6 +62,7 @@ class TransformerEncoder(nn.Module):
         self.number_of_heads = number_of_heads
         self.maximum_sequence_length = maximum_sequence_length
         self.initializer_range = initializer_range
+        self.number_of_residual_blocks = 2  # Self-Attention + Feedforward
         if attention_type == AttentionType.GROUPED_QUERY.value:
             if number_of_key_value_heads is None:
                 raise ValueError("number_of_key_value_heads required for GQA")
@@ -80,14 +70,12 @@ class TransformerEncoder(nn.Module):
         else:
             self.number_of_key_value_heads = number_of_heads
         self.head_dimension = embedding_dimension // number_of_heads
-        self.positional_encoding = None
-        if positional_encoding_type is not None:
-            self.positional_encoding = create_positional_encoding(
-                encoding_type=positional_encoding_type,
-                embedding_dimension=embedding_dimension,
-                maximum_length=maximum_sequence_length,
-                num_heads=number_of_heads,
-            )
+        self._setup_positional_encoding(
+            positional_encoding_type=positional_encoding_type,
+            embedding_dimension=embedding_dimension,
+            maximum_sequence_length=maximum_sequence_length,
+            number_of_heads=number_of_heads,
+        )
         self.layers = nn.ModuleList(
             [
                 TransformerEncoderLayer(
@@ -113,46 +101,6 @@ class TransformerEncoder(nn.Module):
         )
         self.apply(self._init_weights)
 
-    def _init_weights(self, module: nn.Module) -> None:
-        """Initialize weights with GPT-2 style initialization."""
-        if hasattr(module, "SQUARE_ROOT_WEIGHT"):
-            std = self.initializer_range / math.sqrt(3 * self.number_of_layers)
-        else:
-            std = self.initializer_range
-        if isinstance(module, nn.Linear):
-            if hasattr(module, "_is_modulation_layer") and module._is_modulation_layer:
-                return
-            module.weight.data.normal_(mean=0.0, std=std)
-            if module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.Embedding):
-            module.weight.data.normal_(mean=0.0, std=self.initializer_range)
-            if module.padding_idx is not None:
-                module.weight.data[module.padding_idx].zero_()
-        elif isinstance(module, (nn.LayerNorm, RMSNorm, AdaNorm)):
-            if hasattr(module, "bias") and module.bias is not None:
-                module.bias.data.zero_()
-            if hasattr(module, "weight") and module.weight is not None:
-                module.weight.data.fill_(1.0)
-
-    @staticmethod
-    def _expand_padding_mask(
-        padding_mask: torch.Tensor,
-        sequence_length: int,
-    ) -> torch.Tensor:
-        """Expand 2D padding mask to 4D attention mask.
-
-        Args:
-            padding_mask: (B, seq_length) where True means masked/padded
-            sequence_length: Length of the sequence
-
-        Returns:
-            Attention mask (B, 1, seq_length, seq_length) where True means masked
-        """
-        return (
-            padding_mask.unsqueeze(1).unsqueeze(2).expand(-1, -1, sequence_length, -1)
-        )
-
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -161,27 +109,17 @@ class TransformerEncoder(nn.Module):
         """Forward pass through transformer encoder.
 
         Args:
-            hidden_states: Input embeddings (B, seq_length, D)
-            padding_mask: Optional padding mask (B, seq_length)
-                where True means padded position.
+            hidden_states: Input embeddings (B, seq_length, D).
+            padding_mask: Optional padding mask (B, seq_length).
 
         Returns:
-            Output hidden states (B, seq_length, D)
+            Output hidden states (B, seq_length, D).
         """
         sequence_length = hidden_states.shape[1]
         attention_mask = None
         if padding_mask is not None:
             attention_mask = self._expand_padding_mask(padding_mask, sequence_length)
-        if self.positional_encoding is not None and isinstance(
-            self.positional_encoding,
-            (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D),
-        ):
-            hidden_states = hidden_states + self.positional_encoding(hidden_states)
-        rope_pe = (
-            self.positional_encoding
-            if isinstance(self.positional_encoding, RotaryPositionalEncoding)
-            else None
-        )
+        hidden_states, rope_pe = self._apply_positional_encoding(hidden_states)
         for layer in self.layers:
             hidden_states = layer(
                 hidden_states=hidden_states,

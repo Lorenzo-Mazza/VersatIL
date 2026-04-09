@@ -1,45 +1,35 @@
-"""MMDiT Decoder that stacks DualStreamAttentionBlock layers.
+"""Dual-stream bidirectional transformer decoder that stacks dual stream transformer layers.
 
 Provides positional encoding and final normalization for both
 streams processed through joint attention layers.
+
+Note: this is the original architecture of the Multimodal Diffusion Transformer (MMDiT), but it's proposed
+here as a general-purpose dual-stream transformer decoder for multimodal sequence modeling.
 
 References:
     Esser et al. "Scaling Rectified Flow Transformers for High-Resolution Image Synthesis"
     https://arxiv.org/abs/2403.03206
 """
 
-import math
-
 import torch
 import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.normalization.factory import (
-    create_block_normalization,
-    create_normalization_layer,
-)
-from versatil.models.layers.normalization.rms_norm import RMSNorm
+from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
-from versatil.models.layers.transformer.attention.joint_attention import JointAttention
-from versatil.models.layers.transformer.blocks.dual_stream_attention import (
-    DualStreamAttentionBlock,
-)
-from versatil.models.layers.transformer.blocks.feedforward import (
-    FeedforwardBlock,
-    build_feedforward,
-)
+from versatil.models.layers.transformer.layer.dual_stream_layer import DualStreamLayer
 from versatil.models.layers.transformer.positional_encoding import (
     create_positional_encoding,
 )
+from versatil.models.layers.transformer.transformer_mixin import TransformerMixin
 
 
-class MMDiTDecoder(nn.Module):
-    """Multimodal Diffusion Transformer decoder.
+class DualStreamBidirectionalDecoder(TransformerMixin, nn.Module):
+    """Dual-stream bidirectional transformer decoder.
 
-    Stacks DualStreamAttentionBlock layers with optional positional
-    encodings and final normalization for both streams.
+    Stacks dual stream (multimodal) transformer layers with optional positional encodings
+    and final normalization for both streams.
     """
 
     def __init__(
@@ -62,7 +52,7 @@ class MMDiTDecoder(nn.Module):
         bias: bool = True,
         initializer_range: float = 0.02,
     ):
-        """Initialize MMDiT decoder.
+        """Initialize decoder.
 
         Args:
             number_of_layers: Number of dual-stream attention layers.
@@ -88,6 +78,7 @@ class MMDiTDecoder(nn.Module):
         self.embedding_dimension = embedding_dimension
         self.number_of_heads = number_of_heads
         self.initializer_range = initializer_range
+        self.number_of_residual_blocks = 3  # Attention + FFN primary + FFN secondary
         if feedforward_dimension is None:
             feedforward_dimension = 4 * embedding_dimension
         self.positional_encoding_observation = None
@@ -107,64 +98,19 @@ class MMDiTDecoder(nn.Module):
             )
         self.layers = nn.ModuleList(
             [
-                DualStreamAttentionBlock(
-                    joint_attention=JointAttention(
-                        primary_embedding_dimension=embedding_dimension,
-                        number_of_heads=number_of_heads,
-                        dropout=attention_dropout,
-                        use_query_key_norm=use_query_key_norm,
-                        normalization_epsilon=normalization_epsilon,
-                        bias=bias,
-                    ),
-                    attention_normalization_primary=create_block_normalization(
-                        normalization_type=normalization_type,
-                        dimension=embedding_dimension,
-                        epsilon=normalization_epsilon,
-                        condition_dim=conditioning_dimension,
-                        use_gating=use_gating,
-                    ),
-                    attention_normalization_secondary=create_block_normalization(
-                        normalization_type=normalization_type,
-                        dimension=embedding_dimension,
-                        epsilon=normalization_epsilon,
-                        condition_dim=conditioning_dimension,
-                        use_gating=use_gating,
-                    ),
-                    feedforward_block_primary=FeedforwardBlock(
-                        feedforward=build_feedforward(
-                            embedding_dimension=embedding_dimension,
-                            feedforward_dimension=feedforward_dimension,
-                            activation=activation,
-                            dropout=dropout,
-                            bias=bias,
-                        ),
-                        normalization=create_block_normalization(
-                            normalization_type=normalization_type,
-                            dimension=embedding_dimension,
-                            epsilon=normalization_epsilon,
-                            condition_dim=conditioning_dimension,
-                            use_gating=use_gating,
-                        ),
-                        dropout=dropout,
-                    ),
-                    feedforward_block_secondary=FeedforwardBlock(
-                        feedforward=build_feedforward(
-                            embedding_dimension=embedding_dimension,
-                            feedforward_dimension=feedforward_dimension,
-                            activation=activation,
-                            dropout=dropout,
-                            bias=bias,
-                        ),
-                        normalization=create_block_normalization(
-                            normalization_type=normalization_type,
-                            dimension=embedding_dimension,
-                            epsilon=normalization_epsilon,
-                            condition_dim=conditioning_dimension,
-                            use_gating=use_gating,
-                        ),
-                        dropout=dropout,
-                    ),
+                DualStreamLayer(
+                    embedding_dimension=embedding_dimension,
+                    number_of_heads=number_of_heads,
+                    conditioning_dimension=conditioning_dimension,
+                    feedforward_dimension=feedforward_dimension,
                     dropout=dropout,
+                    attention_dropout=attention_dropout,
+                    activation=activation,
+                    normalization_type=normalization_type,
+                    normalization_epsilon=normalization_epsilon,
+                    use_query_key_norm=use_query_key_norm,
+                    use_gating=use_gating,
+                    bias=bias,
                 )
                 for _ in range(number_of_layers)
             ]
@@ -181,29 +127,6 @@ class MMDiTDecoder(nn.Module):
         )
         self.apply(self._init_weights)
 
-    def _init_weights(self, module: nn.Module) -> None:
-        """Initialize weights with GPT-2 style initialization."""
-        if hasattr(module, "SQUARE_ROOT_WEIGHT"):
-            std = self.initializer_range / math.sqrt(3 * self.number_of_layers)
-        else:
-            std = self.initializer_range
-
-        if isinstance(module, nn.Linear):
-            if hasattr(module, "_is_modulation_layer") and module._is_modulation_layer:
-                return
-            module.weight.data.normal_(mean=0.0, std=std)
-            if module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.Embedding):
-            module.weight.data.normal_(mean=0.0, std=self.initializer_range)
-            if module.padding_idx is not None:
-                module.weight.data[module.padding_idx].zero_()
-        elif isinstance(module, (nn.LayerNorm, RMSNorm, AdaNorm)):
-            if hasattr(module, "bias") and module.bias is not None:
-                module.bias.data.zero_()
-            if hasattr(module, "weight") and module.weight is not None:
-                module.weight.data.fill_(1.0)
-
     def forward(
         self,
         hidden_states_observation: torch.Tensor,
@@ -212,7 +135,7 @@ class MMDiTDecoder(nn.Module):
         attention_mask_observation: torch.Tensor | None = None,
         attention_mask_action: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Forward pass through MMDiT decoder.
+        """Forward pass through decoder.
 
         Args:
             hidden_states_observation: Primary stream tokens (B, S, D).

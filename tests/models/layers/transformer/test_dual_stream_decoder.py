@@ -1,4 +1,4 @@
-"""Tests for versatil.models.layers.diffusion_transformer.mmdit_decoder module."""
+"""Tests for versatil.models.layers.transformer.dual_stream_decoder module."""
 
 import math
 from collections.abc import Callable
@@ -9,12 +9,14 @@ import torch
 from tests.models.layers.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import PositionalEncodingType
-from versatil.models.layers.diffusion_transformer.mmdit_decoder import MMDiTDecoder
 from versatil.models.layers.normalization.constants import NormalizationType
+from versatil.models.layers.transformer.dual_stream_decoder import (
+    DualStreamBidirectionalDecoder,
+)
 
 
 @pytest.fixture
-def mmdit_decoder_factory() -> Callable[..., MMDiTDecoder]:
+def dual_stream_decoder_factory() -> Callable[..., DualStreamBidirectionalDecoder]:
     def factory(
         number_of_layers: int = 2,
         embedding_dimension: int = 32,
@@ -33,8 +35,8 @@ def mmdit_decoder_factory() -> Callable[..., MMDiTDecoder]:
         maximum_sequence_length_action: int = 32,
         bias: bool = True,
         initializer_range: float = 0.02,
-    ) -> MMDiTDecoder:
-        return MMDiTDecoder(
+    ) -> DualStreamBidirectionalDecoder:
+        return DualStreamBidirectionalDecoder(
             number_of_layers=number_of_layers,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=conditioning_dimension,
@@ -57,18 +59,18 @@ def mmdit_decoder_factory() -> Callable[..., MMDiTDecoder]:
     return factory
 
 
-class TestMMDiTDecoderInitialization:
+class TestDualStreamBidirectionalDecoderInitialization:
     @pytest.mark.parametrize("number_of_layers", [1, 3])
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
     @pytest.mark.parametrize("number_of_heads", [4, 8])
     def test_stores_configuration(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
         number_of_layers: int,
         embedding_dimension: int,
         number_of_heads: int,
     ):
-        decoder = mmdit_decoder_factory(
+        decoder = dual_stream_decoder_factory(
             number_of_layers=number_of_layers,
             embedding_dimension=embedding_dimension,
             number_of_heads=number_of_heads,
@@ -76,21 +78,24 @@ class TestMMDiTDecoderInitialization:
         assert decoder.number_of_layers == number_of_layers
         assert decoder.embedding_dimension == embedding_dimension
         assert decoder.number_of_heads == number_of_heads
+        assert (
+            decoder.number_of_residual_blocks == 3
+        )  # Attn + FFN primary + FFN secondary
 
     def test_correct_number_of_layers_created(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
     ):
         number_of_layers = 3
-        decoder = mmdit_decoder_factory(number_of_layers=number_of_layers)
+        decoder = dual_stream_decoder_factory(number_of_layers=number_of_layers)
         assert len(decoder.layers) == number_of_layers
 
     def test_no_positional_encoding_excludes_position_parameters(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
     ):
-        decoder_without = mmdit_decoder_factory(positional_encoding_type=None)
-        decoder_with = mmdit_decoder_factory(
+        decoder_without = dual_stream_decoder_factory(positional_encoding_type=None)
+        decoder_with = dual_stream_decoder_factory(
             positional_encoding_type=PositionalEncodingType.SINUSOIDAL.value,
         )
         params_without = sum(p.numel() for p in decoder_without.parameters())
@@ -107,20 +112,20 @@ class TestMMDiTDecoderInitialization:
     )
     def test_additive_positional_encoding_changes_output(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
         positional_encoding_type: str,
     ):
         embedding_dimension = 32
-        decoder_no_pos = mmdit_decoder_factory(
+        decoder_no_pos = dual_stream_decoder_factory(
             number_of_layers=1,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=embedding_dimension,
             positional_encoding_type=None,
             use_gating=False,
         )
-        decoder_with_pos = mmdit_decoder_factory(
+        decoder_with_pos = dual_stream_decoder_factory(
             number_of_layers=1,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=embedding_dimension,
@@ -163,19 +168,19 @@ class TestMMDiTDecoderInitialization:
 
     def test_rope_positional_encoding_changes_output(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
-        decoder_no_pos = mmdit_decoder_factory(
+        decoder_no_pos = dual_stream_decoder_factory(
             number_of_layers=1,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=embedding_dimension,
             positional_encoding_type=None,
             use_gating=False,
         )
-        decoder_rope = mmdit_decoder_factory(
+        decoder_rope = dual_stream_decoder_factory(
             number_of_layers=1,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=embedding_dimension,
@@ -217,9 +222,9 @@ class TestMMDiTDecoderInitialization:
 
     def test_final_normalization_streams_have_independent_weights(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
     ):
-        decoder = mmdit_decoder_factory()
+        decoder = dual_stream_decoder_factory()
         # Mutate observation normalization and verify action normalization is unaffected
         original_action_weight = decoder.final_normalization_action.weight.data.clone()
         decoder.final_normalization_observation.weight.data.fill_(999.0)
@@ -229,45 +234,49 @@ class TestMMDiTDecoderInitialization:
 
     def test_weight_initialization_linear_layers(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
     ):
         initializer_range = 0.02
-        decoder = mmdit_decoder_factory(
+        decoder = dual_stream_decoder_factory(
             number_of_layers=1,
             initializer_range=initializer_range,
         )
         first_layer = decoder.layers[0]
-        weight = first_layer.joint_attention.query_projection_primary.weight
+        weight = (
+            first_layer.attention_block.joint_attention.query_projection_primary.weight
+        )
         measured_std = weight.std().item()
         assert abs(measured_std - initializer_range) < 0.01
 
     def test_weight_initialization_sqrt_layers_have_smaller_std(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
     ):
         number_of_layers = 2
         initializer_range = 0.02
-        decoder = mmdit_decoder_factory(
+        decoder = dual_stream_decoder_factory(
             number_of_layers=number_of_layers,
             initializer_range=initializer_range,
         )
         expected_sqrt_std = initializer_range / math.sqrt(3 * number_of_layers)
         first_layer = decoder.layers[0]
-        sqrt_weight = first_layer.joint_attention.output_projection_primary.weight
+        sqrt_weight = (
+            first_layer.attention_block.joint_attention.output_projection_primary.weight
+        )
         measured_std = sqrt_weight.std().item()
         assert measured_std < initializer_range
         assert abs(measured_std - expected_sqrt_std) < 0.01
 
     def test_bias_initialized_to_zero(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
     ):
-        decoder = mmdit_decoder_factory(
+        decoder = dual_stream_decoder_factory(
             number_of_layers=1,
             bias=True,
         )
         first_layer = decoder.layers[0]
-        bias = first_layer.joint_attention.query_projection_primary.bias
+        bias = first_layer.attention_block.joint_attention.query_projection_primary.bias
         assert torch.allclose(bias, torch.zeros_like(bias))
 
     @pytest.mark.parametrize(
@@ -279,16 +288,16 @@ class TestMMDiTDecoderInitialization:
     )
     def test_normalization_type_accepted(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
         normalization_type: str,
     ):
-        mmdit_decoder_factory(
+        dual_stream_decoder_factory(
             number_of_layers=1,
             normalization_type=normalization_type,
         )
 
 
-class TestMMDiTDecoderForward:
+class TestDualStreamBidirectionalDecoderForward:
     @pytest.mark.parametrize(
         "batch_size, observation_length, action_length, embedding_dimension",
         [
@@ -298,7 +307,7 @@ class TestMMDiTDecoderForward:
     )
     def test_output_shapes_match_inputs(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
         batch_size: int,
@@ -306,7 +315,7 @@ class TestMMDiTDecoderForward:
         action_length: int,
         embedding_dimension: int,
     ):
-        decoder = mmdit_decoder_factory(
+        decoder = dual_stream_decoder_factory(
             number_of_layers=2,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=embedding_dimension,
@@ -336,12 +345,12 @@ class TestMMDiTDecoderForward:
 
     def test_different_conditioning_produces_different_outputs(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
-        decoder = mmdit_decoder_factory(
+        decoder = dual_stream_decoder_factory(
             number_of_layers=1,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=embedding_dimension,
@@ -381,18 +390,18 @@ class TestMMDiTDecoderForward:
 
     def test_stacked_layers_produce_different_output_than_single_layer(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
-        decoder_one_layer = mmdit_decoder_factory(
+        decoder_one_layer = dual_stream_decoder_factory(
             number_of_layers=1,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=embedding_dimension,
             use_gating=False,
         )
-        decoder_two_layers = mmdit_decoder_factory(
+        decoder_two_layers = dual_stream_decoder_factory(
             number_of_layers=2,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=embedding_dimension,
@@ -426,12 +435,12 @@ class TestMMDiTDecoderForward:
 
     def test_dual_stream_bidirectional_information_flow(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
-        decoder = mmdit_decoder_factory(
+        decoder = dual_stream_decoder_factory(
             number_of_layers=1,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=embedding_dimension,
@@ -483,13 +492,13 @@ class TestMMDiTDecoderForward:
     )
     def test_positional_encoding_path_produces_valid_output(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
         positional_encoding_type: str | None,
     ):
         embedding_dimension = 32
-        decoder = mmdit_decoder_factory(
+        decoder = dual_stream_decoder_factory(
             number_of_layers=1,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=embedding_dimension,
@@ -519,12 +528,12 @@ class TestMMDiTDecoderForward:
 
     def test_final_normalization_is_applied(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
-        decoder = mmdit_decoder_factory(
+        decoder = dual_stream_decoder_factory(
             number_of_layers=1,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=embedding_dimension,
@@ -556,13 +565,13 @@ class TestMMDiTDecoderForward:
 
     def test_padding_masks_affect_output(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
         padding_mask_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
-        decoder = mmdit_decoder_factory(
+        decoder = dual_stream_decoder_factory(
             number_of_layers=1,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=embedding_dimension,
@@ -602,12 +611,12 @@ class TestMMDiTDecoderForward:
 
     def test_gradient_flows_through_all_components(
         self,
-        mmdit_decoder_factory: Callable[..., MMDiTDecoder],
+        dual_stream_decoder_factory: Callable[..., DualStreamBidirectionalDecoder],
         sequence_tensor_factory: Callable[..., torch.Tensor],
         condition_factory: Callable[..., torch.Tensor],
     ):
         embedding_dimension = 32
-        decoder = mmdit_decoder_factory(
+        decoder = dual_stream_decoder_factory(
             number_of_layers=2,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=embedding_dimension,

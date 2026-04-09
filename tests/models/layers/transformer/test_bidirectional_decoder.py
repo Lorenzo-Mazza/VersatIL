@@ -76,6 +76,7 @@ class TestBidirectionalDecoderInitialization:
         assert decoder.number_of_layers == number_of_layers
         assert decoder.embedding_dimension == embedding_dimension
         assert decoder.number_of_heads == number_of_heads
+        assert decoder.number_of_residual_blocks == 3  # Self-Attn + Cross-Attn + FFN
 
     def test_creates_correct_number_of_layers(
         self, bidirectional_decoder_factory: Callable[..., BidirectionalDecoder]

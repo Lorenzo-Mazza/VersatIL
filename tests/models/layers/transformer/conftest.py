@@ -11,6 +11,9 @@ from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.positional_encoding.rotary import (
     RotaryPositionalEncoding1D,
 )
+from versatil.models.layers.positional_encoding.sinusoidal import (
+    SinusoidalPositionalEncoding1D,
+)
 from versatil.models.layers.transformer.attention.cached_attention import (
     CachedAttention,
 )
@@ -81,6 +84,20 @@ def mock_rope_factory() -> Callable[..., MagicMock]:
             torch.zeros(seq_len, head_dimension),
         )
         mock.apply_rotation.side_effect = lambda tensor, sine, cosine: tensor * 0.5
+        return mock
+
+    return factory
+
+
+@pytest.fixture
+def mock_sinusoidal_factory() -> Callable[..., MagicMock]:
+    """Factory for mock SinusoidalPositionalEncoding1D that adds ones to input."""
+
+    def factory(
+        embedding_dimension: int = EMBEDDING_DIMENSION,
+    ) -> MagicMock:
+        mock = MagicMock(spec=SinusoidalPositionalEncoding1D)
+        mock.side_effect = lambda x: torch.ones_like(x)
         return mock
 
     return factory

@@ -2,6 +2,12 @@
 
 DiT that conditions via cross-attention to observation tokens.
 
+Shape notation:
+    B: batch size
+    S: observation sequence length (from external embeddings)
+    T: action sequence length
+    D: embedding dimension
+
 
 References:
     https://github.com/PixArt-alpha/PixArt-alpha/blob/master/diffusion/model/nets/PixArt.py#L25
@@ -14,9 +20,6 @@ import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.diffusion_transformer.cross_attention_dit_decoder import (
-    CrossConditioningDecoder,
-)
 from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
     FinalPredictionLayer,
 )
@@ -29,17 +32,13 @@ from versatil.models.layers.positional_encoding.base import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
 )
+from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
+    ConditionalBidirectionalDecoder,
+)
 
 
 class CrossAttentionDiT(nn.Module):
-    """DiT that conditions via cross-attention (PixArt style).
-
-    Shape notation:
-        B: batch size
-        S: observation sequence length (from external embeddings)
-        T: action sequence length
-        D: embedding dimension
-    """
+    """DiT that conditions via cross-attention (PixArt style)."""
 
     def __init__(
         self,
@@ -104,10 +103,10 @@ class CrossAttentionDiT(nn.Module):
             mlp_hidden_dimensions=[embedding_dimension, embedding_dimension],
         )
 
-        self.decoder = CrossConditioningDecoder(
+        self.decoder = ConditionalBidirectionalDecoder(
             number_of_layers=number_of_layers,
             embedding_dimension=embedding_dimension,
-            timestep_dimension=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
             number_of_heads=number_of_heads,
             number_of_key_value_heads=number_of_key_value_heads,
             feedforward_dimension=feedforward_dimension,
@@ -122,6 +121,7 @@ class CrossAttentionDiT(nn.Module):
             normalization_epsilon=normalization_epsilon,
             use_gating=use_gating,
             initializer_range=initializer_range,
+            condition_final_normalization=False,
         )
 
         self.output_dimension = output_dimension or embedding_dimension
@@ -152,9 +152,9 @@ class CrossAttentionDiT(nn.Module):
         timestep_embedding = self.timestep_embedding_network(timesteps)
         decoder_output = self.decoder(
             hidden_states=decoder_hidden_states,
-            conditioning_embedding=timestep_embedding,
-            encoder_hidden_states=encoder_hidden_states,
-            decoder_padding_mask=decoder_padding_mask,
-            encoder_padding_mask=encoder_padding_mask,
+            condition=timestep_embedding,
+            encoded_features=encoder_hidden_states,
+            query_padding_mask=decoder_padding_mask,
+            memory_padding_mask=encoder_padding_mask,
         )
         return self.prediction_layer(decoder_output, timestep_embedding)

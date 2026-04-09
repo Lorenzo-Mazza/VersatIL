@@ -1,4 +1,4 @@
-"""Dual-stream attention block: per-stream norm + joint attention + per-stream FFN."""
+"""Dual-stream attention block: per-stream norm + joint attention."""
 
 import torch
 import torch.nn as nn
@@ -9,15 +9,14 @@ from versatil.models.layers.transformer.attention.joint_attention import JointAt
 from versatil.models.layers.transformer.blocks.dual_stream_base import (
     DualStreamBlock,
 )
-from versatil.models.layers.transformer.blocks.feedforward import FeedforwardBlock
 
 
 class DualStreamAttentionBlock(DualStreamBlock):
-    """Dual-stream joint attention + per-stream feedforward.
+    """Dual-stream joint attention block.
 
-    Both streams have independent normalization, share attention through
-    joint K/V concatenation, and have independent feedforward networks.
-    Supports optional conditioning via adaptive normalization.
+    Both streams have independent normalization and share attention through
+    joint K/V concatenation. Supports optional conditioning via adaptive
+    normalization.
     """
 
     def __init__(
@@ -25,28 +24,22 @@ class DualStreamAttentionBlock(DualStreamBlock):
         joint_attention: JointAttention,
         attention_normalization_primary: BlockNormalization,
         attention_normalization_secondary: BlockNormalization,
-        feedforward_block_primary: FeedforwardBlock,
-        feedforward_block_secondary: FeedforwardBlock,
         dropout: float = 0.1,
     ):
         """Initialize DualStreamAttentionBlock.
 
         Args:
             joint_attention: JointAttention module for dual-stream attention.
-            attention_normalization_primary: Normalization for primary stream before attention.
-            attention_normalization_secondary: Normalization for secondary stream before attention.
-            feedforward_block_primary: Feedforward block for primary stream.
-            feedforward_block_secondary: Feedforward block for secondary stream.
+            attention_normalization_primary: Normalization for primary stream.
+            attention_normalization_secondary: Normalization for secondary stream.
             dropout: Dropout rate for attention residual connections.
         """
         super().__init__(
             attention_normalization_secondary=attention_normalization_secondary,
-            feedforward_block_secondary=feedforward_block_secondary,
             dropout=dropout,
         )
         self.joint_attention = joint_attention
         self.attention_normalization_primary = attention_normalization_primary
-        self.feedforward_block_primary = feedforward_block_primary
         self.attention_dropout_primary = nn.Dropout(dropout)
 
     def forward(
@@ -100,11 +93,5 @@ class DualStreamAttentionBlock(DualStreamBlock):
             residual=residual_secondary,
             attention_output=attention_output_secondary,
             gate=gate_secondary,
-        )
-        hidden_states_primary = self.feedforward_block_primary(
-            hidden_states=hidden_states_primary, conditioning=conditioning
-        )
-        hidden_states_secondary = self.feedforward_block_secondary(
-            hidden_states=hidden_states_secondary, conditioning=conditioning
         )
         return hidden_states_primary, hidden_states_secondary

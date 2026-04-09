@@ -13,8 +13,8 @@ from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.lact import LACT
 from versatil.models.feature_meta import FeatureType
-from versatil.models.layers.diffusion_transformer.cross_attention_dit_decoder import (
-    CrossConditioningDecoder,
+from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
+    ConditionalBidirectionalDecoder,
 )
 
 EMBEDDING_DIMENSION = 32
@@ -151,7 +151,7 @@ class TestLACTInitialization:
         lact_decoder_factory: Callable[..., LACT],
     ):
         decoder = lact_decoder_factory()
-        assert isinstance(decoder.action_decoder, CrossConditioningDecoder)
+        assert isinstance(decoder.action_decoder, ConditionalBidirectionalDecoder)
 
     def test_cross_conditioning_decoder_uses_latent_as_condition_dimension(
         self,
@@ -287,7 +287,7 @@ class TestLACTForward:
         lact_decoder_factory: Callable[..., LACT],
         spatial_features_with_latent_factory: Callable[..., dict[str, torch.Tensor]],
     ):
-        # LACT uses CrossConditioningDecoder with AdaLN-Zero modulation.
+        # LACT uses ConditionalBidirectionalDecoder with AdaLN-Zero modulation.
         # At initialization, scale=0 and shift=0 so the latent has no effect
         # on the output — this ensures stable early training.
         decoder = lact_decoder_factory()

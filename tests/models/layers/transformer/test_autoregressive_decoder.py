@@ -76,6 +76,8 @@ class TestGPTDecoderInitialization:
         assert decoder.number_of_layers == number_of_layers
         assert decoder.embedding_dimension == embedding_dimension
         assert decoder.use_cross_attention == use_cross_attention
+        expected_residual_blocks = 3 if use_cross_attention else 2
+        assert decoder.number_of_residual_blocks == expected_residual_blocks
 
     def test_creates_correct_number_of_layers(
         self, gpt_decoder_factory: Callable[..., GPTDecoder]

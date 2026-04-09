@@ -178,9 +178,7 @@ class TransformerDecoderLayer(nn.Module):
                 without cached K/V.
         """
         if use_cache and not self.autoregressive:
-            raise ValueError(
-                "use_self_attention_cache=True only valid for autoregressive models"
-            )
+            raise ValueError("use_cache=True only valid for autoregressive models")
         hidden_states, new_cache = self.self_attention_block(
             hidden_states=hidden_states,
             conditioning=conditioning,

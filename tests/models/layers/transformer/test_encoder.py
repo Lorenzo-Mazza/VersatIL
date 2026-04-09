@@ -74,6 +74,7 @@ class TestTransformerEncoderInitialization:
         assert encoder.number_of_layers == number_of_layers
         assert encoder.embedding_dimension == embedding_dimension
         assert encoder.number_of_heads == number_of_heads
+        assert encoder.number_of_residual_blocks == 2  # Self-Attn + FFN
 
     def test_creates_correct_number_of_layers(
         self, encoder_factory: Callable[..., TransformerEncoder]
@@ -259,7 +260,7 @@ class TestTransformerEncoderExpandPaddingMask:
             padded_positions=[[2, 3], [3]],
         )
         expanded = TransformerEncoder._expand_padding_mask(
-            padding_mask=mask, sequence_length=4
+            padding_mask=mask, query_length=4
         )
         assert expanded.shape == (2, 1, 4, 4)
 
@@ -273,7 +274,7 @@ class TestTransformerEncoderExpandPaddingMask:
             padded_positions=[[3]],
         )
         expanded = TransformerEncoder._expand_padding_mask(
-            padding_mask=mask, sequence_length=4
+            padding_mask=mask, query_length=4
         )
         # Position 3 should be masked for all query positions
         assert expanded[0, 0, 0, 3].item() is True
