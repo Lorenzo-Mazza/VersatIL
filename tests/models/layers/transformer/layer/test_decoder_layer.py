@@ -11,7 +11,10 @@ from tests.models.layers.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.transformer.cache.conditioning import ConditioningLayerCache
+from versatil.models.layers.transformer.cache.conditioning import (
+    CacheableLayer,
+    ConditioningLayerCache,
+)
 from versatil.models.layers.transformer.cache.generation import GenerationLayerCache
 from versatil.models.layers.transformer.layer.decoder_layer import (
     TransformerDecoderLayer,
@@ -334,6 +337,80 @@ class TestTransformerDecoderLayerForward:
         output, _ = layer(hidden_states=hidden_states)
         assert output.shape == hidden_states.shape
         assert torch.all(torch.isfinite(output))
+
+
+class TestTransformerDecoderLayerPrecomputeConditioningKV:
+    def test_satisfies_cacheable_layer_protocol(
+        self,
+        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
+    ):
+        layer = decoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            use_cross_attention=True,
+        )
+        assert isinstance(layer, CacheableLayer)
+
+    def test_returns_layer_cache_when_cross_attention_enabled(
+        self,
+        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        layer = decoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            use_cross_attention=True,
+        )
+        memory = sequence_tensor_factory(
+            batch_size=2, sequence_length=6, embedding_dimension=32
+        )
+        cache = layer.precompute_conditioning_kv(encoded_features=memory)
+        assert cache is not None
+        # (B=2, heads=4, S=6, head_dim=8)
+        assert cache.keys.shape == (2, 4, 6, 8)
+        assert cache.values.shape == (2, 4, 6, 8)
+
+    def test_returns_none_when_no_cross_attention(
+        self,
+        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        layer = decoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            use_cross_attention=False,
+        )
+        memory = sequence_tensor_factory(
+            batch_size=2, sequence_length=6, embedding_dimension=32
+        )
+        cache = layer.precompute_conditioning_kv(encoded_features=memory)
+        assert cache is None
+
+    def test_precomputed_cache_matches_fresh_forward(
+        self,
+        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        layer = decoder_layer_factory(
+            embedding_dimension=32,
+            number_of_heads=4,
+            use_cross_attention=True,
+            dropout=0.0,
+        )
+        layer.eval()
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
+        )
+        memory = sequence_tensor_factory(
+            batch_size=2, sequence_length=6, embedding_dimension=32
+        )
+        output_fresh, _ = layer(hidden_states=hidden_states, encoded_features=memory)
+        conditioning_cache = layer.precompute_conditioning_kv(encoded_features=memory)
+        output_cached, _ = layer(
+            hidden_states=hidden_states,
+            conditioning_cache=conditioning_cache,
+        )
+        assert torch.allclose(output_fresh, output_cached, atol=1e-5)
 
 
 class TestTransformerDecoderLayerConditioning:

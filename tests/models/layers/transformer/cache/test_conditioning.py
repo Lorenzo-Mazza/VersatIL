@@ -87,15 +87,21 @@ class TestConditioningCache:
         cache = ConditioningCache(layers=layers)
         assert len(cache.layers) == 3
 
-    def test_layer_keys_accessible(
+    def test_getitem_returns_layer_cache(
         self,
         conditioning_layer_cache_factory: Callable[..., ConditioningLayerCache],
     ):
-        cache = ConditioningCache(
-            layers=[
-                conditioning_layer_cache_factory(
-                    conditioning_length=5, number_of_heads=4, head_dimension=8
-                )
-            ]
-        )
-        assert cache.layers[0].keys.shape == (2, 4, 5, 8)
+        layer_0 = conditioning_layer_cache_factory(conditioning_length=5)
+        layer_1 = conditioning_layer_cache_factory(conditioning_length=7)
+        cache = ConditioningCache(layers=[layer_0, layer_1])
+        assert cache[0].keys.shape[2] == 5
+        assert cache[1].keys.shape[2] == 7
+
+    def test_getitem_returns_none_for_none_layer(
+        self,
+        conditioning_layer_cache_factory: Callable[..., ConditioningLayerCache],
+    ):
+        layer_0 = conditioning_layer_cache_factory(conditioning_length=5)
+        cache = ConditioningCache(layers=[layer_0, None])
+        assert cache[0] is not None
+        assert cache[1] is None

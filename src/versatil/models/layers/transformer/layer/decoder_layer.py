@@ -147,6 +147,22 @@ class TransformerDecoderLayer(nn.Module):
             dropout=dropout,
         )
 
+    def precompute_conditioning_kv(
+        self, encoded_features: torch.Tensor
+    ) -> ConditioningLayerCache | None:
+        """Precompute conditioning K/V for this layer's cross-attention block.
+
+        Args:
+            encoded_features: Encoder features (B, memory_length, D).
+
+        Returns:
+            ConditioningLayerCache if this layer has cross-attention, None otherwise.
+        """
+        if self.cross_attention_block is None:
+            return None
+        else:
+            return self.cross_attention_block.precompute_kv(encoded_features)
+
     def forward(
         self,
         hidden_states: torch.Tensor,

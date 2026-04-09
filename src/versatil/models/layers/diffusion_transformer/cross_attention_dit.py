@@ -32,6 +32,7 @@ from versatil.models.layers.positional_encoding.base import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
 )
+from versatil.models.layers.transformer.cache.conditioning import ConditioningCache
 from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
     ConditionalBidirectionalDecoder,
 )
@@ -129,11 +130,21 @@ class CrossAttentionDiT(nn.Module):
             self.embedding_dimension, self.output_dimension
         )
 
+    def precompute_conditioning_kv(
+        self,
+        encoder_hidden_states: torch.Tensor,
+    ) -> ConditioningCache:
+        """Precompute decoder conditioning K/V for forward pass reuse."""
+        return self.decoder.precompute_conditioning_kv(
+            encoded_features=encoder_hidden_states,
+        )
+
     def forward(
         self,
         decoder_hidden_states: torch.Tensor,
         timesteps: torch.Tensor,
-        encoder_hidden_states: torch.Tensor,
+        encoder_hidden_states: torch.Tensor | None = None,
+        conditioning_cache: ConditioningCache | None = None,
         encoder_padding_mask: torch.Tensor | None = None,
         decoder_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
@@ -143,6 +154,8 @@ class CrossAttentionDiT(nn.Module):
             decoder_hidden_states: Noisy action tokens (B, T, D).
             timesteps: Diffusion timesteps (B,).
             encoder_hidden_states: External observation embeddings (B, S, D).
+            conditioning_cache: Precomputed K/V for reuse across denoising steps.
+                When provided, encoder_hidden_states is not needed.
             encoder_padding_mask: Padding mask for observations (B, S).
             decoder_padding_mask: Padding mask for actions (B, T).
 
@@ -154,6 +167,7 @@ class CrossAttentionDiT(nn.Module):
             hidden_states=decoder_hidden_states,
             condition=timestep_embedding,
             encoded_features=encoder_hidden_states,
+            conditioning_cache=conditioning_cache,
             query_padding_mask=decoder_padding_mask,
             memory_padding_mask=encoder_padding_mask,
         )

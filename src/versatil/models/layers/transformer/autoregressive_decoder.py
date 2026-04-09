@@ -18,7 +18,7 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
 )
 from versatil.models.layers.transformer.cache.conditioning import (
     ConditioningCache,
-    ConditioningLayerCache,
+    precompute_conditioning,
 )
 from versatil.models.layers.transformer.cache.generation import (
     GenerationCache,
@@ -161,43 +161,11 @@ class GPTDecoder(TransformerMixin, nn.Module):
         self,
         encoded_features: torch.Tensor,
     ) -> ConditioningCache:
-        """Precompute conditioning K/V for all layers.
-
-        Projects encoded features through each layer's cross-attention K/V projections
-        once, so they can be reused across all generation steps.
-
-        Args:
-            encoded_features: Encoded features (B, num_features, D).
-
-        Returns:
-            ConditioningCache with one ConditioningLayerCache per layer.
-        """
-        batch_size = encoded_features.shape[0]
-        num_features = encoded_features.shape[1]
-        layer_caches = []
-
-        for layer in self.layers:
-            cross_attention = layer.cross_attention_block.attention
-            projected_key = cross_attention.key_projection(encoded_features)
-            projected_value = cross_attention.value_projection(encoded_features)
-            # (B, S, kv_heads * head_dim) → (B, kv_heads, S, head_dim)
-            projected_key = projected_key.view(
-                batch_size,
-                num_features,
-                self.number_of_key_value_heads,
-                self.head_dimension,
-            ).transpose(1, 2)
-            projected_value = projected_value.view(
-                batch_size,
-                num_features,
-                self.number_of_key_value_heads,
-                self.head_dimension,
-            ).transpose(1, 2)
-            layer_caches.append(
-                ConditioningLayerCache(keys=projected_key, values=projected_value)
-            )
-
-        return ConditioningCache(layers=layer_caches)
+        """Precompute conditioning K/V for all layers for forward pass reuse."""
+        return precompute_conditioning(
+            layers=self.layers,  # type: ignore[arg-type]
+            encoded_features=encoded_features,
+        )
 
     def forward(
         self,
@@ -266,18 +234,15 @@ class GPTDecoder(TransformerMixin, nn.Module):
                 if generation_cache is not None
                 else None
             )
-            layer_conditioning_cache = (
-                conditioning_cache.layers[layer_index]
-                if conditioning_cache is not None
-                else None
-            )
             hidden_states, new_layer_cache = layer(
                 hidden_states=hidden_states,
                 encoded_features=encoded_features,
                 self_attention_mask=total_mask,
                 cross_attention_mask=cross_attention_mask,
                 generation_cache=layer_generation_cache,
-                conditioning_cache=layer_conditioning_cache,
+                conditioning_cache=conditioning_cache[layer_index]
+                if conditioning_cache
+                else None,
                 positional_encoding=rope_pe,
             )
             if use_cache:

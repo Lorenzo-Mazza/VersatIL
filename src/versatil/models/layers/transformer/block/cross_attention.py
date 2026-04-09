@@ -22,6 +22,20 @@ class CrossAttentionBlock(TransformerBlock):
         super().__init__(normalization=normalization, dropout=dropout)
         self.attention = attention
 
+    def precompute_kv(self, encoded_features: torch.Tensor) -> ConditioningLayerCache:
+        """Precompute K/V projections for static conditioning.
+
+        Args:
+            encoded_features: Encoder features (B, memory_length, D).
+
+        Returns:
+            ConditioningLayerCache with projected keys and values.
+        """
+        return ConditioningLayerCache(
+            keys=self.attention.compute_key(encoded_features),
+            values=self.attention.compute_value(encoded_features),
+        )
+
     def forward(
         self,
         hidden_states: torch.Tensor,

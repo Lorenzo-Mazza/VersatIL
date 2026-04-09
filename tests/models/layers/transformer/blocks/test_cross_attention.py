@@ -192,6 +192,58 @@ class TestCrossAttentionBlockForward:
         )
         assert output.shape == (2, 4, EMBEDDING_DIMENSION)
 
+    def test_precompute_kv_shapes(
+        self,
+        cached_attention: CachedAttention,
+        unconditioned_norm,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        block = CrossAttentionBlock(
+            attention=cached_attention,
+            normalization=unconditioned_norm,
+        )
+        encoder_hidden_states = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=6,
+            embedding_dimension=EMBEDDING_DIMENSION,
+        )
+        cache = block.precompute_kv(encoded_features=encoder_hidden_states)
+        # (B=2, heads=4, S=6, head_dim=8)
+        assert cache.keys.shape == (2, 4, 6, 8)
+        assert cache.values.shape == (2, 4, 6, 8)
+
+    def test_precompute_kv_matches_fresh_forward(
+        self,
+        cached_attention: CachedAttention,
+        unconditioned_norm,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        block = CrossAttentionBlock(
+            attention=cached_attention,
+            normalization=unconditioned_norm,
+        )
+        block.eval()
+        hidden_states = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=4,
+            embedding_dimension=EMBEDDING_DIMENSION,
+        )
+        encoder_hidden_states = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=6,
+            embedding_dimension=EMBEDDING_DIMENSION,
+        )
+        output_fresh = block(
+            hidden_states=hidden_states,
+            encoder_hidden_states=encoder_hidden_states,
+        )
+        cache = block.precompute_kv(encoded_features=encoder_hidden_states)
+        output_cached = block(
+            hidden_states=hidden_states,
+            conditioning_cache=cache,
+        )
+        assert torch.allclose(output_fresh, output_cached, atol=1e-5)
+
     def test_attention_mask_affects_output(
         self,
         cached_attention: CachedAttention,

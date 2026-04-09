@@ -7,6 +7,10 @@ from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
+from versatil.models.layers.transformer.cache.conditioning import (
+    ConditioningCache,
+    precompute_conditioning,
+)
 from versatil.models.layers.transformer.layer.decoder_layer import (
     TransformerDecoderLayer,
 )
@@ -138,11 +142,22 @@ class ConditionalBidirectionalDecoder(TransformerMixin, nn.Module):
             )
         self.apply(self._init_weights)
 
+    def precompute_conditioning_kv(
+        self,
+        encoded_features: torch.Tensor,
+    ) -> ConditioningCache:
+        """Precompute conditioning K/V for all layers for forward pass reuse."""
+        return precompute_conditioning(
+            layers=self.layers,  # type: ignore[arg-type]
+            encoded_features=encoded_features,
+        )
+
     def forward(
         self,
         hidden_states: torch.Tensor,
         condition: torch.Tensor,
         encoded_features: torch.Tensor | None = None,
+        conditioning_cache: ConditioningCache | None = None,
         query_padding_mask: torch.Tensor | None = None,
         memory_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
@@ -152,7 +167,8 @@ class ConditionalBidirectionalDecoder(TransformerMixin, nn.Module):
             hidden_states: Query embeddings (B, query_length, D).
             condition: Conditioning vector (B, conditioning_dimension).
             encoded_features: Encoder features to cross-attend to (B, memory_length, D).
-                Required when use_cross_attention=True.
+            conditioning_cache: Precomputed K/V for static conditioning. When provided,
+                encoded_features is not needed for cross-attention.
             query_padding_mask: Optional padding mask for queries (B, query_length).
             memory_padding_mask: Optional padding mask for memory (B, memory_length).
 
@@ -160,10 +176,16 @@ class ConditionalBidirectionalDecoder(TransformerMixin, nn.Module):
             Output hidden states (B, query_length, D).
 
         Raises:
-            ValueError: If use_cross_attention=True but encoded_features is None.
+            ValueError: If use_cross_attention=True but neither encoded_features
+                nor conditioning_cache is provided.
         """
-        if encoded_features is None and self.use_cross_attention:
-            raise ValueError("encoded_features required when use_cross_attention=True.")
+        if self.use_cross_attention and (
+            encoded_features is None and conditioning_cache is None
+        ):
+            raise ValueError(
+                "Either encoded_features or conditioning_cache must be provided "
+                "when use_cross_attention=True."
+            )
 
         query_length = hidden_states.shape[1]
         self_attention_mask = None
@@ -177,12 +199,15 @@ class ConditionalBidirectionalDecoder(TransformerMixin, nn.Module):
                 memory_padding_mask, query_length
             )
         hidden_states, rope_pe = self._apply_positional_encoding(hidden_states)
-        for layer in self.layers:
+        for layer_index, layer in enumerate(self.layers):
             hidden_states, _ = layer(
                 hidden_states=hidden_states,
                 encoded_features=encoded_features,
                 self_attention_mask=self_attention_mask,
                 cross_attention_mask=cross_attention_mask,
+                conditioning_cache=conditioning_cache[layer_index]
+                if conditioning_cache
+                else None,
                 positional_encoding=rope_pe,
                 conditioning=condition,
             )

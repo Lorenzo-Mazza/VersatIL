@@ -18,6 +18,7 @@ from versatil.models.decoding.constants import (
 from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.denoising.diffusion_process import (
     DiffusionSchedulerConfig,
     SchedulerType,
@@ -102,6 +103,8 @@ class DiTPrior(PriorLatentEncoder):
         variance_type: str | None = None,
         dropout: float = 0.1,
         normalization_type: str = NormalizationType.LAYER_NORM.value,
+        attention_type: str = AttentionType.MULTI_HEAD.value,
+        number_of_key_value_heads: int | None = None,
         activation: str = ActivationFunction.SILU.value,
         use_gating: bool = True,
         exclude_keys: list[str] | None = None,
@@ -186,6 +189,8 @@ class DiTPrior(PriorLatentEncoder):
             dropout=dropout,
             activation=activation,
             normalization_type=normalization_type,
+            attention_type=attention_type,
+            number_of_key_value_heads=number_of_key_value_heads,
             positional_encoding_type=None,  # Handled externally by input_builder
             use_cross_attention=False,
             use_gating=use_gating,
