@@ -5,7 +5,7 @@ All notable changes to VersatIL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-04-09
 
 ### Fixed
 - **Critical: Flow Matching and Diffusion loss targets** — `Policy.compute_loss` was comparing network predictions against raw ground-truth actions instead of the algorithm-specific targets (velocity field for flow matching, noise for diffusion epsilon mode). This caused flow matching models to learn the wrong objective entirely, producing noisy and unstable rollouts. Introduced `DecodingAlgorithm.get_targets()` so each algorithm provides the correct regression target to the loss module. Behavioral Cloning (default) returns ground-truth actions; Flow Matching returns the target velocity; Diffusion returns noise/sample/velocity depending on `prediction_type`. `VariationalAlgorithm` delegates to its wrapped base algorithm.

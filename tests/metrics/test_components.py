@@ -213,6 +213,14 @@ class TestRegressionLossForward:
         # The key behavioral check: padded outputs don't affect the loss
         assert output_with_pad.total_loss.item() != output_no_pad.total_loss.item()
 
+    def test_handles_long_dtype_targets(self):
+        predictions = {"gripper": torch.tensor([[[0.8]]])}
+        targets = {"gripper": torch.tensor([[[1]]], dtype=torch.long)}
+        loss = RegressionLoss(action_keys=["gripper"], mse_weight=1.0)
+        output = loss(predictions, targets)
+        expected = F.mse_loss(predictions["gripper"], targets["gripper"].float())
+        assert output.total_loss.item() == pytest.approx(expected.item())
+
 
 @pytest.mark.unit
 class TestGripperLossInit:
