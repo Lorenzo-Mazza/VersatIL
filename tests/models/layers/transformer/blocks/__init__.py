@@ -1,1 +1,1 @@
-"""Tests for versatil.models.layers.transformer.blocks package."""
+"""Tests for versatil.models.layers.transformer.block package."""

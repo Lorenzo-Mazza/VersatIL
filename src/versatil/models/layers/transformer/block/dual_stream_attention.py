@@ -6,7 +6,7 @@ import torch.nn as nn
 from versatil.models.layers.normalization.typedefs import BlockNormalization
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
 from versatil.models.layers.transformer.attention.joint_attention import JointAttention
-from versatil.models.layers.transformer.blocks.dual_stream_base import (
+from versatil.models.layers.transformer.block.dual_stream_base import (
     DualStreamBlock,
 )
 

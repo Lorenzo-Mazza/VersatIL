@@ -13,24 +13,27 @@ from versatil.models.layers.positional_encoding.rotary import (
 from versatil.models.layers.transformer.attention.cached_attention import (
     CachedAttention,
 )
-from versatil.models.layers.transformer.blocks.cross_attention import (
+from versatil.models.layers.transformer.block.cross_attention import (
     CrossAttentionBlock,
 )
-from versatil.models.layers.transformer.blocks.feedforward import (
+from versatil.models.layers.transformer.block.feedforward import (
     FeedforwardBlock,
     build_feedforward,
 )
-from versatil.models.layers.transformer.blocks.self_attention import (
+from versatil.models.layers.transformer.block.self_attention import (
     SelfAttentionBlock,
 )
-from versatil.models.layers.transformer.kv_cache import LayerKVCache
+from versatil.models.layers.transformer.cache.conditioning import ConditioningLayerCache
+from versatil.models.layers.transformer.cache.generation import GenerationLayerCache
 
 
 class TransformerDecoderLayer(nn.Module):
     """Self-attention + optional cross-attention + feedforward blocks.
 
-    Supports KV caching for autoregressive generation and optional
-    conditioning via adaptive normalization types.
+    Note:
+        Supports generation caching for autoregressive decoding and conditioning
+        caching for static context reuse.
+        Optionally supports conditioning via adaptive normalization and cross-attention.
     """
 
     def __init__(
@@ -150,57 +153,51 @@ class TransformerDecoderLayer(nn.Module):
         encoded_features: torch.Tensor | None = None,
         self_attention_mask: torch.Tensor | None = None,
         cross_attention_mask: torch.Tensor | None = None,
-        layer_cache: LayerKVCache | None = None,
-        use_cache: bool = False,
+        generation_cache: GenerationLayerCache | None = None,
+        conditioning_cache: ConditioningLayerCache | None = None,
         positional_encoding: RotaryPositionalEncoding | None = None,
         conditioning: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, LayerKVCache | None]:
+    ) -> tuple[torch.Tensor, GenerationLayerCache | None]:
         """Forward pass through decoder layer.
 
         Args:
             hidden_states: Input embeddings (B, T, D).
             encoded_features: Encoder output for cross-attention (B, S, D).
-                Required when use_cross_attention=True and no cached cross K/V.
+                Required when use_cross_attention=True and no conditioning_cache.
             self_attention_mask: Causal mask (B, 1, T, T), True = masked.
             cross_attention_mask: Cross-attention mask (B, 1, T, S), True = masked.
-            layer_cache: Cached K/V from previous autoregressive steps.
-            use_cache: Whether to return updated cache. Only valid if autoregressive=True.
+            generation_cache: Cached K/V from the main sequence. When provided,
+                an updated cache is returned. Only valid if autoregressive=True.
+            conditioning_cache: Precomputed K/V for static conditioning.
             positional_encoding: Optional rotary positional encoding module.
             conditioning: Conditioning vector for adaptive normalization (B, C).
-                Ignored when constructed with plain normalization.
 
         Returns:
-            Tuple of (output hidden states (B, T, D), updated cache or None).
+            Tuple of (output hidden states (B, T, D), updated GenerationLayerCache or None).
 
         Raises:
-            ValueError: If use_cache=True for non-autoregressive model, or if
-                encoded_features is missing when cross-attention is enabled
-                without cached K/V.
+            ValueError: if cross-attention is enabled without encoded_features or conditioning_cache.
         """
-        if use_cache and not self.autoregressive:
-            raise ValueError("use_cache=True only valid for autoregressive models")
+        if self.use_cross_attention and (
+            encoded_features is None and conditioning_cache is None
+        ):
+            raise ValueError(
+                "Either encoded_features or conditioning_cache must be provided when using cross-attention"
+            )
         hidden_states, new_cache = self.self_attention_block(
             hidden_states=hidden_states,
             conditioning=conditioning,
             attention_mask=self_attention_mask,
             positional_encoding=positional_encoding,
-            layer_cache=layer_cache,
-            use_cache=use_cache,
+            generation_cache=generation_cache,
         )
         if self.use_cross_attention:
-            if encoded_features is None and (
-                layer_cache is None or layer_cache.cross_attention_keys is None
-            ):
-                raise ValueError(
-                    "encoded_features required when use_cross_attention=True "
-                    "and no cached cross KV"
-                )
-            hidden_states, _ = self.cross_attention_block(
+            hidden_states = self.cross_attention_block(
                 hidden_states=hidden_states,
                 encoder_hidden_states=encoded_features,
                 conditioning=conditioning,
                 attention_mask=cross_attention_mask,
-                layer_cache=layer_cache,
+                conditioning_cache=conditioning_cache,
             )
         hidden_states = self.feedforward_block(
             hidden_states=hidden_states,

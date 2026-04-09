@@ -8,10 +8,10 @@ from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_block_normalization
 from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
 from versatil.models.layers.transformer.attention.joint_attention import JointAttention
-from versatil.models.layers.transformer.blocks.dual_stream_attention import (
+from versatil.models.layers.transformer.block.dual_stream_attention import (
     DualStreamAttentionBlock,
 )
-from versatil.models.layers.transformer.blocks.feedforward import (
+from versatil.models.layers.transformer.block.feedforward import (
     FeedforwardBlock,
     build_feedforward,
 )

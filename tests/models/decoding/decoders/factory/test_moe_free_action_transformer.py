@@ -1,6 +1,7 @@
 """Tests for versatil.models.decoding.decoders.factory.moe_free_action_transformer module."""
 
 import re
+import unittest.mock
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -471,6 +472,57 @@ class TestMoEFreeActionTransformerForward:
             outputs_a[routing_key],
             outputs_b[routing_key],
         )
+
+    def test_training_does_not_use_generation_cache(
+        self,
+        moe_free_transformer_factory: Callable[..., MoEFreeActionTransformer],
+        mock_tokenizer_factory: Callable[..., MagicMock],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+        tokenized_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = moe_free_transformer_factory()
+        decoder.set_tokenizer(tokenizer=mock_tokenizer_factory(vocab_size=VOCAB_SIZE))
+        decoder.train()
+        features = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        actions = tokenized_actions_factory(
+            batch_size=BATCH_SIZE,
+            action_token_length=ACTION_TOKEN_LENGTH,
+            vocab_size=VOCAB_SIZE,
+        )
+        with unittest.mock.patch.object(
+            decoder.free_transformer, "forward", wraps=decoder.free_transformer.forward
+        ) as mock_forward:
+            decoder(features=features, actions=actions)
+            call_kwargs = mock_forward.call_args.kwargs
+            assert call_kwargs.get("generation_cache") is None
+
+    def test_inference_uses_generation_cache(
+        self,
+        moe_free_transformer_factory: Callable[..., MoEFreeActionTransformer],
+        mock_tokenizer_factory: Callable[..., MagicMock],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = moe_free_transformer_factory()
+        decoder.set_tokenizer(tokenizer=mock_tokenizer_factory(vocab_size=VOCAB_SIZE))
+        decoder.eval()
+        features = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        with unittest.mock.patch.object(
+            decoder.free_transformer, "forward", wraps=decoder.free_transformer.forward
+        ) as mock_forward:
+            with torch.no_grad():
+                decoder(features=features, actions=None)
+            first_call_kwargs = mock_forward.call_args_list[0].kwargs
+            assert first_call_kwargs.get("generation_cache") is not None
 
 
 def test_auxiliary_output_keys(

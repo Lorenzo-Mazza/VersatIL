@@ -7,7 +7,7 @@ from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEn
 from versatil.models.layers.transformer.attention.precomputed_primary_joint_attention import (
     PrecomputedPrimaryJointAttention,
 )
-from versatil.models.layers.transformer.blocks.dual_stream_base import (
+from versatil.models.layers.transformer.block.dual_stream_base import (
     DualStreamBlock,
 )
 

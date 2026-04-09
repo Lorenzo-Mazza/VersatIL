@@ -1,4 +1,4 @@
-"""Tests for versatil.models.layers.transformer.blocks.precomputed_dual_stream_attention module."""
+"""Tests for versatil.models.layers.transformer.block.precomputed_dual_stream_attention module."""
 
 from collections.abc import Callable
 
@@ -11,7 +11,7 @@ from versatil.models.layers.normalization.factory import create_block_normalizat
 from versatil.models.layers.transformer.attention.precomputed_primary_joint_attention import (
     PrecomputedPrimaryJointAttention,
 )
-from versatil.models.layers.transformer.blocks.precomputed_dual_stream_attention import (
+from versatil.models.layers.transformer.block.precomputed_dual_stream_attention import (
     PrecomputedDualStreamAttentionBlock,
 )
 

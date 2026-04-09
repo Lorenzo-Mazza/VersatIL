@@ -1,4 +1,4 @@
-"""Tests for versatil.models.layers.transformer.blocks.base module."""
+"""Tests for versatil.models.layers.transformer.block.base module."""
 
 from collections.abc import Callable
 
@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from versatil.models.layers.normalization.unconditioned_norm import UnconditionedNorm
-from versatil.models.layers.transformer.blocks.base import TransformerBlock
+from versatil.models.layers.transformer.block.base import TransformerBlock
 
 EMBEDDING_DIMENSION = 32
 

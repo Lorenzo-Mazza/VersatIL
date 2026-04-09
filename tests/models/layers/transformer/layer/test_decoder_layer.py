@@ -11,7 +11,8 @@ from tests.models.layers.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.normalization.constants import NormalizationType
-from versatil.models.layers.transformer.kv_cache import LayerKVCache
+from versatil.models.layers.transformer.cache.conditioning import ConditioningLayerCache
+from versatil.models.layers.transformer.cache.generation import GenerationLayerCache
 from versatil.models.layers.transformer.layer.decoder_layer import (
     TransformerDecoderLayer,
 )
@@ -121,7 +122,7 @@ class TestTransformerDecoderLayerForward:
         assert not torch.allclose(output, hidden_states)
         assert cache is None
 
-    def test_use_cache_returns_updated_cache(
+    def test_generation_cache_returns_updated_cache(
         self,
         decoder_layer_factory: Callable[..., TransformerDecoderLayer],
         sequence_tensor_factory: Callable[..., torch.Tensor],
@@ -137,14 +138,13 @@ class TestTransformerDecoderLayerForward:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=1, embedding_dimension=32
         )
-        empty_cache = LayerKVCache(
-            self_attention_keys=torch.empty(2, 4, 0, 8),
-            self_attention_values=torch.empty(2, 4, 0, 8),
+        empty_cache = GenerationLayerCache(
+            keys=torch.empty(2, 4, 0, 8),
+            values=torch.empty(2, 4, 0, 8),
         )
         output, new_cache = layer(
             hidden_states=hidden_states,
-            layer_cache=empty_cache,
-            use_cache=True,
+            generation_cache=empty_cache,
         )
         assert new_cache is not None
         assert new_cache.get_length() == 1
@@ -154,30 +154,10 @@ class TestTransformerDecoderLayerForward:
         )
         output2, cache2 = layer(
             hidden_states=step2_input,
-            layer_cache=new_cache,
-            use_cache=True,
+            generation_cache=new_cache,
         )
         assert torch.all(torch.isfinite(output2))
         assert cache2.get_length() == 2
-
-    def test_use_cache_on_non_autoregressive_raises(
-        self,
-        decoder_layer_factory: Callable[..., TransformerDecoderLayer],
-        sequence_tensor_factory: Callable[..., torch.Tensor],
-    ):
-        layer = decoder_layer_factory(
-            embedding_dimension=32,
-            number_of_heads=4,
-            autoregressive=False,
-        )
-        hidden_states = sequence_tensor_factory(
-            batch_size=2, sequence_length=1, embedding_dimension=32
-        )
-        with pytest.raises(
-            ValueError,
-            match=re.escape("use_cache=True only valid for autoregressive models"),
-        ):
-            layer(hidden_states=hidden_states, use_cache=True)
 
     def test_cross_attention_without_features_or_cache_raises(
         self,
@@ -195,8 +175,7 @@ class TestTransformerDecoderLayerForward:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                "encoded_features required when use_cross_attention=True "
-                "and no cached cross KV"
+                "Either encoded_features or conditioning_cache must be provided when using cross-attention"
             ),
         ):
             layer(hidden_states=hidden_states, encoded_features=None)
@@ -227,7 +206,7 @@ class TestTransformerDecoderLayerForward:
         output_no_mask, _ = layer(hidden_states=hidden_states)
         assert not torch.allclose(output_causal, output_no_mask, atol=1e-6)
 
-    def test_cross_attention_cached_kv_matches_fresh_forward(
+    def test_conditioning_cached_kv_matches_fresh_forward(
         self,
         decoder_layer_factory: Callable[..., TransformerDecoderLayer],
         sequence_tensor_factory: Callable[..., torch.Tensor],
@@ -248,20 +227,17 @@ class TestTransformerDecoderLayerForward:
         )
         # Fresh forward with encoded_features
         output_fresh, _ = layer(hidden_states=hidden_states, encoded_features=memory)
-        # Pre-compute cross K/V manually via the layer's projections
+        # Pre-compute conditioning K/V manually via the layer's projections
         cross_attn = layer.cross_attention_block.attention
         projected_keys = cross_attn.compute_key(memory)
         projected_values = cross_attn.compute_value(memory)
-        cache = LayerKVCache(
-            self_attention_keys=torch.empty(2, 4, 0, 8),
-            self_attention_values=torch.empty(2, 4, 0, 8),
-            cross_attention_keys=projected_keys,
-            cross_attention_values=projected_values,
+        conditioning_cache = ConditioningLayerCache(
+            keys=projected_keys,
+            values=projected_values,
         )
         output_cached, _ = layer(
             hidden_states=hidden_states,
-            layer_cache=cache,
-            use_cache=True,
+            conditioning_cache=conditioning_cache,
         )
         assert torch.allclose(output_fresh, output_cached, atol=1e-5)
 

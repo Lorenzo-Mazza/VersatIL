@@ -17,6 +17,8 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
 from versatil.models.layers.transformer.attention.cached_attention import (
     CachedAttention,
 )
+from versatil.models.layers.transformer.cache.conditioning import ConditioningLayerCache
+from versatil.models.layers.transformer.cache.generation import GenerationLayerCache
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 4
@@ -65,6 +67,52 @@ def precomputed_kv_factory(
         keys = torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
         values = torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
         return keys, values
+
+    return factory
+
+
+@pytest.fixture
+def generation_cache_factory(
+    precomputed_kv_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+) -> Callable[..., GenerationLayerCache]:
+    """Factory for GenerationLayerCache with populated keys/values."""
+
+    def factory(
+        batch_size: int = 2,
+        number_of_heads: int = NUMBER_OF_HEADS,
+        cached_length: int = 3,
+        head_dimension: int = HEAD_DIMENSION,
+    ) -> GenerationLayerCache:
+        keys, values = precomputed_kv_factory(
+            batch_size=batch_size,
+            key_value_length=cached_length,
+            number_of_heads=number_of_heads,
+            head_dimension=head_dimension,
+        )
+        return GenerationLayerCache(keys=keys, values=values)
+
+    return factory
+
+
+@pytest.fixture
+def conditioning_cache_factory(
+    precomputed_kv_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+) -> Callable[..., ConditioningLayerCache]:
+    """Factory for ConditioningLayerCache with precomputed keys/values."""
+
+    def factory(
+        batch_size: int = 2,
+        number_of_key_value_heads: int = NUMBER_OF_HEADS,
+        memory_length: int = 6,
+        head_dimension: int = HEAD_DIMENSION,
+    ) -> ConditioningLayerCache:
+        keys, values = precomputed_kv_factory(
+            batch_size=batch_size,
+            key_value_length=memory_length,
+            number_of_heads=number_of_key_value_heads,
+            head_dimension=head_dimension,
+        )
+        return ConditioningLayerCache(keys=keys, values=values)
 
     return factory
 

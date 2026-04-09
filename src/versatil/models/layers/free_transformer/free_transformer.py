@@ -29,17 +29,22 @@ from versatil.models.layers.positional_encoding.rotary import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
 )
-from versatil.models.layers.transformer import (
-    DecoderKVCache,
-    LayerKVCache,
-    TransformerDecoderLayer,
-    create_positional_encoding,
-    initialize_decoder_cache,
+from versatil.models.layers.transformer.cache.conditioning import (
+    ConditioningLayerCache,
 )
-from versatil.models.layers.transformer.autoregressive_decoder import (
-    RESIDUAL_STREAM_FLAG,
+from versatil.models.layers.transformer.cache.generation import (
+    GenerationCache,
+    GenerationLayerCache,
+    initialize_generation_cache,
+)
+from versatil.models.layers.transformer.layer.decoder_layer import (
+    TransformerDecoderLayer,
 )
 from versatil.models.layers.transformer.masking import create_full_padding_mask
+from versatil.models.layers.transformer.positional_encoding import (
+    create_positional_encoding,
+)
+from versatil.models.layers.transformer.transformer_mixin import RESIDUAL_STREAM_FLAG
 
 
 class LatentConditionedDecoderLayer(TransformerDecoderLayer):
@@ -89,33 +94,27 @@ class LatentConditionedDecoderLayer(TransformerDecoderLayer):
         encoded_features: torch.Tensor | None = None,
         self_attention_mask: torch.Tensor | None = None,
         cross_attention_mask: torch.Tensor | None = None,
-        layer_cache: LayerKVCache | None = None,
-        use_cache: bool = False,
+        generation_cache: GenerationLayerCache | None = None,
+        conditioning_cache: ConditioningLayerCache | None = None,
         positional_encoding: RotaryPositionalEncoding | None = None,
         latent: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, LayerKVCache | None]:
+    ) -> tuple[torch.Tensor, GenerationLayerCache | None]:
         """Forward pass through latent-conditioned decoder layer.
 
         Args:
             hidden_states: Input embeddings (B, seq_len, embedding_dim).
-            encoded_features: Not used here. Kept for signature compatibility.
-            self_attention_mask: Optional causal mask for self-attention with shape (B,1, query length, key length)
-                where True=masked. If None, no causal masking is applied.
-            cross_attention_mask: Not used here. Kept for signature compatibility.
-            layer_cache: Optional cached K/V from previous steps.
-            use_cache: Whether to return updated cache. Only valid if autoregressive=True.
+            encoded_features: Not used. Kept for signature compatibility.
+            self_attention_mask: Causal mask (B, 1, query_len, key_len), True = masked.
+            cross_attention_mask: Not used. Kept for signature compatibility.
+            generation_cache: Cached K/V from the main sequence. When provided,
+                an updated cache is returned.
+            conditioning_cache: Not used. Kept for signature compatibility.
             positional_encoding: Optional rotary positional encoding module.
-            latent: Optional latent conditioning of shape (B, T, latent_dim) or (B, 1, latent_dim).
+            latent: Latent conditioning (B, T, latent_dim) or (B, 1, latent_dim).
 
         Returns:
-            Tuple of (output_states, updated_cache),
-
-        Raises:
-            ValueError: When use_self_attention_cache=True for non-autoregressive model
+            Tuple of (output_states, updated GenerationLayerCache or None).
         """
-        if use_cache and not self.autoregressive:
-            raise ValueError("use_cache=True only valid for autoregressive models")
-
         attention_block = self.self_attention_block
         normalization = attention_block.normalization
         attention = attention_block.attention
@@ -124,23 +123,18 @@ class LatentConditionedDecoderLayer(TransformerDecoderLayer):
         hidden_states, gate = normalization(x=hidden_states, condition=None)
         if latent is not None:
             projected_latent = self.latent_proj(latent)
-            if (
-                projected_latent.shape[1] == 1 and hidden_states.shape[1] > 1
-            ):  # (B, 1, D) -> (B, T, D)
+            if projected_latent.shape[1] == 1 and hidden_states.shape[1] > 1:
                 projected_latent = projected_latent.expand(
                     -1, hidden_states.shape[1], -1
                 )
-            kv_residual = residual + projected_latent  # X + R
-            norm_kv, _ = normalization(
-                x=kv_residual, condition=None
-            )  # norm(X + R) for K/V
+            kv_residual = residual + projected_latent
+            norm_kv, _ = normalization(x=kv_residual, condition=None)
             attention_output, cache = attention(
                 query_input=hidden_states,
                 key_input=norm_kv,
                 value_input=norm_kv,
                 attention_mask=self_attention_mask,
-                layer_cache=layer_cache,
-                use_self_attention_cache=use_cache,
+                generation_cache=generation_cache,
                 positional_encoding=positional_encoding,
             )
         else:
@@ -149,8 +143,7 @@ class LatentConditionedDecoderLayer(TransformerDecoderLayer):
                 key_input=hidden_states,
                 value_input=hidden_states,
                 attention_mask=self_attention_mask,
-                layer_cache=layer_cache,
-                use_self_attention_cache=use_cache,
+                generation_cache=generation_cache,
                 positional_encoding=positional_encoding,
             )
 
@@ -238,7 +231,6 @@ class FreeTransformerLatentEncoder(nn.Module):
                 encoded_features=mid_features,
                 self_attention_mask=None,
                 cross_attention_mask=mid_features_mask,
-                use_cache=False,
             )
 
         return self.final_normalization(target)  # (B, T, embedding_dimension)
@@ -404,24 +396,50 @@ class FreeTransformer(nn.Module):
             if hasattr(module, "weight") and module.weight is not None:
                 module.weight.data.fill_(1.0)
 
+    def create_empty_generation_cache(
+        self,
+        batch_size: int,
+        device: torch.device,
+        dtype: torch.dtype = torch.float32,
+    ) -> GenerationCache:
+        """Create an initial empty GenerationCache for autoregressive generation.
+
+        Args:
+            batch_size: Batch size.
+            device: Device for cache tensors.
+            dtype: Data type for cache tensors.
+
+        Returns:
+            GenerationCache with empty layers ready for the first generation step.
+        """
+        return GenerationCache(
+            layers=initialize_generation_cache(
+                batch_size=batch_size,
+                num_layers=self.number_of_decoder_layers,
+                num_heads=self.number_of_key_value_heads,
+                head_dimension=self.head_dimension,
+                device=device,
+                dtype=dtype,
+            ),
+        )
+
     def forward(
         self,
         hidden_states: torch.Tensor,
         self_attention_mask: torch.Tensor | None = None,
         key_padding_mask: torch.Tensor | None = None,
-        decoder_cache: DecoderKVCache | None = None,
-        use_cache: bool = False,
+        generation_cache: GenerationCache | None = None,
         deterministic: bool = False,
         is_inference: bool = False,
         return_latent_embeddings: bool = False,
     ) -> (
-        tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, DecoderKVCache | None]
+        tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, GenerationCache | None]
         | tuple[
             torch.Tensor,
             torch.Tensor | None,
             torch.Tensor,
             torch.Tensor,
-            DecoderKVCache | None,
+            GenerationCache | None,
         ]
     ):
         """Forward pass through Free transformer with midpoint latent injection.
@@ -431,8 +449,8 @@ class FreeTransformer(nn.Module):
             self_attention_mask: Optional custom self-attention mask (B, 1, query_length, query_length) where True means masked.
                 If None, generates standard triangular causal mask.
             key_padding_mask: Optional current key padding mask for padded observation tokens (B, query_length) where True means masked.
-            decoder_cache: Optional cached K/V from previous steps
-            use_cache: Whether to return updated cache
+            generation_cache: Cached K/V from previous generation steps. When provided,
+                an updated cache is returned.
             deterministic: Whether to use deterministic latent sampling (inference) or stochastic (training)
             is_inference: Whether the model is in inference mode (no logits, sample directly from one-hot vector).
             return_latent_embeddings: Whether to return the latent embeddings from the latent encoder.
@@ -440,7 +458,7 @@ class FreeTransformer(nn.Module):
         Returns:
             Tuple of (hidden_states, bit_logits, latent_codes, new_cache), where hidden_states has shape (B, query_len, D),
                 optional bit_logits has shape (B, query_len, latent_bits), latent_codes has shape (B, query_len, 2**latent_bits),
-                and new_cache is a LayerKVCache or None.
+                and new_cache is a GenerationLayerCache or None.
             If return_latent_embeddings is True, also returns latent embeddings with shape (B, query_len, D).
 
         Note:
@@ -449,7 +467,7 @@ class FreeTransformer(nn.Module):
         batch_size = hidden_states.shape[0]
         device = hidden_states.device
         query_length = hidden_states.shape[1]
-        cache_length = decoder_cache.get_length() if decoder_cache else 0
+        cache_length = generation_cache.get_length() if generation_cache else 0
         if isinstance(
             self.positional_encoding,
             (SinusoidalPositionalEncoding1D, LearnedPositionalEncoding1D),
@@ -458,7 +476,7 @@ class FreeTransformer(nn.Module):
                 hidden_states, offset=cache_length
             )
         cached_key_padding_mask = (
-            decoder_cache.key_padding_mask if decoder_cache else None
+            generation_cache.key_padding_mask if generation_cache else None
         )
         total_mask, full_key_padding_mask = create_full_padding_mask(
             key_padding_mask=key_padding_mask,
@@ -470,17 +488,9 @@ class FreeTransformer(nn.Module):
             device=device,
         )  # (B, 1, query_length, key_length), (B, key_length), where key_length = cache_length + query_length
 
-        decoder_caches = decoder_cache.layers if decoder_cache is not None else None
-        if use_cache and decoder_caches is None:
-            decoder_caches = initialize_decoder_cache(
-                batch_size=batch_size,
-                num_layers=self.number_of_decoder_layers,
-                num_heads=self.number_of_key_value_heads,
-                head_dimension=self.head_dimension,
-                device=device,
-                dtype=hidden_states.dtype,
-            )
-        new_decoder_layer_caches = []
+        use_cache = generation_cache is not None
+        generation_caches = generation_cache.layers if use_cache else None
+        new_decoder_generation_caches = []
         mid_features = hidden_states
         mid_cache_idx = 0
         rope_pe = (
@@ -491,19 +501,20 @@ class FreeTransformer(nn.Module):
         # Forward pass through first half of decoder layers
         for layer in self.decoder_layers[: self.number_of_decoder_layers // 2]:
             cache = (
-                decoder_caches[mid_cache_idx] if decoder_caches is not None else None
+                generation_caches[mid_cache_idx]
+                if generation_caches is not None
+                else None
             )
             mid_features, new_cache = layer(
                 hidden_states=mid_features,
                 encoded_features=None,
                 self_attention_mask=total_mask,
                 cross_attention_mask=None,
-                layer_cache=cache,
-                use_cache=use_cache,
+                generation_cache=cache,
                 positional_encoding=rope_pe,
             )
             if use_cache:
-                new_decoder_layer_caches.append(new_cache)
+                new_decoder_generation_caches.append(new_cache)
             mid_cache_idx += 1
 
         # Generate latent
@@ -536,46 +547,50 @@ class FreeTransformer(nn.Module):
 
         # Forward pass through latent-conditioned mid decoder layer
         layer = self.decoder_layers[self.number_of_decoder_layers // 2]
-        cache = decoder_caches[mid_cache_idx] if decoder_caches is not None else None
+        cache = (
+            generation_caches[mid_cache_idx] if generation_caches is not None else None
+        )
         hidden_states, new_cache = layer(
             hidden_states=mid_features,
             encoded_features=None,
             self_attention_mask=total_mask,
             cross_attention_mask=None,
-            layer_cache=cache,
-            use_cache=use_cache,
+            generation_cache=cache,
             positional_encoding=rope_pe,
             latent=latent_codes,
         )
         if use_cache:
-            new_decoder_layer_caches.append(new_cache)
+            new_decoder_generation_caches.append(new_cache)
         mid_cache_idx += 1
 
         for layer in self.decoder_layers[self.number_of_decoder_layers // 2 + 1 :]:
             cache = (
-                decoder_caches[mid_cache_idx] if decoder_caches is not None else None
+                generation_caches[mid_cache_idx]
+                if generation_caches is not None
+                else None
             )
             hidden_states, new_cache = layer(
                 hidden_states=hidden_states,
                 encoded_features=None,
                 self_attention_mask=total_mask,
                 cross_attention_mask=None,
-                layer_cache=cache,
-                use_cache=use_cache,
+                generation_cache=cache,
                 positional_encoding=rope_pe,
             )
             if use_cache:
-                new_decoder_layer_caches.append(new_cache)
+                new_decoder_generation_caches.append(new_cache)
             mid_cache_idx += 1
 
         hidden_states = self.final_normalization(hidden_states)  # (B, query_length, D)
-        new_decoder_cache = (
-            DecoderKVCache(
-                layers=new_decoder_layer_caches, key_padding_mask=full_key_padding_mask
+        new_generation_cache = (
+            GenerationCache(
+                layers=new_decoder_generation_caches,
+                key_padding_mask=full_key_padding_mask,
             )
             if use_cache
             else None
         )
         if return_latent_embeddings:
-            return hidden_states, bit_logits, latent_codes, z, new_decoder_cache
-        return hidden_states, bit_logits, latent_codes, new_decoder_cache
+            return hidden_states, bit_logits, latent_codes, z, new_generation_cache
+        else:
+            return hidden_states, bit_logits, latent_codes, new_generation_cache

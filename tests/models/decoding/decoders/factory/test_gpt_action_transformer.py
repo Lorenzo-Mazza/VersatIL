@@ -1,6 +1,7 @@
 """Tests for versatil.models.decoding.decoders.factory.gpt_action_transformer module."""
 
 import re
+import unittest.mock
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -510,3 +511,45 @@ class TestGPTActionTransformerForward:
             ),
         ):
             decoder(features=features, actions=actions)
+
+    def test_training_does_not_use_generation_cache(
+        self,
+        gpt_transformer_factory: Callable[..., GPTActionTransformer],
+        mock_tokenizer_factory: Callable[..., MagicMock],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+        tokenized_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = gpt_transformer_factory()
+        decoder.set_tokenizer(tokenizer=mock_tokenizer_factory())
+        features = flat_feature_factory(
+            batch_size=BATCH_SIZE,
+            feature_dim=EMBEDDING_DIMENSION,
+        )
+        actions = tokenized_actions_factory(batch_size=BATCH_SIZE)
+        with unittest.mock.patch.object(
+            decoder.gpt_decoder, "forward", wraps=decoder.gpt_decoder.forward
+        ) as mock_forward:
+            decoder(features=features, actions=actions)
+            call_kwargs = mock_forward.call_args.kwargs
+            assert call_kwargs.get("generation_cache") is None
+
+    def test_inference_uses_generation_cache(
+        self,
+        gpt_transformer_factory: Callable[..., GPTActionTransformer],
+        mock_tokenizer_factory: Callable[..., MagicMock],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = gpt_transformer_factory()
+        decoder.set_tokenizer(tokenizer=mock_tokenizer_factory())
+        features = flat_feature_factory(
+            batch_size=BATCH_SIZE,
+            feature_dim=EMBEDDING_DIMENSION,
+        )
+        decoder.eval()
+        with unittest.mock.patch.object(
+            decoder.gpt_decoder, "forward", wraps=decoder.gpt_decoder.forward
+        ) as mock_forward:
+            decoder(features=features, actions=None)
+            # First call is prefill, should have generation_cache
+            first_call_kwargs = mock_forward.call_args_list[0].kwargs
+            assert first_call_kwargs.get("generation_cache") is not None

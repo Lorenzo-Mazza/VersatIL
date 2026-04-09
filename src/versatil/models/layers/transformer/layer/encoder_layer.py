@@ -12,11 +12,11 @@ from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEn
 from versatil.models.layers.transformer.attention.cached_attention import (
     CachedAttention,
 )
-from versatil.models.layers.transformer.blocks.feedforward import (
+from versatil.models.layers.transformer.block.feedforward import (
     FeedforwardBlock,
     build_feedforward,
 )
-from versatil.models.layers.transformer.blocks.self_attention import (
+from versatil.models.layers.transformer.block.self_attention import (
     SelfAttentionBlock,
 )
 

@@ -12,65 +12,8 @@ from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.transformer.attention.cached_attention import (
     CachedAttention,
 )
-from versatil.models.layers.transformer.kv_cache import LayerKVCache
-
-
-@pytest.fixture
-def self_attention_cache_factory(
-    precomputed_kv_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
-) -> Callable[..., LayerKVCache]:
-    """Factory for LayerKVCache with populated self-attention keys/values."""
-
-    def factory(
-        batch_size: int = 2,
-        number_of_heads: int = 4,
-        cached_length: int = 3,
-        head_dimension: int = 8,
-    ) -> LayerKVCache:
-        keys, values = precomputed_kv_factory(
-            batch_size=batch_size,
-            key_value_length=cached_length,
-            number_of_heads=number_of_heads,
-            head_dimension=head_dimension,
-        )
-        return LayerKVCache(
-            self_attention_keys=keys,
-            self_attention_values=values,
-        )
-
-    return factory
-
-
-@pytest.fixture
-def cross_attention_cache_factory(
-    precomputed_kv_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
-) -> Callable[..., LayerKVCache]:
-    """Factory for LayerKVCache with precomputed cross-attention keys/values."""
-
-    def factory(
-        batch_size: int = 2,
-        number_of_key_value_heads: int = 4,
-        memory_length: int = 6,
-        head_dimension: int = 8,
-    ) -> LayerKVCache:
-        cross_keys, cross_values = precomputed_kv_factory(
-            batch_size=batch_size,
-            key_value_length=memory_length,
-            number_of_heads=number_of_key_value_heads,
-            head_dimension=head_dimension,
-        )
-        return LayerKVCache(
-            self_attention_keys=torch.empty(
-                batch_size, number_of_key_value_heads, 0, head_dimension
-            ),
-            self_attention_values=torch.empty(
-                batch_size, number_of_key_value_heads, 0, head_dimension
-            ),
-            cross_attention_keys=cross_keys,
-            cross_attention_values=cross_values,
-        )
-
-    return factory
+from versatil.models.layers.transformer.cache.conditioning import ConditioningLayerCache
+from versatil.models.layers.transformer.cache.generation import GenerationLayerCache
 
 
 class TestCachedAttentionInitialization:
@@ -241,7 +184,7 @@ class TestCachedAttentionForward:
         # Outputs should differ for batch 0 (masked) but not necessarily for batch 1
         assert not torch.allclose(output_masked[0], output_unmasked[0], atol=1e-6)
 
-    def test_self_attention_cache_returns_updated_cache(
+    def test_generation_cache_returns_updated_cache(
         self,
         cached_attention_factory: Callable[..., CachedAttention],
         sequence_tensor_factory: Callable[..., torch.Tensor],
@@ -250,16 +193,15 @@ class TestCachedAttentionForward:
         sequence = sequence_tensor_factory(
             batch_size=2, sequence_length=1, embedding_dimension=32
         )
-        empty_cache = LayerKVCache(
-            self_attention_keys=torch.empty(2, 4, 0, 8),
-            self_attention_values=torch.empty(2, 4, 0, 8),
+        empty_cache = GenerationLayerCache(
+            keys=torch.empty(2, 4, 0, 8),
+            values=torch.empty(2, 4, 0, 8),
         )
         output, new_cache = module(
             query_input=sequence,
             key_input=sequence,
             value_input=sequence,
-            layer_cache=empty_cache,
-            use_self_attention_cache=True,
+            generation_cache=empty_cache,
         )
         assert new_cache is not None
         assert new_cache.get_length() == 1
@@ -300,14 +242,10 @@ class TestCachedAttentionForward:
             value_input=full_sequence,
             attention_mask=causal_mask,
         )
-        # Incremental forward with cache
-        cache = LayerKVCache(
-            self_attention_keys=torch.empty(
-                batch_size, number_of_heads, 0, head_dimension
-            ),
-            self_attention_values=torch.empty(
-                batch_size, number_of_heads, 0, head_dimension
-            ),
+        # Incremental forward with generation cache
+        cache = GenerationLayerCache(
+            keys=torch.empty(batch_size, number_of_heads, 0, head_dimension),
+            values=torch.empty(batch_size, number_of_heads, 0, head_dimension),
         )
         cached_outputs = []
         for step in range(sequence_length):
@@ -316,37 +254,63 @@ class TestCachedAttentionForward:
                 query_input=token,
                 key_input=token,
                 value_input=token,
-                layer_cache=cache,
-                use_self_attention_cache=True,
+                generation_cache=cache,
             )
             cached_outputs.append(step_output)
         cached_full_output = torch.cat(cached_outputs, dim=1)
         assert torch.allclose(full_output, cached_full_output, atol=1e-5)
 
-    def test_cross_attention_cache_uses_precomputed_kv(
+    def test_conditioning_cache_produces_output_sensitive_to_cached_kv(
         self,
         cached_attention_factory: Callable[..., CachedAttention],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        cross_attention_cache_factory: Callable[..., LayerKVCache],
+        conditioning_cache_factory: Callable[..., ConditioningLayerCache],
     ):
         module = cached_attention_factory(embedding_dimension=32, number_of_heads=4)
+        module.eval()
         query = sequence_tensor_factory(
             batch_size=2, sequence_length=3, embedding_dimension=32
         )
-        cache = cross_attention_cache_factory(
+        cache_a = conditioning_cache_factory(
             batch_size=2,
             number_of_key_value_heads=4,
             memory_length=6,
             head_dimension=8,
         )
-        output, _ = module(
-            query_input=query,
-            layer_cache=cache,
-            use_cross_attention_cache=True,
+        cache_b = conditioning_cache_factory(
+            batch_size=2,
+            number_of_key_value_heads=4,
+            memory_length=6,
+            head_dimension=8,
         )
-        assert output.shape == (2, 3, 32)
+        output_a, _ = module(query_input=query, conditioning_cache=cache_a)
+        output_b, _ = module(query_input=query, conditioning_cache=cache_b)
+        assert output_a.shape == (2, 3, 32)
+        assert not torch.allclose(output_a, output_b, atol=1e-6)
 
-    def test_missing_key_value_without_cross_cache_raises(
+    def test_conditioning_cache_without_generation_cache_returns_none(
+        self,
+        cached_attention_factory: Callable[..., CachedAttention],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        conditioning_cache_factory: Callable[..., ConditioningLayerCache],
+    ):
+        module = cached_attention_factory(embedding_dimension=32, number_of_heads=4)
+        query = sequence_tensor_factory(
+            batch_size=2, sequence_length=3, embedding_dimension=32
+        )
+        cache = conditioning_cache_factory(
+            batch_size=2,
+            number_of_key_value_heads=4,
+            memory_length=6,
+            head_dimension=8,
+        )
+        _, generation_cache = module(
+            query_input=query,
+            conditioning_cache=cache,
+        )
+        assert generation_cache is None
+
+    def test_missing_key_value_without_conditioning_cache_raises(
         self,
         cached_attention_factory: Callable[..., CachedAttention],
         sequence_tensor_factory: Callable[..., torch.Tensor],
@@ -358,37 +322,10 @@ class TestCachedAttentionForward:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                "key_input and value_input required when not using cross_attention_cache"
+                "key_input and value_input required when conditioning_cache is not provided"
             ),
         ):
             module(query_input=query)
-
-    def test_cross_cache_without_precomputed_kv_raises(
-        self,
-        cached_attention_factory: Callable[..., CachedAttention],
-        sequence_tensor_factory: Callable[..., torch.Tensor],
-    ):
-        module = cached_attention_factory()
-        query = sequence_tensor_factory(
-            batch_size=2, sequence_length=3, embedding_dimension=32
-        )
-        cache = LayerKVCache(
-            self_attention_keys=torch.empty(2, 4, 0, 8),
-            self_attention_values=torch.empty(2, 4, 0, 8),
-            cross_attention_keys=None,
-            cross_attention_values=None,
-        )
-        with pytest.raises(
-            ValueError,
-            match=re.escape(
-                "layer_cache must contain precomputed cross_attention K/V when use_cross_attention_cache=True"
-            ),
-        ):
-            module(
-                query_input=query,
-                layer_cache=cache,
-                use_cross_attention_cache=True,
-            )
 
 
 class TestCachedAttentionComputeQueryKeyValue:
@@ -505,17 +442,17 @@ class TestComputeAttention:
         )
         assert not torch.allclose(output_no_mask, output_masked)
 
-    def test_cross_cache_path_only_projects_queries(
+    def test_conditioning_cache_path_only_projects_queries(
         self,
         cached_attention_factory: Callable[..., CachedAttention],
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        cross_attention_cache_factory: Callable[..., LayerKVCache],
+        conditioning_cache_factory: Callable[..., ConditioningLayerCache],
     ):
         module = cached_attention_factory(embedding_dimension=32, number_of_heads=4)
         query = sequence_tensor_factory(
             batch_size=2, sequence_length=3, embedding_dimension=32
         )
-        cache = cross_attention_cache_factory(
+        cache = conditioning_cache_factory(
             batch_size=2,
             number_of_key_value_heads=4,
             memory_length=6,
@@ -534,8 +471,7 @@ class TestComputeAttention:
         ):
             module(
                 query_input=query,
-                layer_cache=cache,
-                use_cross_attention_cache=True,
+                conditioning_cache=cache,
             )
             mock_query.assert_called_once()
             mock_key.assert_not_called()

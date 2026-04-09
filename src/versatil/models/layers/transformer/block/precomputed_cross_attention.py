@@ -7,7 +7,7 @@ from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEn
 from versatil.models.layers.transformer.attention.cached_attention import (
     CachedAttention,
 )
-from versatil.models.layers.transformer.blocks.base import TransformerBlock
+from versatil.models.layers.transformer.block.base import TransformerBlock
 
 
 class PrecomputedCrossAttentionBlock(TransformerBlock):

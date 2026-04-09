@@ -187,7 +187,7 @@ class TestGPTDecoderForward:
         output, cache = decoder(hidden_states=hidden_states, encoded_features=memory)
         assert output.shape == (2, 5, 32)
 
-    def test_use_cache_returns_decoder_cache(
+    def test_generation_cache_returns_updated_cache(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
         sequence_tensor_factory: Callable[..., torch.Tensor],
@@ -201,7 +201,12 @@ class TestGPTDecoderForward:
         hidden_states = sequence_tensor_factory(
             batch_size=2, sequence_length=3, embedding_dimension=32
         )
-        output, cache = decoder(hidden_states=hidden_states, use_cache=True)
+        initial_cache = decoder.create_empty_generation_cache(
+            batch_size=2, device=torch.device("cpu")
+        )
+        output, cache = decoder(
+            hidden_states=hidden_states, generation_cache=initial_cache
+        )
         assert cache is not None
         assert len(cache.layers) == 2
         assert cache.get_length() == 3
@@ -224,13 +229,10 @@ class TestGPTDecoderForward:
         )
         output_original, _ = decoder(hidden_states=hidden_states)
         output_original = output_original.clone()
-        # Modify token at position 3 (middle of sequence)
         modified = hidden_states.clone()
         modified[0, 3, :] *= 100.0
         output_modified, _ = decoder(hidden_states=modified)
-        # Tokens before position 3 (0, 1, 2) should be unchanged due to causal masking
         assert torch.allclose(output_original[0, :3], output_modified[0, :3], atol=1e-5)
-        # Tokens at or after position 3 should change
         assert not torch.allclose(
             output_original[0, 3:], output_modified[0, 3:], atol=1e-5
         )
@@ -252,17 +254,16 @@ class TestGPTDecoderForward:
         full_sequence = torch.from_numpy(
             rng.standard_normal((batch_size, sequence_length, 32)).astype(np.float32)
         )
-        # Full forward
         full_output, _ = decoder(hidden_states=full_sequence)
-        # Incremental forward with caching
-        cache = None
+        cache = decoder.create_empty_generation_cache(
+            batch_size=batch_size, device=torch.device("cpu")
+        )
         cached_outputs = []
         for step in range(sequence_length):
             token = full_sequence[:, step : step + 1, :]
             step_output, cache = decoder(
                 hidden_states=token,
-                decoder_cache=cache,
-                use_cache=True,
+                generation_cache=cache,
             )
             cached_outputs.append(step_output)
         cached_full_output = torch.cat(cached_outputs, dim=1)
@@ -288,44 +289,22 @@ class TestGPTDecoderForward:
         memory = torch.from_numpy(
             rng.standard_normal((batch_size, 6, 32)).astype(np.float32)
         )
-        # Full forward
         full_output, _ = decoder(hidden_states=full_sequence, encoded_features=memory)
-        # Incremental forward
-        cache = None
+        conditioning_cache = decoder.precompute_conditioning_kv(encoded_features=memory)
+        cache = decoder.create_empty_generation_cache(
+            batch_size=batch_size, device=torch.device("cpu")
+        )
         cached_outputs = []
         for step in range(sequence_length):
             token = full_sequence[:, step : step + 1, :]
             step_output, cache = decoder(
                 hidden_states=token,
-                encoded_features=memory,
-                decoder_cache=cache,
-                use_cache=True,
+                generation_cache=cache,
+                conditioning_cache=conditioning_cache,
             )
             cached_outputs.append(step_output)
         cached_full_output = torch.cat(cached_outputs, dim=1)
         assert torch.allclose(full_output, cached_full_output, atol=1e-5)
-
-    def test_cross_attention_without_features_or_cache_raises(
-        self,
-        gpt_decoder_factory: Callable[..., GPTDecoder],
-        sequence_tensor_factory: Callable[..., torch.Tensor],
-    ):
-        decoder = gpt_decoder_factory(
-            number_of_layers=2,
-            embedding_dimension=32,
-            number_of_heads=4,
-            use_cross_attention=True,
-        )
-        hidden_states = sequence_tensor_factory(
-            batch_size=2, sequence_length=5, embedding_dimension=32
-        )
-        with pytest.raises(
-            ValueError,
-            match=re.escape(
-                "encoded_features required when use_cross_attention=True and no cached cross KV"
-            ),
-        ):
-            decoder(hidden_states=hidden_states, encoded_features=None)
 
     def test_key_padding_mask_affects_output(
         self,
@@ -365,14 +344,12 @@ class TestGPTDecoderForward:
         hidden_states = torch.from_numpy(
             rng.standard_normal((2, 4, 32)).astype(np.float32)
         )
-        # Fully open mask (no masking at all)
         open_mask = torch.zeros(2, 1, 4, 4, dtype=torch.bool)
         output_open, _ = decoder(
             hidden_states=hidden_states,
             self_attention_mask=open_mask,
         )
         output_default, _ = decoder(hidden_states=hidden_states)
-        # Default is causal mask, open mask allows full attention -> different output
         assert not torch.allclose(output_open, output_default, atol=1e-5)
 
     @pytest.mark.parametrize(
@@ -435,14 +412,15 @@ class TestGPTDecoderForward:
             rng.standard_normal((batch_size, sequence_length, 32)).astype(np.float32)
         )
         full_output, _ = decoder(hidden_states=full_sequence)
-        cache = None
+        cache = decoder.create_empty_generation_cache(
+            batch_size=batch_size, device=torch.device("cpu")
+        )
         cached_outputs = []
         for step in range(sequence_length):
             token = full_sequence[:, step : step + 1, :]
             step_output, cache = decoder(
                 hidden_states=token,
-                decoder_cache=cache,
-                use_cache=True,
+                generation_cache=cache,
             )
             cached_outputs.append(step_output)
         cached_full_output = torch.cat(cached_outputs, dim=1)
@@ -467,22 +445,23 @@ class TestGPTDecoderForward:
             rng.standard_normal((batch_size, sequence_length, 32)).astype(np.float32)
         )
         full_output, _ = decoder(hidden_states=full_sequence)
-        cache = None
+        cache = decoder.create_empty_generation_cache(
+            batch_size=batch_size, device=torch.device("cpu")
+        )
         cached_outputs = []
         for step in range(sequence_length):
             token = full_sequence[:, step : step + 1, :]
             step_output, cache = decoder(
                 hidden_states=token,
-                decoder_cache=cache,
-                use_cache=True,
+                generation_cache=cache,
             )
             cached_outputs.append(step_output)
         cached_full_output = torch.cat(cached_outputs, dim=1)
         assert torch.allclose(full_output, cached_full_output, atol=1e-5)
 
 
-class TestGPTDecoderPrecomputeCrossAttentionKV:
-    def test_returns_one_kv_pair_per_layer(
+class TestGPTDecoderPrecomputeConditioningKV:
+    def test_returns_conditioning_cache_with_one_layer_per_decoder_layer(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
         sequence_tensor_factory: Callable[..., torch.Tensor],
@@ -496,10 +475,10 @@ class TestGPTDecoderPrecomputeCrossAttentionKV:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=8, embedding_dimension=32
         )
-        cross_kv = decoder.precompute_cross_attention_kv(encoded_features=memory)
-        assert len(cross_kv) == 3
+        conditioning_cache = decoder.precompute_conditioning_kv(encoded_features=memory)
+        assert len(conditioning_cache.layers) == 3
 
-    def test_kv_shapes(
+    def test_layer_cache_kv_shapes(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
         sequence_tensor_factory: Callable[..., torch.Tensor],
@@ -513,11 +492,10 @@ class TestGPTDecoderPrecomputeCrossAttentionKV:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=8, embedding_dimension=32
         )
-        cross_kv = decoder.precompute_cross_attention_kv(encoded_features=memory)
-        for keys, values in cross_kv:
-            # (B, kv_heads, memory_length, head_dim)
-            assert keys.shape == (2, 4, 8, 8)
-            assert values.shape == (2, 4, 8, 8)
+        conditioning_cache = decoder.precompute_conditioning_kv(encoded_features=memory)
+        for layer_cache in conditioning_cache.layers:
+            assert layer_cache.keys.shape == (2, 4, 8, 8)
+            assert layer_cache.values.shape == (2, 4, 8, 8)
 
     def test_gqa_precompute_shapes(
         self,
@@ -535,11 +513,10 @@ class TestGPTDecoderPrecomputeCrossAttentionKV:
         memory = sequence_tensor_factory(
             batch_size=2, sequence_length=8, embedding_dimension=32
         )
-        cross_kv = decoder.precompute_cross_attention_kv(encoded_features=memory)
-        for keys, values in cross_kv:
-            # GQA: kv_heads=2, head_dim=8
-            assert keys.shape == (2, 2, 8, 8)
-            assert values.shape == (2, 2, 8, 8)
+        conditioning_cache = decoder.precompute_conditioning_kv(encoded_features=memory)
+        for layer_cache in conditioning_cache.layers:
+            assert layer_cache.keys.shape == (2, 2, 8, 8)
+            assert layer_cache.values.shape == (2, 2, 8, 8)
 
 
 class TestGPTDecoderCacheManagement:
@@ -556,15 +533,16 @@ class TestGPTDecoderCacheManagement:
         )
         decoder.eval()
         batch_size = 2
-        cache = None
+        cache = decoder.create_empty_generation_cache(
+            batch_size=batch_size, device=torch.device("cpu")
+        )
         for step in range(5):
             token = torch.from_numpy(
                 rng.standard_normal((batch_size, 1, 32)).astype(np.float32)
             )
             _, cache = decoder(
                 hidden_states=token,
-                decoder_cache=cache,
-                use_cache=True,
+                generation_cache=cache,
             )
             assert cache.get_length() == step + 1
 
@@ -585,15 +563,18 @@ class TestGPTDecoderCacheManagement:
             rng.standard_normal((batch_size, 3, 32)).astype(np.float32)
         )
         key_padding = torch.tensor([[False, True, False], [False, False, True]])
+        initial_cache = decoder.create_empty_generation_cache(
+            batch_size=batch_size, device=torch.device("cpu")
+        )
         _, cache = decoder(
             hidden_states=hidden_states,
             key_padding_mask=key_padding,
-            use_cache=True,
+            generation_cache=initial_cache,
         )
         assert cache.key_padding_mask is not None
         assert cache.key_padding_mask.shape[1] == 3
 
-    def test_cross_attention_kv_cached_across_steps(
+    def test_conditioning_cache_reused_across_steps(
         self,
         gpt_decoder_factory: Callable[..., GPTDecoder],
         rng: np.random.Generator,
@@ -609,28 +590,25 @@ class TestGPTDecoderCacheManagement:
         memory = torch.from_numpy(
             rng.standard_normal((batch_size, 6, 32)).astype(np.float32)
         )
+        conditioning_cache = decoder.precompute_conditioning_kv(encoded_features=memory)
+        generation_cache = decoder.create_empty_generation_cache(
+            batch_size=batch_size, device=torch.device("cpu")
+        )
         first_token = torch.from_numpy(
             rng.standard_normal((batch_size, 1, 32)).astype(np.float32)
         )
-        _, cache = decoder(
+        _, generation_cache = decoder(
             hidden_states=first_token,
-            encoded_features=memory,
-            use_cache=True,
+            generation_cache=generation_cache,
+            conditioning_cache=conditioning_cache,
         )
-        # Cross-attention K/V should be cached
-        for layer_cache in cache.layers:
-            assert layer_cache.cross_attention_keys is not None
-            assert layer_cache.cross_attention_values is not None
-        # Second step should use cached cross K/V (no need to pass memory again
-        # through the decoder, since it retrieves from cache)
         second_token = torch.from_numpy(
             rng.standard_normal((batch_size, 1, 32)).astype(np.float32)
         )
-        output, cache_2 = decoder(
+        output, generation_cache = decoder(
             hidden_states=second_token,
-            encoded_features=memory,
-            decoder_cache=cache,
-            use_cache=True,
+            generation_cache=generation_cache,
+            conditioning_cache=conditioning_cache,
         )
         assert output.shape == (batch_size, 1, 32)
-        assert cache_2.get_length() == 2
+        assert generation_cache.get_length() == 2

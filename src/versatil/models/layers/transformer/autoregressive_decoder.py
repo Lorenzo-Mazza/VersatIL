@@ -1,4 +1,4 @@
-"""GPT-style transformer decoder with KV cache support."""
+"""GPT-style autoregressive decoder."""
 
 import torch
 import torch.nn as nn
@@ -16,10 +16,13 @@ from versatil.models.layers.positional_encoding.rotary import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
 )
-from versatil.models.layers.transformer.kv_cache import (
-    DecoderKVCache,
-    LayerKVCache,
-    initialize_decoder_cache,
+from versatil.models.layers.transformer.cache.conditioning import (
+    ConditioningCache,
+    ConditioningLayerCache,
+)
+from versatil.models.layers.transformer.cache.generation import (
+    GenerationCache,
+    initialize_generation_cache,
 )
 from versatil.models.layers.transformer.layer.decoder_layer import (
     TransformerDecoderLayer,
@@ -127,51 +130,74 @@ class GPTDecoder(TransformerMixin, nn.Module):
         )
         self.apply(self._init_weights)
 
-    def precompute_cross_attention_kv(
+    def create_empty_generation_cache(
         self,
-        encoded_features: torch.Tensor,
-    ) -> list[tuple[torch.Tensor, torch.Tensor]]:
-        """Precompute cross-attention K/V for all layers.
-
-        Projects encoded features through each layer's cross-attention K/V projections
-        to avoid redundant computation during generation.
+        batch_size: int,
+        device: torch.device | str,
+        dtype: torch.dtype = torch.float32,
+    ) -> GenerationCache:
+        """Create an initial empty GenerationCache for autoregressive generation.
 
         Args:
-            encoded_features: Encoded visual features (B, num_features, D)
+            batch_size: Batch size.
+            device: Device for cache tensors.
+            dtype: Data type for cache tensors.
 
         Returns:
-            List of (keys, values) tuples, one per layer. Each has shape (B, kv_heads, num_features, head_dim)
+            GenerationCache with empty layers ready for the first generation step.
         """
-        cross_kv_per_layer = []
+        return GenerationCache(
+            layers=initialize_generation_cache(
+                batch_size=batch_size,
+                num_layers=self.number_of_layers,
+                num_heads=self.number_of_key_value_heads,
+                head_dimension=self.head_dimension,
+                device=device,
+                dtype=dtype,
+            ),
+        )
+
+    def precompute_conditioning_kv(
+        self,
+        encoded_features: torch.Tensor,
+    ) -> ConditioningCache:
+        """Precompute conditioning K/V for all layers.
+
+        Projects encoded features through each layer's cross-attention K/V projections
+        once, so they can be reused across all generation steps.
+
+        Args:
+            encoded_features: Encoded features (B, num_features, D).
+
+        Returns:
+            ConditioningCache with one ConditioningLayerCache per layer.
+        """
         batch_size = encoded_features.shape[0]
         num_features = encoded_features.shape[1]
+        layer_caches = []
 
         for layer in self.layers:
-            projected_key = layer.cross_attention_block.attention.key_projection(
-                encoded_features
-            )  # (B, len, embed_dim)
-            projected_value = layer.cross_attention_block.attention.value_projection(
-                encoded_features
-            )  # (B, len, embed_dim)
-            # Reshape to (B, len, kv_heads, head_dim)
+            cross_attention = layer.cross_attention_block.attention
+            projected_key = cross_attention.key_projection(encoded_features)
+            projected_value = cross_attention.value_projection(encoded_features)
+            # (B, S, kv_heads * head_dim) → (B, kv_heads, S, head_dim)
             projected_key = projected_key.view(
                 batch_size,
                 num_features,
                 self.number_of_key_value_heads,
                 self.head_dimension,
-            )
+            ).transpose(1, 2)
             projected_value = projected_value.view(
                 batch_size,
                 num_features,
                 self.number_of_key_value_heads,
                 self.head_dimension,
+            ).transpose(1, 2)
+            layer_caches.append(
+                ConditioningLayerCache(keys=projected_key, values=projected_value)
             )
-            # Transpose to (B, kv_heads, len, head_dim)
-            projected_key = projected_key.transpose(1, 2)
-            projected_value = projected_value.transpose(1, 2)
-            cross_kv_per_layer.append((projected_key, projected_value))
 
-        return cross_kv_per_layer
+        return ConditioningCache(layers=layer_caches)
 
     def forward(
         self,
@@ -180,30 +206,35 @@ class GPTDecoder(TransformerMixin, nn.Module):
         self_attention_mask: torch.Tensor | None = None,
         cross_attention_mask: torch.Tensor | None = None,
         key_padding_mask: torch.Tensor | None = None,
-        decoder_cache: DecoderKVCache | None = None,
-        use_cache: bool = False,
-    ) -> tuple[torch.Tensor, DecoderKVCache | None]:
+        generation_cache: GenerationCache | None = None,
+        conditioning_cache: ConditioningCache | None = None,
+    ) -> tuple[torch.Tensor, GenerationCache | None]:
         """Forward pass through decoder.
 
         Args:
-            hidden_states: Input token embeddings (B, query_length, D)
-            encoded_features: Encoder visual features (B, num_features, D). Required if self.use_cross_attention=True
-            self_attention_mask: Optional custom self-attention mask (B, 1, query_length, query_length) where True means masked.
-                If None, generates standard triangular causal mask.
-            cross_attention_mask: Optional mask for cross-attention, where True means masked position with shape (B,1, query length, key length).
-            key_padding_mask: Optional current key padding mask for padded observation tokens (B, query_length) where True means masked.
-            decoder_cache: Optional cached K/V from previous steps
-            use_cache: Whether to return updated cache
+            hidden_states: Input token embeddings (B, query_length, D).
+            encoded_features: Encoder features (B, num_features, D). Required when
+                use_cross_attention=True and no conditioning_cache.
+            self_attention_mask: Custom causal mask (B, 1, query_length, query_length),
+                True = masked. If None, generates standard triangular causal mask.
+            cross_attention_mask: Mask for cross-attention (B, 1, query_length, key_length),
+                True = masked.
+            key_padding_mask: Padding mask for observation tokens (B, query_length),
+                True = masked.
+            generation_cache: Cached K/V from previous generation steps. When provided,
+                an updated cache is returned.
+            conditioning_cache: Precomputed K/V for static conditioning. When provided,
+                encoded_features is not needed for cross-attention.
 
         Returns:
-            Tuple of (final_hidden_states, updated_decoder_cache)
+            Tuple of (output (B, query_length, D), updated GenerationCache or None).
         """
         batch_size = hidden_states.shape[0]
         device = hidden_states.device
         query_length = hidden_states.shape[1]
-        cache_length = decoder_cache.get_length() if decoder_cache else 0
+        cache_length = generation_cache.get_length() if generation_cache else 0
         cached_key_padding_mask = (
-            decoder_cache.key_padding_mask if decoder_cache else None
+            generation_cache.key_padding_mask if generation_cache else None
         )
         total_mask, full_key_padding_mask = create_full_padding_mask(
             key_padding_mask=key_padding_mask,
@@ -213,7 +244,7 @@ class GPTDecoder(TransformerMixin, nn.Module):
             query_length=query_length,
             cache_length=cache_length,
             device=device,
-        )  # (B, 1, query_length, key_length), (B, key_length), where key_length = cache_length + query_length
+        )
 
         if isinstance(
             self.positional_encoding,
@@ -227,93 +258,37 @@ class GPTDecoder(TransformerMixin, nn.Module):
             if isinstance(self.positional_encoding, RotaryPositionalEncoding)
             else None
         )
-
-        cross_kv_per_layer = None
-        if self.use_cross_attention:
-            if (
-                decoder_cache is not None
-                and decoder_cache.layers[0].cross_attention_keys is not None
-            ):
-                cross_kv_per_layer = [
-                    (cache.cross_attention_keys, cache.cross_attention_values)
-                    for cache in decoder_cache.layers
-                ]
-            else:
-                if encoded_features is None:
-                    raise ValueError(
-                        "encoded_features required when use_cross_attention=True and no cached cross KV"
-                    )
-                cross_kv_per_layer = self.precompute_cross_attention_kv(
-                    encoded_features
-                )
-
-        layer_caches = None
-        if decoder_cache is not None:
-            layer_caches = decoder_cache.layers
-        elif use_cache:
-            layer_caches = initialize_decoder_cache(
-                batch_size=batch_size,
-                num_layers=self.number_of_layers,
-                num_heads=self.number_of_key_value_heads,
-                head_dimension=self.head_dimension,
-                device=device,
-                dtype=hidden_states.dtype,
-            )
-
+        use_cache = generation_cache is not None
         new_layer_caches = []
-
         for layer_index, layer in enumerate(self.layers):
-            original_layer_cache = (
-                layer_caches[layer_index] if layer_caches is not None else None
+            layer_generation_cache = (
+                generation_cache.layers[layer_index]
+                if generation_cache is not None
+                else None
             )
-            # Build layer cache with self KV and optional cross KV
-            if original_layer_cache is None:
-                empty_shape = (
-                    batch_size,
-                    self.number_of_key_value_heads,
-                    0,
-                    self.head_dimension,
-                )
-                self_keys = torch.empty(
-                    empty_shape, device=device, dtype=hidden_states.dtype
-                )
-                self_values = torch.empty(
-                    empty_shape, device=device, dtype=hidden_states.dtype
-                )
-            else:
-                self_keys = original_layer_cache.self_attention_keys
-                self_values = original_layer_cache.self_attention_values
-
-            if self.use_cross_attention and cross_kv_per_layer is not None:
-                cross_keys, cross_values = cross_kv_per_layer[layer_index]
-            else:
-                cross_keys, cross_values = None, None
-
-            layer_cache = LayerKVCache(
-                self_attention_keys=self_keys,
-                self_attention_values=self_values,
-                cross_attention_keys=cross_keys,
-                cross_attention_values=cross_values,
+            layer_conditioning_cache = (
+                conditioning_cache.layers[layer_index]
+                if conditioning_cache is not None
+                else None
             )
             hidden_states, new_layer_cache = layer(
                 hidden_states=hidden_states,
                 encoded_features=encoded_features,
                 self_attention_mask=total_mask,
                 cross_attention_mask=cross_attention_mask,
-                layer_cache=layer_cache,
-                use_cache=use_cache,
+                generation_cache=layer_generation_cache,
+                conditioning_cache=layer_conditioning_cache,
                 positional_encoding=rope_pe,
             )
-
             if use_cache:
                 new_layer_caches.append(new_layer_cache)
 
         hidden_states = self.final_normalization(hidden_states)
-        new_decoder_cache = None
+        new_generation_cache = None
         if use_cache:
-            new_decoder_cache = DecoderKVCache(
+            new_generation_cache = GenerationCache(
                 layers=new_layer_caches,
                 key_padding_mask=full_key_padding_mask,
             )
 
-        return hidden_states, new_decoder_cache
+        return hidden_states, new_generation_cache

@@ -7,8 +7,8 @@ from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEn
 from versatil.models.layers.transformer.attention.cached_attention import (
     CachedAttention,
 )
-from versatil.models.layers.transformer.blocks.base import TransformerBlock
-from versatil.models.layers.transformer.kv_cache import LayerKVCache
+from versatil.models.layers.transformer.block.base import TransformerBlock
+from versatil.models.layers.transformer.cache.generation import GenerationLayerCache
 
 
 class SelfAttentionBlock(TransformerBlock):
@@ -29,9 +29,8 @@ class SelfAttentionBlock(TransformerBlock):
         conditioning: torch.Tensor | None = None,
         attention_mask: torch.Tensor | None = None,
         positional_encoding: RotaryPositionalEncoding | None = None,
-        layer_cache: LayerKVCache | None = None,
-        use_cache: bool = False,
-    ) -> tuple[torch.Tensor, LayerKVCache | None]:
+        generation_cache: GenerationLayerCache | None = None,
+    ) -> tuple[torch.Tensor, GenerationLayerCache | None]:
         """Norm -> self-attention -> gated residual.
 
         Args:
@@ -39,11 +38,11 @@ class SelfAttentionBlock(TransformerBlock):
             conditioning: Conditioning vector for AdaNorm (B, C). Ignored by UnconditionedNorm.
             attention_mask: Bool mask (B, 1, S, S), True = masked.
             positional_encoding: Optional RoPE module.
-            layer_cache: Cached K/V from previous autoregressive steps.
-            use_cache: Whether to return updated K/V cache.
+            generation_cache: Cached K/V from previous autoregressive steps. When
+                provided, an updated cache is returned.
 
         Returns:
-            Tuple of (output hidden states (B, S, D), updated cache or None).
+            Tuple of (output hidden states (B, S, D), updated GenerationLayerCache or None).
         """
         residual = hidden_states
         hidden_states, gate = self.normalization(
@@ -55,9 +54,7 @@ class SelfAttentionBlock(TransformerBlock):
             value_input=hidden_states,
             attention_mask=attention_mask,
             positional_encoding=positional_encoding,
-            layer_cache=layer_cache,
-            use_self_attention_cache=use_cache,
-            use_cross_attention_cache=False,
+            generation_cache=generation_cache,
         )
         hidden_states = self.apply_residual(residual, attention_output, gate)
         return hidden_states, new_cache

@@ -10,11 +10,11 @@ from versatil.models.layers.normalization.factory import create_block_normalizat
 from versatil.models.layers.transformer.attention.cached_attention import (
     CachedAttention,
 )
-from versatil.models.layers.transformer.blocks.feedforward import (
+from versatil.models.layers.transformer.block.feedforward import (
     FeedforwardBlock,
     build_feedforward,
 )
-from versatil.models.layers.transformer.blocks.precomputed_cross_attention import (
+from versatil.models.layers.transformer.block.precomputed_cross_attention import (
     PrecomputedCrossAttentionBlock,
 )
 

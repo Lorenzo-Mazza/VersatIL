@@ -1,4 +1,4 @@
-"""Tests for versatil.models.layers.transformer.blocks.precomputed_cross_attention module."""
+"""Tests for versatil.models.layers.transformer.block.precomputed_cross_attention module."""
 
 from collections.abc import Callable
 
@@ -9,7 +9,7 @@ from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.transformer.attention.cached_attention import (
     CachedAttention,
 )
-from versatil.models.layers.transformer.blocks.precomputed_cross_attention import (
+from versatil.models.layers.transformer.block.precomputed_cross_attention import (
     PrecomputedCrossAttentionBlock,
 )
 

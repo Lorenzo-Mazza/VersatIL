@@ -1,4 +1,4 @@
-"""Tests for versatil.models.layers.transformer.blocks.feedforward module."""
+"""Tests for versatil.models.layers.transformer.block.feedforward module."""
 
 from collections.abc import Callable
 
@@ -11,7 +11,7 @@ from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.gated_linear_unit import GatedLinearUnit
 from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.normalization.unconditioned_norm import UnconditionedNorm
-from versatil.models.layers.transformer.blocks.feedforward import (
+from versatil.models.layers.transformer.block.feedforward import (
     FeedforwardBlock,
     build_feedforward,
 )

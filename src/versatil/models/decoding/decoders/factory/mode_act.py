@@ -31,7 +31,9 @@ from versatil.models.layers.positional_encoding.learned import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding2D,
 )
-from versatil.models.layers.transformer import BidirectionalDecoder
+from versatil.models.layers.transformer.bidirectional_decoder import (
+    BidirectionalDecoder,
+)
 
 
 class MixtureOfDensitiesActionTransformer(ActionDecoder):

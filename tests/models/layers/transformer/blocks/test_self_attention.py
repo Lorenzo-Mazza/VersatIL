@@ -1,4 +1,4 @@
-"""Tests for versatil.models.layers.transformer.blocks.self_attention module."""
+"""Tests for versatil.models.layers.transformer.block.self_attention module."""
 
 import unittest.mock
 from collections.abc import Callable
@@ -10,16 +10,18 @@ from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.transformer.attention.cached_attention import (
     CachedAttention,
 )
-from versatil.models.layers.transformer.blocks.self_attention import (
+from versatil.models.layers.transformer.block.self_attention import (
     SelfAttentionBlock,
 )
-from versatil.models.layers.transformer.kv_cache import initialize_decoder_cache
+from versatil.models.layers.transformer.cache.generation import (
+    initialize_generation_cache,
+)
 
 from .conftest import EMBEDDING_DIMENSION, NUMBER_OF_HEADS
 
 
 class TestSelfAttentionBlockForward:
-    def test_cache_none_when_use_cache_false(
+    def test_cache_none_when_no_generation_cache_provided(
         self,
         cached_attention: CachedAttention,
         unconditioned_norm,
@@ -34,7 +36,7 @@ class TestSelfAttentionBlockForward:
             sequence_length=4,
             embedding_dimension=EMBEDDING_DIMENSION,
         )
-        _, cache = block(hidden_states=hidden_states, use_cache=False)
+        _, cache = block(hidden_states=hidden_states)
         assert cache is None
 
     def test_cache_accumulates_sequence_length(
@@ -49,7 +51,7 @@ class TestSelfAttentionBlockForward:
         )
         block.eval()
         head_dimension = EMBEDDING_DIMENSION // NUMBER_OF_HEADS
-        layer_caches = initialize_decoder_cache(
+        layer_caches = initialize_generation_cache(
             batch_size=2,
             num_layers=1,
             num_heads=NUMBER_OF_HEADS,
@@ -63,11 +65,9 @@ class TestSelfAttentionBlockForward:
         )
         _, cache = block(
             hidden_states=hidden_states,
-            layer_cache=layer_caches[0],
-            use_cache=True,
+            generation_cache=layer_caches[0],
         )
-        # Cached sequence length should match input
-        assert cache.self_attention_keys.shape[2] == 4
+        assert cache.keys.shape[2] == 4
 
     def test_ada_norm_different_conditioning_produces_different_outputs(
         self,

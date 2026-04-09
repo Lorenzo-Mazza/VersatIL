@@ -1,7 +1,10 @@
-"""Tests for versatil.models.layers.transformer.blocks.cross_attention module."""
+"""Tests for versatil.models.layers.transformer.block.cross_attention module."""
 
+import re
 from collections.abc import Callable
+from contextlib import nullcontext as does_not_raise
 
+import pytest
 import torch
 
 from tests.models.layers.conftest import reinit_modulation_layers
@@ -9,15 +12,86 @@ from versatil.models.layers.normalization.ada_norm import AdaNorm
 from versatil.models.layers.transformer.attention.cached_attention import (
     CachedAttention,
 )
-from versatil.models.layers.transformer.blocks.cross_attention import (
+from versatil.models.layers.transformer.block.cross_attention import (
     CrossAttentionBlock,
 )
-from versatil.models.layers.transformer.kv_cache import LayerKVCache
+from versatil.models.layers.transformer.cache.conditioning import ConditioningLayerCache
 
 from .conftest import EMBEDDING_DIMENSION
 
 
 class TestCrossAttentionBlockForward:
+    @pytest.mark.parametrize(
+        "use_encoder_states, use_conditioning_cache, expectation",
+        [
+            (True, False, does_not_raise()),
+            (False, True, does_not_raise()),
+            (True, True, does_not_raise()),
+            (
+                False,
+                False,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "Either encoder_hidden_states or conditioning_cache must be provided"
+                    ),
+                ),
+            ),
+        ],
+        ids=[
+            "encoder_states_only",
+            "cache_only",
+            "both_provided",
+            "neither_raises",
+        ],
+    )
+    def test_requires_encoder_states_or_conditioning_cache(
+        self,
+        cached_attention: CachedAttention,
+        unconditioned_norm,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        conditioning_cache_factory: Callable[..., ConditioningLayerCache],
+        use_encoder_states: bool,
+        use_conditioning_cache: bool,
+        expectation,
+    ):
+        block = CrossAttentionBlock(
+            attention=cached_attention,
+            normalization=unconditioned_norm,
+        )
+        block.eval()
+        hidden_states = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=4,
+            embedding_dimension=EMBEDDING_DIMENSION,
+        )
+        encoder_hidden_states = (
+            sequence_tensor_factory(
+                batch_size=2,
+                sequence_length=6,
+                embedding_dimension=EMBEDDING_DIMENSION,
+            )
+            if use_encoder_states
+            else None
+        )
+        cache = (
+            conditioning_cache_factory(
+                batch_size=2,
+                number_of_key_value_heads=4,
+                memory_length=6,
+                head_dimension=8,
+            )
+            if use_conditioning_cache
+            else None
+        )
+        with expectation:
+            output = block(
+                hidden_states=hidden_states,
+                encoder_hidden_states=encoder_hidden_states,
+                conditioning_cache=cache,
+            )
+            assert output.shape == (2, 4, EMBEDDING_DIMENSION)
+
     def test_different_encoder_hidden_states_produce_different_outputs(
         self,
         cached_attention: CachedAttention,
@@ -44,12 +118,8 @@ class TestCrossAttentionBlockForward:
             sequence_length=6,
             embedding_dimension=EMBEDDING_DIMENSION,
         )
-        output_a, _ = block(
-            hidden_states=hidden_states, encoder_hidden_states=encoder_a
-        )
-        output_b, _ = block(
-            hidden_states=hidden_states, encoder_hidden_states=encoder_b
-        )
+        output_a = block(hidden_states=hidden_states, encoder_hidden_states=encoder_a)
+        output_b = block(hidden_states=hidden_states, encoder_hidden_states=encoder_b)
         assert not torch.allclose(output_a, output_b)
 
     def test_ada_norm_conditioning_affects_output(
@@ -80,24 +150,24 @@ class TestCrossAttentionBlockForward:
         conditioning_b = condition_factory(
             batch_size=2, condition_dim=EMBEDDING_DIMENSION
         )
-        output_a, _ = block(
+        output_a = block(
             hidden_states=hidden_states,
             encoder_hidden_states=encoder_hidden_states,
             conditioning=conditioning_a,
         )
-        output_b, _ = block(
+        output_b = block(
             hidden_states=hidden_states,
             encoder_hidden_states=encoder_hidden_states,
             conditioning=conditioning_b,
         )
         assert not torch.allclose(output_a, output_b)
 
-    def test_cached_cross_kv_skips_encoder_projection(
+    def test_cached_conditioning_kv_skips_encoder_projection(
         self,
         cached_attention: CachedAttention,
         unconditioned_norm,
         sequence_tensor_factory: Callable[..., torch.Tensor],
-        precomputed_kv_factory: Callable[..., tuple[torch.Tensor, torch.Tensor]],
+        conditioning_cache_factory: Callable[..., ConditioningLayerCache],
     ):
         block = CrossAttentionBlock(
             attention=cached_attention,
@@ -109,22 +179,18 @@ class TestCrossAttentionBlockForward:
             sequence_length=4,
             embedding_dimension=EMBEDDING_DIMENSION,
         )
-        cross_keys, cross_values = precomputed_kv_factory(
-            batch_size=2, key_value_length=6
+        cache = conditioning_cache_factory(
+            batch_size=2,
+            number_of_key_value_heads=4,
+            memory_length=6,
+            head_dimension=8,
         )
-        cache = LayerKVCache(
-            self_attention_keys=torch.empty(2, 4, 0, 8),
-            self_attention_values=torch.empty(2, 4, 0, 8),
-            cross_attention_keys=cross_keys,
-            cross_attention_values=cross_values,
-        )
-        # With cache: encoder_hidden_states=None, uses cached K/V
-        output_cached, _ = block(
+        output = block(
             hidden_states=hidden_states,
             encoder_hidden_states=None,
-            layer_cache=cache,
+            conditioning_cache=cache,
         )
-        assert output_cached.shape == (2, 4, EMBEDDING_DIMENSION)
+        assert output.shape == (2, 4, EMBEDDING_DIMENSION)
 
     def test_attention_mask_affects_output(
         self,
@@ -150,12 +216,12 @@ class TestCrossAttentionBlockForward:
         )
         mask = attention_mask_factory(batch_size=2, query_length=4, key_length=6)
         mask[:, :, :, 3:] = True
-        output_masked, _ = block(
+        output_masked = block(
             hidden_states=hidden_states,
             encoder_hidden_states=encoder_hidden_states,
             attention_mask=mask,
         )
-        output_unmasked, _ = block(
+        output_unmasked = block(
             hidden_states=hidden_states,
             encoder_hidden_states=encoder_hidden_states,
         )

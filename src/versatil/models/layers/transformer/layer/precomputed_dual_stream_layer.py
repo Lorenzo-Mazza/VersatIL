@@ -10,11 +10,11 @@ from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEn
 from versatil.models.layers.transformer.attention.precomputed_primary_joint_attention import (
     PrecomputedPrimaryJointAttention,
 )
-from versatil.models.layers.transformer.blocks.feedforward import (
+from versatil.models.layers.transformer.block.feedforward import (
     FeedforwardBlock,
     build_feedforward,
 )
-from versatil.models.layers.transformer.blocks.precomputed_dual_stream_attention import (
+from versatil.models.layers.transformer.block.precomputed_dual_stream_attention import (
     PrecomputedDualStreamAttentionBlock,
 )
 

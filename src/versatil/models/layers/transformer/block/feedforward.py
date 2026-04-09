@@ -5,7 +5,7 @@ import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.normalization.typedefs import BlockNormalization
-from versatil.models.layers.transformer.blocks.base import TransformerBlock
+from versatil.models.layers.transformer.block.base import TransformerBlock
 
 
 def build_feedforward(

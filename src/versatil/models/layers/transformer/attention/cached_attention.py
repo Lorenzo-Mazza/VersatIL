@@ -1,11 +1,14 @@
-"""Attention mechanisms for GPT transformer with KV cache support."""
+"""Attention with generation and conditioning cache support."""
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.transformer.kv_cache import LayerKVCache
+from versatil.models.layers.transformer.cache.conditioning import (
+    ConditioningLayerCache,
+)
+from versatil.models.layers.transformer.cache.generation import GenerationLayerCache
 from versatil.models.layers.transformer.positional_encoding import (
     apply_rope_positional_encoding,
 )
@@ -234,56 +237,43 @@ class CachedAttention(nn.Module):
         key_input: torch.Tensor | None = None,
         value_input: torch.Tensor | None = None,
         attention_mask: torch.Tensor | None = None,
-        layer_cache: LayerKVCache | None = None,
-        use_self_attention_cache: bool = False,
+        generation_cache: GenerationLayerCache | None = None,
         positional_encoding: nn.Module | None = None,
-        use_cross_attention_cache: bool = False,
-    ) -> tuple[torch.Tensor, LayerKVCache | None]:
-        """Forward pass with optional KV caching.
+        conditioning_cache: ConditioningLayerCache | None = None,
+    ) -> tuple[torch.Tensor, GenerationLayerCache | None]:
+        """Forward pass with optional generation and conditioning caches.
 
         Args:
-            query_input: Query input (B, query_len, D)
-            key_input: Key input (B, key_len, D). If None and use_cross_attention_cache=True,
-                uses precomputed K from layer_cache
-            value_input: Value input (B, value_len, D). If None and use_cross_attention_cache=True,
-                uses precomputed V from layer_cache
-            attention_mask: Optional attention mask (B,  1, query_len, key_len) where True means masked.
-                If None, no masking is applied.
-            layer_cache: Optional cached keys/values
-            use_self_attention_cache: Whether to return updated cache for self-attention
-            positional_encoding: Optional positional encoding module (for RoPE)
-            use_cross_attention_cache: If True, use precomputed cross-attention K/V from cache
+            query_input: Query input (B, query_len, D).
+            key_input: Key input (B, key_len, D). None when using conditioning_cache.
+            value_input: Value input (B, value_len, D). None when using conditioning_cache.
+            attention_mask: Bool mask (B, 1, query_len, key_len), True = masked.
+            generation_cache: Cached K/V from the main sequence. When provided,
+                an updated cache is returned.
+            positional_encoding: Optional RoPE module.
+            conditioning_cache: Precomputed K/V for static conditioning. When present,
+                key_input/value_input are ignored and cached K/V is used directly.
 
         Returns:
-            Tuple of (attention_output, updated_cache), where attention_output has shape (B, query_len, D) and
-            updated_cache is a LayerKVCache or None.
+            Tuple of (output (B, query_len, D), updated GenerationLayerCache or None).
         """
-        if use_cross_attention_cache and layer_cache is not None:
-            if (
-                layer_cache.cross_attention_keys is None
-                or layer_cache.cross_attention_values is None
-            ):
-                raise ValueError(
-                    "layer_cache must contain precomputed cross_attention K/V when use_cross_attention_cache=True"
-                )
-            # Use precomputed cross K/V, only project queries
+        if conditioning_cache is not None:
             queries = self.compute_query(query_input)
-            keys = layer_cache.cross_attention_keys
-            values = layer_cache.cross_attention_values
+            keys = conditioning_cache.keys
+            values = conditioning_cache.values
         else:
             if key_input is None or value_input is None:
                 raise ValueError(
-                    "key_input and value_input required when not using cross_attention_cache"
+                    "key_input and value_input required when conditioning_cache is not provided"
                 )
 
             queries, keys, values = self.compute_query_key_value(
                 query_input, key_input, value_input
             )
             cache_position = 0
-            if layer_cache is not None and layer_cache.self_attention_keys.numel() > 0:
-                cache_position = layer_cache.get_length()
-            # Apply RoPE positional encoding BEFORE concatenation
-            # This ensures cached keys retain their original rotations
+            if generation_cache is not None and generation_cache.keys.numel() > 0:
+                cache_position = generation_cache.get_length()
+            # Apply RoPE before concatenation so cached keys retain original rotations
             if positional_encoding is not None:
                 queries, keys = apply_rope_positional_encoding(
                     queries=queries,
@@ -291,23 +281,14 @@ class CachedAttention(nn.Module):
                     positional_encoding=positional_encoding,
                     cache_position=cache_position,
                 )
-            if layer_cache is not None and layer_cache.self_attention_keys.numel() > 0:
-                keys = torch.cat([layer_cache.self_attention_keys, keys], dim=2)
-                values = torch.cat([layer_cache.self_attention_values, values], dim=2)
+            if generation_cache is not None and generation_cache.keys.numel() > 0:
+                keys = torch.cat([generation_cache.keys, keys], dim=2)
+                values = torch.cat([generation_cache.values, values], dim=2)
 
         output = self.compute_attention(queries, keys, values, attention_mask)
 
         new_cache = None
-        if use_self_attention_cache and not use_cross_attention_cache:
-            new_cache = LayerKVCache(
-                self_attention_keys=keys,
-                self_attention_values=values,
-                cross_attention_keys=layer_cache.cross_attention_keys
-                if layer_cache is not None
-                else None,
-                cross_attention_values=layer_cache.cross_attention_values
-                if layer_cache is not None
-                else None,
-            )
+        if generation_cache is not None and conditioning_cache is None:
+            new_cache = GenerationLayerCache(keys=keys, values=values)
 
         return output, new_cache

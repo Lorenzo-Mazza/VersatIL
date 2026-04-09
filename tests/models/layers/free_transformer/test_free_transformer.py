@@ -238,25 +238,6 @@ class TestLatentConditionedDecoderLayerForward:
             )
         assert torch.allclose(output_single, output_expanded, atol=1e-5)
 
-    def test_raises_when_cache_used_with_non_autoregressive(
-        self,
-        latent_conditioned_decoder_layer_factory: Callable[
-            ..., LatentConditionedDecoderLayer
-        ],
-        sequence_tensor_factory: Callable[..., torch.Tensor],
-    ):
-        layer = latent_conditioned_decoder_layer_factory(
-            autoregressive=False,
-        )
-        hidden_states = sequence_tensor_factory(
-            batch_size=2, sequence_length=4, embedding_dimension=32
-        )
-        with pytest.raises(
-            ValueError,
-            match=re.escape("use_cache=True only valid for autoregressive models"),
-        ):
-            layer(hidden_states=hidden_states, use_cache=True)
-
 
 class TestFreeTransformerLatentEncoderInitialization:
     @pytest.mark.parametrize("embedding_dimension", [32, 64])
@@ -811,7 +792,12 @@ class TestFreeTransformerForward:
             batch_size=2, sequence_length=4, embedding_dimension=embedding_dimension
         )
         with torch.no_grad():
-            _, _, _, new_cache = model(hidden_states=hidden_states, use_cache=True)
+            generation_cache = model.create_empty_generation_cache(
+                batch_size=2, device=hidden_states.device, dtype=hidden_states.dtype
+            )
+            _, _, _, new_cache = model(
+                hidden_states=hidden_states, generation_cache=generation_cache
+            )
         assert new_cache is not None
         assert len(new_cache.layers) == number_of_decoder_layers
 
@@ -907,15 +893,16 @@ class TestFreeTransformerCaching:
         with torch.no_grad():
             full_output, _, _, _ = model(hidden_states=full_input, deterministic=True)
         # Incremental forward: process tokens one at a time
-        cache = None
+        cache = model.create_empty_generation_cache(
+            batch_size=batch_size, device=full_input.device, dtype=full_input.dtype
+        )
         incremental_outputs = []
         for token_index in range(sequence_length):
             single_token = full_input[:, token_index : token_index + 1, :]
             with torch.no_grad():
                 step_output, _, _, cache = model(
                     hidden_states=single_token,
-                    decoder_cache=cache,
-                    use_cache=True,
+                    generation_cache=cache,
                     deterministic=True,
                 )
             incremental_outputs.append(step_output)
@@ -935,14 +922,15 @@ class TestFreeTransformerCaching:
         full_input = sequence_tensor_factory(
             batch_size=2, sequence_length=4, embedding_dimension=embedding_dimension
         )
-        cache = None
+        cache = model.create_empty_generation_cache(
+            batch_size=2, device=full_input.device, dtype=full_input.dtype
+        )
         for token_index in range(4):
             single_token = full_input[:, token_index : token_index + 1, :]
             with torch.no_grad():
                 _, _, _, cache = model(
                     hidden_states=single_token,
-                    decoder_cache=cache,
-                    use_cache=True,
+                    generation_cache=cache,
                     deterministic=True,
                 )
             assert cache.get_length() == token_index + 1
