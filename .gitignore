@@ -150,3 +150,4 @@ uv.lock
 
 lightning_logs/
 src/endpoints/local_test/
+research_scripts/

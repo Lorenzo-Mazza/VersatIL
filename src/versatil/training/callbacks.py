@@ -9,6 +9,7 @@ import numpy as np
 import pytorch_lightning as pl
 import seaborn as sns
 import torch
+import wandb
 from PIL import Image
 from pytorch_lightning.callbacks import Callback, EarlyStopping
 from sklearn.decomposition import PCA
@@ -16,7 +17,6 @@ from sklearn.manifold import TSNE
 from torch.nn.modules.batchnorm import _BatchNorm
 from torch.optim.lr_scheduler import ReduceLROnPlateau as TorchReduceLROnPlateau
 
-import wandb
 from versatil.metrics.constants import MetadataKey
 
 plt.set_loglevel("warning")
