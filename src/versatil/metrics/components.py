@@ -95,8 +95,8 @@ class RegressionLoss(BaseLoss):
                     f"Predictions and targets must contain key '{action_key}' for RegressionLoss."
                 )
 
-            pred = predictions[action_key]
-            target = targets[action_key]
+            pred = predictions[action_key].float()
+            target = targets[action_key].float()
             key_weight = self.per_key_weights.get(action_key, 1.0)
 
             if self.mse_weight > 0:

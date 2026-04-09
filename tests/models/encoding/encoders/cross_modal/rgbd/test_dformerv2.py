@@ -654,7 +654,7 @@ class TestDFormerEncoderPretrainedCheckpoint:
             checkpoint_path=str(DFORMER_CHECKPOINT_PATH),
             pooling_method=PoolingMethod.AVERAGE.value,
         )
-        encoder.set_image_size(height=224, width=224)
+        encoder.set_image_size(image_height=224, image_width=224)
         encoder.eval()
         batch_size = 1
         inputs = rgbd_input_factory(batch_size=batch_size, height=224, width=224)
@@ -663,8 +663,7 @@ class TestDFormerEncoderPretrainedCheckpoint:
             output = encoder(inputs)
 
         features = output[EncoderOutputKeys.RGBD.value]
-        assert features.shape == (batch_size, encoder.output_dim)
-        # Pretrained weights should produce non-zero, non-constant features
+        assert features.shape == (batch_size, 1, encoder.output_dim)
         assert features.std() > 1e-6
 
     @pytest.mark.skipif(
@@ -689,8 +688,8 @@ class TestDFormerEncoderPretrainedCheckpoint:
             checkpoint_path=None,
             pooling_method=PoolingMethod.AVERAGE.value,
         )
-        pretrained_encoder.set_image_size(height=224, width=224)
-        random_encoder.set_image_size(height=224, width=224)
+        pretrained_encoder.set_image_size(image_height=224, image_width=224)
+        random_encoder.set_image_size(image_height=224, image_width=224)
         pretrained_encoder.eval()
         random_encoder.eval()
         inputs = rgbd_input_factory(batch_size=1, height=224, width=224)

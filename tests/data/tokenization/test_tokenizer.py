@@ -276,7 +276,10 @@ class TestTokenizerFromPretrained:
 
         with patch("versatil.data.tokenization.tokenizer.logging") as mock_logging:
             Tokenizer.from_pretrained(save_path, device=device)
-            assert mock_logging.info.call_count == 2
+            assert mock_logging.info.call_count == 1
+            mock_logging.info.assert_called_once_with(
+                f"Loaded action tokenizer from {action_path}"
+            )
 
 
 class TestValidateTokenizerConfig:

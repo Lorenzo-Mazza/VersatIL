@@ -186,7 +186,6 @@ def compression_pipeline(trained_checkpoint):
                 device=torch.device("cpu"),
                 checkpoint_path=str(output_dir),
                 checkpoint_name="last.ckpt",
-                precision="32",
             )
 
         exportable = ExportablePolicy.from_policy(policy_loader.policy)
@@ -469,7 +468,6 @@ class TestGlobalQuantizeApiDynamic:
                 device=torch.device("cpu"),
                 checkpoint_path=str(output_dir),
                 checkpoint_name="last.ckpt",
-                precision="32",
             )
         policy = policy_loader.policy
         exportable = ExportablePolicy.from_policy(policy)
