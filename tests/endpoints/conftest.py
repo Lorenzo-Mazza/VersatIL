@@ -333,15 +333,10 @@ def build_tiny_overrides(config_name: str) -> list[str]:
                     f"policy.encoding_pipeline.encoders.{encoder_name}"
                     f".backbone=${{rgb_backbone:RESNET18}}"
                 )
-            elif "vit" in target.lower():
+            elif "flat" in target.lower():
                 overrides.append(
                     f"policy.encoding_pipeline.encoders.{encoder_name}"
                     f".backbone=${{rgb_backbone:DEIT_TINY}}"
-                )
-            elif "swin" in target.lower():
-                overrides.append(
-                    f"policy.encoding_pipeline.encoders.{encoder_name}"
-                    f".backbone=${{rgb_backbone:SWIN_TINY}}"
                 )
             else:
                 overrides.append(
@@ -350,12 +345,12 @@ def build_tiny_overrides(config_name: str) -> list[str]:
                 )
         if "model_name" in encoder_cfg:
             target = encoder_cfg.get("_target_", "")
-            if "vlm" in target.lower():
+            if "two_tower_vlm" in target.lower():
                 overrides.append(
                     f"policy.encoding_pipeline.encoders.{encoder_name}"
                     f".model_name=${{vlm_model:CLIP_VITB32}}"
                 )
-            else:
+            elif "paligemma" not in target.lower() and "smolvlm" not in target.lower():
                 overrides.append(
                     f"policy.encoding_pipeline.encoders.{encoder_name}"
                     f".model_name=${{language_model:ALBERT_BASE}}"
@@ -371,18 +366,26 @@ def build_tiny_overrides(config_name: str) -> list[str]:
         cfg.task.dataloader.get("tokenization", OmegaConf.create({})),
         resolve=False,
     )
-    has_vlm_encoder = any(
-        "vlm" in enc.get("_target_", "").lower() for enc in encoders_dict.values()
+    has_two_tower_vlm = any(
+        "two_tower_vlm" in enc.get("_target_", "").lower()
+        for enc in encoders_dict.values()
+    )
+    has_generative_vlm = any(
+        any(
+            keyword in enc.get("_target_", "").lower()
+            for keyword in ("paligemma", "smolvlm")
+        )
+        for enc in encoders_dict.values()
     )
     if tokenization:
         obs_tok = tokenization.get("observation_tokenizer", {})
         if obs_tok and "tokenizer_model" in obs_tok:
-            if has_vlm_encoder:
+            if has_two_tower_vlm:
                 overrides.append(
                     "task.dataloader.tokenization.observation_tokenizer"
                     ".tokenizer_model=${vlm_model:CLIP_VITB32}"
                 )
-            else:
+            elif not has_generative_vlm:
                 overrides.append(
                     "task.dataloader.tokenization.observation_tokenizer"
                     ".tokenizer_model=${language_model:ALBERT_BASE}"

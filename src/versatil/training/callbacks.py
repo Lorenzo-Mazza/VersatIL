@@ -9,7 +9,6 @@ import numpy as np
 import pytorch_lightning as pl
 import seaborn as sns
 import torch
-import wandb
 from PIL import Image
 from pytorch_lightning.callbacks import Callback, EarlyStopping
 from sklearn.decomposition import PCA
@@ -17,6 +16,7 @@ from sklearn.manifold import TSNE
 from torch.nn.modules.batchnorm import _BatchNorm
 from torch.optim.lr_scheduler import ReduceLROnPlateau as TorchReduceLROnPlateau
 
+import wandb
 from versatil.metrics.constants import MetadataKey
 
 plt.set_loglevel("warning")
@@ -70,7 +70,6 @@ class EMACallback(Callback):
         self.min_value = min_value
         self.max_value = max_value
         self.decay = 0.0
-        self.optimization_step = 0
         self.ema_model: torch.nn.Module | None = None
 
     def on_fit_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
@@ -105,8 +104,8 @@ class EMACallback(Callback):
         if self.ema_model is None:
             return
 
-        # Compute decay factor
-        self.decay = self._get_decay(self.optimization_step)
+        # Compute decay factor using trainer's optimizer step count (not batch count)
+        self.decay = self._get_decay(trainer.global_step)
 
         # Update EMA model parameters (no_grad to avoid in-place operation errors)
         with torch.no_grad():
@@ -137,21 +136,20 @@ class EMACallback(Callback):
                             param.data.to(dtype=ema_param.dtype), alpha=1 - self.decay
                         )
 
-        self.optimization_step += 1
-
         # Log EMA decay factor
-        if self.optimization_step % 100 == 0:
+        if trainer.global_step % 100 == 0:
             pl_module.log("ema_decay", self.decay, on_step=True, on_epoch=False)
 
-    def _get_decay(self, optimization_step: int) -> float:
+    def _get_decay(self, global_step: int) -> float:
         """Compute the decay factor for the exponential moving average.
 
         Args:
-            optimization_step: Current optimization step
+            global_step: Current optimizer step count (from trainer.global_step).
 
         Returns:
             Decay factor between min_value and max_value
         """
+        optimization_step = global_step
         step = max(0, optimization_step - self.update_after_step - 1)
         value = 1 - (1 + step / self.inv_gamma) ** -self.power
 

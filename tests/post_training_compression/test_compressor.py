@@ -72,7 +72,10 @@ class TestPostTrainingCompressorValidate:
         )
 
         with expectation:
-            compressor.validate(policy=policy_with_submodules)
+            compressor.validate(
+                policy=policy_with_submodules,
+                modules=compressor.resolve_modules(),
+            )
 
     def test_raises_when_mixing_pt2e_and_quantize_api(
         self,
@@ -103,16 +106,25 @@ class TestPostTrainingCompressorValidate:
                 "Use one strategy per compression run."
             ),
         ):
-            compressor.validate(policy=policy_with_submodules)
+            compressor.validate(
+                policy=policy_with_submodules,
+                modules=compressor.resolve_modules(),
+            )
 
-    def test_empty_modules_passes_validation(
+    def test_global_mode_validation_uses_resolved_modules(
         self,
         policy_with_submodules,
         compressor_factory,
     ):
-        compressor = compressor_factory()
-
-        compressor.validate(policy=policy_with_submodules)
+        compressor = compressor_factory(
+            quantization=PT2EStrategy(pt2e_backend=X86InductorBackend()),
+        )
+        # Global mode: self.modules is empty, resolve_modules() creates root target
+        resolved = compressor.resolve_modules()
+        assert len(resolved) == 1
+        assert resolved[0].module_path == ""
+        # Validation should run on resolved modules, not the empty self.modules
+        compressor.validate(policy=policy_with_submodules, modules=resolved)
 
     def test_multiple_modules_with_one_invalid_path(
         self,
@@ -133,7 +145,10 @@ class TestPostTrainingCompressorValidate:
                 "Available top-level modules: ['backbone', 'decoder']"
             ),
         ):
-            compressor.validate(policy=policy_with_submodules)
+            compressor.validate(
+                policy=policy_with_submodules,
+                modules=compressor.resolve_modules(),
+            )
 
 
 @pytest.mark.unit

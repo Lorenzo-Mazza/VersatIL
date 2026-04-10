@@ -2,10 +2,7 @@ defaults:
   - encoder/vlm/smolvlm@encoders.vlm
   - encoder/proprio@encoders.robot_state
   - _self_
-
-_target_: versatil.models.encoding.pipeline.EncodingPipeline
-observation_space: ${task.observation_space}
-
+  
 encoders:
   vlm:
     input_keys:

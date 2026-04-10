@@ -639,6 +639,29 @@ class TestPi0DecoderBehavior:
                 output_with_norm[action_key], output_without_norm[action_key]
             )
 
+    def test_attention_mask_reordered_to_action_prefix_for_joint_sdpa(
+        self,
+        initialized_decoder_factory: Callable[..., Pi0Decoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        features = prefix_features_factory()
+        actions = noisy_actions_factory()
+        action_len = PREDICTION_HORIZON
+        with patch.object(
+            decoder,
+            "_run_training_forward",
+            wraps=decoder._run_training_forward,
+        ) as spy:
+            decoder(features=features, actions=actions)
+        mask = spy.call_args.kwargs["attention_mask"]
+        # After permutation: rows :action_len = action queries, rows action_len: = prefix queries
+        # Action queries can attend to prefix columns (action_len:) — unmasked
+        assert not mask[0, 0, :action_len, action_len:].any()
+        # Prefix queries cannot attend to action columns (:action_len) — all masked
+        assert mask[0, 0, action_len:, :action_len].all()
+
 
 @pytest.mark.integration
 class TestPi0DecoderCaching:

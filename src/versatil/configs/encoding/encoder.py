@@ -9,7 +9,6 @@ from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
     LanguageEncoderType,
     PoolingMethod,
-    SwinBackboneType,
 )
 from versatil.models.layers.activation import ActivationFunction
 
@@ -26,14 +25,14 @@ class EncoderConfig:
 
 
 @dataclass
-class DepthCNNEncoderConfig(EncoderConfig):
-    """Depth CNN encoder configuration."""
+class SpatialDepthEncoderConfig(EncoderConfig):
+    """Spatial depth encoder configuration for backbones producing (B, C, H, W) feature maps."""
 
-    _target_: str = "versatil.models.encoding.encoders.depth.cnn.DepthCNNEncoder"
+    _target_: str = (
+        "versatil.models.encoding.encoders.depth.spatial.SpatialDepthEncoder"
+    )
     backbone: str = MISSING
     batch_norm_handling: str = BatchNormHandling.FROZEN.value
-    image_height: int = MISSING
-    image_width: int = MISSING
     pooling_method: str = PoolingMethod.NONE.value
 
 
@@ -110,15 +109,6 @@ class SmolVLMEncoderConfig(EncoderConfig):
 
 
 @dataclass
-class SwinEncoderConfig(EncoderConfig):
-    """Swin Transformer image encoder configuration."""
-
-    _target_: str = "versatil.models.encoding.encoders.rgb.swin.SwinEncoder"
-    backbone: str = SwinBackboneType.SWIN_TINY.value
-    pooling_method: str = PoolingMethod.AVERAGE.value
-
-
-@dataclass
 class LanguageEncoderConfig:
     """Language encoder configuration.
     It doesn't inherit from EncoderConfig because its input key is fixed, i.e. `SampleKey.TOKENIZED_OBSERVATIONS`
@@ -137,23 +127,23 @@ class LanguageEncoderConfig:
 
 @dataclass
 class ImageEncoderConfig(EncoderConfig):
-    """Abstract base config for image encoders (CNN or ViT)."""
+    """Abstract base config for image encoders."""
 
     _target_: str = MISSING
     backbone: str = MISSING
 
 
 @dataclass
-class CNNEncoderConfig(ImageEncoderConfig):
-    """CNN-based image encoder configuration."""
+class SpatialRGBEncoderConfig(ImageEncoderConfig):
+    """Spatial RGB encoder configuration for backbones producing (B, C, H, W) feature maps."""
 
-    _target_: str = "versatil.models.encoding.encoders.rgb.cnn.CNNEncoder"
+    _target_: str = "versatil.models.encoding.encoders.rgb.spatial.SpatialRGBEncoder"
     pooling_method: str = PoolingMethod.NONE.value
     batch_norm_handling: str = BatchNormHandling.FROZEN.value
 
 
 @dataclass
-class ConditionalCNNEncoderConfig(CNNEncoderConfig):
+class ConditionalCNNEncoderConfig(SpatialRGBEncoderConfig):
     """Language-conditioned CNN encoder configuration."""
 
     _target_: str = (
@@ -166,8 +156,8 @@ class ConditionalCNNEncoderConfig(CNNEncoderConfig):
 
 
 @dataclass
-class ViTEncoderConfig(ImageEncoderConfig):
-    """ViT-based image encoder configuration."""
+class FlatRGBEncoderConfig(ImageEncoderConfig):
+    """Flat RGB encoder configuration for backbones producing (B, S, D) token sequences."""
 
-    _target_: str = MISSING
+    _target_: str = "versatil.models.encoding.encoders.rgb.flat.FlatRGBEncoder"
     pooling_method: str = PoolingMethod.NONE.value

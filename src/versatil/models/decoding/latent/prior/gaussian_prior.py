@@ -31,6 +31,7 @@ class GaussianPrior(PriorLatentEncoder):
         """Initialize Gaussian prior."""
         super().__init__(latent_dimension=latent_dimension, device=device)
         self.infer_constant_prior = infer_constant_prior
+        self.register_buffer("_device_tracker", torch.zeros(1))
         self.to(torch.device(device))
 
     def sample_prior(
@@ -49,10 +50,14 @@ class GaussianPrior(PriorLatentEncoder):
         """
         if self.infer_constant_prior:
             # Use constant zero latent for prior (like in ACT)
-            return torch.zeros(batch_size, self.latent_dimension, device=self.device)
+            return torch.zeros(
+                batch_size, self.latent_dimension, device=self._device_tracker.device
+            )
         else:
             # Sample from standard normal N(0, I)
-            return torch.randn(batch_size, self.latent_dimension, device=self.device)
+            return torch.randn(
+                batch_size, self.latent_dimension, device=self._device_tracker.device
+            )
 
     def forward(
         self,
@@ -60,9 +65,11 @@ class GaussianPrior(PriorLatentEncoder):
         observations: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Forward pass for a fixed Gaussian prior, returning zero mu and unit logvar."""
-        mu = torch.zeros_like(target_latents, device=self.device)
-        logvar = torch.zeros_like(target_latents, device=self.device)
-        z = torch.randn(mu.size(0), self.latent_dimension, device=self.device)
+        mu = torch.zeros_like(target_latents, device=self._device_tracker.device)
+        logvar = torch.zeros_like(target_latents, device=self._device_tracker.device)
+        z = torch.randn(
+            mu.size(0), self.latent_dimension, device=self._device_tracker.device
+        )
         return {
             LatentKey.PRIOR_MU.value: mu,
             LatentKey.PRIOR_LOGVAR.value: logvar,

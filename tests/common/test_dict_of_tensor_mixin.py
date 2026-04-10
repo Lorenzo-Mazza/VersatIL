@@ -67,6 +67,10 @@ class TestDictOfTensorMixinDevice:
         mixin = dict_of_tensor_mixin_factory(keys=["weight"])
         assert mixin.device.type == "cpu"
 
+    def test_device_works_when_params_dict_is_empty(self):
+        mixin = DictOfTensorMixin()
+        assert mixin.device.type == "cpu"
+
 
 @pytest.mark.unit
 class TestDictOfTensorMixinLoadFromStateDict:

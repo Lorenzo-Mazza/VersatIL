@@ -132,7 +132,14 @@ class TransformerInputBuilder(nn.Module):
     def forward(
         self, features: dict[str, torch.Tensor]
     ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
-        """Projects and concatenate features into sequences of token embeddings, with optional positional encodings.
+        """Project and concatenate features into token embeddings with optional positional encodings.
+
+        Note:
+            Processes all features in the dict (except padding masks and ``exclude_keys``).
+            Callers must filter the features dict to only include the keys the decoder
+            should attend to. Passing the full encoding pipeline output without filtering
+            will project and attend to every encoder's features.
+
         Args:
             features: Dict of features with several possible shapes:
                 - spatial features (B, C, H, W)

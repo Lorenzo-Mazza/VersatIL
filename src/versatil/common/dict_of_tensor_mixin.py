@@ -10,10 +10,11 @@ class DictOfTensorMixin(nn.Module):
         if params_dict is None:
             params_dict = nn.ParameterDict()
         self.params_dict = params_dict
+        self.register_buffer("_device_tracker", torch.zeros(1))
 
     @property
     def device(self):
-        return next(iter(self.parameters())).device
+        return self._device_tracker.device
 
     def _load_from_state_dict(
         self,

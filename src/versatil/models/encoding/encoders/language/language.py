@@ -2,7 +2,7 @@
 
 import torch
 from torch import nn
-from transformers import AutoConfig, AutoModel
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from versatil.data.constants import SampleKey
 from versatil.data.metadata import BaseMetadata, CameraMetadata
@@ -78,11 +78,14 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
             if self.use_embeddings_only
             else self.config.hidden_size
         )
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self._has_cls_token = tokenizer.cls_token_id is not None
+        self._num_prefix_tokens = 1 if self._has_cls_token else 0
         self.token_pooling_head = create_token_pooling_head(
             pooling_method=pooling_method,
             input_dimension=self.feature_dim,
             sequence_length=self.max_token_len,
-            exclude_cls=True,
+            num_prefix_tokens=self._num_prefix_tokens,
         )
         self.output_dim = self.token_pooling_head.output_dim
         self.padding_dim = (
@@ -150,7 +153,7 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
             language_mask=language_mask, text_input_ids=text_input_ids
         )
         if self.use_embeddings_only:
-            features = self.encoder(text_input_ids.to(device))
+            features = self.token_pooling_head(self.encoder(text_input_ids.to(device)))
         else:
             encoder_inputs = {
                 "input_ids": text_input_ids.to(device),
@@ -165,6 +168,7 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
             pooling_method=self.pooling_method,
             batch_size=batch_size,
             device=features.device,
+            num_prefix_tokens=self._num_prefix_tokens,
         )
         return {
             EncoderOutputKeys.LANGUAGE.value: features,

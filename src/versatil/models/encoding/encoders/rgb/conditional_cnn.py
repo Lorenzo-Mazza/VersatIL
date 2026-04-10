@@ -11,11 +11,11 @@ from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.conditional import ConditionalEncoder
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
-    CNNBackboneType,
     EncoderOutputKeys,
     PoolingMethod,
+    SpatialBackboneType,
 )
-from versatil.models.encoding.encoders.image_mixin import ImageEncoderMixin
+from versatil.models.encoding.encoders.image_mixin import RGBEncoderMixin
 from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers.convert_layers import replace_batchnorm_with_groupnorm
 from versatil.models.layers.modulation.film_residual_block import FiLMedResBlock
@@ -25,15 +25,15 @@ from versatil.models.layers.pooling.pooling_head import (
 )
 
 
-class ConditionalCNNEncoder(ImageEncoderMixin, ConditionalEncoder):
+class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
     """CNN encoder with FiLM conditioning for conditioned vision, e.g. from language features."""
 
     BACKBONE_CONFIGS = {
-        CNNBackboneType.RESNET18.value: {
+        SpatialBackboneType.RESNET18.value: {
             "layers": [2, 2, 2, 2],
             "feature_dim": 512,
         },
-        CNNBackboneType.RESNET34.value: {
+        SpatialBackboneType.RESNET34.value: {
             "layers": [3, 4, 6, 3],
             "feature_dim": 512,
         },
@@ -44,7 +44,7 @@ class ConditionalCNNEncoder(ImageEncoderMixin, ConditionalEncoder):
         input_keys: str | list[str],
         condition_key: str,
         condition_dim: int,
-        backbone: str = CNNBackboneType.RESNET18.value,
+        backbone: str = SpatialBackboneType.RESNET18.value,
         pooling_method: str = PoolingMethod.SPATIAL_SOFTMAX.value,
         batch_norm_handling: str = BatchNormHandling.FROZEN.value,
         pretrained: bool = False,
@@ -326,6 +326,8 @@ class ConditionalCNNEncoder(ImageEncoderMixin, ConditionalEncoder):
                 x = block(x, mock_condition)
             _, _, spatial_height, spatial_width = x.shape
         self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)
+        if self.frozen:
+            self._freeze_weights()
 
     def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
         """Validate that input metadata is RGB camera metadata.

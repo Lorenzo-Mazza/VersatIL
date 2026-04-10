@@ -390,9 +390,33 @@ class TestLanguageEncoderForward:
         )
         output = encoder(inputs=inputs)
         features = output[EncoderOutputKeys.LANGUAGE.value]
-        # exclude_cls=True drops the first token
+        # num_prefix_tokens=1 (CLS) drops the first token
         expected_sequence_length = MAX_TOKEN_LEN - 1
         assert features.shape == (batch_size, 1, expected_sequence_length, HIDDEN_SIZE)
+
+    def test_embeddings_only_strips_prefix_tokens_and_mask_aligns(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+        token_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 2
+        encoder = language_encoder_factory(
+            pooling_method=PoolingMethod.NONE.value,
+            use_embeddings_only=True,
+        )
+        encoder.encoder.return_value = torch.zeros(
+            batch_size, MAX_TOKEN_LEN, HIDDEN_SIZE
+        )
+        inputs = token_input_factory(
+            batch_size=batch_size,
+            sequence_length=MAX_TOKEN_LEN,
+        )
+        output = encoder(inputs=inputs)
+        features = output[EncoderOutputKeys.LANGUAGE.value]
+        mask = output[encoder.padding_mask_name]
+        expected_seq_len = MAX_TOKEN_LEN - encoder._num_prefix_tokens
+        assert features.shape == (batch_size, 1, expected_seq_len, HIDDEN_SIZE)
+        assert mask.shape[-1] == expected_seq_len
 
 
 class TestLanguageEncoderValidateInputMetadata:

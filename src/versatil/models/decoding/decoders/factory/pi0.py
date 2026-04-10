@@ -303,6 +303,20 @@ class Pi0Decoder(ActionDecoder):
             causal_actions=False,
             causal_prefix_suffix_length=causal_prefix_suffix_length,
         )
+        # Reorder attention mask from [prefix(P), action(A)] to [expert(A), VLM(P)]
+        # so _joint_sdpa's primary/secondary slicing gets the correct blocks.
+        # key_padding_mask and position_ids stay in [prefix, action] order for RoPE.
+        prefix_len = prefix_embeddings.shape[1]
+        action_len = expert_hidden.shape[1]
+        perm = torch.cat(
+            [
+                torch.arange(
+                    prefix_len, prefix_len + action_len, device=expert_hidden.device
+                ),
+                torch.arange(prefix_len, device=expert_hidden.device),
+            ]
+        )
+        attention_mask = attention_mask[:, :, perm, :][:, :, :, perm]
         pad_mask = ~key_padding_mask.bool()
         position_ids = (pad_mask.long().cumsum(dim=-1) - 1).clamp(min=0)
         prefix_length = prefix_embeddings.shape[1]

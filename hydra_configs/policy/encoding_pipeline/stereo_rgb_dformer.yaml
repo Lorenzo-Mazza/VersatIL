@@ -1,23 +1,20 @@
-# Encoding pipeline for RGB + Depth with geometric attention fusion
-# Uses DFormerV2 for depth-aware encoding
-
-_target_: versatil.models.encoding.pipeline.EncodingPipeline
-observation_space: ${task.observation_space}
+defaults:
+  - encoder/dformer@encoders.dformer
+  - encoder/image/spatial@encoders.right
+  - _self_
 
 encoders:
   dformer:
-    _target_: versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.DFormerEncoder
     input_keys:
       - ${cameras:LEFT}
       - ${cameras:DEPTH}
-    variant: S  # S, B, or L
+    variant: S
     checkpoint_path: ${pretrained_dir:pretrained_dformer/DFormerv2_Small_NYU.pth}
     pretrained: true
     frozen: true
     pooling_method: none
 
   right:
-    _target_: versatil.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys:
      - ${cameras:RIGHT}
     backbone: ${rgb_backbone:RESNET18}
@@ -32,4 +29,4 @@ fusion_stages:
       - dformer_rgbd
       - right_rgb
     output_name: visual_features
-    hidden_dim: 256  # Project each encoder to 256 channels before fusion
+    hidden_dim: 256

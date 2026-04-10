@@ -1,13 +1,10 @@
 defaults:
-  - encoder/image/cnn@encoders.left
+  - encoder/image/spatial@encoders.left
   - _self_
 
-_target_: versatil.models.encoding.pipeline.EncodingPipeline
-observation_space: ${task.observation_space}
-
+  
 encoders:
   left:
-    _target_: versatil.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys:
     - ${cameras:LEFT}
     backbone: ${rgb_backbone:EFFICIENTNET_B0}
@@ -15,6 +12,4 @@ encoders:
     frozen: false
     pooling_method: none
     batch_norm_handling: ${batch_norm_handling:FROZEN}
-
-
 fusion_stages: []

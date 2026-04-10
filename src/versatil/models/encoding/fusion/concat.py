@@ -1,7 +1,7 @@
 import torch
 
 from versatil.models.encoding.fusion.base import SequentialFusion
-from versatil.models.feature_meta import FeatureMetadata, FeatureType
+from versatil.models.feature_meta import FeatureMetadata
 
 
 class ConcatFusion(SequentialFusion):
@@ -39,6 +39,6 @@ class ConcatFusion(SequentialFusion):
         output_dim = self.hidden_dim * len(self.input_features)
         return FeatureMetadata(
             key=self.output_name,
-            feature_type=FeatureType.FLAT.value,
+            feature_type=self._output_feature_type,
             dimension=(output_dim,),
         )

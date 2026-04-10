@@ -1,4 +1,4 @@
-"""CNN encoder with multi-backbone support via timm."""
+"""Spatial RGB encoder producing (B, C, H, W) feature maps via timm features_only."""
 
 import timm
 import torch
@@ -9,10 +9,10 @@ from versatil.data.metadata import BaseMetadata, CameraMetadata
 from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
-    CNNBackboneType,
     PoolingMethod,
+    SpatialBackboneType,
 )
-from versatil.models.encoding.encoders.image_mixin import ImageEncoderMixin
+from versatil.models.encoding.encoders.image_mixin import RGBEncoderMixin
 from versatil.models.encoding.encoders.unconditional import Encoder
 from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers.convert_layers import replace_batchnorm_with_groupnorm
@@ -22,24 +22,30 @@ from versatil.models.layers.pooling.pooling_head import (
 )
 
 
-class CNNEncoder(ImageEncoderMixin, Encoder):
-    """Convolutional Neural Network encoder supporting multiple backbones via TIMM."""
+class SpatialRGBEncoder(RGBEncoderMixin, Encoder):
+    """RGB encoder for backbones that output spatial feature maps.
+
+    Supports any timm backbone compatible with ``features_only=True``,
+    regardless of whether the architecture is convolutional (ResNet,
+    EfficientNet, ConvNeXt) or attention-based (Swin, TinyViT).
+    Handles both NCHW and NHWC output layouts transparently.
+    """
 
     def __init__(
         self,
         input_keys: str | list[str],
-        backbone: str = CNNBackboneType.RESNET18.value,
+        backbone: str = SpatialBackboneType.RESNET18.value,
         pooling_method: str = PoolingMethod.AVERAGE.value,
         batch_norm_handling: str = BatchNormHandling.FROZEN.value,
         pretrained: bool = False,
         frozen: bool = False,
         model_dtype: str | None = None,
     ):
-        """Initialize CNN encoder with timm backbone.
+        """Initialize spatial RGB encoder with timm backbone.
 
         Args:
             input_keys: Camera observation keys.
-            backbone: timm model name for the CNN backbone.
+            backbone: timm model name from SpatialBackboneType.
             pooling_method: Feature pooling strategy.
             batch_norm_handling: How to handle batch normalization layers.
             pretrained: Whether to load pretrained weights.
@@ -55,15 +61,23 @@ class CNNEncoder(ImageEncoderMixin, Encoder):
             frozen=frozen,
             model_dtype=model_dtype,
         )
-        valid_backbones = [e.value for e in CNNBackboneType]
+        valid_backbones = [e.value for e in SpatialBackboneType]
         if backbone not in valid_backbones:
             raise ValueError(
                 f"Invalid backbone '{backbone}'. Must be one of: {valid_backbones}"
+            )
+        pooling = PoolingMethod(pooling_method)
+        if not pooling.supports_spatial:
+            raise ValueError(
+                f"Pooling method '{pooling_method}' is not compatible with "
+                f"spatial feature maps. Use one of: "
+                f"{[p.value for p in PoolingMethod if p.supports_spatial]}"
             )
         self._setup_camera_keys(input_keys=self.input_specification.keys)
         self.batch_norm_handling = batch_norm_handling
         self.pooling_method = pooling_method
         self.backbone_name = backbone
+        self._channels_last = False
         self._build_backbone()
         self.feature_dim = self.backbone.feature_info.channels()[-1]
         self.pooling_head: PoolingHead | None = None
@@ -71,24 +85,42 @@ class CNNEncoder(ImageEncoderMixin, Encoder):
         if frozen:
             super()._freeze_weights()
 
-    def _build_backbone(self):
-        """Build backbone using timm library."""
-        self.backbone = timm.create_model(
-            self.backbone_name,
-            pretrained=self.pretrained,
-            features_only=True,
-        )
+    def _build_backbone(self, img_size: tuple[int, int] | None = None):
+        """Build backbone using timm features_only mode.
+
+        Args:
+            img_size: Optional image size override for strict-input-size backbones.
+        """
+        kwargs: dict[str, object] = {
+            "pretrained": self.pretrained,
+            "features_only": True,
+        }
+        if img_size is not None:
+            kwargs["img_size"] = img_size
+
+        self.backbone = timm.create_model(self.backbone_name, **kwargs)
+        self._apply_batch_norm_handling()
+
+    def _apply_batch_norm_handling(self) -> None:
+        """Apply configured batch normalization handling to the backbone."""
         match self.batch_norm_handling:
             case BatchNormHandling.FROZEN.value:
                 self.backbone.apply(freeze_batch_norm_2d)
             case BatchNormHandling.CONVERT_TO_GROUPNORM.value:
                 self.backbone = replace_batchnorm_with_groupnorm(self.backbone)
             case BatchNormHandling.DEFAULT.value:
-                pass  # keep as-is
+                pass
             case _:
                 raise ValueError(
                     f"Unknown batch norm handling: {self.batch_norm_handling}"
                 )
+
+    def _has_strict_image_size(self) -> bool:
+        """Check if backbone requires exact input dimensions."""
+        patch_embed = getattr(self.backbone, "patch_embed", None)
+        if patch_embed is None:
+            return False
+        return getattr(patch_embed, "strict_img_size", False)
 
     def _setup_pooling(self, spatial_height: int, spatial_width: int) -> None:
         """Create pooling head from feature map spatial dimensions.
@@ -120,6 +152,8 @@ class CNNEncoder(ImageEncoderMixin, Encoder):
             )
         feature_maps = self.backbone(images)
         features = feature_maps[-1]
+        if self._channels_last:
+            features = features.permute(0, 3, 1, 2)  # (B, H, W, C) → (B, C, H, W)
         return self.pooling_head(features)
 
     def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
@@ -137,15 +171,40 @@ class CNNEncoder(ImageEncoderMixin, Encoder):
     def set_image_size(self, image_height: int, image_width: int) -> None:
         """Compute feature map dimensions and create pooling head.
 
+        For backbones with strict input size requirements (e.g. Swin), this
+        rebuilds the backbone with the target dimensions.
+
         Args:
             image_height: Target image height.
             image_width: Target image width.
         """
+        if self._has_strict_image_size():
+            self._build_backbone(img_size=(image_height, image_width))
+            self.feature_dim = self.backbone.feature_info.channels()[-1]
+            if self.frozen:
+                self._freeze_weights()
+
         with torch.no_grad():
             mock_input = torch.zeros(1, 3, image_height, image_width)
             mock_features = self.backbone(mock_input)[-1]
+
+        expected_channels = self.feature_dim
+        if mock_features.shape[1] == expected_channels:
+            self._channels_last = False
             _, _, spatial_height, spatial_width = mock_features.shape
+        elif mock_features.shape[-1] == expected_channels:
+            self._channels_last = True
+            _, spatial_height, spatial_width, _ = mock_features.shape
+        else:
+            raise RuntimeError(
+                f"Backbone '{self.backbone_name}' output shape {mock_features.shape} "
+                f"does not match expected channels {expected_channels} in "
+                f"either NCHW or NHWC layout."
+            )
+
         self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)
+        if self.frozen:
+            self._freeze_weights()
 
     def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
         """Validate that input metadata is RGB camera metadata.

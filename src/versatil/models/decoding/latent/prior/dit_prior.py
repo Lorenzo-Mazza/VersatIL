@@ -323,9 +323,22 @@ class DiTPrior(PriorLatentEncoder):
             observations=filtered_obs,
             timestep_embedding=timestep_embedding,
         )  # (B, latent_dim)
+        if self.prediction_type == PredictionType.EPSILON.value:
+            target = noise
+        elif self.prediction_type == PredictionType.SAMPLE.value:
+            target = target_latents
+        elif self.prediction_type == PredictionType.VELOCITY.value:
+            target = self.noise_scheduler.get_velocity(
+                sample=target_latents, noise=noise, timesteps=timesteps
+            )
+        else:
+            raise ValueError(
+                f"Unknown prediction_type: {self.prediction_type}. "
+                f"Expected one of {[e.value for e in PredictionType]}"
+            )
         return {
             LatentKey.PRIOR_PREDICTION.value: model_output,
-            LatentKey.PRIOR_TARGET.value: noise,
+            LatentKey.PRIOR_TARGET.value: target,
         }
 
     def sample_prior(

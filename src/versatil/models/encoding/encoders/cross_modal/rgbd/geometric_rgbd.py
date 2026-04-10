@@ -14,6 +14,7 @@ from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
     PoolingMethod,
 )
+from versatil.models.encoding.encoders.image_mixin import RGBDEncoderMixin
 from versatil.models.encoding.encoders.unconditional import Encoder
 from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers import PatchEmbedding
@@ -28,7 +29,7 @@ from versatil.models.layers.pooling.pooling_head import (
 )
 
 
-class GeometricRGBDEncoder(Encoder):
+class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
     """Single-layer geometry-aware RGBD encoder."""
 
     def __init__(
@@ -119,6 +120,11 @@ class GeometricRGBDEncoder(Encoder):
             spatial_width=spatial_width,
         )
         self.output_dim = self.pooling_head.output_dim
+
+    def _encode_single_image(self, images: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError(
+            "GeometricRGBDEncoder processes RGB+depth jointly. Use encode() instead."
+        )
 
     def encode_features(
         self, rgb_image: torch.Tensor, depth_map: torch.Tensor

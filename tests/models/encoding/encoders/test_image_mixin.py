@@ -1,40 +1,91 @@
 """Tests for versatil.models.encoding.encoders.image_mixin module."""
 
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import numpy as np
 import pytest
 import torch
 
-from versatil.data.constants import Cameras
+from versatil.data.constants import DEPTH_CAMERAS, RGB_CAMERAS, Cameras
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 from versatil.models.encoding.encoders.image_mixin import (
+    DepthEncoderMixin,
     ImageEncoderMixin,
+    RGBDEncoderMixin,
+    RGBEncoderMixin,
     resize_to_target_size,
 )
 
 
-class ConcreteImageEncoder(ImageEncoderMixin):
+class ConcreteRGBEncoder(RGBEncoderMixin):
     def __init__(self, input_keys: list[str]):
         self._setup_camera_keys(input_keys=input_keys)
 
     def _encode_single_image(self, images: torch.Tensor) -> torch.Tensor:
-        batch_size = images.shape[0]
-        return torch.zeros(batch_size, 16)
+        return torch.zeros(images.shape[0], 16)
 
 
-@pytest.fixture
-def image_encoder_factory() -> Callable[..., ConcreteImageEncoder]:
-    """Factory for ConcreteImageEncoder with configurable camera keys."""
+class ConcreteDepthEncoder(DepthEncoderMixin):
+    def __init__(self, input_keys: list[str]):
+        self._setup_camera_keys(input_keys=input_keys)
 
-    def factory(
-        input_keys: list[str] | None = None,
-    ) -> ConcreteImageEncoder:
-        if input_keys is None:
-            input_keys = [Cameras.LEFT.value]
-        return ConcreteImageEncoder(input_keys=input_keys)
+    def _encode_single_image(self, images: torch.Tensor) -> torch.Tensor:
+        return torch.zeros(images.shape[0], 16)
 
-    return factory
+
+class ConcreteRGBDEncoder(RGBDEncoderMixin):
+    def __init__(self, input_keys: list[str]):
+        self._setup_camera_keys(input_keys=input_keys)
+
+    def _encode_single_image(self, images: torch.Tensor) -> torch.Tensor:
+        return torch.zeros(images.shape[0], 16)
+
+
+@dataclass
+class MixinTestSpec:
+    """Test specification for a modality mixin."""
+
+    encoder_class: type[ImageEncoderMixin]
+    single_key: str
+    camera_group: list[str]
+    output_modality: str
+
+
+@pytest.fixture(
+    params=[
+        pytest.param(
+            MixinTestSpec(
+                encoder_class=ConcreteRGBEncoder,
+                single_key=Cameras.LEFT.value,
+                camera_group=RGB_CAMERAS,
+                output_modality=EncoderOutputKeys.RGB.value,
+            ),
+            id="rgb",
+        ),
+        pytest.param(
+            MixinTestSpec(
+                encoder_class=ConcreteDepthEncoder,
+                single_key=Cameras.DEPTH.value,
+                camera_group=DEPTH_CAMERAS,
+                output_modality=EncoderOutputKeys.DEPTH.value,
+            ),
+            id="depth",
+        ),
+        pytest.param(
+            MixinTestSpec(
+                encoder_class=ConcreteRGBDEncoder,
+                single_key=Cameras.LEFT.value,
+                camera_group=RGB_CAMERAS + DEPTH_CAMERAS,
+                output_modality=EncoderOutputKeys.RGBD.value,
+            ),
+            id="rgbd",
+        ),
+    ]
+)
+def mixin_spec(request) -> MixinTestSpec:
+    """Parametrized spec that runs each test for both RGB and Depth mixins."""
+    return request.param
 
 
 @pytest.fixture
@@ -115,102 +166,88 @@ class TestResizeToTargetSize:
             images=images, target_height=224, target_width=224
         )
         assert result.shape == (2, 3, 224, 224)
-        # No zero-padding regions should exist for square-to-square resize
         assert not torch.any(torch.all(result == 0.0, dim=1))
 
 
+class TestMixinModality:
+    def test_output_modality_matches_mixin(self, mixin_spec: MixinTestSpec):
+        encoder = mixin_spec.encoder_class(input_keys=[mixin_spec.single_key])
+        assert encoder._output_modality == mixin_spec.output_modality
+
+    def test_camera_group_matches_mixin(self, mixin_spec: MixinTestSpec):
+        encoder = mixin_spec.encoder_class(input_keys=[mixin_spec.single_key])
+        assert encoder._camera_group == mixin_spec.camera_group
+
+
 class TestSetupCameraKeys:
-    @pytest.mark.parametrize(
-        "input_keys, expected_camera_keys, expected_multi_camera",
-        [
-            ([Cameras.LEFT.value], [Cameras.LEFT.value], False),
-            (
-                [Cameras.LEFT.value, Cameras.RIGHT.value],
-                [Cameras.LEFT.value, Cameras.RIGHT.value],
-                True,
-            ),
-            (
-                [Cameras.LEFT.value, "tokenized_observations"],
-                [Cameras.LEFT.value],
-                False,
-            ),
-        ],
-    )
-    def test_extracts_camera_keys_and_detects_multi_camera(
-        self,
-        image_encoder_factory: Callable[..., ConcreteImageEncoder],
-        input_keys: list[str],
-        expected_camera_keys: list[str],
-        expected_multi_camera: bool,
-    ):
-        encoder = image_encoder_factory(input_keys=input_keys)
-        assert encoder.camera_keys == expected_camera_keys
-        assert encoder.is_multi_camera is expected_multi_camera
+    def test_extracts_matching_camera_keys(self, mixin_spec: MixinTestSpec):
+        key = mixin_spec.single_key
+        encoder = mixin_spec.encoder_class(input_keys=[key])
+        assert encoder.camera_keys == [key]
+        assert encoder.is_multi_camera is False
+
+    def test_filters_non_camera_keys(self, mixin_spec: MixinTestSpec):
+        key = mixin_spec.single_key
+        encoder = mixin_spec.encoder_class(input_keys=[key, "tokenized_observations"])
+        assert encoder.camera_keys == [key]
+        assert encoder.is_multi_camera is False
+
+
+class TestSetupCameraKeysRGBMultiCamera:
+    def test_multi_camera_detection(self):
+        encoder = ConcreteRGBEncoder(
+            input_keys=[Cameras.LEFT.value, Cameras.RIGHT.value]
+        )
+        assert encoder.camera_keys == [Cameras.LEFT.value, Cameras.RIGHT.value]
+        assert encoder.is_multi_camera is True
 
 
 class TestGetVisionFeatureNames:
-    @pytest.mark.parametrize(
-        "input_keys, expected_names",
-        [
-            (
-                [Cameras.LEFT.value],
-                [EncoderOutputKeys.RGB.value],
-            ),
-            (
-                [Cameras.LEFT.value, Cameras.RIGHT.value],
-                [
-                    f"{EncoderOutputKeys.RGB.value}.{Cameras.LEFT.value}",
-                    f"{EncoderOutputKeys.RGB.value}.{Cameras.RIGHT.value}",
-                ],
-            ),
-        ],
-    )
-    def test_feature_names_match_camera_configuration(
-        self,
-        image_encoder_factory: Callable[..., ConcreteImageEncoder],
-        input_keys: list[str],
-        expected_names: list[str],
-    ):
-        encoder = image_encoder_factory(input_keys=input_keys)
-        assert encoder._get_vision_feature_names() == expected_names
+    def test_single_camera_uses_modality_key(self, mixin_spec: MixinTestSpec):
+        encoder = mixin_spec.encoder_class(input_keys=[mixin_spec.single_key])
+        assert encoder._get_vision_feature_names() == [mixin_spec.output_modality]
+
+    def test_multi_camera_prefixes_with_modality(self):
+        encoder = ConcreteRGBEncoder(
+            input_keys=[Cameras.LEFT.value, Cameras.RIGHT.value]
+        )
+        expected = [
+            f"{EncoderOutputKeys.RGB.value}.{Cameras.LEFT.value}",
+            f"{EncoderOutputKeys.RGB.value}.{Cameras.RIGHT.value}",
+        ]
+        assert encoder._get_vision_feature_names() == expected
 
 
 class TestEncodeVision:
-    @pytest.mark.parametrize(
-        "input_keys, expected_keys",
-        [
-            (
-                [Cameras.LEFT.value],
-                [EncoderOutputKeys.RGB.value],
-            ),
-            (
-                [Cameras.LEFT.value, Cameras.RIGHT.value],
-                [
-                    f"{EncoderOutputKeys.RGB.value}.{Cameras.LEFT.value}",
-                    f"{EncoderOutputKeys.RGB.value}.{Cameras.RIGHT.value}",
-                ],
-            ),
-        ],
-    )
-    def test_output_keys_match_camera_configuration(
+    def test_single_camera_output_key(
         self,
-        image_encoder_factory: Callable[..., ConcreteImageEncoder],
+        mixin_spec: MixinTestSpec,
         camera_image_factory: Callable[..., dict[str, torch.Tensor]],
-        input_keys: list[str],
-        expected_keys: list[str],
     ):
-        encoder = image_encoder_factory(input_keys=input_keys)
-        inputs = camera_image_factory(camera_keys=input_keys)
+        key = mixin_spec.single_key
+        encoder = mixin_spec.encoder_class(input_keys=[key])
+        inputs = camera_image_factory(camera_keys=[key])
         result = encoder._encode_vision(inputs)
-        assert list(result.keys()) == expected_keys
+        assert list(result.keys()) == [mixin_spec.output_modality]
 
-    def test_encode_single_image_called_per_camera(
+    def test_multi_camera_output_keys(
         self,
-        image_encoder_factory: Callable[..., ConcreteImageEncoder],
         camera_image_factory: Callable[..., dict[str, torch.Tensor]],
     ):
         camera_keys = [Cameras.LEFT.value, Cameras.RIGHT.value]
-        encoder = image_encoder_factory(input_keys=camera_keys)
+        encoder = ConcreteRGBEncoder(input_keys=camera_keys)
+        inputs = camera_image_factory(camera_keys=camera_keys)
+        result = encoder._encode_vision(inputs)
+        rgb = EncoderOutputKeys.RGB.value
+        expected_keys = [f"{rgb}.{Cameras.LEFT.value}", f"{rgb}.{Cameras.RIGHT.value}"]
+        assert list(result.keys()) == expected_keys
+
+    def test_encode_produces_correct_shape_per_camera(
+        self,
+        camera_image_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        camera_keys = [Cameras.LEFT.value, Cameras.RIGHT.value]
+        encoder = ConcreteRGBEncoder(input_keys=camera_keys)
         inputs = camera_image_factory(camera_keys=camera_keys, batch_size=3)
         result = encoder._encode_vision(inputs)
         rgb = EncoderOutputKeys.RGB.value

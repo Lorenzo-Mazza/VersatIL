@@ -1,4 +1,4 @@
-"""Tests for versatil.models.encoding.encoders.rgb.vit module."""
+"""Tests for versatil.models.encoding.encoders.rgb.flat module."""
 
 import re
 from collections.abc import Callable
@@ -12,16 +12,15 @@ import torch
 from versatil.data.constants import RGB_CAMERAS
 from versatil.data.metadata import BaseMetadata, CameraMetadata
 from versatil.models.encoding.encoders.constants import (
-    CNNBackboneType,
     EncoderOutputKeys,
+    FlatBackboneType,
     PoolingMethod,
-    SwinBackboneType,
-    ViTBackboneType,
+    SpatialBackboneType,
 )
-from versatil.models.encoding.encoders.rgb.vit import ViTEncoder
+from versatil.models.encoding.encoders.rgb.flat import FlatRGBEncoder
 
-VIT_BACKBONES = list(ViTBackboneType)
-VIT_VALID_BACKBONES = [e.value for e in ViTBackboneType]
+FLAT_BACKBONES = list(FlatBackboneType)
+FLAT_VALID_BACKBONES = [e.value for e in FlatBackboneType]
 
 FEATURE_DIM = 768
 SEQUENCE_LENGTH = 196
@@ -37,18 +36,18 @@ def _mock_build_backbone(self):
 
 
 @pytest.fixture
-def vit_encoder_factory() -> Callable[..., ViTEncoder]:
-    """Factory for ViTEncoder with mocked backbone."""
+def flat_rgb_encoder_factory() -> Callable[..., FlatRGBEncoder]:
+    """Factory for FlatRGBEncoder with mocked backbone."""
 
     def factory(
         input_keys: str | list[str] = "left",
-        backbone: str = ViTBackboneType.DINOV2_VITB14.value,
+        backbone: str = FlatBackboneType.DINOV2_VITB14.value,
         pooling_method: str = PoolingMethod.DEFAULT.value,
         pretrained: bool = False,
         frozen: bool = False,
-    ) -> ViTEncoder:
-        with patch.object(ViTEncoder, "_build_backbone", _mock_build_backbone):
-            return ViTEncoder(
+    ) -> FlatRGBEncoder:
+        with patch.object(FlatRGBEncoder, "_build_backbone", _mock_build_backbone):
+            return FlatRGBEncoder(
                 input_keys=input_keys,
                 backbone=backbone,
                 pooling_method=pooling_method,
@@ -79,30 +78,30 @@ def mock_backbone_output_factory(
     return factory
 
 
-class TestViTEncoderInitialization:
+class TestFlatRGBEncoderInitialization:
     @pytest.mark.parametrize(
         "backbone, expectation",
         [
-            (ViTBackboneType.DINOV2_VITB14.value, does_not_raise()),
-            (ViTBackboneType.VIT_BASE.value, does_not_raise()),
-            (ViTBackboneType.DINOV2_VITS14.value, does_not_raise()),
+            (FlatBackboneType.DINOV2_VITB14.value, does_not_raise()),
+            (FlatBackboneType.VIT_BASE.value, does_not_raise()),
+            (FlatBackboneType.DINOV2_VITS14.value, does_not_raise()),
             (
-                CNNBackboneType.RESNET18.value,
+                SpatialBackboneType.RESNET18.value,
                 pytest.raises(
                     ValueError,
                     match=re.escape(
-                        f"Invalid backbone '{CNNBackboneType.RESNET18.value}'. "
-                        f"Must be one of: {VIT_VALID_BACKBONES}"
+                        f"Invalid backbone '{SpatialBackboneType.RESNET18.value}'. "
+                        f"Must be one of: {FLAT_VALID_BACKBONES}"
                     ),
                 ),
             ),
             (
-                SwinBackboneType.SWIN_TINY.value,
+                SpatialBackboneType.SWIN_TINY.value,
                 pytest.raises(
                     ValueError,
                     match=re.escape(
-                        f"Invalid backbone '{SwinBackboneType.SWIN_TINY.value}'. "
-                        f"Must be one of: {VIT_VALID_BACKBONES}"
+                        f"Invalid backbone '{SpatialBackboneType.SWIN_TINY.value}'. "
+                        f"Must be one of: {FLAT_VALID_BACKBONES}"
                     ),
                 ),
             ),
@@ -112,7 +111,7 @@ class TestViTEncoderInitialization:
                     ValueError,
                     match=re.escape(
                         f"Invalid backbone 'invalid_backbone'. "
-                        f"Must be one of: {VIT_VALID_BACKBONES}"
+                        f"Must be one of: {FLAT_VALID_BACKBONES}"
                     ),
                 ),
             ),
@@ -125,9 +124,9 @@ class TestViTEncoderInitialization:
     ):
         with (
             expectation,
-            patch.object(ViTEncoder, "_build_backbone", _mock_build_backbone),
+            patch.object(FlatRGBEncoder, "_build_backbone", _mock_build_backbone),
         ):
-            ViTEncoder(
+            FlatRGBEncoder(
                 input_keys="left",
                 pretrained=False,
                 frozen=False,
@@ -154,19 +153,67 @@ class TestViTEncoderInitialization:
     )
     def test_input_keys_validation(
         self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
         input_keys: str | list[str],
         expectation,
     ):
         with expectation:
-            vit_encoder_factory(input_keys=input_keys)
+            flat_rgb_encoder_factory(input_keys=input_keys)
+
+    @pytest.mark.parametrize(
+        "pooling_method, expectation",
+        [
+            (PoolingMethod.DEFAULT.value, does_not_raise()),
+            (PoolingMethod.NONE.value, does_not_raise()),
+            (PoolingMethod.AVERAGE.value, does_not_raise()),
+            (PoolingMethod.LEARNED_AGGREGATION.value, does_not_raise()),
+            (
+                PoolingMethod.SPATIAL_SOFTMAX.value,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        f"Pooling method '{PoolingMethod.SPATIAL_SOFTMAX.value}' "
+                        f"is not compatible with token sequences. Use one of: "
+                        f"{[p.value for p in PoolingMethod if p.supports_sequential]}"
+                    ),
+                ),
+            ),
+            (
+                PoolingMethod.MAX.value,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        f"Pooling method '{PoolingMethod.MAX.value}' "
+                        f"is not compatible with token sequences. Use one of: "
+                        f"{[p.value for p in PoolingMethod if p.supports_sequential]}"
+                    ),
+                ),
+            ),
+        ],
+    )
+    def test_pooling_method_sequential_validation(
+        self,
+        pooling_method: str,
+        expectation,
+    ):
+        with (
+            expectation,
+            patch.object(FlatRGBEncoder, "_build_backbone", _mock_build_backbone),
+        ):
+            FlatRGBEncoder(
+                input_keys="left",
+                pretrained=False,
+                frozen=False,
+                pooling_method=pooling_method,
+                backbone=FlatBackboneType.DINOV2_VITB14.value,
+            )
 
     @pytest.mark.parametrize("input_keys", ["left", "right"])
     @pytest.mark.parametrize(
         "backbone",
         [
-            ViTBackboneType.DINOV2_VITS14.value,
-            ViTBackboneType.DINOV2_VITB14.value,
+            FlatBackboneType.DINOV2_VITS14.value,
+            FlatBackboneType.DINOV2_VITB14.value,
         ],
     )
     @pytest.mark.parametrize(
@@ -178,12 +225,12 @@ class TestViTEncoderInitialization:
     )
     def test_stores_configuration(
         self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
         input_keys: str | list[str],
         backbone: str,
         pooling_method: str,
     ):
-        encoder = vit_encoder_factory(
+        encoder = flat_rgb_encoder_factory(
             input_keys=input_keys,
             backbone=backbone,
             pooling_method=pooling_method,
@@ -195,10 +242,10 @@ class TestViTEncoderInitialization:
         assert encoder.input_specification.keys == expected_keys
 
     def test_none_pooling_sets_output_dim_to_tuple(self):
-        with patch.object(ViTEncoder, "_build_backbone", _mock_build_backbone):
-            encoder = ViTEncoder(
+        with patch.object(FlatRGBEncoder, "_build_backbone", _mock_build_backbone):
+            encoder = FlatRGBEncoder(
                 input_keys="left",
-                backbone=ViTBackboneType.DINOV2_VITB14.value,
+                backbone=FlatBackboneType.DINOV2_VITB14.value,
                 pooling_method=PoolingMethod.NONE.value,
                 pretrained=False,
                 frozen=False,
@@ -206,10 +253,10 @@ class TestViTEncoderInitialization:
         assert encoder.output_dim == (-1, FEATURE_DIM)
 
     def test_non_none_pooling_sets_output_dim_to_int(self):
-        with patch.object(ViTEncoder, "_build_backbone", _mock_build_backbone):
-            encoder = ViTEncoder(
+        with patch.object(FlatRGBEncoder, "_build_backbone", _mock_build_backbone):
+            encoder = FlatRGBEncoder(
                 input_keys="left",
-                backbone=ViTBackboneType.DINOV2_VITB14.value,
+                backbone=FlatBackboneType.DINOV2_VITB14.value,
                 pooling_method=PoolingMethod.DEFAULT.value,
                 pretrained=False,
                 frozen=False,
@@ -217,17 +264,17 @@ class TestViTEncoderInitialization:
         assert encoder.output_dim == FEATURE_DIM
 
 
-class TestViTEncoderForward:
+class TestFlatRGBEncoderForward:
     @pytest.mark.parametrize("time_steps", [1, 3])
     def test_output_shape_with_temporal_dimension(
         self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
         image_input_factory: Callable[..., dict[str, torch.Tensor]],
         mock_backbone_output_factory: Callable[..., torch.Tensor],
         time_steps: int,
     ):
         batch_size = 2
-        encoder = vit_encoder_factory(pooling_method=PoolingMethod.DEFAULT.value)
+        encoder = flat_rgb_encoder_factory(pooling_method=PoolingMethod.DEFAULT.value)
         effective_batch = batch_size * time_steps
         backbone_output = mock_backbone_output_factory(batch_size=effective_batch)
         encoder.backbone.forward_features.return_value = backbone_output
@@ -241,13 +288,13 @@ class TestViTEncoderForward:
 
     def test_none_pooling_output_shape_with_time(
         self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
         image_input_factory: Callable[..., dict[str, torch.Tensor]],
         mock_backbone_output_factory: Callable[..., torch.Tensor],
     ):
         batch_size = 2
         time_steps = 3
-        encoder = vit_encoder_factory(pooling_method=PoolingMethod.NONE.value)
+        encoder = flat_rgb_encoder_factory(pooling_method=PoolingMethod.NONE.value)
         effective_batch = batch_size * time_steps
         backbone_output = mock_backbone_output_factory(batch_size=effective_batch)
         encoder.backbone.forward_features.return_value = backbone_output
@@ -260,12 +307,12 @@ class TestViTEncoderForward:
         assert features.shape == (batch_size, time_steps, SEQUENCE_LENGTH, FEATURE_DIM)
 
 
-class TestViTEncoderGetOutputSpecification:
+class TestFlatRGBEncoderGetOutputSpecification:
     def test_returns_rgb_feature_with_correct_dimension(
         self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
     ):
-        encoder = vit_encoder_factory()
+        encoder = flat_rgb_encoder_factory()
         specification = encoder.get_output_specification()
         feature_keys = [m.key for m in specification]
         assert feature_keys == [EncoderOutputKeys.RGB.value]
@@ -279,24 +326,24 @@ class TestViTEncoderGetOutputSpecification:
         )
 
 
-class TestViTEncoderBuildBackbone:
+class TestFlatRGBEncoderBuildBackbone:
     @pytest.mark.integration
     def test_fixed_input_size_models_have_strict_image_size(self):
-        encoder = ViTEncoder(
+        encoder = FlatRGBEncoder(
             input_keys="left",
-            backbone=ViTBackboneType.DINOV2_VITS14.value,
+            backbone=FlatBackboneType.DINOV2_VITS14.value,
             pooling_method=PoolingMethod.NONE.value,
             pretrained=False,
             frozen=False,
         )
-        assert encoder.requires_strict_image_size is True
-        assert encoder.expected_image_size is not None
+        assert encoder.requires_strict_image_size
+        assert encoder.expected_image_size == (518, 518)
 
     @pytest.mark.integration
     def test_set_image_size_rebuilds_backbone(self):
-        encoder = ViTEncoder(
+        encoder = FlatRGBEncoder(
             input_keys="left",
-            backbone=ViTBackboneType.DINOV2_VITS14.value,
+            backbone=FlatBackboneType.DINOV2_VITS14.value,
             pooling_method=PoolingMethod.DEFAULT.value,
             pretrained=False,
             frozen=False,
@@ -307,7 +354,7 @@ class TestViTEncoderBuildBackbone:
         assert encoder.expected_image_size != original_size
 
 
-class TestViTEncoderValidateInputMetadata:
+class TestFlatRGBEncoderValidateInputMetadata:
     @pytest.mark.parametrize(
         "metadata, expected_error",
         [
@@ -339,16 +386,16 @@ class TestViTEncoderValidateInputMetadata:
     )
     def test_validates_camera_metadata(
         self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
         metadata,
         expected_error: str | None,
     ):
-        encoder = vit_encoder_factory()
+        encoder = flat_rgb_encoder_factory()
         result = encoder.validate_input_metadata(key="left", metadata=metadata)
         assert result == expected_error
 
 
-class TestViTEncoderMultiCamera:
+class TestFlatRGBEncoderMultiCamera:
     @pytest.mark.parametrize(
         "input_keys, expected_feature_count, expected_multi_camera",
         [
@@ -358,12 +405,12 @@ class TestViTEncoderMultiCamera:
     )
     def test_output_specification_scales_with_cameras(
         self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
         input_keys: str | list[str],
         expected_feature_count: int,
         expected_multi_camera: bool,
     ):
-        encoder = vit_encoder_factory(input_keys=input_keys)
+        encoder = flat_rgb_encoder_factory(input_keys=input_keys)
         specification = encoder.get_output_specification()
         feature_keys = [m.key for m in specification]
         assert len(feature_keys) == expected_feature_count
@@ -378,12 +425,12 @@ class TestViTEncoderMultiCamera:
 
     def test_multi_camera_forward_produces_per_camera_features(
         self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
         image_input_factory: Callable[..., dict[str, torch.Tensor]],
         mock_backbone_output_factory: Callable[..., torch.Tensor],
     ):
         batch_size = 2
-        encoder = vit_encoder_factory(
+        encoder = flat_rgb_encoder_factory(
             input_keys=["left", "right"],
             pooling_method=PoolingMethod.DEFAULT.value,
         )
@@ -400,12 +447,12 @@ class TestViTEncoderMultiCamera:
 
     def test_multi_camera_backbone_called_per_camera(
         self,
-        vit_encoder_factory: Callable[..., ViTEncoder],
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
         image_input_factory: Callable[..., dict[str, torch.Tensor]],
         mock_backbone_output_factory: Callable[..., torch.Tensor],
     ):
         batch_size = 2
-        encoder = vit_encoder_factory(
+        encoder = flat_rgb_encoder_factory(
             input_keys=["left", "right"],
             pooling_method=PoolingMethod.DEFAULT.value,
         )
@@ -419,16 +466,16 @@ class TestViTEncoderMultiCamera:
         assert encoder.backbone.forward_features.call_count == 2
 
 
-class TestViTEncoderIntegration:
+class TestFlatRGBEncoderIntegration:
     @pytest.mark.integration
-    @pytest.mark.parametrize("backbone", [b.value for b in VIT_BACKBONES])
+    @pytest.mark.parametrize("backbone", [b.value for b in FLAT_BACKBONES])
     def test_forward_pass_per_backbone(
         self,
         image_input_factory: Callable[..., dict[str, torch.Tensor]],
         backbone: str,
     ):
         batch_size = 2
-        encoder = ViTEncoder(
+        encoder = FlatRGBEncoder(
             input_keys="left",
             backbone=backbone,
             pooling_method=PoolingMethod.DEFAULT.value,
@@ -448,9 +495,9 @@ class TestViTEncoderIntegration:
         time_steps: int,
     ):
         batch_size = 2
-        encoder = ViTEncoder(
+        encoder = FlatRGBEncoder(
             input_keys="left",
-            backbone=ViTBackboneType.DINOV2_VITS14.value,
+            backbone=FlatBackboneType.DINOV2_VITS14.value,
             pooling_method=PoolingMethod.DEFAULT.value,
             pretrained=False,
             frozen=False,
@@ -476,12 +523,34 @@ class TestViTEncoderIntegration:
         frozen: bool,
         expected_requires_grad: bool,
     ):
-        encoder = ViTEncoder(
+        encoder = FlatRGBEncoder(
             input_keys="left",
-            backbone=ViTBackboneType.DINOV2_VITS14.value,
+            backbone=FlatBackboneType.DINOV2_VITS14.value,
             pooling_method=PoolingMethod.DEFAULT.value,
             pretrained=False,
             frozen=frozen,
         )
         for parameter in encoder.parameters():
             assert parameter.requires_grad is expected_requires_grad
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize("frozen", [True, False])
+    @pytest.mark.parametrize(
+        "pooling_method",
+        [PoolingMethod.DEFAULT.value, PoolingMethod.LEARNED_AGGREGATION.value],
+    )
+    def test_frozen_preserved_after_set_image_size(
+        self,
+        frozen: bool,
+        pooling_method: str,
+    ):
+        encoder = FlatRGBEncoder(
+            input_keys="left",
+            backbone=FlatBackboneType.DINOV2_VITS14.value,
+            pooling_method=pooling_method,
+            pretrained=False,
+            frozen=frozen,
+        )
+        encoder.set_image_size(image_height=518, image_width=518)
+        for parameter in encoder.parameters():
+            assert parameter.requires_grad is not frozen

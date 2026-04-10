@@ -1,31 +1,29 @@
-# Encoding pipeline for RGB-only observations using ResNet18
-# Standard configuration for ACT models
-
-_target_: versatil.models.encoding.pipeline.EncodingPipeline
-observation_space: ${task.observation_space}
+defaults:
+  - encoder/image/spatial@encoders.left
+  - encoder/image/spatial@encoders.right
+  - encoder/proprio@encoders.camera_frame
+  - _self_
 
 encoders:
-  left: # Output features will be accessible via "left_rgb"
-    _target_: versatil.models.encoding.encoders.rgb.cnn.CNNEncoder
-    input_keys: ${cameras:LEFT}
+  left:
+    input_keys:
+      - ${cameras:LEFT}
     backbone: ${rgb_backbone:RESNET18}
     pretrained: true
     frozen: false
     pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
     batch_norm_handling: ${batch_norm_handling:FROZEN}
 
-  right: # Output features will be accessible via "right_rgb"
-    _target_: versatil.models.encoding.encoders.rgb.cnn.CNNEncoder
-    input_keys: ${cameras:RIGHT}
+  right:
+    input_keys:
+      - ${cameras:RIGHT}
     backbone: ${rgb_backbone:RESNET18}
     pretrained: true
     frozen: false
     pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
     batch_norm_handling: ${batch_norm_handling:FROZEN}
 
-  camera_frame: # Output features will be accessible via "camera_frame_proprio"
-    _target_: versatil.models.encoding.encoders.proprioceptive.base.ProprioceptiveEncoder
+  camera_frame:
     input_keys:
       - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
     output_dim: 32
-

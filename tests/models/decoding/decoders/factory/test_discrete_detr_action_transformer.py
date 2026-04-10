@@ -190,7 +190,7 @@ class TestDiscreteDETRInitialization:
     ):
         decoder = detr_decoder_factory()
         assert FeatureType.SPATIAL.value in decoder.decoder_input.required_types
-        assert decoder.decoder_input.requires_actions is True
+        assert decoder.decoder_input.requires_actions is False
 
     def test_tokenizer_state_initially_none(
         self,

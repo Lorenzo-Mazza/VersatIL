@@ -504,6 +504,36 @@ class TestDFormerEncoderLoadCheckpoint:
             mock_load.assert_called_once_with(actual_state_dict, strict=False)
 
 
+class TestDFormerEncoderMixin:
+    def test_camera_group_includes_rgb_and_depth(
+        self,
+        dformer_encoder_factory: Callable[..., DFormerEncoder],
+    ):
+        encoder = dformer_encoder_factory()
+        assert Cameras.LEFT.value in encoder._camera_group
+        assert Cameras.DEPTH.value in encoder._camera_group
+
+    def test_output_modality_is_rgbd(
+        self,
+        dformer_encoder_factory: Callable[..., DFormerEncoder],
+    ):
+        encoder = dformer_encoder_factory()
+        assert encoder._output_modality == EncoderOutputKeys.RGBD.value
+
+    def test_encode_single_image_raises(
+        self,
+        dformer_encoder_factory: Callable[..., DFormerEncoder],
+    ):
+        encoder = dformer_encoder_factory()
+        with pytest.raises(
+            NotImplementedError,
+            match=re.escape(
+                "DFormerEncoder processes RGB+depth jointly. Use encode() instead."
+            ),
+        ):
+            encoder._encode_single_image(torch.zeros(1, 3, 32, 32))
+
+
 class TestDFormerEncoderGetOutputSpecification:
     def test_returns_rgbd_feature_with_correct_dimension(
         self,

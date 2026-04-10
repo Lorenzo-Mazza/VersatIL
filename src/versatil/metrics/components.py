@@ -822,20 +822,21 @@ class TrajectoryLengthLoss(BaseLoss):
         pred = predictions[self.action_key]
         target = targets[self.action_key]
 
-        if is_pad is not None:
-            mask = (~is_pad).unsqueeze(-1).float()
-            pred_masked = pred * mask
-            target_masked = target * mask
-        else:
-            pred_masked = pred
-            target_masked = target
+        pred_steps = torch.norm(pred[:, 1:] - pred[:, :-1], dim=-1)  # (B, H-1)
+        target_steps = torch.norm(target[:, 1:] - target[:, :-1], dim=-1)  # (B, H-1)
 
-        pred_length = torch.norm(
-            pred_masked[:, 1:] - pred_masked[:, :-1], dim=-1
-        ).mean()
-        target_length = torch.norm(
-            target_masked[:, 1:] - target_masked[:, :-1], dim=-1
-        ).mean()
+        if is_pad is not None:
+            # A step between t-1 and t is valid only if both timesteps are valid
+            valid_steps = (~is_pad[:, 1:]) & (~is_pad[:, :-1])  # (B, H-1)
+            pred_length = reduce_loss_with_padding(
+                pred_steps, is_pad=~valid_steps, reduction="mean"
+            )
+            target_length = reduce_loss_with_padding(
+                target_steps, is_pad=~valid_steps, reduction="mean"
+            )
+        else:
+            pred_length = pred_steps.mean()
+            target_length = target_steps.mean()
 
         length_loss = (pred_length - target_length) ** 2
 
@@ -902,7 +903,8 @@ class TrajectorySmoothness(BaseLoss):
         accelerations = velocities[:, 1:] - velocities[:, :-1]
         smoothness = torch.norm(accelerations, dim=-1)
         if is_pad is not None:
-            pad_mask_accel = is_pad[:, 2:]
+            # Acceleration at position t uses timesteps t, t+1, t+2 — invalid if any is padded
+            pad_mask_accel = is_pad[:, :-2] | is_pad[:, 1:-1] | is_pad[:, 2:]
             smoothness = reduce_loss_with_padding(
                 smoothness, pad_mask_accel, reduction="mean"
             )

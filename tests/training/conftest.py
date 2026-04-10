@@ -5,7 +5,9 @@ from unittest.mock import MagicMock, Mock
 
 import numpy as np
 import pytest
+import pytorch_lightning as pl
 import torch
+from torch.utils.data import DataLoader, TensorDataset
 
 from versatil.configs.training import (
     AdamWConfig,
@@ -69,6 +71,49 @@ def mock_policy_factory(rng: np.random.Generator) -> Callable[..., Mock]:
         mock.modules.return_value = iter([mock_module])
 
         return mock
+
+    return factory
+
+
+class _RealLightningModule(pl.LightningModule):
+    """Minimal real LightningModule for integration tests that need trainer.fit()."""
+
+    def __init__(self, policy: torch.nn.Module, learning_rate: float = 0.01):
+        super().__init__()
+        self.policy = policy
+        self.learning_rate = learning_rate
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        return torch.nn.functional.mse_loss(self.policy(x), y)
+
+    def configure_optimizers(self):
+        return torch.optim.SGD(self.parameters(), lr=self.learning_rate)
+
+
+@pytest.fixture
+def real_lightning_module_factory(
+    rng: np.random.Generator,
+) -> Callable[..., tuple[pl.LightningModule, DataLoader]]:
+    """Factory that returns a real LightningModule + DataLoader for integration tests."""
+
+    def factory(
+        input_dimension: int = 4,
+        output_dimension: int = 4,
+        num_samples: int = 16,
+        batch_size: int = 4,
+        learning_rate: float = 0.01,
+    ) -> tuple[pl.LightningModule, DataLoader]:
+        policy = torch.nn.Linear(input_dimension, output_dimension)
+        x = torch.from_numpy(
+            rng.standard_normal((num_samples, input_dimension)).astype(np.float32)
+        )
+        y = torch.from_numpy(
+            rng.standard_normal((num_samples, output_dimension)).astype(np.float32)
+        )
+        dataloader = DataLoader(TensorDataset(x, y), batch_size=batch_size)
+        module = _RealLightningModule(policy=policy, learning_rate=learning_rate)
+        return module, dataloader
 
     return factory
 

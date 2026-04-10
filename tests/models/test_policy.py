@@ -703,7 +703,7 @@ class TestGetVisionEncoderModules:
             match=re.escape(
                 "No compatible vision encoders found in the encoding pipeline. "
                 "Explainer requires encoders that produce spatial feature maps "
-                "(CNNEncoder, DepthCNNEncoder, ConditionalCNNEncoder, DFormerEncoder, GeometricRGBDEncoder). "
+                "(SpatialRGBEncoder, SpatialDepthEncoder, ConditionalCNNEncoder, DFormerEncoder, GeometricRGBDEncoder). "
                 "Available encoders: ['proprio_encoder']"
             ),
         ):

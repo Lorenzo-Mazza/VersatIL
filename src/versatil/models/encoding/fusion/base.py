@@ -94,10 +94,12 @@ class SequentialFusion(FusionModule, abc.ABC):
         )
         self.projections: nn.ModuleList | None = None
         self.hidden_dim = hidden_dim
+        self._output_feature_type: str | None = None
 
     def _setup_layers(self, feature_registry: dict[str, FeatureMetadata]):
         """Build projection layers for each input feature."""
         input_dims: list[int] = []
+        has_sequential = False
         for feat_name in self.input_features:
             metadata = feature_registry[feat_name]
             if metadata.feature_type == FeatureType.SPATIAL.value:
@@ -106,7 +108,12 @@ class SequentialFusion(FusionModule, abc.ABC):
                     f"but '{feat_name}' is spatial with dimension {metadata.dimension}. "
                     f"Use SpatialFusion for spatial features."
                 )
+            if metadata.feature_type == FeatureType.SEQUENTIAL.value:
+                has_sequential = True
             input_dims.append(metadata.dimension[-1])
+        self._output_feature_type = (
+            FeatureType.SEQUENTIAL.value if has_sequential else FeatureType.FLAT.value
+        )
         self.projections = nn.ModuleList(
             [nn.Linear(dim, self.hidden_dim) for dim in input_dims]
         )

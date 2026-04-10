@@ -144,6 +144,7 @@ def inference_client_factory(
         prediction_horizon: int = 4,
         observation_horizon: int = 2,
         temporal_aggregation: bool = False,
+        action_execution_horizon: int | None = None,
         compression_type: str = CompressionType.RAW.value,
         timing_log: bool = False,
         update_rate_hz: float | None = None,
@@ -161,6 +162,7 @@ def inference_client_factory(
             observation_transport=mock_observation_transport,
             action_transport=mock_action_transport,
             temporal_aggregation=temporal_aggregation,
+            action_execution_horizon=action_execution_horizon,
             compression_type=compression_type,
             timing_log=timing_log,
             update_rate_hz=update_rate_hz,
@@ -273,6 +275,21 @@ class TestInferenceClientInitialization:
         client = inference_client_factory()
 
         assert client.environment_states == {}
+
+    def test_raises_when_action_execution_horizon_exceeds_prediction_horizon(
+        self,
+        inference_client_factory: Callable[..., InferenceClient],
+    ):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "action_execution_horizon (10) cannot exceed prediction_horizon (4)."
+            ),
+        ):
+            inference_client_factory(
+                prediction_horizon=4,
+                action_execution_horizon=10,
+            )
 
 
 @pytest.mark.unit
@@ -642,30 +659,25 @@ class TestCreateEnvironmentState:
 
         assert state.observation_buffer.buffer_size == 2
 
-        # Without aggregation, distribute_actions uses first timestep directly
+        # Without aggregation, distribute_actions returns the full chunk
+        # prediction_horizon defaults to 4 in the factory
+        prediction_horizon = 4
         client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
-        client.action_postprocessor.format_action.return_value = {
-            "position": [1.0, 2.0],
-        }
+        client.action_postprocessor.format_action.side_effect = [
+            {"position": [float(i), float(i + 1)]} for i in range(prediction_horizon)
+        ]
 
         action_dict = {
-            "position": torch.tensor(
-                [
-                    [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]],
-                ]
-            ),
+            "position": torch.arange(
+                prediction_horizon * 2, dtype=torch.float32
+            ).reshape(1, prediction_horizon, 2),
         }
-        client._distribute_actions(
+        result = client._distribute_actions(
             action_dict=action_dict,
             ready_indices=[0],
         )
 
-        format_call = client.action_postprocessor.format_action.call_args
-        passed_dict = format_call.kwargs["action_dict"]
-        torch.testing.assert_close(
-            passed_dict["position"],
-            torch.tensor([1.0, 2.0]),
-        )
+        assert len(result[0]) == prediction_horizon
 
 
 @pytest.mark.unit
@@ -851,26 +863,37 @@ class TestGetActionsForReadyEnvironments:
 
 @pytest.mark.unit
 class TestDistributeActions:
-    def test_without_temporal_aggregation_takes_first_timestep(
+    @pytest.mark.parametrize(
+        "prediction_horizon, action_execution_horizon, expected_steps",
+        [
+            (4, None, 4),
+            (4, 2, 2),
+            (4, 1, 1),
+        ],
+    )
+    def test_chunk_execution_formats_correct_number_of_steps(
         self,
         inference_client_factory: Callable[..., InferenceClient],
+        prediction_horizon: int,
+        action_execution_horizon: int | None,
+        expected_steps: int,
     ):
         client = inference_client_factory(
-            action_keys_to_dimensions={"position": 3},
+            action_keys_to_dimensions={"position": 2},
             temporal_aggregation=False,
+            prediction_horizon=prediction_horizon,
+            action_execution_horizon=action_execution_horizon,
         )
         client.environment_states[0] = client._create_environment_state()
         client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
-        client.action_postprocessor.format_action.return_value = {
-            "position": [1.0, 2.0, 3.0],
-        }
+        client.action_postprocessor.format_action.side_effect = [
+            {"position": [float(i), float(i + 1)]} for i in range(expected_steps)
+        ]
 
         action_dict = {
-            "position": torch.tensor(
-                [
-                    [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
-                ]
-            ),
+            "position": torch.arange(
+                prediction_horizon * 2, dtype=torch.float32
+            ).reshape(1, prediction_horizon, 2),
         }
 
         result = client._distribute_actions(
@@ -878,14 +901,17 @@ class TestDistributeActions:
             ready_indices=[0],
         )
 
-        assert 0 in result
-        # Verify format_action was called with first timestep tensor
-        format_call = client.action_postprocessor.format_action.call_args
-        passed_dict = format_call.kwargs["action_dict"]
-        torch.testing.assert_close(
-            passed_dict["position"],
-            torch.tensor([1.0, 2.0, 3.0]),
-        )
+        assert len(result[0]) == expected_steps
+        assert client.action_postprocessor.format_action.call_count == expected_steps
+        # Verify each call received the correct timestep slice
+        for step in range(expected_steps):
+            call_dict = client.action_postprocessor.format_action.call_args_list[
+                step
+            ].kwargs["action_dict"]
+            torch.testing.assert_close(
+                call_dict["position"],
+                action_dict["position"][0, step],
+            )
 
     def test_with_temporal_aggregation_calls_store_and_average(
         self,
@@ -920,6 +946,8 @@ class TestDistributeActions:
 
         mock_aggregator.store_and_average.assert_called_once()
         assert 0 in result
+        # Returns a single-element list for temporal ensemble
+        assert len(result[0]) == 1
         # format_action receives the averaged output, not the raw predictions
         format_call = client.action_postprocessor.format_action.call_args
         passed_dict = format_call.kwargs["action_dict"]
@@ -935,24 +963,19 @@ class TestDistributeActions:
         client = inference_client_factory(
             action_keys_to_dimensions={"position": 2},
             temporal_aggregation=False,
+            prediction_horizon=2,
         )
         client.environment_states[0] = client._create_environment_state()
         client.environment_states[1] = client._create_environment_state()
 
-        call_count = 0
-        format_returns = [
-            {"position": [1.0, 2.0]},
-            {"position": [5.0, 6.0]},
-        ]
-
-        def side_effect(action_dict):
-            nonlocal call_count
-            result = format_returns[call_count]
-            call_count += 1
-            return result
-
+        # 2 environments × 2 steps each = 4 format_action calls
         client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
-        client.action_postprocessor.format_action.side_effect = side_effect
+        client.action_postprocessor.format_action.side_effect = [
+            {"position": [1.0, 2.0]},
+            {"position": [3.0, 4.0]},
+            {"position": [5.0, 6.0]},
+            {"position": [7.0, 8.0]},
+        ]
 
         action_dict = {
             "position": torch.tensor(
@@ -970,8 +993,12 @@ class TestDistributeActions:
 
         assert 0 in result
         assert 1 in result
-        assert result[0]["position"] == [1.0, 2.0]
-        assert result[1]["position"] == [5.0, 6.0]
+        assert len(result[0]) == 2
+        assert len(result[1]) == 2
+        assert result[0][0]["position"] == [1.0, 2.0]
+        assert result[0][1]["position"] == [3.0, 4.0]
+        assert result[1][0]["position"] == [5.0, 6.0]
+        assert result[1][1]["position"] == [7.0, 8.0]
 
 
 @pytest.mark.unit
@@ -1234,15 +1261,15 @@ class TestStepOrchestration:
 
         assert result == EpisodeStatus.CONTINUE.value
         policy_loader.run_inference.assert_called_once()
-        mock_action_transport.send.assert_called_once()
+        # prediction_horizon=4 → 4 sends (one per action in the chunk)
+        assert mock_action_transport.send.call_count == 4
 
-        send_kwargs = mock_action_transport.send.call_args
-        sent_actions = (
-            send_kwargs.kwargs.get("actions")
-            if send_kwargs.kwargs
-            else send_kwargs[1]["actions"]
-        )
-        assert 0 in sent_actions
+        # Each send contains environment 0
+        for call in mock_action_transport.send.call_args_list:
+            sent_actions = (
+                call.kwargs.get("actions") if call.kwargs else call[1]["actions"]
+            )
+            assert 0 in sent_actions
 
     def test_step_calls_pipeline_in_correct_order(
         self,
@@ -1300,13 +1327,14 @@ class TestStepOrchestration:
 
         client.step()
 
-        # Verify receive -> parse -> inference -> format -> send order
+        # Verify receive -> parse -> inference -> format (×K) -> send (×K) order
         mock_observation_transport.receive.assert_called_once()
         mock_preprocessor.parse_response.assert_called_once()
         policy_loader.run_inference.assert_called_once()
-        mock_postprocessor.format_action.assert_called_once()
+        # prediction_horizon=4 → format and send called 4 times
+        assert mock_postprocessor.format_action.call_count == 4
         mock_postprocessor.build_action_metadata.assert_called_once()
-        mock_action_transport.send.assert_called_once()
+        assert mock_action_transport.send.call_count == 4
 
     def test_temporal_aggregation_accumulates_across_steps(
         self,
@@ -1378,24 +1406,27 @@ class TestStepOrchestration:
         state = client.environment_states[0]
         assert state.temporal_aggregator.timestep == 2
 
-    def test_without_temporal_aggregation_passes_first_timestep_to_postprocessor(
+    def test_without_temporal_aggregation_sends_all_chunk_steps(
         self,
         mock_policy_loader_factory: Callable[..., MagicMock],
         mock_observation_transport: MagicMock,
         mock_action_transport: MagicMock,
         rng: np.random.Generator,
     ):
+        prediction_horizon = 4
         policy_loader = mock_policy_loader_factory(
             camera_keys=["left"],
             proprioceptive_keys=["proprio"],
             action_keys_to_dimensions={"position": 3},
-            prediction_horizon=4,
+            prediction_horizon=prediction_horizon,
             observation_horizon=1,
         )
 
-        fixed_predictions = torch.zeros(1, 4, 3)
-        fixed_predictions[0, 0] = torch.tensor([1.0, 2.0, 3.0])
-        fixed_predictions[0, 1] = torch.tensor([4.0, 5.0, 6.0])
+        fixed_predictions = torch.zeros(1, prediction_horizon, 3)
+        for t in range(prediction_horizon):
+            fixed_predictions[0, t] = torch.tensor(
+                [float(t * 3 + 1), float(t * 3 + 2), float(t * 3 + 3)]
+            )
         policy_loader.run_inference.return_value = {
             "position": fixed_predictions,
         }
@@ -1407,7 +1438,6 @@ class TestStepOrchestration:
             temporal_aggregation=False,
         )
 
-        # Mock preprocessor
         parsed_observations = {
             0: {
                 "left": rng.integers(0, 255, (64, 64, 3)).astype(np.uint8),
@@ -1424,11 +1454,11 @@ class TestStepOrchestration:
         client.observation_preprocessor.transform_camera_observations.return_value = {
             "left": camera_tensor,
         }
-        # Mock postprocessor to capture what it receives
         client.action_postprocessor = MagicMock(spec=ActionPostprocessor)
-        client.action_postprocessor.format_action.return_value = {
-            "position": [1.0, 2.0, 3.0],
-        }
+        client.action_postprocessor.format_action.side_effect = [
+            {"position": [float(t * 3 + 1), float(t * 3 + 2), float(t * 3 + 3)]}
+            for t in range(prediction_horizon)
+        ]
         client.action_postprocessor.build_action_metadata.return_value = {}
 
         mock_observation_transport.receive.return_value = {
@@ -1437,13 +1467,20 @@ class TestStepOrchestration:
 
         client.step()
 
-        # Verify the postprocessor received the first timestep [1, 2, 3]
-        format_call = client.action_postprocessor.format_action.call_args
-        passed_dict = format_call.kwargs["action_dict"]
-        torch.testing.assert_close(
-            passed_dict["position"],
-            torch.tensor([1.0, 2.0, 3.0]),
+        # Each step in the chunk produces a format_action call and a send
+        assert (
+            client.action_postprocessor.format_action.call_count == prediction_horizon
         )
+        assert mock_action_transport.send.call_count == prediction_horizon
+        # Verify each format_action call received the correct timestep
+        for t in range(prediction_horizon):
+            call_dict = client.action_postprocessor.format_action.call_args_list[
+                t
+            ].kwargs["action_dict"]
+            torch.testing.assert_close(
+                call_dict["position"],
+                fixed_predictions[0, t],
+            )
 
 
 @pytest.mark.unit

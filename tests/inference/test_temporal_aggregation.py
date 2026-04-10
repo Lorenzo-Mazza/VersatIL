@@ -1,5 +1,6 @@
 """Tests for versatil.inference.temporal_aggregation module."""
 
+import re
 from collections.abc import Callable
 
 import numpy as np
@@ -197,6 +198,29 @@ class TestTemporalAggregatorStoreAndAverage:
             results[3],
             torch.tensor([2.0], device=device),
         )
+
+    def test_raises_when_exceeding_max_timesteps(
+        self, temporal_aggregator_factory, device
+    ):
+        max_timesteps = 3
+        aggregator = temporal_aggregator_factory(
+            action_keys_to_dimensions={"action": 1},
+            prediction_horizon=2,
+            max_timesteps=max_timesteps,
+        )
+        predictions = {"action": torch.ones(2, 1, device=device)}
+        for _ in range(max_timesteps):
+            aggregator.store_and_average(current_predictions=predictions)
+
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape(
+                f"TemporalAggregator exceeded max_timesteps={max_timesteps} "
+                f"at timestep {max_timesteps}. Increase max_timesteps or call reset() "
+                f"between episodes."
+            ),
+        ):
+            aggregator.store_and_average(current_predictions=predictions)
 
     def test_favor_more_recent_weights_newer_predictions_higher(
         self, temporal_aggregator_factory, device

@@ -82,7 +82,11 @@ class MaxPooling(PoolingHead):
 
 
 class SpatialIdentityPooling(PoolingHead):
-    """No pooling — returns spatial feature maps unchanged."""
+    """No pooling — returns spatial feature maps unchanged.
+
+    ``output_dim`` returns ``(C, -1, -1)`` where ``-1`` indicates dynamic
+    spatial dimensions resolved at forward time from the actual feature map.
+    """
 
     @property
     def output_dim(self) -> tuple[int, int, int]:
@@ -112,14 +116,15 @@ class TokenPoolingHead(PoolingHead):
 
     Reduces a sequence of token embeddings to a single vector (B, D) via
     CLS token selection, mean pooling, or learned aggregation. With
-    ``pooling_method=NONE``, returns the (optionally CLS-excluded) sequence.
+    ``pooling_method=NONE``, returns the sequence with prefix tokens stripped.
 
     Args:
         input_dimension: Hidden dimension of the token embeddings.
         pooling_method: Pooling strategy from PoolingMethod enum.
         sequence_length: Fixed sequence length for NONE output dim (-1 for variable).
-        exclude_cls: Whether to exclude the first token (CLS) for
-            AVERAGE, LEARNED_AGGREGATION, and NONE.
+        num_prefix_tokens: Number of prefix tokens (CLS, registers) to exclude
+            from AVERAGE, LEARNED_AGGREGATION, and NONE pooling. The first
+            prefix token is still used for DEFAULT (CLS) pooling.
     """
 
     def __init__(
@@ -127,12 +132,12 @@ class TokenPoolingHead(PoolingHead):
         input_dimension: int,
         pooling_method: str,
         sequence_length: int = -1,
-        exclude_cls: bool = True,
+        num_prefix_tokens: int = 0,
     ):
         super().__init__(input_dimension=input_dimension)
         self.pooling_method = pooling_method
         self.sequence_length = sequence_length
-        self.exclude_cls = exclude_cls
+        self.num_prefix_tokens = num_prefix_tokens
         self.learned_aggregation: LearnedAggregation | None = None
         if pooling_method == PoolingMethod.LEARNED_AGGREGATION.value:
             self.learned_aggregation = LearnedAggregation(
@@ -154,7 +159,7 @@ class TokenPoolingHead(PoolingHead):
         Returns:
             Pooled features of shape (B, D) or (B, S', D) for NONE.
         """
-        start = 1 if self.exclude_cls else 0
+        start = self.num_prefix_tokens
         match self.pooling_method:
             case PoolingMethod.DEFAULT.value:
                 return hidden_states[:, 0]  # CLS token
@@ -217,7 +222,7 @@ def create_token_pooling_head(
     pooling_method: str,
     input_dimension: int,
     sequence_length: int = -1,
-    exclude_cls: bool = True,
+    num_prefix_tokens: int = 0,
 ) -> TokenPoolingHead:
     """Create a pooling head for token sequences (B, S, D).
 
@@ -225,8 +230,7 @@ def create_token_pooling_head(
         pooling_method: Pooling strategy from PoolingMethod enum.
         input_dimension: Hidden dimension of the token embeddings.
         sequence_length: Fixed sequence length for NONE output dim (-1 for variable).
-        exclude_cls: Whether to exclude the first token (CLS) for
-            AVERAGE, LEARNED_AGGREGATION, and NONE.
+        num_prefix_tokens: Number of prefix tokens (CLS, registers) to strip.
 
     Returns:
         Configured token pooling head.
@@ -235,5 +239,5 @@ def create_token_pooling_head(
         input_dimension=input_dimension,
         pooling_method=pooling_method,
         sequence_length=sequence_length,
-        exclude_cls=exclude_cls,
+        num_prefix_tokens=num_prefix_tokens,
     )

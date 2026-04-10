@@ -532,6 +532,28 @@ class TestObservationTokenizerTokenize:
         tokens = result[SampleKey.TOKENIZED_OBSERVATIONS.value]
         assert tokens.shape == (batch_size, time_steps, max_token_len)
 
+    def test_tokenize_computes_pad_mask_from_pad_token_id_when_attention_mask_missing(
+        self,
+        mock_obs_auto_tokenizer,
+        observation_tokenizer_factory,
+    ):
+        max_token_len = 8
+        pad_token_id = 0
+        mock_tok = mock_obs_auto_tokenizer.from_pretrained.return_value
+        mock_tok.pad_token_id = pad_token_id
+        input_ids = torch.tensor([[5, 3, 1, 0, 0, 0, 0, 0]])  # 3 real + 5 padding
+        mock_tok.return_value = {"input_ids": input_ids}
+        tokenizer = observation_tokenizer_factory(
+            bin_continuous_data=False, max_token_len=max_token_len
+        )
+        tokenizer._is_fitted = True
+        result = tokenizer.tokenize({ObsKey.LANGUAGE.value: ["text"]})
+        is_pad = result[SampleKey.IS_PAD_OBSERVATION.value]
+        expected_pad = torch.tensor(
+            [[False, False, False, True, True, True, True, True]]
+        )
+        torch.testing.assert_close(is_pad, expected_pad)
+
 
 class TestObservationTokenizerTo:
     def test_to_updates_device(self, observation_tokenizer_factory, device):

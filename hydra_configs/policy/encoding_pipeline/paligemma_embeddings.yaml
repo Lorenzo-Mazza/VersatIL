@@ -1,13 +1,9 @@
 defaults:
+  - encoder/vlm/paligemma@encoders.vlm
   - encoder/proprio@encoders.robot_state
   - _self_
-
-_target_: versatil.models.encoding.pipeline.EncodingPipeline
-observation_space: ${task.observation_space}
-
 encoders:
   vlm:
-    _target_: versatil.models.encoding.encoders.cross_modal.vision_language.paligemma.PaliGemmaEncoder
     input_keys:
       - ${cameras:AGENTVIEW}
       - ${cameras:EYE_IN_HAND}

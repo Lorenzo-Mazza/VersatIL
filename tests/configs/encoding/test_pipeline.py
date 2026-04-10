@@ -4,16 +4,16 @@ import pytest
 from hydra.utils import instantiate
 from omegaconf import MISSING
 
+from versatil.configs.data.task import ObservationSpaceConfig
 from versatil.configs.encoding.encoder import ProprioEncoderConfig
 from versatil.configs.encoding.pipeline import EncodingPipelineConfig
-from versatil.data.task import ObservationSpace
 from versatil.models.encoding.pipeline import EncodingPipeline
 
 
 @pytest.fixture
-def empty_observation_space() -> ObservationSpace:
-    """Empty observation space for pipeline config tests."""
-    return ObservationSpace(observations_metadata={})
+def empty_observation_space() -> ObservationSpaceConfig:
+    """Empty observation space config for pipeline tests."""
+    return ObservationSpaceConfig(observations_metadata={})
 
 
 @pytest.mark.unit

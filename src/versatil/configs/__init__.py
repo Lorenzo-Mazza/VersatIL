@@ -80,19 +80,19 @@ from versatil.configs.decoding.latent import (
     VampPriorConfig,
 )
 from versatil.configs.encoding.encoder import (
-    CNNEncoderConfig,
     ConditionalCNNEncoderConfig,
-    DepthCNNEncoderConfig,
     DFormerEncoderConfig,
     EncoderConfig,
+    FlatRGBEncoderConfig,
+    GeometricRGBDEncoderConfig,
     ImageEncoderConfig,
     LanguageEncoderConfig,
     PaliGemmaEncoderConfig,
     ProprioEncoderConfig,
     SmolVLMEncoderConfig,
-    SwinEncoderConfig,
+    SpatialDepthEncoderConfig,
+    SpatialRGBEncoderConfig,
     TwoTowerVLMEncoderConfig,
-    ViTEncoderConfig,
 )
 from versatil.configs.encoding.fusion import (
     AttentionFusionConfig,
@@ -101,6 +101,7 @@ from versatil.configs.encoding.fusion import (
     MLPFusionConfig,
     SpatialFusionConfig,
 )
+from versatil.configs.encoding.pipeline import EncodingPipelineConfig
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.inference import InferenceConfig
 from versatil.configs.loss import (
@@ -211,7 +212,9 @@ __all__ = [
     "PolicyConfig",
     "EncoderConfig",
     "ImageEncoderConfig",
-    "DepthCNNEncoderConfig",
+    "SpatialDepthEncoderConfig",
+    "SpatialRGBEncoderConfig",
+    "FlatRGBEncoderConfig",
     "ProprioEncoderConfig",
     "LanguageEncoderConfig",
     "DecodingNetworkConfig",
@@ -665,30 +668,28 @@ def register_configs():
         name="latent_optimal_transport",
         node=LatentOptimalTransportLossConfig,
     )
-    cs.store(group="policy/encoding_pipeline", name="base", node=ImageEncoderConfig)
+    cs.store(
+        group="policy/encoding_pipeline",
+        name="base",
+        node=EncodingPipelineConfig,
+    )
     cs.store(
         group="policy/encoding_pipeline/encoder", name="image", node=ImageEncoderConfig
     )
     cs.store(
         group="policy/encoding_pipeline/encoder/image",
-        name="cnn",
-        node=CNNEncoderConfig,
+        name="spatial",
+        node=SpatialRGBEncoderConfig,
     )
     cs.store(
         group="policy/encoding_pipeline/encoder/image",
         name="conditional_cnn",
         node=ConditionalCNNEncoderConfig,
     )
-
     cs.store(
         group="policy/encoding_pipeline/encoder/image",
-        name="vit",
-        node=ViTEncoderConfig,
-    )
-    cs.store(
-        group="policy/encoding_pipeline/encoder/image",
-        name="swin",
-        node=SwinEncoderConfig,
+        name="flat",
+        node=FlatRGBEncoderConfig,
     )
     cs.store(
         group="policy/encoding_pipeline/encoder/vlm",
@@ -707,13 +708,18 @@ def register_configs():
     )
     cs.store(
         group="policy/encoding_pipeline/encoder",
-        name="depth_cnn",
-        node=DepthCNNEncoderConfig,
+        name="depth_spatial",
+        node=SpatialDepthEncoderConfig,
     )
     cs.store(
         group="policy/encoding_pipeline/encoder",
         name="dformer",
         node=DFormerEncoderConfig,
+    )
+    cs.store(
+        group="policy/encoding_pipeline/encoder",
+        name="geometric_rgbd",
+        node=GeometricRGBDEncoderConfig,
     )
     cs.store(
         group="policy/encoding_pipeline/encoder",
@@ -724,11 +730,6 @@ def register_configs():
         group="policy/encoding_pipeline/encoder",
         name="language",
         node=LanguageEncoderConfig,
-    )
-    cs.store(
-        group="policy/encoding_pipeline/encoder",
-        name="dformer",
-        node=DFormerEncoderConfig,
     )
     cs.store(group="policy/encoding_pipeline/fusion", name="base", node=FusionConfig)
     cs.store(

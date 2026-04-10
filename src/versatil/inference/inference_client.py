@@ -52,6 +52,7 @@ class InferenceClient:
         observation_transport: ObservationTransport,
         action_transport: ActionTransport,
         temporal_aggregation: bool = False,
+        action_execution_horizon: int | None = None,
         favor_more_recent: bool = True,
         exponential_decay: float = 0.01,
         compression_type: str = CompressionType.RAW.value,
@@ -63,11 +64,19 @@ class InferenceClient:
 
         Args:
             policy_loader: Loaded policy providing inference and metadata.
-            observation_transport: Transport for receiving observations.
-            action_transport: Transport for sending actions.
-            temporal_aggregation: Whether to use temporal aggregation.
-            favor_more_recent: Weight newer predictions more heavily.
-            exponential_decay: Decay factor for temporal aggregation.
+            observation_transport: Protocol for receiving observations from the environment.
+            action_transport: Protocol for sending actions to the environment.
+            temporal_aggregation: Whether to use temporal ensemble. When enabled,
+                the policy is queried every step and the overlapping action predictions
+                from consecutive chunks are averaged with exponential weighting.
+                When disabled, the policy predicts a chunk of actions and all of them
+                are sent to the environment before re-querying.
+            action_execution_horizon: How many actions from each predicted chunk to execute
+                when temporal_aggregation is False. Defaults to prediction_horizon.
+            favor_more_recent: In temporal ensemble, weight predictions from later inference
+                calls higher than earlier ones for the same timestep.
+            exponential_decay: Exponential decay rate for the temporal ensemble weights.
+                Higher values discount older predictions more aggressively.
             compression_type: Compression type for image data transfer.
             max_timesteps: Maximum episode length for temporal aggregation.
             timing_log: Whether to log per-step timing breakdown.
@@ -77,6 +86,16 @@ class InferenceClient:
         self.observation_transport = observation_transport
         self.action_transport = action_transport
         self.temporal_aggregation = temporal_aggregation
+        self.action_execution_horizon = (
+            action_execution_horizon
+            if action_execution_horizon is not None
+            else policy_loader.prediction_horizon
+        )
+        if self.action_execution_horizon > policy_loader.prediction_horizon:
+            raise ValueError(
+                f"action_execution_horizon ({self.action_execution_horizon}) cannot exceed "
+                f"prediction_horizon ({policy_loader.prediction_horizon})."
+            )
         self.compression_type = compression_type
         self.timing_log = timing_log
         self.update_rate_hz = update_rate_hz
@@ -175,10 +194,18 @@ class InferenceClient:
 
         if actions_by_environment:
             action_metadata = self.action_postprocessor.build_action_metadata()
-            self.action_transport.send(
-                actions=actions_by_environment,
-                action_metadata=action_metadata,
-            )
+            # All environments have the same number of actions per chunk.
+            # Send one step at a time — the server steps the environment on each send.
+            num_steps = len(next(iter(actions_by_environment.values())))
+            for step in range(num_steps):
+                step_actions = {
+                    env_idx: action_list[step]
+                    for env_idx, action_list in actions_by_environment.items()
+                }
+                self.action_transport.send(
+                    actions=step_actions,
+                    action_metadata=action_metadata,
+                )
 
         if self.timing_log:
             postprocessing_duration = time.time() - postprocessing_start
@@ -374,20 +401,26 @@ class InferenceClient:
         self,
         action_dict: dict[str, torch.Tensor],
         ready_indices: list[int],
-    ) -> dict[int, dict[str, list[float]]]:
-        """Split batched inference results per environment.
+    ) -> dict[int, list[dict[str, list[float]]]]:
+        """Split batched inference results into per-environment action sequences.
+
+        With temporal ensemble: returns a single averaged action per environment.
+        Without temporal ensemble: returns action_execution_horizon formatted
+        actions per environment from the predicted chunk.
 
         Args:
-            action_dict: Batched action predictions from the policy.
-            ready_indices: Environment indices that were included in the batch.
+            action_dict: Batched policy output. Each value has shape
+                (batch_size, prediction_horizon, action_dim).
+            ready_indices: Environment indices included in the inference batch.
 
         Returns:
-            Dict mapping environment index to structured action dict.
+            Dict mapping environment index to a list of formatted action dicts.
+            Length is 1 for temporal ensemble, action_execution_horizon otherwise.
         """
-        actions_by_environment: dict[int, dict[str, list[float]]] = {}
+        actions_by_environment: dict[int, list[dict[str, list[float]]]] = {}
         for batch_index, environment_index in enumerate(ready_indices):
             environment_predictions = {
-                key: action_dict[key][batch_index]
+                key: action_dict[key][batch_index]  # (prediction_horizon, action_dim)
                 for key in self.action_keys_to_dimensions
             }
             state = self.environment_states[environment_index]
@@ -396,16 +429,20 @@ class InferenceClient:
                 averaged = state.temporal_aggregator.store_and_average(
                     current_predictions=environment_predictions
                 )
-                actions_by_environment[environment_index] = (
+                actions_by_environment[environment_index] = [
                     self.action_postprocessor.format_action(action_dict=averaged)
-                )
+                ]
             else:
-                single_step = {
-                    key: tensor[0] for key, tensor in environment_predictions.items()
-                }
-                actions_by_environment[environment_index] = (
-                    self.action_postprocessor.format_action(action_dict=single_step)
-                )
+                chunk = []
+                for step in range(self.action_execution_horizon):
+                    single_step = {
+                        key: tensor[step]  # (action_dim,)
+                        for key, tensor in environment_predictions.items()
+                    }
+                    chunk.append(
+                        self.action_postprocessor.format_action(action_dict=single_step)
+                    )
+                actions_by_environment[environment_index] = chunk
 
         return actions_by_environment
 

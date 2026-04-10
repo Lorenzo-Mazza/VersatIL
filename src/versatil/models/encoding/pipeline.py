@@ -6,12 +6,12 @@ import torch
 import torch.nn as nn
 
 from versatil.common.tensor_ops import dict_apply
-from versatil.data.constants import RGB_CAMERAS
 from versatil.data.metadata import CameraMetadata
 from versatil.data.task import ObservationSpace
 from versatil.data.tokenization import Tokenizer
 from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.encoders.conditional import ConditionalEncoder
+from versatil.models.encoding.encoders.image_mixin import ImageEncoderMixin
 from versatil.models.encoding.fusion.base import FusionModule
 from versatil.models.feature_meta import FeatureMetadata
 
@@ -99,8 +99,13 @@ class EncodingPipeline(nn.Module):
             ValueError: If cameras sharing an encoder have different resolutions.
             ValueError: If encoder has camera keys but none are in the observation space.
         """
+        if isinstance(encoder, ImageEncoderMixin):
+            valid_cameras = encoder._camera_group
+        else:
+            return
+
         camera_keys = [
-            key for key in encoder.input_specification.keys if key in RGB_CAMERAS
+            key for key in encoder.input_specification.keys if key in valid_cameras
         ]
         if not camera_keys:
             return

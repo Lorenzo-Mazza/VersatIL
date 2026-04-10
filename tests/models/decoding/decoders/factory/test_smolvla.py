@@ -596,6 +596,110 @@ class TestSmolVLADecoderBehavior:
         for action_key in actions:
             assert not torch.allclose(output_a[action_key], output_b[action_key])
 
+    def test_attention_mask_reordered_to_action_prefix_for_joint_sdpa(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        features = prefix_features_factory()
+        actions = noisy_actions_factory()
+        action_len = PREDICTION_HORIZON
+        with patch.object(
+            decoder,
+            "_run_training_forward",
+            wraps=decoder._run_training_forward,
+        ) as spy:
+            decoder(features=features, actions=actions)
+        mask = spy.call_args.kwargs["attention_mask"]
+        # After permutation: rows :action_len = action queries, rows action_len: = prefix queries
+        # Action queries can attend to prefix columns (action_len:) — unmasked
+        assert not mask[0, 0, :action_len, action_len:].any()
+        # Prefix queries cannot attend to action columns (:action_len) — all masked
+        assert mask[0, 0, action_len:, :action_len].all()
+
+    def test_cross_attention_layers_receive_expert_to_vlm_mask(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory()
+        features = prefix_features_factory()
+        actions = noisy_actions_factory()
+        action_len = PREDICTION_HORIZON
+        prefix_len = PREFIX_SEQUENCE_LENGTH
+        with patch.object(
+            decoder,
+            "_run_training_forward",
+            wraps=decoder._run_training_forward,
+        ) as spy:
+            decoder(features=features, actions=actions)
+        cross_mask = spy.call_args.kwargs["cross_attention_mask"]
+        # Shape: (B, 1, A, P) — expert queries × VLM keys
+        assert cross_mask.shape == (BATCH_SIZE, 1, action_len, prefix_len)
+
+    def test_training_forward_passes_correct_mask_per_layer_type(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+
+        decoder = initialized_decoder_factory()
+        features = prefix_features_factory()
+        actions = noisy_actions_factory()
+        action_len = PREDICTION_HORIZON
+        prefix_len = PREFIX_SEQUENCE_LENGTH
+        with patch.object(
+            decoder, "_run_training_forward", wraps=decoder._run_training_forward
+        ) as spy:
+            decoder(features=features, actions=actions)
+        joint_mask = spy.call_args.kwargs["attention_mask"]
+        cross_mask = spy.call_args.kwargs["cross_attention_mask"]
+        assert joint_mask.shape == (
+            BATCH_SIZE,
+            1,
+            action_len + prefix_len,
+            action_len + prefix_len,
+        )
+        assert cross_mask.shape == (BATCH_SIZE, 1, action_len, prefix_len)
+
+    def test_cached_forward_passes_correct_mask_per_layer_type(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+
+        decoder = initialized_decoder_factory()
+        decoder.eval()
+        decoder.enable_encoder_cache()
+        features = prefix_features_factory()
+        actions = noisy_actions_factory()
+        action_len = PREDICTION_HORIZON
+        prefix_len = PREFIX_SEQUENCE_LENGTH
+        with torch.no_grad():
+            decoder(features=features, actions=actions)
+        # Spy on the cached path (second call reuses cache)
+        with (
+            patch.object(
+                decoder, "_run_expert_with_cache", wraps=decoder._run_expert_with_cache
+            ) as spy,
+            torch.no_grad(),
+        ):
+            decoder(features=features, actions=actions)
+        joint_mask = spy.call_args.kwargs["attention_mask"]
+        cross_mask = spy.call_args.kwargs["cross_attention_mask"]
+        assert joint_mask.shape == (
+            BATCH_SIZE,
+            1,
+            action_len + prefix_len,
+            action_len + prefix_len,
+        )
+        assert cross_mask.shape == (BATCH_SIZE, 1, action_len, prefix_len)
+
 
 @pytest.mark.integration
 class TestSmolVLADecoderCaching:

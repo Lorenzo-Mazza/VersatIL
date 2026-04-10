@@ -1,15 +1,11 @@
 defaults:
-  - encoder/image/cnn@encoders.left
-  - encoder/image/cnn@encoders.right
+  - encoder/geometric_rgbd@encoders.left_depth
+  - encoder/image/spatial@encoders.right
   - encoder/language@encoders.instruction
   - _self_
-
-_target_: versatil.models.encoding.pipeline.EncodingPipeline
-observation_space: ${task.observation_space}
-
+  
 encoders:
   left_depth:
-    _target_: versatil.models.encoding.encoders.cross_modal.rgbd.geometric_rgbd.GeometricRGBDEncoder
     input_keys:
       - ${cameras:LEFT}
       - ${cameras:DEPTH}
@@ -18,7 +14,6 @@ encoders:
     pooling_method: none
 
   right:
-    _target_: versatil.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys:
      - ${cameras:RIGHT}
     backbone: ${rgb_backbone:RESNET18}
@@ -26,7 +21,6 @@ encoders:
     frozen: false
     pooling_method: none
     batch_norm_handling: ${batch_norm_handling:FROZEN}
-
 
   instruction:
     model_name: ${language_model:GEMMA_2B}

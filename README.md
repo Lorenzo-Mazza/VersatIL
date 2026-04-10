@@ -373,13 +373,12 @@ fusion = AttentionFusion(
 
 ### Encoders
 
-- **RGB**
-  - CNNEncoder: via [timm](https://github.com/huggingface/pytorch-image-models) backbone (ResNet, EfficientNet, ConvNeXt, EdgeNeXt, MobileNetV4, ...)
-  - ViTEncoder: via [timm](https://github.com/huggingface/pytorch-image-models) ViT (DINOv2, DINOv3, DeiT, CLIP ViT, ...)
-  - SwinEncoder: via [timm](https://github.com/huggingface/pytorch-image-models) Swin Transformers
-  - ConditionalCNNEncoder: Custom ResNet with FiLM conditioning
-- **Depth**
-  - DepthCNNEncoder: timm backbones adapted for single-channel depth
+- **RGB** via [timm](https://github.com/huggingface/pytorch-image-models)
+  - SpatialRGBEncoder: spatial feature maps — ResNet, EfficientNet, ConvNeXt, MobileNet, EdgeNeXt, Swin, TinyViT, ...
+  - FlatRGBEncoder: token sequences — ViT, DINOv2, DINOv3, ...
+  - ConditionalCNNEncoder: ResNet with FiLM conditioning
+- **Depth** via [timm](https://github.com/huggingface/pytorch-image-models)
+  - SpatialDepthEncoder: single-channel spatial feature maps
 - **Cross-Modal RGBD**
   - DFormerEncoder: RGB-D encoder with Geometric Attention ([paper](https://arxiv.org/abs/2504.04701))
   - GeometricRGBDEncoder: Custom lightweight geometric depth encoder
@@ -389,7 +388,7 @@ fusion = AttentionFusion(
 - **Language** via [HF Transformers](https://github.com/huggingface/transformers): BERT, DistilBERT, MiniLM, Gemma, Qwen, ALBERT, RoBERTa, GPT2, DeBERTa, Phi, Llama, ...
 - **Proprioceptive**: ProprioceptiveEncoder — MLP for robot state
 
-Available backbones are listed in `src/versatil/models/encoding/encoders/constants.py` (`CNNBackboneType`, `ViTBackboneType`, `SwinBackboneType`, `LanguageEncoderType`, `ImageTextModelType`, `PaliGemmaModelType`, `SmolVLMModelType`).
+Available backbones are listed in `src/versatil/models/encoding/encoders/constants.py` (`SpatialBackboneType`, `FlatBackboneType`, `LanguageEncoderType`, `ImageTextModelType`, `PaliGemmaModelType`, `SmolVLMModelType`).
 They can be easily extended by either:
 - Adding new Enum values that map to timm or HF Transformers model names.
 - Implementing custom encoder classes that subclass `Encoder` (or `ConditionalEncoder` for conditioned encoders).

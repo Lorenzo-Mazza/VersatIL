@@ -193,29 +193,26 @@ Where:
   - **Language encoders**: Use `LANGUAGE_KEY` ("language_instruction")
 
 **EncodingPipeline** produces named features:
-- Each encoder registers output features with dimensions (e.g., `rgb_cnn_features: (C, H, W)`)
+- Each encoder registers output features with dimensions (e.g., `left_rgb: (C, H, W)`)
 - Fusion stages combine features and register new ones (e.g., `fused_visual: (D,)`)
 - Features are prefixed with encoder name to avoid collisions
+
+**Encoder types** are named by their output format, not architecture:
+- **`SpatialRGBEncoder`** (`rgb/spatial.py`): Any timm backbone producing (B, C, H, W) spatial feature maps (CNNs, Swin, TinyViT, ConvNeXt). Validates against `SpatialBackboneType`. Handles NCHW/NHWC layouts and strict input sizes transparently.
+- **`FlatRGBEncoder`** (`rgb/flat.py`): Backbones producing (B, S, D) token sequences (ViT, DINOv2, DINOv3, DeiT). Validates against `FlatBackboneType`.
+- **`SpatialDepthEncoder`** (`depth/spatial.py`): Same as SpatialRGBEncoder but for single-channel depth images (`in_chans=1`).
+
+**Encoder mixins** define camera group and output modality:
+- `ImageEncoderMixin` (abstract) → `RGBEncoderMixin`, `DepthEncoderMixin`, `RGBDEncoderMixin`
+- Each mixin sets `_camera_group` (which cameras to use) and `_output_modality` (feature key prefix)
 
 **Decoder** specifies input requirements via `DecoderInput`:
 - `keys`: List of feature names it expects
 - `required`: Must-have features
-- `required_types`: Must have at least one feature of type (SPATIAL/SEQUENTIAL/FLAT)
+- `required_types`: Feature type constraints (e.g., ACT requires SPATIAL). Empty list means any type accepted (e.g., ActionTransformer).
 - `requires_actions`: Whether ground-truth actions are needed during forward pass
 
-**Validation** happens at Policy instantiation:
-```python
-# src/versatil/models/policy.py:97-119
-def validate_decoder(self):
-    available_features_to_dims = self.encoding_pipeline.get_final_features_to_dimensions()
-    # Check all required features are available
-    # Validate feature types (spatial, flat, sequential)
-    self.decoder.decoder_input.validate_feature_types(
-        available_features_to_dims=available_features_to_dims
-    )
-```
-
-This ensures configuration errors are caught early, not during training.
+**Validation** happens at Policy instantiation: the encoding pipeline's output features are checked against `DecoderInput.validate_feature_types()`, ensuring all required features are available and have compatible types (spatial, flat, sequential). This catches configuration errors early, not during training.
 
 #### 2. Algorithm / Architecture / Loss Separation
 
@@ -343,7 +340,7 @@ Raw Episodes (CSV)
 - **ReplayBuffer** (`src/versatil/data/preprocessing/replay_buffer.py`): Converts episodes to Zarr
 - **EpisodicDataset** (`src/versatil/data/episodic_dataset.py`): Loads temporal windows from Zarr
 - **SampleBuilder** (`src/versatil/data/sample_builder.py`): Constructs samples with obs/action
-- **ActionProcessor** (`src/versatil/data/action_processor.py`): Computes actions from proprioceptive data
+- **ActionProcessor** (`src/versatil/data/processing/action_processor.py`): Computes actions from proprioceptive data
 - **Normalizer** (`src/versatil/data/normalization/normalizer.py`): Per-key min-max normalization
 
 #### 6. Hydra Configuration System
@@ -542,20 +539,21 @@ class MyEncoderConfig(EncoderConfig):
 2. **Implement encoder** in `src/versatil/models/encoding/encoders/my_encoder.py`:
 
 ```python
-from versatil.models.encoding.encoders.unconditional import Encoder, EncoderOutput
+from versatil.models.encoding.encoders.unconditional import Encoder
+from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 
 
 class MyEncoder(Encoder):
 
-    def get_output_specification(self) -> EncoderOutput:
-        return EncoderOutput(
-            features=["embedding"],
-            dimensions={"embedding": self.feature_dim}
-        )
+    def get_output_specification(self) -> list[FeatureMetadata]:
+        return [FeatureMetadata(
+            key="embedding",
+            feature_type=infer_feature_type((self.feature_dim,)),
+            dimension=(self.feature_dim,),
+        )]
 
-
-    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
-        return {"embedding": self.encode(x)}
+    def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        return {"embedding": self.process(inputs)}
 ```
 
 3. **Add tests** in `tests/models/encoding/test_my_encoder.py`
@@ -590,12 +588,13 @@ Set `export NCCL_P2P_DISABLE=1` to avoid NCCL issues on some clusters.
 
 ## Common Pitfalls
 
-1. **Feature name mismatches**: Encoder outputs are prefixed (e.g., `rgb_encoder_features`), decoder must request full name
+1. **Feature name mismatches**: Encoder outputs are prefixed (e.g., `left_rgb`), decoder must request full name
 2. **Feature type mismatches**: Decoder expecting SPATIAL features but encoder outputs FLAT
 3. **Normalizer keys**: Binary gripper actions and language are NOT normalized
 4. **Zarr keys**: ObservationSpace and ActionSpace must specify correct keys via `get_required_zarr_keys()`
 5. **Config references**: Use `"${task.observation_space}"` not direct assignment for Hydra interpolation
-6. **Renaming classes/configs**: When renaming a class, config, or loss module, you MUST also update:
+6. **TransformerInputBuilder processes all features**: It projects and attends to every feature in the dict (except padding masks and `exclude_keys`). Decoders must filter features to only the keys declared in `decoder_input.keys` before passing to the input builder. Passing the full pipeline output unfiltered will silently include unintended features.
+7. **Renaming classes/configs**: When renaming a class, config, or loss module, you MUST also update:
    - The corresponding `*Config` dataclass in `src/versatil/configs/`
    - The `__init__.py` exports in both `src/versatil/configs/` and relevant model packages
    - The ConfigStore registration in `src/versatil/configs/__init__.py`
@@ -611,8 +610,6 @@ Extensions:
 - ~~Quantize package needs to be developed.~~ **Done**: `post_training_compression/` and `quantization/` packages.
 - Migrate from MkDocs to [ProperDocs](https://properdocs.org/) before MkDocs 2.0 breaks all plugins/themes.
 - Integrate history buffer of proprioceptive observation only + uniform masking for causal confusion (https://arxiv.org/pdf/1905.11979)
-- Introduce pre-commit hooks.
-- Update README Code Style section to reference Ruff instead of Black.
 
 ## Data Loading Optimization
 - **Selective preloading**: Add `preload_keys` parameter to `ReplayBuffer.copy_from_path` to preload only non-image keys (proprio, actions, language) into RAM (~20 MB) while keeping images lazy on disk. Eliminates ~33% of network I/O latency per sample at negligible memory cost. Useful for large datasets that don't fit in RAM.
@@ -654,12 +651,7 @@ Extensions:
   - Add `is_vision_encoder() -> bool` that checks `len(get_gradcam_target_layers()) > 0`.
   - Policy replaces ~175 lines of `hasattr()` checks with a 5-line loop over `encoding_pipeline.all_encoders`.
   - Effort: Small. Each encoder gets a 3-line method.
-- **Callback registry — extract from Workspace god class**:
-  - `Workspace._create_callbacks()` currently hardcodes `isinstance()` checks for PhaseACT, VariationalAlgorithm, FreeActionTransformer, MoELoss.
-  - Define a `CallbackProvider` protocol with `get_callbacks(experiment_config) -> list[Callback]`.
-  - Components (decoders, algorithms, losses) implement it to declare their own callbacks.
-  - Workspace collects callbacks via protocol check instead of isinstance chains.
-  - Effort: Medium. Move callback creation into each component.
+- ~~**Callback registry — extract from Workspace god class**~~ **Done**: `CallbackProvider` protocol implemented.
 - **Shared TransformerComponents builder — reduce decoder factory duplication**:
   - ACT, ActionTransformer, DiffusionActionTransformer, MoDEACT all repeat identical positional encoding + TransformerInputBuilder + learnable query setup.
   - Extract a `TransformerComponents` module that builds these from a `TransformerComponentSpec` dataclass.

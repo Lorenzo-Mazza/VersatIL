@@ -17,7 +17,7 @@ from versatil.models.encoding.encoders.constants import (
     PoolingMethod,
 )
 from versatil.models.encoding.encoders.image_mixin import (
-    ImageEncoderMixin,
+    RGBEncoderMixin,
     resize_to_target_size,
 )
 from versatil.models.encoding.encoders.language_mixin import LanguageEncoderMixin
@@ -30,7 +30,7 @@ from versatil.models.feature_meta import (
 from versatil.models.layers.pooling.pooling_head import create_token_pooling_head
 
 
-class TwoTowerVLMEncoder(LanguageEncoderMixin, ImageEncoderMixin, Encoder):
+class TwoTowerVLMEncoder(LanguageEncoderMixin, RGBEncoderMixin, Encoder):
     """Two-tower VLM encoder with separate vision and language outputs."""
 
     def __init__(
@@ -94,16 +94,20 @@ class TwoTowerVLMEncoder(LanguageEncoderMixin, ImageEncoderMixin, Encoder):
         )
         self.hidden_vision_dim: int = vision_config.hidden_size
         self.hidden_language_dim: int = self.encoder.text_model.config.hidden_size
+        vision_has_cls = (
+            hasattr(self.encoder.vision_model.embeddings, "class_embedding")
+            and self.encoder.vision_model.embeddings.class_embedding is not None
+        )
         self.vision_pooling_head = create_token_pooling_head(
             pooling_method=pooling_method,
             input_dimension=self.hidden_vision_dim,
-            exclude_cls=True,
+            num_prefix_tokens=1 if vision_has_cls else 0,
         )
         self.language_pooling_head = create_token_pooling_head(
             pooling_method=pooling_method,
             input_dimension=self.hidden_language_dim,
             sequence_length=self.max_text_length,
-            exclude_cls=False,
+            num_prefix_tokens=0,
         )
         self.output_vision_dim = self.vision_pooling_head.output_dim
         self.output_language_dim = self.language_pooling_head.output_dim
@@ -191,6 +195,7 @@ class TwoTowerVLMEncoder(LanguageEncoderMixin, ImageEncoderMixin, Encoder):
             pooling_method=self.pooling_method,
             batch_size=batch_size,
             device=language_features.device,
+            num_prefix_tokens=self.language_pooling_head.num_prefix_tokens,
         )
         result = {
             EncoderOutputKeys.LANGUAGE.value: language_features,

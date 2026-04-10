@@ -243,6 +243,30 @@ class TestBuildOutputPaddingMask:
         expected = torch.tensor([[False, False, False, True, True]])
         assert torch.equal(result, expected)
 
+    @pytest.mark.parametrize("num_prefix_tokens", [1, 5])
+    def test_none_pooling_strips_prefix_tokens_from_mask(
+        self,
+        language_mixin_factory: Callable[..., ConcreteLanguageEncoder],
+        num_prefix_tokens: int,
+    ):
+        encoder = language_mixin_factory()
+        # 10 tokens: first num_prefix_tokens are prefix, rest are content/padding
+        attention_mask = torch.tensor(
+            [[1, 1, 1, 1, 1, 1, 1, 0, 0, 0]], dtype=torch.long
+        )
+        result = encoder._build_output_padding_mask(
+            attention_mask=attention_mask,
+            pooling_method=PoolingMethod.NONE.value,
+            batch_size=1,
+            device=torch.device("cpu"),
+            num_prefix_tokens=num_prefix_tokens,
+        )
+        # Prefix tokens stripped, mask aligned to remaining tokens
+        expected_full_mask = ~attention_mask.bool()  # (B, 10)
+        expected = expected_full_mask[:, num_prefix_tokens:]  # (B, 10 - N)
+        assert result.shape == (1, 10 - num_prefix_tokens)
+        assert torch.equal(result, expected)
+
     @pytest.mark.parametrize(
         "pooling_method",
         [PoolingMethod.DEFAULT.value, PoolingMethod.AVERAGE.value],

@@ -4,7 +4,7 @@ import abc
 
 import torch
 
-from versatil.data.constants import RGB_CAMERAS
+from versatil.data.constants import DEPTH_CAMERAS, RGB_CAMERAS
 from versatil.models.encoding.encoders.constants import EncoderOutputKeys
 
 
@@ -51,9 +51,21 @@ class ImageEncoderMixin(abc.ABC):
     """Shared logic for encoders that process camera images.
 
     Provides camera key extraction, multi-camera detection, vision feature
-    naming, and multi-camera encode dispatch. Mixed into CNN, ViT,
-    ConditionalCNN, and VLM encoders.
+    naming, and multi-camera encode dispatch. Subclasses set the output
+    modality and camera group via abstract properties.
     """
+
+    @property
+    @abc.abstractmethod
+    def _output_modality(self) -> str:
+        """Output modality prefixed to feature names (e.g. ``'rgb'``, ``'depth'``)."""
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def _camera_group(self) -> list[str]:
+        """Valid camera keys for this modality."""
+        raise NotImplementedError
 
     def _setup_camera_keys(self, input_keys: list[str]) -> None:
         """Extract camera keys from input keys.
@@ -61,17 +73,17 @@ class ImageEncoderMixin(abc.ABC):
         Args:
             input_keys: All input keys for this encoder.
         """
-        self.camera_keys = [key for key in input_keys if key in RGB_CAMERAS]
+        self.camera_keys = [key for key in input_keys if key in self._camera_group]
         self.is_multi_camera = len(self.camera_keys) > 1
 
     def _get_vision_feature_names(self) -> list[str]:
         """Get output feature names based on camera configuration.
 
         Returns:
-            Single camera: ``['rgb']``.
-            Multi-camera: ``['rgb.left', 'rgb.right', ...]``.
+            Single camera: ``['{modality}']``.
+            Multi-camera: ``['{modality}.{cam1}', '{modality}.{cam2}', ...]``.
         """
-        modality = EncoderOutputKeys.RGB.value
+        modality = self._output_modality
         if self.is_multi_camera:
             return [f"{modality}.{key}" for key in self.camera_keys]
         else:
@@ -98,10 +110,10 @@ class ImageEncoderMixin(abc.ABC):
             inputs: Dict mapping camera keys to image tensors (B, C, H, W).
 
         Returns:
-            Dict with RGB features keyed by modality (single) or
+            Dict with features keyed by modality (single) or
             ``modality.camera_key`` (multi-camera).
         """
-        modality = EncoderOutputKeys.RGB.value
+        modality = self._output_modality
         if self.is_multi_camera:
             result = {}
             for camera_key in self.camera_keys:
@@ -111,3 +123,39 @@ class ImageEncoderMixin(abc.ABC):
         else:
             features = self._encode_single_image(inputs[self.camera_keys[0]])
             return {modality: features}
+
+
+class RGBEncoderMixin(ImageEncoderMixin):
+    """Mixin for encoders processing RGB camera images."""
+
+    @property
+    def _output_modality(self) -> str:
+        return EncoderOutputKeys.RGB.value
+
+    @property
+    def _camera_group(self) -> list[str]:
+        return RGB_CAMERAS
+
+
+class DepthEncoderMixin(ImageEncoderMixin):
+    """Mixin for encoders processing single-channel depth camera images."""
+
+    @property
+    def _output_modality(self) -> str:
+        return EncoderOutputKeys.DEPTH.value
+
+    @property
+    def _camera_group(self) -> list[str]:
+        return DEPTH_CAMERAS
+
+
+class RGBDEncoderMixin(ImageEncoderMixin):
+    """Mixin for encoders processing both RGB and depth camera images."""
+
+    @property
+    def _output_modality(self) -> str:
+        return EncoderOutputKeys.RGBD.value
+
+    @property
+    def _camera_group(self) -> list[str]:
+        return RGB_CAMERAS + DEPTH_CAMERAS

@@ -5,7 +5,6 @@ from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.decoders import ActionDecoder, DecoderInput
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
-from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -46,7 +45,7 @@ class ActionTransformer(ActionDecoder):
     ):
         decoder_input = DecoderInput(
             keys=input_keys,
-            required_types=[FeatureType.SPATIAL.value],
+            required_types=[],
             requires_actions=False,
         )
         super().__init__(

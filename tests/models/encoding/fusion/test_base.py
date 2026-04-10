@@ -54,7 +54,7 @@ class ConcreteSequentialFusion(SequentialFusion):
     def get_output_specification(self) -> FeatureMetadata:
         return FeatureMetadata(
             key=self.output_name,
-            feature_type=FeatureType.FLAT.value,
+            feature_type=self._output_feature_type,
             dimension=(self.hidden_dim * len(self.input_features),),
         )
 
@@ -308,6 +308,51 @@ class TestSequentialFusionSetupLayers:
         }
         module.setup(feature_registry=registry)
         assert module.projections[0].in_features == 64
+
+    @pytest.mark.parametrize(
+        "registry, expected_type",
+        [
+            (
+                {"feat_a": (64,), "feat_b": (128,)},
+                FeatureType.FLAT.value,
+            ),
+            (
+                {
+                    "feat_a": (
+                        10,
+                        64,
+                    ),
+                    "feat_b": (
+                        10,
+                        128,
+                    ),
+                },
+                FeatureType.SEQUENTIAL.value,
+            ),
+            (
+                {
+                    "feat_a": (64,),
+                    "feat_b": (
+                        10,
+                        128,
+                    ),
+                },
+                FeatureType.SEQUENTIAL.value,
+            ),
+        ],
+    )
+    def test_output_feature_type_matches_inputs(
+        self,
+        sequential_fusion_factory: Callable[..., ConcreteSequentialFusion],
+        registry: dict[str, tuple[int, ...]],
+        expected_type: str,
+    ):
+        module = sequential_fusion_factory(
+            input_features=list(registry.keys()),
+        )
+        module.setup(feature_registry=_make_feature_registry(registry))
+        spec = module.get_output_specification()
+        assert spec.feature_type == expected_type
 
     def test_rejects_spatial_features(
         self,

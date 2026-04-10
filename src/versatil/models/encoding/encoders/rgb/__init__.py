@@ -1,5 +1,5 @@
-from .cnn import CNNEncoder
 from .conditional_cnn import ConditionalCNNEncoder
-from .vit import ViTEncoder
+from .flat import FlatRGBEncoder
+from .spatial import SpatialRGBEncoder
 
-__all__ = ["CNNEncoder", "ViTEncoder", "ConditionalCNNEncoder"]
+__all__ = ["SpatialRGBEncoder", "FlatRGBEncoder", "ConditionalCNNEncoder"]

@@ -168,7 +168,10 @@ class ObservationTokenizer:
             return_tensors="pt",
         )
         tokens = tokenized["input_ids"]
-        is_pad = ~tokenized["attention_mask"].to(torch.bool)
+        if "attention_mask" in tokenized:
+            is_pad = ~tokenized["attention_mask"].to(torch.bool)
+        else:
+            is_pad = tokens == self.language_tokenizer.pad_token_id
         if has_time_dim:
             # Reshape (B*T, seq) -> (B, T, seq)
             tokens = tokens.reshape(batch_size, time_steps, -1)

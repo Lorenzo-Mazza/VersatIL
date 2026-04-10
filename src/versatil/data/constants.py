@@ -186,6 +186,10 @@ RGB_CAMERAS = [
     Cameras.EYE_IN_HAND.value,
 ]
 
+DEPTH_CAMERAS = [
+    Cameras.DEPTH.value,
+]
+
 # ref. https://github.com/VCIP-RGBD/RGBD-Pretrain/blob/main/data/constants.py#L3
 IMAGENET_RGB_MEAN: list[float] = [0.485, 0.456, 0.406]
 IMAGENET_RGB_STD: list[float] = [0.229, 0.224, 0.225]

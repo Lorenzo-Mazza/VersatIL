@@ -121,6 +121,7 @@ class LanguageEncoderMixin:
         pooling_method: str,
         batch_size: int,
         device: torch.device,
+        num_prefix_tokens: int = 0,
     ) -> torch.Tensor:
         """Build output padding mask based on pooling method.
 
@@ -132,11 +133,16 @@ class LanguageEncoderMixin:
             pooling_method: Pooling strategy from PoolingMethod enum.
             batch_size: Batch size for scalar mask.
             device: Device for the output tensor.
+            num_prefix_tokens: Number of prefix tokens (CLS, registers) stripped
+                from features. The mask is sliced to stay aligned.
 
         Returns:
-            Boolean padding mask — (B, S) for NONE, (B,) for pooled.
+            Boolean padding mask — (B, S') for NONE, (B,) for pooled.
         """
         if pooling_method == PoolingMethod.NONE.value:
-            return ~attention_mask.bool()
+            mask = ~attention_mask.bool()
+            if num_prefix_tokens > 0:
+                mask = mask[:, num_prefix_tokens:]  # (B, S) → (B, S-N)
+            return mask
         else:
             return torch.zeros(batch_size, dtype=torch.bool, device=device)

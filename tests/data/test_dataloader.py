@@ -728,6 +728,31 @@ class TestGetDataloaders:
         assert val_call.kwargs["shuffle"] is False
         assert val_call.kwargs["num_workers"] == min(4, 6)
 
+    @pytest.mark.parametrize(
+        "num_workers, expected_persistent, expected_prefetch",
+        [
+            (4, True, 2),
+            (0, False, None),
+        ],
+    )
+    def test_dataloader_multiprocessing_args(
+        self,
+        mock_hydra_config_factory,
+        num_workers: int,
+        expected_persistent: bool,
+        expected_prefetch: int | None,
+    ):
+        config = mock_hydra_config_factory(val_ratio=0.2, num_workers=num_workers)
+
+        get_dataloaders(config=config)
+
+        train_call = self.mock_dataloader_class.call_args_list[0]
+        assert train_call.kwargs["persistent_workers"] is expected_persistent
+        assert train_call.kwargs["prefetch_factor"] == expected_prefetch
+        val_call = self.mock_dataloader_class.call_args_list[1]
+        assert val_call.kwargs["persistent_workers"] is expected_persistent
+        assert val_call.kwargs["prefetch_factor"] == expected_prefetch
+
     def test_train_dataset_created_in_train_mode(self, mock_hydra_config_factory):
         config = mock_hydra_config_factory(val_ratio=0.0)
 

@@ -58,7 +58,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--temporal_aggregation",
         action="store_true",
-        help="Enable temporal aggregation.",
+        help="Enable temporal ensemble (query every step, average overlapping chunks).",
+    )
+    parser.add_argument(
+        "--action_execution_horizon",
+        type=int,
+        default=None,
+        help="Actions to execute per chunk when temporal aggregation is off. Default: prediction_horizon.",
     )
     parser.add_argument(
         "--update_frequency",
@@ -163,6 +169,7 @@ def main() -> None:
         observation_transport=observation_transport,
         action_transport=action_transport,
         temporal_aggregation=args.temporal_aggregation,
+        action_execution_horizon=args.action_execution_horizon,
         timing_log=args.timing_log,
         update_rate_hz=args.update_frequency,
     )

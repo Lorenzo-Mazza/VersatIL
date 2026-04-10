@@ -17,6 +17,7 @@ from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
     PoolingMethod,
 )
+from versatil.models.encoding.encoders.image_mixin import RGBDEncoderMixin
 from versatil.models.encoding.encoders.unconditional import Encoder
 from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers import FrozenBatchNorm2d, PatchEmbedding, PatchMerging
@@ -123,7 +124,7 @@ class DFormerStage(nn.Module):
         return output_features, next_features, depth_map
 
 
-class DFormerEncoder(Encoder):
+class DFormerEncoder(RGBDEncoderMixin, Encoder):
     """DFormerv2 encoder for RGB+Depth fusion using geometric self-attention.
 
     Hierarchical encoder with multi-scale feature extraction and depth-conditioned attention.
@@ -309,6 +310,11 @@ class DFormerEncoder(Encoder):
                 cleaned_state_dict[key] = value
 
         self.load_state_dict(cleaned_state_dict, strict=False)
+
+    def _encode_single_image(self, images: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError(
+            "DFormerEncoder processes RGB+depth jointly. Use encode() instead."
+        )
 
     def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Encode RGB + depth through DFormer.

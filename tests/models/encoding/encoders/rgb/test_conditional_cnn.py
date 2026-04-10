@@ -11,11 +11,12 @@ import torch
 import torch.nn as nn
 
 from versatil.data.constants import RGB_CAMERAS
+from versatil.data.metadata import BaseMetadata, CameraMetadata
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
-    CNNBackboneType,
     EncoderOutputKeys,
     PoolingMethod,
+    SpatialBackboneType,
 )
 from versatil.models.encoding.encoders.rgb.conditional_cnn import (
     ConditionalCNNEncoder,
@@ -44,7 +45,7 @@ def conditional_cnn_factory() -> Callable[..., ConditionalCNNEncoder]:
         input_keys: str | list[str] = "left",
         condition_key: str = "language_instruction",
         condition_dim: int = 64,
-        backbone: str = CNNBackboneType.RESNET18.value,
+        backbone: str = SpatialBackboneType.RESNET18.value,
         pooling_method: str = PoolingMethod.SPATIAL_SOFTMAX.value,
         batch_norm_handling: str = BatchNormHandling.FROZEN.value,
         pretrained: bool = False,
@@ -90,8 +91,8 @@ class TestConditionalCNNEncoderInitialization:
     @pytest.mark.parametrize(
         "backbone, expectation",
         [
-            (CNNBackboneType.RESNET18.value, does_not_raise()),
-            (CNNBackboneType.RESNET34.value, does_not_raise()),
+            (SpatialBackboneType.RESNET18.value, does_not_raise()),
+            (SpatialBackboneType.RESNET34.value, does_not_raise()),
             (
                 "invalid_backbone",
                 pytest.raises(
@@ -128,8 +129,8 @@ class TestConditionalCNNEncoderInitialization:
     @pytest.mark.parametrize(
         "backbone",
         [
-            CNNBackboneType.RESNET18.value,
-            CNNBackboneType.RESNET34.value,
+            SpatialBackboneType.RESNET18.value,
+            SpatialBackboneType.RESNET34.value,
         ],
     )
     @pytest.mark.parametrize(
@@ -275,7 +276,9 @@ class TestConditionalCNNEncoderForward:
         )
         with pytest.raises(
             RuntimeError,
-            match="pooling_head is not initialized. Call set_image_size",
+            match=re.escape(
+                "pooling_head is not initialized. Call set_image_size() before forward."
+            ),
         ):
             encoder(inputs=inputs, conditioning=conditioning)
 
@@ -342,6 +345,47 @@ class TestConditionalCNNEncoderGetOutputSpecification:
         ).dimension == (encoder.output_dim,)
 
 
+class TestConditionalCNNEncoderValidateInputMetadata:
+    @pytest.mark.parametrize(
+        "metadata, expected_error",
+        [
+            (
+                CameraMetadata(
+                    camera_key="left",
+                    dtype="uint8",
+                    channels=3,
+                    image_height=224,
+                    image_width=224,
+                ),
+                None,
+            ),
+            (
+                MagicMock(spec=BaseMetadata),
+                "Expected CameraMetadata for 'left', got MagicMock",
+            ),
+            (
+                CameraMetadata(
+                    camera_key="depth",
+                    dtype="uint8",
+                    channels=1,
+                    image_height=224,
+                    image_width=224,
+                ),
+                "Expected 3-channel RGB for 'left', got 1 channels",
+            ),
+        ],
+    )
+    def test_validates_rgb_camera_metadata(
+        self,
+        conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
+        metadata,
+        expected_error: str | None,
+    ):
+        encoder = conditional_cnn_factory()
+        result = encoder.validate_input_metadata(key="left", metadata=metadata)
+        assert result == expected_error
+
+
 class TestConditionalCNNEncoderIntegration:
     @pytest.mark.integration
     @pytest.mark.parametrize("backbone", CONDITIONAL_CNN_BACKBONES)
@@ -385,7 +429,7 @@ class TestConditionalCNNEncoderIntegration:
             input_keys="left",
             condition_key="language_instruction",
             condition_dim=condition_dim,
-            backbone=CNNBackboneType.RESNET18.value,
+            backbone=SpatialBackboneType.RESNET18.value,
             pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
         ).cpu()
@@ -424,7 +468,7 @@ class TestConditionalCNNEncoderIntegration:
             input_keys="left",
             condition_key="language_instruction",
             condition_dim=condition_dim,
-            backbone=CNNBackboneType.RESNET18.value,
+            backbone=SpatialBackboneType.RESNET18.value,
             batch_norm_handling=batch_norm_handling,
             pooling_method=PoolingMethod.AVERAGE.value,
             pretrained=False,
@@ -455,12 +499,36 @@ class TestConditionalCNNEncoderIntegration:
             input_keys="left",
             condition_key="language_instruction",
             condition_dim=64,
-            backbone=CNNBackboneType.RESNET18.value,
+            backbone=SpatialBackboneType.RESNET18.value,
             pretrained=False,
             frozen=frozen,
         ).cpu()
         for parameter in encoder.parameters():
             assert parameter.requires_grad is expected_requires_grad
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize("frozen", [True, False])
+    @pytest.mark.parametrize(
+        "pooling_method",
+        [PoolingMethod.AVERAGE.value, PoolingMethod.LEARNED_AGGREGATION.value],
+    )
+    def test_frozen_preserved_after_set_image_size(
+        self,
+        frozen: bool,
+        pooling_method: str,
+    ):
+        encoder = ConditionalCNNEncoder(
+            input_keys="left",
+            condition_key="language_instruction",
+            condition_dim=64,
+            backbone=SpatialBackboneType.RESNET18.value,
+            pooling_method=pooling_method,
+            pretrained=False,
+            frozen=frozen,
+        ).cpu()
+        encoder.set_image_size(image_height=224, image_width=224)
+        for parameter in encoder.parameters():
+            assert parameter.requires_grad is not frozen
 
 
 class TestConditionalCNNEncoderApplyBatchNormHandling:
@@ -474,7 +542,7 @@ class TestConditionalCNNEncoderApplyBatchNormHandling:
                 input_keys="left",
                 condition_key="language_instruction",
                 condition_dim=64,
-                backbone=CNNBackboneType.RESNET18.value,
+                backbone=SpatialBackboneType.RESNET18.value,
                 batch_norm_handling=invalid_handling,
                 pretrained=False,
             )
@@ -487,7 +555,7 @@ class TestConditionalCNNEncoderCopyPretrainedWeights:
             input_keys="left",
             condition_key="language_instruction",
             condition_dim=64,
-            backbone=CNNBackboneType.RESNET18.value,
+            backbone=SpatialBackboneType.RESNET18.value,
             pretrained=True,
         ).cpu()
         # Verify conv weights are non-zero (pretrained weights loaded)

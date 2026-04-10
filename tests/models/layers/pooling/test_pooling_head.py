@@ -285,11 +285,11 @@ class TestTokenPoolingHead:
         expected = hidden_states[:, 0]
         assert torch.allclose(output, expected)
 
-    @pytest.mark.parametrize("exclude_cls", [True, False])
-    def test_average_respects_exclude_cls(
+    @pytest.mark.parametrize("num_prefix_tokens", [0, 1, 5])
+    def test_average_respects_num_prefix_tokens(
         self,
         rng: np.random.Generator,
-        exclude_cls: bool,
+        num_prefix_tokens: int,
     ):
         batch_size = 2
         sequence_length = 10
@@ -297,7 +297,7 @@ class TestTokenPoolingHead:
         head = TokenPoolingHead(
             input_dimension=feature_dimension,
             pooling_method=PoolingMethod.AVERAGE.value,
-            exclude_cls=exclude_cls,
+            num_prefix_tokens=num_prefix_tokens,
         )
         hidden_states = torch.from_numpy(
             rng.standard_normal(
@@ -305,15 +305,15 @@ class TestTokenPoolingHead:
             ).astype(np.float32)
         )
         output = head(hidden_states)
-        start = 1 if exclude_cls else 0
+        start = num_prefix_tokens
         expected = hidden_states[:, start:].mean(dim=1)
         assert torch.allclose(output, expected)
 
-    @pytest.mark.parametrize("exclude_cls", [True, False])
+    @pytest.mark.parametrize("num_prefix_tokens", [0, 1, 5])
     def test_learned_aggregation_produces_input_sensitive_output(
         self,
         rng: np.random.Generator,
-        exclude_cls: bool,
+        num_prefix_tokens: int,
     ):
         batch_size = 2
         sequence_length = 10
@@ -321,7 +321,7 @@ class TestTokenPoolingHead:
         head = TokenPoolingHead(
             input_dimension=feature_dimension,
             pooling_method=PoolingMethod.LEARNED_AGGREGATION.value,
-            exclude_cls=exclude_cls,
+            num_prefix_tokens=num_prefix_tokens,
         )
         hidden_states_a = torch.from_numpy(
             rng.standard_normal(
@@ -338,11 +338,11 @@ class TestTokenPoolingHead:
         assert output_a.shape == (batch_size, feature_dimension)
         assert not torch.allclose(output_a, output_b)
 
-    @pytest.mark.parametrize("exclude_cls", [True, False])
-    def test_none_returns_full_or_cls_excluded_sequence(
+    @pytest.mark.parametrize("num_prefix_tokens", [0, 1, 5])
+    def test_none_returns_sequence_with_prefix_tokens_stripped(
         self,
         rng: np.random.Generator,
-        exclude_cls: bool,
+        num_prefix_tokens: int,
     ):
         batch_size = 2
         sequence_length = 10
@@ -350,7 +350,7 @@ class TestTokenPoolingHead:
         head = TokenPoolingHead(
             input_dimension=feature_dimension,
             pooling_method=PoolingMethod.NONE.value,
-            exclude_cls=exclude_cls,
+            num_prefix_tokens=num_prefix_tokens,
         )
         hidden_states = torch.from_numpy(
             rng.standard_normal(
@@ -358,7 +358,7 @@ class TestTokenPoolingHead:
             ).astype(np.float32)
         )
         output = head(hidden_states)
-        start = 1 if exclude_cls else 0
+        start = num_prefix_tokens
         expected = hidden_states[:, start:]
         assert torch.equal(output, expected)
 

@@ -2,6 +2,8 @@
 _target_: versatil.configs.main.MainConfig
 
 defaults:
+  - /task: base
+  - /policy: base
   - /experiment: default
   - /task/dataset_schema: bowel_retraction_v2
   - /task/dataloader: bowel_retraction_tokenized_actions

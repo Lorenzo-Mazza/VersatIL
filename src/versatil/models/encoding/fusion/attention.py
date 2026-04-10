@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from versatil.models.encoding.fusion.base import SequentialFusion
-from versatil.models.feature_meta import FeatureMetadata, FeatureType
+from versatil.models.feature_meta import FeatureMetadata
 
 
 class AttentionFusion(SequentialFusion):
@@ -89,6 +89,6 @@ class AttentionFusion(SequentialFusion):
         """Get output specification."""
         return FeatureMetadata(
             key=self.output_name,
-            feature_type=FeatureType.FLAT.value,
+            feature_type=self._output_feature_type,
             dimension=(self.hidden_dim,),
         )

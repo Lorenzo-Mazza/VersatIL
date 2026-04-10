@@ -6,7 +6,9 @@ from unittest.mock import MagicMock, patch
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+import pytorch_lightning as pl
 import torch
+from torch.utils.data import DataLoader
 
 from versatil.training.callbacks import (
     ConfusionMatrixCallback,
@@ -121,7 +123,6 @@ class TestEMACallbackInitialization:
         callback = ema_callback_factory()
 
         assert callback.ema_model is None
-        assert callback.optimization_step == 0
         assert callback.decay == 0.0
 
 
@@ -134,9 +135,9 @@ class TestEMACallbackDecayComputation:
         callback = ema_callback_factory(update_after_step=100)
 
         # Steps 0 through 100 should return 0.0
-        assert callback._get_decay(optimization_step=0) == 0.0
-        assert callback._get_decay(optimization_step=50) == 0.0
-        assert callback._get_decay(optimization_step=100) == 0.0
+        assert callback._get_decay(global_step=0) == 0.0
+        assert callback._get_decay(global_step=50) == 0.0
+        assert callback._get_decay(global_step=100) == 0.0
 
     def test_decay_increases_monotonically_with_steps(
         self,
@@ -144,9 +145,9 @@ class TestEMACallbackDecayComputation:
     ):
         callback = ema_callback_factory(power=0.75, update_after_step=0, inv_gamma=1.0)
 
-        decay_10 = callback._get_decay(optimization_step=10)
-        decay_100 = callback._get_decay(optimization_step=100)
-        decay_1000 = callback._get_decay(optimization_step=1000)
+        decay_10 = callback._get_decay(global_step=10)
+        decay_100 = callback._get_decay(global_step=100)
+        decay_1000 = callback._get_decay(global_step=1000)
 
         assert 0.0 < decay_10 < decay_100 < decay_1000
 
@@ -158,7 +159,7 @@ class TestEMACallbackDecayComputation:
         callback = ema_callback_factory(max_value=max_value)
 
         # Very large step should be clamped
-        decay = callback._get_decay(optimization_step=1_000_000)
+        decay = callback._get_decay(global_step=1_000_000)
 
         assert decay <= max_value
 
@@ -170,7 +171,7 @@ class TestEMACallbackDecayComputation:
         callback = ema_callback_factory(min_value=min_value, update_after_step=0)
 
         # Early step where raw value is below min_value
-        decay = callback._get_decay(optimization_step=2)
+        decay = callback._get_decay(global_step=2)
 
         assert decay >= min_value
 
@@ -263,66 +264,50 @@ class TestEMACallbackOnTrainBatchEnd:
         # So EMA should be entirely the new param: ema = 0 * ema + 1 * param
         assert torch.allclose(ema_weight_after, new_weight, atol=1e-6)
 
-    def test_non_zero_decay_blends_old_and_new_weights(
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "max_epochs, num_samples, batch_size",
+        [
+            (2, 16, 4),
+            (3, 12, 4),
+            (1, 8, 2),
+        ],
+    )
+    def test_ema_decay_matches_expected_value_after_real_training(
         self,
         ema_callback_factory: Callable,
-        pl_module_with_policy_factory: Callable,
-        mock_trainer_factory: Callable,
-        simple_module_factory: Callable,
-        rng: np.random.Generator,
+        real_lightning_module_factory: Callable[
+            ..., tuple[pl.LightningModule, DataLoader]
+        ],
+        max_epochs: int,
+        num_samples: int,
+        batch_size: int,
     ):
-        policy = simple_module_factory()
-        pl_module = pl_module_with_policy_factory(policy=policy)
-        callback = ema_callback_factory(power=0.75, update_after_step=0, inv_gamma=1.0)
-        trainer = mock_trainer_factory()
+        power = 0.75
+        callback = ema_callback_factory(power=power, update_after_step=0)
+        module, dataloader = real_lightning_module_factory(
+            num_samples=num_samples, batch_size=batch_size
+        )
+        trainer = pl.Trainer(
+            max_epochs=max_epochs,
+            callbacks=[callback],
+            enable_checkpointing=False,
+            logger=False,
+            enable_progress_bar=False,
+        )
+        trainer.fit(module, dataloader)
 
-        callback.on_fit_start(trainer=trainer, pl_module=pl_module)
-
-        # Step 0: decay=0, EMA becomes policy (warmup step)
-        new_weight_step0 = torch.from_numpy(
-            rng.standard_normal(policy.weight.shape).astype(np.float32)
-        )
-        policy.weight.data.copy_(new_weight_step0)
-        callback.on_train_batch_end(
-            trainer=trainer,
-            pl_module=pl_module,
-            outputs=None,
-            batch=None,
-            batch_idx=0,
-        )
-        # Step 1: decay=0, EMA becomes policy again
-        new_weight_step1 = torch.from_numpy(
-            rng.standard_normal(policy.weight.shape).astype(np.float32)
-        )
-        policy.weight.data.copy_(new_weight_step1)
-        callback.on_train_batch_end(
-            trainer=trainer,
-            pl_module=pl_module,
-            outputs=None,
-            batch=None,
-            batch_idx=1,
-        )
-        ema_after_step1 = callback.ema_model.weight.data.clone()
-
-        # Step 2: optimization_step=2, decay = _get_decay(2) > 0
-        decay = callback._get_decay(optimization_step=2)
-        assert decay > 0.0, "Decay should be non-zero at step 2"
-
-        new_weight_step2 = torch.from_numpy(
-            rng.standard_normal(policy.weight.shape).astype(np.float32)
-        )
-        policy.weight.data.copy_(new_weight_step2)
-        callback.on_train_batch_end(
-            trainer=trainer,
-            pl_module=pl_module,
-            outputs=None,
-            batch=None,
-            batch_idx=2,
-        )
-
-        # Verify EMA = decay * old_ema + (1 - decay) * new_param
-        expected_ema = decay * ema_after_step1 + (1 - decay) * new_weight_step2
-        assert torch.allclose(callback.ema_model.weight.data, expected_ema, atol=1e-6)
+        # decay formula: step = max(0, global_step - update_after_step - 1)
+        #                decay = 1 - (1 + step)^(-power)
+        expected_global_step = max_epochs * (num_samples // batch_size)
+        assert trainer.global_step == expected_global_step
+        warmup_step = max(0, expected_global_step - 0 - 1)
+        expected_decay = 1 - (1 + warmup_step) ** -power
+        assert callback.decay == pytest.approx(expected_decay, abs=1e-6)
+        # EMA weights should differ from training weights
+        ema_weights = callback.ema_model.weight.data.cpu()
+        training_weights = module.policy.weight.data.cpu()
+        assert not torch.equal(ema_weights, training_weights)
 
     def test_batchnorm_running_stats_copied_directly(
         self,
@@ -370,37 +355,41 @@ class TestEMACallbackOnTrainBatchEnd:
         assert torch.allclose(ema_bn.running_mean, policy_bn.running_mean, atol=1e-6)
         assert torch.allclose(ema_bn.running_var, policy_bn.running_var, atol=1e-6)
 
-    def test_increments_optimization_step(
+    def test_decay_uses_trainer_global_step(
         self,
         ema_callback_factory: Callable,
         pl_module_with_policy_factory: Callable,
         mock_trainer_factory: Callable,
     ):
-        callback = ema_callback_factory()
+        callback = ema_callback_factory(update_after_step=0)
         pl_module = pl_module_with_policy_factory()
-        trainer = mock_trainer_factory()
 
-        callback.on_fit_start(trainer=trainer, pl_module=pl_module)
-
-        assert callback.optimization_step == 0
-
+        trainer_step_50 = mock_trainer_factory(global_step=50)
+        callback.on_fit_start(trainer=trainer_step_50, pl_module=pl_module)
         callback.on_train_batch_end(
-            trainer=trainer,
+            trainer=trainer_step_50,
             pl_module=pl_module,
             outputs=None,
             batch=None,
             batch_idx=0,
         )
-        assert callback.optimization_step == 1
+        decay_at_50 = callback.decay
 
+        trainer_step_500 = mock_trainer_factory(global_step=500)
         callback.on_train_batch_end(
-            trainer=trainer,
+            trainer=trainer_step_500,
             pl_module=pl_module,
             outputs=None,
             batch=None,
             batch_idx=1,
         )
-        assert callback.optimization_step == 2
+        decay_at_500 = callback.decay
+
+        # Decay should increase with global_step
+        assert decay_at_500 > decay_at_50
+        # And match _get_decay computed directly from the step values
+        assert decay_at_50 == callback._get_decay(global_step=50)
+        assert decay_at_500 == callback._get_decay(global_step=500)
 
     def test_does_nothing_when_ema_model_is_none(
         self,
@@ -410,8 +399,8 @@ class TestEMACallbackOnTrainBatchEnd:
     ):
         callback = ema_callback_factory()
         pl_module = pl_module_with_policy_factory()
+        policy_params_before = [p.clone() for p in pl_module.policy.parameters()]
         # Do NOT call on_fit_start, so ema_model stays None
-
         callback.on_train_batch_end(
             trainer=mock_trainer_factory(),
             pl_module=pl_module,
@@ -419,10 +408,12 @@ class TestEMACallbackOnTrainBatchEnd:
             batch=None,
             batch_idx=0,
         )
+        # Nothing should have changed
+        assert callback.ema_model is None
+        for before, after in zip(policy_params_before, pl_module.policy.parameters()):
+            torch.testing.assert_close(before, after)
 
-        assert callback.optimization_step == 0
-
-    def test_logs_decay_every_100_steps(
+    def test_logs_decay_at_global_step_100(
         self,
         ema_callback_factory: Callable,
         pl_module_with_policy_factory: Callable,
@@ -430,27 +421,49 @@ class TestEMACallbackOnTrainBatchEnd:
     ):
         callback = ema_callback_factory()
         pl_module = pl_module_with_policy_factory()
-        trainer = mock_trainer_factory()
+        trainer = mock_trainer_factory(global_step=100)
 
         callback.on_fit_start(trainer=trainer, pl_module=pl_module)
+        callback.on_train_batch_end(
+            trainer=trainer,
+            pl_module=pl_module,
+            outputs=None,
+            batch=None,
+            batch_idx=0,
+        )
 
-        # Run 100 steps to reach logging point
-        for step in range(100):
-            callback.on_train_batch_end(
-                trainer=trainer,
-                pl_module=pl_module,
-                outputs=None,
-                batch=None,
-                batch_idx=step,
-            )
-
-        # Step 99 internally increments to optimization_step=100, which triggers log
         log_calls = [
             call_args
             for call_args in pl_module.log.call_args_list
             if call_args[0][0] == "ema_decay"
         ]
         assert len(log_calls) == 1
+
+    def test_does_not_log_decay_at_non_100_step(
+        self,
+        ema_callback_factory: Callable,
+        pl_module_with_policy_factory: Callable,
+        mock_trainer_factory: Callable,
+    ):
+        callback = ema_callback_factory()
+        pl_module = pl_module_with_policy_factory()
+        trainer = mock_trainer_factory(global_step=99)
+
+        callback.on_fit_start(trainer=trainer, pl_module=pl_module)
+        callback.on_train_batch_end(
+            trainer=trainer,
+            pl_module=pl_module,
+            outputs=None,
+            batch=None,
+            batch_idx=0,
+        )
+
+        log_calls = [
+            call_args
+            for call_args in pl_module.log.call_args_list
+            if call_args[0][0] == "ema_decay"
+        ]
+        assert len(log_calls) == 0
 
 
 @pytest.mark.unit

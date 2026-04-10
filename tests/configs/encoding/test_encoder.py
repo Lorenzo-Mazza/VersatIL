@@ -7,17 +7,19 @@ from hydra.utils import instantiate
 from omegaconf import MISSING
 
 from versatil.configs.encoding.encoder import (
-    CNNEncoderConfig,
     ConditionalCNNEncoderConfig,
-    DepthCNNEncoderConfig,
     DFormerEncoderConfig,
     EncoderConfig,
+    FlatRGBEncoderConfig,
     GeometricRGBDEncoderConfig,
     ImageEncoderConfig,
     LanguageEncoderConfig,
+    PaliGemmaEncoderConfig,
     ProprioEncoderConfig,
+    SmolVLMEncoderConfig,
+    SpatialDepthEncoderConfig,
+    SpatialRGBEncoderConfig,
     TwoTowerVLMEncoderConfig,
-    ViTEncoderConfig,
 )
 from versatil.data.constants import Cameras
 from versatil.models.encoding.encoders.constants import (
@@ -54,21 +56,32 @@ class TestEncoderConfig:
 
 
 @pytest.mark.unit
-class TestCNNEncoderConfig:
+class TestSpatialRGBEncoderConfig:
     def test_target_points_to_cnn_encoder(self):
-        config = CNNEncoderConfig(input_keys=["left"], backbone="timm/resnet18.a1_in1k")
-        assert config._target_ == "versatil.models.encoding.encoders.rgb.cnn.CNNEncoder"
+        config = SpatialRGBEncoderConfig(
+            input_keys=["left"], backbone="timm/resnet18.a1_in1k"
+        )
+        assert (
+            config._target_
+            == "versatil.models.encoding.encoders.rgb.spatial.SpatialRGBEncoder"
+        )
 
     def test_pooling_method_default_is_none_string(self):
-        config = CNNEncoderConfig(input_keys=["left"], backbone="timm/resnet18.a1_in1k")
+        config = SpatialRGBEncoderConfig(
+            input_keys=["left"], backbone="timm/resnet18.a1_in1k"
+        )
         assert config.pooling_method == PoolingMethod.NONE.value
 
     def test_batch_norm_handling_default_is_frozen_string(self):
-        config = CNNEncoderConfig(input_keys=["left"], backbone="timm/resnet18.a1_in1k")
+        config = SpatialRGBEncoderConfig(
+            input_keys=["left"], backbone="timm/resnet18.a1_in1k"
+        )
         assert config.batch_norm_handling == BatchNormHandling.FROZEN.value
 
     def test_inherits_from_image_encoder_config(self):
-        config = CNNEncoderConfig(input_keys=["left"], backbone="timm/resnet18.a1_in1k")
+        config = SpatialRGBEncoderConfig(
+            input_keys=["left"], backbone="timm/resnet18.a1_in1k"
+        )
         assert isinstance(config, ImageEncoderConfig)
         assert isinstance(config, EncoderConfig)
 
@@ -101,33 +114,39 @@ class TestConditionalCNNEncoderConfig:
             condition_key="language",
             condition_dim=512,
         )
-        assert isinstance(config, CNNEncoderConfig)
+        assert isinstance(config, SpatialRGBEncoderConfig)
 
 
 @pytest.mark.unit
-class TestViTEncoderConfig:
-    def test_target_defaults_to_missing(self):
-        config = ViTEncoderConfig(input_keys=["left"])
-        assert config._target_ == MISSING
+class TestFlatRGBEncoderConfig:
+    def test_target_points_to_flat_rgb_encoder(self):
+        config = FlatRGBEncoderConfig(input_keys=["left"])
+        assert (
+            config._target_
+            == "versatil.models.encoding.encoders.rgb.flat.FlatRGBEncoder"
+        )
 
     def test_pooling_method_default_is_none_string(self):
-        config = ViTEncoderConfig(input_keys=["left"])
+        config = FlatRGBEncoderConfig(input_keys=["left"])
         assert config.pooling_method == PoolingMethod.NONE.value
 
 
 @pytest.mark.unit
-class TestDepthCNNEncoderConfig:
+class TestSpatialDepthEncoderConfig:
     def test_target_points_to_depth_cnn_encoder(self):
-        config = DepthCNNEncoderConfig(input_keys=["depth"], backbone="resnet18")
+        config = SpatialDepthEncoderConfig(input_keys=["depth"], backbone="resnet18")
         assert (
             config._target_
-            == "versatil.models.encoding.encoders.depth.cnn.DepthCNNEncoder"
+            == "versatil.models.encoding.encoders.depth.spatial.SpatialDepthEncoder"
         )
 
-    def test_image_dimensions_required(self):
-        config = DepthCNNEncoderConfig(input_keys=["depth"], backbone="resnet18")
-        assert config.image_height == MISSING
-        assert config.image_width == MISSING
+    def test_pooling_method_default_is_none_string(self):
+        config = SpatialDepthEncoderConfig(input_keys=["depth"], backbone="resnet18")
+        assert config.pooling_method == PoolingMethod.NONE.value
+
+    def test_batch_norm_handling_default_is_frozen_string(self):
+        config = SpatialDepthEncoderConfig(input_keys=["depth"], backbone="resnet18")
+        assert config.batch_norm_handling == BatchNormHandling.FROZEN.value
 
 
 @pytest.mark.unit
@@ -193,6 +212,74 @@ class TestTwoTowerVLMEncoderConfig:
 
 
 @pytest.mark.unit
+class TestImageEncoderConfig:
+    def test_target_defaults_to_missing(self):
+        config = ImageEncoderConfig()
+        assert config._target_ == MISSING
+
+    def test_backbone_defaults_to_missing(self):
+        config = ImageEncoderConfig()
+        assert config.backbone == MISSING
+
+    def test_inherits_from_encoder_config(self):
+        assert issubclass(ImageEncoderConfig, EncoderConfig)
+
+
+@pytest.mark.unit
+class TestPaliGemmaEncoderConfig:
+    def test_target_points_to_paligemma_encoder(self):
+        config = PaliGemmaEncoderConfig(input_keys=["left"], model_name="test")
+        assert (
+            config._target_
+            == "versatil.models.encoding.encoders.cross_modal.vision_language.paligemma.PaliGemmaEncoder"
+        )
+
+    @pytest.mark.parametrize("use_embeddings_only", [True, False])
+    @pytest.mark.parametrize("max_text_length", [32, 128])
+    def test_stores_configuration(
+        self,
+        use_embeddings_only: bool,
+        max_text_length: int,
+    ):
+        config = PaliGemmaEncoderConfig(
+            input_keys=["left"],
+            model_name="test",
+            use_embeddings_only=use_embeddings_only,
+            max_text_length=max_text_length,
+        )
+        assert config.model_name == "test"
+        assert config.use_embeddings_only == use_embeddings_only
+        assert config.max_text_length == max_text_length
+
+
+@pytest.mark.unit
+class TestSmolVLMEncoderConfig:
+    def test_target_points_to_smolvlm_encoder(self):
+        config = SmolVLMEncoderConfig(input_keys=["left"], model_name="test")
+        assert (
+            config._target_
+            == "versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm.SmolVLMEncoder"
+        )
+
+    @pytest.mark.parametrize("use_embeddings_only", [True, False])
+    @pytest.mark.parametrize("max_text_length", [32, 128])
+    def test_stores_configuration(
+        self,
+        use_embeddings_only: bool,
+        max_text_length: int,
+    ):
+        config = SmolVLMEncoderConfig(
+            input_keys=["left"],
+            model_name="test",
+            use_embeddings_only=use_embeddings_only,
+            max_text_length=max_text_length,
+        )
+        assert config.model_name == "test"
+        assert config.use_embeddings_only == use_embeddings_only
+        assert config.max_text_length == max_text_length
+
+
+@pytest.mark.unit
 class TestLanguageEncoderConfig:
     def test_target_points_to_language_encoder(self):
         config = LanguageEncoderConfig()
@@ -230,10 +317,10 @@ class TestEncoderTargetResolutionIntegration:
         "config_class, expected_class_name",
         [
             (
-                lambda: CNNEncoderConfig(
+                lambda: SpatialRGBEncoderConfig(
                     input_keys=["left"], backbone="timm/resnet18.a1_in1k"
                 ),
-                "CNNEncoder",
+                "SpatialRGBEncoder",
             ),
             (
                 lambda: ConditionalCNNEncoderConfig(
@@ -245,10 +332,10 @@ class TestEncoderTargetResolutionIntegration:
                 "ConditionalCNNEncoder",
             ),
             (
-                lambda: DepthCNNEncoderConfig(
+                lambda: SpatialDepthEncoderConfig(
                     input_keys=["depth"], backbone="resnet18"
                 ),
-                "DepthCNNEncoder",
+                "SpatialDepthEncoder",
             ),
             (lambda: DFormerEncoderConfig(), "DFormerEncoder"),
             (lambda: GeometricRGBDEncoderConfig(), "GeometricRGBDEncoder"),
@@ -259,6 +346,14 @@ class TestEncoderTargetResolutionIntegration:
                 "TwoTowerVLMEncoder",
             ),
             (lambda: LanguageEncoderConfig(), "LanguageEncoder"),
+            (
+                lambda: PaliGemmaEncoderConfig(input_keys=["left"], model_name="test"),
+                "PaliGemmaEncoder",
+            ),
+            (
+                lambda: SmolVLMEncoderConfig(input_keys=["left"], model_name="test"),
+                "SmolVLMEncoder",
+            ),
         ],
     )
     def test_target_resolves_to_importable_class(

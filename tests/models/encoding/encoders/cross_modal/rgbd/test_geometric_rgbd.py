@@ -186,6 +186,37 @@ class TestGeometricRGBDEncoderInitialization:
         assert encoder.input_specification.one_of_groups == [RGB_CAMERAS]
 
 
+class TestGeometricRGBDEncoderMixin:
+    def test_camera_group_includes_rgb_and_depth(
+        self,
+        light_geometric_encoder_factory: Callable[..., GeometricRGBDEncoder],
+    ):
+        encoder = light_geometric_encoder_factory()
+        assert Cameras.LEFT.value in encoder._camera_group
+        assert Cameras.DEPTH.value in encoder._camera_group
+
+    def test_output_modality_is_rgbd(
+        self,
+        light_geometric_encoder_factory: Callable[..., GeometricRGBDEncoder],
+    ):
+        encoder = light_geometric_encoder_factory()
+        assert encoder._output_modality == EncoderOutputKeys.RGBD.value
+
+    def test_encode_single_image_raises(
+        self,
+        light_geometric_encoder_factory: Callable[..., GeometricRGBDEncoder],
+    ):
+        encoder = light_geometric_encoder_factory()
+        with pytest.raises(
+            NotImplementedError,
+            match=re.escape(
+                "GeometricRGBDEncoder processes RGB+depth jointly. "
+                "Use encode() instead."
+            ),
+        ):
+            encoder._encode_single_image(torch.zeros(1, 3, 32, 32))
+
+
 class TestGeometricRGBDEncoderGetOutputSpecification:
     def test_returns_rgbd_feature_with_correct_dimension(
         self,

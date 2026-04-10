@@ -1,4 +1,4 @@
-"""Vision Transformer encoder with multi-backbone support via timm."""
+"""Flat RGB encoder producing (B, S, D) token sequences via timm forward_features."""
 
 import timm
 import torch
@@ -7,11 +7,11 @@ from versatil.data.constants import RGB_CAMERAS
 from versatil.data.metadata import BaseMetadata, CameraMetadata
 from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.constants import (
+    FlatBackboneType,
     PoolingMethod,
-    ViTBackboneType,
 )
 from versatil.models.encoding.encoders.image_mixin import (
-    ImageEncoderMixin,
+    RGBEncoderMixin,
     resize_to_target_size,
 )
 from versatil.models.encoding.encoders.unconditional import Encoder
@@ -19,17 +19,19 @@ from versatil.models.feature_meta import FeatureMetadata, infer_feature_type
 from versatil.models.layers.pooling.pooling_head import create_token_pooling_head
 
 
-class ViTEncoder(ImageEncoderMixin, Encoder):
+class FlatRGBEncoder(RGBEncoderMixin, Encoder):
+    """RGB encoder for backbones that output flat token sequences."""
+
     def __init__(
         self,
         input_keys: str | list[str],
         pretrained: bool,
         frozen: bool,
         pooling_method: str = PoolingMethod.DEFAULT.value,
-        backbone: str = ViTBackboneType.DINOV2_VITB14.value,
+        backbone: str = FlatBackboneType.DINOV2_VITB14.value,
         model_dtype: str | None = None,
     ):
-        """Vision Transformer encoder using timm library.
+        """Initialize flat RGB encoder with timm backbone.
 
         Args:
             input_keys: Camera observation keys.
@@ -37,7 +39,7 @@ class ViTEncoder(ImageEncoderMixin, Encoder):
             frozen: Whether to freeze all parameters.
             pooling_method: Feature pooling strategy for patch tokens.
                 Defaults to CLS token selection.
-            backbone: timm model name for the ViT backbone.
+            backbone: timm model name for the backbone.
             model_dtype: Precision string from experiment config (e.g. ``"bf16-mixed"``).
         """
         specification = EncoderInput(
@@ -49,12 +51,19 @@ class ViTEncoder(ImageEncoderMixin, Encoder):
             frozen=frozen,
             model_dtype=model_dtype,
         )
-        valid_backbones = [e.value for e in ViTBackboneType]
+        valid_backbones = [e.value for e in FlatBackboneType]
         if backbone not in valid_backbones:
             raise ValueError(
                 f"Invalid backbone '{backbone}'. Must be one of: {valid_backbones}"
             )
 
+        pooling = PoolingMethod(pooling_method)
+        if not pooling.supports_sequential:
+            raise ValueError(
+                f"Pooling method '{pooling_method}' is not compatible with "
+                f"token sequences. Use one of: "
+                f"{[p.value for p in PoolingMethod if p.supports_sequential]}"
+            )
         self._setup_camera_keys(input_keys=self.input_specification.keys)
         self.pooling_method = pooling_method
         self.backbone_name = backbone
@@ -64,7 +73,7 @@ class ViTEncoder(ImageEncoderMixin, Encoder):
         self.token_pooling_head = create_token_pooling_head(
             pooling_method=pooling_method,
             input_dimension=self.feature_dim,
-            exclude_cls=True,
+            num_prefix_tokens=self.backbone.num_prefix_tokens,
         )
         self.output_dim = self.token_pooling_head.output_dim
         if frozen:
@@ -148,9 +157,11 @@ class ViTEncoder(ImageEncoderMixin, Encoder):
         self.token_pooling_head = create_token_pooling_head(
             pooling_method=self.pooling_method,
             input_dimension=self.feature_dim,
-            exclude_cls=True,
+            num_prefix_tokens=self.backbone.num_prefix_tokens,
         )
         self.output_dim = self.token_pooling_head.output_dim
+        if self.frozen:
+            self._freeze_weights()
 
     def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
         """Validate that input metadata is camera metadata.

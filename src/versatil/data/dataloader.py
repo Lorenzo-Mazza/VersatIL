@@ -87,14 +87,16 @@ def get_dataloaders(
     train_dataset.set_normalizer(normalizer)
     train_dataset.set_tokenizer(tokenizer)
 
+    num_workers = config.task.dataloader.num_workers
+    use_multiprocessing = num_workers > 0
     train_loader = data.DataLoader(
         train_dataset,
         batch_size=config.task.dataloader.batch_size,
         shuffle=config.task.dataloader.shuffle,
-        num_workers=config.task.dataloader.num_workers,
+        num_workers=num_workers,
         pin_memory=True,
-        persistent_workers=True,
-        prefetch_factor=2,
+        persistent_workers=use_multiprocessing,
+        prefetch_factor=2 if use_multiprocessing else None,
     )
 
     val_loader: data.DataLoader | None = None
@@ -118,14 +120,16 @@ def get_dataloaders(
             )
             val_dataset.action_processor._denoising_thresholds_computed = True
 
+        val_num_workers = min(4, config.task.dataloader.num_workers)
+        val_use_multiprocessing = val_num_workers > 0
         val_loader = data.DataLoader(
             val_dataset,
             batch_size=config.task.dataloader.batch_size,
             shuffle=False,
-            num_workers=min(4, config.task.dataloader.num_workers),
+            num_workers=val_num_workers,
             pin_memory=True,
-            persistent_workers=True,
-            prefetch_factor=2,
+            persistent_workers=val_use_multiprocessing,
+            prefetch_factor=2 if val_use_multiprocessing else None,
         )
     else:
         logging.info("Validation disabled (val_ratio=0). Training without validation.")

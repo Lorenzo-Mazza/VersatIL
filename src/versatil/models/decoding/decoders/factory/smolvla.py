@@ -134,6 +134,7 @@ class SmolVLADecoder(ActionDecoder):
         self.timestep_embedding: PeriodInterpolationPositionalEncoding1D | None = None
         self.expert_final_norm: nn.Module | None = None
         self.vlm_hidden_dimension: int | None = None
+        self.proprioceptive_projection: FeatureProjection | None = None
         self._encoder_cache_enabled = False
         self._prefix_cache: ConditioningCache | None = None
 
@@ -353,10 +354,30 @@ class SmolVLADecoder(ActionDecoder):
             causal_actions=True,
             causal_prefix_suffix_length=causal_prefix_suffix_length,
         )
+        # Reorder attention mask from [prefix(P), action(A)] to [expert(A), VLM(P)]
+        # so _joint_sdpa's primary/secondary slicing gets the correct blocks.
+        # key_padding_mask and position_ids stay in [prefix, action] order for RoPE.
+        prefix_length = prefix_embeddings.shape[1]
+        action_length = expert_hidden.shape[1]
+        perm = torch.cat(
+            [
+                torch.arange(
+                    prefix_length,
+                    prefix_length + action_length,
+                    device=expert_hidden.device,
+                ),
+                torch.arange(prefix_length, device=expert_hidden.device),
+            ]
+        )
+        attention_mask = attention_mask[:, :, perm, :][:, :, :, perm]
+        # Expert→VLM cross-attention mask: expert query rows, VLM key columns
+        # A = action_length (expert tokens), P = prefix_length (VLM tokens)
+        cross_attention_mask = attention_mask[
+            :, :, :action_length, action_length:
+        ]  # (B, 1, A, P)
         # Non-padded tokens get incrementing positions; padded tokens stay at 0
         pad_mask = ~key_padding_mask.bool()
         position_ids = (pad_mask.long().cumsum(dim=-1) - 1).clamp(min=0)
-        prefix_length = prefix_embeddings.shape[1]
         expert_position_ids = position_ids[:, prefix_length:]
         expert_action_rope = GenerativeVLMEncoder.compute_rope(
             rotary_embedding=self.vlm_rotary_embedding,
@@ -371,6 +392,7 @@ class SmolVLADecoder(ActionDecoder):
                 expert_hidden=expert_hidden,
                 vlm_cache=self._prefix_cache,
                 attention_mask=attention_mask,
+                cross_attention_mask=cross_attention_mask,
                 expert_action_rope=expert_action_rope,
             )
         elif self._encoder_cache_enabled:
@@ -387,6 +409,7 @@ class SmolVLADecoder(ActionDecoder):
                 expert_hidden=expert_hidden,
                 vlm_cache=vlm_cache,
                 attention_mask=attention_mask,
+                cross_attention_mask=cross_attention_mask,
                 expert_action_rope=expert_action_rope,
             )
         else:
@@ -399,6 +422,7 @@ class SmolVLADecoder(ActionDecoder):
                 prefix_embeddings=prefix_embeddings,
                 expert_hidden=expert_hidden,
                 attention_mask=attention_mask,
+                cross_attention_mask=cross_attention_mask,
                 position_ids=position_ids,
                 expert_action_rope=expert_action_rope,
                 vlm_prefix_attention_mask=vlm_train_mask,
@@ -420,6 +444,7 @@ class SmolVLADecoder(ActionDecoder):
         prefix_embeddings: torch.Tensor,
         expert_hidden: torch.Tensor,
         attention_mask: torch.Tensor,
+        cross_attention_mask: torch.Tensor,
         position_ids: torch.Tensor,
         expert_action_rope: tuple[torch.Tensor, torch.Tensor],
         vlm_prefix_attention_mask: torch.Tensor | None = None,
@@ -432,11 +457,12 @@ class SmolVLADecoder(ActionDecoder):
         Args:
             prefix_embeddings: VLM prefix token embeddings (B, P, D).
             expert_hidden: Expert action token embeddings (B, A, D_expert).
-            attention_mask: Full attention mask (B, 1, P+A, P+A).
+            attention_mask: Joint mask (B, 1, A+P, A+P) for dual-stream layers.
+            cross_attention_mask: Expert→VLM mask (B, 1, A, P) for cross-attention layers.
             position_ids: Position IDs (B, P+A).
             expert_action_rope: Pre-computed (cos, sin) for expert RoPE.
             vlm_prefix_attention_mask: Optional HF-style mask for VLM layers
-                (B, P) where 1=attend, 0=masked.
+                (B, 1, 1, P) where True=attend, False=masked.
         """
 
         vlm_hidden = prefix_embeddings
@@ -514,6 +540,7 @@ class SmolVLADecoder(ActionDecoder):
                         conditioning_cache=ConditioningLayerCache(
                             keys=vlm_keys, values=vlm_values
                         ),
+                        attention_mask=cross_attention_mask,
                         precomputed_rope=expert_action_rope,
                     )
                     vlm_layer_index += 1
@@ -594,21 +621,26 @@ class SmolVLADecoder(ActionDecoder):
         expert_hidden: torch.Tensor,
         vlm_cache: ConditioningCache,
         attention_mask: torch.Tensor,
+        cross_attention_mask: torch.Tensor,
         expert_action_rope: tuple[torch.Tensor, torch.Tensor],
     ) -> torch.Tensor:
         """Run expert layers using cached VLM states (inference only).
 
-        Note:
-            The joint attention mask is only passed to dual-stream layers.
-            Cross-attention layers use no mask in the cached path since
-            padding is already handled by the VLM during cache filling.
+        Args:
+            expert_hidden: Expert action tokens (B, A, D_expert).
+            vlm_cache: Precomputed VLM K/V/Q per layer.
+            attention_mask: Joint mask (B, 1, A+P, A+P) for dual-stream layers.
+            cross_attention_mask: Expert→VLM mask (B, 1, A, P) for cross-attention layers.
+            expert_action_rope: Precomputed (cos, sin) for expert positions.
         """
         for expert_layer_index, expert_layer in enumerate(self.expert_layers):
             is_dual_stream = isinstance(expert_layer, PrecomputedDualStreamLayer)
             expert_hidden = expert_layer(
                 hidden_states=expert_hidden,
                 conditioning_cache=vlm_cache.layers[expert_layer_index],
-                attention_mask=attention_mask if is_dual_stream else None,
+                attention_mask=attention_mask
+                if is_dual_stream
+                else cross_attention_mask,
                 precomputed_rope=expert_action_rope,
             )
         return expert_hidden

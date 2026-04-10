@@ -1,13 +1,8 @@
 defaults:
   - encoder/vlm/two_tower_vlm@encoders.left
   - _self_
-
-_target_: versatil.models.encoding.pipeline.EncodingPipeline
-observation_space: ${task.observation_space}
-
 encoders:
   left:
-    _target_: versatil.models.encoding.encoders.cross_modal.vision_language.two_tower_vlm.TwoTowerVLMEncoder
     input_keys:
     - ${cameras:LEFT}
     - ${sample_key:TOKENIZED_OBSERVATIONS}

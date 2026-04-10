@@ -15,7 +15,7 @@ Reference implementations:
 - `tests/data/tokenization/conftest.py` — shared semantic fixtures (action_chunk_factory, pad_mask_factory, binning_tokenizer_factory)
 - `tests/data/test_dataloader.py` — `does_not_raise()` parametrization pattern for validation tests, mock schema factories with `spec=` for `isinstance` dispatch
 - `tests/data/preprocessing/test_replay_buffer.py` — `does_not_raise()` for buffer validation (empty/non-empty), consolidated error testing, zarr backend fixture patterns
-- `tests/models/encoding/encoders/rgb/test_vit.py` — consolidated `test_stores_configuration` with stacked `@pytest.mark.parametrize` cross product, validation tests separate from storage, mocked backbone with `patch.object`, unit/integration test separation
+- `tests/models/encoding/encoders/rgb/test_spatial.py` — consolidated `test_stores_configuration` with stacked `@pytest.mark.parametrize` cross product, validation tests separate from storage, mocked backbone with `patch.object`, unit/integration test separation
 - `tests/models/decoding/decoders/factory/test_dit_block_action_transformer.py` — decoder factory integration tests with behavioral assertions (conditioning sensitivity, timestep independence at init, gradient flow)
 - `tests/models/layers/denoising/test_ode_solvers.py` — mathematical correctness tests (convergence order, exact integration for known ODEs, solver accuracy comparison)
 - `tests/models/encoding/encoders/cross_modal/vision_language/test_generative_vlm.py` — fixture-level `params=` to auto-parametrize all tests over multiple implementations (SmolVLM + PaliGemma), shared conftest for session-scoped real model factories, cross-method consistency tests
@@ -68,7 +68,7 @@ Reference implementations:
        assert module.input_specification.keys == ([input_keys] if isinstance(input_keys, str) else input_keys)
    ```
    Keep validation tests (e.g., `test_backbone_validation`, `test_input_keys_validation`) separate — those test enum coverage and error paths, not storage. Keep inheritance tests separate too.
-   Reference: `tests/models/encoding/encoders/rgb/test_vit.py`.
+   Reference: `tests/models/encoding/encoders/rgb/test_spatial.py`.
 
 9. **Always set values explicitly — never test defaults implicitly.** When verifying that a parameter is stored correctly, pass the value explicitly rather than relying on the default. Testing `factory()` and asserting `.field is True` is fragile because it assumes knowledge of the default value and will silently pass even if the default changes. Instead, use `factory(field=True)` and assert against the explicit value, or better, parametrize useful values to check several cases if it makes sense. Take as reference `tests/data/test_task.py`.
 
@@ -131,6 +131,15 @@ Reference implementations:
    - **Weight tying**: mutate one weight tensor and verify the tied tensor reflects the change.
 
    These tests catch real bugs that shape tests miss: broken attention masks, dead conditioning paths, incorrect expert selection, cache corruption.
+
+11h. **Use `wraps=` spy pattern to inspect internal arguments.** When you need to verify that a method receives correct arguments (e.g., a reordered attention mask) without changing behavior, use `patch.object` with `wraps=` to create a spy. Then inspect `call_args` after the call:
+   ```python
+   with patch.object(decoder, "_run_training_forward", wraps=decoder._run_training_forward) as spy:
+       decoder(features=features, actions=actions)
+   mask = spy.call_args.kwargs["attention_mask"]
+   assert mask[0, 0, :action_len, action_len:].all()  # verify mask structure
+   ```
+   This lets you unit-test internal contracts without monkey-patching or breaking encapsulation. The method runs normally; you just observe what it received.
 
 ## What Not To Do
 

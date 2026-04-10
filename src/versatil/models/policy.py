@@ -268,8 +268,8 @@ class Policy(nn.Module):
         """Get vision encoder modules that can produce spatial feature maps for explainability.
 
         Supports the following encoder types:
-        - CNNEncoder (RGB): Has 'backbone' attribute
-        - DepthCNNEncoder: Has 'backbone' attribute
+        - SpatialRGBEncoder (RGB): Has 'backbone' attribute
+        - SpatialDepthEncoder: Has 'backbone' attribute
         - ConditionalCNNEncoder (FiLM): Has 'layer4' attribute
         - DFormerEncoder: Has 'stages' attribute
         - GeometricRGBDEncoder: Has 'attention_block' attribute
@@ -284,7 +284,7 @@ class Policy(nn.Module):
         vision_encoders = {}
 
         def is_vision_encoder(encoder: nn.Module) -> bool:
-            # TIMM-based encoders (CNNEncoder, DepthCNNEncoder)
+            # TIMM-based encoders (SpatialRGBEncoder, SpatialDepthEncoder)
             if hasattr(encoder, "backbone"):
                 return True
             # DFormer-based encoders
@@ -311,7 +311,7 @@ class Policy(nn.Module):
             raise RuntimeError(
                 "No compatible vision encoders found in the encoding pipeline. "
                 "Explainer requires encoders that produce spatial feature maps "
-                "(CNNEncoder, DepthCNNEncoder, ConditionalCNNEncoder, DFormerEncoder, GeometricRGBDEncoder). "
+                "(SpatialRGBEncoder, SpatialDepthEncoder, ConditionalCNNEncoder, DFormerEncoder, GeometricRGBDEncoder). "
                 "Available encoders: "
                 + str(
                     list(self.encoding_pipeline.encoders.keys())
@@ -325,7 +325,7 @@ class Policy(nn.Module):
         """Get target layers for GradCAM from a specific vision encoder.
 
         Supports different encoder architectures:
-        - TIMM backbones (CNNEncoder, DepthCNNEncoder): Returns last stage
+        - TIMM backbones (SpatialRGBEncoder, SpatialDepthEncoder): Returns last stage
         - ConditionalCNNEncoder (FiLM): Returns last block of layer4
         - DFormerEncoder: Returns last stage
         - GeometricRGBDEncoder: Returns attention block
@@ -349,7 +349,7 @@ class Policy(nn.Module):
 
         encoder = vision_encoders[encoder_name]
 
-        # TIMM-based encoders (CNNEncoder, DepthCNNEncoder, ViTEncoder)
+        # TIMM-based encoders (SpatialRGBEncoder, SpatialDepthEncoder, FlatRGBEncoder)
         if hasattr(encoder, "backbone"):
             backbone = encoder.backbone
             if hasattr(backbone, "layer4"):
@@ -377,7 +377,7 @@ class Policy(nn.Module):
         raise RuntimeError(
             f"Encoder '{encoder_name}' architecture not supported for GradCAM. "
             f"Encoder type: {type(encoder).__name__}. "
-            f"Supported types: CNNEncoder, DepthCNNEncoder, ConditionalCNNEncoder, "
+            f"Supported types: SpatialRGBEncoder, SpatialDepthEncoder, ConditionalCNNEncoder, "
             f"DFormerEncoder, GeometricRGBDEncoder."
         )
 

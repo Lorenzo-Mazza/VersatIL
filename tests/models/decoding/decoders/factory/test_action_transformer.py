@@ -12,7 +12,6 @@ from versatil.models.decoding.decoders.factory.action_transformer import (
     ActionTransformer,
 )
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
-from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
 from versatil.models.layers.normalization.constants import NormalizationType
@@ -158,12 +157,12 @@ class TestActionTransformerInitialization:
         assert isinstance(decoder.learnable_query, torch.nn.Embedding)
         assert isinstance(decoder.action_decoder, BidirectionalDecoder)
 
-    def test_decoder_input_requires_spatial(
+    def test_decoder_input_has_no_type_requirements(
         self,
         action_transformer_factory: Callable[..., ActionTransformer],
     ):
         decoder = action_transformer_factory()
-        assert FeatureType.SPATIAL.value in decoder.decoder_input.required_types
+        assert decoder.decoder_input.required_types == []
         assert decoder.decoder_input.requires_actions is False
 
     def test_learnable_query_shape(

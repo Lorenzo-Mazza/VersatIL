@@ -18,9 +18,12 @@ All encoders subclass `Encoder` (unconditional) or `ConditionalEncoder` (conditi
 - `get_output_specification()` -- returns a `list[FeatureMetadata]` declaring feature keys, types, and dimensions
 - `forward(inputs)` -- processes observation tensors and returns a feature dictionary
 
-Two mixins provide shared multi-modal functionality:
+Modality mix-ins provide shared functionality:
 
-- **`ImageEncoderMixin`** -- multi-camera encoding with automatic feature naming (`modality.camera_key` e.g. `rgb.left`). Encoders implement `_encode_single_image()`; the mixin handles iteration, resize, and feature registration. Per-camera image sizes are set from `CameraMetadata` via `set_image_size()`, not hardcoded in encoder configs.
+- **`ImageEncoderMixin`** -- abstract base class with `_output_modality` and `_camera_group` abstract properties. Handles multi-camera encoding with automatic feature naming (`modality.camera_key` e.g. `rgb.left`). Encoders implement `_encode_single_image()`; the mixin handles iteration, resize, and feature registration. Per-camera image sizes are set from `CameraMetadata` via `set_image_size()`, not hardcoded in encoder configs. Three concrete subclasses:
+    - **`RGBEncoderMixin(ImageEncoderMixin)`** -- for RGB camera encoders
+    - **`DepthEncoderMixin(ImageEncoderMixin)`** -- for depth camera encoders
+    - **`RGBDEncoderMixin(ImageEncoderMixin)`** -- for RGB+depth cross-modal encoders (DFormer, GeometricRGBD)
 - **`LanguageEncoderMixin`** -- tokenized text extraction, padding/truncation, attention mask construction, and output padding mask generation.
 
 Encoders are split into two categories:
@@ -46,15 +49,15 @@ Feature types are classified by `FeatureType` enum values:
 
 | Type | Value | Dimension | Produced When |
 |---|---|---|---|
-| **SPATIAL** | `"spatial"` | `(C, H, W)` | `pooling_method="none"` on CNN/Swin encoders |
-| **SEQUENTIAL** | `"sequential"` | `(S, D)` | `pooling_method="none"` on Transformer encoders, or generative VLM output |
-| **FLAT** | `"flat"` | `(D,)` | Any pooling method other than `none` |
+| **SPATIAL** | `"spatial"` | `(C, H, W)` | `pooling_method="none"` on SpatialRGBEncoder / SpatialDepthEncoder |
+| **SEQUENTIAL** | `"sequential"` | `(S, D)` | `pooling_method="none"` on FlatRGBEncoder, or generative VLM output |
+| **FLAT** | `"flat"` | `(D,)` | Any pooling method that produces a flat feature vector |
 
 The decoder's `DecoderInput` validates feature types at initialization via `required_types` and `raises_for_types`, catching configuration errors before training starts.
 
 ## Multi-Camera Encoding
 
-`ImageEncoderMixin` automatically detects multi-camera setups from `input_keys` and generates output features with dotted naming:
+`ImageEncoderMixin` (via its subclasses `RGBEncoderMixin`, `DepthEncoderMixin`, `RGBDEncoderMixin`) automatically detects multi-camera setups from `input_keys` and generates output features with dotted naming:
 
 | Setup | Input Keys | Output Keys |
 |---|---|---|
@@ -64,9 +67,9 @@ The decoder's `DecoderInput` validates feature types at initialization via `requ
 
 ## RGB Encoders
 
-### CNNEncoder
+### SpatialRGBEncoder
 
-Convolutional encoder supporting any CNN backbone from the [timm](https://github.com/huggingface/pytorch-image-models) library.
+Any timm backbone that outputs `(B, C, H, W)` spatial feature maps. Covers CNNs (ResNet, EfficientNet, ConvNeXt, ConvNeXtV2, EdgeNeXt, MobileNetV4), Swin Transformers, TinyViT, and other spatial-output architectures. Handles both NCHW and NHWC output layouts transparently, and strict input size backbones.
 
 - **Input:** RGB image `(B, 3, H, W)` or `(B, T, 3, H, W)` for temporal observations
 - **Output key:** `rgb` (or `rgb.{camera}` for multi-camera)
@@ -74,7 +77,7 @@ Convolutional encoder supporting any CNN backbone from the [timm](https://github
 - **Pooling:** Average, Max, Spatial Softmax, Learned Aggregation, or None
 
 ```python
-CNNEncoder(
+SpatialRGBEncoder(
     input_keys="left",
     backbone="timm/resnet18.a1_in1k",
     pooling_method="average_pooling",
@@ -86,9 +89,9 @@ CNNEncoder(
 !!! info "BatchNorm handling"
     BatchNorm is problematic with temporal data: reshaping `(B, T, C, H, W)` to `(B*T, C, H, W)` causes batch statistics to mix frames across time. Options: `frozen` (preserves pretrained stats), `groupnorm` (per-sample stats), or `default` (keep as-is).
 
-### ViTEncoder
+### FlatRGBEncoder
 
-Vision Transformer encoder using timm models via HuggingFace Transformers.
+Backbones that output `(B, S, D)` flat token sequences (ViT, DINOv2, DINOv3, DeiT, CLIP ViT). Uses timm `forward_features()`.
 
 - **Input:** RGB image `(B, 3, H, W)`
 - **Output key:** `rgb` (or `rgb.{camera}` for multi-camera)
@@ -96,30 +99,12 @@ Vision Transformer encoder using timm models via HuggingFace Transformers.
 - **Supports:** Dynamic image sizes
 
 ```python
-ViTEncoder(
+FlatRGBEncoder(
     input_keys="left",
     backbone="timm/vit_base_patch14_dinov2.lvd142m",
     pooling_method="default",  # Uses CLS token
     pretrained=True,
     frozen=True,
-)
-```
-
-### SwinEncoder
-
-Swin Transformer encoder via timm with spatial feature map output and configurable pooling.
-
-- **Input:** RGB image `(B, 3, H, W)`
-- **Output key:** `rgb` (or `rgb.{camera}` for multi-camera)
-- **Feature type:** FLAT (after pooling) or SPATIAL (without pooling)
-
-```python
-SwinEncoder(
-    input_keys="left",
-    backbone="swin_tiny_patch4_window7_224.ms_in22k_ft_in1k",
-    pooling_method="average_pooling",
-    pretrained=True,
-    frozen=False,
 )
 ```
 
@@ -145,16 +130,16 @@ ConditionalCNNEncoder(
 
 ## Depth Encoders
 
-### DepthCNNEncoder
+### SpatialDepthEncoder
 
-Adapts timm CNN backbones for single-channel depth images by setting `num_channels=1`.
+Adapts timm spatial backbones for single-channel depth images by setting `in_chans=1`. Same architecture support as `SpatialRGBEncoder`.
 
 - **Input:** Depth image `(B, 1, H, W)`
 - **Output key:** `depth`
 - **Feature type:** FLAT (after pooling) or SPATIAL (without pooling)
 
 ```python
-DepthCNNEncoder(
+SpatialDepthEncoder(
     input_keys="depth",
     backbone="timm/resnet18.a1_in1k",
     pooling_method="average_pooling",
@@ -298,7 +283,7 @@ SmolVLMEncoder(
 
 ## Available Backbones
 
-### CNN Backbones (`CNNBackboneType`)
+### Spatial Backbones (`SpatialBackboneType`)
 
 | Enum | Model ID |
 |---|---|
@@ -315,8 +300,13 @@ SmolVLMEncoder(
 | `CONVNEXT_NANO` | `convnext_nano.in12k_ft_in1k` |
 | `CONVNEXT_TINY` | `convnext_tiny.fb_in22k_ft_in1k` |
 | `CONVNEXT_BASE` | `convnext_base.fb_in22k_ft_in1k` |
+| `CONVNEXTV2_NANO` | `convnextv2_nano.fcmae_ft_in22k_in1k` |
+| `TINYVIT_21M` | `tiny_vit_21m_224.dist_in22k_ft_in1k` |
+| `SWIN_TINY` | `swin_tiny_patch4_window7_224.ms_in22k_ft_in1k` |
+| `SWIN_BASE` | `swin_base_patch4_window7_224.ms_in22k_ft_in1k` |
+| `DINOV3_CONVNEXT_SMALL` | `convnext_small_dinov3.lvd1689m` |
 
-### ViT Backbones (`ViTBackboneType`)
+### Flat Backbones (`FlatBackboneType`)
 
 | Enum | Model ID |
 |---|---|
@@ -330,13 +320,6 @@ SmolVLMEncoder(
 | `DEIT_TINY` | `deit_tiny_patch16_224.fb_in1k` |
 | `DEIT_SMALL` | `deit_small_patch16_224.fb_in1k` |
 | `DEIT_BASE` | `deit_base_patch16_224.fb_in1k` |
-
-### Swin Backbones (`SwinBackboneType`)
-
-| Enum | Model ID |
-|---|---|
-| `SWIN_TINY` | `swin_tiny_patch4_window7_224.ms_in22k_ft_in1k` |
-| `SWIN_BASE` | `swin_base_patch4_window7_224.ms_in22k_ft_in1k` |
 
 ### Language Models (`LanguageEncoderType`)
 
@@ -391,10 +374,10 @@ All vision and language encoders support configurable pooling via `PoolingMethod
 
 | Method | Enum Value | Description |
 |---|---|---|
-| Default | `default` | CLS token (ViT), max pooling (CNN), pooled output (VLM) |
-| Average | `average_pooling` | Global Average Pooling (CNN) or mean pooling (Transformer) |
-| Max | `max_pooling` | Global Max Pooling for CNN feature maps |
-| Spatial Softmax | `spatial_softmax` | Spatial Softmax pooling for CNN feature maps |
+| Default | `default` | CLS token (FlatRGBEncoder), max pooling (SpatialRGBEncoder), pooled output (VLM) |
+| Average | `average_pooling` | Global Average Pooling (spatial encoders) or mean pooling (flat/sequential encoders) |
+| Max | `max_pooling` | Global Max Pooling for spatial feature maps |
+| Spatial Softmax | `spatial_softmax` | Spatial Softmax pooling for spatial feature maps |
 | Learned Aggregation | `learned_aggregation` | Learned attention aggregation of patch tokens |
 | None | `none` | Return full spatial/sequential features without pooling |
 
@@ -469,8 +452,8 @@ Each encoder type uses a specific output key from `EncoderOutputKeys`:
 
 | Output Key | Value | Used By |
 |---|---|---|
-| `RGB` | `rgb` | CNNEncoder, ViTEncoder, SwinEncoder, ConditionalCNNEncoder, TwoTowerVLMEncoder |
-| `DEPTH` | `depth` | DepthCNNEncoder |
+| `RGB` | `rgb` | SpatialRGBEncoder, FlatRGBEncoder, ConditionalCNNEncoder, TwoTowerVLMEncoder |
+| `DEPTH` | `depth` | SpatialDepthEncoder |
 | `RGBD` | `rgbd` | DFormerEncoder, GeometricRGBDEncoder |
 | `PROPRIOCEPTIVE` | `proprio` | ProprioceptiveEncoder |
 | `LANGUAGE` | `language` | LanguageEncoder, TwoTowerVLMEncoder |
@@ -543,7 +526,7 @@ class MyEncoder(Encoder):
 ### 3. Register in the config store and add tests
 
 - Register the config dataclass in `src/versatil/configs/__init__.py`
-- Add a YAML config in `hydra_configs/policy/encoder/`
+- Add a YAML config in `hydra_configs/policy/encoding_pipeline/`
 - Write tests in `tests/models/encoding/`
 
 For conditional encoders, subclass `ConditionalEncoder` instead and implement `encode(inputs, conditioning)`. The base `forward()` handles temporal flattening/unflattening and delegates to `encode()`.

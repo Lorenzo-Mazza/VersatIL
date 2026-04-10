@@ -3,14 +3,17 @@
 import enum
 
 
-class CNNBackboneType(enum.StrEnum):
-    """CNN backbones producing (B, C, H, W) feature maps via timm features_only."""
+class SpatialBackboneType(enum.StrEnum):
+    """Backbones producing (B, C, H, W) spatial feature maps via timm features_only."""
 
     RESNET18 = "resnet18.a1_in1k"  # https://huggingface.co/timm/resnet18.a1_in1k
     RESNET34 = "resnet34.a1_in1k"  # https://huggingface.co/timm/resnet34.a1_in1k
     RESNET50 = "resnet50.a1_in1k"  # https://huggingface.co/timm/resnet50.a1_in1k
     EFFICIENTNET_B0 = (
         "efficientnet_b0.ra_in1k"  # https://huggingface.co/timm/efficientnet_b0.ra_in1k
+    )
+    EFFICIENTNET_B2 = (
+        "efficientnet_b2.ra_in1k"  # https://huggingface.co/timm/efficientnet_b2.ra_in1k
     )
     EDGENEXT_XX_SMALL = (
         "edgenext_xx_small.in1k"  # https://huggingface.co/timm/edgenext_xx_small.in1k
@@ -28,13 +31,15 @@ class CNNBackboneType(enum.StrEnum):
     CONVNEXT_NANO = "convnext_nano.in12k_ft_in1k"  # https://huggingface.co/timm/convnext_nano.in12k_ft_in1k
     CONVNEXT_TINY = "convnext_tiny.fb_in22k_ft_in1k"  # https://huggingface.co/timm/convnext_tiny.fb_in22k_ft_in1k
     CONVNEXT_BASE = "convnext_base.fb_in22k_ft_in1k"  # https://huggingface.co/timm/convnext_base.fb_in22k_ft_in1k
-    EFFICIENTNET_B2 = (
-        "efficientnet_b2.ra_in1k"  # https://huggingface.co/timm/efficientnet_b2.ra_in1k
-    )
+    CONVNEXTV2_NANO = "convnextv2_nano.fcmae_ft_in22k_in1k"  # https://huggingface.co/timm/convnextv2_nano.fcmae_ft_in22k_in1k
+    DINOV3_CONVNEXT_SMALL = "convnext_small.dinov3_lvd1689m"  # https://huggingface.co/timm/convnext_small.dinov3_lvd1689m
+    TINY_VIT_21M = "tiny_vit_21m_224.dist_in22k_ft_in1k"  # https://huggingface.co/timm/tiny_vit_21m_224.dist_in22k_ft_in1k
+    SWIN_TINY = "swin_tiny_patch4_window7_224.ms_in22k_ft_in1k"  # https://huggingface.co/timm/swin_tiny_patch4_window7_224.ms_in22k_ft_in1k
+    SWIN_BASE = "swin_base_patch4_window7_224.ms_in22k_ft_in1k"  # https://huggingface.co/timm/swin_base_patch4_window7_224.ms_in22k_ft_in1k
 
 
-class ViTBackboneType(enum.StrEnum):
-    """Vision Transformer backbones producing (B, S, D) token sequences via timm."""
+class FlatBackboneType(enum.StrEnum):
+    """Backbones producing (B, S, D) token sequences via timm forward_features."""
 
     VIT_BASE = "vit_base_patch16_clip_224.laion2b_ft_in12k_in1k"  # https://huggingface.co/timm/vit_base_patch16_clip_224.laion2b_ft_in12k_in1k
     DINOV2_VITS14 = "vit_small_patch14_dinov2.lvd142m"  # https://huggingface.co/timm/vit_small_patch14_dinov2.lvd142m
@@ -48,27 +53,16 @@ class ViTBackboneType(enum.StrEnum):
     DEIT_BASE = "deit_base_patch16_224.fb_in1k"  # https://huggingface.co/timm/deit_base_patch16_224.fb_in1k
 
 
-class SwinBackboneType(enum.StrEnum):
-    """Swin Transformer backbones producing (B, H, W, C) spatial feature maps via timm."""
-
-    SWIN_TINY = "swin_tiny_patch4_window7_224.ms_in22k_ft_in1k"  # https://huggingface.co/timm/swin_tiny_patch4_window7_224.ms_in22k_ft_in1k
-    SWIN_BASE = "swin_base_patch4_window7_224.ms_in22k_ft_in1k"  # https://huggingface.co/timm/swin_base_patch4_window7_224.ms_in22k_ft_in1k
-
-
-# Union type for all RGB backbones (CNN + ViT + Swin)
+# Union type for all RGB backbones (Spatial + Flat)
 RGBBackboneType = enum.StrEnum(
     "RGBBackboneType",
-    {
-        e.name: e.value
-        for e in list(CNNBackboneType) + list(ViTBackboneType) + list(SwinBackboneType)
-    },
+    {e.name: e.value for e in list(SpatialBackboneType) + list(FlatBackboneType)},
 )
 
 
 class ImageTextModelType(enum.StrEnum):
     """Available image+text multimodal encoders."""
 
-    # CLIP models (OpenAI)
     CLIP_VITB32 = "openai/clip-vit-base-patch32"
     CLIP_VITB16 = "openai/clip-vit-base-patch16"
     SIGLIP_BASE_PATCH16 = "google/siglip2-base-patch16-naflex"
@@ -100,18 +94,30 @@ class AttentionImplementation(enum.StrEnum):
 
 
 class PoolingMethod(enum.StrEnum):
-    """Feature pooling methods for Convolutional and Transformer encoders."""
+    """Feature pooling methods for spatial and flat RGB encoders."""
 
     LEARNED_AGGREGATION = "learned_aggregation"  # learned attention aggregation of patch tokens/feature channels
-    DEFAULT = "default"  # use [CLS] token in ViT, max pooling in CNNs or pooled output in VLMs
-    SPATIAL_SOFTMAX = "spatial_softmax"  # Spatial Softmax pooling for CNN feature maps
-    AVERAGE = "average_pooling"  # Global Average Pooling (GAP) for CNN feature maps or mean pooling for Transformer tokens
-    MAX = "max_pooling"  # Global Max Pooling for CNN feature maps
+    DEFAULT = "default"  # use [CLS] token for flat encoders, max pooling for spatial encoders, or pooled output in VLMs
+    SPATIAL_SOFTMAX = (
+        "spatial_softmax"  # Spatial Softmax pooling for spatial feature maps
+    )
+    AVERAGE = "average_pooling"  # Global Average Pooling (GAP) for spatial feature maps or mean pooling for token sequences
+    MAX = "max_pooling"  # Global Max Pooling for spatial feature maps
     NONE = "none"  # Return full spatial features or last hidden state tokens without pooling
+
+    @property
+    def supports_spatial(self) -> bool:
+        """Whether this pooling method works with spatial (B, C, H, W) feature maps."""
+        return True
+
+    @property
+    def supports_sequential(self) -> bool:
+        """Whether this pooling method works with sequential (B, S, D) token sequences."""
+        return self not in {PoolingMethod.SPATIAL_SOFTMAX, PoolingMethod.MAX}
 
 
 class BatchNormHandling(enum.StrEnum):
-    """How to handle BatchNorm layers in CNN backbones.
+    """How to handle BatchNorm layers in spatial RGB backbones.
 
     BatchNorm is problematic for temporal data: when reshaping (B,T,C,H,W) to (B*T,C,H,W),
     batch statistics mix frames across time, leaking future information into each frame's
