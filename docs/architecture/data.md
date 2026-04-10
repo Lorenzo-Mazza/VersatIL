@@ -36,6 +36,18 @@ class DatasetSchema(abc.ABC):
 
 New formats are supported by subclassing `DatasetSchema` and implementing `extract_episode()`.
 
+### Available Datasets
+
+Ready-to-use end-to-end configs exist under `hydra_configs/end_to_end_training_runs/`:
+
+| Dataset                                                                  | Config Path | Data Link | Notes                                                            |
+|--------------------------------------------------------------------------|---|---|------------------------------------------------------------------|
+| [Bowel Retraction](https://arxiv.org/abs/2601.21971) | `bowel_retraction/` | Coming soon | Real-world UR5e surgical robotics demonstrations (stereo RGB, depth, language, phase labels). |
+| [LIBERO Original](https://libero-project.github.io/datasets) (HDF5)      | `libero_hdf5/` | [libero-project.github.io](https://libero-project.github.io/datasets) | Original HDF5 format, 128x128 images.                            |
+| [LIBERO](https://huggingface.co/datasets/lerobot/libero) (LeRobot)       | `libero_lerobot/` | [HF Hub](https://huggingface.co/datasets/lerobot/libero) | LeRobot format, OpenVLA filtered demonstrations, 256x256 images. |
+| [LIBERO+](https://huggingface.co/datasets/Sylvest/libero_plus_lerobot)   | `libero_plus/` | [HF Hub](https://huggingface.co/datasets/Sylvest/libero_plus_lerobot) | Extended LIBERO dataset.                                         |
+| [MetaWorld MT50](https://huggingface.co/datasets/lerobot/metaworld_mt50) | `metaworld/` | [HF Hub](https://huggingface.co/datasets/lerobot/metaworld_mt50) | Multi-task benchmark (MT50 variant).                             |
+
 ### Zarr Store Creation
 
 Zarr stores are created automatically on the first training run if absent. The `get_dataloaders()` function calls `_ensure_zarr_exists()`, which dispatches to the appropriate creation function based on schema type:
@@ -55,6 +67,21 @@ elif isinstance(schema, LeRobotDatasetSchemaV30):
 ## Task Definition
 
 `TaskSpace` combines an `ActionSpace`, `ObservationSpace`, and `DatasetSchema` to define what data an experiment uses at runtime. The same Zarr store can power different tasks (vision-only, state-only, vision-language) without data duplication.
+
+### Storage Metadata vs Task Metadata
+
+Two separate metadata layers serve different purposes:
+
+- **Storage metadata** (`zarr_meta/*.yaml`) — describes everything in the Zarr store: all cameras, all proprioceptive observations, precomputed actions, raw column mappings, dtypes, and dimensions. This is a complete inventory of the dataset.
+- **Task metadata** (`observation_space/*.yaml` + `action_space/*.yaml`) — selects a subset of the storage metadata for a specific experiment: which cameras and observations the policy receives, which actions it predicts, and how those actions are computed (delta vs absolute).
+
+```
+zarr_meta/bowel_retraction.yaml     → left, right, depth, proprio, language, phase (everything)
+observation_space/stereo_rgb.yaml   → left, right only (subset)
+action_space/deltas_cf_pos.yaml     → position deltas + gripper (computed from proprio)
+```
+
+This separation means adding a new task to an existing dataset requires only new observation/action space configs — no re-ingestion, no Zarr changes.
 
 ### ObservationSpace
 

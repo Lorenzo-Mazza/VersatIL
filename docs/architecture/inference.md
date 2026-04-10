@@ -1,6 +1,13 @@
 # Inference Pipeline
 
-The VersatIL inference pipeline connects a trained policy to a simulation or real-world robot environment. It handles the full loop from receiving observations to sending structured actions.
+The VersatIL inference pipeline connects a trained policy to any environment server — real robot hardware, simulation, or custom setups. Communication is transport-agnostic: the `ObservationTransport` and `ActionTransport` Python protocols decouple the inference loop from the transport mechanism.
+
+The built-in ZMQ transport relies on our own PyPI packages:
+
+- [**tso-robotics-sockets**](https://pypi.org/project/tso-robotics-sockets/): Generic ZMQ socket transport with protocol keys (`ServerRoute`, `InferenceRequestKey`, `CompressionType`).
+- [**versatil-constants**](https://pypi.org/project/versatil-constants/): Shared domain constants for structured action/observation message passing (`ActionComponent`, `ActionMetadataField`, `ObsKey`, `GripperType`, `OrientationRepresentation`).
+
+Both libraries define the message format, not the server. Any server implementing the protocol can be integrated.
 
 ```
 ObservationTransport.receive()
@@ -55,8 +62,7 @@ class ObservationPreprocessor:
         camera_keys: list[str],
         proprioceptive_keys: list[str],
         has_language: bool,
-        image_height: int,
-        image_width: int,
+        camera_metadata: dict[str, CameraMetadata],
         compression_type: str = "raw",
         rotate_images: bool = False,
         depth_clamp_range: tuple[float, float] | None = None,
@@ -82,7 +88,7 @@ Raw image data from the transport is decompressed using `tso_robotics_sockets.de
 
 The `transform_camera_observations()` method applies consistent transforms to all camera images per timestep:
 
-1. **Resize** -- All RGB and depth images are resized to `(image_height, image_width)` via Albumentations
+1. **Resize** -- All RGB and depth images are resized to per-camera dimensions from `CameraMetadata` via Albumentations
 2. **RGB normalization** -- uint8 images are converted to float32 in `[0, 1]`
 3. **Depth clamping** -- Depth values are clamped to `[depth_min, depth_max]` derived from training normalizer statistics
 
@@ -122,8 +128,8 @@ class PolicyLoader:
         device: torch.device,
         checkpoint_path: str,
         checkpoint_name: str = "last.ckpt",
-        precision: str = "bf16-mixed",
         seed: int = 42,
+        compile_model: bool = True,
     ): ...
 ```
 
@@ -315,3 +321,15 @@ Inference batches observations from all environments with full buffers (`is_read
 ### Rate Limiting
 
 When `update_rate_hz` is set, the client sleeps after each step to maintain the target inference frequency. The `timing_log` flag enables per-step timing breakdowns (preprocessing, inference, postprocessing) logged at each step.
+
+## Simulation Servers
+
+We provide custom ZMQ server wrappers for popular robot learning simulators, enabling seamless policy rollout with VersatIL:
+
+| Simulator | Original | ZMQ Server Wrapper |
+|---|---|---|
+| [LIBERO / LIBERO-PRO](https://github.com/Zxy-MLlab/LIBERO-PRO/tree/master) | [GitHub](https://github.com/Zxy-MLlab/LIBERO-PRO/tree/master) | Coming soon |
+| [LIBERO+](https://github.com/sylvestf/LIBERO-plus) | [GitHub](https://github.com/sylvestf/LIBERO-plus) | Coming soon |
+| [MetaWorld](https://meta-world.github.io/) | [GitHub](https://github.com/Farama-Foundation/Metaworld) | Coming soon |
+
+The built-in ZMQ transport works for both simulation and real hardware. For custom environments, implement the `ObservationTransport` and `ActionTransport` protocols with any transport mechanism.

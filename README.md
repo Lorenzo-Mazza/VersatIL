@@ -42,7 +42,7 @@ Rapid experimentation, cleaner code, and true reusability across projects.
     * **[Albumentations](https://albumentations.ai/)** for image augmentations.
     * **[torchao](https://github.com/pytorch/ao)** for post-training quantization (PT2E and quantize_() APIs).
 - 💡 **Invent What Matters** For performance-critical components, we wrote a custom `models/layers` package in pure PyTorch. This includes optimized implementations of:
-    * Attention (FlashAttention).
+    * [Attention](https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html) (PyTorch built-in SDPA Flash kernel dispatch).
     * Positional Encodings (Sinusoidal, Learned, Rotary).
     * Transformer variants (DETR, GPT, BERT, Free Transformer).
     * Modular Deep Neural Networks layers such as normalization, modulation, convolution, etc
@@ -76,12 +76,14 @@ Together, this means you can create new experiments by overriding only the param
 Raw data formats vary wildly (Rosbags, CSVs, HDF5). We don't force you to convert your raw files manually. \
 Instead, VersatIL handles this with a two-stage approach:
 1. **DatasetSchema (how your raw data is structured)**  
-   A pluggable class that maps any raw format to a standardized **Zarr** store.  
-   Built-in support for:
-   - HuggingFace LeRobot datasets
-   - LIBERO-style HDF5
-   - Custom CSV + image folders (TSO Lab format)  
-   Extend by subclassing `DatasetSchema` for new formats.
+   A pluggable class that maps any raw format to a standardized **Zarr** store.
+
+   | Schema                                                | Class | Raw Format              |
+   |-------------------------------------------------------|---|-------------------------|
+   | [HuggingFace LeRobot](https://huggingface.co/lerobot) | `LeRobotDatasetSchemaV30` | Parquet + MP4/images    |
+   | HDF5                                                  | `Hdf5DatasetSchema` | HDF5 archive            |
+   | CSV                                                   | `CsvDatasetSchema` | CSV + raw image folders |
+   | Custom                                                | Subclass `DatasetSchema` | Any                     |
    
 2. **Zarr Store Creation**
    Zarr [https://zarr.readthedocs.io/en/stable/]  provides fast, compressed, chunked storage with NumPy-like access.
@@ -143,10 +145,27 @@ Powered by **PyTorch Lightning**:
 ---
 ### 🚀 Post-Training
 
-#### 🔌 Inference (ZMQ)
+#### 🔌 Inference
 
-We provide ZMQ-based inference clients for TSO Lab Robot Testbed server, LIBERO simulation server and Metaworlds simulation server.
-The clients handle communication with the server through sockets, requesting for observations and sending back actions predicted by the trained policy. This design allows us to decouple the policy training environment from the robot/simulation server implementation, enabling easy integration with different robot platforms or simulation environments. Both float and compressed (quantized) checkpoints are supported through a unified inference interface.
+The inference pipeline is transport-agnostic: communication with any environment server (real robot, simulation, or custom) is abstracted behind `ObservationTransport` and `ActionTransport` Python protocols. Any object satisfying these protocols works — ZMQ, HTTP, etc.
+
+The built-in ZMQ implementation uses our two PyPI packages:
+- [**tso-robotics-sockets**](https://pypi.org/project/tso-robotics-sockets/): Generic ZMQ socket client/server with protocol keys (`ServerRoute`, `InferenceRequestKey`, `CompressionType`).
+- [**versatil-constants**](https://pypi.org/project/versatil-constants/): Shared domain constants for action/observation message passing (`ActionComponent`, `ActionMetadataField`, `ObsKey`, `GripperType`, `OrientationRepresentation`).
+
+Both libraries are server-agnostic — they define the message format, not the server implementation. Any server that speaks the protocol can be integrated by implementing the transport protocols. 
+
+The built-in ZMQ transport works for both simulation and real hardware — the dataset format is fully decoupled from the transport layer. For custom setups, implement the `ObservationTransport` and `ActionTransport` protocols with any transport mechanism.
+
+##### Simulation Servers
+
+We provide custom ZMQ server wrappers for popular robot learning simulation environments, enabling seamless rollout of VersatIL policies:
+
+| Simulator | Original | ZMQ Server Wrapper |
+|---|---|---|
+| [LIBERO / LIBERO-PRO](https://github.com/Zxy-MLlab/LIBERO-PRO/tree/master) | [GitHub](https://github.com/Zxy-MLlab/LIBERO-PRO/tree/master) | Coming soon |
+| [LIBERO+](https://github.com/sylvestf/LIBERO-plus) | [GitHub](https://github.com/sylvestf/LIBERO-plus) | Coming soon |
+| [MetaWorld](https://meta-world.github.io/) | [GitHub](https://github.com/Farama-Foundation/Metaworld) | Coming soon |
 
 ---
 
@@ -245,6 +264,20 @@ WANDB_ENTITY=your-team
 ```
 
 These variables are referenced in Hydra configs via OmegaConf resolvers (e.g., `${checkpoint_dir:bowel_retraction}`).
+
+### Available Training Configs
+
+Ready-to-use end-to-end configs are organized by dataset under `hydra_configs/end_to_end_training_runs/`:
+
+| Dataset | Path | Data Link | Notes                                                                   |
+|---|---|---|-------------------------------------------------------------------------|
+| [Bowel Retraction](https://arxiv.org/abs/2601.21971) | `bowel_retraction/` | Coming soon | Real-world UR5e surgical robotics demonstrations. Language and depth variants included. |
+| [LIBERO](https://libero-project.github.io/datasets) (HDF5) | `libero_hdf5/` | [libero-project.github.io](https://libero-project.github.io/datasets) | Original HDF5 format with 128x128 (flipped) images.                     |
+| [LIBERO](https://huggingface.co/datasets/lerobot/libero) (LeRobot) | `libero_lerobot/` | [HF Hub](https://huggingface.co/datasets/lerobot/libero) | LeRobot format with OpenVLA filtered demonstrations and 256x256 images. |
+| [LIBERO+](https://huggingface.co/datasets/Sylvest/libero_plus_lerobot) | `libero_plus/` | [HF Hub](https://huggingface.co/datasets/Sylvest/libero_plus_lerobot) | Extended LIBERO dataset.                                                |
+| [MetaWorld MT50](https://huggingface.co/datasets/lerobot/metaworld_mt50) | `metaworld/` | [HF Hub](https://huggingface.co/datasets/lerobot/metaworld_mt50) | Multi-task benchmark (MT50 variant).                                    |
+
+Each config is self-contained — just point to your data path and run.
 
 ### Training Your First Model
 
