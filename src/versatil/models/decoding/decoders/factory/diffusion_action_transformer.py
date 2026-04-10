@@ -175,6 +175,7 @@ class DiffusionActionTransformer(ActionDecoder):
                 self.transformer = CrossAttentionDiT(
                     number_of_layers=self.number_of_layers,
                     embedding_dimension=self.embedding_dimension,
+                    output_dimension=self.action_space.get_total_action_dim(),
                     number_of_heads=self.number_of_heads,
                     number_of_key_value_heads=self.number_of_key_value_heads,
                     feedforward_dimension=self.feedforward_dimension,
@@ -192,6 +193,7 @@ class DiffusionActionTransformer(ActionDecoder):
                 self.transformer = MMDiTTransformer(
                     number_of_layers=self.number_of_layers,
                     embedding_dimension=self.embedding_dimension,
+                    output_dimension=self.action_space.get_total_action_dim(),
                     number_of_heads=self.number_of_heads,
                     feedforward_dimension=self.feedforward_dimension,
                     dropout=self.dropout_rate,

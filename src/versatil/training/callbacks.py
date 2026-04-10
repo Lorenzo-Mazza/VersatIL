@@ -619,31 +619,33 @@ class LatentVisualizationCallback(Callback):
         if trainer.current_epoch % self.log_every_n_epochs != 0:
             return
 
-        latent_data = pl_module.val_metrics.compute_latent_visualization_data()
-        if latent_data is None:
+        z, z_prior, phase_per_sample = (
+            pl_module.val_metrics.compute_latent_visualization_data()
+        )
+        if z is None and z_prior is None:
             return
 
-        z, z_prior, phase_per_sample = latent_data
-        figures = {
-            "posterior_latent_space_tsne": self._create_latent_figure(
+        figures = {}
+        if z is not None:
+            figures["posterior_latent_space_tsne"] = self._create_latent_figure(
                 z, phase_per_sample, title="Posterior latent space"
-            ),
-            "prior_latent_space_tsne": self._create_latent_figure(
-                z_prior, phase_per_sample, title="Prior latent space"
-            ),
-            "posterior_latent_space_pca": self._create_pca_figure(
+            )
+            figures["posterior_latent_space_pca"] = self._create_pca_figure(
                 z, phase_per_sample, title="Posterior latent space"
-            ),
-            "prior_latent_space_pca": self._create_pca_figure(
+            )
+            figures["posterior_pca_explained_variance"] = (
+                self._create_pca_variance_figure(z, title="Posterior")
+            )
+        if z_prior is not None:
+            figures["prior_latent_space_tsne"] = self._create_latent_figure(
                 z_prior, phase_per_sample, title="Prior latent space"
-            ),
-            "posterior_pca_explained_variance": self._create_pca_variance_figure(
-                z, title="Posterior"
-            ),
-            "prior_pca_explained_variance": self._create_pca_variance_figure(
+            )
+            figures["prior_latent_space_pca"] = self._create_pca_figure(
+                z_prior, phase_per_sample, title="Prior latent space"
+            )
+            figures["prior_pca_explained_variance"] = self._create_pca_variance_figure(
                 z_prior, title="Prior"
-            ),
-        }
+            )
 
         latent_stats_table = self._create_latent_stats_table(
             pl_module.val_metrics.metadata

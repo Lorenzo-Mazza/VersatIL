@@ -313,6 +313,30 @@ class TestDecoderInputValidateFeatureTypes:
                 },
             )
 
+    def test_raises_for_type_ignores_features_not_in_decoder_keys(
+        self,
+        decoder_input_factory: Callable[..., DecoderInput],
+    ):
+        decoder_input = decoder_input_factory(
+            keys=["flat_feat"],
+            raises_for_types=[FeatureType.SPATIAL.value],
+        )
+        # Pipeline has a spatial feature, but decoder only uses the flat one
+        decoder_input.validate_feature_types(
+            available_features={
+                "flat_feat": FeatureMetadata(
+                    key="flat_feat",
+                    feature_type=FeatureType.FLAT.value,
+                    dimension=(64,),
+                ),
+                "spatial_feat": FeatureMetadata(
+                    key="spatial_feat",
+                    feature_type=FeatureType.SPATIAL.value,
+                    dimension=(512, 7, 7),
+                ),
+            },
+        )
+
 
 class TestActionDecoderInterface:
     def test_supports_tokenized_actions_default_false(self):

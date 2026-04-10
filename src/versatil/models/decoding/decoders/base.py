@@ -74,8 +74,11 @@ class DecoderInput:
                     f"Available: {available_features}"
                 )
         for rejected_type in self.raises_for_types:
-            for key, meta in available_features.items():
-                if meta.feature_type == rejected_type:
+            for key in self.keys:
+                if (
+                    key in available_features
+                    and available_features[key].feature_type == rejected_type
+                ):
                     raise ValueError(
                         f"Decoder cannot accept {rejected_type} features, "
                         f"but '{key}' is {rejected_type}."

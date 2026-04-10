@@ -329,16 +329,6 @@ class TestSequentialFusionSetupLayers:
                 },
                 FeatureType.SEQUENTIAL.value,
             ),
-            (
-                {
-                    "feat_a": (64,),
-                    "feat_b": (
-                        10,
-                        128,
-                    ),
-                },
-                FeatureType.SEQUENTIAL.value,
-            ),
         ],
     )
     def test_output_feature_type_matches_inputs(
@@ -353,6 +343,20 @@ class TestSequentialFusionSetupLayers:
         module.setup(feature_registry=_make_feature_registry(registry))
         spec = module.get_output_specification()
         assert spec.feature_type == expected_type
+
+    def test_rejects_mixed_flat_and_sequential_features(
+        self,
+        sequential_fusion_factory: Callable[..., ConcreteSequentialFusion],
+    ):
+        module = sequential_fusion_factory(
+            input_features=["flat_feat", "seq_feat"],
+        )
+        registry = _make_feature_registry({"flat_feat": (64,), "seq_feat": (10, 128)})
+        with pytest.raises(
+            ValueError,
+            match="SequentialFusion cannot mix flat and sequential features",
+        ):
+            module.setup(feature_registry=registry)
 
     def test_rejects_spatial_features(
         self,

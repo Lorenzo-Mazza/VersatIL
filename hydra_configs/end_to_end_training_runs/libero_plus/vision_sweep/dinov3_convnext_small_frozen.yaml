@@ -33,7 +33,7 @@ experiment:
   checkpoint_every: 5
 
 training:
-  num_epochs: 200
+  num_epochs: 40
   early_stopping_patience: 100
   lr_schedule: null
   clip_gradient_norm: true
