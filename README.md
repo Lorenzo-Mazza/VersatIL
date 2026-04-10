@@ -217,14 +217,6 @@ UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
 pre-commit install
 ```
 
-NB: The above installation requires a machine with a GPU with CUDA installed.
-This is needed so that flash-attn can find the CUDA runtime libraries.
-To install VersatIL from our computing cluster, you need to run:
-```bash
-srun --gres=gpu:1 --cpus-per-task=1 --pty bash
-# Then run installation commands above
-```
-
 ### Environment Configuration
 
 VersatIL uses a `.env` file to configure machine-specific paths. Copy the example and customize:
@@ -349,18 +341,22 @@ fusion = AttentionFusion(
 ### Encoders
 
 - **RGB**
-  - CNNEncoder: Any [timm](https://github.com/huggingface/pytorch-image-models) backbone (ResNet, EfficientNet, EdgeNeXt, MobileNetV4, ...)
-  - ViTEncoder: Any [timm](https://github.com/huggingface/pytorch-image-models) ViT via [HF Transformers](https://github.com/huggingface/transformers) (CLIP ViT, DINOv2, DINOv3, ...)
+  - CNNEncoder: via [timm](https://github.com/huggingface/pytorch-image-models) backbone (ResNet, EfficientNet, ConvNeXt, EdgeNeXt, MobileNetV4, ...)
+  - ViTEncoder: via [timm](https://github.com/huggingface/pytorch-image-models) ViT (DINOv2, DINOv3, DeiT, CLIP ViT, ...)
+  - SwinEncoder: via [timm](https://github.com/huggingface/pytorch-image-models) Swin Transformers
   - ConditionalCNNEncoder: Custom ResNet with FiLM conditioning
 - **Depth**
   - DepthCNNEncoder: timm backbones adapted for single-channel depth
-  - DFormerV2: RGB-D encoder with Geometric Attention ([paper](https://arxiv.org/abs/2504.04701))
-  - LightGeometric: Custom lightweight geometric depth encoder
-- **Language** via [HF Transformers](https://github.com/huggingface/transformers): BERT, DistilBERT, MiniLM, Gemma, Qwen, ALBERT, ...
+- **Cross-Modal RGBD**
+  - DFormerEncoder: RGB-D encoder with Geometric Attention ([paper](https://arxiv.org/abs/2504.04701))
+  - GeometricRGBDEncoder: Custom lightweight geometric depth encoder
+- **Cross-Modal Vision-Language** via [HF Transformers](https://github.com/huggingface/transformers):
+  - TwoTowerVLMEncoder: dual vision/language towers e.g. CLIP, SigLIP.
+  - GenerativeVLMEncoder: PaliGemma2, SmolVLM
+- **Language** via [HF Transformers](https://github.com/huggingface/transformers): BERT, DistilBERT, MiniLM, Gemma, Qwen, ALBERT, RoBERTa, GPT2, DeBERTa, Phi, Llama, ...
 - **Proprioceptive**: ProprioceptiveEncoder — MLP for robot state
-- **VLM** via [HF Transformers](https://github.com/huggingface/transformers): CLIP, SigLIP, ...
 
-Available backbones are listed in `src/versatil/models/encoding/encoders/constants.py` (`RGBBackboneType`, `LanguageEncoderType`, `ImageTextModelType`).
+Available backbones are listed in `src/versatil/models/encoding/encoders/constants.py` (`CNNBackboneType`, `ViTBackboneType`, `SwinBackboneType`, `LanguageEncoderType`, `ImageTextModelType`, `PaliGemmaModelType`, `SmolVLMModelType`).
 They can be easily extended by either:
 - Adding new Enum values that map to timm or HF Transformers model names.
 - Implementing custom encoder classes that subclass `Encoder` (or `ConditionalEncoder` for conditioned encoders).
@@ -411,6 +407,9 @@ Each decoder can customize how it integrates the latent `z` token into its archi
 - `DiffusionActionTransformer` - **Novel** Diffusion Action Transformer supporting two different architectures:
     - With cross-attention to encoder tokens, using an architecture inspired by PixArt ([paper](https://arxiv.org/abs/2310.00426))
     - With a dual-attention stream, using the MultiModal DiT architecture from SD3   ([paper](https://arxiv.org/abs/2403.03206))
+- `MoDE-ACT` - Mixture Density Network Transformer with K Gaussian expert heads
+- `Pi0Decoder` - Interleaved VLM-expert joint attention ([Pi0](https://arxiv.org/abs/2410.24164), [Pi0.5](https://arxiv.org/abs/2504.16054))
+- `SmolVLADecoder` - Interleaved cross-attention and joint self-attention with VLM backbone ([SmolVLA](https://arxiv.org/abs/2506.01844))
 - `MoEDecoder` - Mixture of Experts wrapper applicable on top of any decoder
 
 You can easily extend the available decoders by implementing new classes that subclass `versatil.models.decoding.decoders.base.ActionDecoder`.

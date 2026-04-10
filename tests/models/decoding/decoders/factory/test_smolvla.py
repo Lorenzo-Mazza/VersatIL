@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
-from transformers import AutoConfig
+from transformers import Idefics3Config, LlamaConfig, SiglipVisionConfig
 
 from versatil.data.constants import Cameras, SampleKey
 from versatil.models.decoding.action_heads.single_output import ActionHead
@@ -43,22 +43,29 @@ FEATURE_KEY = "vlm_fused_rgb_language"
 PADDING_MASK_KEY = f"{FEATURE_KEY}_{EncoderOutputKeys.PADDING_MASK.value}"
 
 
-def _make_tiny_smolvlm_config() -> AutoConfig:
-    """Create a real but tiny SmolVLM config for integration tests."""
-    config = AutoConfig.from_pretrained(SmolVLMModelType.SMOLVLM_256M.value)
-    config.text_config.num_hidden_layers = NUM_VLM_LAYERS
-    config.text_config.hidden_size = VLM_HIDDEN_DIMENSION
-    config.text_config.intermediate_size = VLM_HIDDEN_DIMENSION * 4
-    config.text_config.num_attention_heads = NUM_ATTENTION_HEADS
-    config.text_config.num_key_value_heads = NUM_KEY_VALUE_HEADS
-    config.text_config.head_dim = HEAD_DIMENSION
-    config.vision_config.hidden_size = VLM_HIDDEN_DIMENSION
-    config.vision_config.intermediate_size = VLM_HIDDEN_DIMENSION * 4
-    config.vision_config.num_hidden_layers = 1
-    config.vision_config.num_attention_heads = NUM_ATTENTION_HEADS
-    config.vision_config.image_size = 56
-    config.vision_config.patch_size = 14
-    return config
+def _make_tiny_smolvlm_config() -> Idefics3Config:
+    """Create a tiny SmolVLM config without network access."""
+    text_config = LlamaConfig(
+        num_hidden_layers=NUM_VLM_LAYERS,
+        hidden_size=VLM_HIDDEN_DIMENSION,
+        intermediate_size=VLM_HIDDEN_DIMENSION * 4,
+        num_attention_heads=NUM_ATTENTION_HEADS,
+        num_key_value_heads=NUM_KEY_VALUE_HEADS,
+        head_dim=HEAD_DIMENSION,
+    )
+    vision_config = SiglipVisionConfig(
+        hidden_size=VLM_HIDDEN_DIMENSION,
+        intermediate_size=VLM_HIDDEN_DIMENSION * 4,
+        num_hidden_layers=1,
+        num_attention_heads=NUM_ATTENTION_HEADS,
+        image_size=56,
+        patch_size=14,
+    )
+    return Idefics3Config(
+        text_config=text_config.to_dict(),
+        vision_config=vision_config.to_dict(),
+        scale_factor=4,
+    )
 
 
 @pytest.fixture(scope="session")

@@ -8,7 +8,12 @@ import numpy as np
 import pytest
 import torch
 import torch.nn as nn
-from transformers import AutoConfig, PretrainedConfig
+from transformers import (
+    Gemma2Config,
+    PaliGemmaConfig,
+    PretrainedConfig,
+    SiglipVisionConfig,
+)
 
 from versatil.data.constants import Cameras, SampleKey
 from versatil.models.decoding.action_heads.single_output import ActionHead
@@ -39,22 +44,30 @@ PROPRIO_KEY = "robot_state_proprio"
 PROPRIO_DIM = 8
 
 
-def _make_tiny_paligemma_config() -> AutoConfig:
-    config = AutoConfig.from_pretrained(PaliGemmaModelType.PALIGEMMA2_3B_224.value)
-    config.text_config.num_hidden_layers = NUM_EXPERT_LAYERS
-    config.text_config.hidden_size = VLM_HIDDEN_DIMENSION
-    config.text_config.intermediate_size = VLM_HIDDEN_DIMENSION * 4
-    config.text_config.num_attention_heads = NUM_ATTENTION_HEADS
-    config.text_config.num_key_value_heads = NUM_KEY_VALUE_HEADS
-    config.text_config.head_dim = HEAD_DIMENSION
-    config.text_config.vocab_size = 1000
-    config.vision_config.hidden_size = VLM_HIDDEN_DIMENSION
-    config.vision_config.intermediate_size = VLM_HIDDEN_DIMENSION * 4
-    config.vision_config.num_hidden_layers = 1
-    config.vision_config.num_attention_heads = NUM_ATTENTION_HEADS
-    config.vision_config.image_size = 56
-    config.vision_config.patch_size = 14
-    config.projection_dim = VLM_HIDDEN_DIMENSION
+def _make_tiny_paligemma_config() -> PaliGemmaConfig:
+    text_config = Gemma2Config(
+        num_hidden_layers=NUM_EXPERT_LAYERS,
+        hidden_size=VLM_HIDDEN_DIMENSION,
+        intermediate_size=VLM_HIDDEN_DIMENSION * 4,
+        num_attention_heads=NUM_ATTENTION_HEADS,
+        num_key_value_heads=NUM_KEY_VALUE_HEADS,
+        head_dim=HEAD_DIMENSION,
+        vocab_size=1000,
+    )
+    vision_config = SiglipVisionConfig(
+        hidden_size=VLM_HIDDEN_DIMENSION,
+        intermediate_size=VLM_HIDDEN_DIMENSION * 4,
+        num_hidden_layers=1,
+        num_attention_heads=NUM_ATTENTION_HEADS,
+        image_size=56,
+        patch_size=14,
+    )
+    config = PaliGemmaConfig(
+        text_config=text_config.to_dict(),
+        vision_config=vision_config.to_dict(),
+        projection_dim=VLM_HIDDEN_DIMENSION,
+    )
+    config.vision_config.num_image_tokens = 16
     config.vision_config.projection_dim = VLM_HIDDEN_DIMENSION
     return config
 
@@ -285,21 +298,6 @@ class TestPi0DecoderInitialization:
             proprioceptive_feature_key=proprioceptive_feature_key,
         )
         assert decoder.proprioceptive_projection is None
-
-    def test_compute_rope_raises_before_set_backbone(
-        self,
-        pi0_decoder_factory: Callable[..., Pi0Decoder],
-    ):
-        decoder = pi0_decoder_factory()
-        hidden = torch.zeros(BATCH_SIZE, PREFIX_SEQUENCE_LENGTH, EXPERT_HIDDEN_SIZE)
-        position_ids = torch.zeros(BATCH_SIZE, PREFIX_SEQUENCE_LENGTH, dtype=torch.long)
-        with pytest.raises(
-            RuntimeError,
-            match=re.escape(
-                "VLM rotary embedding not set. set_backbone() must be called."
-            ),
-        ):
-            decoder._compute_rope(hidden_states=hidden, position_ids=position_ids)
 
     def test_fill_prefix_cache_raises_before_set_backbone(
         self,

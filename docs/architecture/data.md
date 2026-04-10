@@ -265,14 +265,29 @@ The `TransformBuilder` fits separate normalizers for:
 !!! info "Normalization Exclusions"
     Binary gripper actions and language instructions are not normalized. The normalizer is stored in the checkpoint and loaded at inference time.
 
-## Augmentation
+## Image Processing
 
-The `AugmentationPipeline` applies [Albumentations](https://albumentations.ai/) transforms during training only. Two independent pipelines are supported:
+[`ImageProcessor`][versatil.data.processing.image_processor.ImageProcessor] handles per-camera image processing: resize, augmentation, normalization, and channel reorder. 
+
+```python
+ImageProcessor(
+    color_augmentation=A.Compose(...) | None,
+    spatial_augmentation=A.Compose(...) | None,
+    camera_metadata={"left": CameraMetadata(...), ...},
+    train=True,
+)
+```
+
+**Training pipeline:** resize -> color augmentation (RGB only) -> spatial augmentation -> normalize -> channel reorder.
+
+**Inference pipeline:** resize -> normalize -> channel reorder.
+
+Two independent [Albumentations](https://albumentations.ai/) pipelines are supported:
 
 - **Color augmentation** -- Photometric transforms (brightness, contrast, hue, etc.)
 - **Spatial augmentation** -- Geometric transforms (rotation, flips, etc.)
 
-Both pipelines are applied per-frame. Images are resized to the configured `(image_height, image_width)` before augmentation. Depth images use nearest-neighbor interpolation to preserve depth values; RGB images use bilinear interpolation.
+Image sizes come from per-camera `CameraMetadata` in the observation space. Depth images use nearest-neighbor interpolation to preserve depth values; RGB images use bilinear interpolation.
 
 ## Tokenization
 

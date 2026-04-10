@@ -249,6 +249,70 @@ class GenerativeVLMEncoder(LanguageEncoderMixin, Encoder, abc.ABC):
         )
 
     @staticmethod
+    def compute_rope(
+        rotary_embedding: nn.Module,
+        hidden_states: torch.Tensor,
+        position_ids: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Compute (cos, sin) RoPE components for given positions.
+
+        Args:
+            rotary_embedding: The LM's rotary embedding module.
+            hidden_states: Tensor whose dtype/device to match.
+            position_ids: Position indices (B, S).
+
+        Returns:
+            (cos, sin) each (B, 1, S, head_dim) for head broadcast.
+        """
+        cos, sin = rotary_embedding(hidden_states, position_ids)
+        # (B, S, head_dim) → (B, 1, S, head_dim) for head broadcast
+        return cos.unsqueeze(1), sin.unsqueeze(1)
+
+    @staticmethod
+    def extract_key_value_with_rope(
+        vlm_layer: nn.Module,
+        hidden_states: torch.Tensor,
+        rotary_embedding: nn.Module,
+        position_ids: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Project hidden states to K/V with RoPE applied to keys.
+
+        Args:
+            vlm_layer: Pretrained VLM transformer layer.
+            hidden_states: (B, S, D).
+            rotary_embedding: The LM's rotary embedding module.
+            position_ids: (B, S) position indices.
+
+        Returns:
+            (keys, values) — keys have RoPE applied and are flattened to
+            (B, S, key_value_dimension), values are flat (B, S, key_value_dimension).
+        """
+        normalized = vlm_layer.input_layernorm(hidden_states)
+        attention = vlm_layer.self_attn
+        batch_size, sequence_length, _ = normalized.shape
+        head_dimension = attention.head_dim
+        number_of_key_value_heads = attention.config.num_key_value_heads
+        keys_flat = attention.k_proj(normalized)
+        values_flat = attention.v_proj(normalized)
+        keys_headed = keys_flat.view(
+            batch_size, sequence_length, number_of_key_value_heads, head_dimension
+        ).transpose(1, 2)
+        cos, sin = GenerativeVLMEncoder.compute_rope(
+            rotary_embedding=rotary_embedding,
+            hidden_states=keys_headed,
+            position_ids=position_ids[:, :sequence_length],
+        )
+        keys_headed = RotaryPositionalEncoding.apply_rotation_half(
+            tensor=keys_headed, sine=sin, cosine=cos
+        )
+        keys_with_rope = (
+            keys_headed.transpose(1, 2)
+            .contiguous()
+            .view(batch_size, sequence_length, -1)
+        )
+        return keys_with_rope, values_flat
+
+    @staticmethod
     def extract_query_key_value(
         vlm_layer: nn.Module,
         hidden_states: torch.Tensor,
@@ -296,11 +360,17 @@ class GenerativeVLMEncoder(LanguageEncoderMixin, Encoder, abc.ABC):
             )
             .transpose(1, 2)
         )
-        cos, sin = rotary_embedding(value, position_ids[:, :sequence_length])
-        cos = cos.unsqueeze(1)
-        sin = sin.unsqueeze(1)
-        query = RotaryPositionalEncoding.apply_rotation_half(query, sin, cos)
-        key = RotaryPositionalEncoding.apply_rotation_half(key, sin, cos)
+        cos, sin = GenerativeVLMEncoder.compute_rope(
+            rotary_embedding=rotary_embedding,
+            hidden_states=value,
+            position_ids=position_ids[:, :sequence_length],
+        )
+        query = RotaryPositionalEncoding.apply_rotation_half(
+            tensor=query, sine=sin, cosine=cos
+        )
+        key = RotaryPositionalEncoding.apply_rotation_half(
+            tensor=key, sine=sin, cosine=cos
+        )
         return query, key, value
 
     @staticmethod

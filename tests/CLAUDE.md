@@ -18,6 +18,7 @@ Reference implementations:
 - `tests/models/encoding/encoders/rgb/test_vit.py` — consolidated `test_stores_configuration` with stacked `@pytest.mark.parametrize` cross product, validation tests separate from storage, mocked backbone with `patch.object`, unit/integration test separation
 - `tests/models/decoding/decoders/factory/test_dit_block_action_transformer.py` — decoder factory integration tests with behavioral assertions (conditioning sensitivity, timestep independence at init, gradient flow)
 - `tests/models/layers/denoising/test_ode_solvers.py` — mathematical correctness tests (convergence order, exact integration for known ODEs, solver accuracy comparison)
+- `tests/models/encoding/encoders/cross_modal/vision_language/test_generative_vlm.py` — fixture-level `params=` to auto-parametrize all tests over multiple implementations (SmolVLM + PaliGemma), shared conftest for session-scoped real model factories, cross-method consistency tests
 
 ## Principles
 

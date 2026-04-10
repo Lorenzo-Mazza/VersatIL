@@ -36,6 +36,7 @@ class DecoderInput:
     required_types: list[str] = []                         # Must have at least one of these feature types
     raises_for_types: list[str] = []                       # Reject these feature types
     requires_actions: bool = False                         # Whether forward() needs ground-truth actions
+    requires_vlm_backbone: bool = False                    # Whether the decoder needs VLM layers (Pi0/SmolVLA)
     conditioning_key: str | None = None                    # For conditional decoders
     conditioning_required: list[str] = []                  # Required conditioning keys
     conditioning_one_of_groups: list[list[str]] = []       # Exactly one from each group required
@@ -82,6 +83,53 @@ These decoders are designed for iterative denoising algorithms. They accept nois
 | **ConditionalActionUNet** | `ConditionalActionUNet` | U-Net decoder for Diffusion Policy ([Chi et al., 2023](https://arxiv.org/abs/2303.04137)). Uses FiLM conditioning from pooled observation features. Accepts global and optional local (sequence-aligned) conditioning. |
 | **DiTBlockActionTransformer** | `DiTBlockActionTransformer` | DiT-Block Policy ([Block et al., 2024](https://arxiv.org/html/2410.10088v1)). Processes observation tokens through an encoder with mean pooling, then conditions the decoder via AdaLN (pooled vector + timestep embedding). Supports encoder caching during inference. |
 | **DiffusionActionTransformer** | `DiffusionActionTransformer` | Diffusion action transformer supporting two sub-architectures: **CrossAttentionDiT** (PixArt-style cross-attention to unpooled observation tokens) and **MMDiT** (SD3-style joint attention between observation and action streams). |
+
+### VLA (Vision-Language-Action) Decoders
+
+These decoders borrow pretrained layers from a generative VLM encoder and pair them with learned expert layers for interleaved processing. They require `requires_vlm_backbone=True` in their `DecoderInput` and implement `set_backbone()` to receive the VLM layers at initialization.
+
+| Decoder | Class | Description |
+|---------|-------|-------------|
+| **Pi0** | `Pi0Decoder` | Interleaved VLM-expert joint attention. Each VLM layer is paired 1:1 with an expert layer. Pi0 fuses timestep via concat-MLP; Pi0.5 modulates via adaptive normalization. |
+| **SmolVLA** | `SmolVLADecoder` | Alternates between joint self-attention (expert attends alongside VLM tokens) and cross-attention (expert attends to VLM key/values) layers. |
+
+References: [Pi0](https://arxiv.org/abs/2410.24164), [Pi0.5](https://arxiv.org/abs/2504.16054), [SmolVLA](https://arxiv.org/abs/2506.01844).
+
+Both decoders accept noisy actions and timestep conditioning, making them compatible with generative algorithms (Flow Matching, Diffusion).
+
+#### Pi0Decoder
+
+Expert layers are fully configurable (hidden size, intermediate size, heads, K/V heads, head dimension). The number of expert layers must match the VLM layer count.
+
+**Key parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `time_conditioning` | `"concat_mlp"` | Timestep fusion mode: `"concat_mlp"` (Pi0) or `"adanorm"` (Pi0.5) |
+| `expert_hidden_size` | -- | Expert network hidden dimension |
+| `expert_number_of_layers` | -- | Must match VLM layer count |
+| `proprioceptive_feature_key` | `None` | Proprioceptive feature prepended to VLM prefix |
+
+#### SmolVLADecoder
+
+Expert dimensions are derived from the VLM via `expert_width_multiplier`. The layer routing alternates between joint self-attention and cross-attention at a configurable period.
+
+**Key parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `expert_width_multiplier` | `0.75` | Expert hidden size as fraction of VLM hidden size |
+| `num_expert_layers` | `-1` | Number of expert layers (`-1` matches VLM count) |
+| `num_vlm_layers` | `16` | VLM layers to use (truncates if fewer available) |
+| `self_attention_every_n_layers` | `2` | Period for joint self-attention (`0` = all cross-attention) |
+| `freeze_vlm` | `True` | Whether to freeze VLM layer parameters |
+| `proprioceptive_feature_key` | `None` | Proprioceptive feature prepended to VLM prefix |
+
+!!! info "VLM backbone wiring"
+    When `requires_vlm_backbone=True`, `Policy` automatically calls `decoder.set_backbone()` at initialization, passing the VLM encoder's transformer layers, rotary embedding, hidden dimension, and text config. The VLM encoder must use `use_embeddings_only=True` so its LM layers remain available for the decoder.
+
+!!! info "Action masking for VLA"
+    VLA decoders use `make_attention_mask()` with `causal_actions` and `causal_prefix_suffix_length` parameters to construct prefix-suffix attention patterns where the prefix (observations) is bidirectional and the suffix (actions) is optionally causal.
 
 ### MoE Decoder Wrapper
 

@@ -8,7 +8,6 @@ import numpy as np
 import pytest
 import torch
 import torch.nn as nn
-from transformers import AutoConfig
 
 from versatil.data.constants import Cameras, SampleKey
 from versatil.data.metadata import BaseMetadata, CameraMetadata
@@ -174,60 +173,6 @@ def _setup_mock_vlm_for_batch(
         effective_batch_size, total_seq, HIDDEN_DIM
     )
     encoder.vlm.language_model.return_value = mock_lm_output
-
-
-def _make_tiny_paligemma_config():
-    """Create a real but tiny PaliGemma config for fast integration tests."""
-    config = AutoConfig.from_pretrained(PaliGemmaModelType.PALIGEMMA2_3B_224.value)
-    tiny_hidden = 32
-    config.text_config.num_hidden_layers = 1
-    config.text_config.hidden_size = tiny_hidden
-    config.text_config.intermediate_size = tiny_hidden * 2
-    config.text_config.num_attention_heads = 2
-    config.text_config.num_key_value_heads = 1
-    config.text_config.head_dim = tiny_hidden // 2
-    config.vision_config.hidden_size = tiny_hidden
-    config.vision_config.intermediate_size = tiny_hidden * 2
-    config.vision_config.num_hidden_layers = 1
-    config.vision_config.num_attention_heads = 2
-    config.vision_config.image_size = 56
-    config.vision_config.patch_size = 14
-    config.vision_config.num_image_tokens = 16
-    # projection_dim controls the multi-modal projector output;
-    # must match text_config.hidden_size for concatenation
-    config.projection_dim = tiny_hidden
-    config.vision_config.projection_dim = tiny_hidden
-    config.text_config.vocab_size = 1000
-    return config
-
-
-@pytest.fixture(scope="session")
-def real_paligemma_encoder() -> Callable[..., PaliGemmaEncoder]:
-    """Factory for a real but tiny PaliGemma encoder, cached per dtype."""
-    tiny_config = _make_tiny_paligemma_config()
-    cache: dict[str, PaliGemmaEncoder] = {}
-
-    def factory(
-        model_dtype: str = PrecisionType.FP32.value,
-    ) -> PaliGemmaEncoder:
-        if model_dtype not in cache:
-            with patch(
-                "versatil.models.encoding.encoders.cross_modal.vision_language.generative_vlm.AutoConfig.from_pretrained",
-                return_value=tiny_config,
-            ):
-                cache[model_dtype] = PaliGemmaEncoder(
-                    input_keys=[
-                        Cameras.LEFT.value,
-                        SampleKey.TOKENIZED_OBSERVATIONS.value,
-                    ],
-                    pretrained=False,
-                    frozen=True,
-                    model_name=PaliGemmaModelType.PALIGEMMA2_3B_224.value,
-                    model_dtype=model_dtype,
-                )
-        return cache[model_dtype]
-
-    return factory
 
 
 class TestPaliGemmaEncoderInitialization:
@@ -679,94 +624,3 @@ class TestPaliGemmaEncoderIntegration:
         encoder = real_paligemma_encoder(model_dtype=precision)
         param_dtype = next(encoder.vlm.parameters()).dtype
         assert param_dtype == expected_dtype
-
-    @pytest.mark.integration
-    def test_extract_key_value_returns_unprojected_kv(
-        self,
-        real_paligemma_encoder: Callable[..., PaliGemmaEncoder],
-        sequence_tensor_factory: Callable[..., torch.Tensor],
-    ):
-        encoder = real_paligemma_encoder()
-        layer = encoder.get_backbone_layers()[0]
-        batch_size, sequence_length = 2, 8
-        hidden = sequence_tensor_factory(
-            batch_size=batch_size,
-            sequence_length=sequence_length,
-            embedding_dimension=encoder.hidden_dim,
-        )
-        key, value = PaliGemmaEncoder.extract_key_value(
-            vlm_layer=layer,
-            hidden_states=hidden,
-        )
-        normalized = layer.input_layernorm(hidden)
-        expected_key = layer.self_attn.k_proj(normalized)
-        expected_value = layer.self_attn.v_proj(normalized)
-        assert torch.allclose(key, expected_key, atol=1e-5)
-        assert torch.allclose(value, expected_value, atol=1e-5)
-
-    @pytest.mark.integration
-    def test_extract_query_key_value_applies_rope(
-        self,
-        real_paligemma_encoder: Callable[..., PaliGemmaEncoder],
-        sequence_tensor_factory: Callable[..., torch.Tensor],
-    ):
-        encoder = real_paligemma_encoder()
-        layer = encoder.get_backbone_layers()[0]
-        rotary_emb = encoder.get_rotary_embedding()
-        batch_size, sequence_length = 2, 8
-        hidden = sequence_tensor_factory(
-            batch_size=batch_size,
-            sequence_length=sequence_length,
-            embedding_dimension=encoder.hidden_dim,
-        )
-        position_ids = torch.arange(sequence_length).unsqueeze(0).expand(batch_size, -1)
-        query, key, value = PaliGemmaEncoder.extract_query_key_value(
-            vlm_layer=layer,
-            hidden_states=hidden,
-            rotary_embedding=rotary_emb,
-            position_ids=position_ids,
-        )
-        normalized = layer.input_layernorm(hidden)
-        head_dim = layer.self_attn.head_dim
-        num_kv_heads = layer.self_attn.config.num_key_value_heads
-        raw_key = (
-            layer.self_attn.k_proj(normalized)
-            .view(batch_size, sequence_length, num_kv_heads, head_dim)
-            .transpose(1, 2)
-        )
-        assert not torch.allclose(key, raw_key, atol=1e-5)
-
-    @pytest.mark.integration
-    def test_apply_residual_feedforward_matches_gemma2_forward(
-        self,
-        real_paligemma_encoder: Callable[..., PaliGemmaEncoder],
-        sequence_tensor_factory: Callable[..., torch.Tensor],
-    ):
-        encoder = real_paligemma_encoder()
-        layer = encoder.get_backbone_layers()[0]
-        attn = layer.self_attn
-        attention_output_dim = attn.config.num_attention_heads * attn.head_dim
-        batch_size, sequence_length = 2, 8
-        residual = sequence_tensor_factory(
-            batch_size=batch_size,
-            sequence_length=sequence_length,
-            embedding_dimension=encoder.hidden_dim,
-        )
-        attn_output = sequence_tensor_factory(
-            batch_size=batch_size,
-            sequence_length=sequence_length,
-            embedding_dimension=attention_output_dim,
-        )
-        result = PaliGemmaEncoder.apply_residual_feedforward(
-            vlm_layer=layer,
-            vlm_residual=residual,
-            vlm_attention_output=attn_output,
-        )
-        o_proj_out = layer.self_attn.o_proj(attn_output)
-        post_attn_norm = layer.post_attention_layernorm(o_proj_out)
-        after_first_residual = residual + post_attn_norm
-        pre_ff = layer.pre_feedforward_layernorm(after_first_residual)
-        mlp_out = layer.mlp(pre_ff)
-        post_ff = layer.post_feedforward_layernorm(mlp_out)
-        expected = after_first_residual + post_ff
-        assert torch.allclose(result, expected, atol=1e-5)

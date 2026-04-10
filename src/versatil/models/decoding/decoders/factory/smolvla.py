@@ -21,7 +21,6 @@ from versatil.models.layers.feature_projection import FeatureProjection
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.normalization.factory import create_normalization_layer
 from versatil.models.layers.positional_encoding.base import PositionSource
-from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
 from versatil.models.layers.positional_encoding.sinusoidal import (
     PeriodInterpolationPositionalEncoding1D,
 )
@@ -51,7 +50,7 @@ class SmolVLADecoder(ActionDecoder):
     Alternates between joint self-attention (expert attends alongside
     VLM tokens) and cross-attention (expert attends to VLM key/values)
     layers.
-    Modules are created lazily in ``set_backbone`` from the VLM text config.
+    Modules are created lazily in ``set_backbone`` from the VLM config.
     """
 
     def __init__(
@@ -126,6 +125,7 @@ class SmolVLADecoder(ActionDecoder):
         self.expert_layers: nn.ModuleList | None = None
         self._layer_types: list[str] | None = None
         self._expert_to_vlm_index: dict[int, int] | None = None
+        self.vlm_rotary_embedding: nn.Module | None = None
         self.freeze_vlm = freeze_vlm
         self.action_input_projection: nn.Linear | None = None
         self.action_output_projection: nn.Linear | None = None
@@ -154,7 +154,7 @@ class SmolVLADecoder(ActionDecoder):
     ) -> None:
         """Create layers and projections from VLM config."""
         self.vlm_hidden_dimension = vlm_hidden_dimension
-        self.vlm_rotary_emb = rotary_emb
+        self.vlm_rotary_embedding = rotary_emb
         actual_vlm_count = (
             len(vlm_layers)
             if self.num_vlm_layers <= 0
@@ -270,78 +270,6 @@ class SmolVLADecoder(ActionDecoder):
         self._encoder_cache_enabled = False
         self._prefix_cache = None
 
-    def _compute_rope(
-        self,
-        hidden_states: torch.Tensor,
-        position_ids: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute (cos, sin) RoPE components for given positions.
-
-        Args:
-            hidden_states: Tensor whose dtype/device to match.
-            position_ids: Position indices (B, S).
-
-        Returns:
-            (cos, sin) broadcastable to (B, 1, S, head_dim).
-        """
-        cos, sin = self.vlm_rotary_emb(hidden_states, position_ids)
-        # (B, S, head_dim) → (B, 1, S, head_dim) for head broadcast
-        return cos.unsqueeze(1), sin.unsqueeze(1)
-
-    def _compute_vlm_position_embeddings(
-        self,
-        hidden_states: torch.Tensor,
-        position_ids: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute position embeddings in HF format for VLM layer calls.
-
-        Args:
-            hidden_states: Tensor whose dtype/device to match.
-            position_ids: Position indices (B, S).
-
-        Returns:
-            (cos, sin) each (B, S, head_dim) — raw format for HF layers.
-        """
-        return self.vlm_rotary_emb(hidden_states, position_ids)
-
-    def _extract_key_value_with_rope(
-        self,
-        vlm_layer: nn.Module,
-        hidden_states: torch.Tensor,
-        position_ids: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Extract K/V from a VLM layer with RoPE applied to keys.
-
-        Args:
-            vlm_layer: Pretrained VLM transformer layer.
-            hidden_states: VLM hidden states (B, P, D_vlm).
-            position_ids: Position indices (B, total_length).
-
-        Returns:
-            (keys, values) each (B, P, key_value_dimension) with RoPE on keys.
-        """
-        normalized = vlm_layer.input_layernorm(hidden_states)
-        attention = vlm_layer.self_attn
-        batch_size, sequence_length, _ = normalized.shape
-        head_dimension = attention.head_dim
-        number_of_key_value_heads = attention.config.num_key_value_heads
-        keys_flat = attention.k_proj(normalized)
-        values_flat = attention.v_proj(normalized)
-        keys_headed = keys_flat.view(
-            batch_size, sequence_length, number_of_key_value_heads, head_dimension
-        ).transpose(1, 2)
-        cos, sin = self.vlm_rotary_emb(keys_headed, position_ids[:, :sequence_length])
-        # (B, S, head_dim) → (B, 1, S, head_dim) for head broadcast
-        keys_headed = RotaryPositionalEncoding.apply_rotation_half(
-            keys_headed, sin.unsqueeze(1), cos.unsqueeze(1)
-        )
-        keys_with_rope = (
-            keys_headed.transpose(1, 2)
-            .contiguous()
-            .view(batch_size, sequence_length, -1)
-        )
-        return keys_with_rope, values_flat
-
     def _embed_suffix(
         self, actions: dict[str, torch.Tensor], timestep: torch.Tensor
     ) -> torch.Tensor:
@@ -430,7 +358,11 @@ class SmolVLADecoder(ActionDecoder):
         position_ids = (pad_mask.long().cumsum(dim=-1) - 1).clamp(min=0)
         prefix_length = prefix_embeddings.shape[1]
         expert_position_ids = position_ids[:, prefix_length:]
-        expert_action_rope = self._compute_rope(expert_hidden, expert_position_ids)
+        expert_action_rope = GenerativeVLMEncoder.compute_rope(
+            rotary_embedding=self.vlm_rotary_embedding,
+            hidden_states=expert_hidden,
+            position_ids=expert_position_ids,
+        )
         use_cached_prefix = (
             self._encoder_cache_enabled and self._prefix_cache is not None
         )
@@ -508,7 +440,7 @@ class SmolVLADecoder(ActionDecoder):
         """
 
         vlm_hidden = prefix_embeddings
-        vlm_position_embeddings = self._compute_vlm_position_embeddings(
+        vlm_position_embeddings = self.vlm_rotary_embedding(
             prefix_embeddings, position_ids[:, : prefix_embeddings.shape[1]]
         )
         vlm_layer_index = 0
@@ -535,7 +467,7 @@ class SmolVLADecoder(ActionDecoder):
                             GenerativeVLMEncoder.extract_query_key_value(
                                 vlm_layer,
                                 vlm_hidden,
-                                self.vlm_rotary_emb,
+                                self.vlm_rotary_embedding,
                                 position_ids,
                             )
                         )
@@ -559,8 +491,13 @@ class SmolVLADecoder(ActionDecoder):
                     expert_layer_index += 1
                 case SmolVLALayerType.CROSS_ATTENTION.value:
                     with torch.no_grad():
-                        vlm_keys, vlm_values = self._extract_key_value_with_rope(
-                            vlm_layer, vlm_hidden, position_ids
+                        vlm_keys, vlm_values = (
+                            GenerativeVLMEncoder.extract_key_value_with_rope(
+                                vlm_layer=vlm_layer,
+                                hidden_states=vlm_hidden,
+                                rotary_embedding=self.vlm_rotary_embedding,
+                                position_ids=position_ids,
+                            )
                         )
                         vlm_output = vlm_layer(
                             vlm_hidden,
@@ -609,7 +546,7 @@ class SmolVLADecoder(ActionDecoder):
         layer_caches: list[ConditioningLayerCache] = []
         vlm_hidden = prefix_embeddings
         prefix_position_ids = position_ids[:, : prefix_embeddings.shape[1]]
-        vlm_position_embeddings = self._compute_vlm_position_embeddings(
+        vlm_position_embeddings = self.vlm_rotary_embedding(
             prefix_embeddings, prefix_position_ids
         )
         with torch.no_grad():
@@ -621,7 +558,7 @@ class SmolVLADecoder(ActionDecoder):
                             GenerativeVLMEncoder.extract_query_key_value(
                                 vlm_layer,
                                 vlm_hidden,
-                                self.vlm_rotary_emb,
+                                self.vlm_rotary_embedding,
                                 prefix_position_ids,
                             )
                         )
@@ -631,8 +568,13 @@ class SmolVLADecoder(ActionDecoder):
                             )
                         )
                     case SmolVLALayerType.CROSS_ATTENTION.value:
-                        vlm_keys, vlm_values = self._extract_key_value_with_rope(
-                            vlm_layer, vlm_hidden, prefix_position_ids
+                        vlm_keys, vlm_values = (
+                            GenerativeVLMEncoder.extract_key_value_with_rope(
+                                vlm_layer=vlm_layer,
+                                hidden_states=vlm_hidden,
+                                rotary_embedding=self.vlm_rotary_embedding,
+                                position_ids=prefix_position_ids,
+                            )
                         )
                         layer_caches.append(
                             ConditioningLayerCache(keys=vlm_keys, values=vlm_values)

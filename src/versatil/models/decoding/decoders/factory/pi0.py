@@ -41,7 +41,7 @@ class Pi0Decoder(ActionDecoder):
     self-attention. Pi0 fuses timestep into action tokens via MLP
     before the expert layers. Pi0.5 modulates each expert layer
     via adaptive normalization.
-    Modules are created lazily in ``set_backbone`` from the VLM text config.
+    Modules are created lazily in ``set_backbone`` from the VLM config.
     """
 
     def __init__(
@@ -222,20 +222,6 @@ class Pi0Decoder(ActionDecoder):
         self._encoder_cache_enabled = False
         self._prefix_cache = None
 
-    def _compute_rope(
-        self,
-        hidden_states: torch.Tensor,
-        position_ids: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute (cos, sin) RoPE from the VLM rotary embedding."""
-        if self.vlm_rotary_embedding is None:
-            raise RuntimeError(
-                "VLM rotary embedding not set. set_backbone() must be called."
-            )
-        cos, sin = self.vlm_rotary_embedding(hidden_states, position_ids)
-        # (B, S, head_dim) → (B, 1, S, head_dim) for head broadcast
-        return cos.unsqueeze(1), sin.unsqueeze(1)
-
     def _embed_suffix(
         self,
         actions: dict[str, torch.Tensor],
@@ -321,7 +307,11 @@ class Pi0Decoder(ActionDecoder):
         position_ids = (pad_mask.long().cumsum(dim=-1) - 1).clamp(min=0)
         prefix_length = prefix_embeddings.shape[1]
         expert_position_ids = position_ids[:, prefix_length:]
-        expert_action_rope = self._compute_rope(expert_hidden, expert_position_ids)
+        expert_action_rope = GenerativeVLMEncoder.compute_rope(
+            rotary_embedding=self.vlm_rotary_embedding,
+            hidden_states=expert_hidden,
+            position_ids=expert_position_ids,
+        )
 
         use_cached_prefix = (
             self._encoder_cache_enabled and self._prefix_cache is not None
@@ -359,7 +349,7 @@ class Pi0Decoder(ActionDecoder):
         expert_hidden = self.expert_final_normalization(expert_hidden)
         action_output = self.action_output_projection(
             expert_hidden[:, -self.prediction_horizon :, :]
-        ).to(torch.float32)
+        )
         predictions: dict[str, torch.Tensor] = {}
         offset = 0
         for key in sorted(self.action_heads.keys()):
