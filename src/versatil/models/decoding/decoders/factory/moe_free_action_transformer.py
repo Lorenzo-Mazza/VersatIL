@@ -282,7 +282,7 @@ class MoEFreeActionTransformer(FreeActionTransformer):
             else:
                 probs = torch.softmax(logits_scaled, dim=-1)
                 next_token = torch.multinomial(
-                    probs.squeeze(-1), num_samples=1
+                    probs.squeeze(1), num_samples=1
                 )  # (B, 1)
             expert_usage = logits_dict[
                 DecoderOutputKey.ROUTING_WEIGHTS.value

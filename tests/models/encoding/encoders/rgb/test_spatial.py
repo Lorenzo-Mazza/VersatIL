@@ -592,7 +592,7 @@ class TestSpatialRGBEncoderSetImageSizeDetection:
             encoder.set_image_size(image_height=256, image_width=256)
         mock_build.assert_called_once_with(img_size=(256, 256))
         if frozen:
-            mock_freeze.assert_called_once()
+            assert mock_freeze.call_count == 2
         else:
             mock_freeze.assert_not_called()
 

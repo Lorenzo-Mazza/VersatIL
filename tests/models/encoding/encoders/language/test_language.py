@@ -536,6 +536,10 @@ NO_SDPA_LANGUAGE_MODELS = {
     LanguageEncoderType.DEBERTA_V3_BASE,
 }
 
+XFAIL_LANGUAGE_MODELS = {
+    LanguageEncoderType.DEBERTA_V3_BASE: "DeBERTa v3 tokenizer requires tiktoken",
+}
+
 
 class TestLanguageEncoderIntegration:
     @pytest.mark.integration
@@ -544,10 +548,21 @@ class TestLanguageEncoderIntegration:
         [
             pytest.param(
                 encoder_type.value,
-                marks=pytest.mark.skipif(
-                    encoder_type in GATED_LANGUAGE_MODELS,
-                    reason=f"{encoder_type.value} is a gated model requiring authentication",
-                ),
+                marks=[
+                    pytest.mark.skipif(
+                        encoder_type in GATED_LANGUAGE_MODELS,
+                        reason=f"{encoder_type.value} is a gated model requiring authentication",
+                    ),
+                    *(
+                        [
+                            pytest.mark.xfail(
+                                reason=XFAIL_LANGUAGE_MODELS[encoder_type], strict=False
+                            )
+                        ]
+                        if encoder_type in XFAIL_LANGUAGE_MODELS
+                        else []
+                    ),
+                ],
             )
             for encoder_type in LanguageEncoderType
         ],

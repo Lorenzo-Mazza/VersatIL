@@ -326,13 +326,15 @@ class TestFreeActionTransformerForward:
         effective_vocab_size = VOCAB_SIZE + 1
         assert logits.shape == (BATCH_SIZE, ACTION_TOKEN_LENGTH, effective_vocab_size)
 
+    @pytest.mark.parametrize("deterministic", [True, False])
     def test_inference_output_keys(
         self,
         free_transformer_factory: Callable[..., FreeActionTransformer],
         mock_tokenizer_factory: Callable[..., MagicMock],
         spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+        deterministic: bool,
     ):
-        decoder = free_transformer_factory()
+        decoder = free_transformer_factory(deterministic=deterministic)
         tokenizer = mock_tokenizer_factory(vocab_size=VOCAB_SIZE)
         decoder.set_tokenizer(tokenizer=tokenizer)
         decoder.eval()
@@ -351,13 +353,15 @@ class TestFreeActionTransformerForward:
         }
         assert set(predictions.keys()) == expected_keys
 
+    @pytest.mark.parametrize("deterministic", [True, False])
     def test_inference_output_shape(
         self,
         free_transformer_factory: Callable[..., FreeActionTransformer],
         mock_tokenizer_factory: Callable[..., MagicMock],
         spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+        deterministic: bool,
     ):
-        decoder = free_transformer_factory()
+        decoder = free_transformer_factory(deterministic=deterministic)
         tokenizer = mock_tokenizer_factory(vocab_size=VOCAB_SIZE)
         decoder.set_tokenizer(tokenizer=tokenizer)
         decoder.eval()

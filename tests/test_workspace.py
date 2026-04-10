@@ -1181,6 +1181,7 @@ class TestInitializeLazyModules:
         workspace.train_loader = mock_loader
 
         mock_lightning_policy = MagicMock(spec=LightningPolicy)
+        mock_lightning_policy.train_metrics = MagicMock()
         workspace.lightning_policy = mock_lightning_policy
 
         with patch("versatil.workspace.to_device", return_value=mock_batch):

@@ -7,19 +7,57 @@ import numpy as np
 import pytest
 import torch
 
+from versatil.data.constants import RGB_CAMERAS
 from versatil.data.metadata import CameraMetadata
 from versatil.data.task import ObservationSpace
-from versatil.models.encoding.encoders.base import (
-    EncoderInput,
-    EncodingMixin,
-)
+from versatil.models.encoding.encoders.base import EncoderInput
 from versatil.models.encoding.encoders.conditional import ConditionalEncoder
+from versatil.models.encoding.encoders.image_mixin import RGBEncoderMixin
+from versatil.models.encoding.encoders.unconditional import Encoder
 from versatil.models.encoding.fusion.base import FusionModule
 from versatil.models.feature_meta import (
     FeatureMetadata,
     FeatureType,
     infer_feature_type,
 )
+
+
+class _MockRGBEncoder(RGBEncoderMixin, Encoder):
+    """Spec class for mocks that need to pass isinstance(ImageEncoderMixin)."""
+
+    def _encode_single_image(self, images):
+        pass
+
+    def encode(self, inputs):
+        pass
+
+    def set_image_size(self, image_height, image_width):
+        pass
+
+    def validate_input_metadata(self, key, metadata):
+        pass
+
+    def get_output_specification(self):
+        pass
+
+
+class _MockConditionalEncoder(RGBEncoderMixin, ConditionalEncoder):
+    """Spec class for conditional encoder mocks with ImageEncoderMixin."""
+
+    def _encode_single_image(self, images):
+        pass
+
+    def encode(self, inputs, conditioning):
+        pass
+
+    def set_image_size(self, image_height, image_width):
+        pass
+
+    def validate_input_metadata(self, key, metadata):
+        pass
+
+    def get_output_specification(self):
+        pass
 
 
 @pytest.fixture
@@ -41,7 +79,8 @@ def encoder_mock_factory(rng: np.random.Generator) -> Callable[..., MagicMock]:
             output_dimensions = dict.fromkeys(output_features, (64,))
         if input_keys is None:
             input_keys = ["left"]
-        encoder = MagicMock(spec=EncodingMixin)
+        encoder = MagicMock(spec=_MockRGBEncoder)
+        encoder._camera_group = RGB_CAMERAS
         encoder.get_output_specification.return_value = [
             FeatureMetadata(
                 key=feat,
@@ -88,7 +127,8 @@ def conditional_encoder_mock_factory(
             output_dimensions = dict.fromkeys(output_features, (64,))
         if input_keys is None:
             input_keys = ["right"]
-        encoder = MagicMock(spec=ConditionalEncoder)
+        encoder = MagicMock(spec=_MockConditionalEncoder)
+        encoder._camera_group = RGB_CAMERAS
         encoder.get_output_specification.return_value = [
             FeatureMetadata(
                 key=feat,

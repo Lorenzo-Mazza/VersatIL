@@ -118,7 +118,10 @@ class TestPriorTransformerEncoderForward:
     ):
         encoder = prior_transformer_factory(deterministic=True)
         features = feature_dictionary_factory()
-        result = encoder.forward(observations=features)
+        result = encoder.forward(
+            target_latents=torch.zeros(2, encoder.latent_dimension),
+            observations=features,
+        )
         assert isinstance(result, dict)
         assert set(result.keys()) == {
             LatentKey.PRIOR_LATENT.value,
@@ -137,7 +140,10 @@ class TestPriorTransformerEncoderForward:
             learn_variance=True,
         )
         features = feature_dictionary_factory()
-        result = encoder.forward(observations=features)
+        result = encoder.forward(
+            target_latents=torch.zeros(2, encoder.latent_dimension),
+            observations=features,
+        )
         assert isinstance(result, dict)
         assert set(result.keys()) == {
             LatentKey.PRIOR_LATENT.value,
@@ -158,7 +164,10 @@ class TestPriorTransformerEncoderForward:
             learn_variance=False,
         )
         features = feature_dictionary_factory()
-        result = encoder.forward(observations=features)
+        result = encoder.forward(
+            target_latents=torch.zeros(2, encoder.latent_dimension),
+            observations=features,
+        )
         assert isinstance(result, dict)
         assert set(result.keys()) == {
             LatentKey.PRIOR_LATENT.value,
@@ -188,7 +197,10 @@ class TestPriorTransformerEncoderForward:
             batch_size=batch_size,
             feature_dimension=embedding_dimension,
         )
-        result = encoder.forward(observations=features)
+        result = encoder.forward(
+            target_latents=torch.zeros(2, encoder.latent_dimension),
+            observations=features,
+        )
         assert result[LatentKey.PRIOR_LATENT.value].shape == (
             batch_size,
             latent_dimension,
@@ -211,7 +223,10 @@ class TestPriorTransformerEncoderForward:
             min_logvar=min_logvar,
         )
         features = feature_dictionary_factory()
-        result = encoder.forward(observations=features)
+        result = encoder.forward(
+            target_latents=torch.zeros(2, encoder.latent_dimension),
+            observations=features,
+        )
         logvar = result[LatentKey.PRIOR_LOGVAR.value]
         assert torch.all(logvar >= min_logvar)
 
@@ -236,7 +251,10 @@ class TestPriorTransformerEncoderForward:
             return original_forward(observations)
 
         builder.forward = capturing_forward
-        encoder.forward(observations=features)
+        encoder.forward(
+            target_latents=torch.zeros(2, encoder.latent_dimension),
+            observations=features,
+        )
         assert excluded_key not in captured_observations
         assert "rgb_features" in captured_observations
 

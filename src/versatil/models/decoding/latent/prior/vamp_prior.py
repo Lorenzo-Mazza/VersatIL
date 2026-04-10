@@ -131,7 +131,7 @@ class VampPrior(PriorLatentEncoder):
             Sampled latents of shape (batch_size, latent_dim)
         """
         mu, logvar = self.get_mixture_params()  # (K, latent_dim)
-        weights = F.softmax(self.log_weights.squeeze(), dim=0)  # (K,)
+        weights = F.softmax(self.log_weights.view(-1), dim=0)  # (K,)
         component_indices = torch.multinomial(
             weights, batch_size, replacement=True
         )  # (batch_size,)
@@ -177,7 +177,7 @@ class VampPrior(PriorLatentEncoder):
             Log probability of shape (B,) - summed over latent dimensions
         """
         mu, logvar = self.get_mixture_params()  # (K, latent_dim)
-        weights = F.softmax(self.log_weights.squeeze(), dim=0)  # (K,)
+        weights = F.softmax(self.log_weights.view(-1), dim=0)  # (K,)
         z_expanded = z.unsqueeze(0)  # (1, B, latent_dim)
         mu_expanded = mu.unsqueeze(1)  # (K, 1, latent_dim)
         logvar_expanded = logvar.unsqueeze(1)  # (K, 1, latent_dim)

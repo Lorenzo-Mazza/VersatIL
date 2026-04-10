@@ -378,7 +378,7 @@ class GPTActionTransformer(ActionDecoder):
             else:
                 probs = torch.softmax(logits_scaled, dim=-1)
                 next_token = torch.multinomial(
-                    probs.squeeze(-1), num_samples=1
+                    probs.squeeze(1), num_samples=1
                 )  # (B, 1)
             generated_tokens.append(next_token)
             if (next_token == self.tokenizer.eos_token_id).all():  # Check across batch

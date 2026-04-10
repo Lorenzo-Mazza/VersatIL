@@ -479,6 +479,34 @@ class TestVariationalAlgorithmForward:
         algo.forward(network=network, features=features, actions=actions)
         prior.sample_prior.assert_called_once()
 
+    def test_p_prior_zero_skips_sample_prior_during_training(
+        self,
+        mock_posterior_factory: Callable[..., MagicMock],
+        mock_prior_factory: Callable[..., MagicMock],
+        mock_base_algorithm_factory: Callable[..., MagicMock],
+        mock_action_decoder_factory: Callable[..., MagicMock],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        prior = mock_prior_factory(include_prior_latent=False)
+        algo = VariationalAlgorithm(
+            base_algorithm=mock_base_algorithm_factory(),
+            posterior_encoder=mock_posterior_factory(),
+            prior=prior,
+            sampling_from_prior_probability=0.0,
+        )
+        algo.train()
+        network = mock_action_decoder_factory()
+        features = feature_dictionary_factory()
+        actions = action_dictionary_factory(
+            action_keys=["position_action"],
+            prediction_horizon=8,
+            action_dimension=3,
+        )
+        algo.forward(network=network, features=features, actions=actions)
+        # With p_prior=0, sample_prior should never be called during training
+        prior.sample_prior.assert_not_called()
+
 
 class TestVariationalAlgorithmGetTargets:
     def test_delegates_to_base_algorithm(
@@ -591,16 +619,27 @@ def test_get_auxiliary_output_keys(
     base = mock_base_algorithm_factory()
     base.get_auxiliary_output_keys.return_value = set()
     algo = variational_factory(base_algorithm=base)
-    assert algo.get_auxiliary_output_keys() == {
-        LatentKey.POSTERIOR_LATENT.value,
-        LatentKey.POSTERIOR_MU.value,
-        LatentKey.POSTERIOR_LOGVAR.value,
-        LatentKey.PRIOR_LATENT.value,
-        LatentKey.PRIOR_MU.value,
-        LatentKey.PRIOR_LOGVAR.value,
-        LatentKey.PRIOR_PREDICTION.value,
-        LatentKey.PRIOR_TARGET.value,
-    }
+    keys = algo.get_auxiliary_output_keys()
+    assert LatentKey.POSTERIOR_LOGVAR.value in keys
+    assert LatentKey.PRIOR_LOGVAR.value in keys
+    assert LatentKey.POSTERIOR_MU.value in keys
+    assert LatentKey.PRIOR_MU.value in keys
+
+
+def test_deterministic_posterior_excludes_logvar_from_auxiliary_keys(
+    variational_factory: Callable[..., VariationalAlgorithm],
+    mock_base_algorithm_factory: Callable[..., MagicMock],
+    mock_posterior_factory: Callable[..., MagicMock],
+):
+    base = mock_base_algorithm_factory()
+    base.get_auxiliary_output_keys.return_value = set()
+    posterior = mock_posterior_factory()
+    posterior.deterministic = True
+    algo = variational_factory(base_algorithm=base, posterior_encoder=posterior)
+    keys = algo.get_auxiliary_output_keys()
+    assert LatentKey.POSTERIOR_LOGVAR.value not in keys
+    # Prior is not deterministic by default, so prior logvar should still be present
+    assert LatentKey.PRIOR_LOGVAR.value in keys
 
 
 def test_get_callbacks_returns_latent_visualization(

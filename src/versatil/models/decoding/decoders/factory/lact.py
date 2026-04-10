@@ -201,7 +201,8 @@ class LACT(ActionDecoder):
         obs_tokens, obs_pos_encodings, obs_padding_mask = self.input_sequence_builder(
             features
         )
-        obs_tokens = obs_tokens + obs_pos_encodings
+        if obs_pos_encodings is not None:
+            obs_tokens = obs_tokens + obs_pos_encodings
         batch_size = obs_tokens.shape[0]
         query = self.learnable_query.weight.unsqueeze(0).repeat(
             batch_size, 1, 1

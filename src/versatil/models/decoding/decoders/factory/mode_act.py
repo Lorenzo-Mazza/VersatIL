@@ -429,7 +429,8 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         obs_tokens, obs_pos_encodings, obs_padding_mask = self.input_sequence_builder(
             features
         )
-        obs_tokens = obs_tokens + obs_pos_encodings
+        if obs_pos_encodings is not None:
+            obs_tokens = obs_tokens + obs_pos_encodings
         batch_size = obs_tokens.shape[0]
         mode_query_expanded = self.mode_query.unsqueeze(0).expand(
             batch_size, -1, -1

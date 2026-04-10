@@ -346,13 +346,15 @@ class TestGPTActionTransformerForward:
         effective_vocab_size = VOCAB_SIZE + 1
         assert logits.shape == (BATCH_SIZE, ACTION_TOKEN_LENGTH, effective_vocab_size)
 
+    @pytest.mark.parametrize("deterministic", [True, False])
     def test_inference_output_keys(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
         mock_tokenizer_factory: Callable[..., MagicMock],
         flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+        deterministic: bool,
     ):
-        decoder = gpt_transformer_factory()
+        decoder = gpt_transformer_factory(deterministic=deterministic)
         decoder.set_tokenizer(tokenizer=mock_tokenizer_factory())
         features = flat_feature_factory(
             batch_size=BATCH_SIZE,
@@ -362,13 +364,17 @@ class TestGPTActionTransformerForward:
         predictions = decoder(features=features, actions=None)
         assert DecoderOutputKey.PREDICTED_ACTION_TOKENS.value in predictions
 
+    @pytest.mark.parametrize("deterministic", [True, False])
     def test_inference_output_shape(
         self,
         gpt_transformer_factory: Callable[..., GPTActionTransformer],
         mock_tokenizer_factory: Callable[..., MagicMock],
         flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+        deterministic: bool,
     ):
-        decoder = gpt_transformer_factory(max_seq_len=MAX_SEQ_LEN)
+        decoder = gpt_transformer_factory(
+            max_seq_len=MAX_SEQ_LEN, deterministic=deterministic
+        )
         decoder.set_tokenizer(tokenizer=mock_tokenizer_factory())
         features = flat_feature_factory(
             batch_size=BATCH_SIZE,

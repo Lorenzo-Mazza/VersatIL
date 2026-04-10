@@ -94,14 +94,16 @@ class VariationalAlgorithm(DecodingAlgorithm):
             {
                 LatentKey.POSTERIOR_LATENT.value,
                 LatentKey.POSTERIOR_MU.value,
-                LatentKey.POSTERIOR_LOGVAR.value,
                 LatentKey.PRIOR_LATENT.value,
                 LatentKey.PRIOR_MU.value,
-                LatentKey.PRIOR_LOGVAR.value,
                 LatentKey.PRIOR_PREDICTION.value,
                 LatentKey.PRIOR_TARGET.value,
             }
         )
+        if not getattr(self.posterior_encoder, "deterministic", False):
+            keys.add(LatentKey.POSTERIOR_LOGVAR.value)
+        if not getattr(self.prior, "deterministic", False):
+            keys.add(LatentKey.PRIOR_LOGVAR.value)
         return keys
 
     def _variational_step(
@@ -189,21 +191,20 @@ class VariationalAlgorithm(DecodingAlgorithm):
             features=features,
             actions=actions,
         )
-        if LatentKey.PRIOR_LATENT.value not in prior_output:
-            # Sample from prior if not already done in prior forward, e.g. for denoising-based priors
-            batch_size = next(iter(features.values())).shape[0]
-            z_sampled = self.prior.sample_prior(
-                batch_size=batch_size, observations=features
-            )
-            prior_output[LatentKey.PRIOR_LATENT.value] = z_sampled
         if self.training:
             sample_from_prior = torch.rand(1).item() < self.p_prior
-            if sample_from_prior:
-                latent = prior_output[LatentKey.PRIOR_LATENT.value]
-            else:
-                latent = posterior_output[LatentKey.POSTERIOR_LATENT.value]
         else:
+            sample_from_prior = True
+        if sample_from_prior:
+            if LatentKey.PRIOR_LATENT.value not in prior_output:
+                # Sample from prior only when needed (avoids costly denoising inference during training)
+                batch_size = next(iter(features.values())).shape[0]
+                prior_output[LatentKey.PRIOR_LATENT.value] = self.prior.sample_prior(
+                    batch_size=batch_size, observations=features
+                )
             latent = prior_output[LatentKey.PRIOR_LATENT.value]
+        else:
+            latent = posterior_output[LatentKey.POSTERIOR_LATENT.value]
         features_with_latent = {
             **features,
             LatentKey.POSTERIOR_LATENT.value: latent,
