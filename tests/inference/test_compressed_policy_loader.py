@@ -14,6 +14,7 @@ import torch
 import torch._inductor.config as inductor_config
 from omegaconf import OmegaConf
 
+from tests.conftest import get_test_device
 from versatil.data.constants import Cameras
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
@@ -730,16 +731,19 @@ class TestLoadBackend:
 @pytest.mark.unit
 class TestValidateDevice:
     @pytest.mark.parametrize(
-        "device_type, supported_types, expectation",
+        "supported_types, expectation_factory",
         [
-            ("cpu", ("cpu",), does_not_raise()),
             (
-                "cuda",
-                ("cpu",),
-                pytest.raises(
+                lambda actual_type: (actual_type,),
+                lambda actual_type: does_not_raise(),
+            ),
+            (
+                lambda actual_type: ("other",),
+                lambda actual_type: pytest.raises(
                     ValueError,
                     match=re.escape(
-                        "Backend MagicMock supports devices ('cpu',), got 'cuda'."
+                        f"Backend MagicMock supports devices ('other',), "
+                        f"got '{actual_type}'."
                     ),
                 ),
             ),
@@ -749,15 +753,15 @@ class TestValidateDevice:
     def test_device_validation(
         self,
         loaded_loader_factory,
-        device_type,
         supported_types,
-        expectation,
+        expectation_factory,
     ):
-        loader = loaded_loader_factory(device=device_type)
+        actual_device = get_test_device()
+        loader = loaded_loader_factory(device=actual_device.type)
         mock_backend = MagicMock(spec=BasePT2EBackend)
-        mock_backend.supported_device_types = supported_types
+        mock_backend.supported_device_types = supported_types(actual_device.type)
 
-        with expectation:
+        with expectation_factory(actual_device.type):
             loader._validate_device(backend=mock_backend)
 
 
