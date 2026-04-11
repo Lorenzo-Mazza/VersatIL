@@ -81,11 +81,11 @@ class ImageEncoderMixin(abc.ABC):
 
         Returns:
             Single camera: ``['{modality}']``.
-            Multi-camera: ``['{modality}.{cam1}', '{modality}.{cam2}', ...]``.
+            Multi-camera: ``['{modality}:{cam1}', '{modality}:{cam2}', ...]``.
         """
         modality = self._output_modality
         if self.is_multi_camera:
-            return [f"{modality}.{key}" for key in self.camera_keys]
+            return [f"{modality}:{key}" for key in self.camera_keys]
         else:
             return [modality]
 
@@ -111,14 +111,14 @@ class ImageEncoderMixin(abc.ABC):
 
         Returns:
             Dict with features keyed by modality (single) or
-            ``modality.camera_key`` (multi-camera).
+            ``modality:camera_key`` (multi-camera).
         """
         modality = self._output_modality
         if self.is_multi_camera:
             result = {}
             for camera_key in self.camera_keys:
                 features = self._encode_single_image(inputs[camera_key])
-                result[f"{modality}.{camera_key}"] = features
+                result[f"{modality}:{camera_key}"] = features
             return result
         else:
             features = self._encode_single_image(inputs[self.camera_keys[0]])

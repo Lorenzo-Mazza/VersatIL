@@ -10,54 +10,19 @@ import torch
 from versatil.data.constants import RGB_CAMERAS
 from versatil.data.metadata import CameraMetadata
 from versatil.data.task import ObservationSpace
-from versatil.models.encoding.encoders.base import EncoderInput
+from versatil.models.encoding.encoders.base import (
+    EncoderInput,
+    EncodingMixin,
+)
 from versatil.models.encoding.encoders.conditional import ConditionalEncoder
-from versatil.models.encoding.encoders.image_mixin import RGBEncoderMixin
-from versatil.models.encoding.encoders.unconditional import Encoder
+from versatil.models.encoding.encoders.rgb.conditional_cnn import ConditionalCNNEncoder
+from versatil.models.encoding.encoders.rgb.spatial import SpatialRGBEncoder
 from versatil.models.encoding.fusion.base import FusionModule
 from versatil.models.feature_meta import (
     FeatureMetadata,
     FeatureType,
     infer_feature_type,
 )
-
-
-class _MockRGBEncoder(RGBEncoderMixin, Encoder):
-    """Spec class for mocks that need to pass isinstance(ImageEncoderMixin)."""
-
-    def _encode_single_image(self, images):
-        pass
-
-    def encode(self, inputs):
-        pass
-
-    def set_image_size(self, image_height, image_width):
-        pass
-
-    def validate_input_metadata(self, key, metadata):
-        pass
-
-    def get_output_specification(self):
-        pass
-
-
-class _MockConditionalEncoder(RGBEncoderMixin, ConditionalEncoder):
-    """Spec class for conditional encoder mocks with ImageEncoderMixin."""
-
-    def _encode_single_image(self, images):
-        pass
-
-    def encode(self, inputs, conditioning):
-        pass
-
-    def set_image_size(self, image_height, image_width):
-        pass
-
-    def validate_input_metadata(self, key, metadata):
-        pass
-
-    def get_output_specification(self):
-        pass
 
 
 @pytest.fixture
@@ -72,6 +37,7 @@ def encoder_mock_factory(rng: np.random.Generator) -> Callable[..., MagicMock]:
         vocab_size: int | None = None,
         forward_return: dict[str, torch.Tensor] | None = None,
         batch_size: int = 2,
+        is_image_encoder: bool = False,
     ) -> MagicMock:
         if output_features is None:
             output_features = ["embedding"]
@@ -79,21 +45,28 @@ def encoder_mock_factory(rng: np.random.Generator) -> Callable[..., MagicMock]:
             output_dimensions = dict.fromkeys(output_features, (64,))
         if input_keys is None:
             input_keys = ["left"]
-        encoder = MagicMock(spec=_MockRGBEncoder)
-        encoder._camera_group = RGB_CAMERAS
-        encoder.get_output_specification.return_value = [
-            FeatureMetadata(
-                key=feat,
-                feature_type=infer_feature_type(output_dimensions[feat]),
-                dimension=output_dimensions[feat],
-            )
-            for feat in output_features
-        ]
+        spec = SpatialRGBEncoder if is_image_encoder else EncodingMixin
+        encoder = MagicMock(spec=spec)
+        encoder.get_output_specification = MagicMock(
+            return_value=[
+                FeatureMetadata(
+                    key=feat,
+                    feature_type=infer_feature_type(output_dimensions[feat]),
+                    dimension=output_dimensions[feat],
+                )
+                for feat in output_features
+            ]
+        )
         encoder.input_specification = EncoderInput(
             keys=input_keys,
             requires_tokenized=requires_tokenized,
         )
-        encoder.get_vocab_size.return_value = vocab_size
+        encoder.get_vocab_size = MagicMock(return_value=vocab_size)
+        if is_image_encoder:
+            encoder._camera_group = RGB_CAMERAS
+            encoder.set_image_size = MagicMock(
+                side_effect=lambda image_height, image_width: None
+            )
         if forward_return is None:
             forward_return = {
                 feat: torch.from_numpy(
@@ -120,6 +93,7 @@ def conditional_encoder_mock_factory(
         condition_key: str = "rgb_encoder_embedding",
         forward_return: dict[str, torch.Tensor] | None = None,
         batch_size: int = 2,
+        is_image_encoder: bool = False,
     ) -> MagicMock:
         if output_features is None:
             output_features = ["embedding"]
@@ -127,23 +101,30 @@ def conditional_encoder_mock_factory(
             output_dimensions = dict.fromkeys(output_features, (64,))
         if input_keys is None:
             input_keys = ["right"]
-        encoder = MagicMock(spec=_MockConditionalEncoder)
-        encoder._camera_group = RGB_CAMERAS
-        encoder.get_output_specification.return_value = [
-            FeatureMetadata(
-                key=feat,
-                feature_type=infer_feature_type(output_dimensions[feat]),
-                dimension=output_dimensions[feat],
-            )
-            for feat in output_features
-        ]
+        spec = ConditionalCNNEncoder if is_image_encoder else ConditionalEncoder
+        encoder = MagicMock(spec=spec)
+        encoder.get_output_specification = MagicMock(
+            return_value=[
+                FeatureMetadata(
+                    key=feat,
+                    feature_type=infer_feature_type(output_dimensions[feat]),
+                    dimension=output_dimensions[feat],
+                )
+                for feat in output_features
+            ]
+        )
         encoder.input_specification = EncoderInput(
             keys=input_keys,
             conditioning_key=condition_key,
             requires_tokenized=False,
         )
         encoder.condition_key = condition_key
-        encoder.get_vocab_size.return_value = None
+        encoder.get_vocab_size = MagicMock(return_value=None)
+        if is_image_encoder:
+            encoder._camera_group = RGB_CAMERAS
+            encoder.set_image_size = MagicMock(
+                side_effect=lambda image_height, image_width: None
+            )
         if forward_return is None:
             forward_return = {
                 feat: torch.from_numpy(

@@ -208,9 +208,10 @@ class TestTokenizerSavePretrained:
 
 
 class TestTokenizerFromPretrained:
-    def test_raises_file_not_found_for_nonexistent_path(self):
+    def test_raises_file_not_found_for_nonexistent_path(self, tmp_path):
+        missing = tmp_path / "missing"
         with pytest.raises(FileNotFoundError, match="Tokenizer path not found"):
-            Tokenizer.from_pretrained("/nonexistent/path")
+            Tokenizer.from_pretrained(str(missing))
 
     @patch("versatil.data.tokenization.tokenizer.ActionTokenizer")
     @patch("versatil.data.tokenization.tokenizer.ObservationTokenizer")

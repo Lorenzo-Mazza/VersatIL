@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Pi0Decoder` and `SmolVLADecoder` factories — interleaved VLM-expert joint attention architectures where a pretrained VLM backbone is paired 1:1 with learned expert layers. Pi0 fuses timestep via MLP, Pi0.5 via adaptive normalization. SmolVLA alternates cross-attention and joint self-attention layers.
 - `GenerativeVLMEncoder` abstract base for single-stream VLMs (embed images → embed text → concat → LM). Thin subclasses: `PaliGemmaEncoder`, `SmolVLMEncoder`. Replaces the monolithic `multimodal/vlm.py`.
 - `TwoTowerVLMEncoder` — CLIP-style separate vision/language towers with `ImageEncoderMixin` + `LanguageEncoderMixin`.
-- `ImageEncoderMixin` — abstract base class for multi-camera dispatch with dotted feature naming (`rgb.left`, `rgb.right`). Subclassed by `RGBEncoderMixin`, `DepthEncoderMixin`, `RGBDEncoderMixin`.
+- `ImageEncoderMixin` — abstract base class for multi-camera dispatch with per-camera feature naming (`rgb:left`, `rgb:right`). Subclassed by `RGBEncoderMixin`, `DepthEncoderMixin`, `RGBDEncoderMixin`.
 - Per-camera image sizes — encoding pipeline sets dimensions from `CameraMetadata` in observation space. `set_image_size()` hook on encoders.
 - `LanguageEncoderMixin` — shared tokenized text pad/truncate, attention mask construction, and output padding mask.
 - `FeatureMetadata` frozen dataclass `(key, feature_type, dimension)` with `FeatureType` enum (SPATIAL, SEQUENTIAL, FLAT). Replaces `EncoderOutput`.

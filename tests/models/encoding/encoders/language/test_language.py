@@ -464,22 +464,25 @@ class TestLanguageEncoderGetVocabSize:
 
 class TestLanguageEncoderGetOutputSpecification:
     @pytest.mark.parametrize(
-        "pooling_method, expected_dim",
+        "pooling_method, expected_dim_fn",
         [
-            (PoolingMethod.DEFAULT.value, HIDDEN_SIZE),
-            (PoolingMethod.AVERAGE.value, HIDDEN_SIZE),
-            (PoolingMethod.NONE.value, (MAX_TOKEN_LEN, HIDDEN_SIZE)),
+            (PoolingMethod.DEFAULT.value, lambda enc: (HIDDEN_SIZE,)),
+            (PoolingMethod.AVERAGE.value, lambda enc: (HIDDEN_SIZE,)),
+            (
+                PoolingMethod.NONE.value,
+                lambda enc: (MAX_TOKEN_LEN - enc._num_prefix_tokens, HIDDEN_SIZE),
+            ),
         ],
     )
     def test_output_dimension_matches_pooling_method(
         self,
         language_encoder_factory: Callable[..., LanguageEncoder],
         pooling_method: str,
-        expected_dim: int | tuple,
+        expected_dim_fn,
     ):
         encoder = language_encoder_factory(pooling_method=pooling_method)
         specification = encoder.get_output_specification()
-        expected = expected_dim if isinstance(expected_dim, tuple) else (expected_dim,)
+        expected = expected_dim_fn(encoder)
         assert (
             next(
                 m for m in specification if m.key == EncoderOutputKeys.LANGUAGE.value
@@ -536,10 +539,6 @@ NO_SDPA_LANGUAGE_MODELS = {
     LanguageEncoderType.DEBERTA_V3_BASE,
 }
 
-XFAIL_LANGUAGE_MODELS = {
-    LanguageEncoderType.DEBERTA_V3_BASE: "DeBERTa v3 tokenizer requires tiktoken",
-}
-
 
 class TestLanguageEncoderIntegration:
     @pytest.mark.integration
@@ -548,21 +547,10 @@ class TestLanguageEncoderIntegration:
         [
             pytest.param(
                 encoder_type.value,
-                marks=[
-                    pytest.mark.skipif(
-                        encoder_type in GATED_LANGUAGE_MODELS,
-                        reason=f"{encoder_type.value} is a gated model requiring authentication",
-                    ),
-                    *(
-                        [
-                            pytest.mark.xfail(
-                                reason=XFAIL_LANGUAGE_MODELS[encoder_type], strict=False
-                            )
-                        ]
-                        if encoder_type in XFAIL_LANGUAGE_MODELS
-                        else []
-                    ),
-                ],
+                marks=pytest.mark.skipif(
+                    encoder_type in GATED_LANGUAGE_MODELS,
+                    reason=f"{encoder_type.value} is a gated model requiring authentication",
+                ),
             )
             for encoder_type in LanguageEncoderType
         ],

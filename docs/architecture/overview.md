@@ -116,7 +116,7 @@ For multi-output encoders, each modality produces a separate feature: `vlm_rgb`,
 | `vlm_model` | `fused_rgb_language` | `vlm_model_fused_rgb_language` |
 
 !!! note "Multi-camera naming"
-    For multi-camera encoders, the modality includes the camera key via dot notation: `{encoder_name}_{modality}.{camera_key}` (e.g., `stereo_rgb.left`, `stereo_rgb.right`).
+    For multi-camera encoders, the modality includes the camera key separated by a colon: `{encoder_name}_{modality}:{camera_key}` (e.g., `stereo_rgb:left`, `stereo_rgb:right`).
 
 !!! note "Pipeline prefixing"
     The encoding pipeline always prepends each encoder's output key with the encoder name. Encoders return raw modality keys (e.g., `rgb`), the pipeline produces prefixed keys (e.g., `left_eye_rgb`).

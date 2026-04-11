@@ -318,10 +318,11 @@ class TestCollectDatasetPaths:
 
         assert result == []
 
-    def test_nonexistent_folder_raises(self):
+    def test_nonexistent_folder_raises(self, tmp_path):
+        missing = tmp_path / "missing"
         with pytest.raises(FileNotFoundError):
             _collect_dataset_paths(
-                dataset_folders=["/nonexistent/path"],
+                dataset_folders=[str(missing)],
                 episode_filename="episode.csv",
             )
 

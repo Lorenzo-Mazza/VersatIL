@@ -25,8 +25,8 @@ class TestInferenceConfig:
         field_names = {f.name for f in dataclasses.fields(InferenceConfig)}
         expected = {
             "temporal_agg",
+            "action_execution_horizon",
             "update_rate_hz",
             "rotate_images",
-            "action_execution_horizon",
         }
         assert expected == field_names

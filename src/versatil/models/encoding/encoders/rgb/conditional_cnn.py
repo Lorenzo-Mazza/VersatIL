@@ -286,7 +286,7 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
 
         Returns:
             Dict with RGB features. Single camera: key is ``rgb``.
-            Multiple cameras: keys are ``rgb.{camera_key}`` per camera.
+            Multiple cameras: keys are ``rgb:{camera_key}`` per camera.
         """
         modality = EncoderOutputKeys.RGB.value
         if self.is_multi_camera:
@@ -295,7 +295,7 @@ class ConditionalCNNEncoder(RGBEncoderMixin, ConditionalEncoder):
                 features = self._encode_conditioned_image(
                     images=inputs[camera_key], conditioning=conditioning
                 )
-                result[f"{modality}.{camera_key}"] = features
+                result[f"{modality}:{camera_key}"] = features
             return result
         features = self._encode_conditioned_image(
             images=inputs[self.camera_keys[0]], conditioning=conditioning

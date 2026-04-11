@@ -147,7 +147,12 @@ class TokenPoolingHead(PoolingHead):
     @property
     def output_dim(self) -> int | tuple[int, int]:
         if self.pooling_method == PoolingMethod.NONE.value:
-            return self.sequence_length, self.input_dimension
+            sequence_length = (
+                self.sequence_length - self.num_prefix_tokens
+                if self.sequence_length != -1
+                else -1
+            )
+            return sequence_length, self.input_dimension
         return self.input_dimension
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:

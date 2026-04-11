@@ -264,6 +264,16 @@ class TestTokenPoolingHead:
         )
         assert head.output_dim == expected_dim
 
+    @pytest.mark.parametrize("num_prefix_tokens", [1, 3])
+    def test_none_output_dim_subtracts_prefix_tokens(self, num_prefix_tokens: int):
+        head = TokenPoolingHead(
+            input_dimension=64,
+            pooling_method=PoolingMethod.NONE.value,
+            sequence_length=20,
+            num_prefix_tokens=num_prefix_tokens,
+        )
+        assert head.output_dim == (20 - num_prefix_tokens, 64)
+
     def test_default_returns_cls_token(
         self,
         rng: np.random.Generator,

@@ -8,7 +8,7 @@ defaults:
   - /task/dataset_schema: libero_plus_lerobot
   - /task/dataloader: libero_lerobot
   - /task/action_space: libero_precomputed_lerobot
-  - /task/observation_space: libero_plus_agentview_rgb_lerobot
+  - /task/observation_space: libero_plus_rgb_lerobot
   - /training: default
   - /policy/encoding_pipeline: mono_rgb_language_encoder_tiny
   - /policy/decoder: action_transformer_language
@@ -33,7 +33,7 @@ experiment:
   checkpoint_every: 5
 
 training:
-  num_epochs: 40
+  num_epochs: 200
   early_stopping_patience: 100
   lr_schedule: null
   clip_gradient_norm: true
@@ -62,6 +62,7 @@ policy:
       left:
         input_keys:
           - ${cameras:AGENTVIEW}
+          - ${cameras:EYE_IN_HAND}
         backbone: ${rgb_backbone:DINOV3_CONVNEXT_SMALL}
         frozen: false
       instruction:
@@ -69,5 +70,6 @@ policy:
         use_embeddings_only: false
   decoder:
     input_keys:
-      - left_rgb
+      - 'left_rgb:agentview_rgb'
+      - 'left_rgb:eye_in_hand_rgb'
       - instruction_language

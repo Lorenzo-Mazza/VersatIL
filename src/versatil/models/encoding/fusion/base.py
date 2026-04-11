@@ -100,7 +100,6 @@ class SequentialFusion(FusionModule, abc.ABC):
         """Build projection layers for each input feature."""
         input_dims: list[int] = []
         has_sequential = False
-        has_flat = False
         for feat_name in self.input_features:
             metadata = feature_registry[feat_name]
             if metadata.feature_type == FeatureType.SPATIAL.value:
@@ -111,15 +110,7 @@ class SequentialFusion(FusionModule, abc.ABC):
                 )
             if metadata.feature_type == FeatureType.SEQUENTIAL.value:
                 has_sequential = True
-            else:
-                has_flat = True
             input_dims.append(metadata.dimension[-1])
-        if has_sequential and has_flat:
-            raise ValueError(
-                f"SequentialFusion cannot mix flat and sequential features. "
-                f"All inputs must be the same type. "
-                f"Input features: {self.input_features}"
-            )
         self._output_feature_type = (
             FeatureType.SEQUENTIAL.value if has_sequential else FeatureType.FLAT.value
         )

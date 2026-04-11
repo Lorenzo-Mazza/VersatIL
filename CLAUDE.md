@@ -193,9 +193,8 @@ Where:
   - **Language encoders**: Use `LANGUAGE_KEY` ("language_instruction")
 
 **EncodingPipeline** produces named features:
-- Each encoder registers output features with dimensions (e.g., `left_rgb: (C, H, W)`)
-- Fusion stages combine features and register new ones (e.g., `fused_visual: (D,)`)
-- Features are prefixed with encoder name to avoid collisions
+- Each encoder produces a feature named `{encoder_name}_{output_key}` (e.g., `left_rgb`)
+- Fusion stages combine features and register new ones with their `output_name` (e.g., `fused_visual`)
 
 **Encoder types** are named by their output format, not architecture:
 - **`SpatialRGBEncoder`** (`rgb/spatial.py`): Any timm backbone producing (B, C, H, W) spatial feature maps (CNNs, Swin, TinyViT, ConvNeXt). Validates against `SpatialBackboneType`. Handles NCHW/NHWC layouts and strict input sizes transparently.

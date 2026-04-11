@@ -87,6 +87,61 @@ class TestSetupEncoders:
         )
         assert pipeline._encoder_feature_keys["vlm"] == ["feat_a", "feat_b"]
 
+    @pytest.mark.parametrize(
+        "encoder_name, output_features, expected_registry_keys",
+        [
+            ("left", ["rgb"], ["left_rgb"]),
+            (
+                "left",
+                ["rgb:agentview_rgb", "rgb:eye_in_hand_rgb"],
+                ["left_rgb:agentview_rgb", "left_rgb:eye_in_hand_rgb"],
+            ),
+            ("left", ["depth"], ["left_depth"]),
+            (
+                "left",
+                ["depth:left", "depth:right"],
+                ["left_depth:left", "left_depth:right"],
+            ),
+            (
+                "instruction",
+                ["language", "language_padding_mask"],
+                ["instruction_language", "instruction_language_padding_mask"],
+            ),
+            (
+                "vlm",
+                ["rgb:left", "rgb:right", "language", "language_padding_mask"],
+                [
+                    "vlm_rgb:left",
+                    "vlm_rgb:right",
+                    "vlm_language",
+                    "vlm_language_padding_mask",
+                ],
+            ),
+        ],
+    )
+    def test_registry_keys_follow_encoder_name_underscore_output_key_convention(
+        self,
+        encoder_mock_factory: Callable[..., MagicMock],
+        default_observation_space,
+        encoder_name: str,
+        output_features: list[str],
+        expected_registry_keys: list[str],
+    ):
+        encoder = encoder_mock_factory(
+            output_features=output_features,
+            output_dimensions=dict.fromkeys(output_features, (16,)),
+        )
+        pipeline = EncodingPipeline(
+            observation_space=default_observation_space,
+            encoders={encoder_name: encoder},
+        )
+        for key in expected_registry_keys:
+            assert key in pipeline._feature_registry, (
+                f"Expected '{key}' in registry, got: "
+                f"{list(pipeline._feature_registry.keys())}"
+            )
+        assert pipeline._encoder_feature_keys[encoder_name] == output_features
+
 
 class TestSetupFusionModules:
     def test_registers_fusion_output_in_feature_registry(
@@ -926,8 +981,7 @@ class TestImageSizeSetDuringSetup:
         image_height: int,
         image_width: int,
     ):
-        encoder = encoder_mock_factory(input_keys=["left"])
-        encoder.set_image_size = MagicMock()
+        encoder = encoder_mock_factory(input_keys=["left"], is_image_encoder=True)
         observation_space = camera_observation_space_factory(
             cameras={"left": (image_height, image_width)}
         )
@@ -971,8 +1025,9 @@ class TestImageSizeSetDuringSetup:
         right_size: tuple[int, int],
         expectation,
     ):
-        encoder = encoder_mock_factory(input_keys=["left", "right"])
-        encoder.set_image_size = MagicMock()
+        encoder = encoder_mock_factory(
+            input_keys=["left", "right"], is_image_encoder=True
+        )
         observation_space = camera_observation_space_factory(
             cameras={"left": left_size, "right": right_size}
         )
@@ -987,7 +1042,7 @@ class TestImageSizeSetDuringSetup:
         encoder_mock_factory: Callable[..., MagicMock],
         camera_observation_space_factory,
     ):
-        encoder = encoder_mock_factory(input_keys=["left"])
+        encoder = encoder_mock_factory(input_keys=["left"], is_image_encoder=True)
         observation_space = camera_observation_space_factory(cameras={})
         with pytest.raises(
             ValueError,
@@ -1007,12 +1062,12 @@ class TestImageSizeSetDuringSetup:
         conditional_encoder_mock_factory: Callable[..., MagicMock],
         camera_observation_space_factory,
     ):
-        unconditional = encoder_mock_factory(input_keys=["left"])
-        unconditional.set_image_size = MagicMock()
+        unconditional = encoder_mock_factory(input_keys=["left"], is_image_encoder=True)
         conditional = conditional_encoder_mock_factory(
-            input_keys=["right"], condition_key="rgb_embedding"
+            input_keys=["right"],
+            condition_key="rgb_embedding",
+            is_image_encoder=True,
         )
-        conditional.set_image_size = MagicMock()
         observation_space = camera_observation_space_factory(
             cameras={"left": (256, 256), "right": (256, 256)}
         )

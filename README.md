@@ -339,7 +339,7 @@ loss = loss_module(predictions, targets)
 
 VersatIL relies on strict naming conventions to wire encoders to decoders automatically. Instead of manually passing tensors, we match strings.
 
-**The Rule:** `feature_name = "{encoder_name}_{type}"`
+**The Rule:** `feature_name = "{encoder_name}_{output_key}"`
 
 If you define an RGB encoder named `left_eye`, it produces:
 * `left_eye_rgb` (The spatial features)
@@ -347,10 +347,15 @@ If you define an RGB encoder named `left_eye`, it produces:
 If you define a proprioception encoder named `robot_state`, it produces:
 * `robot_state_proprio` (The flat features)
 
-For multimodal encoders that produce multiple features, such as Vision-Language models, we use a dot separator to select the feature.
+For multimodal encoders that produce multiple outputs (e.g. Vision-Language models), each output gets its own prefixed name.
 If you define a VLM encoder named `vlm_model`, it produces:
-* `vlm_model.rgb` (Image features)
-* `vlm_model.language` (Text features)
+* `vlm_model_rgb` (Image features)
+* `vlm_model_language` (Text features)
+
+For multi-camera encoders that share weights across cameras, the modality is followed by the camera key separated by a colon.
+If you define an RGB encoder named `stereo` with two input cameras keyed `key_1` and `key_2`, it produces:
+* `stereo_rgb:key_1` (Features from camera `key_1`)
+* `stereo_rgb:key_2` (Features from camera `key_2`)
 
 **Why strict naming?**
 It prevents shape mismatches silently propagating. The `Policy` class validates shapes at initialization. If your Decoder expects a **FLAT** feature (1D)

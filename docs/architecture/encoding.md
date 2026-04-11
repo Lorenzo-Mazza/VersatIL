@@ -20,7 +20,7 @@ All encoders subclass `Encoder` (unconditional) or `ConditionalEncoder` (conditi
 
 Modality mix-ins provide shared functionality:
 
-- **`ImageEncoderMixin`** -- abstract base class with `_output_modality` and `_camera_group` abstract properties. Handles multi-camera encoding with automatic feature naming (`modality.camera_key` e.g. `rgb.left`). Encoders implement `_encode_single_image()`; the mixin handles iteration, resize, and feature registration. Per-camera image sizes are set from `CameraMetadata` via `set_image_size()`, not hardcoded in encoder configs. Three concrete subclasses:
+- **`ImageEncoderMixin`** -- abstract base class with `_output_modality` and `_camera_group` abstract properties. Handles multi-camera encoding with automatic feature naming (`modality:camera_key` e.g. `rgb:left`). Encoders implement `_encode_single_image()`; the mixin handles iteration, resize, and feature registration. Per-camera image sizes are set from `CameraMetadata` via `set_image_size()`, not hardcoded in encoder configs. Three concrete subclasses:
     - **`RGBEncoderMixin(ImageEncoderMixin)`** -- for RGB camera encoders
     - **`DepthEncoderMixin(ImageEncoderMixin)`** -- for depth camera encoders
     - **`RGBDEncoderMixin(ImageEncoderMixin)`** -- for RGB+depth cross-modal encoders (DFormer, GeometricRGBD)
@@ -57,12 +57,12 @@ The decoder's `DecoderInput` validates feature types at initialization via `requ
 
 ## Multi-Camera Encoding
 
-`ImageEncoderMixin` (via its subclasses `RGBEncoderMixin`, `DepthEncoderMixin`, `RGBDEncoderMixin`) automatically detects multi-camera setups from `input_keys` and generates output features with dotted naming:
+`ImageEncoderMixin` (via its subclasses `RGBEncoderMixin`, `DepthEncoderMixin`, `RGBDEncoderMixin`) automatically detects multi-camera setups from `input_keys` and generates output features with `modality:camera_key` naming:
 
 | Setup | Input Keys | Output Keys |
 |---|---|---|
 | Single camera | `["left"]` | `rgb` |
-| Multi-camera | `["left", "right"]` | `rgb.left`, `rgb.right` |
+| Multi-camera | `["left", "right"]` | `rgb:left`, `rgb:right` |
 
 
 ## RGB Encoders
@@ -72,7 +72,7 @@ The decoder's `DecoderInput` validates feature types at initialization via `requ
 Any timm backbone that outputs `(B, C, H, W)` spatial feature maps. Covers CNNs (ResNet, EfficientNet, ConvNeXt, ConvNeXtV2, EdgeNeXt, MobileNetV4), Swin Transformers, TinyViT, and other spatial-output architectures. Handles both NCHW and NHWC output layouts transparently, and strict input size backbones.
 
 - **Input:** RGB image `(B, 3, H, W)` or `(B, T, 3, H, W)` for temporal observations
-- **Output key:** `rgb` (or `rgb.{camera}` for multi-camera)
+- **Output key:** `rgb` (or `rgb:{camera}` for multi-camera)
 - **Feature type:** FLAT (after pooling) or SPATIAL (without pooling)
 - **Pooling:** Average, Max, Spatial Softmax, Learned Aggregation, or None
 
@@ -94,7 +94,7 @@ SpatialRGBEncoder(
 Backbones that output `(B, S, D)` flat token sequences (ViT, DINOv2, DINOv3, DeiT, CLIP ViT). Uses timm `forward_features()`.
 
 - **Input:** RGB image `(B, 3, H, W)`
-- **Output key:** `rgb` (or `rgb.{camera}` for multi-camera)
+- **Output key:** `rgb` (or `rgb:{camera}` for multi-camera)
 - **Feature type:** FLAT (with pooling) or SEQUENTIAL (without pooling, returns patch tokens)
 - **Supports:** Dynamic image sizes
 
@@ -225,7 +225,7 @@ GeometricRGBDEncoder(
 CLIP-style dual-tower encoder with separate vision and language pathways. Produces independent features for each modality.
 
 - **Input:** RGB image(s) + tokenized text
-- **Output keys:** `rgb` (or `rgb.{camera}` for multi-camera), `language`, `language_padding_mask`
+- **Output keys:** `rgb` (or `rgb:{camera}` for multi-camera), `language`, `language_padding_mask`
 - **Feature type:** Per-output (FLAT or SEQUENTIAL depending on pooling)
 
 ```python
@@ -461,10 +461,10 @@ Each encoder type uses a specific output key from `EncoderOutputKeys`:
 | `PADDING_MASK` | `padding_mask` | LanguageEncoder, TwoTowerVLMEncoder, PaliGemmaEncoder, SmolVLMEncoder |
 
 !!! note "Multi-camera naming"
-    For multi-camera encoders, output keys use dotted notation: `modality.camera_key`.
+    For multi-camera encoders, output keys use the format `modality:camera_key`.
 
 !!! note "Pipeline prefixing"
-    The encoding pipeline always prepends each encoder's output key with the encoder name. Encoders return raw output keys (e.g., `rgb` or `rgb.left`), the pipeline produces prefixed keys (e.g., `eye_rgb`, `eye_rgb.left`).
+    The encoding pipeline always prepends each encoder's output key with the encoder name. Encoders return raw output keys (e.g., `rgb` or `rgb:left`), the pipeline produces prefixed keys (e.g., `eye_rgb`, `eye_rgb:left`).
 
 ## Adding a New Encoder
 

@@ -140,7 +140,7 @@ class FlatRGBEncoder(RGBEncoderMixin, Encoder):
 
         Returns:
             Dict with RGB features. Single camera: key is ``rgb``.
-            Multiple cameras: keys are ``rgb.{camera_key}`` per camera.
+            Multiple cameras: keys are ``rgb:{camera_key}`` per camera.
         """
         return self._encode_vision(inputs)
 

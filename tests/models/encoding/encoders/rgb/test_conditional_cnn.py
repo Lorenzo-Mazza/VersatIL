@@ -325,10 +325,10 @@ class TestConditionalCNNEncoderMultiCamera:
         )
         output = encoder(inputs=inputs, conditioning=conditioning)
         rgb = EncoderOutputKeys.RGB.value
-        assert f"{rgb}.left" in output
-        assert f"{rgb}.right" in output
-        assert output[f"{rgb}.left"].shape[0] == batch_size
-        assert output[f"{rgb}.right"].shape[0] == batch_size
+        assert f"{rgb}:left" in output
+        assert f"{rgb}:right" in output
+        assert output[f"{rgb}:left"].shape[0] == batch_size
+        assert output[f"{rgb}:right"].shape[0] == batch_size
 
 
 class TestConditionalCNNEncoderGetOutputSpecification:

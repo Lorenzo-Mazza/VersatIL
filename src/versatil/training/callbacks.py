@@ -619,9 +619,10 @@ class LatentVisualizationCallback(Callback):
         if trainer.current_epoch % self.log_every_n_epochs != 0:
             return
 
-        z, z_prior, phase_per_sample = (
-            pl_module.val_metrics.compute_latent_visualization_data()
-        )
+        latent_data = pl_module.val_metrics.compute_latent_visualization_data()
+        if latent_data is None:
+            return
+        z, z_prior, phase_per_sample = latent_data
         if z is None and z_prior is None:
             return
 

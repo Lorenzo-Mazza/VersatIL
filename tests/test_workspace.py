@@ -1190,6 +1190,7 @@ class TestInitializeLazyModules:
         mock_lightning_policy.eval.assert_not_called()
         mock_lightning_policy.training_step.assert_called_once_with(mock_batch, 0)
         mock_lightning_policy.train.assert_called_once()
+        mock_lightning_policy.train_metrics.reset.assert_called_once()
 
 
 @pytest.mark.unit
@@ -1486,11 +1487,12 @@ class TestRun:
             )
 
     def test_run_starts_from_scratch_when_resume_path_does_not_exist(
-        self, workspace_factory, mock_workspace_policy_factory
+        self, workspace_factory, mock_workspace_policy_factory, tmp_path
     ):
         policy = mock_workspace_policy_factory()
+        missing_checkpoint = tmp_path / "missing" / "checkpoint.ckpt"
         workspace = workspace_factory(
-            experiment_kwargs={"resume_from": "/nonexistent/checkpoint.ckpt"},
+            experiment_kwargs={"resume_from": str(missing_checkpoint)},
             policy=policy,
         )
 

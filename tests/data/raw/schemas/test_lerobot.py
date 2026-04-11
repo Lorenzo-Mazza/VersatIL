@@ -1167,10 +1167,11 @@ class TestLeRobotSchemaHelperMethods:
 
     def test_get_images_from_filesystem_missing_image_raises(
         self,
+        tmp_path: Path,
         minimal_schema: LeRobotDatasetSchemaV30,
     ):
-        minimal_schema.lerobot_metadata.get_image_file_path.return_value = Path(
-            "/nonexistent/image.png"
+        minimal_schema.lerobot_metadata.get_image_file_path.return_value = (
+            tmp_path / "missing" / "image.png"
         )
 
         with pytest.raises(ValueError, match="Image was not found"):

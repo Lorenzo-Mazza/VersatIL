@@ -767,9 +767,10 @@ class TestObservationTokenizerSavePretrained:
 
 
 class TestObservationTokenizerFromPretrained:
-    def test_raises_file_not_found(self):
+    def test_raises_file_not_found(self, tmp_path):
+        missing = tmp_path / "missing"
         with pytest.raises(FileNotFoundError, match="Tokenizer path not found"):
-            ObservationTokenizer.from_pretrained("/nonexistent/path")
+            ObservationTokenizer.from_pretrained(str(missing))
 
     @patch("versatil.data.tokenization.observation_tokenizer.torch.load")
     @patch("versatil.data.tokenization.observation_tokenizer.AutoTokenizer")

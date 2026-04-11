@@ -89,7 +89,9 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
         )
         self.output_dim = self.token_pooling_head.output_dim
         self.padding_dim = (
-            self.max_token_len if pooling_method == PoolingMethod.NONE.value else 1
+            self.max_token_len - self._num_prefix_tokens
+            if pooling_method == PoolingMethod.NONE.value
+            else 1
         )
         if frozen:
             super()._freeze_weights()

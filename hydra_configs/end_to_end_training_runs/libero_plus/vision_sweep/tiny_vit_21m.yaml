@@ -8,7 +8,7 @@ defaults:
   - /task/dataset_schema: libero_plus_lerobot
   - /task/dataloader: libero_lerobot
   - /task/action_space: libero_precomputed_lerobot
-  - /task/observation_space: libero_plus_agentview_rgb_lerobot
+  - /task/observation_space: libero_plus_rgb_lerobot
   - /training: default
   - /policy/encoding_pipeline: mono_rgb_language_encoder_tiny
   - /policy/decoder: action_transformer_language
@@ -61,11 +61,13 @@ policy:
       left:
         input_keys:
           - ${cameras:AGENTVIEW}
+          - ${cameras:EYE_IN_HAND}
         backbone: ${rgb_backbone:TINY_VIT_21M}
       instruction:
         model_name: ${language_model:MINI_LM_L6}
         use_embeddings_only: false
   decoder:
     input_keys:
-      - left_rgb
+      - 'left_rgb:agentview_rgb'
+      - 'left_rgb:eye_in_hand_rgb'
       - instruction_language

@@ -163,7 +163,7 @@ class SpatialDepthEncoder(DepthEncoderMixin, Encoder):
 
         Returns:
             Dict with depth features. Single camera: key is ``depth``.
-            Multiple cameras: keys are ``depth.{camera_key}`` per camera.
+            Multiple cameras: keys are ``depth:{camera_key}`` per camera.
         """
         return self._encode_vision(inputs)
 

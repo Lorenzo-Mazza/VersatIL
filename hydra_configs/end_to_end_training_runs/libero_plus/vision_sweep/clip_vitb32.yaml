@@ -8,7 +8,7 @@ defaults:
   - /task/dataset_schema: libero_plus_lerobot
   - /task/dataloader: libero_lerobot
   - /task/action_space: libero_precomputed_lerobot
-  - /task/observation_space: libero_plus_agentview_rgb_lerobot
+  - /task/observation_space: libero_plus_rgb_lerobot
   - /training: default
   - /policy/encoding_pipeline: mono_vlm
   - /policy/decoder: action_transformer_language
@@ -61,10 +61,12 @@ policy:
       left:
         input_keys:
           - ${cameras:AGENTVIEW}
+          - ${cameras:EYE_IN_HAND}
           - ${sample_key:TOKENIZED_OBSERVATIONS}
         model_name: ${vlm_model:CLIP_VITB32}
         pooling_method: none
   decoder:
     input_keys:
-      - left_rgb
+      - 'left_rgb:agentview_rgb'
+      - 'left_rgb:eye_in_hand_rgb'
       - left_language

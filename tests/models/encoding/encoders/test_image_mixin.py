@@ -212,8 +212,8 @@ class TestGetVisionFeatureNames:
             input_keys=[Cameras.LEFT.value, Cameras.RIGHT.value]
         )
         expected = [
-            f"{EncoderOutputKeys.RGB.value}.{Cameras.LEFT.value}",
-            f"{EncoderOutputKeys.RGB.value}.{Cameras.RIGHT.value}",
+            f"{EncoderOutputKeys.RGB.value}:{Cameras.LEFT.value}",
+            f"{EncoderOutputKeys.RGB.value}:{Cameras.RIGHT.value}",
         ]
         assert encoder._get_vision_feature_names() == expected
 
@@ -239,7 +239,7 @@ class TestEncodeVision:
         inputs = camera_image_factory(camera_keys=camera_keys)
         result = encoder._encode_vision(inputs)
         rgb = EncoderOutputKeys.RGB.value
-        expected_keys = [f"{rgb}.{Cameras.LEFT.value}", f"{rgb}.{Cameras.RIGHT.value}"]
+        expected_keys = [f"{rgb}:{Cameras.LEFT.value}", f"{rgb}:{Cameras.RIGHT.value}"]
         assert list(result.keys()) == expected_keys
 
     def test_encode_produces_correct_shape_per_camera(
@@ -251,5 +251,5 @@ class TestEncodeVision:
         inputs = camera_image_factory(camera_keys=camera_keys, batch_size=3)
         result = encoder._encode_vision(inputs)
         rgb = EncoderOutputKeys.RGB.value
-        assert result[f"{rgb}.{Cameras.LEFT.value}"].shape == (3, 16)
-        assert result[f"{rgb}.{Cameras.RIGHT.value}"].shape == (3, 16)
+        assert result[f"{rgb}:{Cameras.LEFT.value}"].shape == (3, 16)
+        assert result[f"{rgb}:{Cameras.RIGHT.value}"].shape == (3, 16)

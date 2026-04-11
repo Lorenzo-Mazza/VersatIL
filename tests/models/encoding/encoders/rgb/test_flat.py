@@ -418,7 +418,7 @@ class TestFlatRGBEncoderMultiCamera:
         if expected_multi_camera:
             camera_list = input_keys if isinstance(input_keys, list) else [input_keys]
             for camera_key in camera_list:
-                feature_name = f"{EncoderOutputKeys.RGB.value}.{camera_key}"
+                feature_name = f"{EncoderOutputKeys.RGB.value}:{camera_key}"
                 assert feature_name in feature_keys
         else:
             assert feature_keys == [EncoderOutputKeys.RGB.value]
@@ -442,8 +442,8 @@ class TestFlatRGBEncoderMultiCamera:
         }
         output = encoder(inputs)
         rgb = EncoderOutputKeys.RGB.value
-        assert f"{rgb}.left" in output
-        assert f"{rgb}.right" in output
+        assert f"{rgb}:left" in output
+        assert f"{rgb}:right" in output
 
     def test_multi_camera_backbone_called_per_camera(
         self,
