@@ -111,6 +111,7 @@ filterwarnings = [
     "ignore:.*isinstance.*LeafSpec.*:FutureWarning",
     "ignore:.*Importing from torchao.dtypes.*:DeprecationWarning",
     "ignore:.*Importing BlockSparseLayout.*:DeprecationWarning",
+    "ignore:.*crc32c usage is deprecated.*:DeprecationWarning",
 ]
 testpaths = ["tests"]
 python_files = "test_*.py"
