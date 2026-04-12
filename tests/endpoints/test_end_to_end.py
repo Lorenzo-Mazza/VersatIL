@@ -1,6 +1,7 @@
 """Tests for end-to-end training pipeline."""
 
 import gc
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -108,6 +109,8 @@ def _create_synthetic_zarr(
 def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
     if "flow_unet" in config_name and "libero_hdf5" in config_name:
         pytest.skip("libero_hdf5/flow_unet has broken dropout_rate interpolation")
+    if "pi0" in config_name and not os.environ.get("HF_TOKEN"):
+        pytest.skip("pi0 requires HF_TOKEN for gated PaliGemma model")
 
     dataset_type = resolve_dataset_type(config_name)
     rng = np.random.default_rng(42)
