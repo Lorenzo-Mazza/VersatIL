@@ -19,7 +19,8 @@ from versatil_constants.shared import (  # noqa: F401
     ObsKey,
     OrientationRepresentation,
 )
-from versatil_constants.tso import TSOCamera
+from versatil_constants.synthetic import SyntheticObsKey  # noqa: F401
+from versatil_constants.tso import TSOCamera, TSOObsKey  # noqa: F401
 
 
 class Cameras(enum.Enum):
