@@ -5,9 +5,6 @@ batch_size: 64
 num_workers: 8
 shuffle: true
 
-image_height: 64
-image_width: 64
-
 image_norm_type: ${image_norm_type:MINUS_ONE_TO_ONE}
 depth_norm_type: ${image_norm_type:MINUS_ONE_TO_ONE}
 kinematics_norm_type: ${kinematics_norm_type:MIN_MAX}
