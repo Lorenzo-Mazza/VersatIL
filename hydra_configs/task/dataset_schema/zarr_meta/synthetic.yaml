@@ -24,7 +24,7 @@ observations:
     _target_: versatil.data.metadata.ObservationMetadata
     raw_data_column_keys: [c0, c1, c2]
     dtype: float32
-    dimension: 3
+    dimension: ${task.dataset_schema.num_modes}
     is_numerical: true
     needs_normalization: false
 
