@@ -5,6 +5,7 @@ from pathlib import Path
 
 from hydra.core.config_store import ConfigStore
 from omegaconf import OmegaConf
+from versatil_constants.tso import TSOObsKey
 
 from versatil.configs.data.augmentations import AugmentationPipelineConfig
 from versatil.configs.data.dataloader import DataLoaderConfig
@@ -425,6 +426,10 @@ def register_resolvers():
         OmegaConf.register_new_resolver(
             "synthetic_obs_key", lambda name: SyntheticObsKey[name].value
         )
+    if not OmegaConf.has_resolver("tso_obs_key"):
+        OmegaConf.register_new_resolver(
+            "tso_obs_key", lambda name: TSOObsKey[name].value
+        )
 
     if not OmegaConf.has_resolver("compile_mode"):
         OmegaConf.register_new_resolver(
@@ -571,7 +576,7 @@ def register_configs():
     cs.store(group="task/dataset_schema", name="hdf5", node=Hdf5DatasetSchemaConfig)
     cs.store(group="task/dataset_schema", name="csv", node=CsvDatasetSchemaConfig)
     cs.store(
-        group="task/dataset_schema",
+        group="task/dataset_schema/synthetic",
         name="synthetic_schema",
         node=SyntheticDatasetSchemaConfig,
     )

@@ -20,7 +20,7 @@ observations_metadata:
     needs_normalization: true
     frame: ${coordinate_system:UNKNOWN}
 
-  ${obs_key:SYNTHETIC_CONTEXT}:
+  ${synthetic_obs_key:CONTEXT}:
     _target_: versatil.data.metadata.ObservationMetadata
     raw_data_column_keys: [c0, c1, c2]
     dtype: float32

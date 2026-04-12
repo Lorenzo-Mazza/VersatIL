@@ -38,7 +38,7 @@ loss_modules:
             action_key: ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
 
         phase_classification_loss:
-          key: ${obs_key:PHASE_LABEL}
+          key: ${tso_obs_key:PHASE_LABEL}
           cross_entropy_weight: 0.1
           entropy_weight: 0.1
           label_smoothing: 0.2

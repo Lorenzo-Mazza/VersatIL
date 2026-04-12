@@ -25,7 +25,7 @@ task:
   prediction_horizon: 10
   action_space:
     actions_metadata:
-      ${obs_key:PHASE_LABEL}:
+      ${tso_obs_key:PHASE_LABEL}:
         requires_prediction_head: false
 
 policy:
@@ -41,7 +41,7 @@ policy:
       phase_passthrough:
         _target_: versatil.metrics.components.MetadataPassthrough
         keys_mapping:
-          ${obs_key:PHASE_LABEL}: ${metadata_key:PHASE_LABEL}
+          ${tso_obs_key:PHASE_LABEL}: ${metadata_key:PHASE_LABEL}
   decoder:
     base_expert:
       input_keys:
