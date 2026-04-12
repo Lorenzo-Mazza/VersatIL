@@ -77,5 +77,5 @@ warnings.filterwarnings(
 warnings.filterwarnings(
     "ignore",
     message="crc32c usage is deprecated",
-    module="numcodecs",
+    module="numcodecs.*",
 )
