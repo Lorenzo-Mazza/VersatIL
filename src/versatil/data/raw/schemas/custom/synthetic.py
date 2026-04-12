@@ -40,14 +40,15 @@ class SyntheticSchema(DatasetSchema):
         zarr_path: str,
         metadata: DatasetMetadata,
         dataset_type: str = DatasetType.SYNTHETIC.value,
-        task_name: str = SyntheticTaskName.MULTI_PATH_NAVIGATION.value,
+        task_name: str = SyntheticTaskName.CIRCLE.value,
         num_episodes: int = 1000,
         seed: int = 42,
         image_size: int = 64,
-        num_modes: int = 3,
+        num_modes: int = 2,
         trajectory_length: int = 60,
         noise_std: float = 0.01,
-        num_styles: int = 4,
+        num_styles: int = 1,
+        mode_weights: list[float] | None = None,
     ):
         """Initialize and validate the synthetic benchmark schema.
 
@@ -59,10 +60,11 @@ class SyntheticSchema(DatasetSchema):
             num_episodes: Total episodes to generate, balanced across modes.
             seed: Random seed for reproducible generation.
             image_size: Side length in pixels of rendered images (square).
-            num_modes: Number of behavioral modes (multi_path, conditional, shared_prefix).
+            num_modes: Number of behavioral modes.
             trajectory_length: Number of timesteps per episode.
             noise_std: Standard deviation of Gaussian trajectory noise.
-            num_styles: Number of trajectory styles (trajectory_style task).
+            num_styles: Number of sinusoidal style variations per corridor.
+            mode_weights: Per-mode sampling weights. None for uniform.
         """
         if dataset_type != DatasetType.SYNTHETIC.value:
             raise ValueError(
@@ -77,6 +79,7 @@ class SyntheticSchema(DatasetSchema):
         self.trajectory_length = trajectory_length
         self.noise_std = noise_std
         self.num_styles = num_styles
+        self.mode_weights = mode_weights
         self._validate_metadata(metadata)
         super().__init__(
             zarr_path=zarr_path,

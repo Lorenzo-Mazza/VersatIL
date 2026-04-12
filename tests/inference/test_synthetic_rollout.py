@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -99,7 +100,7 @@ def mock_expert_episodes_factory(
     [
         (
             True,
-            SyntheticTaskName.MULTI_PATH_NAVIGATION.value,
+            SyntheticTaskName.CIRCLE.value,
             np.array([0.5, 0.5], dtype=np.float32),
             does_not_raise(),
         ),
@@ -111,21 +112,21 @@ def mock_expert_episodes_factory(
         ),
         (
             False,
-            SyntheticTaskName.SHARED_PREFIX.value,
-            np.array([1.0, 0.5], dtype=np.float32),
+            SyntheticTaskName.RADIAL.value,
+            np.array([0.5, 0.5], dtype=np.float32),
             does_not_raise(),
         ),
         (
             False,
-            SyntheticTaskName.MULTI_PATH_NAVIGATION.value,
+            SyntheticTaskName.CIRCLE.value,
             None,
-            pytest.raises(
-                ValueError,
-                match=re.escape(
-                    "Task multi_path_navigation has mode-dependent goal "
-                    "but no render fallback"
-                ),
-            ),
+            does_not_raise(),
+        ),
+        (
+            False,
+            SyntheticTaskName.CONDITIONAL_CIRCLE.value,
+            None,
+            does_not_raise(),
         ),
     ],
 )
@@ -134,7 +135,7 @@ def test_get_render_goal_returns_layout_goal_or_task_fallback(
     has_goal: bool,
     task_name: str,
     expected_goal: np.ndarray | None,
-    expectation,
+    expectation: AbstractContextManager,
 ):
     layout = mock_layout_factory(has_goal=has_goal)
 
@@ -225,6 +226,29 @@ def test_prepare_observation_assembles_keys_per_observation_space(
 
 
 @pytest.mark.unit
+def test_prepare_observation_passes_none_goal_to_render_frame(
+    position_history_factory: Callable[..., np.ndarray],
+):
+    position_history = position_history_factory(obs_horizon=1)
+    observation_keys = {Cameras.AGENTVIEW.value}
+    fake_frame = np.zeros((16, 16, 3), dtype=np.uint8)
+
+    with patch(
+        "versatil.inference.synthetic_rollout.render_frame",
+        return_value=fake_frame,
+    ) as mock_render:
+        _prepare_observation(
+            position_history=position_history,
+            obstacles=[],
+            goal=None,
+            image_size=16,
+            observation_keys=observation_keys,
+        )
+
+    assert mock_render.call_args.kwargs["goal"] is None
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "name_prefix, subdir",
     [
@@ -239,7 +263,7 @@ def test_save_rollout_visualizations_delegates_to_png_and_gif(
     subdir: str,
 ):
     trajectories = rollout_trajectory_factory()
-    task_name = SyntheticTaskName.MULTI_PATH_NAVIGATION.value
+    task_name = SyntheticTaskName.CIRCLE.value
     image_size = 32
     output_dir = tmp_path / subdir if subdir else tmp_path
 
@@ -305,7 +329,7 @@ def test_evaluate_rollouts_truncates_and_calls_metrics_with_layout(
         num_modes=num_modes,
     )
     layout = mock_layout_factory(has_goal=has_goal, num_modes=num_modes)
-    task_name = SyntheticTaskName.MULTI_PATH_NAVIGATION.value
+    task_name = SyntheticTaskName.CIRCLE.value
     coverage_metrics = {
         "mode_coverage": 0.8,
         "mode_entropy_ratio": 0.7,
@@ -417,7 +441,7 @@ def test_load_policy_from_checkpoint_validates_files_and_loads_weights(
     tmp_path: Path,
     create_config: bool,
     create_checkpoint: bool,
-    expectation,
+    expectation: AbstractContextManager,
 ):
     if create_config:
         (tmp_path / "config.yaml").write_text("placeholder: true\n")
@@ -536,7 +560,7 @@ def test_run_rollouts_queries_policy_per_temporal_mode_and_obs_horizon(
     ):
         trajectories = run_rollouts(
             policy=mock_policy,
-            task_name=SyntheticTaskName.MULTI_PATH_NAVIGATION.value,
+            task_name=SyntheticTaskName.CIRCLE.value,
             num_rollouts=num_rollouts,
             image_size=16,
             temporal_aggregation=temporal_aggregation,
@@ -596,7 +620,7 @@ def test_run_rollouts_builds_one_hot_context_vector(
     ):
         run_rollouts(
             policy=mock_policy,
-            task_name=SyntheticTaskName.CONDITIONAL_NAVIGATION.value,
+            task_name=SyntheticTaskName.CONDITIONAL_CIRCLE.value,
             num_rollouts=1,
             image_size=16,
             context_mode=context_mode,
@@ -644,7 +668,7 @@ def test_run_rollouts_saves_visualizations_only_when_output_dir_set(
         ),
     )
     output_dir = str(tmp_path) if output_dir_set else None
-    task_name = SyntheticTaskName.MULTI_PATH_NAVIGATION.value
+    task_name = SyntheticTaskName.CIRCLE.value
 
     with (
         patch(
@@ -723,7 +747,7 @@ def test_run_rollouts_integrates_constant_action_deltas_into_positions(
     ):
         trajectories = run_rollouts(
             policy=mock_policy,
-            task_name=SyntheticTaskName.MULTI_PATH_NAVIGATION.value,
+            task_name=SyntheticTaskName.CIRCLE.value,
             num_rollouts=1,
             image_size=16,
             temporal_aggregation=temporal_aggregation,

@@ -273,7 +273,7 @@ def test_plot_trajectories_2d_delegates_drawing_and_writes_output(
         else None
     )
     output_path = tmp_path / "out.png"
-    task_name = SyntheticTaskName.MULTI_PATH_NAVIGATION.value
+    task_name = SyntheticTaskName.CIRCLE.value
 
     mock_figure = MagicMock(spec=plt.Figure)
     mock_axes = MagicMock(spec=plt.Axes)
@@ -321,9 +321,7 @@ def test_plot_trajectories_2d_delegates_drawing_and_writes_output(
     mock_axes.legend.assert_called_once()
     assert mock_axes.legend.call_args.kwargs["handles"] == ["fake_handle"]
 
-    expected_title = (
-        custom_title if custom_title is not None else "Multi-Path Navigation"
-    )
+    expected_title = custom_title if custom_title is not None else "Circle"
     mock_axes.set_title.assert_called_once_with(expected_title, pad=12)
     mock_savefig.assert_called_once()
     assert mock_savefig.call_args.args[0] == str(output_path)
@@ -369,7 +367,7 @@ def test_plot_trajectories_2d_saves_only_when_output_path_provided(
     ):
         result = plot_trajectories_2d(
             trajectories=rollout_trajectory_factory(num_trajectories=1),
-            task_name=SyntheticTaskName.MULTI_PATH_NAVIGATION.value,
+            task_name=SyntheticTaskName.CIRCLE.value,
             output_path=output_path,
         )
 
@@ -385,7 +383,7 @@ def test_plot_trajectories_2d_saves_only_when_output_path_provided(
     "task_name, expectation",
     [
         (
-            SyntheticTaskName.MULTI_PATH_NAVIGATION.value,
+            SyntheticTaskName.CIRCLE.value,
             does_not_raise(),
         ),
         (
@@ -437,7 +435,7 @@ def test_save_rollouts_gif_renders_frame_per_timestep_and_saves(
     )
     mode_ids = rollout_mode_id_factory(num_trajectories=2)
     output_path = tmp_path / "rollouts.gif"
-    task_name = SyntheticTaskName.MULTI_PATH_NAVIGATION.value
+    task_name = SyntheticTaskName.CIRCLE.value
     image_size = 16
 
     fake_frame = np.zeros((image_size, image_size, 3), dtype=np.uint8)
@@ -492,7 +490,7 @@ def test_save_rollouts_gif_renders_frame_per_timestep_and_saves(
     "task_name, expectation",
     [
         (
-            SyntheticTaskName.MULTI_PATH_NAVIGATION.value,
+            SyntheticTaskName.CIRCLE.value,
             does_not_raise(),
         ),
         (

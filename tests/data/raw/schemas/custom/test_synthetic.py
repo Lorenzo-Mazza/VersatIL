@@ -81,7 +81,7 @@ def synthetic_schema_factory(
         zarr_path: str | None = None,
         metadata: DatasetMetadata | None = None,
         dataset_type: str = DatasetType.SYNTHETIC.value,
-        task_name: str = SyntheticTaskName.TRAJECTORY_STYLE.value,
+        task_name: str = SyntheticTaskName.CORRIDOR_NAVIGATION.value,
         num_episodes: int = 50,
         seed: int = 7,
         image_size: int = 32,
@@ -89,6 +89,7 @@ def synthetic_schema_factory(
         trajectory_length: int = 25,
         noise_std: float = 0.05,
         num_styles: int = 6,
+        mode_weights: list[float] | None = None,
     ) -> SyntheticSchema:
         if zarr_path is None:
             zarr_path = str(tmp_path / "test.zarr")
@@ -106,6 +107,7 @@ def synthetic_schema_factory(
             trajectory_length=trajectory_length,
             noise_std=noise_std,
             num_styles=num_styles,
+            mode_weights=mode_weights,
         )
 
     return factory
@@ -115,13 +117,18 @@ def synthetic_schema_factory(
 class TestSyntheticSchemaInit:
     @pytest.mark.parametrize("num_episodes", [50, 200])
     @pytest.mark.parametrize("image_size", [32, 128])
+    @pytest.mark.parametrize(
+        "mode_weights",
+        [None, [0.7, 0.1, 0.05, 0.05, 0.1]],
+    )
     def test_stores_configuration(
         self,
         synthetic_schema_factory: Callable[..., SyntheticSchema],
         num_episodes: int,
         image_size: int,
+        mode_weights: list[float] | None,
     ):
-        task_name = SyntheticTaskName.MULTI_PATH_NAVIGATION.value
+        task_name = SyntheticTaskName.CIRCLE.value
         seed = 123
         num_modes = 5
         trajectory_length = 40
@@ -136,6 +143,7 @@ class TestSyntheticSchemaInit:
             trajectory_length=trajectory_length,
             noise_std=noise_std,
             num_styles=num_styles,
+            mode_weights=mode_weights,
         )
         assert schema.task_name == task_name
         assert schema.num_episodes == num_episodes
@@ -145,6 +153,7 @@ class TestSyntheticSchemaInit:
         assert schema.trajectory_length == trajectory_length
         assert schema.noise_std == noise_std
         assert schema.num_styles == num_styles
+        assert schema.mode_weights == mode_weights
 
     @pytest.mark.parametrize(
         "dataset_type, expectation",
@@ -257,8 +266,8 @@ class TestGetCallbacks:
     @pytest.mark.parametrize(
         "task_name, image_size",
         [
-            (SyntheticTaskName.MULTI_PATH_NAVIGATION.value, 64),
-            (SyntheticTaskName.TRAJECTORY_STYLE.value, 48),
+            (SyntheticTaskName.CIRCLE.value, 64),
+            (SyntheticTaskName.CORRIDOR_NAVIGATION.value, 48),
         ],
     )
     def test_returns_callback_with_schema_params(

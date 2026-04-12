@@ -2,46 +2,42 @@
 
 import re
 from collections.abc import Callable
-from contextlib import nullcontext as does_not_raise
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
 from versatil.data.synthetic.constants import (
-    MULTIPATH_CONTEXT_COLORS,
-    MULTIPATH_DEFAULT_NOISE_STD,
-    MULTIPATH_DEFAULT_NUM_MODES,
-    MULTIPATH_DEFAULT_TRAJECTORY_LENGTH,
-    MULTIPATH_MIN_TRAJECTORY_LENGTH,
-    SEQUENTIAL_BRANCH_X_DELTA,
-    SEQUENTIAL_DEFAULT_NOISE_STD,
-    SEQUENTIAL_DEFAULT_TRAJECTORY_LENGTH,
-    SEQUENTIAL_MIN_TRAJECTORY_LENGTH,
+    CIRCLE_CENTER_BOTTOM,
+    CIRCLE_CENTER_TOP,
+    CIRCLE_CONTEXT_COLORS,
+    CIRCLE_DEFAULT_NUM_MODES,
+    CIRCLE_RADIUS,
+    CORRIDOR_GAP_HEIGHT,
+    CORRIDOR_WALL_X1,
+    CORRIDOR_WALL_X2,
+    RADIAL_CENTER,
+    RADIAL_RADIUS,
+    SEQUENTIAL_ENDPOINT_Y,
+    SEQUENTIAL_FIRST_BRANCH_X_DELTA,
+    SEQUENTIAL_NUM_COMPOUND_MODES,
+    SEQUENTIAL_OBSTACLES,
+    SEQUENTIAL_SECOND_BRANCH_X_DELTA,
     SEQUENTIAL_START,
-    SHARED_PREFIX_DEFAULT_NOISE_STD,
-    SHARED_PREFIX_DEFAULT_NUM_MODES,
-    SHARED_PREFIX_DEFAULT_TRAJECTORY_LENGTH,
-    SHARED_PREFIX_ENDPOINTS,
-    SHARED_PREFIX_MIN_TRAJECTORY_LENGTH,
-    SHARED_PREFIX_SHARED_STEPS,
-    STYLE_DEFAULT_NOISE_STD,
-    STYLE_DEFAULT_NUM_STYLES,
-    STYLE_DEFAULT_TRAJECTORY_LENGTH,
-    STYLE_MIN_TRAJECTORY_LENGTH,
-    STYLE_START,
     SyntheticTaskName,
 )
 from versatil.data.synthetic.generators import (
     _add_noise_and_clamp,
+    _apply_sinusoidal_style,
     _balanced_mode_counts,
     _compute_actions,
-    _generate_conditional_navigation,
-    _generate_multi_path_navigation,
-    _generate_sequential_decision,
-    _generate_shared_prefix,
-    _generate_trajectory_style,
+    _compute_corridor_gap_centers,
+    _generate_corridor_obstacles,
+    _generate_radial_obstacles,
     _interpolate_waypoints,
+    _parametric_circle,
+    _resolve_mode_counts,
+    _weighted_mode_counts,
     generate_task_episodes,
 )
 
@@ -69,7 +65,7 @@ def fake_render_episode_factory() -> Callable[..., Callable[..., np.ndarray]]:
         def fake_render(
             positions: np.ndarray,
             obstacles: list[tuple[float, float, float, float]],
-            goal: np.ndarray,
+            goal: np.ndarray | None = None,
             image_size: int = image_size,
             show_trail: bool = True,
             context_color: tuple[int, int, int] | None = None,
@@ -183,87 +179,81 @@ def test_balanced_mode_counts_distributes_with_remainder_to_first_modes(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "trajectory_length, expectation",
-    [
-        (
-            MULTIPATH_MIN_TRAJECTORY_LENGTH,
-            does_not_raise(),
-        ),
-        (
-            MULTIPATH_MIN_TRAJECTORY_LENGTH - 1,
-            pytest.raises(
-                ValueError,
-                match=re.escape(
-                    f"multi_path_navigation requires trajectory_length >= "
-                    f"{MULTIPATH_MIN_TRAJECTORY_LENGTH}, got "
-                    f"{MULTIPATH_MIN_TRAJECTORY_LENGTH - 1}"
-                ),
-            ),
-        ),
-    ],
-)
-def test_generate_multi_path_navigation_min_trajectory_length_validation(
-    fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
-    rng: np.random.Generator,
-    trajectory_length: int,
-    expectation,
-):
-    with (
-        patch(
-            "versatil.data.synthetic.generators.render_episode",
-            side_effect=fake_render_episode_factory(),
-        ),
-        expectation,
-    ):
-        _generate_multi_path_navigation(
-            num_episodes=MULTIPATH_DEFAULT_NUM_MODES,
-            random_generator=rng,
-            image_size=8,
-            num_modes=MULTIPATH_DEFAULT_NUM_MODES,
-            trajectory_length=trajectory_length,
-            noise_std=0.0,
-        )
+def test_weighted_mode_counts_distributes_proportionally():
+    counts = _weighted_mode_counts(total_episodes=100, mode_weights=[0.7, 0.2, 0.1])
+
+    assert counts == [70, 20, 10]
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "num_episodes, num_modes",
+    "total_episodes, mode_weights",
     [
-        (6, 3),
-        (7, 3),
-        (4, 2),
+        (100, [0.7, 0.2, 0.1]),
+        (13, [0.5, 0.5]),
+        (7, [1.0, 1.0, 1.0]),
     ],
 )
-def test_generate_multi_path_navigation_balances_modes_and_shapes_episodes(
+def test_weighted_mode_counts_sums_to_total(
+    total_episodes: int, mode_weights: list[float]
+):
+    counts = _weighted_mode_counts(
+        total_episodes=total_episodes, mode_weights=mode_weights
+    )
+
+    assert sum(counts) == total_episodes
+
+
+@pytest.mark.unit
+def test_resolve_mode_counts_uses_balanced_when_weights_none():
+    counts = _resolve_mode_counts(total_episodes=10, num_modes=3, mode_weights=None)
+
+    assert counts == _balanced_mode_counts(total_episodes=10, num_modes=3)
+
+
+@pytest.mark.unit
+def test_resolve_mode_counts_uses_weighted_when_weights_provided():
+    weights = [0.6, 0.4]
+    counts = _resolve_mode_counts(total_episodes=10, num_modes=2, mode_weights=weights)
+
+    assert counts == _weighted_mode_counts(total_episodes=10, mode_weights=weights)
+
+
+@pytest.mark.unit
+def test_resolve_mode_counts_raises_on_length_mismatch():
+    with pytest.raises(
+        ValueError,
+        match=re.escape("mode_weights length (3) must match num_modes (2)"),
+    ):
+        _resolve_mode_counts(
+            total_episodes=10, num_modes=2, mode_weights=[0.5, 0.3, 0.2]
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("num_episodes", [4, 6, 10])
+def test_generate_circle_episode_shape_and_keys(
     fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
-    rng: np.random.Generator,
     num_episodes: int,
-    num_modes: int,
 ):
     trajectory_length = 10
     image_size = 8
+    num_modes = CIRCLE_DEFAULT_NUM_MODES
 
     with patch(
         "versatil.data.synthetic.generators.render_episode",
         side_effect=fake_render_episode_factory(image_size=image_size),
-    ) as mock_render:
-        episodes = _generate_multi_path_navigation(
+    ):
+        episodes = generate_task_episodes(
+            task_name=SyntheticTaskName.CIRCLE.value,
             num_episodes=num_episodes,
-            random_generator=rng,
+            seed=42,
             image_size=image_size,
-            num_modes=num_modes,
             trajectory_length=trajectory_length,
             noise_std=0.0,
         )
 
     assert len(episodes) == num_episodes
-    assert mock_render.call_count == num_episodes
-    mode_id_values = [int(episode["mode_id"][0, 0]) for episode in episodes]
-    mode_counts = [mode_id_values.count(index) for index in range(num_modes)]
-    assert sum(mode_counts) == num_episodes
-    assert set(mode_id_values) == set(range(num_modes))
-
     for episode in episodes:
         assert set(episode.keys()) == EPISODE_KEYS
         assert episode["image"].shape == (
@@ -281,70 +271,114 @@ def test_generate_multi_path_navigation_balances_modes_and_shapes_episodes(
         assert episode["mode_id"].dtype == np.uint8
         assert episode["context"].shape == (trajectory_length, num_modes)
         assert episode["context"].dtype == np.float32
-        np.testing.assert_array_equal(
-            episode["context"],
-            np.zeros((trajectory_length, num_modes), dtype=np.float32),
-        )
-        np.testing.assert_array_equal(
-            episode["mode_id"],
-            np.full(
-                (trajectory_length, 1),
-                episode["mode_id"][0, 0],
-                dtype=np.uint8,
-            ),
-        )
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "trajectory_length, expectation",
-    [
-        (
-            MULTIPATH_MIN_TRAJECTORY_LENGTH,
-            does_not_raise(),
-        ),
-        (
-            MULTIPATH_MIN_TRAJECTORY_LENGTH - 1,
-            pytest.raises(
-                ValueError,
-                match=re.escape(
-                    f"conditional_navigation requires trajectory_length >= "
-                    f"{MULTIPATH_MIN_TRAJECTORY_LENGTH}, got "
-                    f"{MULTIPATH_MIN_TRAJECTORY_LENGTH - 1}"
-                ),
-            ),
-        ),
-    ],
-)
-def test_generate_conditional_navigation_min_trajectory_length_validation(
+def test_generate_circle_mode_balance(
     fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
-    rng: np.random.Generator,
-    trajectory_length: int,
-    expectation,
 ):
-    with (
-        patch(
-            "versatil.data.synthetic.generators.render_episode",
-            side_effect=fake_render_episode_factory(),
-        ),
-        expectation,
+    num_episodes = 10
+    num_modes = CIRCLE_DEFAULT_NUM_MODES
+
+    with patch(
+        "versatil.data.synthetic.generators.render_episode",
+        side_effect=fake_render_episode_factory(),
     ):
-        _generate_conditional_navigation(
-            num_episodes=MULTIPATH_DEFAULT_NUM_MODES,
-            random_generator=rng,
+        episodes = generate_task_episodes(
+            task_name=SyntheticTaskName.CIRCLE.value,
+            num_episodes=num_episodes,
+            seed=42,
             image_size=8,
-            num_modes=MULTIPATH_DEFAULT_NUM_MODES,
+            trajectory_length=10,
+            noise_std=0.0,
+        )
+
+    mode_ids = [int(ep["mode_id"][0, 0]) for ep in episodes]
+    assert set(mode_ids) == {0, 1}
+    assert mode_ids.count(0) == num_episodes // num_modes
+    assert mode_ids.count(1) == num_episodes // num_modes
+
+
+@pytest.mark.unit
+def test_generate_circle_trajectory_is_circular(
+    fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
+):
+    num_modes = CIRCLE_DEFAULT_NUM_MODES
+
+    with patch(
+        "versatil.data.synthetic.generators.render_episode",
+        side_effect=fake_render_episode_factory(),
+    ):
+        episodes = generate_task_episodes(
+            task_name=SyntheticTaskName.CIRCLE.value,
+            num_episodes=num_modes,
+            seed=42,
+            image_size=8,
+            trajectory_length=60,
+            noise_std=0.0,
+        )
+
+    centers = {0: CIRCLE_CENTER_BOTTOM, 1: CIRCLE_CENTER_TOP}
+    for episode in episodes:
+        mode_index = int(episode["mode_id"][0, 0])
+        center = centers[mode_index]
+        distances = np.linalg.norm(episode["position"] - center[np.newaxis, :], axis=1)
+        np.testing.assert_allclose(distances, CIRCLE_RADIUS, atol=1e-5)
+
+
+@pytest.mark.unit
+def test_generate_circle_context_is_zeros(
+    fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
+):
+    num_modes = CIRCLE_DEFAULT_NUM_MODES
+    trajectory_length = 10
+
+    with patch(
+        "versatil.data.synthetic.generators.render_episode",
+        side_effect=fake_render_episode_factory(),
+    ):
+        episodes = generate_task_episodes(
+            task_name=SyntheticTaskName.CIRCLE.value,
+            num_episodes=num_modes,
+            seed=42,
+            image_size=8,
             trajectory_length=trajectory_length,
             noise_std=0.0,
         )
 
+    for episode in episodes:
+        np.testing.assert_array_equal(
+            episode["context"],
+            np.zeros((trajectory_length, num_modes), dtype=np.float32),
+        )
+
 
 @pytest.mark.unit
-def test_generate_conditional_navigation_context_is_one_hot_per_mode(
+def test_generate_circle_renders_without_goal(
     fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
-    rng: np.random.Generator,
 ):
-    num_modes = MULTIPATH_DEFAULT_NUM_MODES
+    with patch(
+        "versatil.data.synthetic.generators.render_episode",
+        side_effect=fake_render_episode_factory(),
+    ) as mock_render:
+        generate_task_episodes(
+            task_name=SyntheticTaskName.CIRCLE.value,
+            num_episodes=2,
+            seed=42,
+            image_size=8,
+            trajectory_length=10,
+            noise_std=0.0,
+        )
+
+    for call in mock_render.call_args_list:
+        assert "goal" not in call.kwargs
+
+
+@pytest.mark.unit
+def test_generate_conditional_circle_context_is_one_hot(
+    fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
+):
+    num_modes = CIRCLE_DEFAULT_NUM_MODES
     num_episodes = num_modes * 2
     trajectory_length = 10
 
@@ -352,11 +386,11 @@ def test_generate_conditional_navigation_context_is_one_hot_per_mode(
         "versatil.data.synthetic.generators.render_episode",
         side_effect=fake_render_episode_factory(),
     ):
-        episodes = _generate_conditional_navigation(
+        episodes = generate_task_episodes(
+            task_name=SyntheticTaskName.CONDITIONAL_CIRCLE.value,
             num_episodes=num_episodes,
-            random_generator=rng,
+            seed=42,
             image_size=8,
-            num_modes=num_modes,
             trajectory_length=trajectory_length,
             noise_std=0.0,
         )
@@ -370,24 +404,22 @@ def test_generate_conditional_navigation_context_is_one_hot_per_mode(
 
 
 @pytest.mark.unit
-def test_generate_conditional_navigation_passes_per_mode_context_color_to_render(
+def test_generate_conditional_circle_passes_context_color_to_render(
     fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
-    rng: np.random.Generator,
 ):
-    num_modes = MULTIPATH_DEFAULT_NUM_MODES
+    num_modes = CIRCLE_DEFAULT_NUM_MODES
     num_episodes = num_modes
-    trajectory_length = 10
 
     with patch(
         "versatil.data.synthetic.generators.render_episode",
         side_effect=fake_render_episode_factory(),
     ) as mock_render:
-        _generate_conditional_navigation(
+        generate_task_episodes(
+            task_name=SyntheticTaskName.CONDITIONAL_CIRCLE.value,
             num_episodes=num_episodes,
-            random_generator=rng,
+            seed=42,
             image_size=8,
-            num_modes=num_modes,
-            trajectory_length=trajectory_length,
+            trajectory_length=10,
             noise_std=0.0,
         )
 
@@ -395,453 +427,399 @@ def test_generate_conditional_navigation_passes_per_mode_context_color_to_render
     render_context_colors = [
         call.kwargs["context_color"] for call in mock_render.call_args_list
     ]
-    expected_colors = [MULTIPATH_CONTEXT_COLORS[index] for index in range(num_modes)]
+    expected_colors = [CIRCLE_CONTEXT_COLORS[index] for index in range(num_modes)]
     assert sorted(render_context_colors) == sorted(expected_colors)
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "input_trajectory_length, input_noise_std, "
-    "expected_trajectory_length, expected_noise_std_used",
-    [
-        (
-            MULTIPATH_DEFAULT_TRAJECTORY_LENGTH,
-            MULTIPATH_DEFAULT_NOISE_STD,
-            STYLE_DEFAULT_TRAJECTORY_LENGTH,
-            STYLE_DEFAULT_NOISE_STD,
-        ),
-        (
-            STYLE_MIN_TRAJECTORY_LENGTH + 5,
-            0.05,
-            STYLE_MIN_TRAJECTORY_LENGTH + 5,
-            0.05,
-        ),
-    ],
-)
-def test_generate_trajectory_style_substitutes_multipath_sentinel_defaults(
+def test_generate_sequential_decision_renders_with_per_mode_goal_and_obstacles(
     fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
-    rng: np.random.Generator,
-    input_trajectory_length: int,
-    input_noise_std: float,
-    expected_trajectory_length: int,
-    expected_noise_std_used: float,
 ):
-    num_styles = STYLE_DEFAULT_NUM_STYLES
-    num_episodes = num_styles
+    num_episodes = SEQUENTIAL_NUM_COMPOUND_MODES
 
     with patch(
         "versatil.data.synthetic.generators.render_episode",
         side_effect=fake_render_episode_factory(),
-    ):
-        episodes = _generate_trajectory_style(
+    ) as mock_render:
+        generate_task_episodes(
+            task_name=SyntheticTaskName.SEQUENTIAL_DECISION.value,
             num_episodes=num_episodes,
-            random_generator=rng,
+            seed=42,
             image_size=8,
-            num_styles=num_styles,
-            trajectory_length=input_trajectory_length,
-            noise_std=input_noise_std,
-        )
-
-    for episode in episodes:
-        assert episode["position"].shape[0] == expected_trajectory_length
-    # Sanity check: the (unused) expected_noise_std is non-negative and the
-    # substitution didn't regress into an invalid value.
-    assert expected_noise_std_used >= 0.0
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "trajectory_length, expectation",
-    [
-        (
-            STYLE_MIN_TRAJECTORY_LENGTH,
-            does_not_raise(),
-        ),
-        (
-            STYLE_MIN_TRAJECTORY_LENGTH - 1,
-            pytest.raises(
-                ValueError,
-                match=re.escape(
-                    f"trajectory_style requires trajectory_length >= "
-                    f"{STYLE_MIN_TRAJECTORY_LENGTH}, got "
-                    f"{STYLE_MIN_TRAJECTORY_LENGTH - 1}"
-                ),
-            ),
-        ),
-    ],
-)
-def test_generate_trajectory_style_min_trajectory_length_validation(
-    fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
-    rng: np.random.Generator,
-    trajectory_length: int,
-    expectation,
-):
-    with (
-        patch(
-            "versatil.data.synthetic.generators.render_episode",
-            side_effect=fake_render_episode_factory(),
-        ),
-        expectation,
-    ):
-        _generate_trajectory_style(
-            num_episodes=STYLE_DEFAULT_NUM_STYLES,
-            random_generator=rng,
-            image_size=8,
-            num_styles=STYLE_DEFAULT_NUM_STYLES,
-            trajectory_length=trajectory_length,
-            noise_std=0.05,
-        )
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "style_index, y_profile_check",
-    [
-        (
-            0,
-            lambda positions: np.allclose(positions[:, 1], STYLE_START[1], atol=0.02),
-        ),
-        (
-            1,
-            lambda positions: positions[:, 1].max() > STYLE_START[1] + 0.1,
-        ),
-        (
-            2,
-            lambda positions: positions[:, 1].min() < STYLE_START[1] - 0.1,
-        ),
-        (
-            3,
-            lambda positions: (
-                positions[:, 1].max() > STYLE_START[1] + 0.02
-                and positions[:, 1].min() < STYLE_START[1] - 0.02
-            ),
-        ),
-    ],
-)
-def test_generate_trajectory_style_produces_distinct_y_profile_per_style(
-    fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
-    rng: np.random.Generator,
-    style_index: int,
-    y_profile_check: Callable[[np.ndarray], bool],
-):
-    num_styles = STYLE_DEFAULT_NUM_STYLES
-    num_episodes = num_styles
-    trajectory_length = STYLE_DEFAULT_TRAJECTORY_LENGTH
-
-    with patch(
-        "versatil.data.synthetic.generators.render_episode",
-        side_effect=fake_render_episode_factory(),
-    ):
-        episodes = _generate_trajectory_style(
-            num_episodes=num_episodes,
-            random_generator=rng,
-            image_size=8,
-            num_styles=num_styles,
-            trajectory_length=trajectory_length,
+            trajectory_length=60,
             noise_std=0.0,
         )
 
-    matching_episode = next(
-        episode for episode in episodes if int(episode["mode_id"][0, 0]) == style_index
-    )
-    assert y_profile_check(matching_episode["position"])
+    assert mock_render.call_count == num_episodes
+    goals_received = [call.kwargs["goal"] for call in mock_render.call_args_list]
+    unique_goals = {(float(g[0]), float(g[1])) for g in goals_received}
+    assert len(unique_goals) == SEQUENTIAL_NUM_COMPOUND_MODES
+    for call in mock_render.call_args_list:
+        assert call.kwargs["obstacles"] == SEQUENTIAL_OBSTACLES
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "input_trajectory_length, input_noise_std, expected_trajectory_length",
-    [
-        (
-            MULTIPATH_DEFAULT_TRAJECTORY_LENGTH,
-            MULTIPATH_DEFAULT_NOISE_STD,
-            SEQUENTIAL_DEFAULT_TRAJECTORY_LENGTH,
-        ),
-        (
-            SEQUENTIAL_MIN_TRAJECTORY_LENGTH,
-            0.05,
-            SEQUENTIAL_MIN_TRAJECTORY_LENGTH,
-        ),
-    ],
-)
-def test_generate_sequential_decision_substitutes_multipath_sentinel_defaults(
-    fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
-    rng: np.random.Generator,
-    input_trajectory_length: int,
-    input_noise_std: float,
-    expected_trajectory_length: int,
-):
-    num_episodes = 4
-    # Sanity: SEQUENTIAL_DEFAULT_NOISE_STD is used when multipath default is passed
-    assert SEQUENTIAL_DEFAULT_NOISE_STD != MULTIPATH_DEFAULT_NOISE_STD
-
-    with patch(
-        "versatil.data.synthetic.generators.render_episode",
-        side_effect=fake_render_episode_factory(),
-    ):
-        episodes = _generate_sequential_decision(
-            num_episodes=num_episodes,
-            random_generator=rng,
-            image_size=8,
-            trajectory_length=input_trajectory_length,
-            noise_std=input_noise_std,
-        )
-
-    for episode in episodes:
-        assert episode["position"].shape[0] == expected_trajectory_length
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "trajectory_length, expectation",
-    [
-        (
-            SEQUENTIAL_MIN_TRAJECTORY_LENGTH,
-            does_not_raise(),
-        ),
-        (
-            SEQUENTIAL_MIN_TRAJECTORY_LENGTH - 1,
-            pytest.raises(
-                ValueError,
-                match=re.escape(
-                    f"sequential_decision requires trajectory_length >= "
-                    f"{SEQUENTIAL_MIN_TRAJECTORY_LENGTH}, got "
-                    f"{SEQUENTIAL_MIN_TRAJECTORY_LENGTH - 1}"
-                ),
-            ),
-        ),
-    ],
-)
-def test_generate_sequential_decision_min_trajectory_length_validation(
-    fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
-    rng: np.random.Generator,
-    trajectory_length: int,
-    expectation,
-):
-    with (
-        patch(
-            "versatil.data.synthetic.generators.render_episode",
-            side_effect=fake_render_episode_factory(),
-        ),
-        expectation,
-    ):
-        _generate_sequential_decision(
-            num_episodes=4,
-            random_generator=rng,
-            image_size=8,
-            trajectory_length=trajectory_length,
-            noise_std=0.0,
-        )
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "mode_index, expected_mid_x, expected_final_x",
+    "mode_index, expected_endpoint_x",
     [
         (
             0,
-            SEQUENTIAL_START[0] - SEQUENTIAL_BRANCH_X_DELTA,
-            SEQUENTIAL_START[0] - 2 * SEQUENTIAL_BRANCH_X_DELTA,
+            float(SEQUENTIAL_START[0])
+            - SEQUENTIAL_FIRST_BRANCH_X_DELTA
+            - SEQUENTIAL_SECOND_BRANCH_X_DELTA,
         ),
         (
             1,
-            SEQUENTIAL_START[0] - SEQUENTIAL_BRANCH_X_DELTA,
-            SEQUENTIAL_START[0],
+            float(SEQUENTIAL_START[0])
+            - SEQUENTIAL_FIRST_BRANCH_X_DELTA
+            + SEQUENTIAL_SECOND_BRANCH_X_DELTA,
         ),
         (
             2,
-            SEQUENTIAL_START[0] + SEQUENTIAL_BRANCH_X_DELTA,
-            SEQUENTIAL_START[0],
+            float(SEQUENTIAL_START[0])
+            + SEQUENTIAL_FIRST_BRANCH_X_DELTA
+            - SEQUENTIAL_SECOND_BRANCH_X_DELTA,
         ),
         (
             3,
-            SEQUENTIAL_START[0] + SEQUENTIAL_BRANCH_X_DELTA,
-            SEQUENTIAL_START[0] + 2 * SEQUENTIAL_BRANCH_X_DELTA,
+            float(SEQUENTIAL_START[0])
+            + SEQUENTIAL_FIRST_BRANCH_X_DELTA
+            + SEQUENTIAL_SECOND_BRANCH_X_DELTA,
         ),
     ],
 )
-def test_generate_sequential_decision_compound_modes_have_distinct_endpoints(
+def test_generate_sequential_decision_endpoints_differ(
     fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
-    rng: np.random.Generator,
     mode_index: int,
-    expected_mid_x: float,
-    expected_final_x: float,
+    expected_endpoint_x: float,
 ):
-    num_episodes = 4
-    trajectory_length = SEQUENTIAL_DEFAULT_TRAJECTORY_LENGTH
+    num_episodes = SEQUENTIAL_NUM_COMPOUND_MODES
 
     with patch(
         "versatil.data.synthetic.generators.render_episode",
         side_effect=fake_render_episode_factory(),
     ):
-        episodes = _generate_sequential_decision(
+        episodes = generate_task_episodes(
+            task_name=SyntheticTaskName.SEQUENTIAL_DECISION.value,
             num_episodes=num_episodes,
-            random_generator=rng,
+            seed=42,
             image_size=8,
-            trajectory_length=trajectory_length,
+            trajectory_length=60,
             noise_std=0.0,
         )
 
     matching_episode = next(
-        episode for episode in episodes if int(episode["mode_id"][0, 0]) == mode_index
+        ep for ep in episodes if int(ep["mode_id"][0, 0]) == mode_index
     )
-    mid_x = matching_episode["position"][trajectory_length // 2, 0]
-    final_x = matching_episode["position"][-1, 0]
-    assert abs(mid_x - expected_mid_x) < 0.05
-    assert abs(final_x - expected_final_x) < 0.05
+    final_position = matching_episode["position"][-1]
+    np.testing.assert_allclose(final_position[0], expected_endpoint_x, atol=1e-4)
+    np.testing.assert_allclose(final_position[1], SEQUENTIAL_ENDPOINT_Y, atol=1e-4)
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "input_trajectory_length, input_noise_std, expected_trajectory_length",
-    [
-        (
-            MULTIPATH_DEFAULT_TRAJECTORY_LENGTH,
-            MULTIPATH_DEFAULT_NOISE_STD,
-            SHARED_PREFIX_DEFAULT_TRAJECTORY_LENGTH,
-        ),
-        (
-            SHARED_PREFIX_MIN_TRAJECTORY_LENGTH,
-            0.05,
-            SHARED_PREFIX_MIN_TRAJECTORY_LENGTH,
-        ),
-    ],
-)
-def test_generate_shared_prefix_substitutes_multipath_sentinel_defaults(
+@pytest.mark.parametrize("num_modes", [2, 4, 8])
+def test_generate_radial_mode_count_matches_k(
     fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
-    rng: np.random.Generator,
-    input_trajectory_length: int,
-    input_noise_std: float,
-    expected_trajectory_length: int,
+    num_modes: int,
 ):
-    num_episodes = SHARED_PREFIX_DEFAULT_NUM_MODES
-    assert SHARED_PREFIX_DEFAULT_NOISE_STD != MULTIPATH_DEFAULT_NOISE_STD
+    num_episodes = num_modes * 2
 
     with patch(
         "versatil.data.synthetic.generators.render_episode",
         side_effect=fake_render_episode_factory(),
     ):
-        episodes = _generate_shared_prefix(
+        episodes = generate_task_episodes(
+            task_name=SyntheticTaskName.RADIAL.value,
             num_episodes=num_episodes,
-            random_generator=rng,
+            seed=42,
             image_size=8,
-            num_modes=SHARED_PREFIX_DEFAULT_NUM_MODES,
-            trajectory_length=input_trajectory_length,
-            noise_std=input_noise_std,
-        )
-
-    for episode in episodes:
-        assert episode["position"].shape[0] == expected_trajectory_length
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "trajectory_length, expectation",
-    [
-        (
-            SHARED_PREFIX_MIN_TRAJECTORY_LENGTH,
-            does_not_raise(),
-        ),
-        (
-            SHARED_PREFIX_MIN_TRAJECTORY_LENGTH - 1,
-            pytest.raises(
-                ValueError,
-                match=re.escape(
-                    f"shared_prefix requires trajectory_length >= "
-                    f"{SHARED_PREFIX_MIN_TRAJECTORY_LENGTH}, got "
-                    f"{SHARED_PREFIX_MIN_TRAJECTORY_LENGTH - 1}"
-                ),
-            ),
-        ),
-    ],
-)
-def test_generate_shared_prefix_min_trajectory_length_validation(
-    fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
-    rng: np.random.Generator,
-    trajectory_length: int,
-    expectation,
-):
-    with (
-        patch(
-            "versatil.data.synthetic.generators.render_episode",
-            side_effect=fake_render_episode_factory(),
-        ),
-        expectation,
-    ):
-        _generate_shared_prefix(
-            num_episodes=SHARED_PREFIX_DEFAULT_NUM_MODES,
-            random_generator=rng,
-            image_size=8,
-            num_modes=SHARED_PREFIX_DEFAULT_NUM_MODES,
-            trajectory_length=trajectory_length,
+            num_modes=num_modes,
+            trajectory_length=30,
             noise_std=0.0,
         )
 
+    mode_ids = {int(ep["mode_id"][0, 0]) for ep in episodes}
+    assert mode_ids == set(range(num_modes))
+
 
 @pytest.mark.unit
-def test_generate_shared_prefix_positions_identical_in_shared_segment(
+def test_generate_radial_trajectory_is_straight_line(
     fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
-    rng: np.random.Generator,
 ):
-    num_modes = SHARED_PREFIX_DEFAULT_NUM_MODES
-    num_episodes = num_modes
-    trajectory_length = SHARED_PREFIX_DEFAULT_TRAJECTORY_LENGTH
+    num_modes = 4
+    trajectory_length = 30
 
     with patch(
         "versatil.data.synthetic.generators.render_episode",
         side_effect=fake_render_episode_factory(),
     ):
-        episodes = _generate_shared_prefix(
-            num_episodes=num_episodes,
-            random_generator=rng,
+        episodes = generate_task_episodes(
+            task_name=SyntheticTaskName.RADIAL.value,
+            num_episodes=num_modes,
+            seed=42,
             image_size=8,
             num_modes=num_modes,
             trajectory_length=trajectory_length,
             noise_std=0.0,
         )
 
-    # Under zero noise, every mode's first SHARED_PREFIX_SHARED_STEPS
-    # positions should be exactly identical.
-    reference_prefix = episodes[0]["position"][:SHARED_PREFIX_SHARED_STEPS]
-    for episode in episodes[1:]:
-        np.testing.assert_array_equal(
-            episode["position"][:SHARED_PREFIX_SHARED_STEPS],
-            reference_prefix,
+    for episode in episodes:
+        positions = episode["position"]
+        mode_index = int(episode["mode_id"][0, 0])
+        angle = 2.0 * np.pi * mode_index / num_modes
+        expected_endpoint = np.array(
+            [
+                float(RADIAL_CENTER[0]) + RADIAL_RADIUS * np.cos(angle),
+                float(RADIAL_CENTER[1]) + RADIAL_RADIUS * np.sin(angle),
+            ],
+            dtype=np.float32,
+        )
+        direction = expected_endpoint - RADIAL_CENTER
+        direction_normalized = direction / np.linalg.norm(direction)
+        offsets = positions - RADIAL_CENTER[np.newaxis, :]
+        norms = np.linalg.norm(offsets, axis=1, keepdims=True)
+        norms = np.maximum(norms, 1e-8)
+        unit_offsets = offsets / norms
+        np.testing.assert_allclose(
+            unit_offsets[1:],
+            np.tile(direction_normalized, (trajectory_length - 1, 1)),
+            atol=1e-5,
         )
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "mode_index",
-    list(range(SHARED_PREFIX_DEFAULT_NUM_MODES)),
-)
-def test_generate_shared_prefix_divergent_endpoint_matches_mode(
+def test_generate_corridor_mode_count_matches_k_times_s(
     fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
-    rng: np.random.Generator,
-    mode_index: int,
 ):
-    num_modes = SHARED_PREFIX_DEFAULT_NUM_MODES
-    num_episodes = num_modes
+    num_modes = 4
+    num_styles = 2
+    total_modes = num_modes * num_styles
+    num_episodes = total_modes * 2
 
     with patch(
         "versatil.data.synthetic.generators.render_episode",
         side_effect=fake_render_episode_factory(),
     ):
-        episodes = _generate_shared_prefix(
+        episodes = generate_task_episodes(
+            task_name=SyntheticTaskName.CORRIDOR_NAVIGATION.value,
             num_episodes=num_episodes,
-            random_generator=rng,
+            seed=42,
             image_size=8,
             num_modes=num_modes,
-            trajectory_length=SHARED_PREFIX_DEFAULT_TRAJECTORY_LENGTH,
+            num_styles=num_styles,
+            trajectory_length=30,
             noise_std=0.0,
         )
 
-    expected_endpoint = np.array(SHARED_PREFIX_ENDPOINTS[mode_index], dtype=np.float32)
-    matching_episode = next(
-        episode for episode in episodes if int(episode["mode_id"][0, 0]) == mode_index
+    mode_ids = {int(ep["mode_id"][0, 0]) for ep in episodes}
+    assert mode_ids == set(range(total_modes))
+
+
+@pytest.mark.unit
+def test_generate_corridor_even_k_enforced():
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "corridor_navigation requires even num_modes so no gap "
+            "falls at y=0.5 (BC must collide), got 3"
+        ),
+    ):
+        generate_task_episodes(
+            task_name=SyntheticTaskName.CORRIDOR_NAVIGATION.value,
+            num_episodes=6,
+            seed=42,
+            image_size=8,
+            num_modes=3,
+            trajectory_length=30,
+            noise_std=0.0,
+        )
+
+
+@pytest.mark.unit
+def test_generate_radial_renders_with_dynamic_obstacles(
+    fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
+):
+    num_modes = 4
+
+    with patch(
+        "versatil.data.synthetic.generators.render_episode",
+        side_effect=fake_render_episode_factory(),
+    ) as mock_render:
+        generate_task_episodes(
+            task_name=SyntheticTaskName.RADIAL.value,
+            num_episodes=num_modes,
+            seed=42,
+            image_size=8,
+            num_modes=num_modes,
+            trajectory_length=10,
+            noise_std=0.0,
+        )
+
+    for call in mock_render.call_args_list:
+        obstacles = call.kwargs["obstacles"]
+        assert len(obstacles) == num_modes
+
+
+@pytest.mark.unit
+def test_generate_corridor_renders_with_dynamic_obstacles(
+    fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
+):
+    num_modes = 4
+
+    with patch(
+        "versatil.data.synthetic.generators.render_episode",
+        side_effect=fake_render_episode_factory(),
+    ) as mock_render:
+        generate_task_episodes(
+            task_name=SyntheticTaskName.CORRIDOR_NAVIGATION.value,
+            num_episodes=num_modes,
+            seed=42,
+            image_size=8,
+            num_modes=num_modes,
+            num_styles=1,
+            trajectory_length=10,
+            noise_std=0.0,
+        )
+
+    for call in mock_render.call_args_list:
+        obstacles = call.kwargs["obstacles"]
+        assert len(obstacles) == num_modes - 1
+
+
+@pytest.mark.unit
+def test_generate_corridor_trajectory_passes_through_gap(
+    fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
+):
+    num_modes = 4
+    num_styles = 1
+
+    with patch(
+        "versatil.data.synthetic.generators.render_episode",
+        side_effect=fake_render_episode_factory(),
+    ):
+        episodes = generate_task_episodes(
+            task_name=SyntheticTaskName.CORRIDOR_NAVIGATION.value,
+            num_episodes=num_modes,
+            seed=42,
+            image_size=8,
+            num_modes=num_modes,
+            num_styles=num_styles,
+            trajectory_length=60,
+            noise_std=0.0,
+        )
+
+    gap_centers = _compute_corridor_gap_centers(num_gaps=num_modes)
+    half_gap = CORRIDOR_GAP_HEIGHT / 2.0
+    for episode in episodes:
+        positions = episode["position"]
+        in_wall_region = (positions[:, 0] >= CORRIDOR_WALL_X1) & (
+            positions[:, 0] <= CORRIDOR_WALL_X2
+        )
+        assert in_wall_region.any(), "trajectory must cross the wall region"
+        wall_y_values = positions[in_wall_region, 1]
+        in_any_gap = any(
+            np.any((wall_y_values >= gc - half_gap) & (wall_y_values <= gc + half_gap))
+            for gc in gap_centers
+        )
+        assert in_any_gap, "trajectory must pass through a gap, not through a wall"
+
+
+@pytest.mark.unit
+def test_generate_corridor_styles_produce_different_trajectories(
+    fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
+):
+    num_modes = 2
+    num_styles = 3
+    total_modes = num_modes * num_styles
+
+    with patch(
+        "versatil.data.synthetic.generators.render_episode",
+        side_effect=fake_render_episode_factory(),
+    ):
+        episodes = generate_task_episodes(
+            task_name=SyntheticTaskName.CORRIDOR_NAVIGATION.value,
+            num_episodes=total_modes,
+            seed=42,
+            image_size=8,
+            num_modes=num_modes,
+            num_styles=num_styles,
+            trajectory_length=60,
+            noise_std=0.0,
+        )
+
+    # Group episodes by corridor (gap_index = mode_id // num_styles)
+    corridor_0_episodes = [
+        ep for ep in episodes if int(ep["mode_id"][0, 0]) < num_styles
+    ]
+    assert len(corridor_0_episodes) == num_styles
+    # Different styles in the same corridor must produce different y-profiles
+    for i in range(1, len(corridor_0_episodes)):
+        assert not np.array_equal(
+            corridor_0_episodes[0]["position"],
+            corridor_0_episodes[i]["position"],
+        )
+
+
+@pytest.mark.unit
+def test_parametric_circle_distance_from_center():
+    center = np.array([0.5, 0.7], dtype=np.float32)
+    radius = 0.2
+    positions = _parametric_circle(
+        center=center, radius=radius, num_points=60, clockwise=True
     )
-    np.testing.assert_allclose(
-        matching_episode["position"][-1], expected_endpoint, atol=1e-5
+
+    assert positions.shape == (60, 2)
+    distances = np.linalg.norm(positions - center[np.newaxis, :], axis=1)
+    np.testing.assert_allclose(distances, radius, atol=1e-6)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("num_gaps", [2, 4, 6])
+def test_compute_corridor_gap_centers_evenly_spaced(num_gaps: int):
+    gap_centers = _compute_corridor_gap_centers(num_gaps=num_gaps)
+
+    assert len(gap_centers) == num_gaps
+    # No gap at y=0.5 for even K
+    for gc in gap_centers:
+        assert gc != 0.5
+    # Evenly spaced
+    spacings = [
+        gap_centers[i + 1] - gap_centers[i] for i in range(len(gap_centers) - 1)
+    ]
+    np.testing.assert_allclose(spacings, spacings[0], atol=1e-10)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("num_modes", [4, 8])
+def test_generate_radial_obstacles_count_matches_modes(num_modes: int):
+    obstacles = _generate_radial_obstacles(num_modes=num_modes)
+
+    assert len(obstacles) == num_modes
+    for x_min, y_min, x_max, y_max in obstacles:
+        assert x_min < x_max
+        assert y_min < y_max
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("num_gaps", [2, 4, 6])
+def test_generate_corridor_obstacles_count_is_gaps_minus_one(num_gaps: int):
+    gap_centers = _compute_corridor_gap_centers(num_gaps=num_gaps)
+    obstacles = _generate_corridor_obstacles(gap_centers=gap_centers)
+
+    assert len(obstacles) == num_gaps - 1
+
+
+@pytest.mark.unit
+def test_apply_sinusoidal_style_modifies_y_axis():
+    positions = np.stack([np.linspace(0.0, 1.0, 30), np.full(30, 0.5)], axis=-1).astype(
+        np.float32
     )
+
+    modified = _apply_sinusoidal_style(positions=positions, style_index=0, num_styles=2)
+
+    assert modified.shape == positions.shape
+    np.testing.assert_array_equal(modified[:, 0], positions[:, 0])
+    assert not np.array_equal(modified[:, 1], positions[:, 1])
 
 
 @pytest.mark.unit
@@ -849,37 +827,37 @@ def test_generate_shared_prefix_divergent_endpoint_matches_mode(
     "task_name, expected_target",
     [
         (
-            SyntheticTaskName.MULTI_PATH_NAVIGATION.value,
-            "_generate_multi_path_navigation",
+            SyntheticTaskName.CIRCLE.value,
+            "_generate_circle",
         ),
         (
-            SyntheticTaskName.CONDITIONAL_NAVIGATION.value,
-            "_generate_conditional_navigation",
-        ),
-        (
-            SyntheticTaskName.TRAJECTORY_STYLE.value,
-            "_generate_trajectory_style",
+            SyntheticTaskName.CONDITIONAL_CIRCLE.value,
+            "_generate_conditional_circle",
         ),
         (
             SyntheticTaskName.SEQUENTIAL_DECISION.value,
             "_generate_sequential_decision",
         ),
         (
-            SyntheticTaskName.SHARED_PREFIX.value,
-            "_generate_shared_prefix",
+            SyntheticTaskName.RADIAL.value,
+            "_generate_radial",
+        ),
+        (
+            SyntheticTaskName.CORRIDOR_NAVIGATION.value,
+            "_generate_corridor_navigation",
         ),
     ],
 )
-def test_generate_task_episodes_dispatches_to_correct_private_generator(
+def test_generate_task_episodes_dispatches_to_correct_generator(
     task_name: str,
     expected_target: str,
 ):
     dispatch_targets = [
-        "_generate_multi_path_navigation",
-        "_generate_conditional_navigation",
-        "_generate_trajectory_style",
+        "_generate_circle",
+        "_generate_conditional_circle",
         "_generate_sequential_decision",
-        "_generate_shared_prefix",
+        "_generate_radial",
+        "_generate_corridor_navigation",
     ]
     mock_return_value: list[dict[str, np.ndarray]] = []
 
@@ -887,46 +865,56 @@ def test_generate_task_episodes_dispatches_to_correct_private_generator(
         patch(
             f"versatil.data.synthetic.generators.{dispatch_targets[0]}",
             return_value=mock_return_value,
-        ) as mock_multi_path,
+        ) as mock_circle,
         patch(
             f"versatil.data.synthetic.generators.{dispatch_targets[1]}",
             return_value=mock_return_value,
-        ) as mock_conditional,
+        ) as mock_conditional_circle,
         patch(
             f"versatil.data.synthetic.generators.{dispatch_targets[2]}",
             return_value=mock_return_value,
-        ) as mock_style,
+        ) as mock_sequential,
         patch(
             f"versatil.data.synthetic.generators.{dispatch_targets[3]}",
             return_value=mock_return_value,
-        ) as mock_sequential,
+        ) as mock_radial,
         patch(
             f"versatil.data.synthetic.generators.{dispatch_targets[4]}",
             return_value=mock_return_value,
-        ) as mock_shared_prefix,
+        ) as mock_corridor,
     ):
         result = generate_task_episodes(
             task_name=task_name,
             num_episodes=6,
             seed=7,
             image_size=8,
-            num_modes=3,
+            num_modes=4,
             trajectory_length=10,
             noise_std=0.01,
-            num_styles=4,
+            num_styles=2,
         )
 
     assert result is mock_return_value
     mocks_by_target = {
-        dispatch_targets[0]: mock_multi_path,
-        dispatch_targets[1]: mock_conditional,
-        dispatch_targets[2]: mock_style,
-        dispatch_targets[3]: mock_sequential,
-        dispatch_targets[4]: mock_shared_prefix,
+        dispatch_targets[0]: mock_circle,
+        dispatch_targets[1]: mock_conditional_circle,
+        dispatch_targets[2]: mock_sequential,
+        dispatch_targets[3]: mock_radial,
+        dispatch_targets[4]: mock_corridor,
     }
     for target, mock in mocks_by_target.items():
         if target == expected_target:
             assert mock.call_count == 1
+            call_kwargs = mock.call_args.kwargs
+            assert call_kwargs["num_episodes"] == 6
+            assert call_kwargs["image_size"] == 8
+            assert call_kwargs["trajectory_length"] == 10
+            assert call_kwargs["noise_std"] == 0.01
+            assert call_kwargs["mode_weights"] is None
+            if target in ("_generate_radial", "_generate_corridor_navigation"):
+                assert call_kwargs["num_modes"] == 4
+            if target == "_generate_corridor_navigation":
+                assert call_kwargs["num_styles"] == 2
         else:
             assert mock.call_count == 0
 
@@ -949,3 +937,32 @@ def test_generate_task_episodes_raises_for_unknown_task():
             noise_std=0.01,
             num_styles=4,
         )
+
+
+@pytest.mark.unit
+def test_generate_task_episodes_passes_mode_weights(
+    fake_render_episode_factory: Callable[..., Callable[..., np.ndarray]],
+):
+    weights = [0.8, 0.2]
+    num_episodes = 10
+
+    with patch(
+        "versatil.data.synthetic.generators.render_episode",
+        side_effect=fake_render_episode_factory(),
+    ):
+        episodes = generate_task_episodes(
+            task_name=SyntheticTaskName.CIRCLE.value,
+            num_episodes=num_episodes,
+            seed=42,
+            image_size=8,
+            trajectory_length=10,
+            noise_std=0.0,
+            mode_weights=weights,
+        )
+
+    mode_counts = [
+        sum(1 for ep in episodes if int(ep["mode_id"][0, 0]) == mode)
+        for mode in range(CIRCLE_DEFAULT_NUM_MODES)
+    ]
+    assert mode_counts == [8, 2]
+    assert sum(mode_counts) == num_episodes

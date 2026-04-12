@@ -1,15 +1,15 @@
 defaults:
-  - synthetic_schema
+  - /task/dataset_schema/synthetic_schema
   - /task/dataset_schema/zarr_meta/synthetic@metadata
 
 _target_: versatil.data.raw.schemas.custom.synthetic.SyntheticSchema
 dataset_type: ${dataset_type:SYNTHETIC}
-zarr_path: ${zarr_dir:synthetic/multi_path_navigation.zarr}
-task_name: ${synthetic_task:MULTI_PATH_NAVIGATION}
+zarr_path: ${zarr_dir:synthetic/conditional_circle.zarr}
+task_name: ${synthetic_task:CONDITIONAL_CIRCLE}
 num_episodes: 1000
 seed: 42
 image_size: 64
-num_modes: 3
+num_modes: 2
 trajectory_length: 60
-noise_std: 0.01
-num_styles: 4
+noise_std: 0.008
+num_styles: 1

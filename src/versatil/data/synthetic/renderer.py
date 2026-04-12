@@ -18,7 +18,7 @@ TRAIL_THICKNESS = 1
 def render_frame(
     position: np.ndarray,
     obstacles: list[tuple[float, float, float, float]],
-    goal: np.ndarray,
+    goal: np.ndarray | None = None,
     image_size: int = 64,
     trail: np.ndarray | None = None,
     context_color: tuple[int, int, int] | None = None,
@@ -34,6 +34,7 @@ def render_frame(
         obstacles: Axis-aligned rectangles as (x_min, y_min, x_max, y_max)
             in [0, 1] coordinates.
         goal: Cartesian goal position (x, y) in [0, 1]x[0, 1]. Shape (2,).
+            None to skip drawing the goal marker.
         image_size: Side length of the square output image in pixels.
         trail: Past Cartesian positions (x, y) for rendering the agent
             trail. Shape (num_past_steps, 2). None to disable trail.
@@ -51,8 +52,9 @@ def render_frame(
         top_left = _cartesian_to_pixel(np.array([x_min, y_min]), image_size)
         bottom_right = _cartesian_to_pixel(np.array([x_max, y_max]), image_size)
         cv2.rectangle(image, top_left, bottom_right, OBSTACLE_COLOR, thickness=-1)
-    goal_pixel = _cartesian_to_pixel(goal, image_size)
-    cv2.circle(image, goal_pixel, goal_radius, GOAL_COLOR, thickness=-1)
+    if goal is not None:
+        goal_pixel = _cartesian_to_pixel(goal, image_size)
+        cv2.circle(image, goal_pixel, goal_radius, GOAL_COLOR, thickness=-1)
     if trail is not None and len(trail) > 1:
         trail_pixels = np.array(
             [_cartesian_to_pixel(point, image_size) for point in trail],
@@ -84,7 +86,7 @@ def render_frame(
 def render_episode(
     positions: np.ndarray,
     obstacles: list[tuple[float, float, float, float]],
-    goal: np.ndarray,
+    goal: np.ndarray | None = None,
     image_size: int = 64,
     show_trail: bool = True,
     context_color: tuple[int, int, int] | None = None,
@@ -97,6 +99,7 @@ def render_episode(
         obstacles: Axis-aligned rectangles as (x_min, y_min, x_max, y_max)
             in [0, 1] coordinates.
         goal: Cartesian goal position (x, y) in [0, 1]x[0, 1]. Shape (2,).
+            None to skip drawing the goal marker.
         image_size: Side length of the square output image in pixels.
         show_trail: Whether to render the trajectory trail up to each frame.
         context_color: RGB color tuple for the context indicator square.

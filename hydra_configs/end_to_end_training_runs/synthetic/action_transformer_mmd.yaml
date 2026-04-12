@@ -5,7 +5,7 @@ defaults:
   - /task: base
   - /policy: base
   - /experiment: default
-  - /task/dataset_schema: synthetic/multipath
+  - /task/dataset_schema: synthetic/circle
   - /task/dataloader: synthetic_default
   - /task/action_space: synthetic_2d
   - /task/observation_space: synthetic_image_state

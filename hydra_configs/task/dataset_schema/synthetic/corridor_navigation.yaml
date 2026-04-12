@@ -1,15 +1,15 @@
 defaults:
-  - synthetic_schema
+  - /task/dataset_schema/synthetic_schema
   - /task/dataset_schema/zarr_meta/synthetic@metadata
 
 _target_: versatil.data.raw.schemas.custom.synthetic.SyntheticSchema
 dataset_type: ${dataset_type:SYNTHETIC}
-zarr_path: ${zarr_dir:synthetic/conditional_navigation.zarr}
-task_name: ${synthetic_task:CONDITIONAL_NAVIGATION}
+zarr_path: ${zarr_dir:synthetic/corridor_navigation.zarr}
+task_name: ${synthetic_task:CORRIDOR_NAVIGATION}
 num_episodes: 1000
 seed: 42
 image_size: 64
-num_modes: 3
+num_modes: 4
 trajectory_length: 60
-noise_std: 0.01
-num_styles: 4
+noise_std: 0.005
+num_styles: 1

@@ -16,7 +16,7 @@ def episode_factory(
     """Factory that generates small synthetic episode batches for testing."""
 
     def factory(
-        task_name: str = SyntheticTaskName.MULTI_PATH_NAVIGATION.value,
+        task_name: str = SyntheticTaskName.CIRCLE.value,
         num_episodes: int = 6,
         image_size: int = 16,
         trajectory_length: int = 10,

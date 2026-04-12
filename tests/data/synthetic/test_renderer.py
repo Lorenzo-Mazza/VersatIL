@@ -140,6 +140,30 @@ def test_render_frame_goal_pixel_matches_goal_color(
 
 
 @pytest.mark.unit
+def test_render_frame_no_goal_marker_when_goal_is_none(
+    position_factory: Callable[..., np.ndarray],
+):
+    position = position_factory(x=0.5, y=0.5)
+    frame_with_goal = render_frame(
+        position=position,
+        obstacles=[],
+        goal=position_factory(x=0.1, y=0.1),
+        image_size=TEST_IMAGE_SIZE,
+    )
+    frame_without_goal = render_frame(
+        position=position,
+        obstacles=[],
+        goal=None,
+        image_size=TEST_IMAGE_SIZE,
+    )
+    goal_column, goal_row = _cartesian_to_pixel(
+        position=position_factory(x=0.1, y=0.1), image_size=TEST_IMAGE_SIZE
+    )
+    assert tuple(frame_with_goal[goal_row, goal_column]) == tuple(GOAL_COLOR)
+    assert tuple(frame_without_goal[goal_row, goal_column]) == tuple(BACKGROUND_COLOR)
+
+
+@pytest.mark.unit
 def test_render_frame_obstacle_region_filled(
     position_factory: Callable[..., np.ndarray],
     obstacle_factory: Callable[..., list[tuple[float, float, float, float]]],

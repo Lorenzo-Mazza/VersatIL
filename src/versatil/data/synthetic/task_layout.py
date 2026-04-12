@@ -5,28 +5,32 @@ from dataclasses import dataclass
 import numpy as np
 
 from versatil.data.synthetic.constants import (
-    MULTIPATH_DEFAULT_NUM_MODES,
-    MULTIPATH_GOAL,
-    MULTIPATH_OBSTACLES,
-    MULTIPATH_START,
+    CIRCLE_DEFAULT_NUM_MODES,
+    CIRCLE_OBSTACLES,
+    CIRCLE_START,
+    CORRIDOR_DEFAULT_NUM_MODES,
+    CORRIDOR_DEFAULT_NUM_STYLES,
+    CORRIDOR_GOAL,
+    CORRIDOR_START,
+    RADIAL_CENTER,
+    RADIAL_DEFAULT_NUM_MODES,
+    SEQUENTIAL_NUM_COMPOUND_MODES,
+    SEQUENTIAL_OBSTACLES,
     SEQUENTIAL_START,
-    SHARED_PREFIX_DEFAULT_NUM_MODES,
-    SHARED_PREFIX_START,
-    STYLE_DEFAULT_NUM_STYLES,
-    STYLE_GOAL,
-    STYLE_START,
     SyntheticTaskName,
 )
-
-SEQUENTIAL_NUM_COMPOUND_MODES = 4
-
+from versatil.data.synthetic.generators import (
+    _compute_corridor_gap_centers,
+    _generate_corridor_obstacles,
+    _generate_radial_obstacles,
+)
 
 TASK_DISPLAY_NAMES: dict[str, str] = {
-    SyntheticTaskName.MULTI_PATH_NAVIGATION.value: "Multi-Path Navigation",
-    SyntheticTaskName.CONDITIONAL_NAVIGATION.value: "Conditional Navigation",
-    SyntheticTaskName.TRAJECTORY_STYLE.value: "Trajectory Style",
+    SyntheticTaskName.CIRCLE.value: "Circle",
+    SyntheticTaskName.CONDITIONAL_CIRCLE.value: "Conditional Circle",
     SyntheticTaskName.SEQUENTIAL_DECISION.value: "Sequential Decision",
-    SyntheticTaskName.SHARED_PREFIX.value: "Shared Prefix",
+    SyntheticTaskName.RADIAL.value: "Radial",
+    SyntheticTaskName.CORRIDOR_NAVIGATION.value: "Corridor Navigation",
 }
 
 
@@ -36,7 +40,7 @@ class SyntheticTaskLayout:
 
     Attributes:
         start: Start position in [0, 1]x[0, 1] Cartesian space. Shape (2,).
-        goal: Goal position, or None for tasks with mode-dependent goals.
+        goal: Goal position, or None for tasks with no fixed goal.
         obstacles: List of (x_min, y_min, x_max, y_max) rectangles.
         num_modes: Number of behavioral modes for this task.
     """
@@ -47,11 +51,22 @@ class SyntheticTaskLayout:
     num_modes: int
 
 
-def get_task_layout(task_name: str) -> SyntheticTaskLayout:
+def get_task_layout(
+    task_name: str,
+    num_modes: int | None = None,
+    num_styles: int | None = None,
+) -> SyntheticTaskLayout:
     """Return the layout data (start, goal, obstacles, num_modes) for a task.
+
+    For radial and corridor tasks, obstacles depend on the number of modes
+    and are generated dynamically.
 
     Args:
         task_name: SyntheticTaskName.value string.
+        num_modes: Number of modes for tasks with variable mode count
+            (radial, corridor_navigation). Uses task defaults when None.
+        num_styles: Number of styles per corridor for corridor_navigation.
+            Uses task default when None.
 
     Returns:
         SyntheticTaskLayout with the task-specific geometry.
@@ -60,40 +75,50 @@ def get_task_layout(task_name: str) -> SyntheticTaskLayout:
         ValueError: If task_name is not a recognized synthetic task.
     """
     match task_name:
-        case SyntheticTaskName.MULTI_PATH_NAVIGATION.value:
+        case SyntheticTaskName.CIRCLE.value:
             return SyntheticTaskLayout(
-                start=MULTIPATH_START,
-                goal=MULTIPATH_GOAL,
-                obstacles=MULTIPATH_OBSTACLES,
-                num_modes=MULTIPATH_DEFAULT_NUM_MODES,
+                start=CIRCLE_START,
+                goal=None,
+                obstacles=CIRCLE_OBSTACLES,
+                num_modes=CIRCLE_DEFAULT_NUM_MODES,
             )
-        case SyntheticTaskName.CONDITIONAL_NAVIGATION.value:
+        case SyntheticTaskName.CONDITIONAL_CIRCLE.value:
             return SyntheticTaskLayout(
-                start=MULTIPATH_START,
-                goal=MULTIPATH_GOAL,
-                obstacles=MULTIPATH_OBSTACLES,
-                num_modes=MULTIPATH_DEFAULT_NUM_MODES,
-            )
-        case SyntheticTaskName.TRAJECTORY_STYLE.value:
-            return SyntheticTaskLayout(
-                start=STYLE_START,
-                goal=STYLE_GOAL,
-                obstacles=[],
-                num_modes=STYLE_DEFAULT_NUM_STYLES,
+                start=CIRCLE_START,
+                goal=None,
+                obstacles=CIRCLE_OBSTACLES,
+                num_modes=CIRCLE_DEFAULT_NUM_MODES,
             )
         case SyntheticTaskName.SEQUENTIAL_DECISION.value:
             return SyntheticTaskLayout(
                 start=SEQUENTIAL_START,
                 goal=None,
-                obstacles=[],
+                obstacles=SEQUENTIAL_OBSTACLES,
                 num_modes=SEQUENTIAL_NUM_COMPOUND_MODES,
             )
-        case SyntheticTaskName.SHARED_PREFIX.value:
+        case SyntheticTaskName.RADIAL.value:
+            resolved_modes = (
+                num_modes if num_modes is not None else RADIAL_DEFAULT_NUM_MODES
+            )
             return SyntheticTaskLayout(
-                start=SHARED_PREFIX_START,
+                start=RADIAL_CENTER,
                 goal=None,
-                obstacles=[],
-                num_modes=SHARED_PREFIX_DEFAULT_NUM_MODES,
+                obstacles=_generate_radial_obstacles(num_modes=resolved_modes),
+                num_modes=resolved_modes,
+            )
+        case SyntheticTaskName.CORRIDOR_NAVIGATION.value:
+            resolved_modes = (
+                num_modes if num_modes is not None else CORRIDOR_DEFAULT_NUM_MODES
+            )
+            resolved_styles = (
+                num_styles if num_styles is not None else CORRIDOR_DEFAULT_NUM_STYLES
+            )
+            gap_centers = _compute_corridor_gap_centers(num_gaps=resolved_modes)
+            return SyntheticTaskLayout(
+                start=CORRIDOR_START,
+                goal=CORRIDOR_GOAL,
+                obstacles=_generate_corridor_obstacles(gap_centers=gap_centers),
+                num_modes=resolved_modes * resolved_styles,
             )
         case _:
             raise ValueError(f"Unknown synthetic task: {task_name}")

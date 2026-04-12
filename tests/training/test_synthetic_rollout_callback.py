@@ -13,7 +13,7 @@ from versatil.training.synthetic_rollout_callback import SyntheticRolloutCallbac
 @pytest.fixture
 def callback_factory() -> Callable[..., SyntheticRolloutCallback]:
     def factory(
-        task_name: str = SyntheticTaskName.MULTI_PATH_NAVIGATION.value,
+        task_name: str = SyntheticTaskName.CIRCLE.value,
         num_rollouts: int = 10,
         image_size: int = 32,
         log_every_n_epochs: int = 1,
@@ -122,7 +122,7 @@ def test_stores_configuration(
     num_rollouts: int,
     image_size: int,
 ):
-    task_name = SyntheticTaskName.TRAJECTORY_STYLE.value
+    task_name = SyntheticTaskName.CORRIDOR_NAVIGATION.value
     log_every_n_epochs = 3
     callback = callback_factory(
         task_name=task_name,
@@ -188,7 +188,7 @@ def test_calls_run_rollouts_with_correct_args(
     fake_trajectories_factory: Callable[..., np.ndarray],
     fake_results_factory: Callable[..., dict],
 ):
-    task_name = SyntheticTaskName.SHARED_PREFIX.value
+    task_name = SyntheticTaskName.CORRIDOR_NAVIGATION.value
     num_rollouts = 25
     image_size = 48
     callback = callback_factory(
@@ -367,13 +367,13 @@ def test_logs_trajectory_plot_as_wandb_image(
     ):
         callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
 
-    mock_plot.assert_called_once_with(
-        trajectories=mock_plot.call_args.kwargs["trajectories"],
-        task_name=callback.task_name,
-    )
-    mock_figure.savefig.assert_called_once()
-    mock_close.assert_called_once_with(mock_figure)
-    mock_wandb_image.assert_called_once()
+    # Two calls: _log_training_data (with mode_ids/title) + rollout plot
+    rollout_calls = [c for c in mock_plot.call_args_list if "mode_ids" not in c.kwargs]
+    assert len(rollout_calls) == 1
+    assert rollout_calls[0].kwargs["task_name"] == callback.task_name
+    assert mock_figure.savefig.call_count == 2
+    assert mock_close.call_count == 2
+    assert mock_wandb_image.call_count == 2
     logged = trainer.logger.log_metrics.call_args.args[0]
     assert "synthetic/rollout_trajectories" in logged
 
@@ -475,3 +475,92 @@ def test_policy_eval_called_inside_no_grad(
     # eval() must be called before run_rollouts
     pl_module.policy.eval.assert_called_once()
     mock_run.assert_called_once()
+
+
+@pytest.mark.unit
+def test_logs_training_data_on_first_epoch_only(
+    callback_factory: Callable[..., SyntheticRolloutCallback],
+    mock_trainer_factory: Callable[..., MagicMock],
+    mock_pl_module_factory: Callable[..., MagicMock],
+    fake_trajectories_factory: Callable[..., np.ndarray],
+    fake_results_factory: Callable[..., dict],
+):
+    callback = callback_factory()
+    trainer = mock_trainer_factory(current_epoch=0)
+    pl_module = mock_pl_module_factory()
+
+    with (
+        patch(
+            "versatil.training.synthetic_rollout_callback.run_rollouts",
+            return_value=fake_trajectories_factory(),
+        ),
+        patch(
+            "versatil.training.synthetic_rollout_callback.evaluate_rollouts",
+            return_value=fake_results_factory(),
+        ),
+        patch(
+            "versatil.training.synthetic_rollout_callback.generate_task_episodes",
+            return_value=[
+                {"position": np.zeros((10, 2)), "mode_id": np.zeros((10, 1))}
+            ],
+        ) as mock_generate,
+        patch(
+            "versatil.training.synthetic_rollout_callback.plot_trajectories_2d",
+            return_value=MagicMock(),
+        ),
+        patch("versatil.training.synthetic_rollout_callback.plt.close"),
+        patch("versatil.training.synthetic_rollout_callback.Image.open"),
+        patch("versatil.training.synthetic_rollout_callback.wandb.Image"),
+    ):
+        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+        first_generate_count = mock_generate.call_count
+
+        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+        second_generate_count = mock_generate.call_count
+
+    assert first_generate_count == 1
+    assert second_generate_count == 1
+
+
+@pytest.mark.unit
+def test_training_data_plot_receives_mode_ids_and_title(
+    callback_factory: Callable[..., SyntheticRolloutCallback],
+    mock_trainer_factory: Callable[..., MagicMock],
+    mock_pl_module_factory: Callable[..., MagicMock],
+    fake_trajectories_factory: Callable[..., np.ndarray],
+    fake_results_factory: Callable[..., dict],
+):
+    callback = callback_factory()
+    trainer = mock_trainer_factory(current_epoch=0)
+    pl_module = mock_pl_module_factory()
+
+    with (
+        patch(
+            "versatil.training.synthetic_rollout_callback.run_rollouts",
+            return_value=fake_trajectories_factory(),
+        ),
+        patch(
+            "versatil.training.synthetic_rollout_callback.evaluate_rollouts",
+            return_value=fake_results_factory(),
+        ),
+        patch(
+            "versatil.training.synthetic_rollout_callback.generate_task_episodes",
+            return_value=[
+                {"position": np.zeros((10, 2)), "mode_id": np.zeros((10, 1))}
+            ],
+        ),
+        patch(
+            "versatil.training.synthetic_rollout_callback.plot_trajectories_2d",
+            return_value=MagicMock(),
+        ) as mock_plot,
+        patch("versatil.training.synthetic_rollout_callback.plt.close"),
+        patch("versatil.training.synthetic_rollout_callback.Image.open"),
+        patch("versatil.training.synthetic_rollout_callback.wandb.Image"),
+    ):
+        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+
+    training_data_call = next(
+        call for call in mock_plot.call_args_list if "mode_ids" in call.kwargs
+    )
+    assert training_data_call.kwargs["title"] == "Training Data"
+    assert training_data_call.kwargs["mode_ids"] is not None

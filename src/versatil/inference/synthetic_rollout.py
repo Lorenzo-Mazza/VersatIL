@@ -18,11 +18,12 @@ from omegaconf import OmegaConf
 from versatil.configs import MainConfig
 from versatil.data.constants import Cameras, ProprioKey, SyntheticObsKey
 from versatil.data.synthetic.constants import (
+    CORRIDOR_DEFAULT_NUM_STYLES,
     DEFAULT_IMAGE_SIZE,
     MULTIPATH_DEFAULT_NOISE_STD,
     MULTIPATH_DEFAULT_NUM_MODES,
     MULTIPATH_DEFAULT_TRAJECTORY_LENGTH,
-    STYLE_DEFAULT_NUM_STYLES,
+    RADIAL_CENTER,
     SyntheticTaskName,
 )
 from versatil.data.synthetic.generators import generate_task_episodes
@@ -95,8 +96,9 @@ def run_rollouts(
 
     Note:
         For tasks with mode-dependent goals (sequential_decision,
-        shared_prefix), the rendered goal is an approximate center
-        since the true endpoint is unknown at inference time.
+        radial), the rendered goal is an approximate center since the
+        true endpoint is unknown at inference time. Circle tasks have
+        no goal and render without a goal marker.
 
     Args:
         policy: Trained policy in eval mode.
@@ -266,7 +268,7 @@ def evaluate_rollouts(
     trajectory_length: int = MULTIPATH_DEFAULT_TRAJECTORY_LENGTH,
     noise_std: float = MULTIPATH_DEFAULT_NOISE_STD,
     num_modes: int = MULTIPATH_DEFAULT_NUM_MODES,
-    num_styles: int = STYLE_DEFAULT_NUM_STYLES,
+    num_styles: int = CORRIDOR_DEFAULT_NUM_STYLES,
     image_size: int = DEFAULT_IMAGE_SIZE,
     goal_threshold: float = 0.05,
 ) -> dict[str, float | dict[int, int]]:
@@ -330,9 +332,11 @@ def evaluate_rollouts(
 def _get_render_goal(
     layout: SyntheticTaskLayout,
     task_name: str,
-) -> np.ndarray:
-    """Return a goal position for rendering, falling back to an approximate
-    center for tasks whose true goal depends on the selected mode.
+) -> np.ndarray | None:
+    """Return a goal position for rendering, or None for goal-less tasks.
+
+    Circle tasks have no goal (closed loop). Radial tasks have per-mode
+    goals, so the center point is used as an approximate render target.
 
     Args:
         layout: Task layout from ``get_task_layout``.
@@ -340,29 +344,28 @@ def _get_render_goal(
             fallback location for mode-dependent tasks.
 
     Returns:
-        Cartesian (x, y) goal position for rendering. Shape (2,), float32.
-
-    Raises:
-        ValueError: If ``task_name`` has a mode-dependent goal but is not
-            a recognized task handled by this helper.
+        Cartesian (x, y) goal position for rendering, shape (2,), or
+        None for tasks without a goal.
     """
     if layout.goal is not None:
         return layout.goal.copy()
     match task_name:
+        case (
+            SyntheticTaskName.CIRCLE.value | SyntheticTaskName.CONDITIONAL_CIRCLE.value
+        ):
+            return None
         case SyntheticTaskName.SEQUENTIAL_DECISION.value:
             return np.array([0.5, 0.95], dtype=np.float32)
-        case SyntheticTaskName.SHARED_PREFIX.value:
-            return np.array([1.0, 0.5], dtype=np.float32)
+        case SyntheticTaskName.RADIAL.value:
+            return RADIAL_CENTER.copy()
         case _:
-            raise ValueError(
-                f"Task {task_name} has mode-dependent goal but no render fallback"
-            )
+            return None
 
 
 def _prepare_observation(
     position_history: np.ndarray,
     obstacles: list[tuple[float, float, float, float]],
-    goal: np.ndarray,
+    goal: np.ndarray | None,
     image_size: int,
     observation_keys: set[str],
     trail: np.ndarray | None = None,
@@ -378,7 +381,7 @@ def _prepare_observation(
         position_history: Last obs_horizon Cartesian positions (x, y)
             in [0, 1]. Shape (obs_horizon, 2).
         obstacles: Obstacle rectangles for rendering.
-        goal: Goal position for rendering. Shape (2,).
+        goal: Goal position for rendering. Shape (2,), or None.
         image_size: Side length of rendered square images.
         observation_keys: Set of keys the policy's observation space requires.
         trail: Full trail up to current step for rendering. Shape (N, 2)

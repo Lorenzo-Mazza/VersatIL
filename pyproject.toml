@@ -87,7 +87,7 @@ addopts = [
     "-v",
     "--strict-markers",
     "--tb=short",
-    #"-m", "not integration",
+    "-m", "not slow",
 ]
 filterwarnings = [
     "ignore::pydantic._internal._generate_schema.UnsupportedFieldAttributeWarning",

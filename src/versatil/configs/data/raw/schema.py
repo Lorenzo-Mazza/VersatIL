@@ -42,10 +42,11 @@ class SyntheticDatasetSchemaConfig(DatasetSchemaConfig):
     num_episodes: int = 1000
     seed: int = 42
     image_size: int = 64
-    num_modes: int = 3
+    num_modes: int = 2
     trajectory_length: int = 60
     noise_std: float = 0.01
-    num_styles: int = 4
+    num_styles: int = 1
+    mode_weights: list[float] | None = None
 
 
 @dataclass

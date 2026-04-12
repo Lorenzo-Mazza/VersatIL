@@ -93,13 +93,14 @@ def fake_episode_factory(
 def mock_schema_factory(tmp_path: Path) -> Callable[..., MagicMock]:
     def factory(
         image_size: int = 16,
-        task_name: str = SyntheticTaskName.MULTI_PATH_NAVIGATION.value,
+        task_name: str = SyntheticTaskName.CIRCLE.value,
         num_episodes: int = 3,
         seed: int = 42,
         num_modes: int = 3,
         trajectory_length: int = 10,
         noise_std: float = 0.01,
         num_styles: int = 4,
+        mode_weights: list[float] | None = None,
         zarr_array_specs: dict[str, dict] | None = None,
     ) -> MagicMock:
         schema = MagicMock(spec=SyntheticSchema)
@@ -112,6 +113,7 @@ def mock_schema_factory(tmp_path: Path) -> Callable[..., MagicMock]:
         schema.trajectory_length = trajectory_length
         schema.noise_std = noise_std
         schema.num_styles = num_styles
+        schema.mode_weights = mode_weights
         schema.get_zarr_array_specs.return_value = (
             zarr_array_specs
             if zarr_array_specs is not None
@@ -320,3 +322,26 @@ def test_plot_trajectories_receives_episode_positions_and_mode_ids(
         [int(episode["mode_id"][0, 0]) for episode in episodes]
     )
     np.testing.assert_array_equal(call_kwargs["mode_ids"], expected_mode_ids)
+
+
+@pytest.mark.unit
+def test_forwards_mode_weights_to_generator(
+    mock_schema_factory: Callable[..., MagicMock],
+    fake_episode_factory: Callable[..., list[dict[str, np.ndarray]]],
+):
+    mode_weights = [0.7, 0.2, 0.1]
+    schema = mock_schema_factory(mode_weights=mode_weights)
+    episodes = fake_episode_factory(num_episodes=2, trajectory_length=5)
+
+    with (
+        patch(
+            "versatil.data.preprocessing.create_zarr_from_synthetic.generate_task_episodes",
+            return_value=episodes,
+        ) as mock_generate,
+        patch(
+            "versatil.data.preprocessing.create_zarr_from_synthetic.plot_trajectories_2d"
+        ),
+    ):
+        create_replay_buffer_from_synthetic(schema=schema)
+
+    assert mock_generate.call_args.kwargs["mode_weights"] == mode_weights

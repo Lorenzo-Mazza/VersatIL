@@ -6,82 +6,115 @@ import numpy as np
 
 
 class SyntheticTaskName(enum.StrEnum):
-    """Enum for synthetic benchmark task names."""
+    """Synthetic benchmark task identifiers."""
 
-    MULTI_PATH_NAVIGATION = "multi_path_navigation"
-    CONDITIONAL_NAVIGATION = "conditional_navigation"
-    TRAJECTORY_STYLE = "trajectory_style"
+    CIRCLE = "circle"
+    CONDITIONAL_CIRCLE = "conditional_circle"
     SEQUENTIAL_DECISION = "sequential_decision"
-    SHARED_PREFIX = "shared_prefix"
+    RADIAL = "radial"
+    CORRIDOR_NAVIGATION = "corridor_navigation"
 
 
 DEFAULT_IMAGE_SIZE = 64
 DEFAULT_SEED = 42
 DEFAULT_NUM_EPISODES = 1000
 
-#: Task 1 & 2: Multi-path, Conditional Navigation
-
-MULTIPATH_DEFAULT_NUM_MODES = 3
+MULTIPATH_DEFAULT_NUM_MODES = 2
 MULTIPATH_DEFAULT_TRAJECTORY_LENGTH = 60
-MULTIPATH_DEFAULT_NOISE_STD = 0.01
+MULTIPATH_DEFAULT_NOISE_STD = 0.008
 
-MULTIPATH_MIN_TRAJECTORY_LENGTH = 2
-MULTIPATH_START = np.array([0.0, 0.0], dtype=np.float32)
-MULTIPATH_GOAL = np.array([0.95, 0.95], dtype=np.float32)
+# Task 1 & 2: Circle / Conditional Circle
 
-MULTIPATH_WAYPOINTS: dict[int, list[tuple[float, float]]] = {
-    0: [(0.0, 0.0), (0.85, 0.08), (0.9, 0.85), (0.95, 0.95)],  # Path A: right→up
-    1: [(0.0, 0.0), (0.05, 0.88), (0.85, 0.92), (0.95, 0.95)],  # Path B: up→right
-    2: [(0.0, 0.0), (0.2, 0.42), (0.75, 0.52), (0.95, 0.95)],  # Path C: diagonal gap
-}
+CIRCLE_CENTER_TOP = np.array([0.5, 0.72], dtype=np.float32)
+CIRCLE_CENTER_BOTTOM = np.array([0.5, 0.28], dtype=np.float32)
+CIRCLE_RADIUS = 0.2
+CIRCLE_START = np.array([0.5, 0.5], dtype=np.float32)
 
-MULTIPATH_OBSTACLES: list[tuple[float, float, float, float]] = [
-    (0.25, 0.15, 0.75, 0.40),  # Obstacle 1
-    (0.15, 0.55, 0.65, 0.80),  # Obstacle 2
+CIRCLE_OBSTACLES: list[tuple[float, float, float, float]] = [
+    (
+        float(CIRCLE_CENTER_TOP[0]) - 0.08,
+        float(CIRCLE_CENTER_TOP[1]) - 0.05,
+        float(CIRCLE_CENTER_TOP[0]) + 0.08,
+        float(CIRCLE_CENTER_TOP[1]) + 0.05,
+    ),
+    (
+        float(CIRCLE_CENTER_BOTTOM[0]) - 0.08,
+        float(CIRCLE_CENTER_BOTTOM[1]) - 0.05,
+        float(CIRCLE_CENTER_BOTTOM[0]) + 0.08,
+        float(CIRCLE_CENTER_BOTTOM[1]) + 0.05,
+    ),
 ]
 
-MULTIPATH_CONTEXT_COLORS: dict[int, tuple[int, int, int]] = {
-    0: (255, 0, 0),  # Red for path A
-    1: (0, 0, 255),  # Blue for path B
-    2: (255, 255, 0),  # Yellow for path C
+CIRCLE_DEFAULT_TRAJECTORY_LENGTH = 60
+CIRCLE_DEFAULT_NOISE_STD = 0.008
+CIRCLE_DEFAULT_NUM_MODES = 2
+
+CIRCLE_CONTEXT_COLORS: dict[int, tuple[int, int, int]] = {
+    0: (0, 0, 255),
+    1: (255, 0, 0),
 }
 
-#: Task 3: Trajectory Style
+# Task 3: Sequential Decision
 
-STYLE_DEFAULT_NUM_STYLES = 4
-STYLE_DEFAULT_TRAJECTORY_LENGTH = 60
-STYLE_DEFAULT_NOISE_STD = 0.015
+SEQUENTIAL_START = np.array([0.5, 0.0], dtype=np.float32)
+SEQUENTIAL_ENDPOINT_Y = 1.0
+SEQUENTIAL_FORK_Y_1 = 0.4
+SEQUENTIAL_FORK_Y_2 = 0.7
+SEQUENTIAL_FORK_TRANSITION_OFFSET = 0.05
+SEQUENTIAL_FIRST_BRANCH_X_DELTA = 0.25
+SEQUENTIAL_SECOND_BRANCH_X_DELTA = 0.15
+SEQUENTIAL_OBSTACLE_HALF_WIDTH = 0.06
+SEQUENTIAL_OBSTACLE_HALF_HEIGHT = 0.05
 
-STYLE_START = np.array([0.0, 0.5], dtype=np.float32)
-STYLE_GOAL = np.array([1.0, 0.5], dtype=np.float32)
+SEQUENTIAL_OBSTACLE_1_Y_CENTER = (SEQUENTIAL_FORK_Y_1 + SEQUENTIAL_FORK_Y_2) / 2.0
+SEQUENTIAL_OBSTACLE_2_Y_CENTER = (
+    SEQUENTIAL_FORK_Y_2 + SEQUENTIAL_ENDPOINT_Y
+) / 2.0 + 0.03
 
-STYLE_MIN_TRAJECTORY_LENGTH = 2
-
-# Task 4: Sequential Decision
+SEQUENTIAL_OBSTACLES: list[tuple[float, float, float, float]] = [
+    # Between left and right branches after first fork
+    (
+        0.5 - SEQUENTIAL_OBSTACLE_HALF_WIDTH,
+        SEQUENTIAL_OBSTACLE_1_Y_CENTER - SEQUENTIAL_OBSTACLE_HALF_HEIGHT,
+        0.5 + SEQUENTIAL_OBSTACLE_HALF_WIDTH,
+        SEQUENTIAL_OBSTACLE_1_Y_CENTER + SEQUENTIAL_OBSTACLE_HALF_HEIGHT,
+    ),
+    # Between LL and LR sub-branches (left side)
+    (
+        0.5 - SEQUENTIAL_FIRST_BRANCH_X_DELTA - SEQUENTIAL_OBSTACLE_HALF_WIDTH,
+        SEQUENTIAL_OBSTACLE_2_Y_CENTER - SEQUENTIAL_OBSTACLE_HALF_HEIGHT,
+        0.5 - SEQUENTIAL_FIRST_BRANCH_X_DELTA + SEQUENTIAL_OBSTACLE_HALF_WIDTH,
+        SEQUENTIAL_OBSTACLE_2_Y_CENTER + SEQUENTIAL_OBSTACLE_HALF_HEIGHT,
+    ),
+    # Between RL and RR sub-branches (right side)
+    (
+        0.5 + SEQUENTIAL_FIRST_BRANCH_X_DELTA - SEQUENTIAL_OBSTACLE_HALF_WIDTH,
+        SEQUENTIAL_OBSTACLE_2_Y_CENTER - SEQUENTIAL_OBSTACLE_HALF_HEIGHT,
+        0.5 + SEQUENTIAL_FIRST_BRANCH_X_DELTA + SEQUENTIAL_OBSTACLE_HALF_WIDTH,
+        SEQUENTIAL_OBSTACLE_2_Y_CENTER + SEQUENTIAL_OBSTACLE_HALF_HEIGHT,
+    ),
+]
 
 SEQUENTIAL_DEFAULT_TRAJECTORY_LENGTH = 60
 SEQUENTIAL_DEFAULT_NOISE_STD = 0.012
+SEQUENTIAL_NUM_COMPOUND_MODES = 4
 
-SEQUENTIAL_MIN_TRAJECTORY_LENGTH = 41
-SEQUENTIAL_START = np.array([0.5, 0.0], dtype=np.float32)
+# Task 4: Radial
 
-SEQUENTIAL_INTERSECTION_Y_1 = 0.3
-SEQUENTIAL_INTERSECTION_Y_2 = 0.55
-SEQUENTIAL_BRANCH_X_DELTA = 0.15
+RADIAL_CENTER = np.array([0.5, 0.5], dtype=np.float32)
+RADIAL_RADIUS = 0.4
+RADIAL_DEFAULT_NUM_MODES = 8
+RADIAL_DEFAULT_TRAJECTORY_LENGTH = 60
+RADIAL_DEFAULT_NOISE_STD = 0.006
 
-# Task 5: Shared Prefix
+# Task 5: Corridor Navigation
 
-SHARED_PREFIX_DEFAULT_NUM_MODES = 3
-SHARED_PREFIX_DEFAULT_TRAJECTORY_LENGTH = 60
-SHARED_PREFIX_DEFAULT_NOISE_STD = 0.012
-
-SHARED_PREFIX_MIN_TRAJECTORY_LENGTH = 31
-SHARED_PREFIX_START = np.array([0.0, 0.5], dtype=np.float32)
-SHARED_PREFIX_DECISION_POINT_X = 0.5
-SHARED_PREFIX_SHARED_STEPS = 30
-
-SHARED_PREFIX_ENDPOINTS: dict[int, tuple[float, float]] = {
-    0: (1.0, 0.85),  # Up-right
-    1: (1.0, 0.5),  # Straight-right
-    2: (1.0, 0.15),  # Down-right
-}
+CORRIDOR_START = np.array([0.05, 0.5], dtype=np.float32)
+CORRIDOR_GOAL = np.array([0.95, 0.5], dtype=np.float32)
+CORRIDOR_WALL_X1 = 0.45
+CORRIDOR_WALL_X2 = 0.55
+CORRIDOR_GAP_HEIGHT = 0.08
+CORRIDOR_DEFAULT_NUM_MODES = 4
+CORRIDOR_DEFAULT_NUM_STYLES = 1
+CORRIDOR_DEFAULT_TRAJECTORY_LENGTH = 60
+CORRIDOR_DEFAULT_NOISE_STD = 0.005
