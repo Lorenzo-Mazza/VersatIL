@@ -26,7 +26,6 @@ from versatil.configs.data.raw import (
     Hdf5DatasetSchemaConfig,
     LeRobotDatasetSchemaConfig,
     SyntheticDatasetSchemaConfig,
-    DatasetMetadataConfig,
 )
 from versatil.configs.data.task import (
     ActionSpaceConfig,
@@ -167,6 +166,7 @@ from versatil.data.constants import (
     ProprioKey,
     RawCameraKey,
     SampleKey,
+    SyntheticObsKey,
     TokenizerType,
     TokenPaddingStrategy,
 )
@@ -420,6 +420,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("synthetic_task"):
         OmegaConf.register_new_resolver(
             "synthetic_task", lambda name: SyntheticTaskName[name].value
+        )
+    if not OmegaConf.has_resolver("synthetic_obs_key"):
+        OmegaConf.register_new_resolver(
+            "synthetic_obs_key", lambda name: SyntheticObsKey[name].value
         )
 
     if not OmegaConf.has_resolver("compile_mode"):

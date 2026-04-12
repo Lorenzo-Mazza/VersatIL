@@ -2,7 +2,7 @@ defaults:
   - base
 
 batch_size: 64
-num_workers: 8
+num_workers: 4
 shuffle: true
 
 image_norm_type: ${image_norm_type:MINUS_ONE_TO_ONE}
