@@ -4,7 +4,7 @@ defaults:
 
 _target_: versatil.data.raw.schemas.custom.synthetic.SyntheticSchema
 dataset_type: ${dataset_type:SYNTHETIC}
-zarr_path: ${zarr_dir:synthetic/corridor_navigation.zarr}
+zarr_path: ${zarr_dir:synthetic/corridor_navigation_k${task.dataset_schema.num_modes}_s${task.dataset_schema.num_styles}.zarr}
 task_name: ${synthetic_task:CORRIDOR_NAVIGATION}
 num_episodes: 1000
 seed: 42
