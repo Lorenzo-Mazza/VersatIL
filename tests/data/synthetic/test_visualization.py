@@ -299,7 +299,7 @@ def test_plot_trajectories_2d_delegates_drawing_and_writes_output(
         patch("versatil.data.synthetic.visualization.plt.savefig") as mock_savefig,
         patch("versatil.data.synthetic.visualization.plt.close") as mock_close,
     ):
-        plot_trajectories_2d(
+        result = plot_trajectories_2d(
             trajectories=trajectories,
             task_name=task_name,
             output_path=str(output_path),
@@ -309,6 +309,7 @@ def test_plot_trajectories_2d_delegates_drawing_and_writes_output(
             title=custom_title,
         )
 
+    assert result is mock_figure
     mock_theme.assert_called_once()
     mock_get_layout.assert_called_once_with(task_name=task_name)
     mock_draw_bg.assert_called_once_with(axes=mock_axes, layout=layout)
@@ -326,7 +327,57 @@ def test_plot_trajectories_2d_delegates_drawing_and_writes_output(
     mock_axes.set_title.assert_called_once_with(expected_title, pad=12)
     mock_savefig.assert_called_once()
     assert mock_savefig.call_args.args[0] == str(output_path)
-    mock_close.assert_called_once_with(mock_figure)
+    mock_close.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "output_path_provided, expect_savefig",
+    [
+        (True, True),
+        (False, False),
+    ],
+)
+def test_plot_trajectories_2d_saves_only_when_output_path_provided(
+    mock_layout_factory: Callable[..., MagicMock],
+    rollout_trajectory_factory: Callable[..., np.ndarray],
+    tmp_path: Path,
+    output_path_provided: bool,
+    expect_savefig: bool,
+):
+    layout = mock_layout_factory()
+    mock_figure = MagicMock(spec=plt.Figure)
+    mock_axes = MagicMock(spec=plt.Axes)
+    output_path = str(tmp_path / "out.png") if output_path_provided else None
+
+    with (
+        patch("versatil.data.synthetic.visualization._apply_plot_theme"),
+        patch(
+            "versatil.data.synthetic.visualization.get_task_layout", return_value=layout
+        ),
+        patch("versatil.data.synthetic.visualization._draw_task_background"),
+        patch(
+            "versatil.data.synthetic.visualization._build_legend_handles",
+            return_value=[],
+        ),
+        patch(
+            "versatil.data.synthetic.visualization.plt.subplots",
+            return_value=(mock_figure, mock_axes),
+        ),
+        patch("versatil.data.synthetic.visualization.plt.tight_layout"),
+        patch("versatil.data.synthetic.visualization.plt.savefig") as mock_savefig,
+    ):
+        result = plot_trajectories_2d(
+            trajectories=rollout_trajectory_factory(num_trajectories=1),
+            task_name=SyntheticTaskName.MULTI_PATH_NAVIGATION.value,
+            output_path=output_path,
+        )
+
+    assert result is mock_figure
+    if expect_savefig:
+        mock_savefig.assert_called_once()
+    else:
+        mock_savefig.assert_not_called()
 
 
 @pytest.mark.unit

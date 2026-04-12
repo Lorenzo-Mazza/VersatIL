@@ -731,6 +731,36 @@ class TestCreateCallbacks:
         ]
         assert len(latent_callbacks) == 1
 
+    def test_dataset_schema_callbacks_collected_when_protocol_implemented(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(policy=policy)
+        workspace.policy = policy
+        workspace.val_loader = None
+        mock_callback = MagicMock()
+        workspace.config.task.dataset_schema.get_callbacks = MagicMock(
+            return_value=[mock_callback]
+        )
+
+        callbacks = workspace._create_callbacks()
+
+        assert mock_callback in callbacks
+
+    def test_dataset_schema_without_get_callbacks_does_not_crash(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(policy=policy)
+        workspace.policy = policy
+        workspace.val_loader = None
+        # dataset_schema is a plain MagicMock with no get_callbacks
+        del workspace.config.task.dataset_schema.get_callbacks
+
+        callbacks = workspace._create_callbacks()
+
+        assert isinstance(callbacks, list)
+
     def test_reduce_lr_callback_added_when_enabled(
         self, workspace_factory, mock_workspace_policy_factory
     ):

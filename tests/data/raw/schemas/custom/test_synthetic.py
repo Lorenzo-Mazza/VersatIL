@@ -14,6 +14,7 @@ from versatil.data.constants import (
     DatasetType,
 )
 from versatil.data.metadata import CameraMetadata
+from versatil.data.raw.schemas.base import DatasetSchema
 from versatil.data.raw.schemas.custom.synthetic import (
     ALLOWED_ACTION_KEYS,
     ALLOWED_CAMERAS,
@@ -249,6 +250,33 @@ class TestSyntheticSchemaValidation:
         error_message = str(exception_info.value)
         assert "Invalid cameras" in error_message
         assert "Invalid position observation keys" in error_message
+
+
+@pytest.mark.unit
+class TestGetCallbacks:
+    @pytest.mark.parametrize(
+        "task_name, image_size",
+        [
+            (SyntheticTaskName.MULTI_PATH_NAVIGATION.value, 64),
+            (SyntheticTaskName.TRAJECTORY_STYLE.value, 48),
+        ],
+    )
+    def test_returns_callback_with_schema_params(
+        self,
+        synthetic_schema_factory: Callable[..., SyntheticSchema],
+        task_name: str,
+        image_size: int,
+    ):
+        schema = synthetic_schema_factory(task_name=task_name, image_size=image_size)
+        callbacks = schema.get_callbacks(experiment_config=MagicMock())
+        assert len(callbacks) == 1
+        callback = callbacks[0]
+        assert callback.task_name == task_name
+        assert callback.image_size == image_size
+        assert callback.num_rollouts == 50
+
+    def test_base_dataset_schema_has_no_get_callbacks(self):
+        assert not hasattr(DatasetSchema, "get_callbacks")
 
 
 @pytest.mark.unit
