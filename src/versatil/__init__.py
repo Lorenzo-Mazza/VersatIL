@@ -74,3 +74,8 @@ warnings.filterwarnings(
     message="Checkpoint directory.*exists and is not empty",
     module="pytorch_lightning",
 )
+warnings.filterwarnings(
+    "ignore",
+    message="crc32c usage is deprecated",
+    module="numcodecs",
+)
