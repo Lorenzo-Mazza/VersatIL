@@ -604,4 +604,30 @@ Pre-commit hooks run ruff automatically on every `git commit`.
 - Check dataset schema matches your data
 - Ensure sufficient disk space for Zarr cache
 
+---
 
+## Known Issues
+
+### Hydra 1.3.2 + Python 3.14: `ValueError: badly formed help string`
+
+Python 3.14 added eager help-string validation in `argparse._ActionsContainer._check_help` which breaks Hydra's `LazyCompletionHelp` (only defines `__repr__`, not `__contains__`). Every `@hydra.main` endpoint fails at startup.
+
+**Status:** Fixed upstream in [facebookresearch/hydra#3090](https://github.com/facebookresearch/hydra/pull/3090) (merged to `main`, targets 1.4.0.dev), but no PyPI release yet ([facebookresearch/hydra#3125](https://github.com/facebookresearch/hydra/issues/3125)). See [facebookresearch/hydra#3121](https://github.com/facebookresearch/hydra/issues/3121) for the bug report.
+
+**Workaround:** `src/versatil/common/argparse_compat.py` monkey-patches `_check_help` to skip the eager validation for non-string help values. Imported in `train.py` and `post_training_compress.py`. Remove once `hydra-core >= 1.4` ships on PyPI.
+
+### torchao 0.16 + Python 3.14: `Union.__module__` assignment crash in PT2E
+
+Python 3.14 merged `typing.Union` with `types.UnionType`, making Union objects immutable. torchao 0.16 assigns `__module__` to Union aliases at import time in `torchao.quantization.pt2e`, which crashes on 3.14+.
+
+**Status:** Fixed upstream in [pytorch/ao#3657](https://github.com/pytorch/ao/pull/3657). See [pytorch/ao#3619](https://github.com/pytorch/ao/issues/3619) for the bug report.
+
+**Workaround:** `src/versatil/quantization/torch_patches.py` patches the installed torchao `.py` files on disk, replacing the crashing `__module__` assignments with `pass`. Called automatically before any PT2E import. Idempotent.
+
+### torchao 0.16: `X86InductorQuantizer` silently quantizes 0 ops
+
+`get_source_partitions` compares `source_fn_name` strings (e.g. `"linear"`) against class objects (e.g. `torch.nn.Linear`) in `wanted_sources`, which never matches. The quantizer reports success but quantizes nothing.
+
+**Status:** See [pytorch/ao#3914](https://github.com/pytorch/ao/issues/3914).
+
+**Workaround:** `src/versatil/quantization/torch_patches.py` monkey-patches `get_source_partitions` with a fallback that matches `source_fn_name` against each class's `__name__` (case-insensitive). Applied automatically, idempotent, version-gated to torch <= 2.10 + torchao <= 0.16.
