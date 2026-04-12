@@ -386,6 +386,7 @@ class Workspace:
             self.policy.decoder,
             self.policy.algorithm,
             *self.policy.loss_module.loss_modules.values(),
+            self.config.task.dataset_schema,
         ]
         seen_types: set[type] = set()
         collected: list = []

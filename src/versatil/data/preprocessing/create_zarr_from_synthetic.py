@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import zarr
 import zarr.storage
@@ -94,12 +95,13 @@ def _save_training_visualization(
     mode_ids = np.array([int(episode["mode_id"][0, 0]) for episode in episodes])
     zarr_path_obj = Path(zarr_path)
     output_path = zarr_path_obj.parent / f"{zarr_path_obj.stem}_trajectories.png"
-    plot_trajectories_2d(
+    figure = plot_trajectories_2d(
         trajectories=trajectories,
         task_name=task_name,
         output_path=str(output_path),
         mode_ids=mode_ids,
     )
+    plt.close(figure)
     print(f"Saved trajectory visualization to {output_path}")
 
 

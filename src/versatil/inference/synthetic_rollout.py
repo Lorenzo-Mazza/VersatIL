@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 
 import hydra
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from omegaconf import OmegaConf
@@ -243,11 +244,12 @@ def _save_rollout_visualizations(
     output_dir_path.mkdir(parents=True, exist_ok=True)
     png_path = output_dir_path / f"{name_prefix}_{task_name}.png"
     gif_path = output_dir_path / f"{name_prefix}_{task_name}.gif"
-    plot_trajectories_2d(
+    figure = plot_trajectories_2d(
         trajectories=trajectories,
         task_name=task_name,
         output_path=str(png_path),
     )
+    plt.close(figure)
     save_rollouts_gif(
         trajectories=trajectories,
         task_name=task_name,

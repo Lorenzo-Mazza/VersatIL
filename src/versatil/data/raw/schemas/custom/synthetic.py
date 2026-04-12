@@ -4,7 +4,9 @@ from typing import Any
 
 import albumentations as A
 import numpy as np
+from pytorch_lightning import Callback
 
+from versatil.configs.experiment import ExperimentConfig
 from versatil.data.constants import (
     Cameras,
     DatasetType,
@@ -14,6 +16,7 @@ from versatil.data.constants import (
 from versatil.data.raw.schemas.base import DatasetSchema
 from versatil.data.raw.zarr_meta import DatasetMetadata
 from versatil.data.synthetic.constants import SyntheticTaskName
+from versatil.training.synthetic_rollout_callback import SyntheticRolloutCallback
 
 ALLOWED_CAMERAS = {Cameras.AGENTVIEW.value}
 ALLOWED_POSITION_KEYS = {ProprioKey.SYNTHETIC_POSITION.value}
@@ -125,6 +128,16 @@ class SyntheticSchema(DatasetSchema):
                 "SyntheticSchema metadata validation failed:\n"
                 + "\n".join(f"  - {e}" for e in errors)
             )
+
+    def get_callbacks(self, experiment_config: ExperimentConfig) -> list[Callback]:
+        """Provide a rollout evaluation callback for synthetic training."""
+        return [
+            SyntheticRolloutCallback(
+                task_name=self.task_name,
+                num_rollouts=50,
+                image_size=self.image_size,
+            )
+        ]
 
     def extract_episode(
         self,

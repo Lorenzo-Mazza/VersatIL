@@ -164,25 +164,31 @@ def _build_legend_handles(
 def plot_trajectories_2d(
     trajectories: np.ndarray,
     task_name: str,
-    output_path: str,
+    output_path: str | None = None,
     mode_ids: np.ndarray | None = None,
     expert_trajectories: np.ndarray | None = None,
     expert_mode_ids: np.ndarray | None = None,
     title: str | None = None,
-) -> None:
-    """Plot 2D trajectories overlaid on the task layout and save as PNG.
+) -> plt.Figure:
+    """Plot 2D trajectories overlaid on the task layout.
+
+    Always returns the figure. Additionally saves to disk when
+    ``output_path`` is provided.
 
     Args:
         trajectories: Cartesian trajectories, shape (num_trajectories,
             num_timesteps, 2), values in [0, 1].
         task_name: SyntheticTaskName.value string.
-        output_path: Destination PNG path.
+        output_path: Optional PNG path. Saves to disk when provided.
         mode_ids: Optional per-trajectory mode index for coloring.
             Shape (num_trajectories,).
         expert_trajectories: Optional faint background trajectories.
             Shape (num_experts, num_timesteps, 2).
         expert_mode_ids: Optional per-expert mode index for coloring.
         title: Optional plot title. Defaults to the task display name.
+
+    Returns:
+        The matplotlib Figure. Caller is responsible for closing it.
     """
     _apply_plot_theme()
     layout = get_task_layout(task_name=task_name)
@@ -240,13 +246,14 @@ def plot_trajectories_2d(
     plot_title = title if title is not None else TASK_DISPLAY_NAMES[task_name]
     axes.set_title(plot_title, pad=12)
     plt.tight_layout()
-    plt.savefig(
-        output_path,
-        dpi=150,
-        bbox_inches="tight",
-        facecolor=PLOT_BACKGROUND_COLOR,
-    )
-    plt.close(figure)
+    if output_path is not None:
+        plt.savefig(
+            output_path,
+            dpi=150,
+            bbox_inches="tight",
+            facecolor=PLOT_BACKGROUND_COLOR,
+        )
+    return figure
 
 
 def _render_multi_agent_frame(
