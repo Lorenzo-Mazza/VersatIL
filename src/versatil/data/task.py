@@ -3,12 +3,13 @@
 This module defines what data an experiment uses at runtime:
 """
 
+from versatil_constants.tso import TSOObsKey
+
 from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.configs.data.dataloader import DataLoaderConfig
 from versatil.data.constants import (
     VALID_CAMERAS,
     ActionComputationMethod,
-    ObsKey,
 )
 from versatil.data.metadata import (
     ActionMetadata,
@@ -196,7 +197,7 @@ class ActionSpace:
     @property
     def task_has_phases(self) -> bool:
         """Check if the task has phase labels."""
-        return ObsKey.PHASE_LABEL.value in self.actions_metadata
+        return TSOObsKey.PHASE_LABEL.value in self.actions_metadata
 
     def get_required_zarr_keys(self) -> list[str]:
         """Get zarr keys needed for this action space.

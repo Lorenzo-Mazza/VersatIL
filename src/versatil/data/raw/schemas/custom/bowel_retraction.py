@@ -7,6 +7,7 @@ import albumentations as A
 import cv2
 import numpy as np
 import pandas as pd
+from versatil_constants.tso import TSOObsKey
 
 from versatil.data.constants import (
     Cameras,
@@ -165,12 +166,12 @@ class BowelRetractionSchema(CsvDatasetSchema):
                     )
 
         if metadata.custom_actions:
-            if ObsKey.PHASE_LABEL.value not in metadata.custom_actions:
+            if TSOObsKey.PHASE_LABEL.value not in metadata.custom_actions:
                 logging.warning(
-                    f"Phase action key '{ObsKey.PHASE_LABEL.value}' not found. Phase label won't be used."
+                    f"Phase action key '{TSOObsKey.PHASE_LABEL.value}' not found. Phase label won't be used."
                 )
             else:
-                phase_action = metadata.custom_actions[ObsKey.PHASE_LABEL.value]
+                phase_action = metadata.custom_actions[TSOObsKey.PHASE_LABEL.value]
                 if phase_action.raw_data_column_keys != [BOWEL_RETRACTION_PHASE_COL]:
                     errors.append(
                         f"BowelRetraction requires phase label source column to be {BOWEL_RETRACTION_PHASE_COL}, got: "

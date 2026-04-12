@@ -4,13 +4,13 @@ from collections.abc import Callable
 from unittest.mock import MagicMock
 
 import pytest
+from versatil_constants.tso import TSOObsKey
 
 from versatil.data.constants import (
     ActionComputationMethod,
     Cameras,
     CoordinateSystem,
     GripperType,
-    ObsKey,
     OrientationRepresentation,
 )
 from versatil.data.metadata import (
@@ -397,7 +397,7 @@ class TestActionSpaceBooleanProperties:
         )
         action_space = action_space_factory(
             actions_metadata={
-                ObsKey.PHASE_LABEL.value: phase_metadata,
+                TSOObsKey.PHASE_LABEL.value: phase_metadata,
             }
         )
 

@@ -21,6 +21,7 @@ from tso_robotics_sockets import (
     TransportKey,
     compress_array,
 )
+from versatil_constants.tso import TSOObsKey
 
 import versatil.configs  # noqa: F401 — registers ConfigStore entries
 from versatil.data.constants import (
@@ -28,7 +29,6 @@ from versatil.data.constants import (
     ObsKey,
     ProprioKey,
     SyntheticObsKey,
-    TSOObsKey,
 )
 from versatil.data.task import ObservationSpace
 
@@ -67,7 +67,7 @@ BOWEL_RETRACTION_ZARR_SPEC: dict[str, dict] = {
         "dtype": str,
         "kind": "language",
     },
-    ObsKey.PHASE_LABEL.value: {
+    TSOObsKey.PHASE_LABEL.value: {
         "dimension": 1,
         "dtype": np.uint8,
         "kind": "label",

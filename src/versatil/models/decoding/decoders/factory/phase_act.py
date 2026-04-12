@@ -6,10 +6,11 @@ position and gripper predictions through phase-specific expert networks.
 """
 
 import torch
+from versatil_constants.tso import TSOObsKey
 
 from versatil.common.omegaconf_ops import resolve_dict_keys
 from versatil.configs.experiment import ExperimentConfig
-from versatil.data.constants import ObsKey, SampleKey
+from versatil.data.constants import SampleKey
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
 from versatil.models.decoding.action_heads.moe import MoEHead
@@ -48,7 +49,7 @@ class PhaseACT(ACT):
         activation: str = "relu",
         dropout_rate: float = 0.1,
         normalize_before: bool = False,
-        phase_routing_key: str = ObsKey.PHASE_LABEL.value,
+        phase_routing_key: str = TSOObsKey.PHASE_LABEL.value,
     ):
         """Initialize PhaseACT decoder.
 

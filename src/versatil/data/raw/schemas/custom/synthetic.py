@@ -19,8 +19,8 @@ ALLOWED_CAMERAS = {Cameras.AGENTVIEW.value}
 ALLOWED_POSITION_KEYS = {ProprioKey.SYNTHETIC_POSITION.value}
 ALLOWED_ACTION_KEYS = {ProprioKey.SYNTHETIC_POSITION_ACTION.value}
 ALLOWED_OBSERVATION_KEYS = {
-    SyntheticObsKey.SYNTHETIC_CONTEXT.value,
-    SyntheticObsKey.SYNTHETIC_MODE_ID.value,
+    SyntheticObsKey.CONTEXT.value,
+    SyntheticObsKey.MODE_ID.value,
 }
 
 

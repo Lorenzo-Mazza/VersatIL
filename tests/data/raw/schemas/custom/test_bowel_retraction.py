@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import pytest
+from versatil_constants.tso import TSOObsKey
 
 from versatil.data.constants import (
     BinaryGripperRange,
@@ -611,7 +612,7 @@ class TestBowelRetractionValidateMetadata:
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         actions = {
-            ObsKey.PHASE_LABEL.value: precomputed_action_metadata_factory(
+            TSOObsKey.PHASE_LABEL.value: precomputed_action_metadata_factory(
                 storage_dimension=1,
                 prediction_dimension=1,
                 raw_data_column_keys=["wrong_phase_col"],
@@ -637,7 +638,7 @@ class TestBowelRetractionValidateMetadata:
         dataset_metadata_factory: Callable[..., DatasetMetadata],
     ):
         actions = {
-            ObsKey.PHASE_LABEL.value: precomputed_action_metadata_factory(
+            TSOObsKey.PHASE_LABEL.value: precomputed_action_metadata_factory(
                 storage_dimension=1,
                 prediction_dimension=1,
                 raw_data_column_keys=[BOWEL_RETRACTION_PHASE_COL],
@@ -841,7 +842,7 @@ class TestBowelRetractionExtractEpisode:
         noop_resizer: A.NoOp,
     ):
         actions = {
-            ObsKey.PHASE_LABEL.value: precomputed_action_metadata_factory(
+            TSOObsKey.PHASE_LABEL.value: precomputed_action_metadata_factory(
                 storage_dimension=1,
                 prediction_dimension=1,
                 raw_data_column_keys=[BOWEL_RETRACTION_PHASE_COL],
@@ -870,9 +871,9 @@ class TestBowelRetractionExtractEpisode:
                 episode=episode, resizer=noop_resizer, depth_resizer=noop_resizer
             )
 
-        assert ObsKey.PHASE_LABEL.value in data
-        assert data[ObsKey.PHASE_LABEL.value].dtype == np.int32
-        assert data[ObsKey.PHASE_LABEL.value].shape == (4, 1)
+        assert TSOObsKey.PHASE_LABEL.value in data
+        assert data[TSOObsKey.PHASE_LABEL.value].dtype == np.int32
+        assert data[TSOObsKey.PHASE_LABEL.value].shape == (4, 1)
 
     def test_extracts_depth_images_from_npy(
         self,

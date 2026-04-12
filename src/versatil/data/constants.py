@@ -19,8 +19,7 @@ from versatil_constants.shared import (  # noqa: F401
     ObsKey,
     OrientationRepresentation,
 )
-from versatil_constants.synthetic import SyntheticObsKey  # noqa: F401
-from versatil_constants.tso import TSOCamera, TSOObsKey  # noqa: F401
+from versatil_constants.tso import TSOCamera
 
 
 class Cameras(enum.Enum):
@@ -100,6 +99,17 @@ class ProprioKey(enum.StrEnum):
     # Synthetic data
     SYNTHETIC_POSITION = "synthetic_position"
     SYNTHETIC_POSITION_ACTION = "synthetic_position_action"
+
+
+class SyntheticObsKey(enum.StrEnum):
+    """Non-proprioceptive observation keys for synthetic benchmark tasks.
+
+    Defined locally in versatil (not in versatil_constants) because synthetic
+    keys are never passed over the client-server wire at inference time.
+    """
+
+    CONTEXT = "synthetic_context"
+    MODE_ID = "synthetic_mode_id"
 
 
 class ImageNormalizationType(enum.StrEnum):

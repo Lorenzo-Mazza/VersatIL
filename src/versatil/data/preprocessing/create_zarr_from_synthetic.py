@@ -12,13 +12,12 @@ from versatil.data.raw.schemas.custom.synthetic import SyntheticSchema
 from versatil.data.synthetic.generators import generate_task_episodes
 from versatil.data.synthetic.visualization import plot_trajectories_2d
 
-
 GENERATOR_KEY_TO_ZARR_KEY = {
     "image": Cameras.AGENTVIEW.value,
     "position": ProprioKey.SYNTHETIC_POSITION.value,
     "action": ProprioKey.SYNTHETIC_POSITION_ACTION.value,
-    "context": SyntheticObsKey.SYNTHETIC_CONTEXT.value,
-    "mode_id": SyntheticObsKey.SYNTHETIC_MODE_ID.value,
+    "context": SyntheticObsKey.CONTEXT.value,
+    "mode_id": SyntheticObsKey.MODE_ID.value,
 }
 
 
