@@ -1,5 +1,5 @@
 defaults:
-  - /task/dataset_schema/synthetic_schema
+  - synthetic_schema
   - /task/dataset_schema/zarr_meta/synthetic@metadata
 
 _target_: versatil.data.raw.schemas.custom.synthetic.SyntheticSchema
