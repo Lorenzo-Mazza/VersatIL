@@ -571,7 +571,9 @@ def register_configs():
     cs.store(group="task/dataset_schema", name="hdf5", node=Hdf5DatasetSchemaConfig)
     cs.store(group="task/dataset_schema", name="csv", node=CsvDatasetSchemaConfig)
     cs.store(
-        group="task/dataset_schema", name="synthetic", node=SyntheticDatasetSchemaConfig
+        group="task/dataset_schema",
+        name="synthetic_schema",
+        node=SyntheticDatasetSchemaConfig,
     )
     cs.store(group="task/dataloader", name="base", node=DataLoaderConfig)
     cs.store(
