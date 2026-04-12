@@ -72,6 +72,7 @@ class SyntheticRolloutCallback(Callback):
                 task_name=self.task_name,
                 num_rollouts=self.num_rollouts,
                 image_size=self.image_size,
+                temporal_aggregation=False,  # open-loop: single prediction, no replanning
             )
 
         results = evaluate_rollouts(

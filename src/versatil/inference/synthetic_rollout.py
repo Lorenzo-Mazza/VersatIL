@@ -83,7 +83,7 @@ def run_rollouts(
     num_rollouts: int,
     image_size: int = DEFAULT_IMAGE_SIZE,
     context_mode: int | None = None,
-    temporal_aggregation: bool = True,
+    temporal_aggregation: bool = False,
     exponential_decay: float = 0.01,
     output_dir: str | None = None,
 ) -> np.ndarray:
