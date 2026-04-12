@@ -13,6 +13,7 @@ from versatil.data.constants import Cameras, SampleKey
 from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.decoding.decoders.factory import smolvla as smolvla_module
 from versatil.models.decoding.decoders.factory.smolvla import (
     SmolVLADecoder,
     SmolVLALayerType,
@@ -812,4 +813,126 @@ class TestSmolVLADecoderCaching:
             torch.testing.assert_close(
                 output_first[action_key],
                 output_second[action_key],
+            )
+
+
+@pytest.mark.integration
+class TestSmolVLALayerTypeDispatch:
+    def test_vlm_only_layer_inserted_when_fewer_expert_than_vlm_layers(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+    ):
+        # num_vlm=4, num_expert=2, stride=2 -> [expert, VLM_ONLY, expert, VLM_ONLY]
+        decoder = initialized_decoder_factory(
+            num_vlm_layers=4,
+            num_expert_layers=2,
+            self_attention_every_n_layers=0,
+        )
+        assert decoder._layer_types.count(SmolVLALayerType.VLM_ONLY.value) == 2
+        assert len(decoder.expert_layers) == 2
+        assert decoder._layer_types[1] == SmolVLALayerType.VLM_ONLY.value
+        assert decoder._layer_types[3] == SmolVLALayerType.VLM_ONLY.value
+
+    def test_vlm_only_layers_run_every_vlm_layer_exactly_once(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory(
+            num_vlm_layers=4,
+            num_expert_layers=2,
+            self_attention_every_n_layers=0,
+        )
+        decoder.eval()
+        features = prefix_features_factory()
+        actions = noisy_actions_factory()
+        patchers = [
+            patch.object(
+                decoder.vlm_layers[index],
+                "forward",
+                wraps=decoder.vlm_layers[index].forward,
+            )
+            for index in range(len(decoder.vlm_layers))
+        ]
+        spies = [patcher.start() for patcher in patchers]
+        try:
+            with torch.no_grad():
+                outputs = decoder(features=features, actions=actions)
+        finally:
+            for patcher in patchers:
+                patcher.stop()
+        # VLM_ONLY branch calls the vlm layer directly; other branches also call it once
+        for spy in spies:
+            assert spy.call_count == 1
+        for action_key, output_tensor in outputs.items():
+            assert output_tensor.shape == (
+                BATCH_SIZE,
+                PREDICTION_HORIZON,
+                decoder.action_heads[action_key].output_dim,
+            )
+
+    def test_vlm_only_training_forward_is_deterministic(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = initialized_decoder_factory(
+            num_vlm_layers=4,
+            num_expert_layers=2,
+            self_attention_every_n_layers=0,
+        )
+        decoder.eval()
+        base_features = prefix_features_factory()
+        features_a = {key: tensor.clone() for key, tensor in base_features.items()}
+        features_b = {key: tensor.clone() for key, tensor in base_features.items()}
+        actions = noisy_actions_factory()
+        with torch.no_grad():
+            output_a = decoder(features=features_a, actions=actions)
+            output_b = decoder(features=features_b, actions=actions)
+        for action_key in actions:
+            torch.testing.assert_close(output_a[action_key], output_b[action_key])
+
+
+@pytest.mark.integration
+class TestSmolVLADecoderProprioceptiveWithPadding:
+    def test_prefix_padding_mask_extended_for_proprio_token(
+        self,
+        initialized_decoder_factory: Callable[..., SmolVLADecoder],
+        prefix_features_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+        rng: np.random.Generator,
+    ):
+        proprio_key = "robot_state_proprio"
+        decoder = initialized_decoder_factory(
+            proprioceptive_feature_key=proprio_key,
+        )
+        decoder.eval()
+        features = prefix_features_factory(include_padding_mask=True)
+        features[proprio_key] = torch.from_numpy(
+            rng.standard_normal((BATCH_SIZE, 8)).astype(np.float32)
+        )
+        actions = noisy_actions_factory()
+        with (
+            patch.object(
+                smolvla_module,
+                "make_attention_mask",
+                wraps=smolvla_module.make_attention_mask,
+            ) as spy,
+            torch.no_grad(),
+        ):
+            outputs = decoder(features=features, actions=actions)
+        received_mask = spy.call_args.kwargs["feature_token_mask"]
+        # Mask grew by one column for the appended proprio token
+        assert received_mask.shape == (BATCH_SIZE, PREFIX_SEQUENCE_LENGTH + 1)
+        # Appended proprio column is valid (False = attend)
+        assert not received_mask[:, -1].any()
+        # Originally-padded prefix entries stay masked
+        assert received_mask[:, PREFIX_SEQUENCE_LENGTH - 1].all()
+        for action_key, output_tensor in outputs.items():
+            assert output_tensor.shape == (
+                BATCH_SIZE,
+                PREDICTION_HORIZON,
+                decoder.action_heads[action_key].output_dim,
             )

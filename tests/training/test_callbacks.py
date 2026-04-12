@@ -10,6 +10,7 @@ import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader
 
+from versatil.metrics.constants import MetadataKey
 from versatil.training.callbacks import (
     ConfusionMatrixCallback,
     EMACallback,
@@ -77,6 +78,87 @@ def pl_module_with_policy_factory(
         pl_module.parameters.return_value = policy.parameters()
         pl_module.log = MagicMock()
         pl_module.log_dict = MagicMock()
+        return pl_module
+
+    return factory
+
+
+@pytest.fixture
+def mock_pl_module_factory() -> Callable[..., MagicMock]:
+    """Factory for a vanilla ``pl_module`` MagicMock with configurable metric
+    return values for train/val hook tests. Use when the test does not need
+    a real ``policy`` submodule — for policy-backed tests use
+    ``pl_module_with_policy_factory`` instead."""
+
+    def factory(
+        train_metrics_return: dict | np.ndarray | None = None,
+        val_metrics_return: dict | np.ndarray | None = None,
+        train_method_name: str = "compute_expert_usage",
+        val_method_name: str = "compute_expert_usage",
+    ) -> MagicMock:
+        pl_module = MagicMock()
+        getattr(
+            pl_module.train_metrics, train_method_name
+        ).return_value = train_metrics_return
+        getattr(
+            pl_module.val_metrics, val_method_name
+        ).return_value = val_metrics_return
+        return pl_module
+
+    return factory
+
+
+@pytest.fixture
+def latent_data_factory(rng: np.random.Generator) -> Callable[..., np.ndarray]:
+    def factory(
+        num_samples: int = 12,
+        latent_dimension: int = 4,
+    ) -> np.ndarray:
+        return rng.standard_normal((num_samples, latent_dimension)).astype(np.float32)
+
+    return factory
+
+
+@pytest.fixture
+def phase_array_factory(rng: np.random.Generator) -> Callable[..., np.ndarray]:
+    def factory(
+        num_samples: int = 12,
+        num_phases: int = 3,
+    ) -> np.ndarray:
+        return rng.integers(0, num_phases, size=num_samples).astype(np.int64)
+
+    return factory
+
+
+@pytest.fixture
+def mock_latent_pl_module_factory(
+    latent_data_factory: Callable[..., np.ndarray],
+    phase_array_factory: Callable[..., np.ndarray],
+) -> Callable[..., MagicMock]:
+    """Factory for a ``pl_module`` MagicMock pre-wired for
+    ``LatentVisualizationCallback.on_validation_epoch_end`` tests. Override
+    ``posterior_latent`` / ``prior_latent`` with ``None`` to exercise the
+    missing-branch paths."""
+
+    def factory(
+        posterior_latent: np.ndarray | None = ...,
+        prior_latent: np.ndarray | None = ...,
+        phases: np.ndarray | None = ...,
+        metadata: dict | None = None,
+    ) -> MagicMock:
+        if posterior_latent is ...:
+            posterior_latent = latent_data_factory()
+        if prior_latent is ...:
+            prior_latent = latent_data_factory()
+        if phases is ...:
+            phases = phase_array_factory()
+        pl_module = MagicMock()
+        pl_module.val_metrics.compute_latent_visualization_data.return_value = (
+            posterior_latent,
+            prior_latent,
+            phases,
+        )
+        pl_module.val_metrics.metadata = metadata if metadata is not None else {}
         return pl_module
 
     return factory
@@ -702,114 +784,105 @@ class TestExpertUsageCallback:
 
         assert callback.log_every_n_epochs == log_every_n_epochs
 
-    def test_skips_logging_on_non_matching_epochs(
+    @pytest.mark.parametrize(
+        "hook_name, metrics_attr",
+        [
+            ("on_train_epoch_end", "train_metrics"),
+            ("on_validation_epoch_end", "val_metrics"),
+        ],
+    )
+    def test_skips_when_epoch_does_not_match_frequency(
         self,
         mock_trainer_factory: Callable,
+        mock_pl_module_factory: Callable,
+        hook_name: str,
+        metrics_attr: str,
     ):
         callback = ExpertUsageCallback(log_every_n_epochs=3)
-        pl_module = MagicMock()
+        pl_module = mock_pl_module_factory()
         trainer = mock_trainer_factory(current_epoch=1)
 
-        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+        getattr(callback, hook_name)(trainer=trainer, pl_module=pl_module)
 
-        pl_module.train_metrics.compute_expert_usage.assert_not_called()
+        metrics_object = getattr(pl_module, metrics_attr)
+        metrics_object.compute_expert_usage.assert_not_called()
 
-    def test_logs_when_epoch_matches_frequency(
+    @pytest.mark.parametrize(
+        "hook_name, metrics_attr",
+        [
+            ("on_train_epoch_end", "train_metrics"),
+            ("on_validation_epoch_end", "val_metrics"),
+        ],
+    )
+    def test_calls_compute_when_epoch_matches_frequency(
         self,
         mock_trainer_factory: Callable,
+        mock_pl_module_factory: Callable,
+        hook_name: str,
+        metrics_attr: str,
     ):
         callback = ExpertUsageCallback(log_every_n_epochs=2)
-        pl_module = MagicMock()
-        pl_module.train_metrics.compute_expert_usage.return_value = None
-
+        pl_module = mock_pl_module_factory()
         trainer = mock_trainer_factory(current_epoch=4)
 
-        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+        getattr(callback, hook_name)(trainer=trainer, pl_module=pl_module)
 
-        pl_module.train_metrics.compute_expert_usage.assert_called_once()
+        metrics_object = getattr(pl_module, metrics_attr)
+        metrics_object.compute_expert_usage.assert_called_once()
 
-    @patch("versatil.training.callbacks._figure_to_wandb_image")
-    def test_creates_figure_and_logs_to_wandb_on_train_epoch_end(
+    @pytest.mark.parametrize(
+        "hook_name, metrics_attr",
+        [
+            ("on_train_epoch_end", "train_metrics"),
+            ("on_validation_epoch_end", "val_metrics"),
+        ],
+    )
+    def test_logs_to_wandb_when_expert_usage_available(
         self,
-        mock_figure_to_image: MagicMock,
         mock_trainer_factory: Callable,
+        mock_pl_module_factory: Callable,
+        hook_name: str,
+        metrics_attr: str,
     ):
         callback = ExpertUsageCallback(log_every_n_epochs=1)
         expert_usage = np.array([0.3, 0.5, 0.2])
-        pl_module = MagicMock()
-        pl_module.train_metrics.compute_expert_usage.return_value = {
+        pl_module = mock_pl_module_factory()
+        metrics_object = getattr(pl_module, metrics_attr)
+        metrics_object.compute_expert_usage.return_value = {
             "expert_usage": expert_usage
         }
-        mock_figure_to_image.return_value = MagicMock()
-
         trainer = mock_trainer_factory(current_epoch=0)
 
-        with patch.object(callback, "_create_expert_usage_figure") as mock_create:
+        with (
+            patch.object(callback, "_create_expert_usage_figure") as mock_create,
+            patch("versatil.training.callbacks._figure_to_wandb_image"),
+        ):
             mock_create.return_value = MagicMock()
-            callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+            getattr(callback, hook_name)(trainer=trainer, pl_module=pl_module)
 
         trainer.logger.log_metrics.assert_called_once()
 
-    def test_no_logging_when_no_expert_usage_data(
+    @pytest.mark.parametrize(
+        "hook_name, metrics_attr",
+        [
+            ("on_train_epoch_end", "train_metrics"),
+            ("on_validation_epoch_end", "val_metrics"),
+        ],
+    )
+    def test_does_not_log_when_expert_usage_is_none(
         self,
         mock_trainer_factory: Callable,
+        mock_pl_module_factory: Callable,
+        hook_name: str,
+        metrics_attr: str,
     ):
         callback = ExpertUsageCallback(log_every_n_epochs=1)
-        pl_module = MagicMock()
-        pl_module.train_metrics.compute_expert_usage.return_value = None
-
+        pl_module = mock_pl_module_factory()
+        metrics_object = getattr(pl_module, metrics_attr)
+        metrics_object.compute_expert_usage.return_value = None
         trainer = mock_trainer_factory(current_epoch=0)
 
-        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
-
-        trainer.logger.log_metrics.assert_not_called()
-
-    @patch("versatil.training.callbacks._figure_to_wandb_image")
-    def test_on_validation_epoch_end_logs_val_expert_usage(
-        self,
-        mock_figure_to_image: MagicMock,
-        mock_trainer_factory: Callable,
-    ):
-        callback = ExpertUsageCallback(log_every_n_epochs=1)
-        expert_usage = np.array([0.4, 0.6])
-        pl_module = MagicMock()
-        pl_module.val_metrics.compute_expert_usage.return_value = {
-            "expert_usage": expert_usage
-        }
-        mock_figure_to_image.return_value = MagicMock()
-
-        trainer = mock_trainer_factory(current_epoch=0)
-
-        with patch.object(callback, "_create_expert_usage_figure") as mock_create:
-            mock_create.return_value = MagicMock()
-            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
-
-        pl_module.val_metrics.compute_expert_usage.assert_called_once()
-        trainer.logger.log_metrics.assert_called_once()
-
-    def test_on_validation_epoch_end_skips_non_matching_epoch(
-        self,
-        mock_trainer_factory: Callable,
-    ):
-        callback = ExpertUsageCallback(log_every_n_epochs=3)
-        pl_module = MagicMock()
-        trainer = mock_trainer_factory(current_epoch=1)
-
-        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
-
-        pl_module.val_metrics.compute_expert_usage.assert_not_called()
-
-    def test_on_validation_epoch_end_no_logging_when_no_data(
-        self,
-        mock_trainer_factory: Callable,
-    ):
-        callback = ExpertUsageCallback(log_every_n_epochs=1)
-        pl_module = MagicMock()
-        pl_module.val_metrics.compute_expert_usage.return_value = None
-
-        trainer = mock_trainer_factory(current_epoch=0)
-
-        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+        getattr(callback, hook_name)(trainer=trainer, pl_module=pl_module)
 
         trainer.logger.log_metrics.assert_not_called()
 
@@ -822,120 +895,104 @@ class TestConfusionMatrixCallback:
 
         assert callback.log_every_n_epochs == log_every_n_epochs
 
-    def test_skips_logging_on_non_matching_epochs(
+    @pytest.mark.parametrize(
+        "hook_name, metrics_attr",
+        [
+            ("on_train_epoch_end", "train_metrics"),
+            ("on_validation_epoch_end", "val_metrics"),
+        ],
+    )
+    def test_skips_when_epoch_does_not_match_frequency(
         self,
         mock_trainer_factory: Callable,
+        mock_pl_module_factory: Callable,
+        hook_name: str,
+        metrics_attr: str,
     ):
         callback = ConfusionMatrixCallback(log_every_n_epochs=3)
-        pl_module = MagicMock()
+        pl_module = mock_pl_module_factory()
         trainer = mock_trainer_factory(current_epoch=1)
 
-        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+        getattr(callback, hook_name)(trainer=trainer, pl_module=pl_module)
 
-        pl_module.train_metrics.compute_confusion_matrix.assert_not_called()
+        metrics_object = getattr(pl_module, metrics_attr)
+        metrics_object.compute_confusion_matrix.assert_not_called()
 
-    @patch("versatil.training.callbacks._figure_to_wandb_image")
-    def test_logs_confusion_matrix_on_train_epoch_end(
+    @pytest.mark.parametrize(
+        "hook_name, metrics_attr",
+        [
+            ("on_train_epoch_end", "train_metrics"),
+            ("on_validation_epoch_end", "val_metrics"),
+        ],
+    )
+    def test_logs_to_wandb_when_confusion_matrix_available(
         self,
-        mock_figure_to_image: MagicMock,
         mock_trainer_factory: Callable,
+        mock_pl_module_factory: Callable,
+        hook_name: str,
+        metrics_attr: str,
     ):
         callback = ConfusionMatrixCallback(log_every_n_epochs=1)
         confusion_matrix = np.array([[10, 2], [3, 15]])
-        pl_module = MagicMock()
-        pl_module.train_metrics.compute_confusion_matrix.return_value = confusion_matrix
-        mock_figure_to_image.return_value = MagicMock()
-
+        pl_module = mock_pl_module_factory()
+        metrics_object = getattr(pl_module, metrics_attr)
+        metrics_object.compute_confusion_matrix.return_value = confusion_matrix
         trainer = mock_trainer_factory(current_epoch=0)
 
-        with patch.object(callback, "_create_confusion_matrix_figure") as mock_create:
+        with (
+            patch.object(callback, "_create_confusion_matrix_figure") as mock_create,
+            patch("versatil.training.callbacks._figure_to_wandb_image"),
+        ):
             mock_create.return_value = MagicMock()
-            callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+            getattr(callback, hook_name)(trainer=trainer, pl_module=pl_module)
 
         trainer.logger.log_metrics.assert_called_once()
 
-    def test_no_logging_when_no_confusion_matrix(
+    @pytest.mark.parametrize(
+        "hook_name, metrics_attr",
+        [
+            ("on_train_epoch_end", "train_metrics"),
+            ("on_validation_epoch_end", "val_metrics"),
+        ],
+    )
+    def test_does_not_log_when_confusion_matrix_is_none(
         self,
         mock_trainer_factory: Callable,
+        mock_pl_module_factory: Callable,
+        hook_name: str,
+        metrics_attr: str,
     ):
         callback = ConfusionMatrixCallback(log_every_n_epochs=1)
-        pl_module = MagicMock()
-        pl_module.train_metrics.compute_confusion_matrix.return_value = None
-
+        pl_module = mock_pl_module_factory()
+        metrics_object = getattr(pl_module, metrics_attr)
+        metrics_object.compute_confusion_matrix.return_value = None
         trainer = mock_trainer_factory(current_epoch=0)
 
-        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+        getattr(callback, hook_name)(trainer=trainer, pl_module=pl_module)
 
         trainer.logger.log_metrics.assert_not_called()
 
-    def test_no_logging_when_logger_is_none(
+    def test_does_not_convert_figure_when_logger_is_none(
         self,
         mock_trainer_factory: Callable,
+        mock_pl_module_factory: Callable,
     ):
         callback = ConfusionMatrixCallback(log_every_n_epochs=1)
         confusion_matrix = np.array([[5, 1], [2, 8]])
-        pl_module = MagicMock()
+        pl_module = mock_pl_module_factory()
         pl_module.train_metrics.compute_confusion_matrix.return_value = confusion_matrix
-
         trainer = mock_trainer_factory(current_epoch=0, logger=None)
 
-        with patch.object(callback, "_create_confusion_matrix_figure") as mock_create:
-            mock_fig = MagicMock()
-            mock_create.return_value = mock_fig
-
-            with patch(
+        with (
+            patch.object(callback, "_create_confusion_matrix_figure") as mock_create,
+            patch(
                 "versatil.training.callbacks._figure_to_wandb_image"
-            ) as mock_to_wandb:
-                callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
-
-                mock_to_wandb.assert_not_called()
-
-    @patch("versatil.training.callbacks._figure_to_wandb_image")
-    def test_on_validation_epoch_end_logs_val_confusion_matrix(
-        self,
-        mock_figure_to_image: MagicMock,
-        mock_trainer_factory: Callable,
-    ):
-        callback = ConfusionMatrixCallback(log_every_n_epochs=1)
-        confusion_matrix = np.array([[8, 2], [1, 9]])
-        pl_module = MagicMock()
-        pl_module.val_metrics.compute_confusion_matrix.return_value = confusion_matrix
-        mock_figure_to_image.return_value = MagicMock()
-
-        trainer = mock_trainer_factory(current_epoch=0)
-
-        with patch.object(callback, "_create_confusion_matrix_figure") as mock_create:
+            ) as mock_to_wandb,
+        ):
             mock_create.return_value = MagicMock()
-            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+            callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
 
-        pl_module.val_metrics.compute_confusion_matrix.assert_called_once()
-        trainer.logger.log_metrics.assert_called_once()
-
-    def test_on_validation_epoch_end_skips_non_matching_epoch(
-        self,
-        mock_trainer_factory: Callable,
-    ):
-        callback = ConfusionMatrixCallback(log_every_n_epochs=3)
-        pl_module = MagicMock()
-        trainer = mock_trainer_factory(current_epoch=2)
-
-        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
-
-        pl_module.val_metrics.compute_confusion_matrix.assert_not_called()
-
-    def test_on_validation_epoch_end_no_logging_when_no_matrix(
-        self,
-        mock_trainer_factory: Callable,
-    ):
-        callback = ConfusionMatrixCallback(log_every_n_epochs=1)
-        pl_module = MagicMock()
-        pl_module.val_metrics.compute_confusion_matrix.return_value = None
-
-        trainer = mock_trainer_factory(current_epoch=0)
-
-        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
-
-        trainer.logger.log_metrics.assert_not_called()
+        mock_to_wandb.assert_not_called()
 
 
 @pytest.mark.unit
@@ -1042,6 +1099,35 @@ class TestReduceLROnPlateauCallback:
         callback.on_fit_start(trainer=mock_trainer_factory(), pl_module=pl_module)
 
         assert callback.scheduler is not None
+
+    def test_logs_learning_rate_from_optimizer_list(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        expected_lr = 0.0123
+        param = torch.nn.Parameter(torch.zeros(1))
+        optimizer = torch.optim.SGD([param], lr=expected_lr)
+
+        pl_module = MagicMock()
+        pl_module.optimizers.return_value = [optimizer]
+        pl_module.log = MagicMock()
+
+        callback = ReduceLROnPlateauCallback(
+            patience=100, factor=0.5, threshold=0.0, monitor="val_loss"
+        )
+        callback.on_fit_start(trainer=mock_trainer_factory(), pl_module=pl_module)
+
+        trainer = mock_trainer_factory(callback_metrics={"val_loss": torch.tensor(0.5)})
+        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        lr_log_calls = [
+            call_args
+            for call_args in pl_module.log.call_args_list
+            if call_args[0][0] == "lr"
+        ]
+        assert len(lr_log_calls) == 1
+        logged_lr = lr_log_calls[0][0][1]
+        assert logged_lr == pytest.approx(expected_lr)
 
 
 @pytest.mark.unit
@@ -1160,3 +1246,373 @@ class TestFigureToWandbImage:
         mock_wandb.Image.assert_called_once()
         assert result is mock_wandb.Image.return_value
         plt.close(fig)
+
+
+@pytest.mark.unit
+class TestLatentVisualizationCallbackOnValidationEpochEnd:
+    def test_logs_posterior_and_prior_figures_with_phases(
+        self,
+        mock_trainer_factory: Callable,
+        mock_latent_pl_module_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
+        pl_module = mock_latent_pl_module_factory()
+        trainer = mock_trainer_factory(current_epoch=0)
+
+        with patch("versatil.training.callbacks._figure_to_wandb_image"):
+            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        trainer.logger.log_metrics.assert_called_once()
+        logged_metrics = trainer.logger.log_metrics.call_args.args[0]
+        expected_keys = {
+            "posterior_latent_space_tsne",
+            "posterior_latent_space_pca",
+            "posterior_pca_explained_variance",
+            "prior_latent_space_tsne",
+            "prior_latent_space_pca",
+            "prior_pca_explained_variance",
+        }
+        assert expected_keys.issubset(set(logged_metrics.keys()))
+        assert trainer.logger.log_metrics.call_args.kwargs["step"] == 0
+
+    def test_skips_logging_when_both_latents_are_none(
+        self,
+        mock_trainer_factory: Callable,
+        mock_latent_pl_module_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
+        pl_module = mock_latent_pl_module_factory(
+            posterior_latent=None, prior_latent=None
+        )
+        trainer = mock_trainer_factory(current_epoch=0)
+
+        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        trainer.logger.log_metrics.assert_not_called()
+
+    def test_logs_only_prior_when_posterior_missing(
+        self,
+        mock_trainer_factory: Callable,
+        mock_latent_pl_module_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
+        pl_module = mock_latent_pl_module_factory(posterior_latent=None)
+        trainer = mock_trainer_factory(current_epoch=0)
+
+        with patch("versatil.training.callbacks._figure_to_wandb_image"):
+            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        logged_metrics = trainer.logger.log_metrics.call_args.args[0]
+        prior_keys = {
+            "prior_latent_space_tsne",
+            "prior_latent_space_pca",
+            "prior_pca_explained_variance",
+        }
+        posterior_keys = {
+            "posterior_latent_space_tsne",
+            "posterior_latent_space_pca",
+            "posterior_pca_explained_variance",
+        }
+        assert prior_keys.issubset(set(logged_metrics.keys()))
+        assert posterior_keys.isdisjoint(set(logged_metrics.keys()))
+
+    def test_does_not_log_when_logger_is_none(
+        self,
+        mock_trainer_factory: Callable,
+        mock_latent_pl_module_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
+        pl_module = mock_latent_pl_module_factory(prior_latent=None)
+        trainer = mock_trainer_factory(current_epoch=0, logger=None)
+
+        with patch(
+            "versatil.training.callbacks._figure_to_wandb_image"
+        ) as mock_to_wandb:
+            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        mock_to_wandb.assert_not_called()
+
+    def test_logs_latent_stats_table_when_metadata_present(
+        self,
+        mock_trainer_factory: Callable,
+        mock_latent_pl_module_factory: Callable,
+        rng: np.random.Generator,
+    ):
+        callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
+        mu = torch.from_numpy(rng.standard_normal((8, 4)).astype(np.float32))
+        pl_module = mock_latent_pl_module_factory(
+            prior_latent=None,
+            metadata={MetadataKey.POSTERIOR_MU.value: [mu]},
+        )
+        trainer = mock_trainer_factory(current_epoch=0)
+
+        with patch("versatil.training.callbacks._figure_to_wandb_image"):
+            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        logged_metrics = trainer.logger.log_metrics.call_args.args[0]
+        assert "latent_space_statistics" in logged_metrics
+
+    def test_closes_figures_after_logging(
+        self,
+        mock_trainer_factory: Callable,
+        mock_latent_pl_module_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
+        pl_module = mock_latent_pl_module_factory(prior_latent=None)
+        trainer = mock_trainer_factory(current_epoch=0)
+
+        with (
+            patch("versatil.training.callbacks._figure_to_wandb_image"),
+            patch("versatil.training.callbacks.plt.close") as mock_close,
+        ):
+            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        # Posterior path generates 3 figures: tsne, pca, explained_variance
+        assert mock_close.call_count == 3
+
+
+@pytest.mark.unit
+class TestCreateLatentFigure:
+    def test_returns_figure_with_single_axes_and_titled_with_phase(
+        self,
+        latent_data_factory: Callable,
+        phase_array_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback(max_samples=100)
+        z = latent_data_factory(num_samples=12, latent_dimension=4)
+        phases = phase_array_factory(num_samples=12, num_phases=3)
+
+        with patch("versatil.training.callbacks.TSNE") as mock_tsne_class:
+            mock_instance = MagicMock()
+            mock_instance.fit_transform.return_value = np.zeros(
+                (12, 2), dtype=np.float32
+            )
+            mock_tsne_class.return_value = mock_instance
+
+            fig = callback._create_latent_figure(
+                z, phases, title="Posterior latent space"
+            )
+
+        assert isinstance(fig, plt.Figure)
+        # Called with correct perplexity (min(30, n-1) = 11 here)
+        _, call_kwargs = mock_tsne_class.call_args
+        assert call_kwargs["perplexity"] == 11
+        assert call_kwargs["n_components"] == 2
+        # Main scatter axis + colorbar axis
+        axes = fig.get_axes()
+        assert len(axes) >= 1
+        main_title = axes[0].get_title()
+        assert "Posterior latent space" in main_title
+        assert "phase" in main_title.lower()
+        plt.close(fig)
+
+    def test_returns_figure_without_phase_annotation_when_phases_none(
+        self,
+        latent_data_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback(max_samples=100)
+        z = latent_data_factory(num_samples=10, latent_dimension=3)
+
+        with patch("versatil.training.callbacks.TSNE") as mock_tsne_class:
+            mock_instance = MagicMock()
+            mock_instance.fit_transform.return_value = np.zeros(
+                (10, 2), dtype=np.float32
+            )
+            mock_tsne_class.return_value = mock_instance
+
+            fig = callback._create_latent_figure(z, None, title="Prior")
+
+        axes = fig.get_axes()
+        # Only main axis (no colorbar)
+        assert len(axes) == 1
+        assert "Prior" in axes[0].get_title()
+        plt.close(fig)
+
+    def test_subsamples_when_exceeding_max_samples(
+        self,
+        latent_data_factory: Callable,
+        phase_array_factory: Callable,
+    ):
+        max_samples = 20
+        callback = LatentVisualizationCallback(max_samples=max_samples)
+        z = latent_data_factory(num_samples=50, latent_dimension=4)
+        phases = phase_array_factory(num_samples=50, num_phases=3)
+
+        with patch("versatil.training.callbacks.TSNE") as mock_tsne_class:
+            mock_instance = MagicMock()
+            mock_instance.fit_transform.return_value = np.zeros(
+                (max_samples, 2), dtype=np.float32
+            )
+            mock_tsne_class.return_value = mock_instance
+
+            fig = callback._create_latent_figure(z, phases, title="X")
+
+        # fit_transform should have been called with a (max_samples, latent_dim) array
+        fitted = mock_instance.fit_transform.call_args.args[0]
+        assert fitted.shape == (max_samples, 4)
+        plt.close(fig)
+
+
+@pytest.mark.unit
+class TestCreatePcaFigure:
+    def test_returns_figure_with_phase_colored_scatter(
+        self,
+        latent_data_factory: Callable,
+        phase_array_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback(max_samples=100)
+        z = latent_data_factory(num_samples=12, latent_dimension=4)
+        phases = phase_array_factory(num_samples=12, num_phases=3)
+
+        fig = callback._create_pca_figure(z, phases, title="Posterior latent space")
+
+        assert isinstance(fig, plt.Figure)
+        axes = fig.get_axes()
+        assert len(axes) >= 1
+        main_title = axes[0].get_title()
+        assert "Posterior latent space" in main_title
+        # Axis labels include explained variance percentages
+        assert "PC1" in axes[0].get_xlabel()
+        assert "%" in axes[0].get_xlabel()
+        assert "PC2" in axes[0].get_ylabel()
+        plt.close(fig)
+
+    def test_returns_figure_without_hue_when_phases_none(
+        self,
+        latent_data_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback(max_samples=100)
+        z = latent_data_factory(num_samples=10, latent_dimension=3)
+
+        fig = callback._create_pca_figure(z, None, title="Prior")
+
+        assert isinstance(fig, plt.Figure)
+        axes = fig.get_axes()
+        assert "Prior PCA" in axes[0].get_title()
+        plt.close(fig)
+
+    def test_subsamples_when_exceeding_max_samples(
+        self,
+        latent_data_factory: Callable,
+        phase_array_factory: Callable,
+    ):
+        max_samples = 15
+        callback = LatentVisualizationCallback(max_samples=max_samples)
+        z = latent_data_factory(num_samples=40, latent_dimension=5)
+        phases = phase_array_factory(num_samples=40, num_phases=2)
+
+        with patch("versatil.training.callbacks.PCA") as mock_pca_class:
+            mock_instance = MagicMock()
+            mock_instance.fit_transform.return_value = np.zeros(
+                (max_samples, 2), dtype=np.float32
+            )
+            mock_instance.explained_variance_ratio_ = np.array([0.5, 0.3])
+            mock_pca_class.return_value = mock_instance
+
+            callback._create_pca_figure(z, phases, title="X")
+
+        fitted = mock_instance.fit_transform.call_args.args[0]
+        assert fitted.shape == (max_samples, 5)
+
+
+@pytest.mark.unit
+class TestCreatePcaVarianceFigure:
+    def test_returns_bar_chart_with_one_bar_per_component(
+        self,
+        latent_data_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback()
+        latent_dimension = 5
+        num_samples = 20
+        z = latent_data_factory(
+            num_samples=num_samples, latent_dimension=latent_dimension
+        )
+
+        fig = callback._create_pca_variance_figure(z, title="Posterior")
+
+        assert isinstance(fig, plt.Figure)
+        axes = fig.get_axes()
+        assert len(axes) == 1
+        assert "Posterior" in axes[0].get_title()
+        assert "Explained Variance" in axes[0].get_title()
+        assert axes[0].get_xlabel() == "Principal Component"
+        # PCA with n=5 features and 20 samples produces 5 components => 5 bars
+        assert len(axes[0].patches) == latent_dimension
+        plt.close(fig)
+
+
+@pytest.mark.unit
+class TestCreateLatentStatsTable:
+    def test_returns_none_when_metadata_empty(self):
+        callback = LatentVisualizationCallback()
+
+        table = callback._create_latent_stats_table(metadata={})
+
+        assert table is None
+
+    def test_returns_wandb_table_with_expected_columns_and_rows(
+        self,
+        rng: np.random.Generator,
+    ):
+        callback = LatentVisualizationCallback()
+        posterior_mu = torch.from_numpy(rng.standard_normal((8, 4)).astype(np.float32))
+        prior_mu = torch.from_numpy(rng.standard_normal((8, 4)).astype(np.float32))
+        metadata = {
+            MetadataKey.POSTERIOR_MU.value: [posterior_mu],
+            MetadataKey.PRIOR_MU.value: [prior_mu],
+        }
+
+        table = callback._create_latent_stats_table(metadata=metadata)
+
+        assert table is not None
+        expected_columns = [
+            "name",
+            "shape",
+            "mean",
+            "per_dim_std_of_mean",
+            "std",
+            "per_dim_mean_of_std",
+            "min",
+            "max",
+            "collapsed_dims",
+        ]
+        assert list(table.columns) == expected_columns
+        # Two metadata entries => two rows
+        assert len(table.data) == 2
+        row_labels = {row[0] for row in table.data}
+        assert row_labels == {"mu_posterior", "mu_prior"}
+
+    def test_flattens_three_dimensional_metadata(
+        self,
+        rng: np.random.Generator,
+    ):
+        callback = LatentVisualizationCallback()
+        # 3D tensor should get reshaped to (N, -1) before stats computation
+        posterior_z = torch.from_numpy(
+            rng.standard_normal((6, 2, 3)).astype(np.float32)
+        )
+        metadata = {MetadataKey.POSTERIOR_Z.value: [posterior_z]}
+
+        table = callback._create_latent_stats_table(metadata=metadata)
+
+        assert table is not None
+        assert len(table.data) == 1
+        shape_field = table.data[0][1]
+        assert shape_field == str((6, 6))
+
+    def test_counts_collapsed_dimensions_below_threshold(
+        self,
+        rng: np.random.Generator,
+    ):
+        callback = LatentVisualizationCallback()
+        # Build a tensor where two dimensions have near-zero std (< 0.01)
+        base = rng.standard_normal((20, 4)).astype(np.float32)
+        base[:, 0] = 0.001
+        base[:, 1] = 0.005
+        tensor = torch.from_numpy(base)
+        metadata = {MetadataKey.POSTERIOR_MU.value: [tensor]}
+
+        table = callback._create_latent_stats_table(metadata=metadata)
+
+        collapsed_dims = table.data[0][-1]
+        assert collapsed_dims == 2

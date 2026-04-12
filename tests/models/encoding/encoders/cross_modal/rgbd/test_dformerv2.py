@@ -14,6 +14,7 @@ import torch.nn as nn
 
 from versatil.data.constants import RGB_CAMERAS, Cameras
 from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
     PoolingMethod,
@@ -46,9 +47,25 @@ def _mock_setup_pooling(self, spatial_height: int, spatial_width: int):
     self.output_dim = self.feature_dim
 
 
+_TINY_VARIANT = {
+    "embed_dims": [8, 16],
+    "depths": [1, 1],
+    "num_heads": [2, 2],
+    "decay_ranges": [3, 3],
+    "use_layer_scales": [False, True],
+}
+
+
 @pytest.fixture
 def dformer_encoder_factory() -> Callable[..., DFormerEncoder]:
-    """Factory for DFormerEncoder with mocked backbone."""
+    """Factory for DFormerEncoder with mocked backbone.
+
+    By default bypasses ``_build_backbone`` and ``PatchEmbedding`` via
+    side-effect mocks for fast shape/spec tests. Pass ``real_build=True``
+    to exercise the real ``_build_backbone`` method against a tiny 2-stage
+    variant injected into ``VARIANT_CONFIGS``. Exposes the tiny variant
+    via ``DFormerVariant`` so construction works end-to-end.
+    """
 
     def factory(
         input_keys: str | list[str] | None = None,
@@ -61,9 +78,29 @@ def dformer_encoder_factory() -> Callable[..., DFormerEncoder]:
         frozen: bool = False,
         checkpoint_path: str | None = None,
         pooling_method: str = PoolingMethod.AVERAGE.value,
+        real_build: bool = False,
     ) -> DFormerEncoder:
         if input_keys is None:
             input_keys = [Cameras.LEFT.value, Cameras.DEPTH.value]
+        if real_build:
+            test_variant = "tiny_test"
+            patched_configs = {
+                **DFormerEncoder.VARIANT_CONFIGS,
+                test_variant: _TINY_VARIANT,
+            }
+            with patch.dict(DFormerEncoder.VARIANT_CONFIGS, patched_configs):
+                return DFormerEncoder(
+                    input_keys=input_keys,
+                    variant=test_variant,
+                    decomposition_mode=decomposition_mode,
+                    drop_path_rate=drop_path_rate,
+                    layer_scale_init_value=layer_scale_init_value,
+                    initial_decay=initial_decay,
+                    pretrained=pretrained,
+                    frozen=frozen,
+                    checkpoint_path=checkpoint_path,
+                    pooling_method=pooling_method,
+                )
         with (
             patch.object(DFormerEncoder, "_build_backbone", _mock_build_backbone),
             patch.object(DFormerEncoder, "__init_subclass__", lambda **kw: None),
@@ -731,3 +768,106 @@ class TestDFormerEncoderPretrainedCheckpoint:
             random_features = random_encoder(inputs)[EncoderOutputKeys.RGBD.value]
 
         assert not torch.allclose(pretrained_features, random_features, atol=1e-3)
+
+
+class TestDFormerEncoderRealBuild:
+    @pytest.mark.unit
+    def test_build_backbone_instantiates_real_stages(
+        self,
+        dformer_encoder_factory: Callable[..., DFormerEncoder],
+    ):
+        encoder = dformer_encoder_factory(real_build=True)
+        assert len(encoder.stages) == 2
+        assert encoder.embed_dims == _TINY_VARIANT["embed_dims"]
+        assert encoder.feature_dim == _TINY_VARIANT["embed_dims"][-1]
+        # First stage has a downsample (patch merging), last doesn't
+        assert encoder.stages[0].downsample is not None
+        assert encoder.stages[1].downsample is None
+
+    @pytest.mark.unit
+    def test_set_image_size_creates_pooling_head(
+        self,
+        dformer_encoder_factory: Callable[..., DFormerEncoder],
+    ):
+        encoder = dformer_encoder_factory(real_build=True)
+        assert encoder.pooling_head is None
+        encoder.set_image_size(image_height=32, image_width=32)
+        assert encoder.pooling_head is not None
+        assert encoder.output_dim == encoder.pooling_head.output_dim
+
+    @pytest.mark.unit
+    def test_encode_returns_rgbd_features_end_to_end(
+        self,
+        dformer_encoder_factory: Callable[..., DFormerEncoder],
+        rgbd_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        encoder = dformer_encoder_factory(real_build=True)
+        encoder.set_image_size(image_height=32, image_width=32)
+        encoder.eval()
+        inputs = rgbd_input_factory(batch_size=1, height=32, width=32)
+        with torch.no_grad():
+            output = encoder(inputs)
+        assert EncoderOutputKeys.RGBD.value in output
+        assert output[EncoderOutputKeys.RGBD.value].shape[0] == 1
+
+    @pytest.mark.unit
+    def test_encode_raises_when_pooling_head_not_initialized(
+        self,
+        dformer_encoder_factory: Callable[..., DFormerEncoder],
+        rgbd_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        encoder = dformer_encoder_factory(real_build=True)
+        inputs = rgbd_input_factory(batch_size=1, height=32, width=32)
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape(
+                "pooling_head is not initialized. Call set_image_size() before forward."
+            ),
+        ):
+            encoder(inputs)
+
+    @pytest.mark.unit
+    def test_load_checkpoint_handles_model_and_state_dict_keys(
+        self,
+        dformer_encoder_factory: Callable[..., DFormerEncoder],
+        tmp_path,
+    ):
+        encoder = dformer_encoder_factory(real_build=True)
+        # Synthesize a checkpoint in each of the three supported top-level
+        # shapes: raw state_dict, {"model": state_dict}, {"state_dict": ...}
+        raw_state = {
+            f"backbone.{key}": value.clone()
+            for key, value in encoder.state_dict().items()
+        }
+        checkpoint_path = tmp_path / "dformer.pth"
+        torch.save({"model": raw_state}, checkpoint_path)
+        # _load_checkpoint strips "backbone." prefix and does a non-strict load
+        encoder._load_checkpoint(str(checkpoint_path))
+
+        torch.save({"state_dict": raw_state}, checkpoint_path)
+        encoder._load_checkpoint(str(checkpoint_path))
+
+        torch.save(raw_state, checkpoint_path)
+        encoder._load_checkpoint(str(checkpoint_path))
+
+    @pytest.mark.unit
+    def test_pretrained_requires_checkpoint_path(
+        self,
+        dformer_encoder_factory: Callable[..., DFormerEncoder],
+    ):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Pretrained=True requires a valid checkpoint_path for DFormerEncoder."
+            ),
+        ):
+            dformer_encoder_factory(real_build=True, pretrained=True)
+
+    @pytest.mark.unit
+    def test_frozen_calls_freeze_weights_on_init(
+        self,
+        dformer_encoder_factory: Callable[..., DFormerEncoder],
+    ):
+        with patch.object(EncodingMixin, "_freeze_weights") as mock_freeze:
+            dformer_encoder_factory(real_build=True, frozen=True)
+        mock_freeze.assert_called_once()

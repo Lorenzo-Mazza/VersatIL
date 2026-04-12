@@ -11,6 +11,7 @@ import torch
 
 from versatil.data.constants import RGB_CAMERAS
 from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.encoders.constants import (
     EncoderOutputKeys,
     FlatBackboneType,
@@ -35,9 +36,114 @@ def _mock_build_backbone(self):
     self.patch_size = None
 
 
+def _make_mock_timm_backbone(
+    num_features: int = FEATURE_DIM,
+    num_prefix_tokens: int = 1,
+    patch_embed_img_size: tuple[int, int] | None = None,
+    patch_size: tuple[int, int] = (14, 14),
+    strict_img_size: bool = False,
+) -> MagicMock:
+    backbone = MagicMock()
+    backbone.num_features = num_features
+    backbone.num_prefix_tokens = num_prefix_tokens
+    if patch_embed_img_size is None:
+        backbone.patch_embed = None
+    else:
+        patch_embed = MagicMock()
+        patch_embed.strict_img_size = strict_img_size
+        patch_embed.img_size = patch_embed_img_size
+        patch_embed.patch_size = patch_size
+        backbone.patch_embed = patch_embed
+    return backbone
+
+
 @pytest.fixture
-def flat_rgb_encoder_factory() -> Callable[..., FlatRGBEncoder]:
-    """Factory for FlatRGBEncoder with mocked backbone."""
+def mock_timm_backend():
+    """Patches timm.get_pretrained_cfg and timm.create_model for the whole test.
+
+    Exposes ``configure(...)`` to set the mock pretrained config and the
+    per-call backbone template (used to synthesize a fresh mock backbone on
+    every ``timm.create_model`` call, so rebuilds via ``set_image_size`` see
+    a new instance). The ``create_model`` mock is reachable at
+    ``backend.create_model_mock`` for spies / assertions.
+    """
+
+    class _Backend:
+        def __init__(self):
+            self.cfg = MagicMock()
+            self.cfg.fixed_input_size = False
+            self.cfg.input_size = (3, 518, 518)
+            self.backbone_kwargs = {
+                "num_features": FEATURE_DIM,
+                "num_prefix_tokens": 1,
+                "patch_embed_img_size": (224, 224),
+                "patch_size": (14, 14),
+                "strict_img_size": False,
+            }
+
+        def configure(
+            self,
+            fixed_input_size: bool | None = None,
+            pretrained_input_size: tuple[int, int, int] | None = None,
+            num_prefix_tokens: int | None = None,
+            patch_embed_img_size: tuple[int, int] | None = ...,
+            patch_size: tuple[int, int] | None = None,
+            strict_img_size: bool | None = None,
+        ) -> None:
+            if fixed_input_size is not None:
+                self.cfg.fixed_input_size = fixed_input_size
+            if pretrained_input_size is not None:
+                self.cfg.input_size = pretrained_input_size
+            if num_prefix_tokens is not None:
+                self.backbone_kwargs["num_prefix_tokens"] = num_prefix_tokens
+            if patch_embed_img_size is not ...:
+                self.backbone_kwargs["patch_embed_img_size"] = patch_embed_img_size
+            if patch_size is not None:
+                self.backbone_kwargs["patch_size"] = patch_size
+            if strict_img_size is not None:
+                self.backbone_kwargs["strict_img_size"] = strict_img_size
+
+        def _side_effect(self, *args, **kwargs) -> MagicMock:
+            kwargs_override = dict(self.backbone_kwargs)
+            img_size_kwarg = kwargs.get("img_size")
+            if isinstance(img_size_kwarg, tuple):
+                kwargs_override["patch_embed_img_size"] = img_size_kwarg
+            elif isinstance(img_size_kwarg, int):
+                kwargs_override["patch_embed_img_size"] = (
+                    img_size_kwarg,
+                    img_size_kwarg,
+                )
+            return _make_mock_timm_backbone(**kwargs_override)
+
+    backend = _Backend()
+    cfg_patcher = patch(
+        "versatil.models.encoding.encoders.rgb.flat.timm.get_pretrained_cfg",
+        return_value=backend.cfg,
+    )
+    model_patcher = patch(
+        "versatil.models.encoding.encoders.rgb.flat.timm.create_model",
+        side_effect=backend._side_effect,
+    )
+    cfg_patcher.start()
+    backend.create_model_mock = model_patcher.start()
+    yield backend
+    cfg_patcher.stop()
+    model_patcher.stop()
+
+
+@pytest.fixture
+def flat_rgb_encoder_factory(
+    mock_timm_backend,
+) -> Callable[..., FlatRGBEncoder]:
+    """Factory for FlatRGBEncoder with mocked backbone.
+
+    By default bypasses ``_build_backbone`` via a side-effect mock for
+    fast shape/forward tests. Pass ``real_build=True`` to exercise the
+    real ``_build_backbone`` method — the ``mock_timm_backend`` fixture
+    keeps the timm patches active for the whole test, so subsequent
+    ``set_image_size`` calls also hit the mocks. Configure the backend
+    via ``mock_timm_backend.configure(...)`` before calling the factory.
+    """
 
     def factory(
         input_keys: str | list[str] = "left",
@@ -45,15 +151,24 @@ def flat_rgb_encoder_factory() -> Callable[..., FlatRGBEncoder]:
         pooling_method: str = PoolingMethod.DEFAULT.value,
         pretrained: bool = False,
         frozen: bool = False,
+        real_build: bool = False,
     ) -> FlatRGBEncoder:
-        with patch.object(FlatRGBEncoder, "_build_backbone", _mock_build_backbone):
-            return FlatRGBEncoder(
-                input_keys=input_keys,
-                backbone=backbone,
-                pooling_method=pooling_method,
-                pretrained=pretrained,
-                frozen=frozen,
-            )
+        if not real_build:
+            with patch.object(FlatRGBEncoder, "_build_backbone", _mock_build_backbone):
+                return FlatRGBEncoder(
+                    input_keys=input_keys,
+                    backbone=backbone,
+                    pooling_method=pooling_method,
+                    pretrained=pretrained,
+                    frozen=frozen,
+                )
+        return FlatRGBEncoder(
+            input_keys=input_keys,
+            backbone=backbone,
+            pooling_method=pooling_method,
+            pretrained=pretrained,
+            frozen=frozen,
+        )
 
     return factory
 
@@ -352,6 +467,112 @@ class TestFlatRGBEncoderBuildBackbone:
         encoder.set_image_size(image_height=256, image_width=256)
         assert encoder.expected_image_size == (256, 256)
         assert encoder.expected_image_size != original_size
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "fixed_input_size",
+        [False, True],
+        ids=["dynamic", "fixed"],
+    )
+    def test_build_backbone_dispatches_on_fixed_input_size(
+        self,
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
+        mock_timm_backend,
+        fixed_input_size: bool,
+    ):
+        mock_timm_backend.configure(fixed_input_size=fixed_input_size)
+        flat_rgb_encoder_factory(real_build=True)
+        call_kwargs = mock_timm_backend.create_model_mock.call_args.kwargs
+        if fixed_input_size:
+            # initial build has self.image_size=None → uses pretrained input_size[-1]
+            assert call_kwargs["img_size"] == 518
+        else:
+            assert "img_size" not in call_kwargs
+
+    @pytest.mark.unit
+    def test_build_backbone_reads_patch_embed_properties(
+        self,
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
+        mock_timm_backend,
+    ):
+        mock_timm_backend.configure(
+            patch_embed_img_size=(224, 224),
+            patch_size=(16, 16),
+            strict_img_size=True,
+        )
+        encoder = flat_rgb_encoder_factory(real_build=True)
+        assert encoder.requires_strict_image_size is True
+        assert encoder.expected_image_size == (224, 224)
+        assert encoder.patch_size == (16, 16)
+
+    @pytest.mark.unit
+    def test_build_backbone_without_patch_embed_is_permissive(
+        self,
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
+        mock_timm_backend,
+    ):
+        mock_timm_backend.configure(patch_embed_img_size=None)
+        encoder = flat_rgb_encoder_factory(real_build=True)
+        assert encoder.requires_strict_image_size is False
+        assert encoder.expected_image_size is None
+        assert encoder.patch_size is None
+
+    @pytest.mark.unit
+    def test_set_image_size_rebuilds_and_updates_feature_dim(
+        self,
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
+        mock_timm_backend,
+    ):
+        mock_timm_backend.configure(fixed_input_size=True)
+        encoder = flat_rgb_encoder_factory(real_build=True)
+        initial_calls = mock_timm_backend.create_model_mock.call_count
+        encoder.set_image_size(image_height=384, image_width=384)
+        assert mock_timm_backend.create_model_mock.call_count == initial_calls + 1
+        assert mock_timm_backend.create_model_mock.call_args.kwargs["img_size"] == (
+            384,
+            384,
+        )
+        assert encoder.feature_dim == FEATURE_DIM
+
+    @pytest.mark.unit
+    def test_set_image_size_refreezes_when_frozen(
+        self,
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
+    ):
+        with patch.object(EncodingMixin, "_freeze_weights") as mock_freeze:
+            encoder = flat_rgb_encoder_factory(
+                real_build=True,
+                frozen=True,
+            )
+            calls_after_init = mock_freeze.call_count
+            encoder.set_image_size(image_height=256, image_width=256)
+        assert mock_freeze.call_count == calls_after_init + 1
+
+    @pytest.mark.unit
+    def test_encode_resizes_when_expected_image_size_set(
+        self,
+        flat_rgb_encoder_factory: Callable[..., FlatRGBEncoder],
+        image_input_factory: Callable[..., dict[str, torch.Tensor]],
+        mock_backbone_output_factory: Callable[..., torch.Tensor],
+    ):
+        encoder = flat_rgb_encoder_factory(
+            pooling_method=PoolingMethod.DEFAULT.value,
+        )
+        encoder.expected_image_size = (64, 64)
+        encoder.backbone.forward_features.return_value = mock_backbone_output_factory(
+            batch_size=2
+        )
+        inputs = image_input_factory(key="left", batch_size=2, height=32, width=32)
+        with patch(
+            "versatil.models.encoding.encoders.rgb.flat.resize_to_target_size",
+            wraps=lambda images, target_height, target_width: images.new_zeros(
+                images.shape[0], 3, target_height, target_width
+            ),
+        ) as mock_resize:
+            encoder(inputs)
+        mock_resize.assert_called_once()
+        assert mock_resize.call_args.kwargs["target_height"] == 64
+        assert mock_resize.call_args.kwargs["target_width"] == 64
 
 
 class TestFlatRGBEncoderValidateInputMetadata:

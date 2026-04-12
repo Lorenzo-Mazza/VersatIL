@@ -7,11 +7,13 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+import timm
 import torch
 import torch.nn as nn
 
 from versatil.data.constants import RGB_CAMERAS
 from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
     EncoderOutputKeys,
@@ -37,9 +39,52 @@ def _mock_build_filmed_backbone(self):
     self.layer4 = nn.ModuleList()
 
 
+@pytest.fixture(scope="session")
+def _real_timm_resnet_template():
+    """Session-scoped real timm ResNet18 (pretrained=False) used as a base
+    model for _build_filmed_backbone tests. Constructed once per test session
+    to amortize the ~1s instantiation cost."""
+    return timm.create_model("resnet18", pretrained=False, num_classes=0)
+
+
 @pytest.fixture
-def conditional_cnn_factory() -> Callable[..., ConditionalCNNEncoder]:
-    """Factory for ConditionalCNNEncoder with mocked backbone."""
+def mock_timm_resnet_backend(_real_timm_resnet_template):
+    """Patches ``timm.create_model`` in conditional_cnn for the whole test.
+
+    Returns the same real ResNet18 template on every call. The patch is
+    started with ``patcher.start()`` and torn down via yield so it stays
+    active across any ``set_image_size`` rebuilds the test triggers after
+    the encoder is constructed.
+    """
+
+    class _Backend:
+        def __init__(self, template):
+            self.template = template
+            self.create_model_mock = None
+
+    backend = _Backend(_real_timm_resnet_template)
+    patcher = patch(
+        "versatil.models.encoding.encoders.rgb.conditional_cnn.timm.create_model",
+        return_value=_real_timm_resnet_template,
+    )
+    backend.create_model_mock = patcher.start()
+    yield backend
+    patcher.stop()
+
+
+@pytest.fixture
+def conditional_cnn_factory(
+    mock_timm_resnet_backend,
+) -> Callable[..., ConditionalCNNEncoder]:
+    """Factory for ConditionalCNNEncoder with mocked backbone.
+
+    By default bypasses ``_build_filmed_backbone`` via a side-effect mock
+    for fast shape/forward tests. Pass ``real_build=True`` to exercise the
+    real ``_build_filmed_backbone`` method — the ``mock_timm_resnet_backend``
+    fixture keeps ``timm.create_model`` patched to return a real (but
+    untrained) ResNet18 for the whole test, so the full build/copy/BN
+    handling paths run against real modules.
+    """
 
     def factory(
         input_keys: str | list[str] = "left",
@@ -50,22 +95,34 @@ def conditional_cnn_factory() -> Callable[..., ConditionalCNNEncoder]:
         batch_norm_handling: str = BatchNormHandling.FROZEN.value,
         pretrained: bool = False,
         frozen: bool = False,
+        real_build: bool = False,
     ) -> ConditionalCNNEncoder:
-        with patch.object(
-            ConditionalCNNEncoder,
-            "_build_filmed_backbone",
-            _mock_build_filmed_backbone,
-        ):
-            return ConditionalCNNEncoder(
-                input_keys=input_keys,
-                condition_key=condition_key,
-                condition_dim=condition_dim,
-                backbone=backbone,
-                pooling_method=pooling_method,
-                batch_norm_handling=batch_norm_handling,
-                pretrained=pretrained,
-                frozen=frozen,
-            )
+        if not real_build:
+            with patch.object(
+                ConditionalCNNEncoder,
+                "_build_filmed_backbone",
+                _mock_build_filmed_backbone,
+            ):
+                return ConditionalCNNEncoder(
+                    input_keys=input_keys,
+                    condition_key=condition_key,
+                    condition_dim=condition_dim,
+                    backbone=backbone,
+                    pooling_method=pooling_method,
+                    batch_norm_handling=batch_norm_handling,
+                    pretrained=pretrained,
+                    frozen=frozen,
+                )
+        return ConditionalCNNEncoder(
+            input_keys=input_keys,
+            condition_key=condition_key,
+            condition_dim=condition_dim,
+            backbone=backbone,
+            pooling_method=pooling_method,
+            batch_norm_handling=batch_norm_handling,
+            pretrained=pretrained,
+            frozen=frozen,
+        )
 
     return factory
 
@@ -562,3 +619,134 @@ class TestConditionalCNNEncoderCopyPretrainedWeights:
         first_block = encoder.layer1[0]
         conv1_weight_norm = first_block.conv1.weight.data.abs().sum().item()
         assert conv1_weight_norm > 0.0
+
+
+class TestConditionalCNNEncoderRealBuild:
+    @pytest.mark.unit
+    @pytest.mark.parametrize("pretrained", [False, True])
+    def test_real_build_wires_layers_from_timm_backbone(
+        self,
+        conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
+        mock_timm_resnet_backend,
+        pretrained: bool,
+    ):
+        encoder = conditional_cnn_factory(
+            real_build=True,
+            pretrained=pretrained,
+        )
+        assert mock_timm_resnet_backend.create_model_mock.called
+        assert isinstance(encoder.conv1, nn.Conv2d)
+        assert isinstance(encoder.bn1, (nn.BatchNorm2d, nn.GroupNorm))
+        assert len(encoder.layer1) == 2
+        assert len(encoder.layer2) == 2
+        assert len(encoder.layer3) == 2
+        assert len(encoder.layer4) == 2
+        assert encoder.feature_dim == 512
+
+    @pytest.mark.unit
+    def test_pretrained_copies_weights_into_filmed_blocks(
+        self,
+        conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
+        mock_timm_resnet_backend,
+    ):
+        base_model = mock_timm_resnet_backend.template
+        encoder = conditional_cnn_factory(real_build=True, pretrained=True)
+        # conv weights in the FiLMed block must match the base model's
+        # conv weights for all non-BN parameters.
+        first_filmed_block = encoder.layer1[0]
+        first_base_block = base_model.layer1[0]
+        assert torch.allclose(
+            first_filmed_block.conv1.weight.data,
+            first_base_block.conv1.weight.data,
+        )
+        assert torch.allclose(
+            first_filmed_block.conv2.weight.data,
+            first_base_block.conv2.weight.data,
+        )
+        # layer2 has a downsample branch — verify it was copied too
+        second_filmed_block = encoder.layer2[0]
+        second_base_block = base_model.layer2[0]
+        assert torch.allclose(
+            second_filmed_block.downsample[0].weight.data,
+            second_base_block.downsample[0].weight.data,
+        )
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "batch_norm_handling, expected_bn1_type",
+        [
+            (BatchNormHandling.FROZEN.value, nn.BatchNorm2d),
+            (BatchNormHandling.DEFAULT.value, nn.BatchNorm2d),
+            (BatchNormHandling.CONVERT_TO_GROUPNORM.value, nn.GroupNorm),
+        ],
+    )
+    def test_batch_norm_handling_variants(
+        self,
+        conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
+        batch_norm_handling: str,
+        expected_bn1_type: type,
+    ):
+        encoder = conditional_cnn_factory(
+            real_build=True,
+            batch_norm_handling=batch_norm_handling,
+        )
+        assert isinstance(encoder.bn1, expected_bn1_type)
+
+    @pytest.mark.unit
+    def test_frozen_calls_freeze_weights_on_init(
+        self,
+        conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
+    ):
+        with patch.object(EncodingMixin, "_freeze_weights") as mock_freeze:
+            conditional_cnn_factory(real_build=True, frozen=True)
+        mock_freeze.assert_called_once()
+
+    @pytest.mark.unit
+    def test_set_image_size_creates_pooling_head(
+        self,
+        conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
+    ):
+        encoder = conditional_cnn_factory(real_build=True)
+        assert encoder.pooling_head is None
+        encoder.set_image_size(image_height=64, image_width=64)
+        assert encoder.pooling_head is not None
+        assert encoder.output_dim == encoder.pooling_head.output_dim
+
+    @pytest.mark.unit
+    def test_set_image_size_refreezes_when_frozen(
+        self,
+        conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
+    ):
+        with patch.object(EncodingMixin, "_freeze_weights") as mock_freeze:
+            encoder = conditional_cnn_factory(real_build=True, frozen=True)
+            calls_after_init = mock_freeze.call_count
+            encoder.set_image_size(image_height=64, image_width=64)
+        assert mock_freeze.call_count == calls_after_init + 1
+
+    @pytest.mark.unit
+    def test_encode_runs_full_conv_stack_with_conditioning(
+        self,
+        conditional_cnn_factory: Callable[..., ConditionalCNNEncoder],
+        image_input_factory: Callable[..., dict[str, torch.Tensor]],
+        conditioning_factory: Callable[..., torch.Tensor],
+    ):
+        batch_size = 2
+        condition_dim = 64
+        encoder = conditional_cnn_factory(
+            real_build=True,
+            condition_dim=condition_dim,
+            pooling_method=PoolingMethod.AVERAGE.value,
+        )
+        encoder.set_image_size(image_height=64, image_width=64)
+        inputs = image_input_factory(
+            key="left", batch_size=batch_size, height=64, width=64
+        )
+        conditioning = conditioning_factory(
+            batch_size=batch_size,
+            condition_dim=condition_dim,
+            time_steps=1,
+        ).squeeze(1)
+        output = encoder(inputs=inputs, conditioning=conditioning)
+        rgb = output[EncoderOutputKeys.RGB.value]
+        assert rgb.shape[0] == batch_size
+        assert rgb.shape[-1] == encoder.feature_dim

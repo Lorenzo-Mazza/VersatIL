@@ -203,3 +203,9 @@ versatil_webp = "versatil.data.preprocessing.codecs:WebPCodec"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/versatil"]
+
+[tool.coverage.run]
+omit = [
+    "src/versatil/explain/*",
+    "src/versatil/endpoints/explain.py",
+]

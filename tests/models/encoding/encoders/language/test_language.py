@@ -11,6 +11,7 @@ import torch
 
 from versatil.data.constants import SampleKey
 from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.encoders.constants import (
     AttentionImplementation,
     EncoderOutputKeys,
@@ -37,7 +38,14 @@ def _mock_build_encoder(self):
 
 @pytest.fixture
 def language_encoder_factory() -> Callable[..., LanguageEncoder]:
-    """Factory for LanguageEncoder with mocked backbone."""
+    """Factory for LanguageEncoder with mocked backbone.
+
+    By default bypasses ``_build_encoder`` entirely via a side-effect mock,
+    for fast shape/forward tests. Pass ``real_build=True`` to exercise the
+    real ``_build_encoder`` method by patching ``AutoConfig`` / ``AutoModel``
+    at the HuggingFace boundary instead. The ``config_attrs`` and
+    ``mock_model`` parameters are only used when ``real_build=True``.
+    """
 
     def factory(
         pretrained: bool = False,
@@ -46,8 +54,49 @@ def language_encoder_factory() -> Callable[..., LanguageEncoder]:
         model_name: str = LanguageEncoderType.BERT_BASE.value,
         max_token_len: int = MAX_TOKEN_LEN,
         use_embeddings_only: bool = False,
+        model_dtype: torch.dtype | None = None,
+        real_build: bool = False,
+        config_attrs: dict | None = None,
+        mock_model: MagicMock | None = None,
     ) -> LanguageEncoder:
-        with patch.object(LanguageEncoder, "_build_encoder", _mock_build_encoder):
+        if not real_build:
+            with patch.object(LanguageEncoder, "_build_encoder", _mock_build_encoder):
+                return LanguageEncoder(
+                    pretrained=pretrained,
+                    frozen=frozen,
+                    pooling_method=pooling_method,
+                    model_name=model_name,
+                    max_token_len=max_token_len,
+                    use_embeddings_only=use_embeddings_only,
+                    model_dtype=model_dtype,
+                )
+        if config_attrs is None:
+            config_attrs = {"hidden_size": HIDDEN_SIZE, "vocab_size": VOCAB_SIZE}
+        mock_config = MagicMock(spec=list(config_attrs.keys()))
+        for attr, value in config_attrs.items():
+            setattr(mock_config, attr, value)
+        if mock_model is None:
+            mock_model = MagicMock()
+        mock_tokenizer = MagicMock()
+        mock_tokenizer.cls_token_id = 101  # BERT-style CLS
+        with (
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoConfig.from_pretrained",
+                return_value=mock_config,
+            ),
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoTokenizer.from_pretrained",
+                return_value=mock_tokenizer,
+            ),
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoModel.from_pretrained",
+                return_value=mock_model,
+            ),
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoModel.from_config",
+                return_value=mock_model,
+            ),
+        ):
             return LanguageEncoder(
                 pretrained=pretrained,
                 frozen=frozen,
@@ -55,6 +104,7 @@ def language_encoder_factory() -> Callable[..., LanguageEncoder]:
                 model_name=model_name,
                 max_token_len=max_token_len,
                 use_embeddings_only=use_embeddings_only,
+                model_dtype=model_dtype,
             )
 
     return factory
@@ -527,6 +577,115 @@ class TestLanguageEncoderBuildEncoder:
                 model_name=model_name,
                 use_embeddings_only=True,
             )
+
+    @pytest.mark.parametrize(
+        "config_attrs, expected_dim",
+        [
+            (
+                {
+                    "embedding_size": 128,
+                    "hidden_size": HIDDEN_SIZE,
+                    "vocab_size": VOCAB_SIZE,
+                },
+                128,
+            ),
+            ({"hidden_size": 512, "vocab_size": VOCAB_SIZE}, 512),
+        ],
+        ids=["factorized_embedding_size", "hidden_size_fallback"],
+    )
+    def test_embeddings_only_uses_embedding_or_hidden_size(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+        config_attrs: dict,
+        expected_dim: int,
+    ):
+        encoder = language_encoder_factory(
+            pooling_method=PoolingMethod.NONE.value,
+            use_embeddings_only=True,
+            real_build=True,
+            config_attrs=config_attrs,
+        )
+        assert encoder.encoder.embedding_dim == expected_dim
+        assert encoder.encoder.num_embeddings == VOCAB_SIZE
+
+    def test_embeddings_only_loads_pretrained_weights(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+    ):
+        pretrained_embedding = torch.nn.Embedding(
+            num_embeddings=VOCAB_SIZE, embedding_dim=64
+        )
+        torch.nn.init.constant_(pretrained_embedding.weight, 7.0)
+        mock_model = MagicMock()
+        mock_model.get_input_embeddings.return_value = pretrained_embedding
+        encoder = language_encoder_factory(
+            pretrained=True,
+            pooling_method=PoolingMethod.NONE.value,
+            use_embeddings_only=True,
+            real_build=True,
+            config_attrs={"hidden_size": 64, "vocab_size": VOCAB_SIZE},
+            mock_model=mock_model,
+        )
+        assert torch.allclose(encoder.encoder.weight, torch.full((VOCAB_SIZE, 64), 7.0))
+
+    @pytest.mark.parametrize("pretrained", [True, False])
+    def test_full_model_build_branches(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+        pretrained: bool,
+    ):
+        encoder = language_encoder_factory(
+            pretrained=pretrained,
+            real_build=True,
+        )
+        # full-model path assigns the patched HF model instance
+        assert encoder.encoder is not None
+
+    def test_model_dtype_cast_applied_when_set(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+    ):
+        mock_model = MagicMock()
+        casted_model = MagicMock()
+        mock_model.to.return_value = casted_model
+        encoder = language_encoder_factory(
+            real_build=True,
+            model_dtype="bf16-mixed",
+            mock_model=mock_model,
+        )
+        mock_model.to.assert_called_once_with(torch.bfloat16)
+        assert encoder.encoder is casted_model
+
+    def test_frozen_calls_freeze_weights(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+    ):
+        with patch.object(EncodingMixin, "_freeze_weights") as mock_freeze:
+            language_encoder_factory(frozen=True)
+        mock_freeze.assert_called_once()
+
+
+class TestLanguageEncoderEncodeEdgeCases:
+    def test_missing_last_hidden_state_raises(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+        token_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 2
+        encoder = language_encoder_factory(pooling_method=PoolingMethod.DEFAULT.value)
+        encoder.use_embeddings_only = False
+        mock_output = MagicMock()
+        mock_output.last_hidden_state = None
+        encoder.encoder.return_value = mock_output
+        inputs = token_input_factory(
+            batch_size=batch_size,
+            sequence_length=MAX_TOKEN_LEN,
+        )
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape("last_hidden_state must be present in model output"),
+        ):
+            encoder(inputs=inputs)
 
 
 GATED_LANGUAGE_MODELS = {
