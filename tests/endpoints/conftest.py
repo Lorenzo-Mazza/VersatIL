@@ -185,6 +185,7 @@ DATASET_SPECS: dict[str, dict[str, dict]] = {
     "bowel_retraction": BOWEL_RETRACTION_ZARR_SPEC,
     "libero_lerobot": LIBERO_LEROBOT_ZARR_SPEC,
     "metaworld": METAWORLD_ZARR_SPEC,
+    "synthetic": SYNTHETIC_ZARR_SPEC,
 }
 
 
@@ -309,6 +310,7 @@ DATASET_TYPE_TO_ZARR_SPEC: dict[str, str] = {
     "tso": "bowel_retraction",
     "libero": "libero_lerobot",
     "metaworld": "metaworld",
+    "synthetic": "synthetic",
 }
 
 TINY_SCALAR_FIELDS: dict[str, int] = {
