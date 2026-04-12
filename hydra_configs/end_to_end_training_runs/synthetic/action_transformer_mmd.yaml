@@ -37,11 +37,12 @@ policy:
     encoders:
       left:
         input_keys:
-          - ${cameras:SYNTHETIC_TOP}
+          - ${cameras:AGENTVIEW}
+        backbone: ${rgb_backbone:MOBILENETV4_SMALL_050}
   decoder:
     input_keys:
       - left_rgb
-    embedding_dimension: 128
+    embedding_dimension: 64
     number_of_heads: 4
-    feedforward_dimension: 512
-    number_of_layers: 4
+    feedforward_dimension: 128
+    number_of_layers: 2

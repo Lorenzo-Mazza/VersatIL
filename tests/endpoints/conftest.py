@@ -23,7 +23,13 @@ from tso_robotics_sockets import (
 )
 
 import versatil.configs  # noqa: F401 — registers ConfigStore entries
-from versatil.data.constants import Cameras, ObsKey, ProprioKey
+from versatil.data.constants import (
+    Cameras,
+    ObsKey,
+    ProprioKey,
+    SyntheticObsKey,
+    TSOObsKey,
+)
 from versatil.data.task import ObservationSpace
 
 BOWEL_RETRACTION_ZARR_SPEC: dict[str, dict] = {
@@ -142,6 +148,34 @@ METAWORLD_ZARR_SPEC: dict[str, dict] = {
     },
     ProprioKey.GRIPPER_STATE_ACTION.value: {
         "dimension": 1,
+        "dtype": np.float32,
+        "kind": "action",
+    },
+}
+
+SYNTHETIC_ZARR_SPEC: dict[str, dict] = {
+    Cameras.AGENTVIEW.value: {
+        "channels": 3,
+        "dtype": np.uint8,
+        "kind": "rgb",
+    },
+    ProprioKey.SYNTHETIC_POSITION.value: {
+        "dimension": 2,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    SyntheticObsKey.CONTEXT.value: {
+        "dimension": 3,
+        "dtype": np.float32,
+        "kind": "proprio",
+    },
+    SyntheticObsKey.MODE_ID.value: {
+        "dimension": 1,
+        "dtype": np.uint8,
+        "kind": "label",
+    },
+    ProprioKey.SYNTHETIC_POSITION_ACTION.value: {
+        "dimension": 2,
         "dtype": np.float32,
         "kind": "action",
     },

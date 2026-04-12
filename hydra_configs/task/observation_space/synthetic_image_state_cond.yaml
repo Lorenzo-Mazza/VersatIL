@@ -4,9 +4,9 @@ defaults:
 _target_: versatil.data.task.ObservationSpace
 
 observations_metadata:
-  ${cameras:SYNTHETIC_TOP}:
+  ${cameras:AGENTVIEW}:
     _target_: versatil.data.metadata.CameraMetadata
-    camera_key: ${cameras:SYNTHETIC_TOP}
+    camera_key: ${cameras:AGENTVIEW}
     dtype: uint8
     channels: 3
     image_width: 64

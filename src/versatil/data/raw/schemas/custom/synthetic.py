@@ -5,19 +5,22 @@ from typing import Any
 import albumentations as A
 import numpy as np
 
-from versatil.data.constants import Cameras, DatasetType, ObsKey, ProprioKey
-from versatil.data.metadata import CameraMetadata, ObservationMetadata
+from versatil.data.constants import (
+    Cameras,
+    DatasetType,
+    ProprioKey,
+    SyntheticObsKey,
+)
 from versatil.data.raw.schemas.base import DatasetSchema
 from versatil.data.raw.zarr_meta import DatasetMetadata
 from versatil.data.synthetic.constants import SyntheticTaskName
 
-
-ALLOWED_CAMERAS = {Cameras.SYNTHETIC_TOP.value}
+ALLOWED_CAMERAS = {Cameras.AGENTVIEW.value}
 ALLOWED_POSITION_KEYS = {ProprioKey.SYNTHETIC_POSITION.value}
 ALLOWED_ACTION_KEYS = {ProprioKey.SYNTHETIC_POSITION_ACTION.value}
 ALLOWED_OBSERVATION_KEYS = {
-    ObsKey.SYNTHETIC_CONTEXT.value,
-    ObsKey.SYNTHETIC_MODE_ID.value,
+    SyntheticObsKey.SYNTHETIC_CONTEXT.value,
+    SyntheticObsKey.SYNTHETIC_MODE_ID.value,
 }
 
 

@@ -3,7 +3,6 @@
 from collections.abc import Callable
 from unittest.mock import MagicMock, Mock
 
-import numpy as np
 import pytest
 import pytorch_lightning as pl
 import torch
@@ -14,7 +13,6 @@ from versatil.configs.training import (
     OptimizerConfig,
     TrainingConfig,
 )
-from versatil.models.policy import Policy
 
 
 @pytest.fixture

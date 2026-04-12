@@ -3,7 +3,6 @@
 import cv2
 import numpy as np
 
-
 BACKGROUND_COLOR = (240, 240, 240)
 AGENT_COLOR = (66, 133, 244)
 GOAL_COLOR = (52, 168, 83)
@@ -12,6 +11,7 @@ TRAIL_COLOR = (180, 180, 180)
 AGENT_RADIUS_RATIO = 0.047
 GOAL_RADIUS_RATIO = 0.047
 CONTEXT_INDICATOR_SIZE_RATIO = 0.094
+CONTEXT_INDICATOR_ORIGIN = 2
 TRAIL_THICKNESS = 1
 
 
@@ -70,8 +70,11 @@ def render_frame(
     if context_color is not None:
         cv2.rectangle(
             image,
-            (2, 2),
-            (2 + indicator_size, 2 + indicator_size),
+            (CONTEXT_INDICATOR_ORIGIN, CONTEXT_INDICATOR_ORIGIN),
+            (
+                CONTEXT_INDICATOR_ORIGIN + indicator_size,
+                CONTEXT_INDICATOR_ORIGIN + indicator_size,
+            ),
             context_color,
             thickness=-1,
         )
@@ -104,9 +107,7 @@ def render_episode(
         dtype uint8.
     """
     num_timesteps = len(positions)
-    images = np.empty(
-        (num_timesteps, image_size, image_size, 3), dtype=np.uint8
-    )
+    images = np.empty((num_timesteps, image_size, image_size, 3), dtype=np.uint8)
     for timestep in range(num_timesteps):
         trail = positions[: timestep + 1] if show_trail else None
         images[timestep] = render_frame(

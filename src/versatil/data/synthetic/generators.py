@@ -27,6 +27,7 @@ from versatil.data.synthetic.constants import (
     SEQUENTIAL_START,
     SHARED_PREFIX_DECISION_POINT_X,
     SHARED_PREFIX_DEFAULT_NOISE_STD,
+    SHARED_PREFIX_DEFAULT_TRAJECTORY_LENGTH,
     SHARED_PREFIX_ENDPOINTS,
     SHARED_PREFIX_MIN_TRAJECTORY_LENGTH,
     SHARED_PREFIX_SHARED_STEPS,
@@ -168,19 +169,17 @@ def _generate_multi_path_navigation(
                 goal=MULTIPATH_GOAL,
                 image_size=image_size,
             )
-            context = np.zeros(
-                (trajectory_length, num_modes), dtype=np.float32
+            context = np.zeros((trajectory_length, num_modes), dtype=np.float32)
+            mode_label = np.full((trajectory_length, 1), mode_index, dtype=np.uint8)
+            episodes.append(
+                {
+                    "image": images,
+                    "position": positions,
+                    "action": actions,
+                    "mode_id": mode_label,
+                    "context": context,
+                }
             )
-            mode_label = np.full(
-                (trajectory_length, 1), mode_index, dtype=np.uint8
-            )
-            episodes.append({
-                "image": images,
-                "position": positions,
-                "action": actions,
-                "mode_id": mode_label,
-                "context": context,
-            })
     random_generator.shuffle(episodes)
     return episodes
 
@@ -231,19 +230,17 @@ def _generate_conditional_navigation(
             )
             context_vector = np.zeros(num_modes, dtype=np.float32)
             context_vector[mode_index] = 1.0
-            context = np.tile(
-                context_vector, (trajectory_length, 1)
-            )  # (T, num_modes)
-            mode_label = np.full(
-                (trajectory_length, 1), mode_index, dtype=np.uint8
+            context = np.tile(context_vector, (trajectory_length, 1))  # (T, num_modes)
+            mode_label = np.full((trajectory_length, 1), mode_index, dtype=np.uint8)
+            episodes.append(
+                {
+                    "image": images,
+                    "position": positions,
+                    "action": actions,
+                    "mode_id": mode_label,
+                    "context": context,
+                }
             )
-            episodes.append({
-                "image": images,
-                "position": positions,
-                "action": actions,
-                "mode_id": mode_label,
-                "context": context,
-            })
 
     random_generator.shuffle(episodes)
     return episodes
@@ -266,8 +263,16 @@ def _generate_trajectory_style(
     discrete geometric path choices. Harder than multi-path because
     modes overlap spatially and differ primarily in velocity profiles.
     """
-    noise_std = STYLE_DEFAULT_NOISE_STD if noise_std == MULTIPATH_DEFAULT_NOISE_STD else noise_std
-    trajectory_length = STYLE_DEFAULT_TRAJECTORY_LENGTH if trajectory_length == MULTIPATH_DEFAULT_TRAJECTORY_LENGTH else trajectory_length
+    noise_std = (
+        STYLE_DEFAULT_NOISE_STD
+        if noise_std == MULTIPATH_DEFAULT_NOISE_STD
+        else noise_std
+    )
+    trajectory_length = (
+        STYLE_DEFAULT_TRAJECTORY_LENGTH
+        if trajectory_length == MULTIPATH_DEFAULT_TRAJECTORY_LENGTH
+        else trajectory_length
+    )
     if trajectory_length < STYLE_MIN_TRAJECTORY_LENGTH:
         raise ValueError(
             f"trajectory_style requires trajectory_length >= {STYLE_MIN_TRAJECTORY_LENGTH}, "
@@ -289,24 +294,19 @@ def _generate_trajectory_style(
                 )
             elif style_index == 1:
                 # Curved up
-                y_positions = STYLE_START[1] + 0.3 * np.sin(
-                    np.pi * normalized_time
-                )
+                y_positions = STYLE_START[1] + 0.3 * np.sin(np.pi * normalized_time)
             elif style_index == 2:
                 # Curved down
-                y_positions = STYLE_START[1] - 0.3 * np.sin(
-                    np.pi * normalized_time
-                )
+                y_positions = STYLE_START[1] - 0.3 * np.sin(np.pi * normalized_time)
             else:
                 # Zigzag with envelope
                 envelope = 4.0 * normalized_time * (1.0 - normalized_time)
-                y_positions = STYLE_START[1] + 0.15 * np.sin(
-                    8.0 * np.pi * normalized_time
-                ) * envelope
+                y_positions = (
+                    STYLE_START[1]
+                    + 0.15 * np.sin(8.0 * np.pi * normalized_time) * envelope
+                )
 
-            positions = np.stack(
-                [x_positions, y_positions.astype(np.float32)], axis=-1
-            )
+            positions = np.stack([x_positions, y_positions.astype(np.float32)], axis=-1)
             # Noise on y-axis only
             y_noise = random_generator.normal(
                 0.0, noise_std, size=trajectory_length
@@ -320,19 +320,17 @@ def _generate_trajectory_style(
                 goal=STYLE_GOAL,
                 image_size=image_size,
             )
-            context = np.zeros(
-                (trajectory_length, num_styles), dtype=np.float32
+            context = np.zeros((trajectory_length, num_styles), dtype=np.float32)
+            mode_label = np.full((trajectory_length, 1), style_index, dtype=np.uint8)
+            episodes.append(
+                {
+                    "image": images,
+                    "position": positions,
+                    "action": actions,
+                    "mode_id": mode_label,
+                    "context": context,
+                }
             )
-            mode_label = np.full(
-                (trajectory_length, 1), style_index, dtype=np.uint8
-            )
-            episodes.append({
-                "image": images,
-                "position": positions,
-                "action": actions,
-                "mode_id": mode_label,
-                "context": context,
-            })
 
     random_generator.shuffle(episodes)
     return episodes
@@ -353,8 +351,16 @@ def _generate_sequential_decision(
     with distinct endpoints. Tests whether the model can represent
     hierarchical/sequential mode structure rather than flat mode enumeration.
     """
-    trajectory_length = SEQUENTIAL_DEFAULT_TRAJECTORY_LENGTH if trajectory_length == MULTIPATH_DEFAULT_TRAJECTORY_LENGTH else trajectory_length
-    noise_std = SEQUENTIAL_DEFAULT_NOISE_STD if noise_std == MULTIPATH_DEFAULT_NOISE_STD else noise_std
+    trajectory_length = (
+        SEQUENTIAL_DEFAULT_TRAJECTORY_LENGTH
+        if trajectory_length == MULTIPATH_DEFAULT_TRAJECTORY_LENGTH
+        else trajectory_length
+    )
+    noise_std = (
+        SEQUENTIAL_DEFAULT_NOISE_STD
+        if noise_std == MULTIPATH_DEFAULT_NOISE_STD
+        else noise_std
+    )
     if trajectory_length < SEQUENTIAL_MIN_TRAJECTORY_LENGTH:
         raise ValueError(
             f"sequential_decision requires trajectory_length >= {SEQUENTIAL_MIN_TRAJECTORY_LENGTH}, "
@@ -363,27 +369,35 @@ def _generate_sequential_decision(
     compound_modes = 4
     episodes = []
     episodes_per_mode = _balanced_mode_counts(num_episodes, compound_modes)
-    # Segment lengths: shared approach (20) + branch 1 (20) + branch 2 (15) = 55
-    shared_steps = 20
-    branch_one_steps = 20
-    branch_two_steps = trajectory_length - shared_steps - branch_one_steps
+    # Segment lengths: shared approach (20) + branch 1 (20) + branch 2 (20) = 60
     mode_definitions = [
-        ("left", "left"),   # Mode 0: LL
+        ("left", "left"),  # Mode 0: LL
         ("left", "right"),  # Mode 1: LR
         ("right", "left"),  # Mode 2: RL
-        ("right", "right"), # Mode 3: RR
+        ("right", "right"),  # Mode 3: RR
     ]
     start_x = SEQUENTIAL_START[0]
     start_y = SEQUENTIAL_START[1]
     for mode_index, (first_choice, second_choice) in enumerate(mode_definitions):
-        first_x_delta = -SEQUENTIAL_BRANCH_X_DELTA if first_choice == "left" else SEQUENTIAL_BRANCH_X_DELTA
-        second_x_delta = -SEQUENTIAL_BRANCH_X_DELTA if second_choice == "left" else SEQUENTIAL_BRANCH_X_DELTA
+        first_x_delta = (
+            -SEQUENTIAL_BRANCH_X_DELTA
+            if first_choice == "left"
+            else SEQUENTIAL_BRANCH_X_DELTA
+        )
+        second_x_delta = (
+            -SEQUENTIAL_BRANCH_X_DELTA
+            if second_choice == "left"
+            else SEQUENTIAL_BRANCH_X_DELTA
+        )
         waypoints = [
             (start_x, start_y),
             (start_x, SEQUENTIAL_INTERSECTION_Y_1),
             (start_x + first_x_delta, SEQUENTIAL_INTERSECTION_Y_1 + 0.05),
             (start_x + first_x_delta, SEQUENTIAL_INTERSECTION_Y_2),
-            (start_x + first_x_delta + second_x_delta, SEQUENTIAL_INTERSECTION_Y_2 + 0.05),
+            (
+                start_x + first_x_delta + second_x_delta,
+                SEQUENTIAL_INTERSECTION_Y_2 + 0.05,
+            ),
             (start_x + first_x_delta + second_x_delta, 0.95),
         ]
         for _ in range(episodes_per_mode[mode_index]):
@@ -402,19 +416,17 @@ def _generate_sequential_decision(
                 goal=np.array(waypoints[-1], dtype=np.float32),
                 image_size=image_size,
             )
-            context = np.zeros(
-                (trajectory_length, compound_modes), dtype=np.float32
+            context = np.zeros((trajectory_length, compound_modes), dtype=np.float32)
+            mode_label = np.full((trajectory_length, 1), mode_index, dtype=np.uint8)
+            episodes.append(
+                {
+                    "image": images,
+                    "position": positions,
+                    "action": actions,
+                    "mode_id": mode_label,
+                    "context": context,
+                }
             )
-            mode_label = np.full(
-                (trajectory_length, 1), mode_index, dtype=np.uint8
-            )
-            episodes.append({
-                "image": images,
-                "position": positions,
-                "action": actions,
-                "mode_id": mode_label,
-                "context": context,
-            })
     random_generator.shuffle(episodes)
     return episodes
 
@@ -435,7 +447,16 @@ def _generate_shared_prefix(
     causes a unimodal policy to produce a trajectory that goes nowhere
     useful after the prefix, catastrophically failing.
     """
-    noise_std = SHARED_PREFIX_DEFAULT_NOISE_STD if noise_std == MULTIPATH_DEFAULT_NOISE_STD else noise_std
+    trajectory_length = (
+        SHARED_PREFIX_DEFAULT_TRAJECTORY_LENGTH
+        if trajectory_length == MULTIPATH_DEFAULT_TRAJECTORY_LENGTH
+        else trajectory_length
+    )
+    noise_std = (
+        SHARED_PREFIX_DEFAULT_NOISE_STD
+        if noise_std == MULTIPATH_DEFAULT_NOISE_STD
+        else noise_std
+    )
     if trajectory_length < SHARED_PREFIX_MIN_TRAJECTORY_LENGTH:
         raise ValueError(
             f"shared_prefix requires trajectory_length >= {SHARED_PREFIX_MIN_TRAJECTORY_LENGTH}, "
@@ -469,9 +490,7 @@ def _generate_shared_prefix(
             divergent_steps,
             dtype=np.float32,
         )
-        divergent_positions = np.stack(
-            [divergent_x, divergent_y], axis=-1
-        )
+        divergent_positions = np.stack([divergent_x, divergent_y], axis=-1)
         for _ in range(episodes_per_mode[mode_index]):
             positions = np.concatenate(
                 [shared_positions, divergent_positions], axis=0
@@ -489,20 +508,18 @@ def _generate_shared_prefix(
                 goal=goal,
                 image_size=image_size,
             )
-            context = np.zeros(
-                (trajectory_length, num_modes), dtype=np.float32
-            )
-            mode_label = np.full(
-                (trajectory_length, 1), mode_index, dtype=np.uint8
-            )
+            context = np.zeros((trajectory_length, num_modes), dtype=np.float32)
+            mode_label = np.full((trajectory_length, 1), mode_index, dtype=np.uint8)
 
-            episodes.append({
-                "image": images,
-                "position": positions,
-                "action": actions,
-                "mode_id": mode_label,
-                "context": context,
-            })
+            episodes.append(
+                {
+                    "image": images,
+                    "position": positions,
+                    "action": actions,
+                    "mode_id": mode_label,
+                    "context": context,
+                }
+            )
 
     random_generator.shuffle(episodes)
     return episodes
@@ -525,12 +542,8 @@ def _interpolate_waypoints(
         Cartesian positions of shape (num_points, 2), dtype float32.
     """
     waypoint_array = np.array(waypoints, dtype=np.float32)
-    segment_lengths = np.linalg.norm(
-        np.diff(waypoint_array, axis=0), axis=1
-    )
-    cumulative_distance = np.concatenate(
-        [np.array([0.0]), np.cumsum(segment_lengths)]
-    )
+    segment_lengths = np.linalg.norm(np.diff(waypoint_array, axis=0), axis=1)
+    cumulative_distance = np.concatenate([np.array([0.0]), np.cumsum(segment_lengths)])
     total_distance = cumulative_distance[-1]
 
     uniform_distances = np.linspace(0.0, total_distance, num_points)
@@ -540,9 +553,7 @@ def _interpolate_waypoints(
     interpolated_y = np.interp(
         uniform_distances, cumulative_distance, waypoint_array[:, 1]
     )
-    return np.stack(
-        [interpolated_x, interpolated_y], axis=-1
-    ).astype(np.float32)
+    return np.stack([interpolated_x, interpolated_y], axis=-1).astype(np.float32)
 
 
 def _add_noise_and_clamp(
@@ -560,9 +571,9 @@ def _add_noise_and_clamp(
     Returns:
         Noisy positions clamped to [0, 1], shape (num_steps, 2), float32.
     """
-    noise = random_generator.normal(
-        0.0, noise_std, size=trajectory.shape
-    ).astype(np.float32)
+    noise = random_generator.normal(0.0, noise_std, size=trajectory.shape).astype(
+        np.float32
+    )
     noisy_trajectory = trajectory + noise
     return np.clip(noisy_trajectory, 0.0, 1.0)
 
@@ -603,5 +614,7 @@ def _balanced_mode_counts(
     """
     base_count = total_episodes // num_modes
     remainder = total_episodes % num_modes
-    counts = [base_count + (1 if index < remainder else 0) for index in range(num_modes)]
+    counts = [
+        base_count + (1 if index < remainder else 0) for index in range(num_modes)
+    ]
     return counts

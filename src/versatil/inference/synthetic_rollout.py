@@ -7,6 +7,7 @@ success metrics.
 """
 
 import os
+from pathlib import Path
 
 import hydra
 import numpy as np
@@ -14,25 +15,25 @@ import torch
 from omegaconf import OmegaConf
 
 from versatil.configs import MainConfig
-from versatil.data.constants import Cameras, ObsKey, ProprioKey
+from versatil.data.constants import Cameras, ProprioKey, SyntheticObsKey
 from versatil.data.synthetic.constants import (
     DEFAULT_IMAGE_SIZE,
-    MULTIPATH_DEFAULT_NUM_MODES,
     MULTIPATH_DEFAULT_NOISE_STD,
+    MULTIPATH_DEFAULT_NUM_MODES,
     MULTIPATH_DEFAULT_TRAJECTORY_LENGTH,
-    MULTIPATH_GOAL,
-    MULTIPATH_OBSTACLES,
-    MULTIPATH_START,
-    SEQUENTIAL_START,
-    SHARED_PREFIX_DEFAULT_NUM_MODES,
-    SHARED_PREFIX_START,
     STYLE_DEFAULT_NUM_STYLES,
-    STYLE_GOAL,
-    STYLE_START,
     SyntheticTaskName,
 )
 from versatil.data.synthetic.generators import generate_task_episodes
 from versatil.data.synthetic.renderer import render_frame
+from versatil.data.synthetic.task_layout import (
+    SyntheticTaskLayout,
+    get_task_layout,
+)
+from versatil.data.synthetic.visualization import (
+    plot_trajectories_2d,
+    save_rollouts_gif,
+)
 from versatil.metrics.synthetic_metrics import (
     compute_goal_success_rate,
     compute_mode_coverage,
@@ -68,81 +69,13 @@ def load_policy_from_checkpoint(
     checkpoint_file = os.path.join(checkpoint_path, checkpoint_name)
     if not os.path.exists(checkpoint_file):
         raise FileNotFoundError(f"Checkpoint not found at {checkpoint_file}")
-    checkpoint = torch.load(
-        checkpoint_file, map_location=device, weights_only=False
-    )
-    lightning_module = LightningPolicy(
-        policy=policy, training_config=config.training
-    )
-    lightning_module.load_state_dict(
-        checkpoint["state_dict"], strict=False
-    )
+    checkpoint = torch.load(checkpoint_file, map_location=device, weights_only=False)
+    lightning_module = LightningPolicy(policy=policy, training_config=config.training)
+    lightning_module.load_state_dict(checkpoint["state_dict"], strict=False)
     return policy, config
 
 
-def run_open_loop_rollouts(
-    policy: Policy,
-    task_name: str,
-    num_rollouts: int,
-    image_size: int = DEFAULT_IMAGE_SIZE,
-    context_mode: int | None = None,
-) -> np.ndarray:
-    """Predict full action trajectories from the initial observation.
-
-    Each rollout feeds the starting frame once, obtains the full
-    prediction_horizon of actions, and integrates them into positions.
-
-    Args:
-        policy: Trained policy in eval mode.
-        task_name: SyntheticTaskName.value string.
-        num_rollouts: Number of independent rollouts.
-        image_size: Side length for rendered images.
-        context_mode: Context mode index for conditional tasks (None to omit).
-
-    Returns:
-        Position trajectories, shape (num_rollouts, prediction_horizon + 1, 2).
-    """
-    metadata = _get_task_metadata(task_name=task_name)
-    start = metadata["start"]
-    render_goal = metadata["render_goal"]
-    obstacles = metadata["obstacles"]
-    num_modes = metadata["num_modes"]
-    prediction_horizon = policy.prediction_horizon
-    observation_keys = set(policy.observation_space.observations_metadata.keys())
-    action_key = ProprioKey.SYNTHETIC_POSITION_ACTION.value
-    context_vector = None
-    if context_mode is not None:
-        context_vector = np.zeros(num_modes, dtype=np.float32)
-        context_vector[context_mode] = 1.0
-
-    all_trajectories = np.zeros(
-        (num_rollouts, prediction_horizon + 1, 2), dtype=np.float32
-    )
-    for rollout_index in range(num_rollouts):
-        observation = _prepare_observation(
-            position=start,
-            obstacles=obstacles,
-            goal=render_goal,
-            image_size=image_size,
-            observation_keys=observation_keys,
-            context_vector=context_vector,
-        )
-        with torch.no_grad():
-            actions = policy.predict_action(obs_dict=observation)
-
-        action_deltas = actions[action_key].squeeze(0).cpu().numpy()
-
-        positions = all_trajectories[rollout_index]
-        positions[0] = start.copy()
-        for step in range(prediction_horizon):
-            positions[step + 1] = np.clip(
-                positions[step] + action_deltas[step], 0.0, 1.0
-            )
-
-    return all_trajectories
-
-
-def run_closed_loop_rollouts(
+def run_rollouts(
     policy: Policy,
     task_name: str,
     num_rollouts: int,
@@ -150,6 +83,7 @@ def run_closed_loop_rollouts(
     context_mode: int | None = None,
     temporal_aggregation: bool = True,
     exponential_decay: float = 0.01,
+    output_dir: str | None = None,
 ) -> np.ndarray:
     """Re-render and re-predict at each timestep with temporal aggregation.
 
@@ -173,15 +107,17 @@ def run_closed_loop_rollouts(
             exponential weighting. Matches the production inference clients.
         exponential_decay: Decay factor for temporal aggregation weights.
             Smaller values produce more uniform weighting across queries.
+        output_dir: Optional directory for saving PNG + GIF visualizations
+            of the rollout trajectories. If None, no visualizations are saved.
 
     Returns:
         Position trajectories, shape (num_rollouts, prediction_horizon + 1, 2).
     """
-    metadata = _get_task_metadata(task_name=task_name)
-    start = metadata["start"]
-    render_goal = metadata["render_goal"]
-    obstacles = metadata["obstacles"]
-    num_modes = metadata["num_modes"]
+    layout = get_task_layout(task_name=task_name)
+    start = layout.start
+    render_goal = _get_render_goal(layout=layout, task_name=task_name)
+    obstacles = layout.obstacles
+    num_modes = layout.num_modes
     prediction_horizon = policy.prediction_horizon
     observation_keys = set(policy.observation_space.observations_metadata.keys())
     action_key = ProprioKey.SYNTHETIC_POSITION_ACTION.value
@@ -190,6 +126,7 @@ def run_closed_loop_rollouts(
         context_vector = np.zeros(num_modes, dtype=np.float32)
         context_vector[context_mode] = 1.0
 
+    obs_horizon = policy.observation_horizon
     all_trajectories = np.zeros(
         (num_rollouts, prediction_horizon + 1, 2), dtype=np.float32
     )
@@ -197,50 +134,126 @@ def run_closed_loop_rollouts(
     for rollout_index in range(num_rollouts):
         positions = all_trajectories[rollout_index]
         positions[0] = start.copy()
-        action_buffer = np.zeros(
-            (prediction_horizon, prediction_horizon, 2), dtype=np.float32
-        )
-        populated_mask = np.zeros(
-            (prediction_horizon, prediction_horizon), dtype=bool
-        )
-        for step in range(prediction_horizon):
-            trail = positions[: step + 1]
-            observation = _prepare_observation(
-                position=positions[step],
-                obstacles=obstacles,
-                goal=render_goal,
-                image_size=image_size,
-                observation_keys=observation_keys,
-                trail=trail,
-                context_vector=context_vector,
-            )
-            with torch.no_grad():
-                actions = policy.predict_action(obs_dict=observation)
 
-            action_deltas = actions[action_key].squeeze(0).cpu().numpy()
-            if temporal_aggregation:
-                remaining = min(prediction_horizon - step, prediction_horizon)
-                action_buffer[step, step:step + remaining] = (
-                    action_deltas[:remaining]
+        if temporal_aggregation:
+            action_buffer = np.zeros(
+                (prediction_horizon, prediction_horizon, 2), dtype=np.float32
+            )
+            populated_mask = np.zeros(
+                (prediction_horizon, prediction_horizon), dtype=bool
+            )
+            for step in range(prediction_horizon):
+                trail = positions[: step + 1]
+                available_history = step + 1
+                if available_history < obs_horizon:
+                    positions[step + 1] = positions[step].copy()
+                    continue
+                history_start = step + 1 - obs_horizon
+                history = positions[history_start : step + 1]
+                observation = _prepare_observation(
+                    position_history=history,
+                    obstacles=obstacles,
+                    goal=render_goal,
+                    image_size=image_size,
+                    observation_keys=observation_keys,
+                    trail=trail,
+                    context_vector=context_vector,
                 )
-                populated_mask[step, step:step + remaining] = True
+                with torch.no_grad():
+                    actions = policy.predict_action(obs_dict=observation)
+                action_deltas = actions[action_key].squeeze(0).cpu().numpy()
+                remaining = min(prediction_horizon - step, prediction_horizon)
+                action_buffer[step, step : step + remaining] = action_deltas[:remaining]
+                populated_mask[step, step : step + remaining] = True
                 valid_queries = populated_mask[:, step]
                 candidate_actions = action_buffer[valid_queries, step]
                 num_candidates = len(candidate_actions)
                 indices = np.arange(num_candidates)[::-1]
                 weights = np.exp(-exponential_decay * indices)
                 weights = weights / weights.sum()
-                selected_action = (
-                    candidate_actions * weights[:, np.newaxis]
-                ).sum(axis=0)
-            else:
-                selected_action = action_deltas[0]
+                selected_action = (candidate_actions * weights[:, np.newaxis]).sum(
+                    axis=0
+                )
+                positions[step + 1] = np.clip(
+                    positions[step] + selected_action, 0.0, 1.0
+                )
+        else:
+            # Execute full chunk without replanning
+            step = 0
+            while step < prediction_horizon:
+                available_history = step + 1
+                if available_history < obs_horizon:
+                    positions[step + 1] = positions[step].copy()
+                    step += 1
+                    continue
+                trail = positions[: step + 1]
+                history_start = step + 1 - obs_horizon
+                history = positions[history_start : step + 1]
+                observation = _prepare_observation(
+                    position_history=history,
+                    obstacles=obstacles,
+                    goal=render_goal,
+                    image_size=image_size,
+                    observation_keys=observation_keys,
+                    trail=trail,
+                    context_vector=context_vector,
+                )
+                with torch.no_grad():
+                    actions = policy.predict_action(obs_dict=observation)
+                action_deltas = actions[action_key].squeeze(0).cpu().numpy()
+                # Execute all remaining actions in this chunk
+                remaining = min(prediction_horizon - step, prediction_horizon)
+                for chunk_offset in range(remaining):
+                    positions[step + 1] = np.clip(
+                        positions[step] + action_deltas[chunk_offset], 0.0, 1.0
+                    )
+                    step += 1
 
-            positions[step + 1] = np.clip(
-                positions[step] + selected_action, 0.0, 1.0
-            )
-
+    if output_dir is not None:
+        name_prefix = "rollout_temporal_agg" if temporal_aggregation else "rollout"
+        _save_rollout_visualizations(
+            trajectories=all_trajectories,
+            task_name=task_name,
+            output_dir=output_dir,
+            name_prefix=name_prefix,
+            image_size=image_size,
+        )
     return all_trajectories
+
+
+def _save_rollout_visualizations(
+    trajectories: np.ndarray,
+    task_name: str,
+    output_dir: str,
+    name_prefix: str,
+    image_size: int,
+) -> None:
+    """Save rollout trajectories as a static PNG and an animated GIF.
+
+    Args:
+        trajectories: Rollout trajectories, shape (num_rollouts,
+            num_timesteps, 2), values in [0, 1].
+        task_name: SyntheticTaskName.value string.
+        output_dir: Destination directory (created if missing).
+        name_prefix: Filename prefix identifying the rollout type, e.g.
+            ``"open_loop"`` or ``"closed_loop_temporal_agg"``.
+        image_size: Side length of each GIF frame in pixels.
+    """
+    output_dir_path = Path(output_dir)
+    output_dir_path.mkdir(parents=True, exist_ok=True)
+    png_path = output_dir_path / f"{name_prefix}_{task_name}.png"
+    gif_path = output_dir_path / f"{name_prefix}_{task_name}.gif"
+    plot_trajectories_2d(
+        trajectories=trajectories,
+        task_name=task_name,
+        output_path=str(png_path),
+    )
+    save_rollouts_gif(
+        trajectories=trajectories,
+        task_name=task_name,
+        output_path=str(gif_path),
+        image_size=image_size,
+    )
 
 
 def evaluate_rollouts(
@@ -288,14 +301,11 @@ def evaluate_rollouts(
         num_styles=num_styles,
     )
 
-    expert_trajectories = np.array([
-        episode["position"] for episode in expert_episodes
-    ])
-    expert_mode_ids = np.array([
-        int(episode["mode_id"][0, 0]) for episode in expert_episodes
-    ])
-    metadata = _get_task_metadata(task_name=task_name)
-    effective_num_modes = metadata["num_modes"]
+    expert_trajectories = np.array([episode["position"] for episode in expert_episodes])
+    expert_mode_ids = np.array(
+        [int(episode["mode_id"][0, 0]) for episode in expert_episodes]
+    )
+    layout = get_task_layout(task_name=task_name)
     rollout_length = rollout_trajectories.shape[1]
     expert_length = expert_trajectories.shape[1]
     comparison_length = min(rollout_length, expert_length)
@@ -303,76 +313,52 @@ def evaluate_rollouts(
         generated_trajectories=rollout_trajectories[:, :comparison_length, :],
         expert_trajectories=expert_trajectories[:, :comparison_length, :],
         expert_mode_ids=expert_mode_ids,
-        num_modes=effective_num_modes,
+        num_modes=layout.num_modes,
     )
     results = dict(coverage_results)
-    goal = metadata["goal"]
-    if goal is not None:
+    if layout.goal is not None:
         results["goal_success_rate"] = compute_goal_success_rate(
             generated_trajectories=rollout_trajectories,
-            goal=goal,
+            goal=layout.goal,
             threshold=goal_threshold,
         )
     return results
 
 
-def _get_task_metadata(task_name: str) -> dict:
-    """Return task-specific start, goal, obstacles, and mode count.
+def _get_render_goal(
+    layout: SyntheticTaskLayout,
+    task_name: str,
+) -> np.ndarray:
+    """Return a goal position for rendering, falling back to an approximate
+    center for tasks whose true goal depends on the selected mode.
 
     Args:
-        task_name: SyntheticTaskName.value string.
+        layout: Task layout from ``get_task_layout``.
+        task_name: SyntheticTaskName.value string, used to select the
+            fallback location for mode-dependent tasks.
 
     Returns:
-        Dict with keys: start (ndarray), goal (ndarray or None),
-        render_goal (ndarray), obstacles (list), num_modes (int).
+        Cartesian (x, y) goal position for rendering. Shape (2,), float32.
+
+    Raises:
+        ValueError: If ``task_name`` has a mode-dependent goal but is not
+            a recognized task handled by this helper.
     """
+    if layout.goal is not None:
+        return layout.goal.copy()
     match task_name:
-        case SyntheticTaskName.MULTI_PATH_NAVIGATION.value:
-            return {
-                "start": MULTIPATH_START.copy(),
-                "goal": MULTIPATH_GOAL.copy(),
-                "render_goal": MULTIPATH_GOAL.copy(),
-                "obstacles": MULTIPATH_OBSTACLES,
-                "num_modes": MULTIPATH_DEFAULT_NUM_MODES,
-            }
-        case SyntheticTaskName.CONDITIONAL_NAVIGATION.value:
-            return {
-                "start": MULTIPATH_START.copy(),
-                "goal": MULTIPATH_GOAL.copy(),
-                "render_goal": MULTIPATH_GOAL.copy(),
-                "obstacles": MULTIPATH_OBSTACLES,
-                "num_modes": MULTIPATH_DEFAULT_NUM_MODES,
-            }
-        case SyntheticTaskName.TRAJECTORY_STYLE.value:
-            return {
-                "start": STYLE_START.copy(),
-                "goal": STYLE_GOAL.copy(),
-                "render_goal": STYLE_GOAL.copy(),
-                "obstacles": [],
-                "num_modes": STYLE_DEFAULT_NUM_STYLES,
-            }
         case SyntheticTaskName.SEQUENTIAL_DECISION.value:
-            return {
-                "start": SEQUENTIAL_START.copy(),
-                "goal": None,
-                "render_goal": np.array([0.5, 0.95], dtype=np.float32),
-                "obstacles": [],
-                "num_modes": 4,
-            }
+            return np.array([0.5, 0.95], dtype=np.float32)
         case SyntheticTaskName.SHARED_PREFIX.value:
-            return {
-                "start": SHARED_PREFIX_START.copy(),
-                "goal": None,
-                "render_goal": np.array([1.0, 0.5], dtype=np.float32),
-                "obstacles": [],
-                "num_modes": SHARED_PREFIX_DEFAULT_NUM_MODES,
-            }
+            return np.array([1.0, 0.5], dtype=np.float32)
         case _:
-            raise ValueError(f"Unknown synthetic task: {task_name}")
+            raise ValueError(
+                f"Task {task_name} has mode-dependent goal but no render fallback"
+            )
 
 
 def _prepare_observation(
-    position: np.ndarray,
+    position_history: np.ndarray,
     obstacles: list[tuple[float, float, float, float]],
     goal: np.ndarray,
     image_size: int,
@@ -382,46 +368,61 @@ def _prepare_observation(
 ) -> dict[str, torch.Tensor]:
     """Build an observation dict suitable for Policy.predict_action().
 
-    Renders a frame, converts to float32 channel-first tensor, and
-    assembles all observation keys the policy expects.
+    Renders one frame per history timestep with progressive trails, and
+    stacks all modalities along the temporal dimension to match the
+    (B, T, ...) convention used during training.
 
     Args:
-        position: Current Cartesian (x, y) in [0, 1]. Shape (2,).
+        position_history: Last obs_horizon Cartesian positions (x, y)
+            in [0, 1]. Shape (obs_horizon, 2).
         obstacles: Obstacle rectangles for rendering.
         goal: Goal position for rendering. Shape (2,).
         image_size: Side length of rendered square images.
         observation_keys: Set of keys the policy's observation space requires.
-        trail: Past positions for trail rendering. Shape (N, 2) or None.
+        trail: Full trail up to current step for rendering. Shape (N, 2)
+            or None. Each history frame renders the trail up to its timestep.
         context_vector: One-hot context for conditional tasks, or None.
 
     Returns:
-        Dict mapping observation keys to batched torch tensors.
+        Dict mapping observation keys to batched torch tensors
+        with shape (B=1, T=obs_horizon, ...).
     """
     observation = {}
+    obs_horizon = len(position_history)
 
-    image_key = Cameras.SYNTHETIC_TOP.value
+    image_key = Cameras.AGENTVIEW.value
     if image_key in observation_keys:
-        frame = render_frame(
-            position=position,
-            obstacles=obstacles,
-            goal=goal,
-            image_size=image_size,
-            trail=trail,
-        )
-        # uint8 (H, W, C) -> float32 (C, H, W) in [0, 1]
-        image_tensor = torch.from_numpy(frame).float() / 255.0
-        image_tensor = image_tensor.permute(2, 0, 1)
-        observation[image_key] = image_tensor.unsqueeze(0)
+        frames = []
+        for timestep_index in range(obs_horizon):
+            # Each history frame gets the trail up to that timestep
+            if trail is not None:
+                trail_end = len(trail) - obs_horizon + timestep_index + 1
+                frame_trail = trail[:trail_end] if trail_end > 1 else None
+            else:
+                frame_trail = None
+            frame = render_frame(
+                position=position_history[timestep_index],
+                obstacles=obstacles,
+                goal=goal,
+                image_size=image_size,
+                trail=frame_trail,
+            )
+            # uint8 (H, W, C) -> float32 (C, H, W)
+            frame_tensor = torch.from_numpy(frame).float() / 255.0
+            frames.append(frame_tensor.permute(2, 0, 1))
+        # (T, C, H, W) -> (B=1, T, C, H, W)
+        observation[image_key] = torch.stack(frames).unsqueeze(0)
 
     position_key = ProprioKey.SYNTHETIC_POSITION.value
     if position_key in observation_keys:
+        # (T, D) -> (B=1, T, D)
         observation[position_key] = (
-            torch.from_numpy(position.copy()).float().unsqueeze(0)
+            torch.from_numpy(position_history.copy()).float().unsqueeze(0)
         )
-    context_key = ObsKey.SYNTHETIC_CONTEXT.value
+    context_key = SyntheticObsKey.CONTEXT.value
     if context_key in observation_keys and context_vector is not None:
-        observation[context_key] = (
-            torch.from_numpy(context_vector.copy()).float().unsqueeze(0)
-        )
+        # (C,) -> (B=1, T, C) by tiling across obs_horizon
+        context_tiled = np.tile(context_vector, (obs_horizon, 1))
+        observation[context_key] = torch.from_numpy(context_tiled).float().unsqueeze(0)
 
     return observation

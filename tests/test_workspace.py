@@ -19,7 +19,6 @@ from pytorch_lightning.strategies import DDPStrategy
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.training import AdamWConfig, TrainingConfig
 from versatil.data.normalization.normalizer import LinearNormalizer
-from versatil.models.policy import Policy
 from versatil.training.callbacks import (
     ConfusionMatrixCallback,
     EMACallback,
@@ -123,7 +122,9 @@ def mock_training_config_factory() -> Callable[..., MagicMock]:
 
 
 @pytest.fixture
-def mock_workspace_policy_factory() -> Callable[..., MagicMock]:
+def mock_workspace_policy_factory(
+    mock_policy_factory: Callable[..., MagicMock],
+) -> Callable[..., MagicMock]:
     """Factory for mock Policy instances with configurable decoder and algorithm."""
 
     def factory(
@@ -131,12 +132,9 @@ def mock_workspace_policy_factory() -> Callable[..., MagicMock]:
         algorithm_callbacks: list | None = None,
         loss_callbacks: list | None = None,
     ) -> MagicMock:
-        policy = MagicMock(spec=Policy)
-        policy.set_normalizer = MagicMock()
-        policy.set_tokenizer = MagicMock()
-        policy.set_denoising_thresholds = MagicMock()
-        policy.set_gripper_class_weights = MagicMock()
-        policy.predict_action = MagicMock(return_value={"action": torch.zeros(2, 7)})
+        policy = mock_policy_factory(
+            predict_action_return={"action": torch.zeros(2, 7)},
+        )
 
         policy.decoder = MagicMock()
         if decoder_callbacks is not None:

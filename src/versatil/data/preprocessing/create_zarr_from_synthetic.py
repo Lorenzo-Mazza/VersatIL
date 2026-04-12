@@ -1,21 +1,24 @@
 """Creates a Zarr-based replay buffer dataset from synthetic episode generators."""
 
+from pathlib import Path
+
 import numpy as np
 import zarr
 import zarr.storage
 from zarr.codecs import BloscCodec, BloscShuffle
 
-from versatil.data.constants import Cameras, ObsKey, ProprioKey
+from versatil.data.constants import Cameras, ProprioKey, SyntheticObsKey
 from versatil.data.raw.schemas.custom.synthetic import SyntheticSchema
 from versatil.data.synthetic.generators import generate_task_episodes
+from versatil.data.synthetic.visualization import plot_trajectories_2d
 
 
 GENERATOR_KEY_TO_ZARR_KEY = {
-    "image": Cameras.SYNTHETIC_TOP.value,
+    "image": Cameras.AGENTVIEW.value,
     "position": ProprioKey.SYNTHETIC_POSITION.value,
     "action": ProprioKey.SYNTHETIC_POSITION_ACTION.value,
-    "context": ObsKey.SYNTHETIC_CONTEXT.value,
-    "mode_id": ObsKey.SYNTHETIC_MODE_ID.value,
+    "context": SyntheticObsKey.SYNTHETIC_CONTEXT.value,
+    "mode_id": SyntheticObsKey.SYNTHETIC_MODE_ID.value,
 }
 
 
@@ -61,10 +64,44 @@ def create_replay_buffer_from_synthetic(schema: SyntheticSchema) -> None:
         chunks=(len(episode_ends),),
         compressors=None,
     )
+    _save_training_visualization(
+        episodes=episodes,
+        task_name=schema.task_name,
+        zarr_path=schema.zarr_path,
+    )
     print(
         f"Created Zarr dataset with {len(episode_ends)} episodes, "
         f"{cumulative_length} total steps."
     )
+
+
+def _save_training_visualization(
+    episodes: list[dict[str, np.ndarray]],
+    task_name: str,
+    zarr_path: str,
+) -> None:
+    """Save a 2D trajectory PNG alongside the zarr store.
+
+    The PNG is written to ``<zarr_parent>/<zarr_stem>_trajectories.png`` and
+    shows all training trajectories color-coded by mode. Used as a quick
+    visual sanity check of the generated dataset.
+
+    Args:
+        episodes: List of episode dicts from ``generate_task_episodes``.
+        task_name: SyntheticTaskName.value string for layout lookup.
+        zarr_path: Path to the zarr store (used to derive the PNG path).
+    """
+    trajectories = np.array([episode["position"] for episode in episodes])
+    mode_ids = np.array([int(episode["mode_id"][0, 0]) for episode in episodes])
+    zarr_path_obj = Path(zarr_path)
+    output_path = zarr_path_obj.parent / f"{zarr_path_obj.stem}_trajectories.png"
+    plot_trajectories_2d(
+        trajectories=trajectories,
+        task_name=task_name,
+        output_path=str(output_path),
+        mode_ids=mode_ids,
+    )
+    print(f"Saved trajectory visualization to {output_path}")
 
 
 def _create_zarr_arrays(

@@ -5,7 +5,7 @@ import enum
 import numpy as np
 
 
-class SyntheticTaskName(str, enum.Enum):
+class SyntheticTaskName(enum.StrEnum):
     """Enum for synthetic benchmark task names."""
 
     MULTI_PATH_NAVIGATION = "multi_path_navigation"
@@ -19,7 +19,7 @@ DEFAULT_IMAGE_SIZE = 64
 DEFAULT_SEED = 42
 DEFAULT_NUM_EPISODES = 1000
 
-#: Task 1 & 2: Multi-path, Conditional Navigation 
+#: Task 1 & 2: Multi-path, Conditional Navigation
 
 MULTIPATH_DEFAULT_NUM_MODES = 3
 MULTIPATH_DEFAULT_TRAJECTORY_LENGTH = 60
@@ -32,7 +32,7 @@ MULTIPATH_GOAL = np.array([0.95, 0.95], dtype=np.float32)
 MULTIPATH_WAYPOINTS: dict[int, list[tuple[float, float]]] = {
     0: [(0.0, 0.0), (0.85, 0.08), (0.9, 0.85), (0.95, 0.95)],  # Path A: right→up
     1: [(0.0, 0.0), (0.05, 0.88), (0.85, 0.92), (0.95, 0.95)],  # Path B: up→right
-    2: [(0.0, 0.0), (0.2, 0.42), (0.75, 0.52), (0.95, 0.95)],   # Path C: diagonal gap
+    2: [(0.0, 0.0), (0.2, 0.42), (0.75, 0.52), (0.95, 0.95)],  # Path C: diagonal gap
 }
 
 MULTIPATH_OBSTACLES: list[tuple[float, float, float, float]] = [
@@ -41,8 +41,8 @@ MULTIPATH_OBSTACLES: list[tuple[float, float, float, float]] = [
 ]
 
 MULTIPATH_CONTEXT_COLORS: dict[int, tuple[int, int, int]] = {
-    0: (255, 0, 0),    # Red for path A
-    1: (0, 0, 255),    # Blue for path B
+    0: (255, 0, 0),  # Red for path A
+    1: (0, 0, 255),  # Blue for path B
     2: (255, 255, 0),  # Yellow for path C
 }
 
@@ -57,9 +57,9 @@ STYLE_GOAL = np.array([1.0, 0.5], dtype=np.float32)
 
 STYLE_MIN_TRAJECTORY_LENGTH = 2
 
-#Task 4: Sequential Decision
+# Task 4: Sequential Decision
 
-SEQUENTIAL_DEFAULT_TRAJECTORY_LENGTH = 55
+SEQUENTIAL_DEFAULT_TRAJECTORY_LENGTH = 60
 SEQUENTIAL_DEFAULT_NOISE_STD = 0.012
 
 SEQUENTIAL_MIN_TRAJECTORY_LENGTH = 41
@@ -82,6 +82,6 @@ SHARED_PREFIX_SHARED_STEPS = 30
 
 SHARED_PREFIX_ENDPOINTS: dict[int, tuple[float, float]] = {
     0: (1.0, 0.85),  # Up-right
-    1: (1.0, 0.5),   # Straight-right
+    1: (1.0, 0.5),  # Straight-right
     2: (1.0, 0.15),  # Down-right
 }

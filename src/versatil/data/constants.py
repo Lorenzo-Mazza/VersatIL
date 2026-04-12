@@ -58,9 +58,6 @@ class RawCameraKey(enum.StrEnum):
     # MetaWorld LeRobot
     IMAGE_METAWORLD = "observation.image"
 
-    # Synthetic benchmark
-    SYNTHETIC_TOP = "synthetic_top"
-
 
 RAW_TO_CAMERA_MAPPING: dict[str, str] = {
     # TSO (identity)
