@@ -25,8 +25,8 @@ MULTIPATH_DEFAULT_NOISE_STD = 0.008
 
 # Task 1 & 2: Circle / Conditional Circle
 
-CIRCLE_CENTER_TOP = np.array([0.5, 0.72], dtype=np.float32)
-CIRCLE_CENTER_BOTTOM = np.array([0.5, 0.28], dtype=np.float32)
+CIRCLE_CENTER_TOP = np.array([0.5, 0.7], dtype=np.float32)
+CIRCLE_CENTER_BOTTOM = np.array([0.5, 0.3], dtype=np.float32)
 CIRCLE_RADIUS = 0.2
 CIRCLE_START = np.array([0.5, 0.5], dtype=np.float32)
 
