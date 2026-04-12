@@ -218,6 +218,7 @@ def test_calls_run_rollouts_with_correct_args(
         task_name=task_name,
         num_rollouts=num_rollouts,
         image_size=image_size,
+        temporal_aggregation=False,
     )
 
 
