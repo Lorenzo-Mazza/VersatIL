@@ -10,6 +10,7 @@ import pytorch_lightning as pl
 import torch
 import wandb
 from hydra.core.hydra_config import HydraConfig
+from hydra.types import RunMode
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.callbacks import (
     LearningRateMonitor,
@@ -64,13 +65,14 @@ class Workspace:
             hydra_cfg.job.config_name if hydra_cfg.job.config_name else "experiment"
         )
         additional_exp_name = config.experiment.name
-        self.exp_name = f"{main_config_name}/{additional_exp_name}"
+        sweep_suffix = self._get_multirun_suffix(hydra_cfg)
+        self.exp_name = f"{main_config_name}/{additional_exp_name}{sweep_suffix}"
         self.config.experiment.name = self.exp_name
         self.original_yaml_config.experiment.name = self.exp_name
         self.output_dir = (
             Path(config.experiment.checkpoint_folder)
             / main_config_name
-            / additional_exp_name
+            / f"{additional_exp_name}{sweep_suffix}"
         )
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._set_seed()
@@ -86,6 +88,26 @@ class Workspace:
         logging.info(f"Workspace initialized for experiment: {self.exp_name}")
         logging.info(f"Output directory: {self.output_dir}")
         self.save_config()
+
+    @staticmethod
+    def _get_multirun_suffix(hydra_cfg: DictConfig) -> str:
+        """Build a unique suffix for Hydra multirun jobs.
+
+        Appends the sweep overrides to distinguish parallel runs that
+        would otherwise share the same experiment name and WandB run.
+
+        Args:
+            hydra_cfg: HydraConfig for the current job.
+
+        Returns:
+            Empty string for single runs, "/{override_dirname}" for multiruns.
+        """
+        if hydra_cfg.mode != RunMode.MULTIRUN:
+            return ""
+        override_dirname = hydra_cfg.job.override_dirname
+        if override_dirname:
+            return f"/{override_dirname}"
+        return f"/job{hydra_cfg.job.num}"
 
     def save_config(self):
         """Save configuration to YAML file in output directory.

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
+from hydra.types import RunMode
 from omegaconf import OmegaConf
 from pytorch_lightning.callbacks import (
     LearningRateMonitor,
@@ -236,6 +237,31 @@ def workspace_factory(
         return workspace
 
     return factory
+
+
+@pytest.mark.unit
+class TestGetMultirunSuffix:
+    def test_single_run_returns_empty_string(self):
+        hydra_cfg = MagicMock()
+        hydra_cfg.mode = RunMode.RUN
+        assert Workspace._get_multirun_suffix(hydra_cfg) == ""
+
+    def test_multirun_with_overrides_returns_override_dirname(self):
+        hydra_cfg = MagicMock()
+        hydra_cfg.mode = RunMode.MULTIRUN
+        hydra_cfg.job.override_dirname = (
+            "training.optimizer.lr=1e-4,policy.decoder.embedding_dimension=128"
+        )
+        assert Workspace._get_multirun_suffix(hydra_cfg) == (
+            "/training.optimizer.lr=1e-4,policy.decoder.embedding_dimension=128"
+        )
+
+    def test_multirun_without_overrides_falls_back_to_job_num(self):
+        hydra_cfg = MagicMock()
+        hydra_cfg.mode = RunMode.MULTIRUN
+        hydra_cfg.job.override_dirname = ""
+        hydra_cfg.job.num = 3
+        assert Workspace._get_multirun_suffix(hydra_cfg) == "/job3"
 
 
 @pytest.mark.unit
