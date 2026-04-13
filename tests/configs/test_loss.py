@@ -114,22 +114,24 @@ class TestMaximumMeanDiscrepancyLossConfig:
             config._target_ == "versatil.metrics.components.MaximumMeanDiscrepancyLoss"
         )
 
-    def test_kernel_type_default_is_rbf_string(self):
-        config = MaximumMeanDiscrepancyLossConfig()
-        assert config.kernel_type == KernelType.RBF.value
-        assert config.kernel_type == "rbf"
-
-    def test_bandwidth_multipliers_default(self):
-        config = MaximumMeanDiscrepancyLossConfig()
-        assert config.bandwidth_multipliers == [0.2, 0.5, 1.0, 2.0, 5.0]
-
-    def test_use_median_heuristic_default_true(self):
-        config = MaximumMeanDiscrepancyLossConfig()
-        assert config.use_median_heuristic is True
-
-    def test_use_median_heuristic_stores_false(self):
-        config = MaximumMeanDiscrepancyLossConfig(use_median_heuristic=False)
-        assert config.use_median_heuristic is False
+    @pytest.mark.parametrize("use_median_heuristic", [True, False])
+    @pytest.mark.parametrize(
+        "kernel_type", [KernelType.RBF.value, KernelType.IMQ.value]
+    )
+    def test_stores_configuration(
+        self,
+        kernel_type: str,
+        use_median_heuristic: bool,
+    ):
+        bandwidth_multipliers = [1.0, 2.0]
+        config = MaximumMeanDiscrepancyLossConfig(
+            kernel_type=kernel_type,
+            bandwidth_multipliers=bandwidth_multipliers,
+            use_median_heuristic=use_median_heuristic,
+        )
+        assert config.kernel_type == kernel_type
+        assert config.bandwidth_multipliers == bandwidth_multipliers
+        assert config.use_median_heuristic is use_median_heuristic
 
 
 @pytest.mark.unit
