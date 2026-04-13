@@ -50,10 +50,6 @@ policy:
     attention_dropout: 0.0
   algorithm:
     sampling_from_prior_probability: 0.0
-    base_algorithm:
-      ode_solver: "euler"
-      num_inference_steps: 10
-      sigma: 0.0
     posterior_encoder:
       latent_dimension: 2
       embedding_dimension: 64
