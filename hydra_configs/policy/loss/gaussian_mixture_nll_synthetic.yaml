@@ -7,7 +7,7 @@ _target_: versatil.metrics.composite.CompositeLoss
 loss_modules:
   moe_loss:
     _target_: versatil.metrics.components.MoELoss
-    entropy_weight: 0.5
+    entropy_weight: 0.1
     base_loss:
       _target_: versatil.metrics.composite.CompositeLoss
       loss_modules:
@@ -15,9 +15,9 @@ loss_modules:
           action_keys:
             - ${proprio_key:SYNTHETIC_POSITION_ACTION}
           weight: 1.0
-          learned_variance: false
-          sigmas:
-            ${proprio_key:SYNTHETIC_POSITION_ACTION}: 0.1
+          learned_variance: true
+          #sigmas:
+          #  ${proprio_key:SYNTHETIC_POSITION_ACTION}: 0.1
 
         trajectory_length:
           weight: 0.0

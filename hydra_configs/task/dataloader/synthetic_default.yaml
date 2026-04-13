@@ -2,7 +2,8 @@ defaults:
   - base
 
 batch_size: 256
-num_workers: 14
+num_workers: 8
+preload_data_in_memory: true
 shuffle: true
 
 image_norm_type: ${image_norm_type:MINUS_ONE_TO_ONE}
