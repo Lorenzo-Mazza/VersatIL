@@ -1,0 +1,59 @@
+# @package _global_
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: default
+  - /task/dataset_schema: synthetic/circle
+  - /task/dataloader: synthetic_default
+  - /task/action_space: synthetic_2d
+  - /task/observation_space: synthetic_image_state
+  - /training: synthetic
+  - /policy/encoding_pipeline: mono_rgb
+  - /policy/decoder: mixture_density_act
+  - /policy/algorithm: behavioral_cloning
+  - /policy/loss: gaussian_mixture_nll_synthetic
+  - /inference: default
+  - override /policy/decoder/heads@policy.decoder.action_heads: synthetic_2d
+  - _self_
+
+task:
+  observation_horizon: 1
+  prediction_horizon: 60
+
+experiment:
+  checkpoint_folder: ${checkpoint_dir:synthetic}
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: true
+  encoding_pipeline:
+    encoders:
+      left:
+        input_keys:
+          - ${cameras:AGENTVIEW}
+        backbone: ${rgb_backbone:MOBILENETV4_SMALL_050}
+  decoder:
+    input_keys:
+      - left_rgb
+    embedding_dimension: 64
+    number_of_heads: 4
+    feedforward_dimension: 128
+    number_of_layers: 2
+    dropout_rate: 0.0
+    attention_dropout: 0.0
+    num_mixture_components: 4
+    gating_hidden_dims:
+      - 64
+      - 32
+    gating_activation: ${activation_function:SILU}
+    gating_dropout: 0.0
+    gating_normalization: true
+    temperature: 5.0
+    learnable_temperature: true
