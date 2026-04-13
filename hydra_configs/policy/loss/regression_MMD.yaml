@@ -16,6 +16,7 @@ loss_modules:
 
     maximum_mean_discrepancy:
         weight: 50.0
+        kernel_type: ${kernel_type:IMQ}
 
 
     trajectory_length:

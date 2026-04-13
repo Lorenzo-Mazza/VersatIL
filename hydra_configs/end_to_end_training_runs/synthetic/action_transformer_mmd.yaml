@@ -25,6 +25,15 @@ task:
 experiment:
   checkpoint_folder: ${checkpoint_dir:synthetic}
 
+training:
+  optimizer:
+    lr: 1.0e-3
+    param_groups:
+      - name: backbone
+        lr: 1.0e-3
+        weight_decay: 1.0e-3
+        params_pattern: "encoding_pipeline.encoders.*.backbone"
+
 policy:
   _target_: versatil.models.policy.Policy
   observation_space: ${task.observation_space}
@@ -46,6 +55,8 @@ policy:
     number_of_heads: 4
     feedforward_dimension: 128
     number_of_layers: 2
+    dropout_rate: 0.0
+    attention_dropout: 0.0
 
   algorithm:
     sampling_from_prior_probability: 0.0
@@ -55,7 +66,7 @@ policy:
         number_of_heads: 4
         feedforward_dimension: 128
         number_of_encoder_layers: 1
-        dropout_rate: 0.1
+        dropout_rate: 0.0
         device: ${policy.device}
         min_logvar: -4.0
     prior:
@@ -64,6 +75,6 @@ policy:
         number_of_heads: 4
         feedforward_dimension: 128
         number_of_encoder_layers: 1
-        dropout_rate: 0.1
+        dropout_rate: 0.0
         device: ${policy.device}
         min_logvar: -4.0
