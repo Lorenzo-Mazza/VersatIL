@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from versatil.data.constants import SyntheticObsKey
 from versatil.data.synthetic.constants import SyntheticTaskName
 from versatil.training.synthetic_rollout_callback import SyntheticRolloutCallback
 
@@ -218,8 +219,60 @@ def test_calls_run_rollouts_with_correct_args(
         task_name=task_name,
         num_rollouts=num_rollouts,
         image_size=image_size,
+        context_mode=None,
         temporal_aggregation=False,
     )
+
+
+@pytest.mark.unit
+def test_calls_run_rollouts_once_per_mode_for_conditional_task(
+    callback_factory: Callable[..., SyntheticRolloutCallback],
+    mock_trainer_factory: Callable[..., MagicMock],
+    mock_pl_module_factory: Callable[..., MagicMock],
+    fake_trajectories_factory: Callable[..., np.ndarray],
+    fake_results_factory: Callable[..., dict],
+):
+    task_name = SyntheticTaskName.CONDITIONAL_CIRCLE.value
+    num_rollouts = 10
+    image_size = 48
+    num_modes = 2
+    callback = callback_factory(
+        task_name=task_name,
+        num_rollouts=num_rollouts,
+        image_size=image_size,
+    )
+    trainer = mock_trainer_factory(has_logger=False)
+    pl_module = mock_pl_module_factory()
+    pl_module.policy.observation_space.observations_metadata = {
+        SyntheticObsKey.CONTEXT.value: MagicMock(),
+    }
+
+    fake_layout = MagicMock()
+    fake_layout.num_modes = num_modes
+
+    patches = _patch_callback_dependencies(
+        fake_trajectories=fake_trajectories_factory(num_rollouts=num_rollouts),
+        fake_results=fake_results_factory(),
+    )
+    with (
+        patches[0] as mock_run,
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patch(
+            "versatil.training.synthetic_rollout_callback.get_task_layout",
+            return_value=fake_layout,
+        ),
+    ):
+        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+
+    assert mock_run.call_count == num_modes
+    context_modes_passed = [
+        call.kwargs["context_mode"] for call in mock_run.call_args_list
+    ]
+    assert context_modes_passed == list(range(num_modes))
 
 
 @pytest.mark.unit

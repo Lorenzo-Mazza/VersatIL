@@ -11,6 +11,7 @@ import wandb
 from PIL import Image
 from pytorch_lightning.callbacks import Callback
 
+from versatil.data.constants import SyntheticObsKey
 from versatil.data.synthetic.constants import (
     CORRIDOR_DEFAULT_NUM_STYLES,
     MULTIPATH_DEFAULT_NOISE_STD,
@@ -18,6 +19,7 @@ from versatil.data.synthetic.constants import (
     MULTIPATH_DEFAULT_TRAJECTORY_LENGTH,
 )
 from versatil.data.synthetic.generators import generate_task_episodes
+from versatil.data.synthetic.task_layout import get_task_layout
 from versatil.data.synthetic.visualization import plot_trajectories_2d
 from versatil.inference.synthetic_rollout import evaluate_rollouts, run_rollouts
 from versatil.models.policy import Policy
@@ -66,14 +68,24 @@ class SyntheticRolloutCallback(Callback):
         was_training = policy.training
         policy.eval()
 
+        context_modes = self._resolve_context_modes(policy=policy)
         with torch.no_grad():
-            trajectories = run_rollouts(
-                policy=policy,
-                task_name=self.task_name,
-                num_rollouts=self.num_rollouts,
-                image_size=self.image_size,
-                temporal_aggregation=False,  # open-loop: single prediction, no replanning
-            )
+            per_mode_trajectories = [
+                run_rollouts(
+                    policy=policy,
+                    task_name=self.task_name,
+                    num_rollouts=self.num_rollouts,
+                    image_size=self.image_size,
+                    context_mode=mode,
+                    temporal_aggregation=False,  # open-loop
+                )
+                for mode in context_modes
+            ]
+        trajectories = (
+            per_mode_trajectories[0]
+            if len(per_mode_trajectories) == 1
+            else np.concatenate(per_mode_trajectories, axis=0)
+        )
 
         results = evaluate_rollouts(
             rollout_trajectories=trajectories,
@@ -118,6 +130,22 @@ class SyntheticRolloutCallback(Callback):
 
         if was_training:
             policy.train()
+
+    def _resolve_context_modes(self, policy: Policy) -> list[int | None]:
+        """Determine which context modes to roll out.
+
+        Returns [None] for non-conditional policies. For policies that consume
+        the CONTEXT observation, returns one entry per layout mode so every
+        mode gets its own rollout batch.
+        """
+        has_context = (
+            SyntheticObsKey.CONTEXT.value
+            in policy.observation_space.observations_metadata
+        )
+        if not has_context:
+            return [None]
+        layout = get_task_layout(task_name=self.task_name)
+        return list(range(layout.num_modes))
 
     def _log_training_data(self, trainer: pl.Trainer) -> None:
         """Log training data trajectories to wandb on the first epoch."""
