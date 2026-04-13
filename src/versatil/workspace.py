@@ -93,20 +93,16 @@ class Workspace:
     def _get_multirun_suffix(hydra_cfg: DictConfig) -> str:
         """Build a unique suffix for Hydra multirun jobs.
 
-        Appends the sweep overrides to distinguish parallel runs that
-        would otherwise share the same experiment name and WandB run.
+        Uses the job number to keep paths short while ensuring uniqueness.
 
         Args:
             hydra_cfg: HydraConfig for the current job.
 
         Returns:
-            Empty string for single runs, "/{override_dirname}" for multiruns.
+            Empty string for single runs, "/job{num}" for multiruns.
         """
         if hydra_cfg.mode != RunMode.MULTIRUN:
             return ""
-        override_dirname = hydra_cfg.job.override_dirname
-        if override_dirname:
-            return f"/{override_dirname}"
         return f"/job{hydra_cfg.job.num}"
 
     def save_config(self):
