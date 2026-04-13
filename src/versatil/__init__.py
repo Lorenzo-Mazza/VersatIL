@@ -5,19 +5,11 @@ import os
 import warnings
 from pathlib import Path
 
-import transformers
 from dotenv import load_dotenv
 
-from versatil.quantization.torch_patches import patch_pt2e_python314
-
-patch_pt2e_python314()
 load_dotenv()
 
-logging.getLogger("timm").setLevel(logging.ERROR)
-logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-transformers.logging.set_verbosity_error()
-
+# Set cache dirs before importing transformers/timm — they read
 CACHE_DIR = Path(os.environ["VERSATIL_CACHE_DIR"])
 
 
@@ -35,6 +27,18 @@ def setup_cache_directories():
 
 
 setup_cache_directories()
+
+import transformers
+
+from versatil.quantization.torch_patches import patch_pt2e_python314
+
+patch_pt2e_python314()
+
+logging.getLogger("timm").setLevel(logging.ERROR)
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+transformers.logging.set_verbosity_error()
+
 warnings.filterwarnings(
     "ignore",
     category=UserWarning,
