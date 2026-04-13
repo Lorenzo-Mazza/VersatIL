@@ -12,8 +12,8 @@ defaults:
   - /training: synthetic
   - /policy/encoding_pipeline: mono_rgb
   - /policy/decoder: action_transformer
-  - /policy/algorithm: bc_with_learned_prior
-  - /policy/loss: regression_MMD
+  - /policy/algorithm: bc_with_vae_gaussian
+  - /policy/loss: regression_KL
   - /inference: default
   - override /policy/decoder/heads@policy.decoder.action_heads: synthetic_2d
   - _self_
@@ -46,26 +46,15 @@ policy:
     number_of_heads: 4
     feedforward_dimension: 128
     number_of_layers: 2
-    dropout_rate: 0.0
-    attention_dropout: 0.0
-
   algorithm:
-    sampling_from_prior_probability: 0.0
     posterior_encoder:
-        latent_dimension: 2
-        embedding_dimension: 64
-        number_of_heads: 4
-        feedforward_dimension: 128
-        number_of_encoder_layers: 1
-        dropout_rate: 0.0
-        device: ${policy.device}
-        min_logvar: -4.0
+      latent_dimension: 2
+      embedding_dimension: 64
+      number_of_heads: 4
+      feedforward_dimension: 128
+      number_of_encoder_layers: 1
+      dropout_rate: 0.0
+      device: ${policy.device}
+      min_logvar: -4.0
     prior:
-        latent_dimension: 2
-        embedding_dimension: 64
-        number_of_heads: 4
-        feedforward_dimension: 128
-        number_of_encoder_layers: 1
-        dropout_rate: 0.0
-        device: ${policy.device}
-        min_logvar: -4.0
+      latent_dimension: 2

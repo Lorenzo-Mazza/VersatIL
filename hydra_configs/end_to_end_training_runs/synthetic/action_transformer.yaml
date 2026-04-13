@@ -9,7 +9,7 @@ defaults:
   - /task/dataloader: synthetic_default
   - /task/action_space: synthetic_2d
   - /task/observation_space: synthetic_image_state
-  - /training: default
+  - /training: synthetic
   - /policy/encoding_pipeline: mono_rgb
   - /policy/decoder: action_transformer
   - /policy/algorithm: behavioral_cloning
@@ -24,17 +24,6 @@ task:
 
 experiment:
   checkpoint_folder: ${checkpoint_dir:synthetic}
-
-training:
-  clip_gradient_norm: true
-  clip_max_norm: 1.0
-  optimizer:
-    lr: 1.0e-3
-    param_groups:
-      - name: backbone
-        lr: 1.0e-3
-        weight_decay: 1.0e-3
-        params_pattern: "encoding_pipeline.encoders.*.backbone"
 
 policy:
   _target_: versatil.models.policy.Policy
