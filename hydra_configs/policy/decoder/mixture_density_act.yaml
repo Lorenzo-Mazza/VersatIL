@@ -10,12 +10,12 @@ number_of_heads: 8
 number_of_key_value_heads: 2
 feedforward_dimension: 512
 number_of_layers: 4
-activation: ${activation_function:SWIGLU}
+activation: ${activation_function:RELU}
 normalization_type: ${normalization:RMS_NORM}
-attention_type: ${attention:GROUPED_QUERY}
+attention_type: ${attention:MULTI_HEAD}
 dropout_rate: 0.1
 attention_dropout: 0.05
-positional_encoding_type: ${pos_encoding:ROPE}
+positional_encoding_type: ${pos_encoding:SINUSOIDAL}
 num_mixture_components: 8
 gating_hidden_dims:
   - 256

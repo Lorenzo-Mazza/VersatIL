@@ -60,3 +60,5 @@ policy:
     gating_normalization: true
     temperature: 100.0
     learnable_temperature: true
+    deterministic_inference: false
+    gmm_init_strategy: "uniform"
