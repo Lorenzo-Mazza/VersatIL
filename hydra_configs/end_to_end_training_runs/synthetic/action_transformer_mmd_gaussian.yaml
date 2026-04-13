@@ -48,7 +48,7 @@ policy:
     number_of_layers: 2
   algorithm:
     posterior_encoder:
-      latent_dimension: 2
+      latent_dimension: 1
       embedding_dimension: 64
       number_of_heads: 4
       feedforward_dimension: 128
@@ -57,4 +57,4 @@ policy:
       device: ${policy.device}
       min_logvar: -4.0
     prior:
-      latent_dimension: 2
+      latent_dimension: 1

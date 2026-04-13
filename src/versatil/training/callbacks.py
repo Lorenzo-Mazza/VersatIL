@@ -681,18 +681,23 @@ class LatentVisualizationCallback(Callback):
             if phases is not None:
                 phases = phases[idx]
 
+        latent_dim = z.shape[1] if z.ndim > 1 else 1
+        n_tsne_components = min(2, latent_dim)
         perplexity = min(30, z.shape[0] - 1)
-        reducer = TSNE(n_components=2, random_state=42, perplexity=perplexity)
+        reducer = TSNE(
+            n_components=n_tsne_components, random_state=42, perplexity=perplexity
+        )
         z_2d = reducer.fit_transform(z)
 
         fig, ax = plt.subplots(figsize=(10, 8))
 
+        y_vals = z_2d[:, 1] if z_2d.shape[1] > 1 else np.zeros(z_2d.shape[0])
         if phases is not None:
             n_phases = int(phases.max()) + 1
             cmap = plt.cm.get_cmap("tab10", n_phases)
             scatter = ax.scatter(
                 z_2d[:, 0],
-                z_2d[:, 1],
+                y_vals,
                 c=phases,
                 cmap=cmap,
                 alpha=0.6,
@@ -703,11 +708,11 @@ class LatentVisualizationCallback(Callback):
             plt.colorbar(scatter, ax=ax, label="Phase", ticks=range(n_phases))
             ax.set_title(f"{title} t-SNE (colored by phase mode)")
         else:
-            ax.scatter(z_2d[:, 0], z_2d[:, 1], alpha=0.6, s=10)
+            ax.scatter(z_2d[:, 0], y_vals, alpha=0.6, s=10)
             ax.set_title(f"{title}  t-SNE")
 
         ax.set_xlabel("t-SNE Dimension 1")
-        ax.set_ylabel("t-SNE Dimension 2")
+        ax.set_ylabel("t-SNE Dimension 2" if n_tsne_components > 1 else "")
         plt.tight_layout()
         return fig
 
@@ -731,14 +736,19 @@ class LatentVisualizationCallback(Callback):
             if phases is not None:
                 phases = phases[idx]
 
-        pca = PCA(n_components=2)
+        latent_dim = z.shape[1] if z.ndim > 1 else 1
+        n_pca_components = min(2, latent_dim)
+        pca = PCA(n_components=n_pca_components)
         projected = pca.fit_transform(z)
         explained_variance = pca.explained_variance_ratio_
         fig, axis = plt.subplots(figsize=(10, 8))
+        y_vals = (
+            projected[:, 1] if projected.shape[1] > 1 else np.zeros(projected.shape[0])
+        )
         if phases is not None:
             sns.scatterplot(
                 x=projected[:, 0],
-                y=projected[:, 1],
+                y=y_vals,
                 hue=phases.astype(int),
                 palette="tab10",
                 alpha=0.6,
@@ -750,14 +760,16 @@ class LatentVisualizationCallback(Callback):
         else:
             sns.scatterplot(
                 x=projected[:, 0],
-                y=projected[:, 1],
+                y=y_vals,
                 alpha=0.6,
                 s=10,
                 ax=axis,
             )
             axis.set_title(f"{title} PCA")
         axis.set_xlabel(f"PC1 ({explained_variance[0]:.1%})")
-        axis.set_ylabel(f"PC2 ({explained_variance[1]:.1%})")
+        axis.set_ylabel(
+            f"PC2 ({explained_variance[1]:.1%})" if n_pca_components > 1 else ""
+        )
         plt.tight_layout()
         return fig
 
