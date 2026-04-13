@@ -145,11 +145,12 @@ def mock_latent_pl_module_factory(
         prior_latent: np.ndarray | None = ...,
         phases: np.ndarray | None = ...,
         metadata: dict | None = None,
+        latent_dimension: int = 4,
     ) -> MagicMock:
         if posterior_latent is ...:
-            posterior_latent = latent_data_factory()
+            posterior_latent = latent_data_factory(latent_dimension=latent_dimension)
         if prior_latent is ...:
-            prior_latent = latent_data_factory()
+            prior_latent = latent_data_factory(latent_dimension=latent_dimension)
         if phases is ...:
             phases = phase_array_factory()
         pl_module = MagicMock()
@@ -1274,6 +1275,27 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         }
         assert expected_keys.issubset(set(logged_metrics.keys()))
         assert trainer.logger.log_metrics.call_args.kwargs["step"] == 0
+
+    def test_handles_latent_dimension_one_without_crash(
+        self,
+        mock_trainer_factory: Callable,
+        mock_latent_pl_module_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
+        pl_module = mock_latent_pl_module_factory(latent_dimension=1)
+        trainer = mock_trainer_factory(current_epoch=0)
+
+        with patch("versatil.training.callbacks._figure_to_wandb_image"):
+            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        trainer.logger.log_metrics.assert_called_once()
+        logged_metrics = trainer.logger.log_metrics.call_args.args[0]
+        expected_keys = {
+            "posterior_latent_space_tsne",
+            "posterior_latent_space_pca",
+            "posterior_pca_explained_variance",
+        }
+        assert expected_keys.issubset(set(logged_metrics.keys()))
 
     def test_skips_logging_when_both_latents_are_none(
         self,

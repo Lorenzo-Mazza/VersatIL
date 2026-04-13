@@ -737,6 +737,39 @@ class TestMaximumMeanDiscrepancyLossForward:
         output = loss(predictions, {})
         assert output.total_loss.item() >= 0.0
 
+    def test_stores_use_median_heuristic(self):
+        loss = MaximumMeanDiscrepancyLoss(use_median_heuristic=False)
+        assert loss.kernel.use_median_heuristic is False
+
+    def test_stores_use_median_heuristic_default_true(self):
+        loss = MaximumMeanDiscrepancyLoss()
+        assert loss.kernel.use_median_heuristic is True
+
+    def test_forwards_bandwidth_multipliers_to_kernel(self):
+        multipliers = [2.0, 16.0]
+        loss = MaximumMeanDiscrepancyLoss(bandwidth_multipliers=multipliers)
+        assert loss.kernel.bandwidth_multipliers == multipliers
+
+    def test_fixed_bandwidth_produces_valid_loss(self, rng: np.random.Generator):
+        latent_dim = 4
+        z_post = torch.from_numpy(
+            rng.standard_normal((16, latent_dim)).astype(np.float32)
+        )
+        z_prior = torch.from_numpy(
+            rng.standard_normal((16, latent_dim)).astype(np.float32)
+        )
+        predictions = {
+            LatentKey.POSTERIOR_LATENT.value: z_post,
+            LatentKey.PRIOR_LATENT.value: z_prior,
+        }
+        loss = MaximumMeanDiscrepancyLoss(
+            kernel_type=KernelType.IMQ.value,
+            bandwidth_multipliers=[2.0 * latent_dim],
+            use_median_heuristic=False,
+        )
+        output = loss(predictions, {})
+        assert output.total_loss.item() >= 0.0
+
 
 @pytest.mark.unit
 class TestBinaryMaximumMeanDiscrepancyLossForward:

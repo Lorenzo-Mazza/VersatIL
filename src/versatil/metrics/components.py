@@ -590,6 +590,7 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
         prior_regularization_weight: float = 0.0,
         kernel_type: str = KernelType.RBF.value,
         bandwidth_multipliers: list[float] | None = None,
+        use_median_heuristic: bool = True,
         use_fixed_gaussian_as_prior: bool = False,
     ):
         """Initialize MMD loss.
@@ -599,14 +600,20 @@ class MaximumMeanDiscrepancyLoss(BaseLoss):
             prior_regularization_weight: Weight for MMD(prior, N(0,I)) regularization.
                 Only meaningful for learned priors.
             kernel_type: Kernel type for MMD computation (see KernelType enum).
-            bandwidth_multipliers: Scale factors for the median heuristic bandwidth.
+            bandwidth_multipliers: Scale factors for bandwidth. When
+                use_median_heuristic=True these scale the adaptive median.
+                When False these are absolute bandwidth values. WAE
+                recommends [2 * latent_dim] with use_median_heuristic=False.
+            use_median_heuristic: Adaptive bandwidth via median heuristic
+                (True) or fixed absolute bandwidths (False).
             use_fixed_gaussian_as_prior: If True, always use standard Gaussian as prior.
         """
         super().__init__()
         self.weight = weight
         self.prior_regularization_weight = prior_regularization_weight
         self.kernel = KernelType(kernel_type).to_kernel(
-            bandwidth_multipliers=bandwidth_multipliers
+            bandwidth_multipliers=bandwidth_multipliers,
+            use_median_heuristic=use_median_heuristic,
         )
         self.use_fixed_gaussian_as_prior = use_fixed_gaussian_as_prior
 

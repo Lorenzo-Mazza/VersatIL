@@ -15,7 +15,19 @@ class MMDKernel(nn.Module, abc.ABC):
 
     Provides shared utilities for pairwise distance computation and
     the median heuristic for adaptive bandwidth selection.
+
+    Args:
+        use_median_heuristic: When True, bandwidth_multipliers scale the
+            median pairwise squared distance (recomputed per batch). When
+            False, bandwidth_multipliers are used as absolute bandwidth
+            values. WAE (Tolstikhin et al. 2018) recommends fixed
+            bandwidths based on the prior scale (e.g. [2 * latent_dim])
+            rather than the adaptive median heuristic.
     """
+
+    def __init__(self, use_median_heuristic: bool = True):
+        super().__init__()
+        self.use_median_heuristic = use_median_heuristic
 
     def compute_pairwise_squared_distances(
         self, x: torch.Tensor, y: torch.Tensor
@@ -70,6 +82,25 @@ class MMDKernel(nn.Module, abc.ABC):
             median = torch.tensor(1.0, device=device)
         return median.item()
 
+    def _resolve_base_bandwidth(self, x: torch.Tensor, y: torch.Tensor) -> float:
+        """Resolve the base bandwidth for kernel computation.
+
+        When use_median_heuristic is True, returns 2 * median_dist^2
+        computed from the combined point sets. When False, returns 1.0
+        so that bandwidth_multipliers are used as absolute values.
+
+        Args:
+            x: First point set, shape (N, D).
+            y: Second point set, shape (M, D).
+
+        Returns:
+            Base bandwidth scalar.
+        """
+        if self.use_median_heuristic:
+            combined = torch.cat([x, y], dim=0)
+            return 2.0 * self.compute_median_squared_distance(combined)
+        return 1.0
+
     @abc.abstractmethod
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Compute kernel matrix K(x, y).
@@ -85,22 +116,30 @@ class MMDKernel(nn.Module, abc.ABC):
 
 
 class RBFKernel(MMDKernel):
-    """Multi-scale RBF (Gaussian) kernel with median heuristic bandwidth.
+    """Multi-scale RBF (Gaussian) kernel.
 
-    K(x, y) = (1/S) * sum_i exp(-||x-y||^2 / (2 * s_i * median_dist^2))
-    where s_i are bandwidth multipliers and median_dist^2 is computed from the data.
+    K(x, y) = (1/S) * sum_i exp(-||x-y||^2 / (s_i * base_bandwidth))
 
-    Ref: Gretton et al., "A Kernel Two-Sample Test",  https://jmlr.org/papers/volume13/gretton12a/gretton12a.pdf
+    With median heuristic (default): base_bandwidth = 2 * median_dist^2.
+    With fixed bandwidth: base_bandwidth = 1.0, so s_i are absolute values.
+
+    Ref: Gretton et al., "A Kernel Two-Sample Test",
+    https://jmlr.org/papers/volume13/gretton12a/gretton12a.pdf
 
     Args:
-        bandwidth_multipliers: Scale factors applied to the median heuristic bandwidth.
+        bandwidth_multipliers: Scale factors applied to the base bandwidth.
+            With median heuristic, these are relative to the median. Without,
+            these are absolute bandwidth values.
+        use_median_heuristic: Adaptive bandwidth via median heuristic (True)
+            or fixed absolute bandwidths (False).
     """
 
     def __init__(
         self,
         bandwidth_multipliers: list[float] | None = None,
+        use_median_heuristic: bool = True,
     ):
-        super().__init__()
+        super().__init__(use_median_heuristic=use_median_heuristic)
         if bandwidth_multipliers is None:
             bandwidth_multipliers = [0.2, 0.5, 1.0, 2.0, 5.0]
         self.bandwidth_multipliers = bandwidth_multipliers
@@ -115,37 +154,42 @@ class RBFKernel(MMDKernel):
         Returns:
             Kernel matrix, shape (N, M).
         """
-        combined = torch.cat([x, y], dim=0)
-        median_dist_sq = self.compute_median_squared_distance(combined)
+        base_bandwidth = self._resolve_base_bandwidth(x, y)
         dist_sq = self.compute_pairwise_squared_distances(x, y)
         kernel = torch.zeros_like(dist_sq)
         for mult in self.bandwidth_multipliers:
-            bandwidth = 2.0 * mult * median_dist_sq
+            bandwidth = mult * base_bandwidth
             kernel = kernel + torch.exp(-dist_sq / bandwidth)
         kernel = kernel / len(self.bandwidth_multipliers)
         return kernel
 
 
 class IMQKernel(MMDKernel):
-    """Multi-scale Inverse Multiquadratic kernel with median heuristic bandwidth.
+    """Multi-scale Inverse Multiquadratic kernel.
 
     K(x, y) = (1/S) * sum_i C_i / (C_i + ||x-y||^2)
-    where C_i = 2 * s_i * median_dist^2 and s_i are bandwidth multipliers.
 
-    Heavier polynomial tails than RBF — provides gradient signal for outlier
-    latent codes that RBF's exponential decay misses, especially early in training.
+    With median heuristic (default): C_i = s_i * 2 * median_dist^2.
+    With fixed bandwidth: C_i = s_i directly. WAE (Tolstikhin et al. 2018)
+    recommends C = 2 * latent_dim for a standard Gaussian prior, so pass
+    bandwidth_multipliers=[2 * latent_dim] with use_median_heuristic=False.
 
     Ref: Tolstikhin et al., "Wasserstein Auto-Encoders" (ICLR 2018)
 
     Args:
-        bandwidth_multipliers: Scale factors applied to the median heuristic bandwidth.
+        bandwidth_multipliers: Scale factors applied to the base bandwidth.
+            With median heuristic, these are relative to the median. Without,
+            these are absolute C values.
+        use_median_heuristic: Adaptive bandwidth via median heuristic (True)
+            or fixed absolute bandwidths (False).
     """
 
     def __init__(
         self,
         bandwidth_multipliers: list[float] | None = None,
+        use_median_heuristic: bool = True,
     ):
-        super().__init__()
+        super().__init__(use_median_heuristic=use_median_heuristic)
         if bandwidth_multipliers is None:
             bandwidth_multipliers = [0.2, 0.5, 1.0, 2.0, 5.0]
         self.bandwidth_multipliers = bandwidth_multipliers
@@ -160,12 +204,11 @@ class IMQKernel(MMDKernel):
         Returns:
             Kernel matrix, shape (N, M).
         """
-        combined = torch.cat([x, y], dim=0)
-        median_dist_sq = self.compute_median_squared_distance(combined)
+        base_bandwidth = self._resolve_base_bandwidth(x, y)
         dist_sq = self.compute_pairwise_squared_distances(x, y)
         kernel = torch.zeros_like(dist_sq)
         for mult in self.bandwidth_multipliers:
-            c = 2.0 * mult * median_dist_sq
+            c = mult * base_bandwidth
             kernel = kernel + c / (c + dist_sq)
         kernel = kernel / len(self.bandwidth_multipliers)
         return kernel
@@ -177,11 +220,18 @@ class KernelType(enum.StrEnum):
     RBF = "rbf"
     IMQ = "imq"
 
-    def to_kernel(self, bandwidth_multipliers: list[float] | None = None) -> MMDKernel:
+    def to_kernel(
+        self,
+        bandwidth_multipliers: list[float] | None = None,
+        use_median_heuristic: bool = True,
+    ) -> MMDKernel:
         """Instantiate the corresponding kernel.
 
         Args:
-            bandwidth_multipliers: Scale factors for the median heuristic bandwidth.
+            bandwidth_multipliers: Scale factors for bandwidth. Relative to
+                median when use_median_heuristic=True, absolute otherwise.
+            use_median_heuristic: Adaptive bandwidth via median heuristic
+                (True) or fixed absolute bandwidths (False).
 
         Returns:
             Instantiated MMDKernel.
@@ -190,4 +240,7 @@ class KernelType(enum.StrEnum):
             KernelType.RBF: RBFKernel,
             KernelType.IMQ: IMQKernel,
         }
-        return kernel_classes[self](bandwidth_multipliers=bandwidth_multipliers)
+        return kernel_classes[self](
+            bandwidth_multipliers=bandwidth_multipliers,
+            use_median_heuristic=use_median_heuristic,
+        )
