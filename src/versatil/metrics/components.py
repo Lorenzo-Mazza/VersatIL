@@ -1254,16 +1254,17 @@ class GaussianMixtureNLLoss(BaseLoss):
         mixing_probs = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]
         for action_key in self.action_keys:
             target = targets[action_key]  # (B, T, D)
+            mean_key = f"{action_key}_{DecoderOutputKey.MEAN.value}"
+            means = predictions.get(
+                mean_key, predictions.get(action_key)
+            )  # (B, T, K, D)
             if self.learned_variance:
-                mean_key = f"{action_key}_{DecoderOutputKey.MEAN.value}"
                 logvar_key = f"{action_key}_{DecoderOutputKey.LOGVAR.value}"
-                means = predictions[mean_key]  # (B, T, K, D)
                 logvars = predictions[logvar_key]  # (B, T, K, D)
                 nll = self._compute_learned_variance_nll(
                     target, mixing_probs, means, logvars
                 )
             else:
-                means = predictions[action_key]  # (B, T, K, D)
                 sigma = self.sigmas.get(action_key, 0.5)
                 nll = self._compute_fixed_variance_nll(
                     target, mixing_probs, means, sigma
