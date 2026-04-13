@@ -15,7 +15,7 @@ loss_modules:
       huber_weight: 0.0
 
     maximum_mean_discrepancy:
-        weight: 50.0
+        weight: 1.0
         kernel_type: ${kernel_type:IMQ}
 
 
