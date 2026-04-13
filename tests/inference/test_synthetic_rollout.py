@@ -12,7 +12,7 @@ import pytest
 import torch
 
 from versatil.data.constants import Cameras, ProprioKey, SyntheticObsKey
-from versatil.data.synthetic.constants import SyntheticTaskName
+from versatil.data.synthetic.constants import CIRCLE_CONTEXT_COLORS, SyntheticTaskName
 from versatil.data.synthetic.task_layout import SyntheticTaskLayout
 from versatil.inference.synthetic_rollout import (
     _get_render_goal,
@@ -223,6 +223,36 @@ def test_prepare_observation_assembles_keys_per_observation_space(
             )
     else:
         assert SyntheticObsKey.CONTEXT.value not in observation
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "context_color",
+    [None, (255, 0, 0), (0, 0, 255)],
+)
+def test_prepare_observation_forwards_context_color_to_render_frame(
+    position_history_factory: Callable[..., np.ndarray],
+    context_color: tuple[int, int, int] | None,
+):
+    position_history = position_history_factory(obs_horizon=2)
+    observation_keys = {Cameras.AGENTVIEW.value}
+    fake_frame = np.zeros((16, 16, 3), dtype=np.uint8)
+
+    with patch(
+        "versatil.inference.synthetic_rollout.render_frame",
+        return_value=fake_frame,
+    ) as mock_render:
+        _prepare_observation(
+            position_history=position_history,
+            obstacles=[],
+            goal=None,
+            image_size=16,
+            observation_keys=observation_keys,
+            context_color=context_color,
+        )
+
+    for call in mock_render.call_args_list:
+        assert call.kwargs["context_color"] == context_color
 
 
 @pytest.mark.unit
@@ -629,10 +659,15 @@ def test_run_rollouts_builds_one_hot_context_vector(
 
     first_call_kwargs = mock_prepare.call_args_list[0].kwargs
     context_vector_arg = first_call_kwargs["context_vector"]
+    context_color_arg = first_call_kwargs["context_color"]
     if expected_context_vector is None:
         assert context_vector_arg is None
+        assert context_color_arg is None
     else:
         np.testing.assert_array_equal(context_vector_arg, expected_context_vector)
+        # context_color is None for modes without a registered color
+        expected_color = CIRCLE_CONTEXT_COLORS.get(context_mode)
+        assert context_color_arg == expected_color
 
 
 @pytest.mark.unit

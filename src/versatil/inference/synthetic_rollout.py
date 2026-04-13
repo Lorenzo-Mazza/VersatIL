@@ -18,6 +18,7 @@ from omegaconf import OmegaConf
 from versatil.configs import MainConfig
 from versatil.data.constants import Cameras, ProprioKey, SyntheticObsKey
 from versatil.data.synthetic.constants import (
+    CIRCLE_CONTEXT_COLORS,
     CORRIDOR_DEFAULT_NUM_STYLES,
     DEFAULT_IMAGE_SIZE,
     MULTIPATH_DEFAULT_NOISE_STD,
@@ -125,9 +126,11 @@ def run_rollouts(
     observation_keys = set(policy.observation_space.observations_metadata.keys())
     action_key = ProprioKey.SYNTHETIC_POSITION_ACTION.value
     context_vector = None
+    context_color = None
     if context_mode is not None:
         context_vector = np.zeros(num_modes, dtype=np.float32)
         context_vector[context_mode] = 1.0
+        context_color = CIRCLE_CONTEXT_COLORS.get(context_mode)
 
     obs_horizon = policy.observation_horizon
     all_trajectories = np.zeros(
@@ -161,6 +164,7 @@ def run_rollouts(
                     observation_keys=observation_keys,
                     trail=trail,
                     context_vector=context_vector,
+                    context_color=context_color,
                 )
                 with torch.no_grad():
                     actions = policy.predict_action(obs_dict=observation)
@@ -200,6 +204,7 @@ def run_rollouts(
                     observation_keys=observation_keys,
                     trail=trail,
                     context_vector=context_vector,
+                    context_color=context_color,
                 )
                 with torch.no_grad():
                     actions = policy.predict_action(obs_dict=observation)
@@ -370,6 +375,7 @@ def _prepare_observation(
     observation_keys: set[str],
     trail: np.ndarray | None = None,
     context_vector: np.ndarray | None = None,
+    context_color: tuple[int, int, int] | None = None,
 ) -> dict[str, torch.Tensor]:
     """Build an observation dict suitable for Policy.predict_action().
 
@@ -411,6 +417,7 @@ def _prepare_observation(
                 goal=goal,
                 image_size=image_size,
                 trail=frame_trail,
+                context_color=context_color,
             )
             # uint8 (H, W, C) -> float32 (C, H, W)
             frame_tensor = torch.from_numpy(frame).float() / 255.0
