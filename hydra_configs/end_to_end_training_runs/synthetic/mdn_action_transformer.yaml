@@ -55,7 +55,7 @@ policy:
     gating_activation: ${activation_function:SILU}
     gating_dropout: 0.0
     gating_normalization: true
-    temperature: 100.0
-    learnable_temperature: true
-    deterministic_inference: false
-    gmm_init_strategy: "uniform"
+    temperature: 1.0
+    learnable_temperature: false
+    inference_sampling_mode: ${mixture_sampling:STOCHASTIC_MEAN}
+    gmm_init_strategy: ${gmm_init:UNIFORM}

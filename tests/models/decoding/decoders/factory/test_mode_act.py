@@ -1,5 +1,6 @@
 """Tests for versatil.models.decoding.decoders.factory.mode_act module."""
 
+import re
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -13,6 +14,7 @@ from versatil.models.decoding.action_heads.single_output import ActionHead
 from versatil.models.decoding.constants import (
     DecoderOutputKey,
     GMMInitStrategy,
+    MixtureSamplingMode,
 )
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.mode_act import (
@@ -79,7 +81,7 @@ def mode_act_factory(
         learnable_temperature: bool = False,
         gating_feature_key: str | None = None,
         gmm_init_strategy: str = GMMInitStrategy.KMEANS_PLUS_PLUS.value,
-        deterministic_inference: bool = True,
+        inference_sampling_mode: str = MixtureSamplingMode.DETERMINISTIC.value,
         device: str = "cpu",
     ) -> MixtureOfDensitiesActionTransformer:
         if input_keys is None:
@@ -124,7 +126,7 @@ def mode_act_factory(
             learnable_temperature=learnable_temperature,
             gating_feature_key=gating_feature_key,
             gmm_init_strategy=gmm_init_strategy,
-            deterministic_inference=deterministic_inference,
+            inference_sampling_mode=inference_sampling_mode,
         )
 
     return factory
@@ -157,7 +159,7 @@ def gaussian_mode_act_factory(
         learnable_temperature: bool = False,
         gating_feature_key: str | None = None,
         gmm_init_strategy: str = GMMInitStrategy.KMEANS_PLUS_PLUS.value,
-        deterministic_inference: bool = True,
+        inference_sampling_mode: str = MixtureSamplingMode.DETERMINISTIC.value,
         device: str = "cpu",
     ) -> MixtureOfDensitiesActionTransformer:
         if input_keys is None:
@@ -194,7 +196,7 @@ def gaussian_mode_act_factory(
             learnable_temperature=learnable_temperature,
             gating_feature_key=gating_feature_key,
             gmm_init_strategy=gmm_init_strategy,
-            deterministic_inference=deterministic_inference,
+            inference_sampling_mode=inference_sampling_mode,
         )
 
     return factory
@@ -229,7 +231,7 @@ class TestModeACTInitialization:
             attention_dropout=0.02,
             positional_encoding_type=PositionalEncodingType.ROPE.value,
             gmm_init_strategy=GMMInitStrategy.UNIFORM.value,
-            deterministic_inference=False,
+            inference_sampling_mode=MixtureSamplingMode.STOCHASTIC_SAMPLE.value,
         )
         assert decoder.embedding_dimension == embedding_dimension
         assert decoder.num_mixture_components == num_mixture_components
@@ -243,7 +245,10 @@ class TestModeACTInitialization:
         assert decoder.attention_dropout == 0.02
         assert decoder.positional_encoding_type == PositionalEncodingType.ROPE.value
         assert decoder.gmm_init_strategy == GMMInitStrategy.UNIFORM.value
-        assert decoder.deterministic_inference is False
+        assert (
+            decoder.inference_sampling_mode
+            == MixtureSamplingMode.STOCHASTIC_SAMPLE.value
+        )
 
     def test_decoder_input_requires_spatial(
         self,
@@ -421,7 +426,9 @@ class TestModeACTForwardWithGaussianHead:
         gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
         spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
     ):
-        decoder = gaussian_mode_act_factory(deterministic_inference=True)
+        decoder = gaussian_mode_act_factory(
+            inference_sampling_mode=MixtureSamplingMode.DETERMINISTIC.value,
+        )
         decoder.eval()
         features = spatial_feature_factory(
             batch_size=BATCH_SIZE,
@@ -438,7 +445,9 @@ class TestModeACTForwardWithGaussianHead:
         gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
         spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
     ):
-        decoder = gaussian_mode_act_factory(deterministic_inference=True)
+        decoder = gaussian_mode_act_factory(
+            inference_sampling_mode=MixtureSamplingMode.DETERMINISTIC.value,
+        )
         decoder.eval()
         features = spatial_feature_factory(
             batch_size=BATCH_SIZE,
@@ -487,7 +496,9 @@ class TestModeACTForwardWithActionHead:
         mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
         spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
     ):
-        decoder = mode_act_factory(deterministic_inference=True)
+        decoder = mode_act_factory(
+            inference_sampling_mode=MixtureSamplingMode.DETERMINISTIC.value,
+        )
         decoder.eval()
         features = spatial_feature_factory(
             batch_size=BATCH_SIZE,
@@ -612,7 +623,7 @@ class TestModeACTSampling:
             mean=mean,
             logvar=logvar,
             routing_weights=routing_weights,
-            deterministic=True,
+            sampling_mode=MixtureSamplingMode.DETERMINISTIC.value,
         )
         assert result.shape == (batch_size, prediction_horizon, action_dim)
         # Deterministic selects argmax component and returns its mean
@@ -645,7 +656,7 @@ class TestModeACTSampling:
             mean=mean,
             logvar=logvar,
             routing_weights=routing_weights,
-            deterministic=False,
+            sampling_mode=MixtureSamplingMode.STOCHASTIC_SAMPLE.value,
         )
         assert result.shape == (batch_size, prediction_horizon, action_dim)
         # With logvar=0 (std=1), the reparameterized noise should make the
@@ -676,7 +687,7 @@ class TestModeACTSampling:
         result = MixtureOfDensitiesActionTransformer._sample_from_mixture(
             stacked=stacked,
             routing_weights=routing_weights,
-            deterministic=True,
+            sampling_mode=MixtureSamplingMode.DETERMINISTIC.value,
         )
         assert result.shape == (batch_size, prediction_horizon, action_dim)
         selected_indices = torch.argmax(routing_weights, dim=-1)
@@ -706,7 +717,7 @@ class TestModeACTSampling:
         result = MixtureOfDensitiesActionTransformer._sample_from_mixture(
             stacked=stacked,
             routing_weights=routing_weights,
-            deterministic=False,
+            sampling_mode=MixtureSamplingMode.STOCHASTIC_MEAN.value,
         )
         assert result.shape == (batch_size, prediction_horizon, action_dim)
         # Stochastic selects via multinomial (no noise), so each batch element's
@@ -866,10 +877,14 @@ class TestModeACTInferenceMode:
             height=SPATIAL_HEIGHT,
             width=SPATIAL_WIDTH,
         )
-        deterministic_decoder = gaussian_mode_act_factory(deterministic_inference=True)
+        deterministic_decoder = gaussian_mode_act_factory(
+            inference_sampling_mode=MixtureSamplingMode.DETERMINISTIC.value,
+        )
         deterministic_decoder.eval()
         deterministic_result = deterministic_decoder(features=features, actions=None)
-        stochastic_decoder = gaussian_mode_act_factory(deterministic_inference=False)
+        stochastic_decoder = gaussian_mode_act_factory(
+            inference_sampling_mode=MixtureSamplingMode.STOCHASTIC_SAMPLE.value,
+        )
         stochastic_decoder.eval()
         # Copy weights so only the sampling strategy differs
         stochastic_decoder.load_state_dict(deterministic_decoder.state_dict())
@@ -886,7 +901,7 @@ class TestModeACTInferenceMode:
     ):
         num_components = 8
         decoder = mode_act_factory(
-            deterministic_inference=False,
+            inference_sampling_mode=MixtureSamplingMode.STOCHASTIC_MEAN.value,
             num_mixture_components=num_components,
         )
         decoder.eval()
@@ -914,7 +929,9 @@ class TestModeACTInferenceMode:
         gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
         spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
     ):
-        decoder = gaussian_mode_act_factory(deterministic_inference=True)
+        decoder = gaussian_mode_act_factory(
+            inference_sampling_mode=MixtureSamplingMode.DETERMINISTIC.value,
+        )
         decoder.eval()
         features = spatial_feature_factory(
             batch_size=BATCH_SIZE,
@@ -952,6 +969,32 @@ class TestModeACTTemporalObservation:
             assert isinstance(layer, LearnedPositionalEncoding1D)
         else:
             assert layer is None
+
+
+class TestModeACTValidation:
+    def test_invalid_inference_sampling_mode_raises(
+        self,
+        mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+    ):
+        invalid_mode = "invalid_mode"
+        expected_message = (
+            f"Unknown inference_sampling_mode: {invalid_mode}. "
+            f"Expected one of {[m.value for m in MixtureSamplingMode]}"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            mode_act_factory(inference_sampling_mode=invalid_mode)
+
+    def test_invalid_gmm_init_strategy_raises(
+        self,
+        mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+    ):
+        invalid_strategy = "invalid_strategy"
+        expected_message = (
+            f"Unknown gmm_init_strategy: {invalid_strategy}. "
+            f"Expected one of {[s.value for s in GMMInitStrategy]}"
+        )
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            mode_act_factory(gmm_init_strategy=invalid_strategy)
 
 
 def test_auxiliary_output_keys(

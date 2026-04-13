@@ -70,6 +70,14 @@ class DenoisingAlgorithm(enum.StrEnum):
     FLOW_MATCHING = "flow_matching"
 
 
+class MixtureSamplingMode(enum.StrEnum):
+    """Sampling strategy for mixture-of-experts inference."""
+
+    DETERMINISTIC = "deterministic"  # argmax component, return mean
+    STOCHASTIC_MEAN = "stochastic_mean"  # multinomial component, return mean
+    STOCHASTIC_SAMPLE = "stochastic_sample"  # multinomial component, add Gaussian noise
+
+
 class DiTType(enum.StrEnum):
     """Types of Diffusion Transformer architectures."""
 

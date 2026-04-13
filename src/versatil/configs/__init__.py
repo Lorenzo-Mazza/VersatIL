@@ -178,7 +178,9 @@ from versatil.models.decoding.constants import (
     DecoderOutputKey,
     DenoisingAlgorithm,
     DiTType,
+    GMMInitStrategy,
     LatentKey,
+    MixtureSamplingMode,
     MoERoutingType,
     TimeConditioning,
 )
@@ -413,6 +415,14 @@ def register_resolvers():
     if not OmegaConf.has_resolver("kernel_type"):
         OmegaConf.register_new_resolver(
             "kernel_type", lambda name: KernelType[name].value
+        )
+    if not OmegaConf.has_resolver("mixture_sampling"):
+        OmegaConf.register_new_resolver(
+            "mixture_sampling", lambda name: MixtureSamplingMode[name].value
+        )
+    if not OmegaConf.has_resolver("gmm_init"):
+        OmegaConf.register_new_resolver(
+            "gmm_init", lambda name: GMMInitStrategy[name].value
         )
     if not OmegaConf.has_resolver("token_padding"):
         OmegaConf.register_new_resolver(
