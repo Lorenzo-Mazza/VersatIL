@@ -123,6 +123,14 @@ class TestMaximumMeanDiscrepancyLossConfig:
         config = MaximumMeanDiscrepancyLossConfig()
         assert config.bandwidth_multipliers == [0.2, 0.5, 1.0, 2.0, 5.0]
 
+    def test_use_median_heuristic_default_true(self):
+        config = MaximumMeanDiscrepancyLossConfig()
+        assert config.use_median_heuristic is True
+
+    def test_use_median_heuristic_stores_false(self):
+        config = MaximumMeanDiscrepancyLossConfig(use_median_heuristic=False)
+        assert config.use_median_heuristic is False
+
 
 @pytest.mark.unit
 class TestCompositeLossConfig:
