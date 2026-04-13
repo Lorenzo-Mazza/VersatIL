@@ -49,7 +49,7 @@ policy:
   algorithm:
     sampling_from_prior_probability: 0.0
     posterior_encoder:
-        latent_dimension: 1
+        latent_dimension: 2
         embedding_dimension: 64
         number_of_heads: 4
         feedforward_dimension: 128
@@ -58,7 +58,7 @@ policy:
         device: ${policy.device}
         min_logvar: -10.0
     prior:
-        latent_dimension: 1
+        latent_dimension: 2
         embedding_dimension: 64
         number_of_heads: 4
         feedforward_dimension: 128

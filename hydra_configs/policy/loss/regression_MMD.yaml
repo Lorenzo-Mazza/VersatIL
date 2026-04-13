@@ -17,6 +17,7 @@ loss_modules:
     maximum_mean_discrepancy:
         weight: 50.0
 
+
     trajectory_length:
         _target_: versatil.metrics.components.TrajectoryLengthLoss
         weight: 0.0
