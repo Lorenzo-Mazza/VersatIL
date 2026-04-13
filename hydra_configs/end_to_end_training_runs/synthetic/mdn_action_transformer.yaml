@@ -55,6 +55,6 @@ policy:
     gating_activation: ${activation_function:SILU}
     gating_dropout: 0.0
     gating_normalization: true
-    temperature: 5.0
+    temperature: 100.0
     learnable_temperature: true
     deterministic_inference: false
