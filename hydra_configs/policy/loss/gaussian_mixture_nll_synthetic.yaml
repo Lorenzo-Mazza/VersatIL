@@ -7,7 +7,7 @@ _target_: versatil.metrics.composite.CompositeLoss
 loss_modules:
   moe_loss:
     _target_: versatil.metrics.components.MoELoss
-    entropy_weight: 0.1
+    entropy_weight: 0.01
     base_loss:
       _target_: versatil.metrics.composite.CompositeLoss
       loss_modules:
