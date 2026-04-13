@@ -444,6 +444,34 @@ class TestCreateLogger:
         mock_wandb.define_metric.assert_any_call("epoch")
         mock_wandb.define_metric.assert_any_call("*", step_metric="epoch")
 
+    @patch("versatil.workspace.wandb")
+    @patch("versatil.workspace.WandbLogger")
+    def test_finishes_prior_wandb_run_before_creating_logger(
+        self, mock_wandb_logger_cls, mock_wandb, workspace_factory
+    ):
+        workspace = workspace_factory(experiment_kwargs={"use_wandb": True})
+        mock_wandb.run = MagicMock()  # Simulate a lingering wandb run
+        mock_wandb_logger_cls.return_value = MagicMock(spec=WandbLogger)
+
+        with patch.dict(os.environ, {"WANDB_API_KEY": "fake_key"}):
+            workspace._create_logger()
+
+        mock_wandb.finish.assert_called_once()
+
+    @patch("versatil.workspace.wandb")
+    @patch("versatil.workspace.WandbLogger")
+    def test_skips_finish_when_no_prior_wandb_run(
+        self, mock_wandb_logger_cls, mock_wandb, workspace_factory
+    ):
+        workspace = workspace_factory(experiment_kwargs={"use_wandb": True})
+        mock_wandb.run = None  # No lingering run
+        mock_wandb_logger_cls.return_value = MagicMock(spec=WandbLogger)
+
+        with patch.dict(os.environ, {"WANDB_API_KEY": "fake_key"}):
+            workspace._create_logger()
+
+        mock_wandb.finish.assert_not_called()
+
 
 @pytest.mark.unit
 class TestCreateStrategy:

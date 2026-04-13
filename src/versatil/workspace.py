@@ -438,6 +438,10 @@ class Workspace:
             logging.warning("WANDB_API_KEY not set, disabling wandb logging")
             self.config.experiment.use_wandb = False
             return None
+        # Close any prior wandb run lingering from a previous multirun job in
+        # the same process; otherwise WandbLogger silently reuses it.
+        if wandb.run is not None:
+            wandb.finish()
         wandb_logger = WandbLogger(
             project=self.config.experiment.wandb_project,
             entity=self.config.experiment.wandb_entity,
