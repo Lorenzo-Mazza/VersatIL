@@ -26,6 +26,8 @@ experiment:
   checkpoint_folder: ${checkpoint_dir:synthetic}
 
 training:
+  clip_gradient_norm: true
+  clip_max_norm: 1.0
   optimizer:
     lr: 1.0e-3
     param_groups:
