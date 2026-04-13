@@ -58,4 +58,4 @@ policy:
     temperature: 1.0
     learnable_temperature: false
     inference_sampling_mode: ${mixture_sampling:STOCHASTIC_MEAN}
-    gmm_init_strategy: ${gmm_init:UNIFORM}
+    gmm_init_strategy: ${gmm_init:KMEANS_PLUS_PLUS}
