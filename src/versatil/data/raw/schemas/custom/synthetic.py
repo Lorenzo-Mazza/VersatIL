@@ -137,6 +137,10 @@ class SyntheticSchema(DatasetSchema):
         return [
             SyntheticRolloutCallback(
                 task_name=self.task_name,
+                num_modes=self.num_modes,
+                num_styles=self.num_styles,
+                trajectory_length=self.trajectory_length,
+                noise_std=self.noise_std,
                 num_rollouts=50,
                 image_size=self.image_size,
             )

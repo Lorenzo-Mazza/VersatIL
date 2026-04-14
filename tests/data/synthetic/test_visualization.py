@@ -17,6 +17,7 @@ import pytest
 from versatil.data.synthetic.constants import SyntheticTaskName
 from versatil.data.synthetic.task_layout import SyntheticTaskLayout
 from versatil.data.synthetic.visualization import (
+    PLOT_MODE_COLORS,
     _apply_plot_theme,
     _build_legend_handles,
     _draw_task_background,
@@ -376,6 +377,98 @@ def test_plot_trajectories_2d_saves_only_when_output_path_provided(
         mock_savefig.assert_called_once()
     else:
         mock_savefig.assert_not_called()
+
+
+@pytest.mark.unit
+def test_plot_trajectories_2d_forwards_layout_params(
+    mock_layout_factory: Callable[..., MagicMock],
+    rollout_trajectory_factory: Callable[..., np.ndarray],
+):
+    layout = mock_layout_factory()
+    mock_figure = MagicMock(spec=plt.Figure)
+    mock_axes = MagicMock(spec=plt.Axes)
+    task_name = SyntheticTaskName.CIRCLE.value
+    num_modes = 5
+    num_styles = 7
+    noise_std = 0.123
+
+    with (
+        patch("versatil.data.synthetic.visualization._apply_plot_theme"),
+        patch(
+            "versatil.data.synthetic.visualization.get_task_layout",
+            return_value=layout,
+        ) as mock_get_layout,
+        patch("versatil.data.synthetic.visualization._draw_task_background"),
+        patch(
+            "versatil.data.synthetic.visualization._build_legend_handles",
+            return_value=[],
+        ),
+        patch(
+            "versatil.data.synthetic.visualization.plt.subplots",
+            return_value=(mock_figure, mock_axes),
+        ),
+        patch("versatil.data.synthetic.visualization.plt.tight_layout"),
+    ):
+        plot_trajectories_2d(
+            trajectories=rollout_trajectory_factory(num_trajectories=1),
+            task_name=task_name,
+            num_modes=num_modes,
+            num_styles=num_styles,
+            noise_std=noise_std,
+        )
+
+    mock_get_layout.assert_called_once_with(
+        task_name=task_name,
+        num_modes=num_modes,
+        num_styles=num_styles,
+        noise_std=noise_std,
+    )
+
+
+@pytest.mark.unit
+def test_plot_trajectories_2d_omits_layout_kwargs_when_none(
+    mock_layout_factory: Callable[..., MagicMock],
+    rollout_trajectory_factory: Callable[..., np.ndarray],
+):
+    layout = mock_layout_factory()
+    mock_figure = MagicMock(spec=plt.Figure)
+    mock_axes = MagicMock(spec=plt.Axes)
+    task_name = SyntheticTaskName.CIRCLE.value
+
+    with (
+        patch("versatil.data.synthetic.visualization._apply_plot_theme"),
+        patch(
+            "versatil.data.synthetic.visualization.get_task_layout",
+            return_value=layout,
+        ) as mock_get_layout,
+        patch("versatil.data.synthetic.visualization._draw_task_background"),
+        patch(
+            "versatil.data.synthetic.visualization._build_legend_handles",
+            return_value=[],
+        ),
+        patch(
+            "versatil.data.synthetic.visualization.plt.subplots",
+            return_value=(mock_figure, mock_axes),
+        ),
+        patch("versatil.data.synthetic.visualization.plt.tight_layout"),
+    ):
+        plot_trajectories_2d(
+            trajectories=rollout_trajectory_factory(num_trajectories=1),
+            task_name=task_name,
+        )
+
+    mock_get_layout.assert_called_once_with(task_name=task_name)
+
+
+@pytest.mark.unit
+def test_plot_mode_colors_has_extended_palette():
+    assert len(PLOT_MODE_COLORS) >= 20
+    for color in PLOT_MODE_COLORS.values():
+        assert isinstance(color, str)
+        assert color.startswith("#")
+        assert len(color) == 7
+        int(color[1:], 16)
+    assert list(PLOT_MODE_COLORS.keys()) == list(range(len(PLOT_MODE_COLORS)))
 
 
 @pytest.mark.unit

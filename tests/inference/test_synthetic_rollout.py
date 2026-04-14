@@ -365,7 +365,12 @@ def test_evaluate_rollouts_truncates_and_calls_metrics_with_layout(
         "mode_entropy_ratio": 0.7,
         "per_mode_count": {0: 1, 1: 1, 2: 1},
     }
-    goal_success_rate = 0.9
+    success_stats = {
+        "success_rate": 0.7,
+        "collision_rate": 0.1,
+        "endpoint_reach_rate": 0.8,
+    }
+    mode_endpoints = np.zeros((num_modes, 2), dtype=np.float32)
 
     with (
         patch(
@@ -381,9 +386,13 @@ def test_evaluate_rollouts_truncates_and_calls_metrics_with_layout(
             return_value=coverage_metrics,
         ) as mock_mode_coverage,
         patch(
-            "versatil.inference.synthetic_rollout.compute_goal_success_rate",
-            return_value=goal_success_rate,
-        ) as mock_goal_success,
+            "versatil.inference.synthetic_rollout.compute_mode_endpoints",
+            return_value=mode_endpoints,
+        ),
+        patch(
+            "versatil.inference.synthetic_rollout.compute_success_rate",
+            return_value=success_stats,
+        ) as mock_success,
     ):
         results = evaluate_rollouts(
             rollout_trajectories=rollout_trajectories,
@@ -395,7 +404,6 @@ def test_evaluate_rollouts_truncates_and_calls_metrics_with_layout(
             num_modes=num_modes,
             num_styles=4,
             image_size=32,
-            goal_threshold=0.1,
         )
 
     mock_generate.assert_called_once_with(
@@ -408,7 +416,9 @@ def test_evaluate_rollouts_truncates_and_calls_metrics_with_layout(
         noise_std=0.02,
         num_styles=4,
     )
-    mock_get_layout.assert_called_once_with(task_name=task_name)
+    mock_get_layout.assert_called_once_with(
+        task_name=task_name, num_modes=num_modes, num_styles=4, noise_std=0.02
+    )
 
     mock_mode_coverage.assert_called_once()
     coverage_kwargs = mock_mode_coverage.call_args.kwargs
@@ -424,6 +434,9 @@ def test_evaluate_rollouts_truncates_and_calls_metrics_with_layout(
         2,
     )
     assert coverage_kwargs["expert_mode_ids"].shape == (num_expert_episodes,)
+    # valid_mask has one entry per rollout and excludes collided trajectories
+    assert coverage_kwargs["valid_mask"].shape == (num_rollouts,)
+    assert coverage_kwargs["valid_mask"].dtype == bool
     np.testing.assert_array_equal(
         coverage_kwargs["expert_mode_ids"],
         np.array(
@@ -435,16 +448,11 @@ def test_evaluate_rollouts_truncates_and_calls_metrics_with_layout(
     for metric_key, metric_value in coverage_metrics.items():
         assert results[metric_key] == metric_value
 
-    if has_goal:
-        mock_goal_success.assert_called_once_with(
-            generated_trajectories=rollout_trajectories,
-            goal=layout.goal,
-            threshold=0.1,
-        )
-        assert results["goal_success_rate"] == goal_success_rate
-    else:
-        mock_goal_success.assert_not_called()
-        assert "goal_success_rate" not in results
+    assert "goal_success_rate" not in results
+
+    mock_success.assert_called_once()
+    for stat_key, stat_value in success_stats.items():
+        assert results[stat_key] == stat_value
 
 
 @pytest.mark.unit

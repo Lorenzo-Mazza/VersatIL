@@ -15,12 +15,20 @@ from versatil.training.synthetic_rollout_callback import SyntheticRolloutCallbac
 def callback_factory() -> Callable[..., SyntheticRolloutCallback]:
     def factory(
         task_name: str = SyntheticTaskName.CIRCLE.value,
+        num_modes: int = 2,
+        num_styles: int = 1,
+        trajectory_length: int = 60,
+        noise_std: float = 0.008,
         num_rollouts: int = 10,
         image_size: int = 32,
         log_every_n_epochs: int = 1,
     ) -> SyntheticRolloutCallback:
         return SyntheticRolloutCallback(
             task_name=task_name,
+            num_modes=num_modes,
+            num_styles=num_styles,
+            trajectory_length=trajectory_length,
+            noise_std=noise_std,
             num_rollouts=num_rollouts,
             image_size=image_size,
             log_every_n_epochs=log_every_n_epochs,
@@ -75,18 +83,20 @@ def fake_results_factory() -> Callable[..., dict]:
         mode_coverage: float = 0.67,
         entropy_ratio: float = 0.85,
         per_mode_count: dict[int, int] | None = None,
-        goal_success_rate: float | None = None,
+        success_rate: float = 0.75,
+        collision_rate: float = 0.1,
+        endpoint_reach_rate: float = 0.85,
     ) -> dict:
-        results: dict = {
+        return {
             "mode_coverage": mode_coverage,
             "mode_entropy_ratio": entropy_ratio,
             "per_mode_count": per_mode_count
             if per_mode_count is not None
             else {0: 4, 1: 3, 2: 3},
+            "success_rate": success_rate,
+            "collision_rate": collision_rate,
+            "endpoint_reach_rate": endpoint_reach_rate,
         }
-        if goal_success_rate is not None:
-            results["goal_success_rate"] = goal_success_rate
-        return results
 
     return factory
 
@@ -308,6 +318,10 @@ def test_calls_evaluate_rollouts_with_correct_args(
         rollout_trajectories=fake_trajectories,
         task_name=task_name,
         image_size=image_size,
+        num_modes=callback.num_modes,
+        num_styles=callback.num_styles,
+        trajectory_length=callback.trajectory_length,
+        noise_std=callback.noise_std,
     )
 
 
@@ -336,6 +350,9 @@ def test_logs_coverage_metrics_to_wandb(
         "mode_coverage": mode_coverage,
         "mode_entropy_ratio": entropy_ratio,
         "per_mode_count": per_mode_count,
+        "success_rate": 0.5,
+        "collision_rate": 0.1,
+        "endpoint_reach_rate": 0.6,
     }
     patches = _patch_callback_dependencies(
         fake_trajectories=fake_trajectories_factory(),
@@ -350,41 +367,6 @@ def test_logs_coverage_metrics_to_wandb(
     for mode_index, count in per_mode_count.items():
         assert logged[f"synthetic/mode_{mode_index}_count"] == count
     assert trainer.logger.log_metrics.call_args.kwargs["step"] == 5
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "goal_success_rate, expect_logged",
-    [
-        (0.8, True),
-        (None, False),
-    ],
-)
-def test_goal_success_rate_logged_only_when_present(
-    callback_factory: Callable[..., SyntheticRolloutCallback],
-    mock_trainer_factory: Callable[..., MagicMock],
-    mock_pl_module_factory: Callable[..., MagicMock],
-    fake_trajectories_factory: Callable[..., np.ndarray],
-    fake_results_factory: Callable[..., dict],
-    goal_success_rate: float | None,
-    expect_logged: bool,
-):
-    callback = callback_factory()
-    trainer = mock_trainer_factory()
-    pl_module = mock_pl_module_factory()
-
-    patches = _patch_callback_dependencies(
-        fake_trajectories=fake_trajectories_factory(),
-        fake_results=fake_results_factory(goal_success_rate=goal_success_rate),
-    )
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
-        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
-
-    logged = trainer.logger.log_metrics.call_args.args[0]
-    if expect_logged:
-        assert logged["synthetic/goal_success_rate"] == goal_success_rate
-    else:
-        assert "synthetic/goal_success_rate" not in logged
 
 
 @pytest.mark.unit

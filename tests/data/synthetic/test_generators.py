@@ -13,9 +13,9 @@ from versatil.data.synthetic.constants import (
     CIRCLE_CONTEXT_COLORS,
     CIRCLE_DEFAULT_NUM_MODES,
     CIRCLE_RADIUS,
-    CORRIDOR_GAP_HEIGHT,
     CORRIDOR_WALL_X1,
     CORRIDOR_WALL_X2,
+    MAX_TRAJECTORY_RETRIES,
     RADIAL_CENTER,
     RADIAL_RADIUS,
     SEQUENTIAL_ENDPOINT_Y,
@@ -32,31 +32,19 @@ from versatil.data.synthetic.generators import (
     _balanced_mode_counts,
     _compute_actions,
     _compute_corridor_gap_centers,
+    _compute_corridor_gap_height,
     _generate_corridor_obstacles,
     _generate_radial_obstacles,
     _interpolate_waypoints,
     _parametric_circle,
     _resolve_mode_counts,
+    _sample_noisy_trajectory_no_collision,
+    _trajectory_collides,
     _weighted_mode_counts,
     generate_task_episodes,
 )
 
 EPISODE_KEYS = {"image", "position", "action", "mode_id", "context"}
-
-
-@pytest.fixture
-def trajectory_factory(
-    rng: np.random.Generator,
-) -> Callable[..., np.ndarray]:
-    def factory(
-        num_points: int = 10,
-        fill_value: float | None = None,
-    ) -> np.ndarray:
-        if fill_value is not None:
-            return np.full((num_points, 2), fill_value, dtype=np.float32)
-        return rng.uniform(0.0, 1.0, size=(num_points, 2)).astype(np.float32)
-
-    return factory
 
 
 @pytest.fixture
@@ -709,7 +697,7 @@ def test_generate_corridor_trajectory_passes_through_gap(
         )
 
     gap_centers = _compute_corridor_gap_centers(num_gaps=num_modes)
-    half_gap = CORRIDOR_GAP_HEIGHT / 2.0
+    half_gap = _compute_corridor_gap_height(num_gaps=num_modes) / 2.0
     for episode in episodes:
         positions = episode["position"]
         in_wall_region = (positions[:, 0] >= CORRIDOR_WALL_X1) & (
@@ -747,16 +735,14 @@ def test_generate_corridor_styles_produce_different_trajectories(
             noise_std=0.0,
         )
 
-    # Group episodes by corridor (gap_index = mode_id // num_styles)
     corridor_0_episodes = [
         ep for ep in episodes if int(ep["mode_id"][0, 0]) < num_styles
     ]
     assert len(corridor_0_episodes) == num_styles
-    # Different styles in the same corridor must produce different y-profiles
-    for i in range(1, len(corridor_0_episodes)):
+    for index in range(1, len(corridor_0_episodes)):
         assert not np.array_equal(
             corridor_0_episodes[0]["position"],
-            corridor_0_episodes[i]["position"],
+            corridor_0_episodes[index]["position"],
         )
 
 
@@ -779,25 +765,140 @@ def test_compute_corridor_gap_centers_evenly_spaced(num_gaps: int):
     gap_centers = _compute_corridor_gap_centers(num_gaps=num_gaps)
 
     assert len(gap_centers) == num_gaps
-    # No gap at y=0.5 for even K
-    for gc in gap_centers:
-        assert gc != 0.5
-    # Evenly spaced
+    for center in gap_centers:
+        assert center != 0.5
     spacings = [
-        gap_centers[i + 1] - gap_centers[i] for i in range(len(gap_centers) - 1)
+        gap_centers[index + 1] - gap_centers[index]
+        for index in range(len(gap_centers) - 1)
     ]
     np.testing.assert_allclose(spacings, spacings[0], atol=1e-10)
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("num_modes", [4, 8])
-def test_generate_radial_obstacles_count_matches_modes(num_modes: int):
-    obstacles = _generate_radial_obstacles(num_modes=num_modes)
+@pytest.mark.parametrize("num_gaps", [2, 3, 5, 10])
+def test_compute_corridor_gap_height_symmetric_half_split(num_gaps: int):
+    height = _compute_corridor_gap_height(num_gaps=num_gaps)
+
+    assert height == pytest.approx(1.0 / (num_gaps + 1) / 2.0)
+
+
+@pytest.mark.unit
+def test_trajectory_collides_returns_true_when_inside_obstacle():
+    obstacles = [(0.2, 0.2, 0.4, 0.4)]
+    trajectory = np.array(
+        [[0.1, 0.1], [0.3, 0.3], [0.9, 0.9]],
+        dtype=np.float32,
+    )
+
+    assert _trajectory_collides(trajectory=trajectory, obstacles=obstacles) is True
+
+
+@pytest.mark.unit
+def test_trajectory_collides_returns_false_when_outside():
+    obstacles = [(0.2, 0.2, 0.4, 0.4), (0.6, 0.6, 0.8, 0.8)]
+    trajectory = np.array(
+        [[0.0, 0.0], [0.1, 0.5], [0.5, 0.1], [1.0, 1.0]],
+        dtype=np.float32,
+    )
+
+    assert _trajectory_collides(trajectory=trajectory, obstacles=obstacles) is False
+
+
+@pytest.mark.unit
+def test_trajectory_collides_returns_false_with_no_obstacles():
+    trajectory = np.array(
+        [[0.1, 0.1], [0.5, 0.5], [0.9, 0.9]],
+        dtype=np.float32,
+    )
+
+    assert _trajectory_collides(trajectory=trajectory, obstacles=[]) is False
+
+
+@pytest.mark.unit
+def test_sample_noisy_trajectory_no_collision_returns_clean_trajectory(
+    rng: np.random.Generator,
+):
+    base_trajectory = np.array(
+        [[0.05, 0.05], [0.05, 0.5], [0.05, 0.95]],
+        dtype=np.float32,
+    )
+    obstacles = [(0.5, 0.5, 0.9, 0.9)]
+
+    result = _sample_noisy_trajectory_no_collision(
+        base_trajectory=base_trajectory,
+        obstacles=obstacles,
+        noise_std=0.01,
+        random_generator=rng,
+    )
+
+    assert result.shape == base_trajectory.shape
+    assert _trajectory_collides(trajectory=result, obstacles=obstacles) is False
+
+
+@pytest.mark.unit
+def test_sample_noisy_trajectory_no_collision_raises_when_geometry_too_tight(
+    rng: np.random.Generator,
+):
+    base_trajectory = np.array(
+        [[0.5, 0.5], [0.5, 0.5], [0.5, 0.5]],
+        dtype=np.float32,
+    )
+    obstacles = [(0.0, 0.0, 1.0, 1.0)]
+
+    with pytest.raises(
+        RuntimeError,
+        match=re.escape(
+            f"Failed to generate a collision-free trajectory after "
+            f"{MAX_TRAJECTORY_RETRIES} attempts (obstacle geometry too tight)."
+        ),
+    ):
+        _sample_noisy_trajectory_no_collision(
+            base_trajectory=base_trajectory,
+            obstacles=obstacles,
+            noise_std=0.01,
+            random_generator=rng,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("num_modes", [4, 8, 16])
+def test_generate_radial_obstacles_count_matches_num_modes(num_modes: int):
+    obstacles = _generate_radial_obstacles(num_modes=num_modes, noise_std=0.005)
 
     assert len(obstacles) == num_modes
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("num_modes", [4, 8])
+def test_generate_radial_obstacles_returns_well_formed_rectangles(num_modes: int):
+    obstacles = _generate_radial_obstacles(num_modes=num_modes, noise_std=0.005)
+
     for x_min, y_min, x_max, y_max in obstacles:
         assert x_min < x_max
         assert y_min < y_max
+
+
+@pytest.mark.unit
+def test_generate_radial_obstacles_returns_empty_when_noise_too_large():
+    obstacles = _generate_radial_obstacles(num_modes=4, noise_std=10.0)
+
+    assert obstacles == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("num_modes", [4, 8, 16])
+def test_generate_radial_obstacles_inscribed_square_bound(num_modes: int):
+    noise_std = 0.005
+    midpoint_radius = RADIAL_RADIUS * 0.5
+    expected_half_width = (
+        midpoint_radius * np.sin(np.pi / num_modes) - 3.0 * noise_std
+    ) / np.sqrt(2.0)
+
+    obstacles = _generate_radial_obstacles(num_modes=num_modes, noise_std=noise_std)
+
+    for x_min, _, x_max, _ in obstacles:
+        actual_half_width = (x_max - x_min) / 2.0
+        np.testing.assert_allclose(actual_half_width, expected_half_width, atol=1e-6)
 
 
 @pytest.mark.unit
@@ -815,11 +916,34 @@ def test_apply_sinusoidal_style_modifies_y_axis():
         np.float32
     )
 
-    modified = _apply_sinusoidal_style(positions=positions, style_index=0, num_styles=2)
+    modified = _apply_sinusoidal_style(
+        positions=positions,
+        style_index=0,
+        num_styles=2,
+        gap_height=0.2,
+    )
 
     assert modified.shape == positions.shape
     np.testing.assert_array_equal(modified[:, 0], positions[:, 0])
     assert not np.array_equal(modified[:, 1], positions[:, 1])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("gap_height", [0.05, 0.1, 0.25])
+def test_apply_sinusoidal_style_amplitude_capped_by_gap_height(gap_height: float):
+    positions = np.stack([np.linspace(0.0, 1.0, 60), np.full(60, 0.5)], axis=-1).astype(
+        np.float32
+    )
+
+    modified = _apply_sinusoidal_style(
+        positions=positions,
+        style_index=0,
+        num_styles=4,
+        gap_height=gap_height,
+    )
+
+    max_displacement = float(np.max(np.abs(modified[:, 1] - positions[:, 1])))
+    assert max_displacement <= gap_height / 2.0
 
 
 @pytest.mark.unit

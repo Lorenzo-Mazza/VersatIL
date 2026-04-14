@@ -43,11 +43,18 @@ def episode_factory(
 def trajectory_factory(
     rng: np.random.Generator,
 ) -> Callable[..., np.ndarray]:
-    """Factory returning random (num_points, 2) float32 trajectories in [0, 1]."""
+    """Factory returning (num_points, 2) float32 trajectories in [0, 1].
+
+    When fill_value is provided, returns a constant trajectory at that
+    coordinate. Otherwise samples uniformly in [0, 1] via rng.
+    """
 
     def factory(
         num_points: int = 10,
+        fill_value: float | None = None,
     ) -> np.ndarray:
+        if fill_value is not None:
+            return np.full((num_points, 2), fill_value, dtype=np.float32)
         return rng.uniform(0.0, 1.0, size=(num_points, 2)).astype(np.float32)
 
     return factory

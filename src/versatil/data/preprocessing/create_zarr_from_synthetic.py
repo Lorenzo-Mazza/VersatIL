@@ -69,6 +69,9 @@ def create_replay_buffer_from_synthetic(schema: SyntheticSchema) -> None:
         episodes=episodes,
         task_name=schema.task_name,
         zarr_path=schema.zarr_path,
+        num_modes=schema.num_modes,
+        num_styles=schema.num_styles,
+        noise_std=schema.noise_std,
     )
     print(
         f"Created Zarr dataset with {len(episode_ends)} episodes, "
@@ -80,6 +83,9 @@ def _save_training_visualization(
     episodes: list[dict[str, np.ndarray]],
     task_name: str,
     zarr_path: str,
+    num_modes: int,
+    num_styles: int,
+    noise_std: float,
 ) -> None:
     """Save a 2D trajectory PNG alongside the zarr store.
 
@@ -91,6 +97,9 @@ def _save_training_visualization(
         episodes: List of episode dicts from ``generate_task_episodes``.
         task_name: SyntheticTaskName.value string for layout lookup.
         zarr_path: Path to the zarr store (used to derive the PNG path).
+        num_modes: Number of modes used to generate the episodes.
+        num_styles: Number of styles per mode (corridor only).
+        noise_std: Trajectory noise std used during generation.
     """
     trajectories = np.array([episode["position"] for episode in episodes])
     mode_ids = np.array([int(episode["mode_id"][0, 0]) for episode in episodes])
@@ -101,6 +110,9 @@ def _save_training_visualization(
         task_name=task_name,
         output_path=str(output_path),
         mode_ids=mode_ids,
+        num_modes=num_modes,
+        num_styles=num_styles,
+        noise_std=noise_std,
     )
     plt.close(figure)
     print(f"Saved trajectory visualization to {output_path}")

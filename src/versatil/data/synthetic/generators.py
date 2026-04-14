@@ -14,7 +14,6 @@ from versatil.data.synthetic.constants import (
     CIRCLE_OBSTACLES,
     CIRCLE_RADIUS,
     CORRIDOR_DEFAULT_NUM_STYLES,
-    CORRIDOR_GAP_HEIGHT,
     CORRIDOR_GOAL,
     CORRIDOR_START,
     CORRIDOR_WALL_X1,
@@ -22,6 +21,7 @@ from versatil.data.synthetic.constants import (
     DEFAULT_IMAGE_SIZE,
     DEFAULT_NUM_EPISODES,
     DEFAULT_SEED,
+    MAX_TRAJECTORY_RETRIES,
     MULTIPATH_DEFAULT_NOISE_STD,
     MULTIPATH_DEFAULT_NUM_MODES,
     MULTIPATH_DEFAULT_TRAJECTORY_LENGTH,
@@ -362,7 +362,7 @@ def _generate_radial(
         num_modes=num_modes,
         mode_weights=mode_weights,
     )
-    obstacles = _generate_radial_obstacles(num_modes=num_modes)
+    obstacles = _generate_radial_obstacles(num_modes=num_modes, noise_std=noise_std)
 
     for mode_index in range(num_modes):
         angle = 2.0 * np.pi * mode_index / num_modes
@@ -374,11 +374,12 @@ def _generate_radial(
             (endpoint_x, endpoint_y),
         ]
         for _ in range(episodes_per_mode[mode_index]):
-            positions = _interpolate_waypoints(
+            base_positions = _interpolate_waypoints(
                 waypoints=waypoints, num_points=trajectory_length
             )
-            positions = _add_noise_and_clamp(
-                trajectory=positions,
+            positions = _sample_noisy_trajectory_no_collision(
+                base_trajectory=base_positions,
+                obstacles=obstacles,
                 noise_std=noise_std,
                 random_generator=random_generator,
             )
@@ -437,29 +438,32 @@ def _generate_corridor_navigation(
     )
     gap_centers = _compute_corridor_gap_centers(num_gaps=num_modes)
     obstacles = _generate_corridor_obstacles(gap_centers=gap_centers)
-    wall_center_x = (CORRIDOR_WALL_X1 + CORRIDOR_WALL_X2) / 2.0
 
     for gap_index in range(num_modes):
         gap_y = gap_centers[gap_index]
         for style_index in range(num_styles):
             flat_mode_index = gap_index * num_styles + style_index
+            # Enter/exit wall x-range at gap_y so the full passage is horizontal
             waypoints = [
                 (float(CORRIDOR_START[0]), float(CORRIDOR_START[1])),
-                (wall_center_x, gap_y),
+                (float(CORRIDOR_WALL_X1), gap_y),
+                (float(CORRIDOR_WALL_X2), gap_y),
                 (float(CORRIDOR_GOAL[0]), float(CORRIDOR_GOAL[1])),
             ]
             for _ in range(episodes_per_mode[flat_mode_index]):
-                positions = _interpolate_waypoints(
+                base_positions = _interpolate_waypoints(
                     waypoints=waypoints, num_points=trajectory_length
                 )
                 if num_styles > 1:
-                    positions = _apply_sinusoidal_style(
-                        positions=positions,
+                    base_positions = _apply_sinusoidal_style(
+                        positions=base_positions,
                         style_index=style_index,
                         num_styles=num_styles,
+                        gap_height=_compute_corridor_gap_height(num_gaps=num_modes),
                     )
-                positions = _add_noise_and_clamp(
-                    trajectory=positions,
+                positions = _sample_noisy_trajectory_no_collision(
+                    base_trajectory=base_positions,
+                    obstacles=obstacles,
                     noise_std=noise_std,
                     random_generator=random_generator,
                 )
@@ -523,27 +527,38 @@ def _parametric_circle(
 
 def _generate_radial_obstacles(
     num_modes: int,
+    noise_std: float,
 ) -> list[tuple[float, float, float, float]]:
     """Generate obstacle rectangles between each adjacent pair of radii.
 
-    Places a small rectangle at the midpoint angle between consecutive
-    radii, at half the radial distance from center.
+    Places an axis-aligned square in each sector at the midpoint angle
+    between consecutive radii, at half the radial distance from center.
+    Size is derived purely from sector geometry minus a 3-sigma noise
+    margin so a noisy radial trajectory cannot enter it:
+
+        perpendicular clearance = r_mid * sin(pi/K)
+        available         = clearance - 3 * noise_std
+        half_size         = available / sqrt(2)   (inscribed square)
+
+    When available <= 0 the sector is too narrow to host any collision-free
+    obstacle at this noise level, and an empty list is returned.
 
     Args:
         num_modes: Number of radial modes (K).
+        noise_std: Standard deviation of trajectory noise (used as margin).
 
     Returns:
         List of (x_min, y_min, x_max, y_max) obstacle rectangles.
     """
     obstacles: list[tuple[float, float, float, float]] = []
-    # Scale obstacle size with angular separation to avoid clipping trajectories at large K
     angular_gap = 2.0 * np.pi / num_modes
-    max_half_size = 0.04
-    obstacle_half_width = min(
-        max_half_size, 0.25 * RADIAL_RADIUS * np.sin(angular_gap / 2)
-    )
-    obstacle_half_height = obstacle_half_width
     midpoint_radius = RADIAL_RADIUS * 0.5
+    clearance = midpoint_radius * np.sin(angular_gap / 2.0)
+    available = clearance - 3.0 * noise_std
+    if available <= 0.0:
+        return obstacles
+    obstacle_half_width = available / np.sqrt(2.0)
+    obstacle_half_height = obstacle_half_width
 
     for mode_index in range(num_modes):
         angle_a = 2.0 * np.pi * mode_index / num_modes
@@ -579,6 +594,17 @@ def _compute_corridor_gap_centers(
     return [(index + 1) / (num_gaps + 1) for index in range(num_gaps)]
 
 
+def _compute_corridor_gap_height(num_gaps: int) -> float:
+    """Symmetric half-split of per-gap spacing between gap opening and wall.
+
+    With K gaps evenly spaced across y=0..1, the spacing between gap
+    centers is 1/(K+1). Splitting it evenly yields a gap opening of
+    half the spacing and a wall of the other half.
+    """
+    gap_spacing = 1.0 / (num_gaps + 1)
+    return gap_spacing / 2.0
+
+
 def _generate_corridor_obstacles(
     gap_centers: list[float],
 ) -> list[tuple[float, float, float, float]]:
@@ -594,7 +620,7 @@ def _generate_corridor_obstacles(
         List of (x_min, y_min, x_max, y_max) wall segment rectangles.
     """
     obstacles: list[tuple[float, float, float, float]] = []
-    half_gap = CORRIDOR_GAP_HEIGHT / 2.0
+    half_gap = _compute_corridor_gap_height(num_gaps=len(gap_centers)) / 2.0
 
     for index in range(len(gap_centers) - 1):
         wall_y_min = gap_centers[index] + half_gap
@@ -610,6 +636,7 @@ def _apply_sinusoidal_style(
     positions: np.ndarray,
     style_index: int,
     num_styles: int,
+    gap_height: float,
 ) -> np.ndarray:
     """Add sinusoidal y-displacement to produce trajectory style variations.
 
@@ -620,6 +647,9 @@ def _apply_sinusoidal_style(
         positions: Base trajectory positions, shape (num_steps, 2).
         style_index: Index of the sinusoidal style (0-based).
         num_styles: Total number of styles for amplitude scaling.
+        gap_height: Height of the corridor gap in y-coordinates. Used as
+            the hard upper bound on amplitude so the trajectory cannot be
+            pushed through the wall.
 
     Returns:
         Modified positions with sinusoidal y-displacement, shape (num_steps, 2).
@@ -628,9 +658,9 @@ def _apply_sinusoidal_style(
     normalized_time = np.linspace(0.0, 1.0, num_steps, dtype=np.float32)
     envelope = 4.0 * normalized_time * (1.0 - normalized_time)
     frequency = 2.0 * (style_index + 1)
-    # Amplitude must not exceed gap half-height to avoid pushing through walls
-    max_amplitude = CORRIDOR_GAP_HEIGHT / 2.0 * 0.8
-    amplitude = min(0.06 / num_styles, max_amplitude)
+    # Each style shares the gap: amplitude scales inversely with num_styles
+    # and is capped by the half-gap so no style can cross the wall.
+    amplitude = min(gap_height / (4.0 * num_styles), gap_height / 2.0)
     y_offset = amplitude * np.sin(frequency * np.pi * normalized_time) * envelope
     modified = positions.copy()
     modified[:, 1] += y_offset.astype(np.float32)
@@ -688,6 +718,55 @@ def _add_noise_and_clamp(
     )
     noisy_trajectory = trajectory + noise
     return np.clip(noisy_trajectory, 0.0, 1.0)
+
+
+def _trajectory_collides(
+    trajectory: np.ndarray,
+    obstacles: list[tuple[float, float, float, float]],
+) -> bool:
+    """Return True if any point of the trajectory lies inside any obstacle."""
+    for x_min, y_min, x_max, y_max in obstacles:
+        inside_x = (trajectory[:, 0] >= x_min) & (trajectory[:, 0] <= x_max)
+        inside_y = (trajectory[:, 1] >= y_min) & (trajectory[:, 1] <= y_max)
+        if (inside_x & inside_y).any():
+            return True
+    return False
+
+
+def _sample_noisy_trajectory_no_collision(
+    base_trajectory: np.ndarray,
+    obstacles: list[tuple[float, float, float, float]],
+    noise_std: float,
+    random_generator: np.random.Generator,
+) -> np.ndarray:
+    """Sample noise until the resulting trajectory does not collide.
+
+    Args:
+        base_trajectory: Deterministic Cartesian path, shape (num_steps, 2).
+        obstacles: Axis-aligned (x_min, y_min, x_max, y_max) rectangles.
+        noise_std: Gaussian noise standard deviation.
+        random_generator: NumPy random generator for reproducibility.
+
+    Returns:
+        Noisy trajectory that does not collide with any obstacle.
+
+    Raises:
+        RuntimeError: If no collision-free trajectory is produced within
+            MAX_TRAJECTORY_RETRIES attempts (indicates obstacle geometry
+            is too tight for the given noise level).
+    """
+    for _ in range(MAX_TRAJECTORY_RETRIES):
+        candidate = _add_noise_and_clamp(
+            trajectory=base_trajectory,
+            noise_std=noise_std,
+            random_generator=random_generator,
+        )
+        if not _trajectory_collides(trajectory=candidate, obstacles=obstacles):
+            return candidate
+    raise RuntimeError(
+        f"Failed to generate a collision-free trajectory after "
+        f"{MAX_TRAJECTORY_RETRIES} attempts (obstacle geometry too tight)."
+    )
 
 
 def _compute_actions(

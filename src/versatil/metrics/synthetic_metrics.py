@@ -8,12 +8,14 @@ def compute_mode_coverage(
     expert_trajectories: np.ndarray,
     expert_mode_ids: np.ndarray,
     num_modes: int,
+    valid_mask: np.ndarray | None = None,
 ) -> dict[str, float | dict[int, int]]:
     """Measure how many expert modes the generated trajectories cover.
 
-    Each generated trajectory is assigned to the nearest expert mode by
-    mean L2 distance over the full trajectory. Mode coverage is the
-    fraction of modes that receive at least one assignment.
+    Each valid generated trajectory is assigned to the nearest expert
+    mode by mean L2 distance over the full trajectory. Invalid
+    trajectories (e.g. collided with an obstacle) are excluded entirely
+    from mode assignment, coverage, and entropy statistics.
 
     Args:
         generated_trajectories: Predicted Cartesian trajectories (x, y).
@@ -23,6 +25,8 @@ def compute_mode_coverage(
         expert_mode_ids: Ground-truth mode label per expert trajectory.
             Shape (num_expert,).
         num_modes: Total number of distinct behavioral modes.
+        valid_mask: Optional boolean mask of shape (num_rollouts,).
+            False entries are skipped. Defaults to all-True.
 
     Returns:
         Dictionary with:
@@ -36,22 +40,28 @@ def compute_mode_coverage(
         expert_mode_ids=expert_mode_ids,
         num_modes=num_modes,
     )
-    per_mode_count = {mode_index: 0 for mode_index in range(num_modes)}
-    for trajectory in generated_trajectories:
-        distances = np.array([
-            np.mean(np.linalg.norm(trajectory - centroid, axis=-1))
-            for centroid in mode_centroids
-        ])
+    per_mode_count = dict.fromkeys(range(num_modes), 0)
+    for rollout_index, trajectory in enumerate(generated_trajectories):
+        if valid_mask is not None and not valid_mask[rollout_index]:
+            continue
+        distances = np.array(
+            [
+                np.mean(np.linalg.norm(trajectory - centroid, axis=-1))
+                for centroid in mode_centroids
+            ]
+        )
         assigned_mode = int(np.argmin(distances))
         per_mode_count[assigned_mode] += 1
     covered_modes = sum(1 for count in per_mode_count.values() if count > 0)
     mode_coverage = covered_modes / num_modes
     total_assignments = sum(per_mode_count.values())
     if total_assignments > 0:
-        probabilities = np.array([
-            per_mode_count[mode_index] / total_assignments
-            for mode_index in range(num_modes)
-        ])
+        probabilities = np.array(
+            [
+                per_mode_count[mode_index] / total_assignments
+                for mode_index in range(num_modes)
+            ]
+        )
         nonzero_probabilities = probabilities[probabilities > 0]
         entropy = -np.sum(nonzero_probabilities * np.log(nonzero_probabilities))
         max_entropy = np.log(num_modes)
@@ -85,6 +95,109 @@ def compute_goal_success_rate(
     final_positions = generated_trajectories[:, -1, :]
     distances = np.linalg.norm(final_positions - goal, axis=-1)
     return float(np.mean(distances < threshold))
+
+
+def compute_success_rate(
+    generated_trajectories: np.ndarray,
+    obstacles: list[tuple[float, float, float, float]],
+    mode_endpoints: np.ndarray,
+    goal_threshold: float = 0.1,
+) -> dict[str, float]:
+    """Fraction of trajectories that avoid obstacles and reach an expert endpoint.
+
+    A trajectory is counted successful only when both conditions hold:
+        1. No trajectory point lies inside any obstacle rectangle.
+        2. Its final position is within ``goal_threshold`` of at least one
+           expert endpoint (per-mode mean of the final step).
+
+    Args:
+        generated_trajectories: Predicted Cartesian trajectories (x, y).
+            Shape (num_rollouts, num_timesteps, 2).
+        obstacles: List of (x_min, y_min, x_max, y_max) rectangles. Empty
+            list disables the collision check.
+        mode_endpoints: Expert endpoint per mode, shape (num_modes, 2).
+        goal_threshold: Euclidean distance threshold for reaching an endpoint.
+
+    Returns:
+        Dictionary with:
+            "success_rate": overall fraction satisfying both conditions.
+            "collision_rate": fraction that collided with an obstacle.
+            "endpoint_reach_rate": fraction that reached any endpoint.
+    """
+    num_trajectories = generated_trajectories.shape[0]
+    collision_mask = collides_with_obstacles(
+        trajectories=generated_trajectories, obstacles=obstacles
+    )
+    final_positions = generated_trajectories[:, -1, :]  # (num_rollouts, 2)
+    distances = np.linalg.norm(
+        final_positions[:, None, :] - mode_endpoints[None, :, :], axis=-1
+    )  # (num_rollouts, num_modes)
+    reach_mask = (distances < goal_threshold).any(axis=-1)  # (num_rollouts,)
+    success_mask = reach_mask & ~collision_mask
+    collision_rate = float(np.mean(collision_mask)) if num_trajectories else 0.0
+    reach_rate = float(np.mean(reach_mask)) if num_trajectories else 0.0
+    success_rate = float(np.mean(success_mask)) if num_trajectories else 0.0
+    return {
+        "success_rate": success_rate,
+        "collision_rate": collision_rate,
+        "endpoint_reach_rate": reach_rate,
+    }
+
+
+def collides_with_obstacles(
+    trajectories: np.ndarray,
+    obstacles: list[tuple[float, float, float, float]],
+) -> np.ndarray:
+    """Per-trajectory boolean mask for any-point-inside-any-obstacle.
+
+    Args:
+        trajectories: Cartesian (x, y) points, shape (num_rollouts, num_timesteps, 2).
+        obstacles: List of (x_min, y_min, x_max, y_max) axis-aligned rectangles.
+
+    Returns:
+        Boolean array of shape (num_rollouts,); True where the trajectory
+        enters at least one obstacle. All False when ``obstacles`` is empty.
+    """
+    num_trajectories = trajectories.shape[0]
+    if not obstacles:
+        return np.zeros(num_trajectories, dtype=bool)
+    collided = np.zeros(num_trajectories, dtype=bool)
+    for x_min, y_min, x_max, y_max in obstacles:
+        inside_x = (trajectories[:, :, 0] >= x_min) & (trajectories[:, :, 0] <= x_max)
+        inside_y = (trajectories[:, :, 1] >= y_min) & (trajectories[:, :, 1] <= y_max)
+        inside = (inside_x & inside_y).any(axis=-1)  # (num_rollouts,)
+        collided |= inside
+    return collided
+
+
+def compute_mode_endpoints(
+    expert_trajectories: np.ndarray,
+    expert_mode_ids: np.ndarray,
+    num_modes: int,
+) -> np.ndarray:
+    """Compute mean final position per expert mode.
+
+    Args:
+        expert_trajectories: Expert trajectories, shape (num_expert, num_timesteps, 2).
+        expert_mode_ids: Mode label per expert, shape (num_expert,).
+        num_modes: Total number of modes.
+
+    Returns:
+        Array of shape (num_modes, 2) with the per-mode mean final position.
+
+    Raises:
+        ValueError: If any mode in [0, num_modes) has no expert trajectories.
+    """
+    endpoints = np.zeros((num_modes, 2), dtype=expert_trajectories.dtype)
+    for mode_index in range(num_modes):
+        mask = expert_mode_ids == mode_index
+        if not np.any(mask):
+            raise ValueError(
+                f"No expert trajectories for mode {mode_index}; "
+                f"expected all {num_modes} modes represented in expert data."
+            )
+        endpoints[mode_index] = expert_trajectories[mask, -1, :].mean(axis=0)
+    return endpoints
 
 
 def _compute_mode_centroids(

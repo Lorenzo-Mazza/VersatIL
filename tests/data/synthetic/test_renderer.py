@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 
+import cv2
 import numpy as np
 import pytest
 
@@ -435,3 +436,38 @@ def test_cartesian_to_pixel_clamps_out_of_range(
     column, row = _cartesian_to_pixel(position=position, image_size=TEST_IMAGE_SIZE)
     assert column == expected_column
     assert row == expected_row
+
+
+def _count_obstacle_blobs(frame: np.ndarray) -> int:
+    mask = np.all(frame == np.array(OBSTACLE_COLOR, dtype=np.uint8), axis=-1)
+    num_components, _ = cv2.connectedComponents(mask.astype(np.uint8))
+    return num_components - 1
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("num_obstacles", [1, 2, 3, 5, 7, 9])
+def test_render_frame_draws_all_obstacles_without_hardcoding(
+    position_factory: Callable[..., np.ndarray],
+    num_obstacles: int,
+):
+    image_size = 256
+    x_min = 0.1
+    x_max = 0.9
+    obstacle_half_width = 0.02
+    gap_spacing = (x_max - x_min) / (num_obstacles + 1)
+    obstacles = [
+        (
+            x_min + (index + 1) * gap_spacing - obstacle_half_width,
+            0.4,
+            x_min + (index + 1) * gap_spacing + obstacle_half_width,
+            0.6,
+        )
+        for index in range(num_obstacles)
+    ]
+    frame = render_frame(
+        position=position_factory(x=0.0, y=0.0),
+        obstacles=obstacles,
+        goal=None,
+        image_size=image_size,
+    )
+    assert _count_obstacle_blobs(frame=frame) == num_obstacles

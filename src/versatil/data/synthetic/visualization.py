@@ -32,10 +32,26 @@ from versatil.data.synthetic.task_layout import (
 FONT_PATH = Path(__file__).parent / "assets" / "RobotoSerif.ttf"
 
 PLOT_MODE_COLORS: dict[int, str] = {
-    0: "#5B9BD5",
-    1: "#E06B6B",
-    2: "#7FAE6A",
-    3: "#D4A55C",
+    0: "#5B9BD5",  # blue
+    1: "#E06B6B",  # red
+    2: "#7FAE6A",  # green
+    3: "#D4A55C",  # amber
+    4: "#9B6BB5",  # purple
+    5: "#5BC0BE",  # teal
+    6: "#E69BC2",  # pink
+    7: "#B0A05B",  # olive
+    8: "#5B5BB5",  # indigo
+    9: "#E69B5B",  # coral
+    10: "#5BB5B5",  # cyan
+    11: "#B55B9B",  # magenta
+    12: "#9BB55B",  # lime
+    13: "#8B5B3F",  # brown
+    14: "#3F8B5B",  # forest
+    15: "#5B7FB5",  # steel blue
+    16: "#D45BD4",  # orchid
+    17: "#5BD45B",  # bright green
+    18: "#B53F5B",  # crimson
+    19: "#3FB5D4",  # sky
 }
 PLOT_AGENT_MARKER_COLOR = "#C1272D"
 PLOT_OBSTACLE_COLOR = "#BFBFBF"
@@ -169,6 +185,9 @@ def plot_trajectories_2d(
     expert_trajectories: np.ndarray | None = None,
     expert_mode_ids: np.ndarray | None = None,
     title: str | None = None,
+    num_modes: int | None = None,
+    num_styles: int | None = None,
+    noise_std: float | None = None,
 ) -> plt.Figure:
     """Plot 2D trajectories overlaid on the task layout.
 
@@ -186,12 +205,23 @@ def plot_trajectories_2d(
             Shape (num_experts, num_timesteps, 2).
         expert_mode_ids: Optional per-expert mode index for coloring.
         title: Optional plot title. Defaults to the task display name.
+        num_modes: Number of modes for variable-mode tasks (radial,
+            corridor_navigation). Forwarded to ``get_task_layout``.
+        num_styles: Number of styles per corridor for corridor_navigation.
+        noise_std: Trajectory noise std. Used to size radial obstacles.
 
     Returns:
         The matplotlib Figure. Caller is responsible for closing it.
     """
     _apply_plot_theme()
-    layout = get_task_layout(task_name=task_name)
+    layout_kwargs: dict = {"task_name": task_name}
+    if num_modes is not None:
+        layout_kwargs["num_modes"] = num_modes
+    if num_styles is not None:
+        layout_kwargs["num_styles"] = num_styles
+    if noise_std is not None:
+        layout_kwargs["noise_std"] = noise_std
+    layout = get_task_layout(**layout_kwargs)
     figure, axes = plt.subplots(figsize=(6, 6), dpi=150)
     _draw_task_background(axes=axes, layout=layout)
 

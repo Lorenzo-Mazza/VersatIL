@@ -3,6 +3,7 @@
 import re
 from contextlib import AbstractContextManager
 from contextlib import nullcontext as does_not_raise
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -15,6 +16,7 @@ from versatil.data.synthetic.constants import (
     CORRIDOR_DEFAULT_NUM_STYLES,
     CORRIDOR_GOAL,
     CORRIDOR_START,
+    MULTIPATH_DEFAULT_NOISE_STD,
     RADIAL_CENTER,
     RADIAL_DEFAULT_NUM_MODES,
     SEQUENTIAL_NUM_COMPOUND_MODES,
@@ -89,6 +91,74 @@ def test_get_task_layout_radial_defaults_to_eight_modes():
 
     assert layout.num_modes == RADIAL_DEFAULT_NUM_MODES
     assert len(layout.obstacles) == RADIAL_DEFAULT_NUM_MODES
+
+
+@pytest.mark.unit
+def test_radial_layout_passes_noise_std_to_obstacles():
+    num_modes = 6
+    noise_std = 0.004
+    sentinel_obstacles: list[tuple[float, float, float, float]] = [(0.1, 0.1, 0.2, 0.2)]
+    with patch(
+        "versatil.data.synthetic.task_layout._generate_radial_obstacles",
+        return_value=sentinel_obstacles,
+    ) as mock_generate:
+        layout = get_task_layout(
+            task_name=SyntheticTaskName.RADIAL.value,
+            num_modes=num_modes,
+            noise_std=noise_std,
+        )
+
+    mock_generate.assert_called_once_with(num_modes=num_modes, noise_std=noise_std)
+    assert layout.obstacles == sentinel_obstacles
+
+
+@pytest.mark.unit
+def test_radial_layout_obstacle_size_shrinks_with_higher_noise():
+    low_noise_layout = get_task_layout(
+        task_name=SyntheticTaskName.RADIAL.value,
+        num_modes=4,
+        noise_std=0.001,
+    )
+    high_noise_layout = get_task_layout(
+        task_name=SyntheticTaskName.RADIAL.value,
+        num_modes=4,
+        noise_std=0.05,
+    )
+
+    assert len(low_noise_layout.obstacles) == 4
+    low_noise_widths = [
+        x_max - x_min for x_min, _, x_max, _ in low_noise_layout.obstacles
+    ]
+    low_noise_heights = [
+        y_max - y_min for _, y_min, _, y_max in low_noise_layout.obstacles
+    ]
+    if len(high_noise_layout.obstacles) == 0:
+        assert all(width > 0.0 for width in low_noise_widths)
+        assert all(height > 0.0 for height in low_noise_heights)
+    else:
+        high_noise_widths = [
+            x_max - x_min for x_min, _, x_max, _ in high_noise_layout.obstacles
+        ]
+        high_noise_heights = [
+            y_max - y_min for _, y_min, _, y_max in high_noise_layout.obstacles
+        ]
+        for low_width, high_width in zip(low_noise_widths, high_noise_widths):
+            assert high_width < low_width
+        for low_height, high_height in zip(low_noise_heights, high_noise_heights):
+            assert high_height < low_height
+
+
+@pytest.mark.unit
+def test_get_task_layout_default_noise_std_matches_constant():
+    with patch(
+        "versatil.data.synthetic.task_layout._generate_radial_obstacles",
+        return_value=[],
+    ) as mock_generate:
+        get_task_layout(task_name=SyntheticTaskName.RADIAL.value, num_modes=4)
+
+    mock_generate.assert_called_once_with(
+        num_modes=4, noise_std=MULTIPATH_DEFAULT_NOISE_STD
+    )
 
 
 @pytest.mark.unit

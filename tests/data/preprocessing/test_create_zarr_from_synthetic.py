@@ -11,6 +11,7 @@ import zarr
 from versatil.data.constants import Cameras, ProprioKey, SyntheticObsKey
 from versatil.data.preprocessing.create_zarr_from_synthetic import (
     GENERATOR_KEY_TO_ZARR_KEY,
+    _save_training_visualization,
     create_replay_buffer_from_synthetic,
 )
 from versatil.data.raw.schemas.custom.synthetic import SyntheticSchema
@@ -322,6 +323,108 @@ def test_plot_trajectories_receives_episode_positions_and_mode_ids(
         [int(episode["mode_id"][0, 0]) for episode in episodes]
     )
     np.testing.assert_array_equal(call_kwargs["mode_ids"], expected_mode_ids)
+
+
+@pytest.mark.unit
+def test_plot_trajectories_receives_schema_generation_params(
+    mock_schema_factory: Callable[..., MagicMock],
+    fake_episode_factory: Callable[..., list[dict[str, np.ndarray]]],
+):
+    num_modes = 5
+    num_styles = 7
+    noise_std = 0.123
+    schema = mock_schema_factory(
+        num_modes=num_modes,
+        num_styles=num_styles,
+        noise_std=noise_std,
+    )
+    episodes = fake_episode_factory(num_episodes=2, trajectory_length=5)
+
+    mock_plot = _run_with_patched_generators(schema=schema, episodes=episodes)
+
+    mock_plot.assert_called_once()
+    call_kwargs = mock_plot.call_args.kwargs
+    assert call_kwargs["num_modes"] == num_modes
+    assert call_kwargs["num_styles"] == num_styles
+    assert call_kwargs["noise_std"] == noise_std
+
+
+@pytest.mark.unit
+def test_save_training_visualization_forwards_params_to_plot(
+    fake_episode_factory: Callable[..., list[dict[str, np.ndarray]]],
+    tmp_path: Path,
+):
+    episodes = fake_episode_factory(num_episodes=2, trajectory_length=5)
+    zarr_path = str(tmp_path / "viz.zarr")
+    task_name = SyntheticTaskName.CIRCLE.value
+    num_modes = 4
+    num_styles = 6
+    noise_std = 0.075
+
+    with patch(
+        "versatil.data.preprocessing.create_zarr_from_synthetic.plot_trajectories_2d"
+    ) as mock_plot:
+        _save_training_visualization(
+            episodes=episodes,
+            task_name=task_name,
+            zarr_path=zarr_path,
+            num_modes=num_modes,
+            num_styles=num_styles,
+            noise_std=noise_std,
+        )
+
+    mock_plot.assert_called_once()
+    call_kwargs = mock_plot.call_args.kwargs
+    assert call_kwargs["task_name"] == task_name
+    assert call_kwargs["num_modes"] == num_modes
+    assert call_kwargs["num_styles"] == num_styles
+    assert call_kwargs["noise_std"] == noise_std
+    expected_trajectories = np.array([episode["position"] for episode in episodes])
+    np.testing.assert_array_equal(call_kwargs["trajectories"], expected_trajectories)
+    expected_mode_ids = np.array(
+        [int(episode["mode_id"][0, 0]) for episode in episodes]
+    )
+    np.testing.assert_array_equal(call_kwargs["mode_ids"], expected_mode_ids)
+    expected_output_path = str(
+        Path(zarr_path).parent / f"{Path(zarr_path).stem}_trajectories.png"
+    )
+    assert call_kwargs["output_path"] == expected_output_path
+
+
+@pytest.mark.unit
+def test_create_replay_buffer_forwards_schema_params_to_save_visualization(
+    mock_schema_factory: Callable[..., MagicMock],
+    fake_episode_factory: Callable[..., list[dict[str, np.ndarray]]],
+):
+    num_modes = 3
+    num_styles = 2
+    noise_std = 0.05
+    schema = mock_schema_factory(
+        num_modes=num_modes,
+        num_styles=num_styles,
+        noise_std=noise_std,
+    )
+    episodes = fake_episode_factory(num_episodes=2, trajectory_length=5)
+
+    with (
+        patch(
+            "versatil.data.preprocessing.create_zarr_from_synthetic.generate_task_episodes",
+            return_value=episodes,
+        ),
+        patch(
+            "versatil.data.preprocessing.create_zarr_from_synthetic._save_training_visualization"
+        ) as mock_save,
+    ):
+        create_replay_buffer_from_synthetic(schema=schema)
+
+    mock_save.assert_called_once()
+    call_kwargs = mock_save.call_args.kwargs
+    assert call_kwargs["episodes"] == episodes
+    assert call_kwargs["task_name"] == schema.task_name
+    assert call_kwargs["zarr_path"] == schema.zarr_path
+    assert call_kwargs["num_modes"] == num_modes
+    assert call_kwargs["num_styles"] == num_styles
+    assert call_kwargs["noise_std"] == noise_std
 
 
 @pytest.mark.unit

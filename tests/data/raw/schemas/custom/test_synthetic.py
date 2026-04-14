@@ -283,6 +283,10 @@ class TestGetCallbacks:
         assert callback.task_name == task_name
         assert callback.image_size == image_size
         assert callback.num_rollouts == 50
+        assert callback.num_modes == schema.num_modes
+        assert callback.num_styles == schema.num_styles
+        assert callback.trajectory_length == schema.trajectory_length
+        assert callback.noise_std == schema.noise_std
 
     def test_base_dataset_schema_has_no_get_callbacks(self):
         assert not hasattr(DatasetSchema, "get_callbacks")

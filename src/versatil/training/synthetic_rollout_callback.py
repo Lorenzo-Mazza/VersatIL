@@ -12,12 +12,6 @@ from PIL import Image
 from pytorch_lightning.callbacks import Callback
 
 from versatil.data.constants import SyntheticObsKey
-from versatil.data.synthetic.constants import (
-    CORRIDOR_DEFAULT_NUM_STYLES,
-    MULTIPATH_DEFAULT_NOISE_STD,
-    MULTIPATH_DEFAULT_NUM_MODES,
-    MULTIPATH_DEFAULT_TRAJECTORY_LENGTH,
-)
 from versatil.data.synthetic.generators import generate_task_episodes
 from versatil.data.synthetic.task_layout import get_task_layout
 from versatil.data.synthetic.visualization import plot_trajectories_2d
@@ -34,6 +28,13 @@ class SyntheticRolloutCallback(Callback):
 
     Args:
         task_name: SyntheticTaskName.value string.
+        num_modes: Number of behavioral modes to generate for expert
+            reference. Must match the training dataset.
+        num_styles: Number of sinusoidal styles per corridor gap. Ignored
+            by tasks that do not use styles.
+        trajectory_length: Length of generated expert and rollout
+            trajectories.
+        noise_std: Standard deviation of expert trajectory noise.
         num_rollouts: Number of rollout trajectories per evaluation.
         image_size: Side length for rendered observation images.
         log_every_n_epochs: Evaluate every N epochs.
@@ -42,12 +43,20 @@ class SyntheticRolloutCallback(Callback):
     def __init__(
         self,
         task_name: str,
+        num_modes: int,
+        num_styles: int,
+        trajectory_length: int,
+        noise_std: float,
         num_rollouts: int = 50,
         image_size: int = 64,
         log_every_n_epochs: int = 1,
     ):
         super().__init__()
         self.task_name = task_name
+        self.num_modes = num_modes
+        self.num_styles = num_styles
+        self.trajectory_length = trajectory_length
+        self.noise_std = noise_std
         self.num_rollouts = num_rollouts
         self.image_size = image_size
         self.log_every_n_epochs = log_every_n_epochs
@@ -91,31 +100,39 @@ class SyntheticRolloutCallback(Callback):
             rollout_trajectories=trajectories,
             task_name=self.task_name,
             image_size=self.image_size,
+            num_modes=self.num_modes,
+            num_styles=self.num_styles,
+            trajectory_length=self.trajectory_length,
+            noise_std=self.noise_std,
         )
 
         epoch = trainer.current_epoch
         mode_coverage = results["mode_coverage"]
         entropy_ratio = results["mode_entropy_ratio"]
         per_mode = results["per_mode_count"]
-        goal_success = results.get("goal_success_rate")
+        success_rate = results["success_rate"]
+        collision_rate = results["collision_rate"]
+        endpoint_reach_rate = results["endpoint_reach_rate"]
 
         log_parts = [
             f"epoch {epoch}",
+            f"success={success_rate:.2f}",
+            f"collision={collision_rate:.2f}",
+            f"endpoint_reach={endpoint_reach_rate:.2f}",
             f"mode_coverage={mode_coverage:.2f}",
             f"entropy={entropy_ratio:.2f}",
             f"per_mode={per_mode}",
         ]
-        if goal_success is not None:
-            log_parts.append(f"goal_success={goal_success:.2f}")
         logging.info(f"Synthetic rollout: {', '.join(log_parts)}")
 
         if trainer.logger is not None:
             metrics: dict[str, float | wandb.Image] = {
+                "synthetic/success_rate": success_rate,
+                "synthetic/collision_rate": collision_rate,
+                "synthetic/endpoint_reach_rate": endpoint_reach_rate,
                 "synthetic/mode_coverage": mode_coverage,
                 "synthetic/mode_entropy_ratio": entropy_ratio,
             }
-            if goal_success is not None:
-                metrics["synthetic/goal_success_rate"] = goal_success
             for mode_index, count in per_mode.items():
                 metrics[f"synthetic/mode_{mode_index}_count"] = count
 
@@ -123,6 +140,9 @@ class SyntheticRolloutCallback(Callback):
                 plot_trajectories_2d(
                     trajectories=trajectories,
                     task_name=self.task_name,
+                    num_modes=self.num_modes,
+                    num_styles=self.num_styles,
+                    noise_std=self.noise_std,
                 )
             )
 
@@ -144,7 +164,12 @@ class SyntheticRolloutCallback(Callback):
         )
         if not has_context:
             return [None]
-        layout = get_task_layout(task_name=self.task_name)
+        layout = get_task_layout(
+            task_name=self.task_name,
+            num_modes=self.num_modes,
+            num_styles=self.num_styles,
+            noise_std=self.noise_std,
+        )
         return list(range(layout.num_modes))
 
     def _log_training_data(self, trainer: pl.Trainer) -> None:
@@ -154,10 +179,10 @@ class SyntheticRolloutCallback(Callback):
             num_episodes=100,
             seed=0,
             image_size=self.image_size,
-            num_modes=MULTIPATH_DEFAULT_NUM_MODES,
-            trajectory_length=MULTIPATH_DEFAULT_TRAJECTORY_LENGTH,
-            noise_std=MULTIPATH_DEFAULT_NOISE_STD,
-            num_styles=CORRIDOR_DEFAULT_NUM_STYLES,
+            num_modes=self.num_modes,
+            trajectory_length=self.trajectory_length,
+            noise_std=self.noise_std,
+            num_styles=self.num_styles,
         )
         trajectories = np.array([episode["position"] for episode in episodes])
         mode_ids = np.array([int(episode["mode_id"][0, 0]) for episode in episodes])
@@ -166,6 +191,9 @@ class SyntheticRolloutCallback(Callback):
             task_name=self.task_name,
             mode_ids=mode_ids,
             title="Training Data",
+            num_modes=self.num_modes,
+            num_styles=self.num_styles,
+            noise_std=self.noise_std,
         )
         trainer.logger.log_metrics(
             {"synthetic/training_data": _figure_to_wandb_image(figure)},

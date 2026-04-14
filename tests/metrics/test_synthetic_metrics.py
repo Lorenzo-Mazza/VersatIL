@@ -1,5 +1,6 @@
 """Tests for versatil.metrics.synthetic_metrics module."""
 
+import re
 from collections.abc import Callable
 
 import numpy as np
@@ -7,8 +8,11 @@ import pytest
 
 from versatil.metrics.synthetic_metrics import (
     _compute_mode_centroids,
+    collides_with_obstacles,
     compute_goal_success_rate,
     compute_mode_coverage,
+    compute_mode_endpoints,
+    compute_success_rate,
 )
 
 NUM_TIMESTEPS = 10
@@ -288,6 +292,224 @@ def test_compute_goal_success_rate_threshold_sensitivity(
     )
 
     assert rate == pytest.approx(expected_rate)
+
+
+@pytest.mark.unit
+def test_compute_mode_coverage_excludes_invalid_trajectories(
+    expert_data_factory: Callable[..., tuple[np.ndarray, np.ndarray]],
+    multi_mode_generated_factory: Callable[..., np.ndarray],
+):
+    # Generate 2 trajectories per mode across 3 modes (6 total). Mark the
+    # trajectories for mode 2 as invalid — coverage should drop to 2/3 and
+    # per_mode_count[2] should be 0.
+    per_mode_counts = [2, 2, 2]
+    expert_trajectories, expert_mode_ids = expert_data_factory()
+    generated = multi_mode_generated_factory(per_mode_counts=per_mode_counts)
+    valid_mask = np.array([True, True, True, True, False, False])
+
+    result = compute_mode_coverage(
+        generated_trajectories=generated,
+        expert_trajectories=expert_trajectories,
+        expert_mode_ids=expert_mode_ids,
+        num_modes=NUM_MODES,
+        valid_mask=valid_mask,
+    )
+
+    assert result["per_mode_count"][2] == 0
+    assert result["mode_coverage"] == pytest.approx(2.0 / NUM_MODES)
+
+
+@pytest.mark.unit
+def test_compute_mode_coverage_all_invalid_returns_zero(
+    expert_data_factory: Callable[..., tuple[np.ndarray, np.ndarray]],
+    multi_mode_generated_factory: Callable[..., np.ndarray],
+):
+    per_mode_counts = [2, 2, 2]
+    expert_trajectories, expert_mode_ids = expert_data_factory()
+    generated = multi_mode_generated_factory(per_mode_counts=per_mode_counts)
+    valid_mask = np.zeros(sum(per_mode_counts), dtype=bool)
+
+    result = compute_mode_coverage(
+        generated_trajectories=generated,
+        expert_trajectories=expert_trajectories,
+        expert_mode_ids=expert_mode_ids,
+        num_modes=NUM_MODES,
+        valid_mask=valid_mask,
+    )
+
+    assert result["mode_coverage"] == 0.0
+    assert result["mode_entropy_ratio"] == 0.0
+
+
+@pytest.mark.unit
+def test_collides_with_obstacles_detects_trajectory_inside_rectangle(
+    trajectory_factory: Callable[..., np.ndarray],
+    position_factory: Callable[..., np.ndarray],
+):
+    inside_center = position_factory(x=0.5, y=0.5)
+    outside_center = position_factory(x=0.1, y=0.1)
+    inside = trajectory_factory(
+        num_trajectories=1, center=inside_center, noise_scale=0.0
+    )
+    outside = trajectory_factory(
+        num_trajectories=1, center=outside_center, noise_scale=0.0
+    )
+    trajectories = np.concatenate([inside, outside], axis=0)
+    obstacles = [(0.4, 0.4, 0.6, 0.6)]
+
+    collided = collides_with_obstacles(trajectories=trajectories, obstacles=obstacles)
+
+    assert collided.tolist() == [True, False]
+
+
+@pytest.mark.unit
+def test_collides_with_obstacles_no_obstacles_returns_all_false(
+    trajectory_factory: Callable[..., np.ndarray],
+    position_factory: Callable[..., np.ndarray],
+):
+    center = position_factory(x=0.5, y=0.5)
+    trajectories = trajectory_factory(
+        num_trajectories=3, center=center, noise_scale=0.0
+    )
+
+    collided = collides_with_obstacles(trajectories=trajectories, obstacles=[])
+
+    assert collided.tolist() == [False, False, False]
+
+
+@pytest.mark.unit
+def test_compute_success_rate_no_obstacles_and_reached_endpoint(
+    position_factory: Callable[..., np.ndarray],
+    trajectory_factory: Callable[..., np.ndarray],
+):
+    endpoint = position_factory(x=0.9, y=0.9)
+    trajectories = trajectory_factory(
+        num_trajectories=4, center=endpoint, noise_scale=0.0
+    )
+    mode_endpoints = np.array([endpoint], dtype=np.float32)
+
+    stats = compute_success_rate(
+        generated_trajectories=trajectories,
+        obstacles=[],
+        mode_endpoints=mode_endpoints,
+        goal_threshold=0.1,
+    )
+
+    assert stats["success_rate"] == pytest.approx(1.0)
+    assert stats["collision_rate"] == pytest.approx(0.0)
+    assert stats["endpoint_reach_rate"] == pytest.approx(1.0)
+
+
+@pytest.mark.unit
+def test_compute_success_rate_collision_blocks_success(
+    position_factory: Callable[..., np.ndarray],
+    trajectory_factory: Callable[..., np.ndarray],
+):
+    obstacle = (0.4, 0.4, 0.6, 0.6)
+    endpoint = position_factory(x=0.5, y=0.5)  # Inside obstacle
+    trajectories = trajectory_factory(
+        num_trajectories=3, center=endpoint, noise_scale=0.0
+    )
+    mode_endpoints = np.array([endpoint], dtype=np.float32)
+
+    stats = compute_success_rate(
+        generated_trajectories=trajectories,
+        obstacles=[obstacle],
+        mode_endpoints=mode_endpoints,
+        goal_threshold=0.1,
+    )
+
+    assert stats["collision_rate"] == pytest.approx(1.0)
+    assert stats["endpoint_reach_rate"] == pytest.approx(1.0)
+    assert stats["success_rate"] == pytest.approx(0.0)
+
+
+@pytest.mark.unit
+def test_compute_success_rate_missing_endpoint_blocks_success(
+    position_factory: Callable[..., np.ndarray],
+    trajectory_factory: Callable[..., np.ndarray],
+):
+    endpoint = position_factory(x=0.9, y=0.9)
+    far_center = position_factory(x=0.0, y=0.0)
+    trajectories = trajectory_factory(
+        num_trajectories=2, center=far_center, noise_scale=0.0
+    )
+    mode_endpoints = np.array([endpoint], dtype=np.float32)
+
+    stats = compute_success_rate(
+        generated_trajectories=trajectories,
+        obstacles=[],
+        mode_endpoints=mode_endpoints,
+        goal_threshold=0.1,
+    )
+
+    assert stats["endpoint_reach_rate"] == pytest.approx(0.0)
+    assert stats["success_rate"] == pytest.approx(0.0)
+
+
+@pytest.mark.unit
+def test_compute_success_rate_accepts_any_mode_endpoint(
+    position_factory: Callable[..., np.ndarray],
+    trajectory_factory: Callable[..., np.ndarray],
+):
+    endpoint_a = position_factory(x=0.1, y=0.1)
+    endpoint_b = position_factory(x=0.9, y=0.9)
+    trajectories = trajectory_factory(
+        num_trajectories=4, center=endpoint_b, noise_scale=0.0
+    )
+    mode_endpoints = np.stack([endpoint_a, endpoint_b], axis=0)
+
+    stats = compute_success_rate(
+        generated_trajectories=trajectories,
+        obstacles=[],
+        mode_endpoints=mode_endpoints,
+        goal_threshold=0.1,
+    )
+
+    assert stats["success_rate"] == pytest.approx(1.0)
+
+
+@pytest.mark.unit
+def test_compute_mode_endpoints_returns_mean_final_position_per_mode(
+    trajectory_factory: Callable[..., np.ndarray],
+):
+    mode_0 = trajectory_factory(num_trajectories=4, center=MODE_CENTERS[0])
+    mode_1 = trajectory_factory(num_trajectories=4, center=MODE_CENTERS[1])
+    expert_trajectories = np.concatenate([mode_0, mode_1], axis=0)
+    expert_mode_ids = np.concatenate(
+        [np.zeros(4, dtype=np.int64), np.ones(4, dtype=np.int64)]
+    )
+
+    endpoints = compute_mode_endpoints(
+        expert_trajectories=expert_trajectories,
+        expert_mode_ids=expert_mode_ids,
+        num_modes=2,
+    )
+
+    assert endpoints.shape == (2, 2)
+    np.testing.assert_allclose(endpoints[0], mode_0[:, -1, :].mean(axis=0))
+    np.testing.assert_allclose(endpoints[1], mode_1[:, -1, :].mean(axis=0))
+
+
+@pytest.mark.unit
+def test_compute_mode_endpoints_missing_mode_raises(
+    trajectory_factory: Callable[..., np.ndarray],
+):
+    expert_trajectories = trajectory_factory(num_trajectories=4, center=MODE_CENTERS[0])
+    expert_mode_ids = np.zeros(4, dtype=np.int64)
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "No expert trajectories for mode 1; "
+            "expected all 2 modes represented in expert data."
+        ),
+    ):
+        compute_mode_endpoints(
+            expert_trajectories=expert_trajectories,
+            expert_mode_ids=expert_mode_ids,
+            num_modes=2,
+        )
 
 
 @pytest.mark.unit

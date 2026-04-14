@@ -12,6 +12,7 @@ from versatil.data.synthetic.constants import (
     CORRIDOR_DEFAULT_NUM_STYLES,
     CORRIDOR_GOAL,
     CORRIDOR_START,
+    MULTIPATH_DEFAULT_NOISE_STD,
     RADIAL_CENTER,
     RADIAL_DEFAULT_NUM_MODES,
     SEQUENTIAL_NUM_COMPOUND_MODES,
@@ -55,6 +56,7 @@ def get_task_layout(
     task_name: str,
     num_modes: int | None = None,
     num_styles: int | None = None,
+    noise_std: float = MULTIPATH_DEFAULT_NOISE_STD,
 ) -> SyntheticTaskLayout:
     """Return the layout data (start, goal, obstacles, num_modes) for a task.
 
@@ -67,6 +69,8 @@ def get_task_layout(
             (radial, corridor_navigation). Uses task defaults when None.
         num_styles: Number of styles per corridor for corridor_navigation.
             Uses task default when None.
+        noise_std: Trajectory noise std. Passed to obstacle sizing so a
+            3-sigma noise margin is kept between trajectory and obstacle.
 
     Returns:
         SyntheticTaskLayout with the task-specific geometry.
@@ -103,7 +107,9 @@ def get_task_layout(
             return SyntheticTaskLayout(
                 start=RADIAL_CENTER,
                 goal=None,
-                obstacles=_generate_radial_obstacles(num_modes=resolved_modes),
+                obstacles=_generate_radial_obstacles(
+                    num_modes=resolved_modes, noise_std=noise_std
+                ),
                 num_modes=resolved_modes,
             )
         case SyntheticTaskName.CORRIDOR_NAVIGATION.value:

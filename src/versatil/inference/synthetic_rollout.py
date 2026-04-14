@@ -38,8 +38,10 @@ from versatil.data.synthetic.visualization import (
     save_rollouts_gif,
 )
 from versatil.metrics.synthetic_metrics import (
-    compute_goal_success_rate,
+    collides_with_obstacles,
     compute_mode_coverage,
+    compute_mode_endpoints,
+    compute_success_rate,
 )
 from versatil.models.policy import Policy
 from versatil.training.lightning_policy import LightningPolicy
@@ -275,12 +277,14 @@ def evaluate_rollouts(
     num_modes: int = MULTIPATH_DEFAULT_NUM_MODES,
     num_styles: int = CORRIDOR_DEFAULT_NUM_STYLES,
     image_size: int = DEFAULT_IMAGE_SIZE,
-    goal_threshold: float = 0.05,
 ) -> dict[str, float | dict[int, int]]:
     """Evaluate rollout trajectories against regenerated expert demonstrations.
 
     Generates expert data with the given parameters, then computes
-    mode coverage and (when applicable) goal success rate.
+    mode coverage and obstacle-aware success rate. The "reach" threshold
+    used by ``compute_success_rate`` is derived from the expert endpoint
+    spread (3-sigma of distances from the per-mode endpoint mean), so it
+    scales with the task's intrinsic noise.
 
     Args:
         rollout_trajectories: Generated position trajectories.
@@ -293,11 +297,10 @@ def evaluate_rollouts(
         num_modes: Number of modes for expert generation.
         num_styles: Number of styles (trajectory_style task only).
         image_size: Image size for expert generation.
-        goal_threshold: Euclidean distance threshold for goal success.
 
     Returns:
         Dict with mode_coverage, mode_entropy_ratio, per_mode_count,
-        and goal_success_rate (when the task has a fixed goal).
+        success_rate, collision_rate, endpoint_reach_rate.
     """
     expert_episodes = generate_task_episodes(
         task_name=task_name,
@@ -314,24 +317,63 @@ def evaluate_rollouts(
     expert_mode_ids = np.array(
         [int(episode["mode_id"][0, 0]) for episode in expert_episodes]
     )
-    layout = get_task_layout(task_name=task_name)
+    layout = get_task_layout(
+        task_name=task_name,
+        num_modes=num_modes,
+        num_styles=num_styles,
+        noise_std=noise_std,
+    )
     rollout_length = rollout_trajectories.shape[1]
     expert_length = expert_trajectories.shape[1]
     comparison_length = min(rollout_length, expert_length)
+    collided = collides_with_obstacles(
+        trajectories=rollout_trajectories, obstacles=layout.obstacles
+    )
+    valid_mask = ~collided
     coverage_results = compute_mode_coverage(
         generated_trajectories=rollout_trajectories[:, :comparison_length, :],
         expert_trajectories=expert_trajectories[:, :comparison_length, :],
         expert_mode_ids=expert_mode_ids,
         num_modes=layout.num_modes,
+        valid_mask=valid_mask,
     )
     results = dict(coverage_results)
-    if layout.goal is not None:
-        results["goal_success_rate"] = compute_goal_success_rate(
-            generated_trajectories=rollout_trajectories,
-            goal=layout.goal,
-            threshold=goal_threshold,
-        )
+    mode_endpoints = compute_mode_endpoints(
+        expert_trajectories=expert_trajectories,
+        expert_mode_ids=expert_mode_ids,
+        num_modes=layout.num_modes,
+    )
+    reach_threshold = _expert_endpoint_reach_threshold(
+        expert_trajectories=expert_trajectories,
+        expert_mode_ids=expert_mode_ids,
+        mode_endpoints=mode_endpoints,
+    )
+    success_stats = compute_success_rate(
+        generated_trajectories=rollout_trajectories,
+        obstacles=layout.obstacles,
+        mode_endpoints=mode_endpoints,
+        goal_threshold=reach_threshold,
+    )
+    results.update(success_stats)
     return results
+
+
+def _expert_endpoint_reach_threshold(
+    expert_trajectories: np.ndarray,
+    expert_mode_ids: np.ndarray,
+    mode_endpoints: np.ndarray,
+) -> float:
+    """3-sigma of expert final-position distances to their own mode mean.
+
+    This is the natural "close enough" radius for the task: a rollout
+    whose final point falls within this distance of any expert mode
+    endpoint is statistically indistinguishable from an expert trajectory.
+    """
+    final_positions = expert_trajectories[:, -1, :]  # (num_expert, 2)
+    distances = np.linalg.norm(
+        final_positions - mode_endpoints[expert_mode_ids], axis=-1
+    )  # (num_expert,)
+    return float(3.0 * distances.std())
 
 
 def _get_render_goal(
