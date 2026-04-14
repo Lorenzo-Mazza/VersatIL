@@ -86,6 +86,7 @@ def fake_results_factory() -> Callable[..., dict]:
         success_rate: float = 0.75,
         collision_rate: float = 0.1,
         endpoint_reach_rate: float = 0.85,
+        path_length_rate: float = 0.9,
     ) -> dict:
         return {
             "mode_coverage": mode_coverage,
@@ -96,6 +97,7 @@ def fake_results_factory() -> Callable[..., dict]:
             "success_rate": success_rate,
             "collision_rate": collision_rate,
             "endpoint_reach_rate": endpoint_reach_rate,
+            "path_length_rate": path_length_rate,
         }
 
     return factory
@@ -353,6 +355,7 @@ def test_logs_coverage_metrics_to_wandb(
         "success_rate": 0.5,
         "collision_rate": 0.1,
         "endpoint_reach_rate": 0.6,
+        "path_length_rate": 0.7,
     }
     patches = _patch_callback_dependencies(
         fake_trajectories=fake_trajectories_factory(),

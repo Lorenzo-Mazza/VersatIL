@@ -102,12 +102,16 @@ def compute_success_rate(
     obstacles: list[tuple[float, float, float, float]],
     mode_endpoints: np.ndarray,
     goal_threshold: float = 0.1,
+    min_path_length: float = 0.0,
 ) -> dict[str, float]:
-    """Fraction of trajectories that avoid obstacles and reach an expert endpoint.
+    """Fraction of trajectories that avoid obstacles, actually move, and reach an expert endpoint.
 
-    A trajectory is counted successful only when both conditions hold:
+    A trajectory is counted successful only when all three conditions hold:
         1. No trajectory point lies inside any obstacle rectangle.
-        2. Its final position is within ``goal_threshold`` of at least one
+        2. Cumulative path length >= ``min_path_length`` — rejects
+           stationary policies that trivially satisfy the endpoint check
+           on closed-loop tasks (circle) where start == endpoint.
+        3. Its final position is within ``goal_threshold`` of at least one
            expert endpoint (per-mode mean of the final step).
 
     Args:
@@ -117,12 +121,15 @@ def compute_success_rate(
             list disables the collision check.
         mode_endpoints: Expert endpoint per mode, shape (num_modes, 2).
         goal_threshold: Euclidean distance threshold for reaching an endpoint.
+        min_path_length: Minimum cumulative path length a trajectory must
+            travel to count as a real attempt. 0.0 disables the check.
 
     Returns:
         Dictionary with:
-            "success_rate": overall fraction satisfying both conditions.
+            "success_rate": overall fraction satisfying all conditions.
             "collision_rate": fraction that collided with an obstacle.
             "endpoint_reach_rate": fraction that reached any endpoint.
+            "path_length_rate": fraction with path length >= min_path_length.
     """
     num_trajectories = generated_trajectories.shape[0]
     collision_mask = collides_with_obstacles(
@@ -133,14 +140,21 @@ def compute_success_rate(
         final_positions[:, None, :] - mode_endpoints[None, :, :], axis=-1
     )  # (num_rollouts, num_modes)
     reach_mask = (distances < goal_threshold).any(axis=-1)  # (num_rollouts,)
-    success_mask = reach_mask & ~collision_mask
+    step_lengths = np.linalg.norm(
+        np.diff(generated_trajectories, axis=1), axis=-1
+    )  # (num_rollouts, num_timesteps-1)
+    path_lengths = step_lengths.sum(axis=-1)  # (num_rollouts,)
+    path_length_mask = path_lengths >= min_path_length
+    success_mask = reach_mask & ~collision_mask & path_length_mask
     collision_rate = float(np.mean(collision_mask)) if num_trajectories else 0.0
     reach_rate = float(np.mean(reach_mask)) if num_trajectories else 0.0
+    path_length_rate = float(np.mean(path_length_mask)) if num_trajectories else 0.0
     success_rate = float(np.mean(success_mask)) if num_trajectories else 0.0
     return {
         "success_rate": success_rate,
         "collision_rate": collision_rate,
         "endpoint_reach_rate": reach_rate,
+        "path_length_rate": path_length_rate,
     }
 
 

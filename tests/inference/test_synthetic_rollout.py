@@ -369,6 +369,7 @@ def test_evaluate_rollouts_truncates_and_calls_metrics_with_layout(
         "success_rate": 0.7,
         "collision_rate": 0.1,
         "endpoint_reach_rate": 0.8,
+        "path_length_rate": 0.9,
     }
     mode_endpoints = np.zeros((num_modes, 2), dtype=np.float32)
 
@@ -453,6 +454,73 @@ def test_evaluate_rollouts_truncates_and_calls_metrics_with_layout(
     mock_success.assert_called_once()
     for stat_key, stat_value in success_stats.items():
         assert results[stat_key] == stat_value
+
+
+@pytest.mark.unit
+def test_evaluate_rollouts_forwards_half_expert_mean_path_length(
+    rollout_trajectory_factory: Callable[..., np.ndarray],
+    mock_layout_factory: Callable[..., MagicMock],
+):
+    # Craft expert episodes with deterministic path length: each trajectory
+    # walks from x=0 to x=1 along y=0.5 in 11 steps, so path length = 1.0.
+    num_expert_episodes = 4
+    num_timesteps = 11
+    positions = np.zeros((num_timesteps, 2), dtype=np.float32)
+    positions[:, 0] = np.linspace(0.0, 1.0, num_timesteps, dtype=np.float32)
+    positions[:, 1] = 0.5
+    expert_episodes = [
+        {
+            "position": positions.copy(),
+            "mode_id": np.zeros((num_timesteps, 1), dtype=np.int64),
+        }
+        for _ in range(num_expert_episodes)
+    ]
+    rollout_trajectories = rollout_trajectory_factory(
+        num_rollouts=3, num_timesteps=num_timesteps
+    )
+    layout = mock_layout_factory(has_goal=False, num_modes=1)
+
+    with (
+        patch(
+            "versatil.inference.synthetic_rollout.generate_task_episodes",
+            return_value=expert_episodes,
+        ),
+        patch(
+            "versatil.inference.synthetic_rollout.get_task_layout",
+            return_value=layout,
+        ),
+        patch(
+            "versatil.inference.synthetic_rollout.compute_mode_coverage",
+            return_value={
+                "mode_coverage": 0.0,
+                "mode_entropy_ratio": 0.0,
+                "per_mode_count": {0: 3},
+            },
+        ),
+        patch(
+            "versatil.inference.synthetic_rollout.compute_mode_endpoints",
+            return_value=np.zeros((1, 2), dtype=np.float32),
+        ),
+        patch(
+            "versatil.inference.synthetic_rollout.compute_success_rate",
+            return_value={
+                "success_rate": 0.0,
+                "collision_rate": 0.0,
+                "endpoint_reach_rate": 0.0,
+                "path_length_rate": 0.0,
+            },
+        ) as mock_success,
+    ):
+        evaluate_rollouts(
+            rollout_trajectories=rollout_trajectories,
+            task_name=SyntheticTaskName.CIRCLE.value,
+            num_expert_episodes=num_expert_episodes,
+            num_modes=1,
+        )
+
+    forwarded = mock_success.call_args.kwargs["min_path_length"]
+    # Expert mean path length = 1.0 → threshold must be 0.5 * 1.0
+    assert forwarded == pytest.approx(0.5, abs=1e-6)
 
 
 @pytest.mark.unit

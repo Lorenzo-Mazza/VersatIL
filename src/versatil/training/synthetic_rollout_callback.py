@@ -113,12 +113,14 @@ class SyntheticRolloutCallback(Callback):
         success_rate = results["success_rate"]
         collision_rate = results["collision_rate"]
         endpoint_reach_rate = results["endpoint_reach_rate"]
+        path_length_rate = results["path_length_rate"]
 
         log_parts = [
             f"epoch {epoch}",
             f"success={success_rate:.2f}",
             f"collision={collision_rate:.2f}",
             f"endpoint_reach={endpoint_reach_rate:.2f}",
+            f"path_length={path_length_rate:.2f}",
             f"mode_coverage={mode_coverage:.2f}",
             f"entropy={entropy_ratio:.2f}",
             f"per_mode={per_mode}",
@@ -130,6 +132,7 @@ class SyntheticRolloutCallback(Callback):
                 "synthetic/success_rate": success_rate,
                 "synthetic/collision_rate": collision_rate,
                 "synthetic/endpoint_reach_rate": endpoint_reach_rate,
+                "synthetic/path_length_rate": path_length_rate,
                 "synthetic/mode_coverage": mode_coverage,
                 "synthetic/mode_entropy_ratio": entropy_ratio,
             }

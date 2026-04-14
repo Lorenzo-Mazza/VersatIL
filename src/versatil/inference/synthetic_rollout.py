@@ -348,14 +348,27 @@ def evaluate_rollouts(
         expert_mode_ids=expert_mode_ids,
         mode_endpoints=mode_endpoints,
     )
+    min_path_length = 0.5 * _expert_mean_path_length(
+        expert_trajectories=expert_trajectories
+    )
     success_stats = compute_success_rate(
         generated_trajectories=rollout_trajectories,
         obstacles=layout.obstacles,
         mode_endpoints=mode_endpoints,
         goal_threshold=reach_threshold,
+        min_path_length=min_path_length,
     )
     results.update(success_stats)
     return results
+
+
+def _expert_mean_path_length(expert_trajectories: np.ndarray) -> float:
+    """Mean cumulative Euclidean path length across expert trajectories."""
+    step_lengths = np.linalg.norm(
+        np.diff(expert_trajectories, axis=1), axis=-1
+    )  # (num_expert, num_timesteps-1)
+    per_trajectory = step_lengths.sum(axis=-1)  # (num_expert,)
+    return float(per_trajectory.mean())
 
 
 def _expert_endpoint_reach_threshold(

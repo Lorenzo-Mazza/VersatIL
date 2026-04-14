@@ -470,6 +470,76 @@ def test_compute_success_rate_accepts_any_mode_endpoint(
 
 
 @pytest.mark.unit
+def test_compute_success_rate_stationary_trajectory_fails_path_length_check(
+    position_factory: Callable[..., np.ndarray],
+):
+    # Simulate a "closed loop" task: start == endpoint at (0.5, 0.5).
+    # A policy that stays still trivially reaches the endpoint but has zero
+    # path length, so it must NOT be counted as success.
+    start = position_factory(x=0.5, y=0.5)
+    trajectories = np.broadcast_to(start, (3, 10, 2)).astype(np.float32).copy()
+    mode_endpoints = np.array([start], dtype=np.float32)
+
+    stats = compute_success_rate(
+        generated_trajectories=trajectories,
+        obstacles=[],
+        mode_endpoints=mode_endpoints,
+        goal_threshold=0.1,
+        min_path_length=0.5,
+    )
+
+    assert stats["endpoint_reach_rate"] == pytest.approx(1.0)
+    assert stats["path_length_rate"] == pytest.approx(0.0)
+    assert stats["success_rate"] == pytest.approx(0.0)
+
+
+@pytest.mark.unit
+def test_compute_success_rate_moving_trajectory_passes_path_length_check(
+    position_factory: Callable[..., np.ndarray],
+):
+    # Trajectory traces a straight line from (0.0, 0.5) to (1.0, 0.5) in 10
+    # steps — path length == 1.0 — then final point matches the endpoint.
+    num_steps = 10
+    trajectory = np.zeros((1, num_steps, 2), dtype=np.float32)
+    trajectory[0, :, 0] = np.linspace(0.0, 1.0, num_steps, dtype=np.float32)
+    trajectory[0, :, 1] = 0.5
+    endpoint = position_factory(x=1.0, y=0.5)
+    mode_endpoints = np.array([endpoint], dtype=np.float32)
+
+    stats = compute_success_rate(
+        generated_trajectories=trajectory,
+        obstacles=[],
+        mode_endpoints=mode_endpoints,
+        goal_threshold=0.05,
+        min_path_length=0.5,
+    )
+
+    assert stats["path_length_rate"] == pytest.approx(1.0)
+    assert stats["success_rate"] == pytest.approx(1.0)
+
+
+@pytest.mark.unit
+def test_compute_success_rate_default_min_path_length_is_zero(
+    position_factory: Callable[..., np.ndarray],
+):
+    # Default min_path_length=0 keeps backward-compatible behavior: a
+    # stationary trajectory at the endpoint counts as success.
+    start = position_factory(x=0.5, y=0.5)
+    trajectories = np.broadcast_to(start, (2, 5, 2)).astype(np.float32).copy()
+    mode_endpoints = np.array([start], dtype=np.float32)
+
+    stats = compute_success_rate(
+        generated_trajectories=trajectories,
+        obstacles=[],
+        mode_endpoints=mode_endpoints,
+        goal_threshold=0.1,
+    )
+
+    assert stats["path_length_rate"] == pytest.approx(1.0)
+    assert stats["success_rate"] == pytest.approx(1.0)
+
+
+@pytest.mark.unit
 def test_compute_mode_endpoints_returns_mean_final_position_per_mode(
     trajectory_factory: Callable[..., np.ndarray],
 ):
