@@ -15,10 +15,10 @@ loss_modules:
       huber_weight: 0.0
 
     latent_ot:
-        weight: 1.0
+        weight: 0.01
         p: 2
         blur_fraction: 0.1
-        reach_multiplier: null
+        reach_multiplier: 1.0
 
     trajectory_length:
         _target_: versatil.metrics.components.TrajectoryLengthLoss
