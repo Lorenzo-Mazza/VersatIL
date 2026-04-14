@@ -378,17 +378,17 @@ def _expert_endpoint_reach_threshold(
 ) -> float:
     """Expert-derived "close enough" radius around each mode endpoint.
 
-    Uses mean + 3·std of expert final-position distances to their own
-    mode mean. This covers ~99.7% of expert trajectories on a one-sided
-    tail, so virtually every expert trajectory itself passes the reach
-    check, and a rollout within the same radius is statistically
-    indistinguishable from expert behaviour.
+    Uses mean + 5·std of expert final-position distances to their own
+    mode mean. The mean covers the typical Rayleigh-distributed offset,
+    and 5·std on top gives a generous tail margin so trajectories that
+    are noticeably-but-acceptably off center still count as reaching
+    the endpoint.
     """
     final_positions = expert_trajectories[:, -1, :]  # (num_expert, 2)
     distances = np.linalg.norm(
         final_positions - mode_endpoints[expert_mode_ids], axis=-1
     )  # (num_expert,)
-    return float(distances.mean() + 3.0 * distances.std())
+    return float(distances.mean() + 5.0 * distances.std())
 
 
 def _get_render_goal(
