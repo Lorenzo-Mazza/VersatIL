@@ -15,6 +15,7 @@ from versatil.data.constants import Cameras, ProprioKey, SyntheticObsKey
 from versatil.data.synthetic.constants import CIRCLE_CONTEXT_COLORS, SyntheticTaskName
 from versatil.data.synthetic.task_layout import SyntheticTaskLayout
 from versatil.inference.synthetic_rollout import (
+    _expert_endpoint_reach_threshold,
     _get_render_goal,
     _prepare_observation,
     _save_rollout_visualizations,
@@ -521,6 +522,102 @@ def test_evaluate_rollouts_forwards_half_expert_mean_path_length(
     forwarded = mock_success.call_args.kwargs["min_path_length"]
     # Expert mean path length = 1.0 → threshold must be 0.5 * 1.0
     assert forwarded == pytest.approx(0.5, abs=1e-6)
+
+
+@pytest.mark.unit
+def test_expert_endpoint_reach_threshold_returns_mean_plus_five_std():
+    # Two modes with endpoints (0,0) and (1,1). Four experts (two per mode)
+    # land at handcrafted offsets so distances are {0.1, 0.3, 0.2, 0.4} with
+    # mean=0.25 and population std = sqrt(((0.1-0.25)^2 + (0.3-0.25)^2
+    # + (0.2-0.25)^2 + (0.4-0.25)^2) / 4) = sqrt(0.0125) ≈ 0.1118.
+    mode_endpoints = np.array([[0.0, 0.0], [1.0, 1.0]], dtype=np.float32)
+    expert_mode_ids = np.array([0, 0, 1, 1], dtype=np.int64)
+    final_positions = np.array(
+        [[0.1, 0.0], [0.3, 0.0], [1.2, 1.0], [0.6, 1.0]], dtype=np.float32
+    )
+    expert_trajectories = np.zeros((4, 3, 2), dtype=np.float32)
+    expert_trajectories[:, -1, :] = final_positions
+
+    threshold = _expert_endpoint_reach_threshold(
+        expert_trajectories=expert_trajectories,
+        expert_mode_ids=expert_mode_ids,
+        mode_endpoints=mode_endpoints,
+    )
+
+    distances = np.array([0.1, 0.3, 0.2, 0.4], dtype=np.float64)
+    expected = float(distances.mean() + 5.0 * distances.std())
+    assert threshold == pytest.approx(expected, abs=1e-6)
+
+
+@pytest.mark.unit
+def test_evaluate_rollouts_forwards_expert_mean_plus_five_std_endpoint_threshold(
+    rollout_trajectory_factory: Callable[..., np.ndarray],
+    mock_layout_factory: Callable[..., MagicMock],
+):
+    # One mode with endpoint (0,0). Four expert trajectories land on the
+    # +x axis at distances 0.1, 0.3, 0.2, 0.4 from the endpoint so we can
+    # assert mean + 5*std analytically.
+    num_expert_episodes = 4
+    num_timesteps = 3
+    distance_values = [0.1, 0.3, 0.2, 0.4]
+    expert_episodes = []
+    for distance in distance_values:
+        positions = np.zeros((num_timesteps, 2), dtype=np.float32)
+        positions[-1, 0] = distance
+        expert_episodes.append(
+            {
+                "position": positions,
+                "mode_id": np.zeros((num_timesteps, 1), dtype=np.int64),
+            }
+        )
+    mode_endpoints = np.zeros((1, 2), dtype=np.float32)
+    rollout_trajectories = rollout_trajectory_factory(
+        num_rollouts=2, num_timesteps=num_timesteps
+    )
+    layout = mock_layout_factory(has_goal=False, num_modes=1)
+
+    with (
+        patch(
+            "versatil.inference.synthetic_rollout.generate_task_episodes",
+            return_value=expert_episodes,
+        ),
+        patch(
+            "versatil.inference.synthetic_rollout.get_task_layout",
+            return_value=layout,
+        ),
+        patch(
+            "versatil.inference.synthetic_rollout.compute_mode_coverage",
+            return_value={
+                "mode_coverage": 0.0,
+                "mode_entropy_ratio": 0.0,
+                "per_mode_count": {0: 2},
+            },
+        ),
+        patch(
+            "versatil.inference.synthetic_rollout.compute_mode_endpoints",
+            return_value=mode_endpoints,
+        ),
+        patch(
+            "versatil.inference.synthetic_rollout.compute_success_rate",
+            return_value={
+                "success_rate": 0.0,
+                "collision_rate": 0.0,
+                "endpoint_reach_rate": 0.0,
+                "path_length_rate": 0.0,
+            },
+        ) as mock_success,
+    ):
+        evaluate_rollouts(
+            rollout_trajectories=rollout_trajectories,
+            task_name=SyntheticTaskName.CIRCLE.value,
+            num_expert_episodes=num_expert_episodes,
+            num_modes=1,
+        )
+
+    forwarded = mock_success.call_args.kwargs["goal_threshold"]
+    distances = np.array(distance_values, dtype=np.float64)
+    expected = float(distances.mean() + 5.0 * distances.std())
+    assert forwarded == pytest.approx(expected, abs=1e-6)
 
 
 @pytest.mark.unit
