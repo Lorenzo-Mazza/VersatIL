@@ -46,6 +46,9 @@ class MetricKey(StrEnum):
     HYPERPRIOR_MMD_REGULARIZATION = "hyperprior_mmd_regularization"
     COVARIANCE_LOSS = "covariance_loss"
     VARIANCE_LOSS = "variance_loss"
+    VQ_COMMITMENT_LOSS = "vq_commitment_loss"
+    VQ_CODEBOOK_USAGE = "vq_codebook_usage"
+    VQ_PRIOR_CROSS_ENTROPY = "vq_prior_cross_entropy"
 
 
 class LossModuleName(StrEnum):

@@ -2,6 +2,8 @@
 
 import re
 from collections.abc import Callable
+from contextlib import AbstractContextManager
+from contextlib import nullcontext as does_not_raise
 from unittest.mock import patch
 
 import numpy as np
@@ -79,6 +81,7 @@ def latent_tensor_factory(
 
 
 class TestDiTPriorInitialization:
+    @pytest.mark.unit
     def test_inherits_from_prior_latent_encoder(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -86,6 +89,7 @@ class TestDiTPriorInitialization:
         prior = dit_prior_factory()
         assert isinstance(prior, PriorLatentEncoder)
 
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         "algorithm_type",
         [
@@ -112,6 +116,7 @@ class TestDiTPriorInitialization:
         assert prior.num_train_timesteps == num_train_timesteps
         assert prior.embedding_dimension == EMBEDDING_DIMENSION
 
+    @pytest.mark.unit
     def test_flow_matching_has_flow_matcher_and_no_scheduler(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -122,6 +127,7 @@ class TestDiTPriorInitialization:
         assert prior.flow_matcher is not None
         assert prior.noise_scheduler is None
 
+    @pytest.mark.unit
     def test_diffusion_has_scheduler_and_no_flow_matcher(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -132,6 +138,7 @@ class TestDiTPriorInitialization:
         assert prior.noise_scheduler is not None
         assert prior.flow_matcher is None
 
+    @pytest.mark.unit
     def test_invalid_algorithm_type_raises(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -145,6 +152,7 @@ class TestDiTPriorInitialization:
         ):
             dit_prior_factory(algorithm_type="invalid_type")
 
+    @pytest.mark.unit
     def test_temporal_positional_encoding_created_for_multi_horizon(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -152,6 +160,7 @@ class TestDiTPriorInitialization:
         prior = dit_prior_factory(observation_horizon=3)
         assert prior.input_builder.temporal_positional_encoding_layer is not None
 
+    @pytest.mark.unit
     def test_no_temporal_positional_encoding_for_single_horizon(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -160,7 +169,33 @@ class TestDiTPriorInitialization:
         assert prior.input_builder.temporal_positional_encoding_layer is None
 
 
+class TestDiTPriorGetAuxiliaryOutputKeys:
+    @pytest.mark.unit
+    def test_returns_denoising_specific_keys(
+        self,
+        dit_prior_factory: Callable,
+    ) -> None:
+        prior = dit_prior_factory(algorithm_type=DenoisingAlgorithm.FLOW_MATCHING.value)
+        keys = prior.get_auxiliary_output_keys()
+        assert keys == {
+            LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_PREDICTION.value,
+            LatentKey.PRIOR_TARGET.value,
+        }
+
+    @pytest.mark.unit
+    def test_does_not_contain_gaussian_keys(
+        self,
+        dit_prior_factory: Callable,
+    ) -> None:
+        prior = dit_prior_factory(algorithm_type=DenoisingAlgorithm.FLOW_MATCHING.value)
+        keys = prior.get_auxiliary_output_keys()
+        assert LatentKey.PRIOR_MU.value not in keys
+        assert LatentKey.PRIOR_LOGVAR.value not in keys
+
+
 class TestDiTPriorFilterObservations:
+    @pytest.mark.unit
     def test_excludes_specified_keys(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -174,6 +209,7 @@ class TestDiTPriorFilterObservations:
         assert "kept_key" in filtered
         assert "excluded_key" not in filtered
 
+    @pytest.mark.unit
     def test_returns_all_keys_when_no_exclusions(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -185,6 +221,46 @@ class TestDiTPriorFilterObservations:
 
 
 class TestDiTPriorForwardFlowMatching:
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "use_none_target, expectation",
+        [
+            (
+                False,
+                does_not_raise(),
+            ),
+            (
+                True,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "DiTPrior.forward() requires target_latents for "
+                        "denoising training. Use sample_prior() for inference."
+                    ),
+                ),
+            ),
+        ],
+    )
+    def test_target_latents_validation(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+        latent_tensor_factory: Callable[..., torch.Tensor],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+        use_none_target: bool,
+        expectation: AbstractContextManager,
+    ):
+        prior = dit_prior_factory(
+            algorithm_type=DenoisingAlgorithm.FLOW_MATCHING.value,
+        )
+        observations = flat_feature_factory(
+            feature_dim=EMBEDDING_DIMENSION,
+            feature_keys=["obs_feature"],
+        )
+        target_latents = None if use_none_target else latent_tensor_factory()
+        with expectation:
+            prior.forward(target_latents=target_latents, observations=observations)
+
+    @pytest.mark.unit
     def test_returns_prediction_and_target_keys(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -208,6 +284,7 @@ class TestDiTPriorForwardFlowMatching:
             LatentKey.PRIOR_TARGET.value,
         }
 
+    @pytest.mark.unit
     def test_output_shapes_match_latent_dimension(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -239,6 +316,7 @@ class TestDiTPriorForwardFlowMatching:
 
 
 class TestDiTPriorForwardDiffusion:
+    @pytest.mark.unit
     def test_returns_prediction_and_target_keys(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -262,6 +340,7 @@ class TestDiTPriorForwardDiffusion:
             LatentKey.PRIOR_TARGET.value,
         }
 
+    @pytest.mark.unit
     def test_output_shapes_match_latent_dimension(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -291,6 +370,7 @@ class TestDiTPriorForwardDiffusion:
             LATENT_DIMENSION,
         )
 
+    @pytest.mark.unit
     def test_epsilon_target_is_noise(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -313,6 +393,7 @@ class TestDiTPriorForwardDiffusion:
         # Epsilon target is random noise, so it should differ from the clean latents
         assert not torch.equal(result[LatentKey.PRIOR_TARGET.value], target_latents)
 
+    @pytest.mark.unit
     def test_sample_target_equals_clean_latents(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -335,6 +416,7 @@ class TestDiTPriorForwardDiffusion:
         # Sample prediction type targets the clean data directly
         torch.testing.assert_close(result[LatentKey.PRIOR_TARGET.value], target_latents)
 
+    @pytest.mark.unit
     def test_velocity_target_differs_from_noise_and_clean(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -359,6 +441,7 @@ class TestDiTPriorForwardDiffusion:
         assert not torch.equal(target, target_latents)
         assert target.shape == target_latents.shape
 
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         "prediction_type",
         [
@@ -400,6 +483,7 @@ class TestDiTPriorForwardDiffusion:
 
 
 class TestDiTPriorSamplePriorFlowMatching:
+    @pytest.mark.unit
     def test_output_shape(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -420,6 +504,7 @@ class TestDiTPriorSamplePriorFlowMatching:
         )
         assert sample.shape == (batch_size, LATENT_DIMENSION)
 
+    @pytest.mark.unit
     def test_uses_ode_integration(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -444,6 +529,7 @@ class TestDiTPriorSamplePriorFlowMatching:
             )
         mock_integrate.assert_called_once()
 
+    @pytest.mark.unit
     def test_sample_without_observations(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -460,6 +546,7 @@ class TestDiTPriorSamplePriorFlowMatching:
 
 
 class TestDiTPriorSamplePriorDiffusion:
+    @pytest.mark.unit
     def test_output_shape(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
@@ -480,6 +567,7 @@ class TestDiTPriorSamplePriorDiffusion:
         )
         assert sample.shape == (batch_size, LATENT_DIMENSION)
 
+    @pytest.mark.unit
     def test_iterates_through_scheduler_timesteps(
         self,
         dit_prior_factory: Callable[..., DiTPrior],

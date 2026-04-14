@@ -110,6 +110,28 @@ class TestPriorTransformerEncoderInitialization:
         )
 
 
+class TestPriorTransformerEncoderGetAuxiliaryOutputKeys:
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "deterministic, expect_logvar",
+        [(False, True), (True, False)],
+        ids=["stochastic_includes_logvar", "deterministic_excludes_logvar"],
+    )
+    def test_logvar_presence_depends_on_deterministic(
+        self,
+        prior_transformer_factory: Callable[..., PriorTransformerEncoder],
+        deterministic: bool,
+        expect_logvar: bool,
+    ) -> None:
+        prior = prior_transformer_factory(
+            deterministic=deterministic, latent_dimension=8
+        )
+        keys = prior.get_auxiliary_output_keys()
+        assert LatentKey.PRIOR_LATENT.value in keys
+        assert LatentKey.PRIOR_MU.value in keys
+        assert (LatentKey.PRIOR_LOGVAR.value in keys) == expect_logvar
+
+
 class TestPriorTransformerEncoderForward:
     def test_deterministic_returns_exact_keys(
         self,

@@ -142,3 +142,59 @@ class DiTPriorConfig(PriorLatentEncoderConfig):
     activation: str = ActivationFunction.SILU.value
     use_gating: bool = True
     exclude_keys: list[str] | None = None
+
+
+@dataclass
+class VQPosteriorEncoderConfig(PosteriorLatentEncoderConfig):
+    """VQ posterior encoder configuration."""
+
+    _target_: str = (
+        "versatil.models.decoding.latent.posterior.vq_encoder.VQPosteriorEncoder"
+    )
+    latent_dimension: int = 8
+    num_codes: int = 4
+    num_residual_layers: int = 1
+    embedding_dimension: int = 64
+    prediction_horizon: int = "${policy.prediction_horizon}"
+    observation_horizon: int = "${policy.observation_horizon}"
+    device: str = "${policy.device}"
+    ema_decay: float = 0.99
+    dead_code_threshold: float = 1.0
+    number_of_heads: int = 4
+    feedforward_dimension: int = 128
+    number_of_encoder_layers: int = 1
+    activation: str = ActivationFunction.SWIGLU.value
+    dropout_rate: float = 0.0
+    normalize_before: bool = False
+    exclude_keys: list[str] | None = None
+
+
+@dataclass
+class UniformCodebookPriorConfig(PriorLatentEncoderConfig):
+    """Uniform categorical prior over VQ codebook indices."""
+
+    _target_: str = "versatil.models.decoding.latent.prior.uniform_codebook_prior.UniformCodebookPrior"
+    latent_dimension: int = 8
+    num_codes: int = 4
+    num_residual_layers: int = 1
+
+
+@dataclass
+class CodebookPriorConfig(PriorLatentEncoderConfig):
+    """Learned categorical prior over VQ codebook indices."""
+
+    _target_: str = "versatil.models.decoding.latent.prior.codebook_prior.CodebookPrior"
+    latent_dimension: int = 8
+    num_codes: int = 4
+    num_residual_layers: int = 1
+    embedding_dimension: int = 64
+    observation_horizon: int = "${policy.observation_horizon}"
+    device: str = "${policy.device}"
+    number_of_heads: int = 4
+    feedforward_dimension: int = 128
+    number_of_encoder_layers: int = 1
+    activation: str = ActivationFunction.SWIGLU.value
+    dropout_rate: float = 0.0
+    normalize_before: bool = False
+    exclude_keys: list[str] | None = None
+    temperature: float = 1.0

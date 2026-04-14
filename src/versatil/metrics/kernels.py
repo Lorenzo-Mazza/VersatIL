@@ -82,32 +82,48 @@ class MMDKernel(nn.Module, abc.ABC):
             median = torch.tensor(1.0, device=device)
         return median.item()
 
-    def _resolve_base_bandwidth(self, x: torch.Tensor, y: torch.Tensor) -> float:
-        """Resolve the base bandwidth for kernel computation.
+    def resolve_base_bandwidth(self, samples: torch.Tensor) -> float:
+        """Resolve the base bandwidth from a combined sample set.
 
         When use_median_heuristic is True, returns 2 * median_dist^2
-        computed from the combined point sets. When False, returns 1.0
+        computed from the provided samples. When False, returns 1.0
         so that bandwidth_multipliers are used as absolute values.
 
+        Callers that want a single bandwidth shared across multiple
+        kernel evaluations (e.g. the three MMD terms K(x,x), K(y,y),
+        K(x,y)) must pass the combined sample set here and then feed
+        the returned value to each forward() call via the bandwidth
+        argument. Relying on forward()'s default per-call resolution
+        produces inconsistent kernels across the three MMD terms and
+        breaks the statistic.
+
         Args:
-            x: First point set, shape (N, D).
-            y: Second point set, shape (M, D).
+            samples: Combined point set, shape (N, D).
 
         Returns:
             Base bandwidth scalar.
         """
         if self.use_median_heuristic:
-            combined = torch.cat([x, y], dim=0)
-            return 2.0 * self.compute_median_squared_distance(combined)
+            return 2.0 * self.compute_median_squared_distance(samples)
         return 1.0
 
     @abc.abstractmethod
-    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        bandwidth: float | None = None,
+    ) -> torch.Tensor:
         """Compute kernel matrix K(x, y).
 
         Args:
             x: First point set, shape (N, D).
             y: Second point set, shape (M, D).
+            bandwidth: Pre-resolved base bandwidth. When None, computed
+                from the combined set (x, y). Pass a shared bandwidth
+                explicitly when computing multiple kernel terms that
+                must use the same kernel function (e.g. MMD's three
+                terms).
 
         Returns:
             Kernel matrix, shape (N, M).
@@ -144,22 +160,30 @@ class RBFKernel(MMDKernel):
             bandwidth_multipliers = [0.2, 0.5, 1.0, 2.0, 5.0]
         self.bandwidth_multipliers = bandwidth_multipliers
 
-    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        bandwidth: float | None = None,
+    ) -> torch.Tensor:
         """Compute multi-scale RBF kernel matrix.
 
         Args:
             x: First point set, shape (N, D).
             y: Second point set, shape (M, D).
+            bandwidth: Pre-resolved base bandwidth. When None, computed
+                from cat(x, y). See MMDKernel.resolve_base_bandwidth.
 
         Returns:
             Kernel matrix, shape (N, M).
         """
-        base_bandwidth = self._resolve_base_bandwidth(x, y)
+        if bandwidth is None:
+            bandwidth = self.resolve_base_bandwidth(torch.cat([x, y], dim=0))
         dist_sq = self.compute_pairwise_squared_distances(x, y)
         kernel = torch.zeros_like(dist_sq)
-        for mult in self.bandwidth_multipliers:
-            bandwidth = mult * base_bandwidth
-            kernel = kernel + torch.exp(-dist_sq / bandwidth)
+        for multiplier in self.bandwidth_multipliers:
+            scaled_bandwidth = multiplier * bandwidth
+            kernel = kernel + torch.exp(-dist_sq / scaled_bandwidth)
         kernel = kernel / len(self.bandwidth_multipliers)
         return kernel
 
@@ -194,21 +218,29 @@ class IMQKernel(MMDKernel):
             bandwidth_multipliers = [0.2, 0.5, 1.0, 2.0, 5.0]
         self.bandwidth_multipliers = bandwidth_multipliers
 
-    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        bandwidth: float | None = None,
+    ) -> torch.Tensor:
         """Compute multi-scale IMQ kernel matrix.
 
         Args:
             x: First point set, shape (N, D).
             y: Second point set, shape (M, D).
+            bandwidth: Pre-resolved base bandwidth. When None, computed
+                from cat(x, y). See MMDKernel.resolve_base_bandwidth.
 
         Returns:
             Kernel matrix, shape (N, M).
         """
-        base_bandwidth = self._resolve_base_bandwidth(x, y)
+        if bandwidth is None:
+            bandwidth = self.resolve_base_bandwidth(torch.cat([x, y], dim=0))
         dist_sq = self.compute_pairwise_squared_distances(x, y)
         kernel = torch.zeros_like(dist_sq)
-        for mult in self.bandwidth_multipliers:
-            c = mult * base_bandwidth
+        for multiplier in self.bandwidth_multipliers:
+            c = multiplier * bandwidth
             kernel = kernel + c / (c + dist_sq)
         kernel = kernel / len(self.bandwidth_multipliers)
         return kernel

@@ -1,6 +1,9 @@
 """Tests for versatil.models.decoding.latent.prior.gaussian_prior module."""
 
+import re
 from collections.abc import Callable
+from contextlib import AbstractContextManager
+from contextlib import nullcontext as does_not_raise
 
 import pytest
 import torch
@@ -29,6 +32,7 @@ def gaussian_prior_factory() -> Callable[..., GaussianPrior]:
 
 
 class TestGaussianPriorInitialization:
+    @pytest.mark.unit
     def test_inherits_from_prior_latent_encoder(
         self,
         gaussian_prior_factory: Callable[..., GaussianPrior],
@@ -36,6 +40,7 @@ class TestGaussianPriorInitialization:
         prior = gaussian_prior_factory()
         assert isinstance(prior, PriorLatentEncoder)
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("latent_dimension", [16, 64])
     @pytest.mark.parametrize("infer_constant_prior", [True, False])
     def test_stores_configuration(
@@ -52,7 +57,63 @@ class TestGaussianPriorInitialization:
         assert prior.infer_constant_prior is infer_constant_prior
 
 
+class TestGaussianPriorGetAuxiliaryOutputKeys:
+    @pytest.mark.unit
+    def test_returns_gaussian_keys(
+        self,
+        gaussian_prior_factory: Callable[..., GaussianPrior],
+    ) -> None:
+        prior = gaussian_prior_factory(latent_dimension=8)
+        keys = prior.get_auxiliary_output_keys()
+        assert keys == {
+            LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_MU.value,
+            LatentKey.PRIOR_LOGVAR.value,
+        }
+
+
 class TestGaussianPriorForward:
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "use_none_target, expectation",
+        [
+            (
+                False,
+                does_not_raise(),
+            ),
+            (
+                True,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "GaussianPrior.forward() requires target_latents to "
+                        "infer shape. Use sample_prior() for unconditional "
+                        "sampling."
+                    ),
+                ),
+            ),
+        ],
+    )
+    def test_target_latents_validation(
+        self,
+        gaussian_prior_factory: Callable[..., GaussianPrior],
+        input_tensor_factory: Callable[..., torch.Tensor],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        use_none_target: bool,
+        expectation: AbstractContextManager,
+    ):
+        latent_dimension = 32
+        prior = gaussian_prior_factory(latent_dimension=latent_dimension)
+        observations = feature_dictionary_factory(batch_size=2)
+        target_latents = (
+            None
+            if use_none_target
+            else input_tensor_factory(batch_size=2, input_dimension=latent_dimension)
+        )
+        with expectation:
+            prior.forward(target_latents=target_latents, observations=observations)
+
+    @pytest.mark.unit
     def test_returns_prior_keys(
         self,
         gaussian_prior_factory: Callable[..., GaussianPrior],
@@ -70,16 +131,13 @@ class TestGaussianPriorForward:
             target_latents=target_latents,
             observations=observations,
         )
-        assert isinstance(result, dict)
         assert set(result.keys()) == {
             LatentKey.PRIOR_MU.value,
             LatentKey.PRIOR_LOGVAR.value,
             LatentKey.PRIOR_LATENT.value,
         }
-        assert isinstance(result[LatentKey.PRIOR_MU.value], torch.Tensor)
-        assert isinstance(result[LatentKey.PRIOR_LOGVAR.value], torch.Tensor)
-        assert isinstance(result[LatentKey.PRIOR_LATENT.value], torch.Tensor)
 
+    @pytest.mark.unit
     def test_mu_is_zero(
         self,
         gaussian_prior_factory: Callable[..., GaussianPrior],
@@ -99,6 +157,7 @@ class TestGaussianPriorForward:
         )
         assert torch.all(result[LatentKey.PRIOR_MU.value] == 0.0)
 
+    @pytest.mark.unit
     def test_logvar_is_zero(
         self,
         gaussian_prior_factory: Callable[..., GaussianPrior],
@@ -118,6 +177,7 @@ class TestGaussianPriorForward:
         )
         assert torch.all(result[LatentKey.PRIOR_LOGVAR.value] == 0.0)
 
+    @pytest.mark.unit
     def test_output_shapes(
         self,
         gaussian_prior_factory: Callable[..., GaussianPrior],
@@ -148,6 +208,7 @@ class TestGaussianPriorForward:
 
 
 class TestGaussianPriorSamplePrior:
+    @pytest.mark.unit
     @pytest.mark.parametrize("batch_size", [1, 4])
     @pytest.mark.parametrize("latent_dimension", [16, 64])
     def test_sample_shape(
@@ -160,6 +221,7 @@ class TestGaussianPriorSamplePrior:
         sample = prior.sample_prior(batch_size=batch_size)
         assert sample.shape == (batch_size, latent_dimension)
 
+    @pytest.mark.unit
     def test_standard_normal_sampling(
         self,
         gaussian_prior_factory: Callable[..., GaussianPrior],
@@ -171,6 +233,7 @@ class TestGaussianPriorSamplePrior:
         sample = prior.sample_prior(batch_size=4)
         assert not torch.all(sample == 0.0)
 
+    @pytest.mark.unit
     def test_constant_prior_returns_zeros(
         self,
         gaussian_prior_factory: Callable[..., GaussianPrior],
@@ -182,6 +245,7 @@ class TestGaussianPriorSamplePrior:
         sample = prior.sample_prior(batch_size=4)
         assert torch.all(sample == 0.0)
 
+    @pytest.mark.unit
     def test_observations_ignored(
         self,
         gaussian_prior_factory: Callable[..., GaussianPrior],

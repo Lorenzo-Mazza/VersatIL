@@ -102,6 +102,26 @@ class TestVAETransformerEncoderInitialization:
         )
 
 
+class TestVAETransformerEncoderGetAuxiliaryOutputKeys:
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "deterministic, expect_logvar",
+        [(False, True), (True, False)],
+        ids=["stochastic_includes_logvar", "deterministic_excludes_logvar"],
+    )
+    def test_logvar_presence_depends_on_deterministic(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+        deterministic: bool,
+        expect_logvar: bool,
+    ) -> None:
+        encoder = vae_encoder_factory(deterministic=deterministic, latent_dimension=8)
+        keys = encoder.get_auxiliary_output_keys()
+        assert LatentKey.POSTERIOR_LATENT.value in keys
+        assert LatentKey.POSTERIOR_MU.value in keys
+        assert (LatentKey.POSTERIOR_LOGVAR.value in keys) == expect_logvar
+
+
 class TestVAETransformerEncoderEncode:
     def test_deterministic_returns_exact_keys(
         self,

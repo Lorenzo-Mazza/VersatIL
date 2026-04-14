@@ -85,6 +85,24 @@ class MaximumMeanDiscrepancyLossConfig(BaseLossConfig):
 
 
 @dataclass
+class VQCommitmentLossConfig(BaseLossConfig):
+    """Configuration for VQ commitment loss."""
+
+    _target_: str = "versatil.metrics.components.VQCommitmentLoss"
+    num_codes: int = MISSING
+    num_residual_layers: int = MISSING
+    weight: float = 1.0
+
+
+@dataclass
+class VQPriorCrossEntropyLossConfig(BaseLossConfig):
+    """Configuration for VQ prior cross-entropy loss."""
+
+    _target_: str = "versatil.metrics.components.VQPriorCrossEntropyLoss"
+    weight: float = 1.0
+
+
+@dataclass
 class BinaryMaximumMeanDiscrepancyLossConfig(BaseLossConfig):
     """Configuration for Binary Maximum Mean Discrepancy (MMD) loss."""
 
@@ -198,8 +216,10 @@ class OptimalTransportLossConfig(BaseLossConfig):
     _target_: str = "versatil.metrics.ot_loss.OptimalTransportLoss"
     action_keys: list[str] = MISSING
     weight: float = 1.0
-    p: int = 1
-    epsilon: float = 0.01
+    p: int = 2
+    blur_fraction: float = 0.1
+    reach_multiplier: float | None = None
+    expected_std: float = 1.0
     time_scale: float = 1.0
 
 
@@ -210,4 +230,5 @@ class LatentOptimalTransportLossConfig(BaseLossConfig):
     _target_: str = "versatil.metrics.ot_loss.LatentOptimalTransportLoss"
     weight: float = 1.0
     p: int = 2
-    epsilon: float = 0.01
+    blur_fraction: float = 0.1
+    reach_multiplier: float | None = None

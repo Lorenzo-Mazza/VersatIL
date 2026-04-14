@@ -12,7 +12,10 @@ loss_modules:
         - ${proprio_key:CAMERA_FRAME_CARTESIAN_TIP_POS}
       weight: 1.0
       p: 2
-      epsilon: 0.01
+      blur_fraction: 0.1
+      reach_multiplier: null
+      expected_std: 0.577
+      time_scale: 1.0
 
     gripper_loss:
       _target_: versatil.metrics.components.GripperLoss

@@ -345,10 +345,10 @@ class TestResolveBandwidth:
     def test_median_heuristic_returns_scaled_median(self, point_set_factory: Callable):
         x = point_set_factory(num_points=20, dimension=4)
         y = point_set_factory(num_points=20, dimension=4)
+        combined = torch.cat([x, y], dim=0)
         kernel = RBFKernel(use_median_heuristic=True)
 
-        base = kernel._resolve_base_bandwidth(x, y)
-        combined = torch.cat([x, y], dim=0)
+        base = kernel.resolve_base_bandwidth(combined)
         expected = 2.0 * kernel.compute_median_squared_distance(combined)
 
         assert base == pytest.approx(expected, rel=1e-5)
@@ -356,11 +356,67 @@ class TestResolveBandwidth:
     def test_fixed_bandwidth_returns_one(self, point_set_factory: Callable):
         x = point_set_factory(num_points=20, dimension=4)
         y = point_set_factory(num_points=20, dimension=4)
+        combined = torch.cat([x, y], dim=0)
         kernel = RBFKernel(use_median_heuristic=False)
 
-        base = kernel._resolve_base_bandwidth(x, y)
+        base = kernel.resolve_base_bandwidth(combined)
 
         assert base == 1.0
+
+
+@pytest.mark.unit
+class TestKernelAcceptsExplicitBandwidth:
+    def test_rbf_explicit_bandwidth_differs_from_auto(
+        self, point_set_factory: Callable
+    ):
+        x = point_set_factory(num_points=20, dimension=4)
+        y = point_set_factory(num_points=20, dimension=4)
+        kernel = RBFKernel(bandwidth_multipliers=[1.0], use_median_heuristic=True)
+        auto_bandwidth = kernel.resolve_base_bandwidth(torch.cat([x, y], dim=0))
+
+        k_auto = kernel(x, y)
+        k_override = kernel(x, y, bandwidth=auto_bandwidth * 10.0)
+
+        assert not torch.allclose(k_auto, k_override)
+
+    def test_imq_explicit_bandwidth_differs_from_auto(
+        self, point_set_factory: Callable
+    ):
+        x = point_set_factory(num_points=20, dimension=4)
+        y = point_set_factory(num_points=20, dimension=4)
+        kernel = IMQKernel(bandwidth_multipliers=[1.0], use_median_heuristic=True)
+        auto_bandwidth = kernel.resolve_base_bandwidth(torch.cat([x, y], dim=0))
+
+        k_auto = kernel(x, y)
+        k_override = kernel(x, y, bandwidth=auto_bandwidth * 10.0)
+
+        assert not torch.allclose(k_auto, k_override)
+
+    def test_rbf_explicit_bandwidth_matches_auto_when_equal(
+        self, point_set_factory: Callable
+    ):
+        x = point_set_factory(num_points=20, dimension=4)
+        y = point_set_factory(num_points=20, dimension=4)
+        kernel = RBFKernel(use_median_heuristic=True)
+        auto_bandwidth = kernel.resolve_base_bandwidth(torch.cat([x, y], dim=0))
+
+        k_auto = kernel(x, y)
+        k_explicit = kernel(x, y, bandwidth=auto_bandwidth)
+
+        assert torch.allclose(k_auto, k_explicit, atol=1e-6)
+
+    def test_imq_explicit_bandwidth_matches_auto_when_equal(
+        self, point_set_factory: Callable
+    ):
+        x = point_set_factory(num_points=20, dimension=4)
+        y = point_set_factory(num_points=20, dimension=4)
+        kernel = IMQKernel(use_median_heuristic=True)
+        auto_bandwidth = kernel.resolve_base_bandwidth(torch.cat([x, y], dim=0))
+
+        k_auto = kernel(x, y)
+        k_explicit = kernel(x, y, bandwidth=auto_bandwidth)
+
+        assert torch.allclose(k_auto, k_explicit, atol=1e-6)
 
 
 @pytest.mark.unit

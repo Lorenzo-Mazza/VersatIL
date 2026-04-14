@@ -148,6 +148,16 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         )
         self.to(device)
 
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """Gaussian posterior keys, excluding logvar when deterministic."""
+        keys = {
+            LatentKey.POSTERIOR_LATENT.value,
+            LatentKey.POSTERIOR_MU.value,
+        }
+        if not self.deterministic:
+            keys.add(LatentKey.POSTERIOR_LOGVAR.value)
+        return keys
+
     def encode(
         self,
         actions: dict[str, torch.Tensor],

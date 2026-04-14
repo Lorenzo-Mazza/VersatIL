@@ -12,6 +12,8 @@ from versatil.metrics.constants import MetadataKey, MetricKey
 from versatil.metrics.ot_loss import LatentOptimalTransportLoss, OptimalTransportLoss
 from versatil.models.decoding.constants import LatentKey
 
+geomloss = pytest.importorskip("geomloss")
+
 
 @pytest.fixture
 def mock_samples_loss():

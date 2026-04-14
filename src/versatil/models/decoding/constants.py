@@ -13,6 +13,11 @@ class LatentKey(enum.StrEnum):
     PRIOR_PREDICTION = "prior_prediction"
     PRIOR_TARGET = "prior_target"
     PRIOR_LOG_PROB = "prior_log_prob"
+    VQ_INDICES = "vq_indices"
+    VQ_PRIOR_INDICES = "vq_prior_indices"
+    VQ_Z_CONTINUOUS = "vq_z_continuous"
+    VQ_QUANTIZED = "vq_quantized"
+    PRIOR_CODE_LOGITS = "prior_code_logits"
 
 
 class MoERoutingType(enum.StrEnum):

@@ -120,6 +120,12 @@ python -m versatil.endpoints.train \
     --config-name end_to_end_training_runs/bowel_retraction/act \
     task.dataloader.batch_size=64 training.optimizer.lr=1e-4
 
+# Override a defaults list entry (e.g. swap dataset schema)
+# Use slash syntax (group override), NOT dot syntax (value override)
+python -m versatil.endpoints.train \
+    --config-name end_to_end_training_runs/synthetic/action_transformer \
+    task/dataset_schema=synthetic/conditional_circle
+
 # Resume from checkpoint
 python -m versatil.endpoints.train \
     --config-name end_to_end_training_runs/bowel_retraction/act \

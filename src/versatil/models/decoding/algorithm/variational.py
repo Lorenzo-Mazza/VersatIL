@@ -21,7 +21,7 @@ from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.latent import PosteriorLatentEncoder, PriorLatentEncoder
 from versatil.models.decoding.latent.prior.gaussian_prior import GaussianPrior
-from versatil.models.decoding.latent.prior.vamp_prior import VampPrior
+from versatil.models.decoding.latent.protocols import RequiresPosteriorWiring
 from versatil.training.callbacks import LatentVisualizationCallback
 
 
@@ -76,8 +76,8 @@ class VariationalAlgorithm(DecodingAlgorithm):
                 f"Latent dimension mismatch: prior.latent_dim={self.prior.latent_dimension} "
                 f"!= posterior_encoder.latent_dim={self.posterior_encoder.latent_dimension}"
             )
-        if isinstance(self.prior, VampPrior):
-            self.prior.set_encoder(self.posterior_encoder)
+        if isinstance(self.prior, RequiresPosteriorWiring):
+            self.prior.wire_posterior(self.posterior_encoder)
 
     def get_callbacks(self, experiment_config: ExperimentConfig) -> list:
         """Provide latent visualization callback for variational inference monitoring."""
@@ -90,20 +90,8 @@ class VariationalAlgorithm(DecodingAlgorithm):
     def get_auxiliary_output_keys(self) -> set[str]:
         """Variational algorithm adds latent variable keys to the output."""
         keys = self.base_algorithm.get_auxiliary_output_keys()
-        keys.update(
-            {
-                LatentKey.POSTERIOR_LATENT.value,
-                LatentKey.POSTERIOR_MU.value,
-                LatentKey.PRIOR_LATENT.value,
-                LatentKey.PRIOR_MU.value,
-                LatentKey.PRIOR_PREDICTION.value,
-                LatentKey.PRIOR_TARGET.value,
-            }
-        )
-        if not getattr(self.posterior_encoder, "deterministic", False):
-            keys.add(LatentKey.POSTERIOR_LOGVAR.value)
-        if not getattr(self.prior, "deterministic", False):
-            keys.add(LatentKey.PRIOR_LOGVAR.value)
+        keys.update(self.posterior_encoder.get_auxiliary_output_keys())
+        keys.update(self.prior.get_auxiliary_output_keys())
         return keys
 
     def _variational_step(

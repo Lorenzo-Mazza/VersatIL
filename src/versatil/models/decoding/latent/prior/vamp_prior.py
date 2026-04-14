@@ -75,20 +75,23 @@ class VampPrior(PriorLatentEncoder):
         self._encoder: PosteriorLatentEncoder | None = None
         self.to(torch.device(device))
 
-    def set_encoder(self, encoder: PosteriorLatentEncoder) -> None:
-        """Set the posterior encoder used to compute mixture components.
+    def wire_posterior(self, posterior: PosteriorLatentEncoder) -> None:
+        """Wire shared state from the posterior encoder.
+
+        Extracts the encoder reference needed to compute mixture
+        components from learnable pseudo-inputs.
 
         Args:
-            encoder: Posterior encoder that maps inputs to (mu, logvar)
+            posterior: Posterior encoder that maps inputs to (mu, logvar).
         """
-        self._encoder = encoder
+        self._encoder = posterior
 
     @property
     def encoder(self) -> PosteriorLatentEncoder:
         """Get the posterior encoder."""
         if self._encoder is None:
             raise RuntimeError(
-                "VampPrior encoder not set. Call set_encoder() first or ensure "
+                "VampPrior encoder not set. Call wire_posterior() first or ensure "
                 "VariationalAlgorithm properly initializes the prior."
             )
         return self._encoder
@@ -144,7 +147,7 @@ class VampPrior(PriorLatentEncoder):
 
     def forward(
         self,
-        target_latents: torch.Tensor,
+        target_latents: torch.Tensor | None,
         observations: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Compute prior log probability for training.
@@ -159,6 +162,11 @@ class VampPrior(PriorLatentEncoder):
         Returns:
             Dictionary with LatentKey.PRIOR_LATENT and LatentKey.PRIOR_LOG_PROB
         """
+        if target_latents is None:
+            raise ValueError(
+                "VampPrior.forward() requires target_latents for log-prob "
+                "computation. Use sample_prior() for inference."
+            )
         batch_size = target_latents.size(0)
         z = self.sample_prior(batch_size, observations)
         log_prob = self.log_prob(target_latents)

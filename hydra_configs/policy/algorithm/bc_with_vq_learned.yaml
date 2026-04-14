@@ -1,0 +1,29 @@
+defaults:
+  - posterior/vq_encoder@posterior_encoder
+  - prior/codebook@prior
+  - variational
+
+_target_: versatil.models.decoding.algorithm.variational.VariationalAlgorithm
+sampling_from_prior_probability: 0.0
+base_algorithm:
+  _target_: versatil.models.decoding.algorithm.behavior_cloning.BehavioralCloning
+
+posterior_encoder:
+  latent_dimension: 8
+  num_codes: 2
+  num_residual_layers: 1
+  embedding_dimension: 64
+  number_of_heads: 4
+  feedforward_dimension: 128
+  number_of_encoder_layers: 1
+  dropout_rate: 0.0
+
+prior:
+  latent_dimension: 8
+  num_codes: 2
+  num_residual_layers: 1
+  embedding_dimension: 64
+  number_of_heads: 4
+  feedforward_dimension: 128
+  number_of_encoder_layers: 1
+  dropout_rate: 0.0

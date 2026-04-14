@@ -73,13 +73,16 @@ from versatil.configs.decoding.decoder import (
     SmolVLADecoderConfig,
 )
 from versatil.configs.decoding.latent import (
+    CodebookPriorConfig,
     DiTPriorConfig,
     GaussianPriorConfig,
     PosteriorLatentEncoderConfig,
     PriorLatentEncoderConfig,
     PriorTransformerEncoderConfig,
+    UniformCodebookPriorConfig,
     VAETransformerEncoderConfig,
     VampPriorConfig,
+    VQPosteriorEncoderConfig,
 )
 from versatil.configs.encoding.encoder import (
     ConditionalCNNEncoderConfig,
@@ -127,6 +130,8 @@ from versatil.configs.loss import (
     TrajectoryLengthLossConfig,
     TrajectorySmoothnessConfig,
     VICLatentLossConfig,
+    VQCommitmentLossConfig,
+    VQPriorCrossEntropyLossConfig,
 )
 from versatil.configs.main import MainConfig
 from versatil.configs.policy import PolicyConfig
@@ -653,6 +658,21 @@ def register_configs():
     )
     cs.store(group="policy/algorithm/prior", name="vamp", node=VampPriorConfig)
     cs.store(
+        group="policy/algorithm/posterior",
+        name="vq_encoder",
+        node=VQPosteriorEncoderConfig,
+    )
+    cs.store(
+        group="policy/algorithm/prior",
+        name="uniform_codebook",
+        node=UniformCodebookPriorConfig,
+    )
+    cs.store(
+        group="policy/algorithm/prior",
+        name="codebook",
+        node=CodebookPriorConfig,
+    )
+    cs.store(
         group="policy/algorithm/prior",
         name="dit",
         node=DiTPriorConfig,
@@ -665,6 +685,12 @@ def register_configs():
     cs.store(group="policy/loss", name="entropy", node=GaussianEntropyLossConfig)
     cs.store(group="policy/loss", name="kl", node=KLDivergenceLossConfig)
     cs.store(group="policy/loss", name="vic_latent", node=VICLatentLossConfig)
+    cs.store(group="policy/loss", name="vq_commitment", node=VQCommitmentLossConfig)
+    cs.store(
+        group="policy/loss",
+        name="vq_prior_ce",
+        node=VQPriorCrossEntropyLossConfig,
+    )
     cs.store(group="policy/loss", name="mmd", node=MaximumMeanDiscrepancyLossConfig)
     cs.store(
         group="policy/loss",

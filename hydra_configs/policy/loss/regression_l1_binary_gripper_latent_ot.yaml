@@ -23,7 +23,8 @@ loss_modules:
     latent_wasserstein:
       weight: 20.0
       p: 2
-      epsilon: 0.01
+      blur_fraction: 0.1
+      reach_multiplier: null
 
     trajectory_length:
         _target_: versatil.metrics.components.TrajectoryLengthLoss

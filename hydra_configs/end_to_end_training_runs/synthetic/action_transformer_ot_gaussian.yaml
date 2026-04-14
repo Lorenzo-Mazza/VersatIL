@@ -1,0 +1,61 @@
+# @package _global_
+# Variational AT with Sinkhorn OT latent regularization (fixed Gaussian prior).
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: default
+  - /task/dataset_schema: synthetic/circle
+  - /task/dataloader: synthetic_default
+  - /task/action_space: synthetic_2d
+  - /task/observation_space: synthetic_image_state
+  - /training: synthetic
+  - /policy/encoding_pipeline: mono_rgb
+  - /policy/decoder: action_transformer
+  - /policy/algorithm: bc_with_vae_gaussian
+  - /policy/loss: regression_OT
+  - /inference: default
+  - override /policy/decoder/heads@policy.decoder.action_heads: synthetic_2d
+  - _self_
+
+task:
+  observation_horizon: 1
+  prediction_horizon: 60
+
+experiment:
+  checkpoint_folder: ${checkpoint_dir:synthetic}
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: true
+  encoding_pipeline:
+    encoders:
+      left:
+        input_keys:
+          - ${cameras:AGENTVIEW}
+        backbone: ${rgb_backbone:MOBILENETV4_SMALL_050}
+  decoder:
+    input_keys:
+      - left_rgb
+    embedding_dimension: 64
+    number_of_heads: 4
+    feedforward_dimension: 128
+    number_of_layers: 2
+  algorithm:
+    posterior_encoder:
+      latent_dimension: 1
+      embedding_dimension: 64
+      number_of_heads: 4
+      feedforward_dimension: 128
+      number_of_encoder_layers: 1
+      dropout_rate: 0.0
+      device: ${policy.device}
+      min_logvar: -4.0
+    prior:
+      latent_dimension: 1

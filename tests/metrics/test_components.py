@@ -2,7 +2,10 @@
 
 import math
 import re
-from unittest.mock import MagicMock
+from collections.abc import Callable
+from contextlib import AbstractContextManager
+from contextlib import nullcontext as does_not_raise
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -34,6 +37,8 @@ from versatil.metrics.components import (
     TrajectoryLengthLoss,
     TrajectorySmoothness,
     VICLatentLoss,
+    VQCommitmentLoss,
+    VQPriorCrossEntropyLoss,
 )
 from versatil.metrics.constants import MetadataKey, MetricKey
 from versatil.metrics.kernels import KernelType
@@ -772,6 +777,83 @@ class TestMaximumMeanDiscrepancyLossForward:
 
 
 @pytest.mark.unit
+class TestMaximumMeanDiscrepancyLossSharedBandwidth:
+    def test_all_three_kernel_calls_use_same_bandwidth(
+        self, latent_sample_factory: Callable[..., torch.Tensor]
+    ):
+        predictions = {
+            LatentKey.POSTERIOR_LATENT.value: latent_sample_factory(),
+            LatentKey.PRIOR_LATENT.value: latent_sample_factory(),
+        }
+        loss = MaximumMeanDiscrepancyLoss(weight=1.0, use_median_heuristic=True)
+
+        with patch.object(
+            loss.kernel, "forward", wraps=loss.kernel.forward
+        ) as kernel_spy:
+            loss(predictions, {})
+
+        assert kernel_spy.call_count == 3
+        bandwidths = [call.kwargs["bandwidth"] for call in kernel_spy.call_args_list]
+        assert bandwidths[0] is not None
+        assert bandwidths[0] == bandwidths[1] == bandwidths[2]
+
+    def test_shared_bandwidth_equals_resolved_from_combined_samples(
+        self, latent_sample_factory: Callable[..., torch.Tensor]
+    ):
+        z_posterior = latent_sample_factory()
+        z_prior = latent_sample_factory()
+        predictions = {
+            LatentKey.POSTERIOR_LATENT.value: z_posterior,
+            LatentKey.PRIOR_LATENT.value: z_prior,
+        }
+        loss = MaximumMeanDiscrepancyLoss(weight=1.0, use_median_heuristic=True)
+        expected_bandwidth = loss.kernel.resolve_base_bandwidth(
+            torch.cat([z_posterior, z_prior], dim=0)
+        )
+
+        with patch.object(
+            loss.kernel, "forward", wraps=loss.kernel.forward
+        ) as kernel_spy:
+            loss(predictions, {})
+
+        used_bandwidth = kernel_spy.call_args_list[0].kwargs["bandwidth"]
+        assert used_bandwidth == pytest.approx(expected_bandwidth, rel=1e-6)
+
+    def test_prior_regularization_uses_own_shared_bandwidth(
+        self, latent_sample_factory: Callable[..., torch.Tensor]
+    ):
+        predictions = {
+            LatentKey.POSTERIOR_LATENT.value: latent_sample_factory(),
+            LatentKey.PRIOR_LATENT.value: latent_sample_factory(),
+        }
+        loss = MaximumMeanDiscrepancyLoss(
+            weight=1.0,
+            prior_regularization_weight=1.0,
+            use_median_heuristic=True,
+        )
+
+        with patch.object(
+            loss.kernel, "forward", wraps=loss.kernel.forward
+        ) as kernel_spy:
+            loss(predictions, {})
+
+        assert kernel_spy.call_count == 6
+        main_bandwidths = [
+            call.kwargs["bandwidth"] for call in kernel_spy.call_args_list[:3]
+        ]
+        regularization_bandwidths = [
+            call.kwargs["bandwidth"] for call in kernel_spy.call_args_list[3:]
+        ]
+        assert main_bandwidths[0] == main_bandwidths[1] == main_bandwidths[2]
+        assert (
+            regularization_bandwidths[0]
+            == regularization_bandwidths[1]
+            == regularization_bandwidths[2]
+        )
+        assert main_bandwidths[0] != regularization_bandwidths[0]
+
+
+@pytest.mark.unit
 class TestBinaryMaximumMeanDiscrepancyLossForward:
     def test_raises_on_missing_key(self):
         loss = BinaryMaximumMeanDiscrepancyLoss()
@@ -828,6 +910,21 @@ class TestBinaryMaximumMeanDiscrepancyLossForward:
         assert output.total_loss.item() == pytest.approx(
             weight * mmd_component, rel=1e-4
         )
+
+    def test_all_three_kernel_calls_use_same_bandwidth(self, rng: np.random.Generator):
+        logits = torch.from_numpy(rng.standard_normal((16, 4, 8)).astype(np.float32))
+        predictions = {DecoderOutputKey.BINARY_LOGITS.value: logits}
+        loss = BinaryMaximumMeanDiscrepancyLoss(weight=1.0)
+
+        with patch.object(
+            loss.kernel, "forward", wraps=loss.kernel.forward
+        ) as kernel_spy:
+            loss(predictions, {})
+
+        assert kernel_spy.call_count == 3
+        bandwidths = [call.kwargs["bandwidth"] for call in kernel_spy.call_args_list]
+        assert bandwidths[0] is not None
+        assert bandwidths[0] == bandwidths[1] == bandwidths[2]
 
 
 @pytest.mark.unit
@@ -1203,6 +1300,26 @@ class TestGaussianMixtureNLLossForward:
         output = loss(predictions, targets)
         assert output.total_loss.isfinite()
 
+    def test_fixed_variance_reads_mean_key_from_gaussian_head(self):
+        batch_size, horizon, num_experts, action_dim = 2, 3, 2, 2
+        target = torch.zeros(batch_size, horizon, action_dim)
+        means = torch.zeros(batch_size, horizon, num_experts, action_dim)
+        means[:, :, 0] = 0.0
+        routing_weights = torch.tensor([[0.5, 0.5]])
+        predictions = {
+            "position_mean": means,
+            "position_logvar": torch.zeros_like(means),
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        targets = {"position": target}
+        loss = GaussianMixtureNLLoss(
+            action_keys=["position"],
+            learned_variance=False,
+            sigmas={"position": 1.0},
+        )
+        output = loss(predictions, targets)
+        assert output.total_loss.isfinite()
+
     def test_weight_scales_output(self, rng):
         batch_size, horizon, num_experts, action_dim = 2, 3, 2, 2
         target_data = rng.standard_normal((batch_size, horizon, action_dim)).astype(
@@ -1467,3 +1584,397 @@ class TestVICLatentLossForward:
             ),
         ):
             loss({}, {})
+
+
+class TestVQCommitmentLoss:
+    @pytest.fixture
+    def vq_predictions_factory(
+        self, rng: np.random.Generator
+    ) -> Callable[..., dict[str, torch.Tensor]]:
+
+        def factory(
+            batch_size: int = 8,
+            code_dim: int = 16,
+            num_codes: int = 4,
+            num_layers: int = 1,
+        ) -> dict[str, torch.Tensor]:
+            z_continuous = torch.from_numpy(
+                rng.standard_normal((num_layers, batch_size, code_dim)).astype(
+                    np.float32
+                )
+            )
+            z_quantized = torch.from_numpy(
+                rng.standard_normal((num_layers, batch_size, code_dim)).astype(
+                    np.float32
+                )
+            )
+            all_indices = [
+                torch.from_numpy(
+                    rng.integers(0, num_codes, size=(batch_size,)).astype(np.int64)
+                )
+                for _ in range(num_layers)
+            ]
+            return {
+                LatentKey.VQ_Z_CONTINUOUS.value: z_continuous,
+                LatentKey.VQ_QUANTIZED.value: z_quantized,
+                LatentKey.VQ_INDICES.value: all_indices,
+            }
+
+        return factory
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("weight", [0.5, 1.0, 10.0])
+    def test_stores_weight(self, weight: float) -> None:
+        loss = VQCommitmentLoss(num_codes=4, num_residual_layers=1, weight=weight)
+        assert loss.weight == weight
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "num_codes, num_residual_layers",
+        [(4, 1), (16, 2), (8, 4)],
+    )
+    def test_stores_codebook_dimensions(
+        self, num_codes: int, num_residual_layers: int
+    ) -> None:
+        loss = VQCommitmentLoss(
+            num_codes=num_codes,
+            num_residual_layers=num_residual_layers,
+        )
+        assert loss.num_codes == num_codes
+        assert loss.num_residual_layers == num_residual_layers
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "num_codes, num_residual_layers, expectation",
+        [
+            (4, 1, does_not_raise()),
+            (
+                0,
+                1,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("num_codes must be positive, got 0."),
+                ),
+            ),
+            (
+                -1,
+                1,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("num_codes must be positive, got -1."),
+                ),
+            ),
+            (
+                4,
+                0,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("num_residual_layers must be positive, got 0."),
+                ),
+            ),
+            (
+                4,
+                -2,
+                pytest.raises(
+                    ValueError,
+                    match=re.escape("num_residual_layers must be positive, got -2."),
+                ),
+            ),
+        ],
+    )
+    def test_rejects_invalid_codebook_dimensions(
+        self,
+        num_codes: int,
+        num_residual_layers: int,
+        expectation: AbstractContextManager,
+    ) -> None:
+        with expectation:
+            VQCommitmentLoss(
+                num_codes=num_codes,
+                num_residual_layers=num_residual_layers,
+            )
+
+    @pytest.mark.unit
+    def test_raises_on_missing_keys(self) -> None:
+        loss = VQCommitmentLoss(num_codes=4, num_residual_layers=1, weight=1.0)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Predictions must contain {loss.get_required_keys()} for VQCommitmentLoss."
+            ),
+        ):
+            loss.forward(predictions={}, targets={})
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("code_dim", [4, 16, 64])
+    @pytest.mark.parametrize("batch_size", [1, 8])
+    @pytest.mark.parametrize("num_layers", [1, 3])
+    def test_returns_nonnegative_scalar(
+        self,
+        vq_predictions_factory: Callable[..., dict[str, torch.Tensor]],
+        code_dim: int,
+        batch_size: int,
+        num_layers: int,
+    ) -> None:
+        loss = VQCommitmentLoss(num_codes=4, num_residual_layers=num_layers, weight=1.0)
+        predictions = vq_predictions_factory(
+            batch_size=batch_size, code_dim=code_dim, num_layers=num_layers
+        )
+        result = loss.forward(predictions=predictions, targets={})
+        assert result.total_loss.dim() == 0
+        assert result.total_loss.item() >= 0.0
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("code_dim", [4, 16])
+    def test_weight_scales_total_loss(
+        self,
+        vq_predictions_factory: Callable[..., dict[str, torch.Tensor]],
+        code_dim: int,
+    ) -> None:
+        predictions = vq_predictions_factory(batch_size=8, code_dim=code_dim)
+        result_w1 = VQCommitmentLoss(
+            num_codes=4, num_residual_layers=1, weight=1.0
+        ).forward(predictions=predictions, targets={})
+        result_w5 = VQCommitmentLoss(
+            num_codes=4, num_residual_layers=1, weight=5.0
+        ).forward(predictions=predictions, targets={})
+        assert torch.isclose(
+            result_w5.total_loss, result_w1.total_loss * 5.0, rtol=1e-5
+        )
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("num_layers", [1, 3])
+    def test_zero_loss_when_continuous_equals_quantized(
+        self, rng: np.random.Generator, num_layers: int
+    ) -> None:
+        z = torch.from_numpy(
+            rng.standard_normal((num_layers, 8, 16)).astype(np.float32)
+        )
+        predictions = {
+            LatentKey.VQ_Z_CONTINUOUS.value: z,
+            LatentKey.VQ_QUANTIZED.value: z.clone(),
+        }
+        result = VQCommitmentLoss(
+            num_codes=4, num_residual_layers=num_layers, weight=1.0
+        ).forward(predictions=predictions, targets={})
+        assert torch.isclose(result.total_loss, torch.tensor(0.0), atol=1e-6)
+
+    @pytest.mark.unit
+    def test_averages_commitment_across_layers(self, rng: np.random.Generator) -> None:
+        num_layers = 3
+        batch_size = 8
+        code_dim = 4
+        z_continuous = torch.from_numpy(
+            rng.standard_normal((num_layers, batch_size, code_dim)).astype(np.float32)
+        )
+        z_quantized = torch.from_numpy(
+            rng.standard_normal((num_layers, batch_size, code_dim)).astype(np.float32)
+        )
+        predictions = {
+            LatentKey.VQ_Z_CONTINUOUS.value: z_continuous,
+            LatentKey.VQ_QUANTIZED.value: z_quantized,
+        }
+        total = (
+            VQCommitmentLoss(num_codes=4, num_residual_layers=num_layers, weight=1.0)
+            .forward(predictions=predictions, targets={})
+            .total_loss
+        )
+
+        per_layer_mse = torch.stack(
+            [
+                F.mse_loss(z_continuous[layer_index], z_quantized[layer_index])
+                for layer_index in range(num_layers)
+            ]
+        )
+        assert torch.isclose(total, per_layer_mse.mean(), atol=1e-6)
+
+    @pytest.mark.unit
+    def test_component_losses_contains_commitment_key(
+        self,
+        vq_predictions_factory: Callable[..., dict[str, torch.Tensor]],
+    ) -> None:
+        result = VQCommitmentLoss(
+            num_codes=4, num_residual_layers=1, weight=1.0
+        ).forward(
+            predictions=vq_predictions_factory(batch_size=8, code_dim=16), targets={}
+        )
+        assert MetricKey.VQ_COMMITMENT_LOSS.value in result.component_losses
+
+    @pytest.mark.unit
+    def test_codebook_usage_in_metadata(
+        self,
+        vq_predictions_factory: Callable[..., dict[str, torch.Tensor]],
+    ) -> None:
+        result = VQCommitmentLoss(
+            num_codes=4, num_residual_layers=1, weight=1.0
+        ).forward(
+            predictions=vq_predictions_factory(batch_size=8, code_dim=16, num_codes=4),
+            targets={},
+        )
+        assert MetricKey.VQ_CODEBOOK_USAGE.value in result.metadata
+
+    @pytest.mark.unit
+    def test_codebook_usage_uses_k_times_l_denominator(self) -> None:
+        num_codes = 8
+        num_layers = 2
+        batch_size = 16
+        z = torch.zeros((num_layers, batch_size, 4))
+        # Layer 0: all 8 distinct codes used (0..7 twice). Layer 1: only 4
+        # distinct codes used. Total distinct = 8 + 4 = 12; capacity = K*L = 16.
+        layer_0 = torch.arange(batch_size) % num_codes
+        layer_1 = torch.arange(batch_size) % 4
+        predictions = {
+            LatentKey.VQ_Z_CONTINUOUS.value: z,
+            LatentKey.VQ_QUANTIZED.value: z.clone(),
+            LatentKey.VQ_INDICES.value: [layer_0, layer_1],
+        }
+        result = VQCommitmentLoss(
+            num_codes=num_codes, num_residual_layers=num_layers, weight=1.0
+        ).forward(predictions=predictions, targets={})
+        expected_usage = (num_codes + 4) / (num_codes * num_layers)
+        assert result.metadata[MetricKey.VQ_CODEBOOK_USAGE.value] == pytest.approx(
+            expected_usage
+        )
+
+    @pytest.mark.unit
+    def test_codebook_usage_absent_when_indices_not_provided(
+        self, rng: np.random.Generator
+    ) -> None:
+        z = torch.from_numpy(rng.standard_normal((1, 8, 16)).astype(np.float32))
+        predictions = {
+            LatentKey.VQ_Z_CONTINUOUS.value: z,
+            LatentKey.VQ_QUANTIZED.value: z.clone(),
+        }
+        result = VQCommitmentLoss(
+            num_codes=4, num_residual_layers=1, weight=1.0
+        ).forward(predictions=predictions, targets={})
+        assert MetricKey.VQ_CODEBOOK_USAGE.value not in result.metadata
+
+
+class TestVQPriorCrossEntropyLoss:
+    @pytest.fixture
+    def prior_ce_predictions_factory(
+        self, rng: np.random.Generator
+    ) -> Callable[..., dict[str, torch.Tensor]]:
+
+        def factory(
+            batch_size: int = 8,
+            num_codes: int = 4,
+            num_layers: int = 1,
+        ) -> dict[str, torch.Tensor]:
+            all_logits = [
+                torch.from_numpy(
+                    rng.standard_normal((batch_size, num_codes)).astype(np.float32)
+                )
+                for _ in range(num_layers)
+            ]
+            all_indices = [
+                torch.from_numpy(
+                    rng.integers(0, num_codes, size=(batch_size,)).astype(np.int64)
+                )
+                for _ in range(num_layers)
+            ]
+            return {
+                LatentKey.PRIOR_CODE_LOGITS.value: all_logits,
+                LatentKey.VQ_INDICES.value: all_indices,
+            }
+
+        return factory
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("weight", [0.5, 1.0, 10.0])
+    def test_stores_weight(self, weight: float) -> None:
+        loss = VQPriorCrossEntropyLoss(weight=weight)
+        assert loss.weight == weight
+
+    @pytest.mark.unit
+    def test_raises_on_missing_keys(self) -> None:
+        loss = VQPriorCrossEntropyLoss(weight=1.0)
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"Predictions must contain {loss.get_required_keys()} for VQPriorCrossEntropyLoss."
+            ),
+        ):
+            loss.forward(predictions={}, targets={})
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("num_codes", [2, 4, 16])
+    @pytest.mark.parametrize("num_layers", [1, 2])
+    @pytest.mark.parametrize("batch_size", [1, 8])
+    def test_returns_nonnegative_scalar(
+        self,
+        prior_ce_predictions_factory: Callable[..., dict[str, torch.Tensor]],
+        num_codes: int,
+        num_layers: int,
+        batch_size: int,
+    ) -> None:
+        loss = VQPriorCrossEntropyLoss(weight=1.0)
+        predictions = prior_ce_predictions_factory(
+            batch_size=batch_size, num_codes=num_codes, num_layers=num_layers
+        )
+        result = loss.forward(predictions=predictions, targets={})
+        assert result.total_loss.dim() == 0
+        assert result.total_loss.item() >= 0.0
+
+    @pytest.mark.unit
+    def test_weight_scales_total_loss(
+        self,
+        prior_ce_predictions_factory: Callable[..., dict[str, torch.Tensor]],
+    ) -> None:
+        predictions = prior_ce_predictions_factory(batch_size=8, num_codes=4)
+        result_w1 = VQPriorCrossEntropyLoss(weight=1.0).forward(
+            predictions=predictions, targets={}
+        )
+        result_w5 = VQPriorCrossEntropyLoss(weight=5.0).forward(
+            predictions=predictions, targets={}
+        )
+        assert torch.isclose(
+            result_w5.total_loss, result_w1.total_loss * 5.0, rtol=1e-5
+        )
+
+    @pytest.mark.unit
+    def test_perfect_prior_gives_low_loss(self, rng: np.random.Generator) -> None:
+        batch_size = 8
+        num_codes = 4
+        indices = torch.from_numpy(
+            rng.integers(0, num_codes, size=(batch_size,)).astype(np.int64)
+        )  # (B,)
+        logits = torch.full((batch_size, num_codes), -10.0)  # (B, K)
+        for i in range(batch_size):
+            logits[i, indices[i]] = 10.0
+        predictions = {
+            LatentKey.PRIOR_CODE_LOGITS.value: [logits],
+            LatentKey.VQ_INDICES.value: [indices],
+        }
+        result = VQPriorCrossEntropyLoss(weight=1.0).forward(
+            predictions=predictions, targets={}
+        )
+        assert result.total_loss.item() < 0.01
+
+    @pytest.mark.unit
+    def test_uniform_prior_gives_log_k_loss(self) -> None:
+        batch_size = 64
+        num_codes = 4
+        logits = torch.zeros(batch_size, num_codes)  # uniform logits
+        indices = torch.zeros(batch_size, dtype=torch.long)
+        predictions = {
+            LatentKey.PRIOR_CODE_LOGITS.value: [logits],
+            LatentKey.VQ_INDICES.value: [indices],
+        }
+        result = VQPriorCrossEntropyLoss(weight=1.0).forward(
+            predictions=predictions, targets={}
+        )
+        expected_ce = torch.log(torch.tensor(float(num_codes)))
+        assert torch.isclose(result.total_loss, expected_ce, atol=0.01)
+
+    @pytest.mark.unit
+    def test_component_losses_contains_ce_key(
+        self,
+        prior_ce_predictions_factory: Callable[..., dict[str, torch.Tensor]],
+    ) -> None:
+        result = VQPriorCrossEntropyLoss(weight=1.0).forward(
+            predictions=prior_ce_predictions_factory(batch_size=8, num_codes=4),
+            targets={},
+        )
+        assert MetricKey.VQ_PRIOR_CROSS_ENTROPY.value in result.component_losses

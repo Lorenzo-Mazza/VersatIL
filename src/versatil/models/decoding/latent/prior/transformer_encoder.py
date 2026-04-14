@@ -110,9 +110,19 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         )
         self.to(device)
 
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """Gaussian prior keys, excluding logvar when deterministic."""
+        keys = {
+            LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_MU.value,
+        }
+        if not self.deterministic:
+            keys.add(LatentKey.PRIOR_LOGVAR.value)
+        return keys
+
     def forward(
         self,
-        target_latents: torch.Tensor,
+        target_latents: torch.Tensor | None,
         observations: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Encode observation features to latent space z embedding using Variational Inference.

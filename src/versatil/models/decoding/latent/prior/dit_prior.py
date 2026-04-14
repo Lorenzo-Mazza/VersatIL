@@ -269,9 +269,17 @@ class DiTPrior(PriorLatentEncoder):
         )  # (B, 1, latent_dim)
         return output.squeeze(1)  # (B, latent_dim)
 
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """DiT prior outputs denoising predictions and targets."""
+        return {
+            LatentKey.PRIOR_LATENT.value,
+            LatentKey.PRIOR_PREDICTION.value,
+            LatentKey.PRIOR_TARGET.value,
+        }
+
     def forward(
         self,
-        target_latents: torch.Tensor,
+        target_latents: torch.Tensor | None,
         observations: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Compute denoising predictions for training.
@@ -283,6 +291,11 @@ class DiTPrior(PriorLatentEncoder):
         Returns:
             Dictionary with LatentKey.PRIOR_PREDICTION.value and LatentKey.PRIOR_TARGET.value.
         """
+        if target_latents is None:
+            raise ValueError(
+                "DiTPrior.forward() requires target_latents for denoising "
+                "training. Use sample_prior() for inference."
+            )
         batch_size = target_latents.shape[0]
         device = target_latents.device
         filtered_obs = self._filter_observations(observations)
