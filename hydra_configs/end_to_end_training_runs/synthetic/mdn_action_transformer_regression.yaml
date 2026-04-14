@@ -16,9 +16,9 @@ defaults:
   - /policy/encoding_pipeline: mono_rgb
   - /policy/decoder: mixture_density_act
   - /policy/algorithm: behavioral_cloning
-  - /policy/loss: regression_synthetic
+  - /policy/loss: regression_moe_synthetic
   - /inference: default
-  - override /policy/decoder/heads@policy.decoder.action_heads: synthetic_2d
+  - override /policy/decoder/heads@policy.decoder.action_heads: gaussian_synthetic_2d
   - _self_
 
 task:
