@@ -1291,11 +1291,20 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         trainer.logger.log_metrics.assert_called_once()
         logged_metrics = trainer.logger.log_metrics.call_args.args[0]
         expected_keys = {
-            "posterior_latent_space_tsne",
-            "posterior_latent_space_pca",
-            "posterior_pca_explained_variance",
+            "posterior_latent_space_histogram",
+            "prior_latent_space_histogram",
         }
         assert expected_keys.issubset(set(logged_metrics.keys()))
+        # PCA/t-SNE are skipped for 1D latents — histograms replace them.
+        for pca_tsne_key in (
+            "posterior_latent_space_pca",
+            "posterior_latent_space_tsne",
+            "posterior_pca_explained_variance",
+            "prior_latent_space_pca",
+            "prior_latent_space_tsne",
+            "prior_pca_explained_variance",
+        ):
+            assert pca_tsne_key not in logged_metrics
 
     def test_skips_logging_when_both_latents_are_none(
         self,
@@ -1476,6 +1485,117 @@ class TestCreateLatentFigure:
 
 
 @pytest.mark.unit
+@pytest.mark.unit
+class TestCreateHistogramFigure:
+    def test_returns_figure_with_per_phase_overlays(
+        self,
+        latent_data_factory: Callable,
+        phase_array_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback(max_samples=500)
+        z = latent_data_factory(num_samples=200, latent_dimension=1)
+        phases = phase_array_factory(num_samples=200, num_phases=3)
+
+        fig = callback._create_histogram_figure(
+            z=z, phases=phases, title="Posterior latent space"
+        )
+
+        assert isinstance(fig, plt.Figure)
+        axes = fig.get_axes()
+        assert len(axes) == 1
+        assert "Posterior latent space histogram" in axes[0].get_title()
+        assert "per phase" in axes[0].get_title()
+        assert axes[0].get_xlabel() == "Latent value"
+        assert axes[0].get_ylabel() == "Density"
+        plt.close(fig)
+
+    def test_returns_figure_without_hue_when_phases_none(
+        self,
+        latent_data_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback(max_samples=500)
+        z = latent_data_factory(num_samples=150, latent_dimension=1)
+
+        fig = callback._create_histogram_figure(z=z, phases=None, title="Prior")
+
+        assert isinstance(fig, plt.Figure)
+        axes = fig.get_axes()
+        assert "Prior histogram" in axes[0].get_title()
+        assert "per phase" not in axes[0].get_title()
+        plt.close(fig)
+
+    def test_accepts_1d_input_shape(
+        self,
+        rng: np.random.Generator,
+    ):
+        callback = LatentVisualizationCallback(max_samples=500)
+        z = rng.standard_normal(120).astype(np.float32)
+
+        fig = callback._create_histogram_figure(z=z, phases=None, title="Posterior")
+
+        assert isinstance(fig, plt.Figure)
+        plt.close(fig)
+
+    def test_subsamples_when_exceeding_max_samples(
+        self,
+        latent_data_factory: Callable,
+        phase_array_factory: Callable,
+    ):
+        max_samples = 25
+        callback = LatentVisualizationCallback(max_samples=max_samples)
+        z = latent_data_factory(num_samples=200, latent_dimension=1)
+        phases = phase_array_factory(num_samples=200, num_phases=2)
+
+        with patch("versatil.training.callbacks.sns.histplot") as mock_histplot:
+            callback._create_histogram_figure(z=z, phases=phases, title="X")
+
+        forwarded_values = mock_histplot.call_args.kwargs["x"]
+        assert forwarded_values.shape == (max_samples,)
+
+
+@pytest.mark.unit
+class TestBuildLatentFigures:
+    def test_dispatches_to_histogram_for_1d_latent(
+        self,
+        latent_data_factory: Callable,
+        phase_array_factory: Callable,
+    ):
+        callback = LatentVisualizationCallback()
+        z = latent_data_factory(num_samples=50, latent_dimension=1)
+        phases = phase_array_factory(num_samples=50, num_phases=2)
+
+        figures = callback._build_latent_figures(
+            z=z, phases=phases, prefix="posterior", title="Posterior"
+        )
+
+        assert set(figures.keys()) == {"posterior_latent_space_histogram"}
+        for fig in figures.values():
+            plt.close(fig)
+
+    @pytest.mark.parametrize("latent_dimension", [2, 8])
+    def test_dispatches_to_pca_and_tsne_for_higher_dim(
+        self,
+        latent_data_factory: Callable,
+        phase_array_factory: Callable,
+        latent_dimension: int,
+    ):
+        callback = LatentVisualizationCallback()
+        z = latent_data_factory(num_samples=40, latent_dimension=latent_dimension)
+        phases = phase_array_factory(num_samples=40, num_phases=2)
+
+        figures = callback._build_latent_figures(
+            z=z, phases=phases, prefix="posterior", title="Posterior"
+        )
+
+        assert set(figures.keys()) == {
+            "posterior_latent_space_tsne",
+            "posterior_latent_space_pca",
+            "posterior_pca_explained_variance",
+        }
+        for fig in figures.values():
+            plt.close(fig)
+
+
 class TestCreatePcaFigure:
     def test_returns_figure_with_phase_colored_scatter(
         self,

@@ -628,24 +628,22 @@ class LatentVisualizationCallback(Callback):
 
         figures = {}
         if z is not None:
-            figures["posterior_latent_space_tsne"] = self._create_latent_figure(
-                z, phase_per_sample, title="Posterior latent space"
-            )
-            figures["posterior_latent_space_pca"] = self._create_pca_figure(
-                z, phase_per_sample, title="Posterior latent space"
-            )
-            figures["posterior_pca_explained_variance"] = (
-                self._create_pca_variance_figure(z, title="Posterior")
+            figures.update(
+                self._build_latent_figures(
+                    z=z,
+                    phases=phase_per_sample,
+                    prefix="posterior",
+                    title="Posterior latent space",
+                )
             )
         if z_prior is not None:
-            figures["prior_latent_space_tsne"] = self._create_latent_figure(
-                z_prior, phase_per_sample, title="Prior latent space"
-            )
-            figures["prior_latent_space_pca"] = self._create_pca_figure(
-                z_prior, phase_per_sample, title="Prior latent space"
-            )
-            figures["prior_pca_explained_variance"] = self._create_pca_variance_figure(
-                z_prior, title="Prior"
+            figures.update(
+                self._build_latent_figures(
+                    z=z_prior,
+                    phases=phase_per_sample,
+                    prefix="prior",
+                    title="Prior latent space",
+                )
             )
 
         latent_stats_table = self._create_latent_stats_table(
@@ -660,6 +658,90 @@ class LatentVisualizationCallback(Callback):
 
         for fig in figures.values():
             plt.close(fig)
+
+    def _build_latent_figures(
+        self,
+        z: np.ndarray,
+        phases: np.ndarray | None,
+        prefix: str,
+        title: str,
+    ) -> dict[str, plt.Figure]:
+        """Dispatch to histogram for 1D latents or t-SNE/PCA for higher dim.
+
+        Args:
+            z: Latent samples (N, latent_dim) or (N,).
+            phases: Dominant phase per sample (N,), or None.
+            prefix: Metric-key prefix (e.g. "posterior" or "prior").
+            title: Human-readable figure title.
+
+        Returns:
+            Mapping from metric key to matplotlib figure.
+        """
+        latent_dim = z.shape[1] if z.ndim > 1 else 1
+        if latent_dim == 1:
+            return {
+                f"{prefix}_latent_space_histogram": self._create_histogram_figure(
+                    z=z, phases=phases, title=title
+                )
+            }
+        return {
+            f"{prefix}_latent_space_tsne": self._create_latent_figure(
+                z=z, phases=phases, title=title
+            ),
+            f"{prefix}_latent_space_pca": self._create_pca_figure(
+                z=z, phases=phases, title=title
+            ),
+            f"{prefix}_pca_explained_variance": self._create_pca_variance_figure(
+                z=z, title=title
+            ),
+        }
+
+    def _create_histogram_figure(
+        self, z: np.ndarray, phases: np.ndarray | None, title: str = ""
+    ) -> plt.Figure:
+        """Create a histogram of a 1D latent distribution.
+
+        When per-sample phase labels are provided, plots one translucent
+        histogram per phase sharing the same bin edges so their shapes are
+        directly comparable. Otherwise, plots a single histogram.
+
+        Args:
+            z: Latent samples (N, 1) or (N,).
+            phases: Dominant phase per sample (N,), or None.
+            title: Title for the plot.
+
+        Returns:
+            Matplotlib figure with the 1D latent histogram.
+        """
+        rng = np.random.default_rng(42)
+        if z.shape[0] > self.max_samples:
+            idx = rng.choice(z.shape[0], self.max_samples, replace=False)
+            z = z[idx]
+            if phases is not None:
+                phases = phases[idx]
+
+        values = z.reshape(-1)
+        num_bins = min(50, max(10, int(np.sqrt(values.shape[0]))))
+
+        fig, axis = plt.subplots(figsize=(10, 5))
+        sns.histplot(
+            x=values,
+            hue=phases.astype(int) if phases is not None else None,
+            palette="tab10" if phases is not None else None,
+            bins=num_bins,
+            stat="density",
+            common_bins=True,
+            common_norm=False,
+            element="step",
+            alpha=0.5,
+            ax=axis,
+        )
+        phase_suffix = " (per phase)" if phases is not None else ""
+        axis.set_title(f"{title} histogram{phase_suffix}")
+        axis.set_xlabel("Latent value")
+        axis.set_ylabel("Density")
+        plt.tight_layout()
+        return fig
 
     def _create_latent_figure(
         self, z: np.ndarray, phases: np.ndarray | None, title: str = ""
