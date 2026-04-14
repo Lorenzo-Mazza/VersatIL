@@ -930,7 +930,11 @@ def test_apply_sinusoidal_style_modifies_y_axis():
 
 @pytest.mark.unit
 @pytest.mark.parametrize("gap_height", [0.05, 0.1, 0.25])
-def test_apply_sinusoidal_style_amplitude_capped_by_gap_height(gap_height: float):
+@pytest.mark.parametrize("num_styles", [1, 2, 4])
+def test_apply_sinusoidal_style_amplitude_matches_quarter_gap_scaling(
+    gap_height: float,
+    num_styles: int,
+):
     positions = np.stack([np.linspace(0.0, 1.0, 60), np.full(60, 0.5)], axis=-1).astype(
         np.float32
     )
@@ -938,12 +942,13 @@ def test_apply_sinusoidal_style_amplitude_capped_by_gap_height(gap_height: float
     modified = _apply_sinusoidal_style(
         positions=positions,
         style_index=0,
-        num_styles=4,
+        num_styles=num_styles,
         gap_height=gap_height,
     )
 
+    expected_amplitude = min(gap_height / (4.0 * num_styles), gap_height / 2.0)
     max_displacement = float(np.max(np.abs(modified[:, 1] - positions[:, 1])))
-    assert max_displacement <= gap_height / 2.0
+    assert max_displacement <= expected_amplitude + 1e-6
 
 
 @pytest.mark.unit
