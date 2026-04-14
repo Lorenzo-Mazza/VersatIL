@@ -376,17 +376,19 @@ def _expert_endpoint_reach_threshold(
     expert_mode_ids: np.ndarray,
     mode_endpoints: np.ndarray,
 ) -> float:
-    """3-sigma of expert final-position distances to their own mode mean.
+    """Expert-derived "close enough" radius around each mode endpoint.
 
-    This is the natural "close enough" radius for the task: a rollout
-    whose final point falls within this distance of any expert mode
-    endpoint is statistically indistinguishable from an expert trajectory.
+    Uses mean + 3·std of expert final-position distances to their own
+    mode mean. This covers ~99.7% of expert trajectories on a one-sided
+    tail, so virtually every expert trajectory itself passes the reach
+    check, and a rollout within the same radius is statistically
+    indistinguishable from expert behaviour.
     """
     final_positions = expert_trajectories[:, -1, :]  # (num_expert, 2)
     distances = np.linalg.norm(
         final_positions - mode_endpoints[expert_mode_ids], axis=-1
     )  # (num_expert,)
-    return float(3.0 * distances.std())
+    return float(distances.mean() + 3.0 * distances.std())
 
 
 def _get_render_goal(
