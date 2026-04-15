@@ -172,6 +172,11 @@ class ActionSpace:
         return len(self.precomputed_actions) > 0
 
     @property
+    def has_only_precomputed_actions(self) -> bool:
+        """Check if every action in the space is precomputed (no on-the-fly computation)."""
+        return self.has_precomputed_actions and not self.has_on_the_fly_actions
+
+    @property
     def has_delta_actions(self) -> bool:
         """Check if any actions are computed as deltas."""
         return any(

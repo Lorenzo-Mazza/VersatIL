@@ -41,7 +41,12 @@ class DataLoaderConfig:
     #: Whether to downsample each dataset episode by taking every n-th step.
     downsample_factor: int = 1
     #: Number of steps to shift actions backward in the sequence, to compensate for hardware latency.
-    action_backward_shift: int = 1
+    action_backward_shift: int = 0
+    #: Max trailing padding allowed per sampled window. Valid starts per episode:
+    #: ``episode_length - sequence_length + trailing_padded_actions + 1``. If 0, only windows that fit
+    #: entirely within the episode are sampled (no right-side padding). When None (default), resolves
+    #: to ``pred_horizon - 1``.
+    trailing_padded_actions: int | None = None
     #: Ratio of dataset episodes to use for validation.
     val_ratio: float = 0.1
     #: Ratio of total dataset episodes to use (for ablation studies on varying dataset sizes).

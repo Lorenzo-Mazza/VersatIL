@@ -110,13 +110,26 @@ class EpisodicDataset(data.Dataset):
             self._apply_downsampling(episode_mask, dataloader_config.downsample_factor)
             episode_mask = np.ones(self.replay_buffer.n_episodes, dtype=bool)
         self.episode_ends = self.replay_buffer.episode_ends[:]
+        trailing_padded_actions = dataloader_config.trailing_padded_actions
+        if trailing_padded_actions is None:
+            trailing_padded_actions = self.pred_horizon - 1
+        # Precomputed actions live in zarr at action_positions[t].
+        # On-the-fly actions additionally require action_positions[t]+1 to exist.
+        # Action backward shift is a "realtime hack" introduced by ACT to
+        # compensate for latency in sensor data recording, but defaults to 0.
+        next_position_slot = 0 if action_space.has_only_precomputed_actions else 1
+        sequence_length = (
+            self.obs_horizon
+            + self.pred_horizon
+            - 1
+            + next_position_slot
+            + self.action_backward_shift
+        )
         self.sampler = SequenceSampler(
             replay_buffer=self.replay_buffer,
-            sequence_length=self.obs_horizon
-            + self.pred_horizon
-            + self.action_backward_shift,
+            sequence_length=sequence_length,
             pad_before=0,
-            pad_after=self.pred_horizon - 1,
+            pad_after=trailing_padded_actions,
             episode_mask=episode_mask,
             key_first_k=dict.fromkeys(
                 observation_space.cameras.keys(),
