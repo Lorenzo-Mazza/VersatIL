@@ -50,6 +50,7 @@ def experiment_config_factory() -> Callable[..., MagicMock]:
         precision: str = "32",
         float32_matmul_precision: str | None = None,
         checkpoint_every: int = 10,
+        save_checkpoints: bool = True,
         val_every: int = 1,
         plot_every: int = 200,
         validate_loss_keys: bool = True,
@@ -67,6 +68,7 @@ def experiment_config_factory() -> Callable[..., MagicMock]:
         config.precision = precision
         config.float32_matmul_precision = float32_matmul_precision
         config.checkpoint_every = checkpoint_every
+        config.save_checkpoints = save_checkpoints
         config.val_every = val_every
         config.plot_every = plot_every
         config.validate_loss_keys = validate_loss_keys
@@ -526,6 +528,24 @@ class TestCreateCallbacks:
 
         callback_types = [type(cb) for cb in callbacks]
         assert ModelCheckpoint in callback_types
+        assert GradientNormCallback in callback_types
+        assert LearningRateMonitor in callback_types
+
+    def test_no_checkpoint_callbacks_when_save_checkpoints_disabled(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(
+            policy=policy,
+            experiment_kwargs={"save_checkpoints": False},
+        )
+        workspace.policy = policy
+        workspace.val_loader = None
+
+        callbacks = workspace._create_callbacks()
+
+        callback_types = [type(cb) for cb in callbacks]
+        assert ModelCheckpoint not in callback_types
         assert GradientNormCallback in callback_types
         assert LearningRateMonitor in callback_types
 
@@ -1147,6 +1167,24 @@ class TestSetupTrainer:
             call_kwargs = mock_trainer_cls.call_args[1]
             assert call_kwargs["check_val_every_n_epoch"] == 5
             assert call_kwargs["limit_val_batches"] == 1.0
+
+    @pytest.mark.parametrize("save_checkpoints", [True, False])
+    def test_enable_checkpointing_flag_passed_to_trainer(
+        self, workspace_factory, mock_workspace_policy_factory, save_checkpoints
+    ):
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(
+            experiment_kwargs={"save_checkpoints": save_checkpoints},
+            policy=policy,
+        )
+        workspace.policy = policy
+        workspace.val_loader = None
+
+        with patch("versatil.workspace.pl.Trainer") as mock_trainer_cls:
+            workspace._setup_trainer()
+
+            call_kwargs = mock_trainer_cls.call_args[1]
+            assert call_kwargs["enable_checkpointing"] is save_checkpoints
 
 
 @pytest.mark.unit
