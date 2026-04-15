@@ -145,7 +145,11 @@ class Workspace:
         logging.info("Starting training...")
         if self.trainer is None:
             raise RuntimeError("Trainer should be initialized before training.")
-        self.trainer.fit(model=self.lightning_policy, ckpt_path=resume_checkpoint_path)
+        self.trainer.fit(
+            model=self.lightning_policy,
+            ckpt_path=resume_checkpoint_path,
+            weights_only=False,
+        )
         logging.info(f"Training completed. Best checkpoint saved to {self.output_dir}")
 
     def _set_seed(self):
