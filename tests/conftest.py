@@ -29,6 +29,17 @@ from versatil.data.metadata import (
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.metrics.base import LossOutput
 
+MINIMUM_VRAM_GB = 8.0
+
+
+def get_test_device() -> torch.device:
+    """Return CUDA device if available with sufficient VRAM, else CPU."""
+    if torch.cuda.is_available():
+        vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+        if vram_gb > MINIMUM_VRAM_GB:
+            return torch.device("cuda")
+    return torch.device("cpu")
+
 
 @pytest.fixture
 def rng() -> np.random.Generator:
@@ -38,8 +49,8 @@ def rng() -> np.random.Generator:
 
 @pytest.fixture
 def device() -> torch.device:
-    """Get available device (CUDA if available, else CPU)."""
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    """Get available device (CUDA if available with >8GB VRAM, else CPU)."""
+    return get_test_device()
 
 
 @pytest.fixture
@@ -229,8 +240,8 @@ def camera_metadata_factory() -> Callable[..., CameraMetadata]:
         camera_key: str = Cameras.LEFT.value,
         dtype: str = "uint8",
         channels: int = 3,
-        image_width: int = None,
-        image_height: int = None,
+        image_width: int = 64,
+        image_height: int = 64,
     ) -> CameraMetadata:
         return CameraMetadata(
             camera_key=camera_key,

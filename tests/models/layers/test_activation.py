@@ -6,13 +6,14 @@ import pytest
 from torch import nn
 
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.swiglu import SwiGLU
+from versatil.models.layers.gated_linear_unit import GeGLU, SwiGLU
 
 EXPECTED_MEMBERS = {
     "RELU": "relu",
     "GELU": "gelu",
     "SILU": "silu",
     "SWIGLU": "swiglu",
+    "GEGLU": "geglu",
     "SIGMOID": "sigmoid",
     "TANH": "tanh",
     "LEAKY_RELU": "leaky_relu",
@@ -25,6 +26,7 @@ ACTIVATION_TO_TORCH_TYPE = {
     ActivationFunction.GELU: nn.GELU,
     ActivationFunction.SILU: nn.SiLU,
     ActivationFunction.SWIGLU: SwiGLU,
+    ActivationFunction.GEGLU: GeGLU,
     ActivationFunction.SIGMOID: nn.Sigmoid,
     ActivationFunction.TANH: nn.Tanh,
     ActivationFunction.LEAKY_RELU: nn.LeakyReLU,

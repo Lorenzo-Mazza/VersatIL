@@ -5,7 +5,6 @@ import logging
 import torch
 import torch.nn as nn
 
-from versatil.configs.data.dataloader import DataLoaderConfig
 from versatil.data.constants import SampleKey
 from versatil.data.task import ObservationSpace
 from versatil.data.tokenization.tokenizer import Tokenizer
@@ -75,7 +74,7 @@ def export_policy(
 def build_example_inputs(
     exportable: ExportablePolicy,
     observation_space: ObservationSpace,
-    dataloader_config: DataLoaderConfig,
+    observation_horizon: int,
     tokenizer: Tokenizer | None = None,
 ) -> tuple[torch.Tensor, ...]:
     """Build example inputs from observation space metadata.
@@ -83,7 +82,7 @@ def build_example_inputs(
     Args:
         exportable: ExportablePolicy defining required observation keys.
         observation_space: Observation space with camera/proprio metadata.
-        dataloader_config: Dataloader config with runtime image dimensions.
+        observation_horizon: Number of temporal observation frames.
         tokenizer: Tokenizer for language token sequence length.
 
     Returns:
@@ -94,19 +93,26 @@ def build_example_inputs(
 
     for key, camera_meta in observation_space.cameras.items():
         observation_shapes[key] = (
+            observation_horizon,
             camera_meta.channels,
-            dataloader_config.image_height,
-            dataloader_config.image_width,
+            camera_meta.image_height,
+            camera_meta.image_width,
         )
 
     for key, proprio_meta in observation_space.proprioceptive_observations.items():
-        observation_shapes[key] = (proprio_meta.dimension,)
+        observation_shapes[key] = (observation_horizon, proprio_meta.dimension)
 
     if tokenizer is not None and tokenizer.observation_tokenizer is not None:
         token_length = tokenizer.observation_tokenizer.max_token_len
-        observation_shapes[SampleKey.TOKENIZED_OBSERVATIONS.value] = (token_length,)
+        observation_shapes[SampleKey.TOKENIZED_OBSERVATIONS.value] = (
+            observation_horizon,
+            token_length,
+        )
         observation_dtypes[SampleKey.TOKENIZED_OBSERVATIONS.value] = torch.long
-        observation_shapes[SampleKey.IS_PAD_OBSERVATION.value] = (token_length,)
+        observation_shapes[SampleKey.IS_PAD_OBSERVATION.value] = (
+            observation_horizon,
+            token_length,
+        )
         observation_dtypes[SampleKey.IS_PAD_OBSERVATION.value] = torch.bool
 
     return exportable.get_example_inputs(

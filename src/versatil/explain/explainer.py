@@ -15,7 +15,7 @@ import torchvision.transforms.functional as tvf
 from torch import nn
 
 from versatil.data.constants import ProprioKey
-from versatil.data.transform import normalize_observation
+from versatil.data.processing.transform import normalize_observation
 from versatil.explain.constants import ExplanationType
 from versatil.models.policy import Policy
 

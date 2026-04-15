@@ -33,6 +33,8 @@ def mock_config() -> MagicMock:
     config = MagicMock()
     config.training = MagicMock()
     config.experiment.validate_loss_keys = True
+    config.experiment.precision = PrecisionType.BF16_MIXED.value
+    config.task.dataloader.tokenization.tokenize_observations = False
     mock_policy = MagicMock()
     mock_policy.observation_space = MagicMock()
     mock_policy.action_space = MagicMock()
@@ -73,6 +75,8 @@ def policy_loader_factory(
         if checkpoint is None:
             checkpoint = mock_checkpoint
 
+        config.experiment.precision = precision
+
         config_file = tmp_path / "config.yaml"
         config_file.write_text("dummy: true")
         checkpoint_file = tmp_path / checkpoint_name
@@ -112,7 +116,6 @@ def policy_loader_factory(
                 device=device,
                 checkpoint_path=str(tmp_path),
                 checkpoint_name=checkpoint_name,
-                precision=precision,
                 seed=seed,
                 compile_model=compile_model,
             )
@@ -238,53 +241,20 @@ class TestPolicyLoaderTokenizer:
         mock_config = loader._config
         mock_config.policy.set_tokenizer.assert_not_called()
 
-    def test_tokenizer_loaded_when_directory_exists(
-        self, tmp_path, mock_config, mock_checkpoint
+    def test_raises_when_tokenization_required_but_no_directory(
+        self, policy_loader_factory, mock_config
     ):
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text("dummy: true")
-        checkpoint_file = tmp_path / "last.ckpt"
-        checkpoint_file.write_text("dummy")
-        tokenizer_dir = tmp_path / "tokenizer"
-        tokenizer_dir.mkdir()
-
-        mock_tokenizer = MagicMock()
-        mock_tokenizer.to.return_value = mock_tokenizer
-
-        mock_lightning = MagicMock()
-        mock_lightning.state_dict.return_value = dict(mock_checkpoint["state_dict"])
-
-        with (
-            patch(
-                f"{BASE_LOADER_MODULE}.OmegaConf.load",
-                return_value=MagicMock(),
-            ),
-            patch(
-                f"{BASE_LOADER_MODULE}.hydra.utils.instantiate",
-                return_value=mock_config,
-            ),
-            patch(f"{BASE_LOADER_MODULE}.validate_experiment"),
-            patch(
-                f"{FLOAT_LOADER_MODULE}.torch.load",
-                return_value=mock_checkpoint,
-            ),
-            patch(
-                f"{FLOAT_LOADER_MODULE}.LightningPolicy",
-                return_value=mock_lightning,
-            ),
-            patch(
-                f"{BASE_LOADER_MODULE}.Tokenizer.from_pretrained",
-                return_value=mock_tokenizer,
-            ),
+        mock_config.task.dataloader.tokenization.tokenize_observations = True
+        with pytest.raises(
+            FileNotFoundError,
+            match="Config requires observation tokenization but no tokenizer found",
         ):
-            loader = PolicyLoader(
-                device=torch.device("cpu"),
-                checkpoint_path=str(tmp_path),
-            )
+            policy_loader_factory(config=mock_config, create_tokenizer_dir=False)
 
-        mock_config.policy.set_tokenizer.assert_called_once_with(mock_tokenizer)
-        mock_tokenizer.to.assert_called_once_with(torch.device("cpu"))
-        assert loader.tokenizer == mock_tokenizer
+    def test_tokenizer_loaded_when_directory_exists(self, policy_loader_factory):
+        loader = policy_loader_factory(create_tokenizer_dir=True)
+        loader._config.policy.set_tokenizer.assert_called_once()
+        assert loader.tokenizer is not None
 
 
 @pytest.mark.unit
@@ -317,6 +287,8 @@ class TestPolicyLoaderPrecisionConversion:
         mock_lightning = MagicMock()
         mock_lightning.state_dict.return_value = dict(mock_checkpoint["state_dict"])
 
+        mock_config.experiment.precision = precision
+
         with (
             patch(
                 f"{BASE_LOADER_MODULE}.OmegaConf.load",
@@ -339,7 +311,6 @@ class TestPolicyLoaderPrecisionConversion:
             _loader = PolicyLoader(
                 device=torch.device("cpu"),
                 checkpoint_path=str(tmp_path),
-                precision=precision,
             )
 
         dtype_call_args = [

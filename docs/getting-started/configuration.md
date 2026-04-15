@@ -193,7 +193,7 @@ cache: ${cache_dir:}                                    # VERSATIL_CACHE_DIR
 api_key: ${env:WANDB_API_KEY}            # Direct env var access
 ```
 
-Available enum resolvers include: `cameras`, `raw_camera`, `gripper`, `orientation`, `rgb_backbone`, `precision`, `activation_function`, `normalization`, `attention`, `pos_encoding`, `obs_key`, `coordinate_system`, and others.
+Available enum resolvers are available at `src/versatil/configs/__init__.py`.
 
 ## Config Validation
 

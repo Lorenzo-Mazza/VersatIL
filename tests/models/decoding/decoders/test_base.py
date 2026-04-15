@@ -9,10 +9,17 @@ import pytest
 import torch
 import torch.nn as nn
 
+from versatil.data.constants import SampleKey
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.tokenization import Tokenizer
-from versatil.models.decoding.constants import FeatureType
+from versatil.models.decoding.action_heads.moe import MoEHead
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
+from versatil.models.feature_meta import (
+    FeatureMetadata,
+    FeatureType,
+    infer_feature_type,
+)
 
 
 class ConcreteDecoder(ActionDecoder):
@@ -217,7 +224,7 @@ class TestDecoderInputValidateFeatureTypes:
                 (512, 7, 7),
                 pytest.raises(
                     ValueError,
-                    match=f"requires at least one input feature of type '{FeatureType.FLAT.value}'",
+                    match=f"Decoder requires at least one feature of type '{FeatureType.FLAT.value}'",
                 ),
             ),
             (
@@ -225,7 +232,7 @@ class TestDecoderInputValidateFeatureTypes:
                 64,
                 pytest.raises(
                     ValueError,
-                    match=f"requires at least one input feature of type '{FeatureType.SPATIAL.value}'",
+                    match=f"Decoder requires at least one feature of type '{FeatureType.SPATIAL.value}'",
                 ),
             ),
         ],
@@ -237,13 +244,20 @@ class TestDecoderInputValidateFeatureTypes:
         feature_dim: int | tuple,
         expectation,
     ):
+        dim = (feature_dim,) if isinstance(feature_dim, int) else feature_dim
         decoder_input = decoder_input_factory(
             keys=["feat"],
             required_types=[required_type],
         )
         with expectation:
             decoder_input.validate_feature_types(
-                available_features_to_dims={"feat": feature_dim},
+                available_features={
+                    "feat": FeatureMetadata(
+                        key="feat",
+                        feature_type=infer_feature_type(dim),
+                        dimension=dim,
+                    )
+                },
             )
 
     @pytest.mark.parametrize(
@@ -255,7 +269,7 @@ class TestDecoderInputValidateFeatureTypes:
                 (512, 7, 7),
                 pytest.raises(
                     ValueError,
-                    match="Decoder architecture cannot accept spatial features as input.",
+                    match="Decoder cannot accept spatial features",
                 ),
             ),
             (
@@ -263,7 +277,7 @@ class TestDecoderInputValidateFeatureTypes:
                 (10, 64),
                 pytest.raises(
                     ValueError,
-                    match="Decoder architecture cannot accept sequential features as input.",
+                    match="Decoder cannot accept sequential features",
                 ),
             ),
             (
@@ -271,7 +285,7 @@ class TestDecoderInputValidateFeatureTypes:
                 64,
                 pytest.raises(
                     ValueError,
-                    match="Decoder architecture cannot accept flat features as input.",
+                    match="Decoder cannot accept flat features",
                 ),
             ),
         ],
@@ -283,14 +297,45 @@ class TestDecoderInputValidateFeatureTypes:
         feature_dim: int | tuple,
         expectation,
     ):
+        dim = (feature_dim,) if isinstance(feature_dim, int) else feature_dim
         decoder_input = decoder_input_factory(
             keys=["feat"],
             raises_for_types=[raises_for_type],
         )
         with expectation:
             decoder_input.validate_feature_types(
-                available_features_to_dims={"feat": feature_dim},
+                available_features={
+                    "feat": FeatureMetadata(
+                        key="feat",
+                        feature_type=infer_feature_type(dim),
+                        dimension=dim,
+                    )
+                },
             )
+
+    def test_raises_for_type_ignores_features_not_in_decoder_keys(
+        self,
+        decoder_input_factory: Callable[..., DecoderInput],
+    ):
+        decoder_input = decoder_input_factory(
+            keys=["flat_feat"],
+            raises_for_types=[FeatureType.SPATIAL.value],
+        )
+        # Pipeline has a spatial feature, but decoder only uses the flat one
+        decoder_input.validate_feature_types(
+            available_features={
+                "flat_feat": FeatureMetadata(
+                    key="flat_feat",
+                    feature_type=FeatureType.FLAT.value,
+                    dimension=(64,),
+                ),
+                "spatial_feat": FeatureMetadata(
+                    key="spatial_feat",
+                    feature_type=FeatureType.SPATIAL.value,
+                    dimension=(512, 7, 7),
+                ),
+            },
+        )
 
 
 class TestActionDecoderInterface:
@@ -597,3 +642,68 @@ class TestActionDecoderSetActionHeadDimensions:
             prediction_horizon=8,
         )
         head.set_output_dim.assert_called_once_with(1)
+
+
+class TestGetAuxiliaryOutputKeys:
+    def test_default_returns_empty_set(
+        self,
+        concrete_decoder_factory: Callable[..., ConcreteDecoder],
+    ):
+        decoder = concrete_decoder_factory()
+        assert decoder.get_auxiliary_output_keys() == set()
+
+    def test_tokenized_decoder_includes_tokenized_actions_key(
+        self,
+        concrete_decoder_factory: Callable[..., ConcreteDecoder],
+    ):
+        decoder = concrete_decoder_factory(tokenized=True)
+        keys = decoder.get_auxiliary_output_keys()
+        assert SampleKey.TOKENIZED_ACTIONS.value in keys
+
+    def test_moe_head_triggers_routing_weights_key(
+        self,
+        concrete_decoder_factory: Callable[..., ConcreteDecoder],
+        mock_action_space_factory: Callable[..., MagicMock],
+    ):
+        moe_head = MagicMock(spec=MoEHead)
+        moe_head.output_dim = 3
+        moe_head.set_output_dim = MagicMock(
+            side_effect=lambda dim: setattr(moe_head, "output_dim", dim)
+        )
+        action_space = mock_action_space_factory(position_dim=3)
+        decoder = concrete_decoder_factory(
+            action_space=action_space,
+            action_heads={"position_action": moe_head},
+        )
+        keys = decoder.get_auxiliary_output_keys()
+        assert DecoderOutputKey.ROUTING_WEIGHTS.value in keys
+
+    def test_regular_head_does_not_trigger_routing_weights_key(
+        self,
+        concrete_decoder_factory: Callable[..., ConcreteDecoder],
+    ):
+        decoder = concrete_decoder_factory()
+        keys = decoder.get_auxiliary_output_keys()
+        assert DecoderOutputKey.ROUTING_WEIGHTS.value not in keys
+
+
+class TestEncoderCache:
+    def test_forward_unchanged_after_enable_disable_cache(
+        self,
+        concrete_decoder_factory: Callable[..., ConcreteDecoder],
+        input_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        decoder = concrete_decoder_factory()
+        features = {
+            "rgb_features": input_tensor_factory(
+                batch_size=2, sequence_length=8, input_dimension=64
+            )
+        }
+        output_before = decoder(features=features)
+        decoder.enable_encoder_cache()
+        output_cached = decoder(features=features)
+        decoder.disable_encoder_cache()
+        output_after = decoder(features=features)
+        for key in output_before:
+            assert torch.equal(output_before[key], output_cached[key])
+            assert torch.equal(output_before[key], output_after[key])

@@ -8,14 +8,12 @@ from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import FeatureType, LatentKey
+from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
+from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
-from versatil.models.layers.diffusion_transformer.cross_attention_dit_decoder import (
-    CrossConditioningDecoder,
-)
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
@@ -23,15 +21,18 @@ from versatil.models.layers.positional_encoding.learned import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding2D,
 )
+from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
+    ConditionalBidirectionalDecoder,
+)
 
 
 class LACT(ActionDecoder):
-    """Latent ACtion Transformer for generative action decoding.
+    """Latent Action Transformer for generative action decoding.
 
     Forward pass steps:
         Build observation tokens from spatial/flat features
         Condition learnable queries with latent via AdaLN-Zero
-        Decode actions using Pix-Art style DiT (cross-attention to observation tokens) with latent modulation at each layer
+        Decode actions cross-attention to observation tokens with latent modulation at each layer
         Apply action heads to produce predictions
     """
 
@@ -75,7 +76,7 @@ class LACT(ActionDecoder):
             feedforward_dimension: FFN hidden dimension (default: 4 * embedding_dimension)
             number_of_layers: Number of conditional transformer decoder layers
             activation: Activation function name
-            normalization_type: Type of normalization layer
+            normalization_type: Type of adaptive normalization layer
             attention_type: Type of attention mechanism (multi-head, grouped query, etc.)
             positional_encoding_type: Type of positional encoding.
             dropout_rate: Dropout probability for residual connections
@@ -139,10 +140,10 @@ class LACT(ActionDecoder):
         self.learnable_query = nn.Embedding(
             self.prediction_horizon, self.embedding_dimension
         )
-        self.action_decoder = CrossConditioningDecoder(
+        self.action_decoder = ConditionalBidirectionalDecoder(
             number_of_layers=self.number_of_layers,
             embedding_dimension=self.embedding_dimension,
-            timestep_dimension=self.latent_dimension,
+            conditioning_dimension=self.latent_dimension,
             number_of_heads=self.number_of_heads,
             number_of_key_value_heads=self.number_of_key_value_heads,
             feedforward_dimension=self.feedforward_dimension,
@@ -153,6 +154,7 @@ class LACT(ActionDecoder):
             attention_type=self.attention_type,
             positional_encoding_type=self.positional_encoding_type,
             use_gating=self.use_gating,
+            condition_final_normalization=False,
         )
 
     def _apply_action_heads(
@@ -199,17 +201,18 @@ class LACT(ActionDecoder):
         obs_tokens, obs_pos_encodings, obs_padding_mask = self.input_sequence_builder(
             features
         )
-        obs_tokens = obs_tokens + obs_pos_encodings
+        if obs_pos_encodings is not None:
+            obs_tokens = obs_tokens + obs_pos_encodings
         batch_size = obs_tokens.shape[0]
         query = self.learnable_query.weight.unsqueeze(0).repeat(
             batch_size, 1, 1
         )  # (B, pred_horizon, embedding_dim)
         action_embeddings = self.action_decoder(
             hidden_states=query,
-            conditioning_embedding=latent,
-            encoder_hidden_states=obs_tokens,
-            decoder_padding_mask=None,
-            encoder_padding_mask=obs_padding_mask,
+            condition=latent,
+            encoded_features=obs_tokens,
+            query_padding_mask=None,
+            memory_padding_mask=obs_padding_mask,
         )
         predictions = self._apply_action_heads(action_embeddings)
         return predictions

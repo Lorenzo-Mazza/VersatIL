@@ -29,8 +29,6 @@ def dataloader_config_factory() -> Callable[..., DataLoaderConfig]:
     def factory(
         batch_size: int = 32,
         num_workers: int = 4,
-        image_height: int = 224,
-        image_width: int = 224,
         val_ratio: float = 0.1,
         total_ratio: float = 1.0,
         skip_initial_episode_steps: int = 0,
@@ -40,8 +38,6 @@ def dataloader_config_factory() -> Callable[..., DataLoaderConfig]:
         return DataLoaderConfig(
             batch_size=batch_size,
             num_workers=num_workers,
-            image_height=image_height,
-            image_width=image_width,
             val_ratio=val_ratio,
             total_ratio=total_ratio,
             skip_initial_episode_steps=skip_initial_episode_steps,
@@ -170,40 +166,6 @@ class TestValidateDataloaderConfig:
         self, dataloader_config_factory, num_workers, expectation
     ):
         config = dataloader_config_factory(num_workers=num_workers)
-
-        with expectation:
-            validate_dataloader_config(config)
-
-    @pytest.mark.parametrize(
-        "image_height, expectation",
-        [
-            (1, does_not_raise()),
-            (270, does_not_raise()),
-            (0, pytest.raises(ValueError, match="image_height must be positive")),
-            (-1, pytest.raises(ValueError, match="image_height must be positive")),
-        ],
-    )
-    def test_image_height_validation(
-        self, dataloader_config_factory, image_height, expectation
-    ):
-        config = dataloader_config_factory(image_height=image_height)
-
-        with expectation:
-            validate_dataloader_config(config)
-
-    @pytest.mark.parametrize(
-        "image_width, expectation",
-        [
-            (1, does_not_raise()),
-            (480, does_not_raise()),
-            (0, pytest.raises(ValueError, match="image_width must be positive")),
-            (-1, pytest.raises(ValueError, match="image_width must be positive")),
-        ],
-    )
-    def test_image_width_validation(
-        self, dataloader_config_factory, image_width, expectation
-    ):
-        config = dataloader_config_factory(image_width=image_width)
 
         with expectation:
             validate_dataloader_config(config)
@@ -356,10 +318,11 @@ class TestCollectDatasetPaths:
 
         assert result == []
 
-    def test_nonexistent_folder_raises(self):
+    def test_nonexistent_folder_raises(self, tmp_path):
+        missing = tmp_path / "missing"
         with pytest.raises(FileNotFoundError):
             _collect_dataset_paths(
-                dataset_folders=["/nonexistent/path"],
+                dataset_folders=[str(missing)],
                 episode_filename="episode.csv",
             )
 
@@ -766,6 +729,31 @@ class TestGetDataloaders:
         assert val_call.kwargs["shuffle"] is False
         assert val_call.kwargs["num_workers"] == min(4, 6)
 
+    @pytest.mark.parametrize(
+        "num_workers, expected_persistent, expected_prefetch",
+        [
+            (4, True, 2),
+            (0, False, None),
+        ],
+    )
+    def test_dataloader_multiprocessing_args(
+        self,
+        mock_hydra_config_factory,
+        num_workers: int,
+        expected_persistent: bool,
+        expected_prefetch: int | None,
+    ):
+        config = mock_hydra_config_factory(val_ratio=0.2, num_workers=num_workers)
+
+        get_dataloaders(config=config)
+
+        train_call = self.mock_dataloader_class.call_args_list[0]
+        assert train_call.kwargs["persistent_workers"] is expected_persistent
+        assert train_call.kwargs["prefetch_factor"] == expected_prefetch
+        val_call = self.mock_dataloader_class.call_args_list[1]
+        assert val_call.kwargs["persistent_workers"] is expected_persistent
+        assert val_call.kwargs["prefetch_factor"] == expected_prefetch
+
     def test_train_dataset_created_in_train_mode(self, mock_hydra_config_factory):
         config = mock_hydra_config_factory(val_ratio=0.0)
 
@@ -799,8 +787,6 @@ class TestGetDataloadersIntegration:
             orientation_dim=4,
             has_gripper=True,
             cameras=[],
-            image_height=16,
-            image_width=16,
         )
 
         position_metadata = position_observation_metadata_factory(dimension=3)
@@ -832,8 +818,6 @@ class TestGetDataloadersIntegration:
             batch_size=4,
             num_workers=1,
             val_ratio=0.2,
-            image_height=16,
-            image_width=16,
         )
         dataloader_config.color_augmentation = None
         dataloader_config.spatial_augmentation = None

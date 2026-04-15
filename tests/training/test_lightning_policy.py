@@ -1,5 +1,6 @@
 """Tests for versatil.training.lightning_policy module."""
 
+import time
 from collections.abc import Callable
 from unittest.mock import MagicMock, Mock, patch
 
@@ -259,6 +260,21 @@ class TestValidationStep:
 
 
 @pytest.mark.unit
+class TestOnTrainEpochStart:
+    def test_records_epoch_start_time(
+        self,
+        lightning_policy_factory: Callable,
+    ):
+        lightning_policy = lightning_policy_factory()
+
+        before = time.monotonic()
+        lightning_policy.on_train_epoch_start()
+        after = time.monotonic()
+
+        assert before <= lightning_policy._epoch_start_time <= after
+
+
+@pytest.mark.unit
 class TestOnTrainEpochEnd:
     def test_resets_train_metrics_after_logging(
         self,
@@ -269,7 +285,6 @@ class TestOnTrainEpochEnd:
         policy = mock_policy_factory()
         lightning_policy = lightning_policy_factory(policy=policy)
 
-        # Accumulate some metrics
         for step in range(3):
             loss_output = loss_output_factory(
                 total_loss_value=1.0,
@@ -280,7 +295,10 @@ class TestOnTrainEpochEnd:
 
         assert lightning_policy.train_metrics.num_batches == 3
 
-        with patch.object(lightning_policy, "log_dict"):
+        with (
+            patch.object(lightning_policy, "log_dict"),
+            patch.object(lightning_policy, "log"),
+        ):
             lightning_policy.on_train_epoch_end()
 
         assert lightning_policy.train_metrics.num_batches == 0
@@ -302,12 +320,104 @@ class TestOnTrainEpochEnd:
         lightning_policy = lightning_policy_factory(policy=policy)
         lightning_policy.training_step(batch={}, batch_idx=0)
 
-        with patch.object(lightning_policy, "log_dict") as mock_log_dict:
+        with (
+            patch.object(lightning_policy, "log_dict") as mock_log_dict,
+            patch.object(lightning_policy, "log"),
+        ):
             lightning_policy.on_train_epoch_end()
 
             logged_metrics = mock_log_dict.call_args[0][0]
             for key in logged_metrics:
                 assert key.startswith("train/")
+
+    def test_logs_epoch_time_seconds(
+        self,
+        mock_policy_factory: Callable,
+        loss_output_factory: Callable,
+        lightning_policy_factory: Callable,
+    ):
+        policy = mock_policy_factory()
+        loss_output = loss_output_factory(total_loss_value=1.0)
+        policy.compute_loss.return_value = loss_output
+
+        lightning_policy = lightning_policy_factory(policy=policy)
+        lightning_policy.on_train_epoch_start()
+        lightning_policy.training_step(batch={}, batch_idx=0)
+
+        with (
+            patch.object(lightning_policy, "log_dict"),
+            patch.object(lightning_policy, "log") as mock_log,
+        ):
+            lightning_policy.on_train_epoch_end()
+
+            epoch_time_calls = [
+                call
+                for call in mock_log.call_args_list
+                if call[0][0] == "train/epoch_time_seconds"
+            ]
+            assert len(epoch_time_calls) == 1
+            logged_duration = epoch_time_calls[0][0][1]
+            assert logged_duration >= 0.0
+
+    @pytest.mark.requires_gpu
+    def test_logs_gpu_memory_peak_on_cuda(
+        self,
+        mock_policy_factory: Callable,
+        loss_output_factory: Callable,
+        lightning_policy_factory: Callable,
+    ):
+        policy = mock_policy_factory()
+        loss_output = loss_output_factory(total_loss_value=1.0)
+        policy.compute_loss.return_value = loss_output
+
+        lightning_policy = lightning_policy_factory(policy=policy)
+        lightning_policy.on_train_epoch_start()
+        lightning_policy.training_step(batch={}, batch_idx=0)
+
+        cuda_device = torch.device("cuda")
+        with (
+            patch.object(
+                type(lightning_policy),
+                "device",
+                new_callable=lambda: property(lambda s: cuda_device),
+            ),
+            patch.object(lightning_policy, "log_dict"),
+            patch.object(lightning_policy, "log") as mock_log,
+        ):
+            lightning_policy.on_train_epoch_end()
+
+            memory_calls = [
+                call
+                for call in mock_log.call_args_list
+                if call[0][0] == "train/gpu_memory_peak_gb"
+            ]
+            assert len(memory_calls) == 1
+            assert memory_calls[0][0][1] >= 0.0
+
+    def test_skips_gpu_memory_logging_on_cpu(
+        self,
+        mock_policy_factory: Callable,
+        loss_output_factory: Callable,
+        lightning_policy_factory: Callable,
+    ):
+        policy = mock_policy_factory()
+        loss_output = loss_output_factory(total_loss_value=1.0)
+        policy.compute_loss.return_value = loss_output
+
+        lightning_policy = lightning_policy_factory(policy=policy)
+        lightning_policy.on_train_epoch_start()
+        lightning_policy.training_step(batch={}, batch_idx=0)
+
+        with (
+            patch.object(lightning_policy, "log_dict"),
+            patch.object(lightning_policy, "log") as mock_log,
+        ):
+            lightning_policy.on_train_epoch_end()
+
+            memory_calls = [
+                call for call in mock_log.call_args_list if "gpu_memory" in call[0][0]
+            ]
+            assert len(memory_calls) == 0
 
 
 @pytest.mark.unit
@@ -452,6 +562,53 @@ class TestConfigureOptimizers:
         # Attach mock trainer so estimated_stepping_batches is available
         lightning_policy._trainer = mock_trainer_factory(
             estimated_stepping_batches=2000
+        )
+
+        result = lightning_policy.configure_optimizers()
+
+        assert "lr_scheduler" in result
+
+    def test_cosine_with_min_lr_passes_scheduler_kwargs(
+        self,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+    ):
+        min_lr = 2.5e-6
+        peak_lr = 2.5e-5
+        config = training_config_factory(
+            lr_schedule="cosine_with_min_lr",
+            lr_warmup_steps=10,
+            lr_scheduler_kwargs={"min_lr": min_lr},
+            optimizer=AdamWConfig(lr=peak_lr),
+        )
+        lightning_policy = lightning_policy_factory(
+            training_config=config,
+            total_training_steps=1000,
+        )
+
+        result = lightning_policy.configure_optimizers()
+
+        assert "lr_scheduler" in result
+        scheduler = result["lr_scheduler"]["scheduler"]
+        # Step to the end to verify min_lr floor
+        for _ in range(1000):
+            scheduler.step()
+        actual_lr = result["optimizer"].param_groups[0]["lr"]
+        assert actual_lr == pytest.approx(min_lr, rel=0.1)
+
+    def test_empty_scheduler_kwargs_passes_none(
+        self,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+    ):
+        config = training_config_factory(
+            lr_schedule="cosine",
+            lr_warmup_steps=10,
+            lr_scheduler_kwargs={},
+        )
+        lightning_policy = lightning_policy_factory(
+            training_config=config,
+            total_training_steps=500,
         )
 
         result = lightning_policy.configure_optimizers()

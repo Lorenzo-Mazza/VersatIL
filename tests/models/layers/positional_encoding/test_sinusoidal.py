@@ -13,6 +13,7 @@ from versatil.models.layers.positional_encoding.base import (
     PositionSource,
 )
 from versatil.models.layers.positional_encoding.sinusoidal import (
+    PeriodInterpolationPositionalEncoding1D,
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
@@ -526,3 +527,46 @@ class TestSinusoidalPositionalEncoding2DMlpPostProcessing:
         output_without_mlp = module_without_mlp(tensor)
         output_with_mlp = module_with_mlp(tensor)
         assert not torch.allclose(output_without_mlp, output_with_mlp, atol=1e-6)
+
+
+class TestPeriodInterpolationPositionalEncoding1D:
+    def test_odd_dimension_raises(self):
+        with pytest.raises(
+            ValueError,
+            match=re.escape("embedding_dimension must be even"),
+        ):
+            PeriodInterpolationPositionalEncoding1D(embedding_dimension=7)
+
+    @pytest.mark.parametrize("embedding_dimension", [32, 64])
+    def test_output_shape_for_scalar_input(self, embedding_dimension: int):
+        module = PeriodInterpolationPositionalEncoding1D(
+            embedding_dimension=embedding_dimension,
+            position_source=PositionSource.SCALAR.value,
+        )
+        timestep = torch.tensor([0.5, 0.8])
+        output = module(timestep)
+        assert output.shape == (2, embedding_dimension)
+
+    def test_different_timesteps_produce_different_encodings(self):
+        module = PeriodInterpolationPositionalEncoding1D(
+            embedding_dimension=32,
+            position_source=PositionSource.SCALAR.value,
+        )
+        output_a = module(torch.tensor([0.1]))
+        output_b = module(torch.tensor([0.9]))
+        assert not torch.allclose(output_a, output_b)
+
+    def test_frequencies_shape(self):
+        module = PeriodInterpolationPositionalEncoding1D(
+            embedding_dimension=32,
+        )
+        assert module.frequencies.shape == (16,)
+
+    def test_frequencies_are_monotonically_decreasing(self):
+        module = PeriodInterpolationPositionalEncoding1D(
+            embedding_dimension=32,
+            min_period=4e-3,
+            max_period=4.0,
+        )
+        for i in range(len(module.frequencies) - 1):
+            assert module.frequencies[i] > module.frequencies[i + 1]

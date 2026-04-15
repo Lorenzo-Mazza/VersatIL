@@ -5,7 +5,7 @@ from collections.abc import Callable
 import pytest
 import torch
 
-from versatil.models.layers.normalization.frozen_batchnorm import FrozenBatchNorm2d
+from versatil.models.layers.frozen_batchnorm import FrozenBatchNorm2d
 
 
 @pytest.fixture

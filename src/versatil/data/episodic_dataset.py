@@ -7,8 +7,6 @@ from threadpoolctl import threadpool_limits
 
 from versatil.configs.data.dataloader import DataLoaderConfig
 from versatil.configs.data.tokenizer import TokenizationConfig
-from versatil.data.action_processor import ActionProcessor
-from versatil.data.augmentation.augmentation_pipeline import AugmentationPipeline
 from versatil.data.constants import (
     GripperType,
 )
@@ -24,10 +22,12 @@ from versatil.data.preprocessing.sampler import (
     downsample_mask,
     get_val_mask,
 )
+from versatil.data.processing.action_processor import ActionProcessor
+from versatil.data.processing.image_processor import ImageProcessor
+from versatil.data.processing.transform_builder import TransformBuilder
 from versatil.data.sample_builder import SampleBuilder
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import Tokenizer
-from versatil.data.transform_builder import TransformBuilder
 
 logging.basicConfig(level=logging.INFO)
 
@@ -77,11 +77,10 @@ class EpisodicDataset(data.Dataset):
         self.train = train
         self.seed = seed
         self.action_processor = ActionProcessor(action_space=action_space)
-        self.augmentation_pipeline = AugmentationPipeline(
+        self.image_processor = ImageProcessor(
             color_augmentation=dataloader_config.color_augmentation,
             spatial_augmentation=dataloader_config.spatial_augmentation,
-            target_height=dataloader_config.image_height,
-            target_width=dataloader_config.image_width,
+            camera_metadata=observation_space.cameras,
             train=train,
         )
         all_keys = list(
@@ -133,7 +132,7 @@ class EpisodicDataset(data.Dataset):
             obs_horizon=obs_horizon,
             pred_horizon=pred_horizon,
             action_backward_shift=dataloader_config.action_backward_shift,
-            augmentation_pipeline=self.augmentation_pipeline,
+            image_processor=self.image_processor,
             action_processor=self.action_processor,
         )
         self.normalizer: LinearNormalizer | None = None

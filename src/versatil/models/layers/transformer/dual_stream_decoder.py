@@ -1,0 +1,184 @@
+"""Dual-stream bidirectional transformer decoder that stacks dual stream transformer layers.
+
+Provides positional encoding and final normalization for both
+streams processed through joint attention layers.
+
+Note: this is the original architecture of the Multimodal Diffusion Transformer (MMDiT), but it's proposed
+here as a general-purpose dual-stream transformer decoder for multimodal sequence modeling.
+
+References:
+    Esser et al. "Scaling Rectified Flow Transformers for High-Resolution Image Synthesis"
+    https://arxiv.org/abs/2403.03206
+"""
+
+import torch
+import torch.nn as nn
+
+from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.normalization.constants import NormalizationType
+from versatil.models.layers.normalization.factory import create_normalization_layer
+from versatil.models.layers.positional_encoding.rotary import RotaryPositionalEncoding
+from versatil.models.layers.transformer.layer.dual_stream_layer import DualStreamLayer
+from versatil.models.layers.transformer.positional_encoding import (
+    create_positional_encoding,
+)
+from versatil.models.layers.transformer.transformer_mixin import TransformerMixin
+
+
+class DualStreamBidirectionalDecoder(TransformerMixin, nn.Module):
+    """Dual-stream bidirectional transformer decoder.
+
+    Stacks dual stream (multimodal) transformer layers with optional positional encodings
+    and final normalization for both streams.
+    """
+
+    def __init__(
+        self,
+        number_of_layers: int,
+        embedding_dimension: int,
+        conditioning_dimension: int,
+        number_of_heads: int,
+        feedforward_dimension: int | None = None,
+        dropout: float = 0.1,
+        attention_dropout: float = 0.0,
+        activation: str = ActivationFunction.SWIGLU.value,
+        normalization_type: str = NormalizationType.RMS_NORM.value,
+        normalization_epsilon: float = 1e-6,
+        use_query_key_norm: bool = True,
+        use_gating: bool = True,
+        positional_encoding_type: str | None = None,
+        maximum_sequence_length_observation: int = 1024,
+        maximum_sequence_length_action: int = 256,
+        bias: bool = True,
+        initializer_range: float = 0.02,
+    ):
+        """Initialize decoder.
+
+        Args:
+            number_of_layers: Number of dual-stream attention layers.
+            embedding_dimension: Hidden dimension for both streams.
+            conditioning_dimension: Dimension of conditioning vector.
+            number_of_heads: Number of attention heads.
+            feedforward_dimension: FFN hidden dimension.
+            dropout: Dropout rate for residual connections.
+            attention_dropout: Dropout rate for attention weights.
+            activation: Activation function for FFN.
+            normalization_type: Normalization type.
+            normalization_epsilon: Epsilon for normalization layers.
+            use_query_key_norm: Whether to apply QK-normalization.
+            use_gating: Whether to use gating in adaptive normalization.
+            positional_encoding_type: Type of positional encoding.
+            maximum_sequence_length_observation: Max primary sequence length.
+            maximum_sequence_length_action: Max secondary sequence length.
+            bias: Whether to use bias in linear layers.
+            initializer_range: Standard deviation for weight initialization.
+        """
+        super().__init__()
+        self.number_of_layers = number_of_layers
+        self.embedding_dimension = embedding_dimension
+        self.number_of_heads = number_of_heads
+        self.initializer_range = initializer_range
+        self.number_of_residual_blocks = 3  # Attention + FFN primary + FFN secondary
+        if feedforward_dimension is None:
+            feedforward_dimension = 4 * embedding_dimension
+        self.positional_encoding_observation = None
+        self.positional_encoding_action = None
+        if positional_encoding_type is not None:
+            self.positional_encoding_observation = create_positional_encoding(
+                encoding_type=positional_encoding_type,
+                embedding_dimension=embedding_dimension,
+                maximum_length=maximum_sequence_length_observation,
+                num_heads=number_of_heads,
+            )
+            self.positional_encoding_action = create_positional_encoding(
+                encoding_type=positional_encoding_type,
+                embedding_dimension=embedding_dimension,
+                maximum_length=maximum_sequence_length_action,
+                num_heads=number_of_heads,
+            )
+        self.layers = nn.ModuleList(
+            [
+                DualStreamLayer(
+                    embedding_dimension=embedding_dimension,
+                    number_of_heads=number_of_heads,
+                    conditioning_dimension=conditioning_dimension,
+                    feedforward_dimension=feedforward_dimension,
+                    dropout=dropout,
+                    attention_dropout=attention_dropout,
+                    activation=activation,
+                    normalization_type=normalization_type,
+                    normalization_epsilon=normalization_epsilon,
+                    use_query_key_norm=use_query_key_norm,
+                    use_gating=use_gating,
+                    bias=bias,
+                )
+                for _ in range(number_of_layers)
+            ]
+        )
+        self.final_normalization_observation = create_normalization_layer(
+            normalization_type=normalization_type,
+            dimension=embedding_dimension,
+            epsilon=normalization_epsilon,
+        )
+        self.final_normalization_action = create_normalization_layer(
+            normalization_type=normalization_type,
+            dimension=embedding_dimension,
+            epsilon=normalization_epsilon,
+        )
+        self.apply(self._init_weights)
+
+    def forward(
+        self,
+        hidden_states_observation: torch.Tensor,
+        hidden_states_action: torch.Tensor,
+        conditioning: torch.Tensor,
+        attention_mask_observation: torch.Tensor | None = None,
+        attention_mask_action: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass through decoder.
+
+        Args:
+            hidden_states_observation: Primary stream tokens (B, S, D).
+            hidden_states_action: Secondary stream tokens (B, T, D).
+            conditioning: Conditioning vector (B, D).
+            attention_mask_observation: Padding mask for primary (B, S).
+            attention_mask_action: Padding mask for secondary (B, T).
+
+        Returns:
+            Tuple of (primary_output, secondary_output) with same shapes.
+        """
+        rope_observation = None
+        rope_action = None
+        if self.positional_encoding_observation is not None:
+            if isinstance(
+                self.positional_encoding_observation, RotaryPositionalEncoding
+            ):
+                rope_observation = self.positional_encoding_observation
+            else:
+                hidden_states_observation = (
+                    hidden_states_observation
+                    + self.positional_encoding_observation(hidden_states_observation)
+                )
+        if self.positional_encoding_action is not None:
+            if isinstance(self.positional_encoding_action, RotaryPositionalEncoding):
+                rope_action = self.positional_encoding_action
+            else:
+                hidden_states_action = (
+                    hidden_states_action
+                    + self.positional_encoding_action(hidden_states_action)
+                )
+        for layer in self.layers:
+            hidden_states_observation, hidden_states_action = layer(
+                hidden_states_primary=hidden_states_observation,
+                hidden_states_secondary=hidden_states_action,
+                conditioning=conditioning,
+                attention_mask_primary=attention_mask_observation,
+                attention_mask_secondary=attention_mask_action,
+                positional_encoding_primary=rope_observation,
+                positional_encoding_secondary=rope_action,
+            )
+        hidden_states_observation = self.final_normalization_observation(
+            hidden_states_observation
+        )
+        hidden_states_action = self.final_normalization_action(hidden_states_action)
+        return hidden_states_observation, hidden_states_action

@@ -12,7 +12,9 @@ from versatil.models.decoding.constants import (
     PredictionType,
 )
 from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.denoising.diffusion_process import SchedulerType
+from versatil.models.layers.normalization.constants import NormalizationType
 
 
 @dataclass
@@ -134,6 +136,9 @@ class DiTPriorConfig(PriorLatentEncoderConfig):
     clip_sample: bool = False
     variance_type: str | None = None
     dropout: float = 0.1
+    normalization_type: str = NormalizationType.LAYER_NORM.value
+    attention_type: str = AttentionType.MULTI_HEAD.value
+    number_of_key_value_heads: int | None = None
     activation: str = ActivationFunction.SILU.value
     use_gating: bool = True
     exclude_keys: list[str] | None = None

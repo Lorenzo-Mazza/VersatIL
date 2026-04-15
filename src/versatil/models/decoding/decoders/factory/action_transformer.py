@@ -3,7 +3,6 @@ from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import FeatureType
 from versatil.models.decoding.decoders import ActionDecoder, DecoderInput
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
@@ -15,7 +14,9 @@ from versatil.models.layers.positional_encoding.learned import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding2D,
 )
-from versatil.models.layers.transformer import BidirectionalDecoder
+from versatil.models.layers.transformer.bidirectional_decoder import (
+    BidirectionalDecoder,
+)
 
 
 class ActionTransformer(ActionDecoder):
@@ -44,7 +45,7 @@ class ActionTransformer(ActionDecoder):
     ):
         decoder_input = DecoderInput(
             keys=input_keys,
-            required_types=[FeatureType.SPATIAL.value],
+            required_types=[],
             requires_actions=False,
         )
         super().__init__(

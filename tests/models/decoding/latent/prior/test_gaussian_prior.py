@@ -193,3 +193,24 @@ class TestGaussianPriorSamplePrior:
         sample_without_obs = prior.sample_prior(batch_size=2)
         assert torch.all(sample_with_obs == 0.0)
         assert torch.all(sample_without_obs == 0.0)
+
+    @pytest.mark.requires_gpu
+    def test_outputs_follow_device_after_to(
+        self,
+        gaussian_prior_factory: Callable[..., GaussianPrior],
+        input_tensor_factory: Callable[..., torch.Tensor],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        latent_dimension = 16
+        prior = gaussian_prior_factory(latent_dimension=latent_dimension, device="cpu")
+        prior = prior.to("cuda")
+        target_latents = input_tensor_factory(
+            batch_size=2, input_dimension=latent_dimension
+        ).cuda()
+        observations = {
+            k: v.cuda() for k, v in feature_dictionary_factory(batch_size=2).items()
+        }
+        result = prior.forward(target_latents=target_latents, observations=observations)
+        assert result[LatentKey.PRIOR_LATENT.value].device.type == "cuda"
+        sample = prior.sample_prior(batch_size=2)
+        assert sample.device.type == "cuda"

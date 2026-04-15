@@ -15,12 +15,14 @@ import logging
 
 import torch
 
+from versatil.configs.experiment import ExperimentConfig
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import LatentKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.latent import PosteriorLatentEncoder, PriorLatentEncoder
 from versatil.models.decoding.latent.prior.gaussian_prior import GaussianPrior
 from versatil.models.decoding.latent.prior.vamp_prior import VampPrior
+from versatil.training.callbacks import LatentVisualizationCallback
 
 
 class VariationalAlgorithm(DecodingAlgorithm):
@@ -76,6 +78,33 @@ class VariationalAlgorithm(DecodingAlgorithm):
             )
         if isinstance(self.prior, VampPrior):
             self.prior.set_encoder(self.posterior_encoder)
+
+    def get_callbacks(self, experiment_config: ExperimentConfig) -> list:
+        """Provide latent visualization callback for variational inference monitoring."""
+        return [
+            LatentVisualizationCallback(
+                log_every_n_epochs=experiment_config.val_every,
+            )
+        ]
+
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """Variational algorithm adds latent variable keys to the output."""
+        keys = self.base_algorithm.get_auxiliary_output_keys()
+        keys.update(
+            {
+                LatentKey.POSTERIOR_LATENT.value,
+                LatentKey.POSTERIOR_MU.value,
+                LatentKey.PRIOR_LATENT.value,
+                LatentKey.PRIOR_MU.value,
+                LatentKey.PRIOR_PREDICTION.value,
+                LatentKey.PRIOR_TARGET.value,
+            }
+        )
+        if not getattr(self.posterior_encoder, "deterministic", False):
+            keys.add(LatentKey.POSTERIOR_LOGVAR.value)
+        if not getattr(self.prior, "deterministic", False):
+            keys.add(LatentKey.PRIOR_LOGVAR.value)
+        return keys
 
     def _variational_step(
         self,
@@ -162,21 +191,20 @@ class VariationalAlgorithm(DecodingAlgorithm):
             features=features,
             actions=actions,
         )
-        if LatentKey.PRIOR_LATENT.value not in prior_output:
-            # Sample from prior if not already done in prior forward, e.g. for denoising-based priors
-            batch_size = next(iter(features.values())).shape[0]
-            z_sampled = self.prior.sample_prior(
-                batch_size=batch_size, observations=features
-            )
-            prior_output[LatentKey.PRIOR_LATENT.value] = z_sampled
         if self.training:
             sample_from_prior = torch.rand(1).item() < self.p_prior
-            if sample_from_prior:
-                latent = prior_output[LatentKey.PRIOR_LATENT.value]
-            else:
-                latent = posterior_output[LatentKey.POSTERIOR_LATENT.value]
         else:
+            sample_from_prior = True
+        if sample_from_prior:
+            if LatentKey.PRIOR_LATENT.value not in prior_output:
+                # Sample from prior only when needed (avoids costly denoising inference during training)
+                batch_size = next(iter(features.values())).shape[0]
+                prior_output[LatentKey.PRIOR_LATENT.value] = self.prior.sample_prior(
+                    batch_size=batch_size, observations=features
+                )
             latent = prior_output[LatentKey.PRIOR_LATENT.value]
+        else:
+            latent = posterior_output[LatentKey.POSTERIOR_LATENT.value]
         features_with_latent = {
             **features,
             LatentKey.POSTERIOR_LATENT.value: latent,
@@ -223,8 +251,7 @@ class VariationalAlgorithm(DecodingAlgorithm):
             **features,
             LatentKey.POSTERIOR_LATENT.value: latent_embedding,
         }  # (B, latent_dimension)
-        return self.base_algorithm.forward(
+        return self.base_algorithm.predict(
             network=network,
             features=features_with_latent,
-            actions=None,
         )

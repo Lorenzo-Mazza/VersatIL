@@ -36,6 +36,18 @@ class DatasetSchema(abc.ABC):
 
 New formats are supported by subclassing `DatasetSchema` and implementing `extract_episode()`.
 
+### Available Datasets
+
+Ready-to-use end-to-end configs exist under `hydra_configs/end_to_end_training_runs/`:
+
+| Dataset                                                                  | Config Path | Data Link | Notes                                                            |
+|--------------------------------------------------------------------------|---|---|------------------------------------------------------------------|
+| [Bowel Retraction](https://arxiv.org/abs/2601.21971) | `bowel_retraction/` | Coming soon | Real-world UR5e surgical robotics demonstrations (stereo RGB, depth, language, phase labels). |
+| [LIBERO Original](https://libero-project.github.io/datasets) (HDF5)      | `libero_hdf5/` | [libero-project.github.io](https://libero-project.github.io/datasets) | Original HDF5 format, 128x128 images.                            |
+| [LIBERO](https://huggingface.co/datasets/lerobot/libero) (LeRobot)       | `libero_lerobot/` | [HF Hub](https://huggingface.co/datasets/lerobot/libero) | LeRobot format, OpenVLA filtered demonstrations, 256x256 images. |
+| [LIBERO+](https://huggingface.co/datasets/Sylvest/libero_plus_lerobot)   | `libero_plus/` | [HF Hub](https://huggingface.co/datasets/Sylvest/libero_plus_lerobot) | Extended LIBERO dataset.                                         |
+| [MetaWorld MT50](https://huggingface.co/datasets/lerobot/metaworld_mt50) | `metaworld/` | [HF Hub](https://huggingface.co/datasets/lerobot/metaworld_mt50) | Multi-task benchmark (MT50 variant).                             |
+
 ### Zarr Store Creation
 
 Zarr stores are created automatically on the first training run if absent. The `get_dataloaders()` function calls `_ensure_zarr_exists()`, which dispatches to the appropriate creation function based on schema type:
@@ -55,6 +67,21 @@ elif isinstance(schema, LeRobotDatasetSchemaV30):
 ## Task Definition
 
 `TaskSpace` combines an `ActionSpace`, `ObservationSpace`, and `DatasetSchema` to define what data an experiment uses at runtime. The same Zarr store can power different tasks (vision-only, state-only, vision-language) without data duplication.
+
+### Storage Metadata vs Task Metadata
+
+Two separate metadata layers serve different purposes:
+
+- **Storage metadata** (`zarr_meta/*.yaml`) — describes everything in the Zarr store: all cameras, all proprioceptive observations, precomputed actions, raw column mappings, dtypes, and dimensions. This is a complete inventory of the dataset.
+- **Task metadata** (`observation_space/*.yaml` + `action_space/*.yaml`) — selects a subset of the storage metadata for a specific experiment: which cameras and observations the policy receives, which actions it predicts, and how those actions are computed (delta vs absolute).
+
+```
+zarr_meta/bowel_retraction.yaml     → left, right, depth, proprio, language, phase (everything)
+observation_space/stereo_rgb.yaml   → left, right only (subset)
+action_space/deltas_cf_pos.yaml     → position deltas + gripper (computed from proprio)
+```
+
+This separation means adding a new task to an existing dataset requires only new observation/action space configs — no re-ingestion, no Zarr changes.
 
 ### ObservationSpace
 
@@ -265,14 +292,29 @@ The `TransformBuilder` fits separate normalizers for:
 !!! info "Normalization Exclusions"
     Binary gripper actions and language instructions are not normalized. The normalizer is stored in the checkpoint and loaded at inference time.
 
-## Augmentation
+## Image Processing
 
-The `AugmentationPipeline` applies [Albumentations](https://albumentations.ai/) transforms during training only. Two independent pipelines are supported:
+[`ImageProcessor`][versatil.data.processing.image_processor.ImageProcessor] handles per-camera image processing: resize, augmentation, normalization, and channel reorder. 
+
+```python
+ImageProcessor(
+    color_augmentation=A.Compose(...) | None,
+    spatial_augmentation=A.Compose(...) | None,
+    camera_metadata={"left": CameraMetadata(...), ...},
+    train=True,
+)
+```
+
+**Training pipeline:** resize -> color augmentation (RGB only) -> spatial augmentation -> normalize -> channel reorder.
+
+**Inference pipeline:** resize -> normalize -> channel reorder.
+
+Two independent [Albumentations](https://albumentations.ai/) pipelines are supported:
 
 - **Color augmentation** -- Photometric transforms (brightness, contrast, hue, etc.)
 - **Spatial augmentation** -- Geometric transforms (rotation, flips, etc.)
 
-Both pipelines are applied per-frame. Images are resized to the configured `(image_height, image_width)` before augmentation. Depth images use nearest-neighbor interpolation to preserve depth values; RGB images use bilinear interpolation.
+Image sizes come from per-camera `CameraMetadata` in the observation space. Depth images use nearest-neighbor interpolation to preserve depth values; RGB images use bilinear interpolation.
 
 ## Tokenization
 

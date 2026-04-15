@@ -42,7 +42,7 @@ Rapid experimentation, cleaner code, and true reusability across projects.
     * **[Albumentations](https://albumentations.ai/)** for image augmentations.
     * **[torchao](https://github.com/pytorch/ao)** for post-training quantization (PT2E and quantize_() APIs).
 - 💡 **Invent What Matters** For performance-critical components, we wrote a custom `models/layers` package in pure PyTorch. This includes optimized implementations of:
-    * Attention (FlashAttention).
+    * [Attention](https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html) (PyTorch built-in SDPA Flash kernel dispatch).
     * Positional Encodings (Sinusoidal, Learned, Rotary).
     * Transformer variants (DETR, GPT, BERT, Free Transformer).
     * Modular Deep Neural Networks layers such as normalization, modulation, convolution, etc
@@ -76,12 +76,14 @@ Together, this means you can create new experiments by overriding only the param
 Raw data formats vary wildly (Rosbags, CSVs, HDF5). We don't force you to convert your raw files manually. \
 Instead, VersatIL handles this with a two-stage approach:
 1. **DatasetSchema (how your raw data is structured)**  
-   A pluggable class that maps any raw format to a standardized **Zarr** store.  
-   Built-in support for:
-   - HuggingFace LeRobot datasets
-   - LIBERO-style HDF5
-   - Custom CSV + image folders (TSO Lab format)  
-   Extend by subclassing `DatasetSchema` for new formats.
+   A pluggable class that maps any raw format to a standardized **Zarr** store.
+
+   | Schema                                                | Class | Raw Format              |
+   |-------------------------------------------------------|---|-------------------------|
+   | [HuggingFace LeRobot](https://huggingface.co/lerobot) | `LeRobotDatasetSchemaV30` | Parquet + MP4/images    |
+   | HDF5                                                  | `Hdf5DatasetSchema` | HDF5 archive            |
+   | CSV                                                   | `CsvDatasetSchema` | CSV + raw image folders |
+   | Custom                                                | Subclass `DatasetSchema` | Any                     |
    
 2. **Zarr Store Creation**
    Zarr [https://zarr.readthedocs.io/en/stable/]  provides fast, compressed, chunked storage with NumPy-like access.
@@ -143,10 +145,27 @@ Powered by **PyTorch Lightning**:
 ---
 ### 🚀 Post-Training
 
-#### 🔌 Inference (ZMQ)
+#### 🔌 Inference
 
-We provide ZMQ-based inference clients for TSO Lab Robot Testbed server, LIBERO simulation server and Metaworlds simulation server.
-The clients handle communication with the server through sockets, requesting for observations and sending back actions predicted by the trained policy. This design allows us to decouple the policy training environment from the robot/simulation server implementation, enabling easy integration with different robot platforms or simulation environments. Both float and compressed (quantized) checkpoints are supported through a unified inference interface.
+The inference pipeline is transport-agnostic: communication with any environment server (real robot, simulation, or custom) is abstracted behind `ObservationTransport` and `ActionTransport` Python protocols. Any object satisfying these protocols works — ZMQ, HTTP, etc.
+
+The built-in ZMQ implementation uses our two PyPI packages:
+- [**tso-robotics-sockets**](https://pypi.org/project/tso-robotics-sockets/): Generic ZMQ socket client/server with protocol keys (`ServerRoute`, `InferenceRequestKey`, `CompressionType`).
+- [**versatil-constants**](https://pypi.org/project/versatil-constants/): Shared domain constants for action/observation message passing (`ActionComponent`, `ActionMetadataField`, `ObsKey`, `GripperType`, `OrientationRepresentation`).
+
+Both libraries are server-agnostic — they define the message format, not the server implementation. Any server that speaks the protocol can be integrated by implementing the transport protocols. 
+
+The built-in ZMQ transport works for both simulation and real hardware — the dataset format is fully decoupled from the transport layer. For custom setups, implement the `ObservationTransport` and `ActionTransport` protocols with any transport mechanism.
+
+##### Simulation Servers
+
+We provide custom ZMQ server wrappers for popular robot learning simulation environments, enabling seamless rollout of VersatIL policies:
+
+| Simulator | Original | ZMQ Server Wrapper |
+|---|---|---|
+| [LIBERO / LIBERO-PRO](https://github.com/Zxy-MLlab/LIBERO-PRO/tree/master) | [GitHub](https://github.com/Zxy-MLlab/LIBERO-PRO/tree/master) | Coming soon |
+| [LIBERO+](https://github.com/sylvestf/LIBERO-plus) | [GitHub](https://github.com/sylvestf/LIBERO-plus) | Coming soon |
+| [MetaWorld](https://meta-world.github.io/) | [GitHub](https://github.com/Farama-Foundation/Metaworld) | Coming soon |
 
 ---
 
@@ -217,14 +236,6 @@ UV_PROJECT_ENVIRONMENT=$CONDA_PREFIX uv sync
 pre-commit install
 ```
 
-NB: The above installation requires a machine with a GPU with CUDA installed.
-This is needed so that flash-attn can find the CUDA runtime libraries.
-To install VersatIL from our computing cluster, you need to run:
-```bash
-srun --gres=gpu:1 --cpus-per-task=1 --pty bash
-# Then run installation commands above
-```
-
 ### Environment Configuration
 
 VersatIL uses a `.env` file to configure machine-specific paths. Copy the example and customize:
@@ -253,6 +264,20 @@ WANDB_ENTITY=your-team
 ```
 
 These variables are referenced in Hydra configs via OmegaConf resolvers (e.g., `${checkpoint_dir:bowel_retraction}`).
+
+### Available Training Configs
+
+Ready-to-use end-to-end configs are organized by dataset under `hydra_configs/end_to_end_training_runs/`:
+
+| Dataset | Path | Data Link | Notes                                                                   |
+|---|---|---|-------------------------------------------------------------------------|
+| [Bowel Retraction](https://arxiv.org/abs/2601.21971) | `bowel_retraction/` | Coming soon | Real-world UR5e surgical robotics demonstrations. Language and depth variants included. |
+| [LIBERO](https://libero-project.github.io/datasets) (HDF5) | `libero_hdf5/` | [libero-project.github.io](https://libero-project.github.io/datasets) | Original HDF5 format with 128x128 (flipped) images.                     |
+| [LIBERO](https://huggingface.co/datasets/lerobot/libero) (LeRobot) | `libero_lerobot/` | [HF Hub](https://huggingface.co/datasets/lerobot/libero) | LeRobot format with OpenVLA filtered demonstrations and 256x256 images. |
+| [LIBERO+](https://huggingface.co/datasets/Sylvest/libero_plus_lerobot) | `libero_plus/` | [HF Hub](https://huggingface.co/datasets/Sylvest/libero_plus_lerobot) | Extended LIBERO dataset.                                                |
+| [MetaWorld MT50](https://huggingface.co/datasets/lerobot/metaworld_mt50) | `metaworld/` | [HF Hub](https://huggingface.co/datasets/lerobot/metaworld_mt50) | Multi-task benchmark (MT50 variant).                                    |
+
+Each config is self-contained — just point to your data path and run.
 
 ### Training Your First Model
 
@@ -314,7 +339,7 @@ loss = loss_module(predictions, targets)
 
 VersatIL relies on strict naming conventions to wire encoders to decoders automatically. Instead of manually passing tensors, we match strings.
 
-**The Rule:** `feature_name = "{encoder_name}_{type}"`
+**The Rule:** `feature_name = "{encoder_name}_{output_key}"`
 
 If you define an RGB encoder named `left_eye`, it produces:
 * `left_eye_rgb` (The spatial features)
@@ -322,10 +347,15 @@ If you define an RGB encoder named `left_eye`, it produces:
 If you define a proprioception encoder named `robot_state`, it produces:
 * `robot_state_proprio` (The flat features)
 
-For multimodal encoders that produce multiple features, such as Vision-Language models, we use a dot separator to select the feature.
+For multimodal encoders that produce multiple outputs (e.g. Vision-Language models), each output gets its own prefixed name.
 If you define a VLM encoder named `vlm_model`, it produces:
-* `vlm_model.rgb` (Image features)
-* `vlm_model.language` (Text features)
+* `vlm_model_rgb` (Image features)
+* `vlm_model_language` (Text features)
+
+For multi-camera encoders that share weights across cameras, the modality is followed by the camera key separated by a colon.
+If you define an RGB encoder named `stereo` with two input cameras keyed `key_1` and `key_2`, it produces:
+* `stereo_rgb:key_1` (Features from camera `key_1`)
+* `stereo_rgb:key_2` (Features from camera `key_2`)
 
 **Why strict naming?**
 It prevents shape mismatches silently propagating. The `Policy` class validates shapes at initialization. If your Decoder expects a **FLAT** feature (1D)
@@ -348,19 +378,22 @@ fusion = AttentionFusion(
 
 ### Encoders
 
-- **RGB**
-  - CNNEncoder: Any [timm](https://github.com/huggingface/pytorch-image-models) backbone (ResNet, EfficientNet, EdgeNeXt, MobileNetV4, ...)
-  - ViTEncoder: Any [timm](https://github.com/huggingface/pytorch-image-models) ViT via [HF Transformers](https://github.com/huggingface/transformers) (CLIP ViT, DINOv2, DINOv3, ...)
-  - ConditionalCNNEncoder: Custom ResNet with FiLM conditioning
-- **Depth**
-  - DepthCNNEncoder: timm backbones adapted for single-channel depth
-  - DFormerV2: RGB-D encoder with Geometric Attention ([paper](https://arxiv.org/abs/2504.04701))
-  - LightGeometric: Custom lightweight geometric depth encoder
-- **Language** via [HF Transformers](https://github.com/huggingface/transformers): BERT, DistilBERT, MiniLM, Gemma, Qwen, ALBERT, ...
+- **RGB** via [timm](https://github.com/huggingface/pytorch-image-models)
+  - SpatialRGBEncoder: spatial feature maps — ResNet, EfficientNet, ConvNeXt, MobileNet, EdgeNeXt, Swin, TinyViT, ...
+  - FlatRGBEncoder: token sequences — ViT, DINOv2, DINOv3, ...
+  - ConditionalCNNEncoder: ResNet with FiLM conditioning
+- **Depth** via [timm](https://github.com/huggingface/pytorch-image-models)
+  - SpatialDepthEncoder: single-channel spatial feature maps
+- **Cross-Modal RGBD**
+  - DFormerEncoder: RGB-D encoder with Geometric Attention ([paper](https://arxiv.org/abs/2504.04701))
+  - GeometricRGBDEncoder: Custom lightweight geometric depth encoder
+- **Cross-Modal Vision-Language** via [HF Transformers](https://github.com/huggingface/transformers):
+  - TwoTowerVLMEncoder: dual vision/language towers e.g. CLIP, SigLIP.
+  - GenerativeVLMEncoder: PaliGemma2, SmolVLM
+- **Language** via [HF Transformers](https://github.com/huggingface/transformers): BERT, DistilBERT, MiniLM, Gemma, Qwen, ALBERT, RoBERTa, GPT2, DeBERTa, Phi, Llama, ...
 - **Proprioceptive**: ProprioceptiveEncoder — MLP for robot state
-- **VLM** via [HF Transformers](https://github.com/huggingface/transformers): CLIP, SigLIP, ...
 
-Available backbones are listed in `src/versatil/models/encoding/encoders/constants.py` (`RGBBackboneType`, `LanguageEncoderType`, `ImageTextModelType`).
+Available backbones are listed in `src/versatil/models/encoding/encoders/constants.py` (`SpatialBackboneType`, `FlatBackboneType`, `LanguageEncoderType`, `ImageTextModelType`, `PaliGemmaModelType`, `SmolVLMModelType`).
 They can be easily extended by either:
 - Adding new Enum values that map to timm or HF Transformers model names.
 - Implementing custom encoder classes that subclass `Encoder` (or `ConditionalEncoder` for conditioned encoders).
@@ -411,6 +444,9 @@ Each decoder can customize how it integrates the latent `z` token into its archi
 - `DiffusionActionTransformer` - **Novel** Diffusion Action Transformer supporting two different architectures:
     - With cross-attention to encoder tokens, using an architecture inspired by PixArt ([paper](https://arxiv.org/abs/2310.00426))
     - With a dual-attention stream, using the MultiModal DiT architecture from SD3   ([paper](https://arxiv.org/abs/2403.03206))
+- `MoDE-ACT` - Mixture Density Network Transformer with K Gaussian expert heads
+- `Pi0Decoder` - Interleaved VLM-expert joint attention ([Pi0](https://arxiv.org/abs/2410.24164), [Pi0.5](https://arxiv.org/abs/2504.16054))
+- `SmolVLADecoder` - Interleaved cross-attention and joint self-attention with VLM backbone ([SmolVLA](https://arxiv.org/abs/2506.01844))
 - `MoEDecoder` - Mixture of Experts wrapper applicable on top of any decoder
 
 You can easily extend the available decoders by implementing new classes that subclass `versatil.models.decoding.decoders.base.ActionDecoder`.
@@ -559,13 +595,38 @@ Pre-commit hooks run ruff automatically on every `git commit`.
 - Verify CUDA 12.8 with `nvidia-smi`
 - Check `torch.cuda.is_available()` returns `True`
 
-### SLURM/NCCL Errors
-- Set `export NCCL_P2P_DISABLE=1` in SLURM script
-- Check `WORLD_SIZE` and `SLURM_PROCID` environment variables
-
 ### Data Loading
 - Verify Zarr dataset paths and permissions
 - Check dataset schema matches your data
 - Ensure sufficient disk space for Zarr cache
 
+### Python 3.14 Compatibility
+See [Known Issues](#known-issues) below.
 
+---
+
+## Known Issues (and Fixes)
+
+### Hydra 1.3.2 + Python 3.14: `ValueError: badly formed help string`
+
+Python 3.14 added eager help-string validation in `argparse._ActionsContainer._check_help` which breaks Hydra's `LazyCompletionHelp` (only defines `__repr__`, not `__contains__`). Every `@hydra.main` endpoint fails at startup.
+
+**Status:** Fixed upstream in [facebookresearch/hydra#3090](https://github.com/facebookresearch/hydra/pull/3090) (merged to `main`, targets 1.4.0.dev), but no PyPI release yet ([facebookresearch/hydra#3125](https://github.com/facebookresearch/hydra/issues/3125)). See [facebookresearch/hydra#3121](https://github.com/facebookresearch/hydra/issues/3121) for the bug report.
+
+**Workaround:** `src/versatil/common/argparse_compat.py` monkey-patches `_check_help` to skip the eager validation for non-string help values. Imported in `train.py` and `post_training_compress.py`. Remove once `hydra-core >= 1.4` ships on PyPI.
+
+### torchao 0.16 + Python 3.14: `Union.__module__` assignment crash in PT2E
+
+Python 3.14 merged `typing.Union` with `types.UnionType`, making Union objects immutable. torchao 0.16 assigns `__module__` to Union aliases at import time in `torchao.quantization.pt2e`, which crashes on 3.14+.
+
+**Status:** Fixed upstream in [pytorch/ao#3657](https://github.com/pytorch/ao/pull/3657). See [pytorch/ao#3619](https://github.com/pytorch/ao/issues/3619) for the bug report.
+
+**Workaround:** `src/versatil/quantization/torch_patches.py` patches the installed torchao `.py` files on disk, replacing the crashing `__module__` assignments with `pass`. Called automatically before any PT2E import. Idempotent.
+
+### torchao 0.16: `X86InductorQuantizer` silently quantizes 0 ops
+
+`get_source_partitions` compares `source_fn_name` strings (e.g. `"linear"`) against class objects (e.g. `torch.nn.Linear`) in `wanted_sources`, which never matches. The quantizer reports success but quantizes nothing.
+
+**Status:** See [pytorch/ao#3914](https://github.com/pytorch/ao/issues/3914).
+
+**Workaround:** `src/versatil/quantization/torch_patches.py` monkey-patches `get_source_partitions` with a fallback that matches `source_fn_name` against each class's `__name__` (case-insensitive). Applied automatically, idempotent, version-gated to torch <= 2.10 + torchao <= 0.16.

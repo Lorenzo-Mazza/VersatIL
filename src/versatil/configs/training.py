@@ -77,9 +77,13 @@ class TrainingConfig:
     clip_gradient_norm: bool = False
     clip_max_norm: float = 0.1
 
-    # Learning rate schedule
-    lr_schedule: str | None = None  # "cosine", "linear", None
+    # Learning rate schedule (uses transformers.get_scheduler)
+    # https://huggingface.co/docs/transformers/main_classes/optimizer_schedules#transformers.get_scheduler
+    lr_schedule: str | None = (
+        None  # One of https://huggingface.co/docs/transformers/main_classes/optimizer_schedules#transformers.SchedulerType
+    )
     lr_warmup_steps: int = 5000
+    lr_scheduler_kwargs: dict[str, float] = field(default_factory=dict)
 
     # Exponential Moving Average (EMA) of model parameters
     use_ema: bool = True

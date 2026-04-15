@@ -3,7 +3,7 @@ defaults:
   - kl@loss_modules.kl_divergence
   - _self_
 
-_target_: versatil.metrics.CompositeLoss
+_target_: versatil.metrics.composite.CompositeLoss
 
 loss_modules:
   token_loss:

@@ -461,9 +461,9 @@ def _fit(
             offset = torch.zeros_like(input_mean)
     elif mode == KinematicsNormalizationType.GAUSSIAN.value:
         std_for_scale = input_std.clone()
+        ignore_dim = input_std < range_eps
         if clamp_range:
             std_for_scale = torch.clamp(std_for_scale, min=min_std)
-        ignore_dim = std_for_scale < range_eps
         std_for_scale[ignore_dim] = 1
         scale = 1 / std_for_scale
         offset = -input_mean * scale if fit_offset else torch.zeros_like(input_mean)

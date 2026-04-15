@@ -874,9 +874,10 @@ class TestActionTokenizerSavePretrained:
 
 
 class TestActionTokenizerFromPretrained:
-    def test_raises_file_not_found(self, mock_auto_processor):
+    def test_raises_file_not_found(self, mock_auto_processor, tmp_path):
+        missing = tmp_path / "missing"
         with pytest.raises(FileNotFoundError, match="Tokenizer path not found"):
-            ActionTokenizer.from_pretrained("/nonexistent/path")
+            ActionTokenizer.from_pretrained(str(missing))
 
     @patch("versatil.data.tokenization.action_tokenizer.torch.load")
     def test_loads_state_and_restores_tokenizer(

@@ -67,6 +67,8 @@ from versatil.configs.decoding.decoder import (
     MixtureOfExpertsDecoderConfig,
     MoEFreeActionTransformerConfig,
     PhaseACTConfig,
+    Pi0DecoderConfig,
+    SmolVLADecoderConfig,
 )
 from versatil.configs.decoding.latent import (
     DiTPriorConfig,
@@ -78,15 +80,19 @@ from versatil.configs.decoding.latent import (
     VampPriorConfig,
 )
 from versatil.configs.encoding.encoder import (
-    CNNEncoderConfig,
     ConditionalCNNEncoderConfig,
-    DepthCNNEncoderConfig,
     DFormerEncoderConfig,
     EncoderConfig,
+    FlatRGBEncoderConfig,
+    GeometricRGBDEncoderConfig,
     ImageEncoderConfig,
     LanguageEncoderConfig,
+    PaliGemmaEncoderConfig,
     ProprioEncoderConfig,
-    ViTEncoderConfig,
+    SmolVLMEncoderConfig,
+    SpatialDepthEncoderConfig,
+    SpatialRGBEncoderConfig,
+    TwoTowerVLMEncoderConfig,
 )
 from versatil.configs.encoding.fusion import (
     AttentionFusionConfig,
@@ -95,6 +101,7 @@ from versatil.configs.encoding.fusion import (
     MLPFusionConfig,
     SpatialFusionConfig,
 )
+from versatil.configs.encoding.pipeline import EncodingPipelineConfig
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.inference import InferenceConfig
 from versatil.configs.loss import (
@@ -157,7 +164,9 @@ from versatil.data.constants import (
     OrientationRepresentation,
     ProprioKey,
     RawCameraKey,
+    SampleKey,
     TokenizerType,
+    TokenPaddingStrategy,
 )
 from versatil.metrics.constants import MetadataKey
 from versatil.metrics.kernels import KernelType
@@ -167,9 +176,11 @@ from versatil.models.decoding.constants import (
     DiTType,
     LatentKey,
     MoERoutingType,
+    TimeConditioning,
 )
 from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
+    ImageTextModelType,
     LanguageEncoderType,
     PoolingMethod,
     RGBBackboneType,
@@ -201,12 +212,16 @@ __all__ = [
     "PolicyConfig",
     "EncoderConfig",
     "ImageEncoderConfig",
-    "DepthCNNEncoderConfig",
+    "SpatialDepthEncoderConfig",
+    "SpatialRGBEncoderConfig",
+    "FlatRGBEncoderConfig",
     "ProprioEncoderConfig",
     "LanguageEncoderConfig",
     "DecodingNetworkConfig",
     "ACTConfig",
     "ConditionalActionUNetConfig",
+    "Pi0DecoderConfig",
+    "SmolVLADecoderConfig",
     "DiTBlockActionTransformerConfig",
     "DiffusionActionTransformerConfig",
     "FreeActionTransformerConfig",
@@ -302,6 +317,10 @@ def register_resolvers():
         OmegaConf.register_new_resolver(
             "language_model", lambda name: LanguageEncoderType[name].value
         )
+    if not OmegaConf.has_resolver("vlm_model"):
+        OmegaConf.register_new_resolver(
+            "vlm_model", lambda name: ImageTextModelType[name].value
+        )
     if not OmegaConf.has_resolver("activation_function"):
         OmegaConf.register_new_resolver(
             "activation_function", lambda name: ActivationFunction[name].value
@@ -332,6 +351,10 @@ def register_resolvers():
         )
     if not OmegaConf.has_resolver("obs_key"):
         OmegaConf.register_new_resolver("obs_key", lambda name: ObsKey[name].value)
+    if not OmegaConf.has_resolver("sample_key"):
+        OmegaConf.register_new_resolver(
+            "sample_key", lambda name: SampleKey[name].value
+        )
     if not OmegaConf.has_resolver("moe_routing_type"):
         OmegaConf.register_new_resolver(
             "moe_routing_type", lambda name: MoERoutingType[name].value
@@ -370,6 +393,10 @@ def register_resolvers():
         )
     if not OmegaConf.has_resolver("dit_type"):
         OmegaConf.register_new_resolver("dit_type", lambda name: DiTType[name].value)
+    if not OmegaConf.has_resolver("time_conditioning"):
+        OmegaConf.register_new_resolver(
+            "time_conditioning", lambda name: TimeConditioning[name].value
+        )
     if not OmegaConf.has_resolver("timestep_sampler"):
         OmegaConf.register_new_resolver(
             "timestep_sampler", lambda name: TimestepSampler[name].value
@@ -381,6 +408,10 @@ def register_resolvers():
     if not OmegaConf.has_resolver("kernel_type"):
         OmegaConf.register_new_resolver(
             "kernel_type", lambda name: KernelType[name].value
+        )
+    if not OmegaConf.has_resolver("token_padding"):
+        OmegaConf.register_new_resolver(
+            "token_padding", lambda name: TokenPaddingStrategy[name].value
         )
 
     if not OmegaConf.has_resolver("compile_mode"):
@@ -637,35 +668,58 @@ def register_configs():
         name="latent_optimal_transport",
         node=LatentOptimalTransportLossConfig,
     )
-    cs.store(group="policy/encoding_pipeline", name="base", node=ImageEncoderConfig)
+    cs.store(
+        group="policy/encoding_pipeline",
+        name="base",
+        node=EncodingPipelineConfig,
+    )
     cs.store(
         group="policy/encoding_pipeline/encoder", name="image", node=ImageEncoderConfig
     )
     cs.store(
         group="policy/encoding_pipeline/encoder/image",
-        name="cnn",
-        node=CNNEncoderConfig,
+        name="spatial",
+        node=SpatialRGBEncoderConfig,
     )
     cs.store(
         group="policy/encoding_pipeline/encoder/image",
         name="conditional_cnn",
         node=ConditionalCNNEncoderConfig,
     )
-
     cs.store(
         group="policy/encoding_pipeline/encoder/image",
-        name="vit",
-        node=ViTEncoderConfig,
+        name="flat",
+        node=FlatRGBEncoderConfig,
+    )
+    cs.store(
+        group="policy/encoding_pipeline/encoder/vlm",
+        name="two_tower_vlm",
+        node=TwoTowerVLMEncoderConfig,
+    )
+    cs.store(
+        group="policy/encoding_pipeline/encoder/vlm",
+        name="paligemma",
+        node=PaliGemmaEncoderConfig,
+    )
+    cs.store(
+        group="policy/encoding_pipeline/encoder/vlm",
+        name="smolvlm",
+        node=SmolVLMEncoderConfig,
     )
     cs.store(
         group="policy/encoding_pipeline/encoder",
-        name="depth_cnn",
-        node=DepthCNNEncoderConfig,
+        name="depth_spatial",
+        node=SpatialDepthEncoderConfig,
     )
     cs.store(
         group="policy/encoding_pipeline/encoder",
         name="dformer",
         node=DFormerEncoderConfig,
+    )
+    cs.store(
+        group="policy/encoding_pipeline/encoder",
+        name="geometric_rgbd",
+        node=GeometricRGBDEncoderConfig,
     )
     cs.store(
         group="policy/encoding_pipeline/encoder",
@@ -676,11 +730,6 @@ def register_configs():
         group="policy/encoding_pipeline/encoder",
         name="language",
         node=LanguageEncoderConfig,
-    )
-    cs.store(
-        group="policy/encoding_pipeline/encoder",
-        name="dformer",
-        node=DFormerEncoderConfig,
     )
     cs.store(group="policy/encoding_pipeline/fusion", name="base", node=FusionConfig)
     cs.store(
@@ -734,6 +783,8 @@ def register_configs():
         node=DiffusionActionTransformerConfig,
     )
     cs.store(group="policy/decoder", name="unet", node=ConditionalActionUNetConfig)
+    cs.store(group="policy/decoder", name="smolvla", node=SmolVLADecoderConfig)
+    cs.store(group="policy/decoder", name="pi0", node=Pi0DecoderConfig)
     cs.store(group="policy/decoder/action_head", name="base", node=ActionHeadConfig)
     cs.store(
         group="policy/decoder/action_head", name="gaussian", node=GaussianHeadConfig

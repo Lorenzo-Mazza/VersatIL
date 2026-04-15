@@ -40,7 +40,7 @@ class TestBaseLossConfig:
 class TestRegressionLossConfig:
     def test_target_points_to_regression_loss(self):
         config = RegressionLossConfig(action_keys=["position"])
-        assert config._target_ == "versatil.metrics.RegressionLoss"
+        assert config._target_ == "versatil.metrics.components.RegressionLoss"
 
     @pytest.mark.parametrize("mse_weight", [1.0, 0.5])
     @pytest.mark.parametrize("l1_weight", [0.0, 0.3])
@@ -77,7 +77,7 @@ class TestRegressionLossConfig:
 class TestGripperLossConfig:
     def test_target_points_to_gripper_loss(self):
         config = GripperLossConfig(key="gripper")
-        assert config._target_ == "versatil.metrics.GripperLoss"
+        assert config._target_ == "versatil.metrics.components.GripperLoss"
 
     @pytest.mark.parametrize("bce_weight", [1.0, 0.5])
     @pytest.mark.parametrize("mse_weight", [1.0, 0.0])
@@ -93,7 +93,7 @@ class TestGripperLossConfig:
 class TestKLDivergenceLossConfig:
     def test_target_points_to_kl_loss(self):
         config = KLDivergenceLossConfig()
-        assert config._target_ == "versatil.metrics.KLDivergenceLoss"
+        assert config._target_ == "versatil.metrics.components.KLDivergenceLoss"
 
     @pytest.mark.parametrize("weight", [0.0001, 0.01])
     @pytest.mark.parametrize("prior_regularization_weight", [0.0, 0.1])
@@ -110,7 +110,9 @@ class TestKLDivergenceLossConfig:
 class TestMaximumMeanDiscrepancyLossConfig:
     def test_target_points_to_mmd_loss(self):
         config = MaximumMeanDiscrepancyLossConfig()
-        assert config._target_ == "versatil.metrics.MaximumMeanDiscrepancyLoss"
+        assert (
+            config._target_ == "versatil.metrics.components.MaximumMeanDiscrepancyLoss"
+        )
 
     def test_kernel_type_default_is_rbf_string(self):
         config = MaximumMeanDiscrepancyLossConfig()
@@ -126,7 +128,7 @@ class TestMaximumMeanDiscrepancyLossConfig:
 class TestCompositeLossConfig:
     def test_target_points_to_composite_loss(self):
         config = CompositeLossConfig()
-        assert config._target_ == "versatil.metrics.CompositeLoss"
+        assert config._target_ == "versatil.metrics.composite.CompositeLoss"
 
     def test_loss_modules_default_to_empty_dict(self):
         config = CompositeLossConfig()
@@ -141,7 +143,7 @@ class TestCompositeLossConfig:
 class TestPhaseClassificationLossConfig:
     def test_target_points_to_phase_classification_loss(self):
         config = PhaseClassificationLossConfig(key="phase")
-        assert config._target_ == "versatil.metrics.PhaseClassificationLoss"
+        assert config._target_ == "versatil.metrics.components.PhaseClassificationLoss"
 
     @pytest.mark.parametrize("label_smoothing", [0.0, 0.1])
     def test_stores_label_smoothing(self, label_smoothing):
@@ -155,7 +157,7 @@ class TestPhaseClassificationLossConfig:
 class TestTrajectoryLengthLossConfig:
     def test_target_points_to_trajectory_length_loss(self):
         config = TrajectoryLengthLossConfig(action_key="position")
-        assert config._target_ == "versatil.metrics.TrajectoryLengthLoss"
+        assert config._target_ == "versatil.metrics.components.TrajectoryLengthLoss"
 
     def test_action_key_required(self):
         config = TrajectoryLengthLossConfig()
@@ -166,14 +168,14 @@ class TestTrajectoryLengthLossConfig:
 class TestTrajectorySmoothnessConfig:
     def test_target_points_to_trajectory_smoothness(self):
         config = TrajectorySmoothnessConfig(action_key="position")
-        assert config._target_ == "versatil.metrics.TrajectorySmoothness"
+        assert config._target_ == "versatil.metrics.components.TrajectorySmoothness"
 
 
 @pytest.mark.unit
 class TestBinaryKLDivergenceLossConfig:
     def test_target_points_to_binary_kl_loss(self):
         config = BinaryKLDivergenceLossConfig(latent_bits=16)
-        assert config._target_ == "versatil.metrics.BinaryKLDivergenceLoss"
+        assert config._target_ == "versatil.metrics.components.BinaryKLDivergenceLoss"
 
     @pytest.mark.parametrize("free_bits", [0.0, 0.1])
     def test_stores_free_bits(self, free_bits):
@@ -185,14 +187,14 @@ class TestBinaryKLDivergenceLossConfig:
 class TestGaussianEntropyLossConfig:
     def test_target_points_to_entropy_loss(self):
         config = GaussianEntropyLossConfig(key="latent")
-        assert config._target_ == "versatil.metrics.GaussianEntropyLoss"
+        assert config._target_ == "versatil.metrics.components.GaussianEntropyLoss"
 
 
 @pytest.mark.unit
 class TestMoELossConfig:
     def test_target_points_to_moe_loss(self):
         config = MoELossConfig()
-        assert config._target_ == "versatil.metrics.MoELoss"
+        assert config._target_ == "versatil.metrics.components.MoELoss"
 
     def test_base_loss_required(self):
         config = MoELossConfig()
@@ -203,7 +205,7 @@ class TestMoELossConfig:
 class TestGaussianMixtureNLLossConfig:
     def test_target_points_to_gmm_nll_loss(self):
         config = GaussianMixtureNLLossConfig(action_keys=["position"])
-        assert config._target_ == "versatil.metrics.GaussianMixtureNLLoss"
+        assert config._target_ == "versatil.metrics.components.GaussianMixtureNLLoss"
 
     @pytest.mark.parametrize("learned_variance", [True, False])
     def test_stores_learned_variance(self, learned_variance):
@@ -217,14 +219,14 @@ class TestGaussianMixtureNLLossConfig:
 class TestGripperMixtureNLLossConfig:
     def test_target_points_to_gripper_mixture_nll(self):
         config = GripperMixtureNLLossConfig(key="gripper")
-        assert config._target_ == "versatil.metrics.GripperMixtureNLLoss"
+        assert config._target_ == "versatil.metrics.components.GripperMixtureNLLoss"
 
 
 @pytest.mark.unit
 class TestVICLatentLossConfig:
     def test_target_points_to_vic_latent_loss(self):
         config = VICLatentLossConfig()
-        assert config._target_ == "versatil.metrics.VICLatentLoss"
+        assert config._target_ == "versatil.metrics.components.VICLatentLoss"
 
     @pytest.mark.parametrize("covariance_weight", [3.0, 1.0])
     @pytest.mark.parametrize("variance_weight", [10.0, 5.0])
@@ -260,21 +262,24 @@ class TestLatentOptimalTransportLossConfig:
 class TestPriorDenoisingLossConfig:
     def test_target_points_to_prior_denoising_loss(self):
         config = PriorDenoisingLossConfig()
-        assert config._target_ == "versatil.metrics.PriorDenoisingLoss"
+        assert config._target_ == "versatil.metrics.components.PriorDenoisingLoss"
 
 
 @pytest.mark.unit
 class TestBinaryMaximumMeanDiscrepancyLossConfig:
     def test_target_points_to_binary_mmd_loss(self):
         config = BinaryMaximumMeanDiscrepancyLossConfig()
-        assert config._target_ == "versatil.metrics.BinaryMaximumMeanDiscrepancyLoss"
+        assert (
+            config._target_
+            == "versatil.metrics.components.BinaryMaximumMeanDiscrepancyLoss"
+        )
 
 
 @pytest.mark.unit
 class TestActionTokenLossConfig:
     def test_target_points_to_action_token_loss(self):
         config = ActionTokenLossConfig()
-        assert config._target_ == "versatil.metrics.ActionTokenLoss"
+        assert config._target_ == "versatil.metrics.components.ActionTokenLoss"
 
     @pytest.mark.parametrize("label_smoothing", [0.0, 0.2, 0.5])
     def test_stores_label_smoothing(self, label_smoothing):

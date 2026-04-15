@@ -11,17 +11,16 @@ Builds the final training/validation samples by:
 import numpy as np
 import torch
 
-from versatil.data.action_processor import ActionProcessor
-from versatil.data.augmentation.augmentation_pipeline import AugmentationPipeline
 from versatil.data.constants import (
-    Cameras,
     SampleKey,
 )
 from versatil.data.metadata import ActionMetadata, ObservationMetadata
 from versatil.data.normalization.normalizer import LinearNormalizer
+from versatil.data.processing.action_processor import ActionProcessor
+from versatil.data.processing.image_processor import ImageProcessor
+from versatil.data.processing.transform import normalize_sample, tokenize_sample
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import Tokenizer
-from versatil.data.transform import normalize_sample, tokenize_sample
 
 
 class SampleBuilder:
@@ -34,7 +33,7 @@ class SampleBuilder:
         obs_horizon: int,
         pred_horizon: int,
         action_backward_shift: int,
-        augmentation_pipeline: AugmentationPipeline,
+        image_processor: ImageProcessor,
         action_processor: ActionProcessor,
         tokenizer: Tokenizer | None = None,
         normalizer: LinearNormalizer | None = None,
@@ -46,7 +45,7 @@ class SampleBuilder:
             obs_horizon: Observation history length
             pred_horizon: Action prediction horizon
             action_backward_shift: Backward shift to give to action timesteps (if actions have latency)
-            augmentation_pipeline: Handles augmentations
+            image_processor: Handles augmentations
             action_processor: Processes actions
             tokenizer: Unified tokenizer for observations and actions
             normalizer: Normalizer for observations and actions
@@ -56,7 +55,7 @@ class SampleBuilder:
         self.obs_horizon = obs_horizon
         self.pred_horizon = pred_horizon
         self.action_backward_shift = action_backward_shift
-        self.augmentation_pipeline = augmentation_pipeline
+        self.image_processor = image_processor
         self.action_processor = action_processor
         self.tokenizer = tokenizer
         self.normalizer = normalizer
@@ -156,16 +155,7 @@ class SampleBuilder:
                 self.action_backward_shift : self.action_backward_shift
                 + self.obs_horizon
             ]
-            if cam != Cameras.DEPTH.value:
-                img = self.augmentation_pipeline.apply_rgb_augmentations(img)
-                img = img.astype(np.float32) / 255.0
-                # Convert to (T, C, H, W)
-                img = np.moveaxis(img, -1, 1)
-            else:
-                img = self.augmentation_pipeline.apply_depth_augmentations(img)
-                if len(img.shape) == 3:
-                    img = img.astype(np.float32)[:, None]
-            image_dict[cam] = torch.from_numpy(img)
+            image_dict[cam] = self.image_processor.process(images=img, camera_key=cam)
         return image_dict
 
     def _slice_observation_tensor(

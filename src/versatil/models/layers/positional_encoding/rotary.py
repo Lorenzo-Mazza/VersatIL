@@ -30,14 +30,14 @@ class RotaryPositionalEncoding(nn.Module):
 
     @staticmethod
     def _compute_frequencies(dimension: int, base_frequency: float) -> torch.Tensor:
-        """Computes frequency bands for rotary encoding.
+        """Compute frequency bands with interleaved repetition for ``apply_rotation``.
 
         Args:
             dimension: Embedding dimension per head.
             base_frequency: Base frequency for computation.
 
         Returns:
-            Frequency tensor of shape (dimension // 2,) repeated to (dimension,).
+            Frequency tensor of shape (dimension,) with interleaved pairs.
         """
         half_dimension = dimension // 2
         exponents = torch.arange(half_dimension, dtype=torch.float32) / half_dimension
@@ -47,18 +47,42 @@ class RotaryPositionalEncoding(nn.Module):
         return result
 
     @staticmethod
+    def _compute_frequencies_half(
+        dimension: int, base_frequency: float
+    ) -> torch.Tensor:
+        """Compute frequency bands without repetition for ``apply_rotation_half``.
+
+        Returns (dimension // 2,) frequencies matching the Gemma/LLaMA split-half
+        convention where cos/sin are broadcast across the full head dimension.
+
+        Args:
+            dimension: Embedding dimension per head.
+            base_frequency: Base frequency for computation.
+
+        Returns:
+            Frequency tensor of shape (dimension // 2,).
+        """
+        half_dimension = dimension // 2
+        exponents = torch.arange(half_dimension, dtype=torch.float32) / half_dimension
+        result: torch.Tensor = 1.0 / (base_frequency**exponents)
+        return result
+
+    @staticmethod
     def apply_rotation(
         tensor: torch.Tensor, sine: torch.Tensor, cosine: torch.Tensor
     ) -> torch.Tensor:
-        """Applies rotary transformation to input tensor.
+        """Apply rotary transformation using interleaved even/odd convention.
+
+        Pairs even and odd indices: ``[-odd, even]`` interleaved back.
+        This is the original RoFormer/VersatIL convention.
 
         Args:
-            tensor: Input tensor of shape (B, num_heads, L, head_dim) for 1D or (B, num_heads, H, W, head_dim) for 2D.
-            sine: Sine components matching the sequence/grid shape + head_dim.
-            cosine: Cosine components matching the sequence/grid shape + head_dim.
+            tensor: Input (B, num_heads, L, head_dim).
+            sine: Sine components matching sequence + head_dim shape.
+            cosine: Cosine components matching sequence + head_dim shape.
 
         Returns:
-            Rotated tensor of same shape as input.
+            Rotated tensor of same shape.
         """
         even_indices = tensor[..., 0::2]
         odd_indices = tensor[..., 1::2]
@@ -66,6 +90,27 @@ class RotaryPositionalEncoding(nn.Module):
         rotated_pairs = rotated_pairs.flatten(-2)
         rotated_tensor = (tensor * cosine) + (rotated_pairs * sine)
         return rotated_tensor
+
+    @staticmethod
+    def apply_rotation_half(
+        tensor: torch.Tensor, sine: torch.Tensor, cosine: torch.Tensor
+    ) -> torch.Tensor:
+        """Apply rotary transformation using split-half convention.
+
+        Splits the last dimension in half: ``[-second_half, first_half]``.
+
+        Args:
+            tensor: Input (B, num_heads, L, head_dim).
+            sine: Sine components matching sequence + head_dim shape.
+            cosine: Cosine components matching sequence + head_dim shape.
+
+        Returns:
+            Rotated tensor of same shape.
+        """
+        first_half = tensor[..., : tensor.shape[-1] // 2]
+        second_half = tensor[..., tensor.shape[-1] // 2 :]
+        rotated = torch.cat([-second_half, first_half], dim=-1)
+        return (tensor * cosine) + (rotated * sine)
 
 
 class RotaryPositionalEncoding1D(RotaryPositionalEncoding):

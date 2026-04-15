@@ -23,6 +23,7 @@ from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
 from tso_robotics_sockets import CompressionType
 
 import versatil.configs  # noqa: F401
+from tests.conftest import get_test_device
 from tests.endpoints.conftest import (
     HYDRA_CONFIG_DIR,
     build_tiny_overrides,
@@ -69,16 +70,16 @@ IMAGE_WIDTH = 32
 NUM_EPISODES = 3
 TIMESTEPS_PER_EPISODE = 15
 
+TRAINING_DEVICE = get_test_device()
+
 COMMON_OVERRIDES = [
     "task.dataloader.batch_size=2",
-    "task.dataloader.image_height=32",
-    "task.dataloader.image_width=32",
     "task.dataloader.num_workers=1",
     "task.dataloader.val_ratio=0.0",
     "training.num_epochs=1",
     "experiment.use_wandb=false",
     "experiment.name=ptq_test",
-    "experiment.device=cpu",
+    f"experiment.device={TRAINING_DEVICE.type}",
 ]
 
 PTQ_CONFIG_DIR = Path(HYDRA_CONFIG_DIR) / "end_to_end_ptq"
@@ -188,7 +189,6 @@ def compression_pipeline(trained_checkpoint):
                 device=torch.device("cpu"),
                 checkpoint_path=str(output_dir),
                 checkpoint_name="last.ckpt",
-                precision="32",
             )
 
         exportable = ExportablePolicy.from_policy(policy_loader.policy)
@@ -471,7 +471,6 @@ class TestGlobalQuantizeApiDynamic:
                 device=torch.device("cpu"),
                 checkpoint_path=str(output_dir),
                 checkpoint_name="last.ckpt",
-                precision="32",
             )
         policy = policy_loader.policy
         exportable = ExportablePolicy.from_policy(policy)
@@ -534,7 +533,7 @@ class TestBuildExampleInputsFallback:
         example_inputs = build_example_inputs(
             exportable=exportable,
             observation_space=policy_loader.observation_space,
-            dataloader_config=policy_loader.config.task.dataloader,
+            observation_horizon=policy_loader.config.task.observation_horizon,
             tokenizer=policy_loader.tokenizer,
         )
 

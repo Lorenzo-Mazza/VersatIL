@@ -1,14 +1,10 @@
 defaults:
-  - encoder/image/cnn@encoders.left
-  - encoder/image/cnn@encoders.right
+  - encoder/image/spatial@encoders.left
+  - encoder/image/spatial@encoders.right
   - encoder/language@encoders.instruction
   - _self_
-
-_target_: versatil.models.encoding.pipeline.EncodingPipeline
-
 encoders:
   left:
-    _target_: versatil.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys:
     - ${cameras:LEFT}
     backbone: ${rgb_backbone:MOBILENETV4_SMALL_050}
@@ -18,7 +14,6 @@ encoders:
     batch_norm_handling: ${batch_norm_handling:FROZEN}
 
   right:
-    _target_: versatil.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys:
     - ${cameras:RIGHT}
     backbone: ${rgb_backbone:MOBILENETV4_SMALL_050}

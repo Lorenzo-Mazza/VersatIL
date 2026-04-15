@@ -118,6 +118,12 @@ class MoEFreeActionTransformer(FreeActionTransformer):
         ]
         self.expert_gating_projection = None
 
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """MoE free transformer adds routing weights to free transformer's auxiliary keys."""
+        keys = super().get_auxiliary_output_keys()
+        keys.add(DecoderOutputKey.ROUTING_WEIGHTS.value)
+        return keys
+
     def set_tokenizer(self, tokenizer: Tokenizer | None = None):
         if tokenizer is None or tokenizer.action_tokenizer is None:
             raise ValueError(
@@ -192,8 +198,6 @@ class MoEFreeActionTransformer(FreeActionTransformer):
         ) = self.free_transformer(
             hidden_states=full_token_sequence,
             key_padding_mask=full_key_padding_mask,
-            decoder_cache=None,
-            use_cache=False,
             self_attention_mask=full_attention_mask,
             is_inference=False,
             return_latent_embeddings=True,
@@ -228,18 +232,20 @@ class MoEFreeActionTransformer(FreeActionTransformer):
         prefix_self_mask = torch.zeros(
             batch_size, 1, prefix_len, prefix_len, dtype=torch.bool, device=self.device
         )
+        generation_cache = self.free_transformer.create_empty_generation_cache(
+            batch_size=batch_size, device=self.device, dtype=feature_tokens.dtype
+        )
         (
             decoder_output,
             _,
             latent_codes,
             latent_embeddings,
-            decoder_cache,
+            generation_cache,
         ) = self.free_transformer(
             hidden_states=current_sequence,
             key_padding_mask=feature_token_mask,
             self_attention_mask=prefix_self_mask,
-            decoder_cache=None,
-            use_cache=True,
+            generation_cache=generation_cache,
             is_inference=True,
             return_latent_embeddings=True,
         )
@@ -253,13 +259,12 @@ class MoEFreeActionTransformer(FreeActionTransformer):
                     _,
                     latent_codes,
                     latent_embeddings,
-                    decoder_cache,
+                    generation_cache,
                 ) = self.free_transformer(
                     hidden_states=next_token_embedding,
                     key_padding_mask=None,  # Cached mask handles prefix padding; new token is always valid
                     self_attention_mask=None,  # Causal mask handled internally
-                    decoder_cache=decoder_cache,
-                    use_cache=True,
+                    generation_cache=generation_cache,
                     is_inference=True,
                     return_latent_embeddings=True,
                 )
@@ -277,7 +282,7 @@ class MoEFreeActionTransformer(FreeActionTransformer):
             else:
                 probs = torch.softmax(logits_scaled, dim=-1)
                 next_token = torch.multinomial(
-                    probs.squeeze(-1), num_samples=1
+                    probs.squeeze(1), num_samples=1
                 )  # (B, 1)
             expert_usage = logits_dict[
                 DecoderOutputKey.ROUTING_WEIGHTS.value

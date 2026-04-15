@@ -3,7 +3,6 @@
 import re
 from collections.abc import Callable
 
-import numpy as np
 import pytest
 import torch
 
@@ -74,6 +73,7 @@ class TestTransformerEncoderInitialization:
         assert encoder.number_of_layers == number_of_layers
         assert encoder.embedding_dimension == embedding_dimension
         assert encoder.number_of_heads == number_of_heads
+        assert encoder.number_of_residual_blocks == 2  # Self-Attn + FFN
 
     def test_creates_correct_number_of_layers(
         self, encoder_factory: Callable[..., TransformerEncoder]
@@ -163,15 +163,15 @@ class TestTransformerEncoderForward:
     def test_padding_mask_affects_output(
         self,
         encoder_factory: Callable[..., TransformerEncoder],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
         padding_mask_factory: Callable[..., torch.Tensor],
     ):
         encoder = encoder_factory(
             number_of_layers=2, embedding_dimension=32, number_of_heads=4
         )
         encoder.eval()
-        hidden_states = torch.from_numpy(
-            rng.standard_normal((2, 4, 32)).astype(np.float32)
+        hidden_states = sequence_tensor_factory(
+            batch_size=2, sequence_length=4, embedding_dimension=32
         )
         mask = padding_mask_factory(
             batch_size=2,
@@ -188,7 +188,7 @@ class TestTransformerEncoderForward:
     def test_bidirectional_all_tokens_influence_all_outputs(
         self,
         encoder_factory: Callable[..., TransformerEncoder],
-        rng: np.random.Generator,
+        sequence_tensor_factory: Callable[..., torch.Tensor],
     ):
         encoder = encoder_factory(
             number_of_layers=2,
@@ -197,8 +197,8 @@ class TestTransformerEncoderForward:
             initializer_range=0.5,
         )
         encoder.eval()
-        hidden_states = torch.from_numpy(
-            rng.standard_normal((1, 4, 32)).astype(np.float32)
+        hidden_states = sequence_tensor_factory(
+            batch_size=1, sequence_length=4, embedding_dimension=32
         )
         output_original = encoder(hidden_states=hidden_states)
         # Modify the last position with a large perturbation
@@ -259,7 +259,7 @@ class TestTransformerEncoderExpandPaddingMask:
             padded_positions=[[2, 3], [3]],
         )
         expanded = TransformerEncoder._expand_padding_mask(
-            padding_mask=mask, sequence_length=4
+            padding_mask=mask, query_length=4
         )
         assert expanded.shape == (2, 1, 4, 4)
 
@@ -273,7 +273,7 @@ class TestTransformerEncoderExpandPaddingMask:
             padded_positions=[[3]],
         )
         expanded = TransformerEncoder._expand_padding_mask(
-            padding_mask=mask, sequence_length=4
+            padding_mask=mask, query_length=4
         )
         # Position 3 should be masked for all query positions
         assert expanded[0, 0, 0, 3].item() is True

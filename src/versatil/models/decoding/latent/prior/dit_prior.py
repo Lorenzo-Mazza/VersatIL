@@ -18,6 +18,7 @@ from versatil.models.decoding.constants import (
 from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
+from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.denoising.diffusion_process import (
     DiffusionSchedulerConfig,
     SchedulerType,
@@ -27,9 +28,6 @@ from versatil.models.layers.denoising.diffusion_process import (
     setup_inference_timesteps,
 )
 from versatil.models.layers.denoising.ode_solvers import integrate_ode
-from versatil.models.layers.diffusion_transformer.dit_decoder import (
-    DiffusionTransformerDecoder,
-)
 from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
     FinalPredictionLayer,
 )
@@ -40,6 +38,9 @@ from versatil.models.layers.positional_encoding.learned import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
+)
+from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
+    ConditionalBidirectionalDecoder,
 )
 
 
@@ -73,6 +74,7 @@ class DiTPrior(PriorLatentEncoder):
         clip_sample: Whether to clip samples during diffusion.
         variance_type: Variance type for DDPM scheduler.
         dropout: Dropout rate.
+        normalization_type: Type of adaptive normalization layer
         activation: Activation function name.
         use_gating: Whether to use AdaLN-Zero gating in DiT layers.
         exclude_keys: Keys to exclude from observations.
@@ -100,6 +102,9 @@ class DiTPrior(PriorLatentEncoder):
         clip_sample: bool = False,
         variance_type: str | None = None,
         dropout: float = 0.1,
+        normalization_type: str = NormalizationType.LAYER_NORM.value,
+        attention_type: str = AttentionType.MULTI_HEAD.value,
+        number_of_key_value_heads: int | None = None,
         activation: str = ActivationFunction.SILU.value,
         use_gating: bool = True,
         exclude_keys: list[str] | None = None,
@@ -175,16 +180,19 @@ class DiTPrior(PriorLatentEncoder):
             ),
             temporal_positional_encoding_layer=temporal_positional_encoding,
         )
-        self.decoder = DiffusionTransformerDecoder(
+        self.decoder = ConditionalBidirectionalDecoder(
             number_of_layers=number_of_layers,
             embedding_dimension=embedding_dimension,
-            timestep_dimension=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
             number_of_heads=number_of_heads,
             feedforward_dimension=feedforward_dimension,
             dropout=dropout,
             activation=activation,
-            normalization_type=NormalizationType.LAYER_NORM.value,
+            normalization_type=normalization_type,
+            attention_type=attention_type,
+            number_of_key_value_heads=number_of_key_value_heads,
             positional_encoding_type=None,  # Handled externally by input_builder
+            use_cross_attention=False,
             use_gating=use_gating,
             use_final_normalization=False,  # FinalPredictionLayer has its own AdaNorm
         )
@@ -251,8 +259,8 @@ class DiTPrior(PriorLatentEncoder):
             tokens = tokens + positional_encoding
         tokens = self.decoder(
             hidden_states=tokens,
-            conditioning_embedding=timestep_embedding,
-            padding_mask=padding_mask,
+            condition=timestep_embedding,
+            query_padding_mask=padding_mask,
         )  # (B, T+1, D)
         output_token = tokens[:, -1:, :]  # (B, 1, D)
         output = self.final_layer(
@@ -315,9 +323,22 @@ class DiTPrior(PriorLatentEncoder):
             observations=filtered_obs,
             timestep_embedding=timestep_embedding,
         )  # (B, latent_dim)
+        if self.prediction_type == PredictionType.EPSILON.value:
+            target = noise
+        elif self.prediction_type == PredictionType.SAMPLE.value:
+            target = target_latents
+        elif self.prediction_type == PredictionType.VELOCITY.value:
+            target = self.noise_scheduler.get_velocity(
+                sample=target_latents, noise=noise, timesteps=timesteps
+            )
+        else:
+            raise ValueError(
+                f"Unknown prediction_type: {self.prediction_type}. "
+                f"Expected one of {[e.value for e in PredictionType]}"
+            )
         return {
             LatentKey.PRIOR_PREDICTION.value: model_output,
-            LatentKey.PRIOR_TARGET.value: noise,
+            LatentKey.PRIOR_TARGET.value: target,
         }
 
     def sample_prior(

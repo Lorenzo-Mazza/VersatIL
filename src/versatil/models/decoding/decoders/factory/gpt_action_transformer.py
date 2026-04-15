@@ -314,8 +314,6 @@ class GPTActionTransformer(ActionDecoder):
             hidden_states=full_token_sequence,
             encoded_features=None,
             cross_attention_mask=None,
-            decoder_cache=None,
-            use_cache=False,
             self_attention_mask=full_attention_mask,
         )  # (B, query_len, D)
         # Shift alignment: grabs outputs from the last feature to the penultimate action so step t predicts target t+1.
@@ -351,24 +349,25 @@ class GPTActionTransformer(ActionDecoder):
         prefix_self_mask = torch.zeros(
             batch_size, 1, prefix_len, prefix_len, dtype=torch.bool, device=self.device
         )
-        decoder_output, decoder_cache = self.gpt_decoder(
+        generation_cache = self.gpt_decoder.create_empty_generation_cache(
+            batch_size=batch_size, device=self.device, dtype=feature_tokens.dtype
+        )
+        decoder_output, generation_cache = self.gpt_decoder(
             hidden_states=current_sequence,
             encoded_features=None,
-            self_attention_mask=prefix_self_mask,  # First mask only to avoid a causal effect within prefix
+            self_attention_mask=prefix_self_mask,
             key_padding_mask=feature_token_mask,  # (B, prefix_len) or None
             cross_attention_mask=None,
-            decoder_cache=None,
-            use_cache=True,
+            generation_cache=generation_cache,
         )
         generated_tokens = []
         next_token_embedding = None
         for step in range(self.max_seq_len - prefix_len):
             if step > 0:
-                decoder_output, decoder_cache = self.gpt_decoder(
+                decoder_output, generation_cache = self.gpt_decoder(
                     hidden_states=next_token_embedding,
-                    self_attention_mask=None,  # Causal mask handled internally
-                    decoder_cache=decoder_cache,
-                    use_cache=True,
+                    self_attention_mask=None,  # Causal mask handled by the cache
+                    generation_cache=generation_cache,
                 )
             last_output = decoder_output[:, -1:, :]  # (B, 1, embedding_dimension)
             head = self.action_heads[DecoderOutputKey.ACTION_LOGITS.value]
@@ -379,7 +378,7 @@ class GPTActionTransformer(ActionDecoder):
             else:
                 probs = torch.softmax(logits_scaled, dim=-1)
                 next_token = torch.multinomial(
-                    probs.squeeze(-1), num_samples=1
+                    probs.squeeze(1), num_samples=1
                 )  # (B, 1)
             generated_tokens.append(next_token)
             if (next_token == self.tokenizer.eos_token_id).all():  # Check across batch

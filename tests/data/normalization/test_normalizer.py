@@ -206,7 +206,24 @@ class TestSingleFieldLinearNormalizerGaussian:
         # scale = 1 / clamped_std = 1 / 0.02 = 50.0
         assert torch.all(scale <= 50.0 + 1e-5)
 
-    def test_no_offset_when_fit_offset_false(self, rng: np.random.Generator):
+    def test_constant_dim_keeps_unit_scale_despite_min_std(self):
+        constant_data = torch.full((10, 1), fill_value=0.5)
+        varying_data = torch.linspace(-1.0, 1.0, steps=10).unsqueeze(-1)
+        data = torch.cat([constant_data, varying_data], dim=-1)
+        normalizer = SingleFieldLinearNormalizer()
+        normalizer.fit(
+            data=data,
+            mode=KinematicsNormalizationType.GAUSSIAN.value,
+            clamp_range=True,
+            min_std=0.02,
+        )
+        scale = normalizer.params_dict["scale"]
+        # constant dim should bypass the min_std clamp and stay at scale=1
+        assert scale[0].item() == pytest.approx(1.0)
+        # varying dim should still be scaled by its std (not 1)
+        assert scale[1].item() != pytest.approx(1.0)
+
+    def test_no_offset_when_fit_offset_false_gaussian(self, rng: np.random.Generator):
         data = (
             torch.from_numpy(rng.standard_normal((100, 3)).astype(np.float32)) * 5.0
             + 10.0

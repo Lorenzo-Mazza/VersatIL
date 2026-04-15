@@ -9,7 +9,6 @@ import torch
 from versatil.inference.policy_loading.base import BasePolicyLoader
 from versatil.models.policy import Policy
 from versatil.training.constants import (
-    MAP_PRECISION_TO_DTYPE,
     CheckpointFilename,
     CheckpointKey,
     PrecisionType,
@@ -29,7 +28,6 @@ class PolicyLoader(BasePolicyLoader):
         device: torch.device,
         checkpoint_path: str,
         checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value,
-        precision: str = PrecisionType.BF16_MIXED.value,
         seed: int = 42,
         compile_model: bool = True,
     ) -> None:
@@ -39,14 +37,12 @@ class PolicyLoader(BasePolicyLoader):
             device: Device to load the model onto.
             checkpoint_path: Path to the checkpoint directory.
             checkpoint_name: Name of the checkpoint file.
-            precision: Precision type for model inference.
             seed: Random seed for reproducibility.
             compile_model: Whether to compile the policy with
                 torch.compile for optimized inference.
         """
         super().__init__(device=device, checkpoint_path=checkpoint_path)
         self._checkpoint_name = checkpoint_name
-        self._precision = precision
         self._compile_model = compile_model
         self._set_seed(seed)
         self._load_model()
@@ -71,18 +67,16 @@ class PolicyLoader(BasePolicyLoader):
             raise FileNotFoundError(f"No checkpoint found at {checkpoint_file}.")
         logging.info(f"Loading model and tokenizer from {checkpoint_file}")
 
+        self._policy = self._config.policy
         tokenizer_path = os.path.join(
             self._checkpoint_path, CheckpointFilename.TOKENIZER_DIR.value
         )
         self._tokenizer = self._load_tokenizer(tokenizer_path=tokenizer_path)
-
-        self._policy = self._config.policy
         if self._tokenizer is not None:
             self._tokenizer.to(self._device)
             self._policy.set_tokenizer(self._tokenizer)
 
         self._policy.to(self._device).eval()
-
         checkpoint = torch.load(
             checkpoint_file,
             map_location=self._device,
@@ -99,6 +93,7 @@ class PolicyLoader(BasePolicyLoader):
             model_state_dict=lightning_module.state_dict(),
         )
 
+        self._precision = str(self._config.experiment.precision)
         precision_type = PrecisionType(self._precision)
         if precision_type.should_convert_model():
             self._policy = self._policy.to(precision_type.get_model_dtype())
@@ -123,7 +118,7 @@ class PolicyLoader(BasePolicyLoader):
         with (
             torch.autocast(
                 device_type=str(self._device),
-                dtype=MAP_PRECISION_TO_DTYPE[self._precision],
+                dtype=PrecisionType(self._precision).get_model_dtype(),
             ),
             torch.no_grad(),
         ):

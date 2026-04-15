@@ -2,12 +2,13 @@
 
 Algorithms define the **learning paradigm** -- how the policy is trained and how it generates actions at inference time. They are decoupled from the decoder architecture: the algorithm orchestrates the decoder without knowing its internals. Certain pairings are naturally constrained by their mathematical formulation (e.g., timestep-conditioned decoders require a generative algorithm that provides timesteps).
 
-All algorithms inherit from `DecodingAlgorithm` and implement two methods:
+All algorithms inherit from `DecodingAlgorithm` and implement these methods:
 
 | Method | Purpose | Actions required? |
 |--------|---------|-------------------|
 | `forward()` | Training pass | Yes (ground-truth actions) |
 | `predict()` | Inference pass | No |
+| `get_targets()` | Provide regression targets for the loss module | Yes |
 
 ```python
 class DecodingAlgorithm(nn.Module, abc.ABC):
@@ -26,9 +27,38 @@ class DecodingAlgorithm(nn.Module, abc.ABC):
         network: ActionDecoder,
         features: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]: ...
+
+    def get_targets(
+        self,
+        algorithm_output: dict[str, torch.Tensor | dict[str, torch.Tensor]],
+        ground_truth_actions: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Return the correct regression targets for the loss module.
+        Default returns ground-truth actions (correct for BC).
+        """
+        return ground_truth_actions
+
+    @property
+    def predicts_in_action_space(self) -> bool:
+        """Whether the network output lives in the action space."""
+        return True
 ```
 
 The `forward()` / `predict()` contract ensures a clean separation: training logic (noise injection, flow interpolation, latent encoding) lives in the algorithm, while the neural network computation lives in the decoder.
+
+### Algorithm Targets
+
+Different algorithms predict different quantities. The loss module must compare predictions against the correct target, not raw ground-truth actions. `Policy.compute_loss()` calls `algorithm.get_targets()` to obtain the right regression target:
+
+| Algorithm | `get_targets()` returns | `predicts_in_action_space` |
+|---|---|---|
+| `BehavioralCloning` | Ground-truth actions | `True` |
+| `FlowMatching` | Velocity field | `False` |
+| `Diffusion` (epsilon) | Noise | `False` |
+| `Diffusion` (sample) | Denoised sample | `True` |
+| `Diffusion` (velocity) | Velocity | `False` |
+
+The `predicts_in_action_space` property enables loss-algorithm compatibility validation. Classification losses (e.g., BCE for gripper) require action-space predictions -- pairing them with Flow Matching (which predicts velocity fields) is caught at initialization by `ExperimentValidator`.
 
 ---
 
@@ -100,14 +130,15 @@ Generative modeling via Continuous Normalizing Flows. Trains the network to pred
 
 **Key parameters:**
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `sigma` | `0.0` | Noise level for CFM (0 = deterministic optimal transport) |
-| `num_inference_steps` | `10` | Number of ODE integration steps |
-| `ode_solver` | `"euler"` | Solver type (`"euler"`, `"heun"`, `"rk4"`) |
-| `timestep_sampler` | `"beta"` | Sampling strategy (`"uniform"`, `"logit_normal"`, `"beta"`) |
-| `beta_alpha` / `beta_beta` | `1.5` / `1.0` | Shape parameters for Beta distribution sampler |
-| `max_timestep` | `0.999` | Upper bound for timestep sampling |
+| Parameter | Default | Description                                                               |
+|-----------|---------|---------------------------------------------------------------------------|
+| `sigma` | `0.0` | Noise level for CFM (0 = deterministic optimal transport)                 |
+| `num_inference_steps` | `10` | Number of ODE integration steps                                           |
+| `ode_solver` | `"euler"` | Solver type (`"euler"`, `"heun"`, `"rk4"`)                                |
+| `timestep_sampler` | `"beta"` | Sampling strategy (`"uniform"`, `"logit_normal"`, `"beta"`)               |
+| `beta_alpha` / `beta_beta` | `1.5` / `1.0` | Shape parameters for Beta distribution sampler                            |
+| `max_timestep` | `0.999` | Upper bound for timestep sampling                                         |
+| `reverse_flow_convention` | `False` | When `True`, reverses the flow convention (noise at `t=1`, data at `t=0`) |
 
 !!! tip "Timestep sampling"
     The `beta` sampler (from Pi0) biases training towards later timesteps where the signal-to-noise ratio is higher, improving sample quality. The `logit_normal` sampler provides similar control via `logit_mean` and `logit_std`.

@@ -8,11 +8,12 @@ import pytest
 import torch
 
 from versatil.models.decoding.action_heads.single_output import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey, FeatureType
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder
 from versatil.models.decoding.decoders.factory.conditional_action_unet import (
     ConditionalActionUNet,
 )
+from versatil.models.feature_meta import FeatureType
 
 EMBEDDING_DIMENSION = 32
 DOWN_DIMENSIONS = [32, 64]

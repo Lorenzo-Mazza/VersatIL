@@ -3,9 +3,6 @@ defaults:
   - encoder/image/conditional_cnn@encoders.left
   - encoder/image/conditional_cnn@encoders.right
   - _self_
-
-_target_: versatil.models.encoding.pipeline.EncodingPipeline
-
 encoders:
   instruction:
     model_name: ${language_model:BERT_BASE}
@@ -16,10 +13,9 @@ encoders:
     use_embeddings_only: false
 
   left:
-    _target_: versatil.models.encoding.encoders.rgb.conditional_cnn.ConditionalCNNEncoder
     input_keys:
     - ${cameras:LEFT}
-    condition_key: "instruction_language" # key is always f"{encoder_name}_{EncoderOutputType.value}"
+    condition_key: "instruction_language"
     condition_dim: 768
     backbone: ${rgb_backbone:RESNET18}
     pretrained: true
@@ -28,16 +24,12 @@ encoders:
     batch_norm_handling: ${batch_norm_handling:FROZEN}
 
   right:
-    _target_: versatil.models.encoding.encoders.rgb.conditional_cnn.ConditionalCNNEncoder
     input_keys:
     - ${cameras:RIGHT}
-    condition_key: "instruction_language" # key is always f"{encoder_name}_{EncoderOutputType.value}"
+    condition_key: "instruction_language"
     condition_dim: 768
     backbone: ${rgb_backbone:RESNET18}
     pretrained: true
     frozen: false
     pooling_method: ${pooling_method:SPATIAL_SOFTMAX}
     batch_norm_handling: ${batch_norm_handling:FROZEN}
-
-
-

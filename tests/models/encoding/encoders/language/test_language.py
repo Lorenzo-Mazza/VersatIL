@@ -8,10 +8,12 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
-from transformers.modeling_outputs import BaseModelOutput
 
 from versatil.data.constants import SampleKey
+from versatil.data.metadata import BaseMetadata, CameraMetadata
+from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.encoders.constants import (
+    AttentionImplementation,
     EncoderOutputKeys,
     LanguageEncoderType,
     PoolingMethod,
@@ -34,20 +36,16 @@ def _mock_build_encoder(self):
     self.config.vocab_size = VOCAB_SIZE
 
 
-def _mock_setup_pooling(self):
-    """Side-effect to set pooling-related attributes."""
-    self.pooling_head = None
-    if self.pooling_method == PoolingMethod.NONE.value:
-        self.output_dim = (self.max_token_len, self.feature_dim)
-        self.padding_dim = self.max_token_len
-    else:
-        self.output_dim = self.feature_dim
-        self.padding_dim = 1
-
-
 @pytest.fixture
 def language_encoder_factory() -> Callable[..., LanguageEncoder]:
-    """Factory for LanguageEncoder with mocked backbone and pooling."""
+    """Factory for LanguageEncoder with mocked backbone.
+
+    By default bypasses ``_build_encoder`` entirely via a side-effect mock,
+    for fast shape/forward tests. Pass ``real_build=True`` to exercise the
+    real ``_build_encoder`` method by patching ``AutoConfig`` / ``AutoModel``
+    at the HuggingFace boundary instead. The ``config_attrs`` and
+    ``mock_model`` parameters are only used when ``real_build=True``.
+    """
 
     def factory(
         pretrained: bool = False,
@@ -56,10 +54,48 @@ def language_encoder_factory() -> Callable[..., LanguageEncoder]:
         model_name: str = LanguageEncoderType.BERT_BASE.value,
         max_token_len: int = MAX_TOKEN_LEN,
         use_embeddings_only: bool = False,
+        model_dtype: torch.dtype | None = None,
+        real_build: bool = False,
+        config_attrs: dict | None = None,
+        mock_model: MagicMock | None = None,
     ) -> LanguageEncoder:
+        if not real_build:
+            with patch.object(LanguageEncoder, "_build_encoder", _mock_build_encoder):
+                return LanguageEncoder(
+                    pretrained=pretrained,
+                    frozen=frozen,
+                    pooling_method=pooling_method,
+                    model_name=model_name,
+                    max_token_len=max_token_len,
+                    use_embeddings_only=use_embeddings_only,
+                    model_dtype=model_dtype,
+                )
+        if config_attrs is None:
+            config_attrs = {"hidden_size": HIDDEN_SIZE, "vocab_size": VOCAB_SIZE}
+        mock_config = MagicMock(spec=list(config_attrs.keys()))
+        for attr, value in config_attrs.items():
+            setattr(mock_config, attr, value)
+        if mock_model is None:
+            mock_model = MagicMock()
+        mock_tokenizer = MagicMock()
+        mock_tokenizer.cls_token_id = 101  # BERT-style CLS
         with (
-            patch.object(LanguageEncoder, "_build_encoder", _mock_build_encoder),
-            patch.object(LanguageEncoder, "_setup_pooling", _mock_setup_pooling),
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoConfig.from_pretrained",
+                return_value=mock_config,
+            ),
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoTokenizer.from_pretrained",
+                return_value=mock_tokenizer,
+            ),
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoModel.from_pretrained",
+                return_value=mock_model,
+            ),
+            patch(
+                "versatil.models.encoding.encoders.language.language.AutoModel.from_config",
+                return_value=mock_model,
+            ),
         ):
             return LanguageEncoder(
                 pretrained=pretrained,
@@ -68,6 +104,7 @@ def language_encoder_factory() -> Callable[..., LanguageEncoder]:
                 model_name=model_name,
                 max_token_len=max_token_len,
                 use_embeddings_only=use_embeddings_only,
+                model_dtype=model_dtype,
             )
 
     return factory
@@ -82,13 +119,10 @@ def token_input_factory(
     def factory(
         batch_size: int = 2,
         sequence_length: int = 10,
-        time_steps: int | None = None,
+        time_steps: int = 1,
         include_padding_mask: bool = False,
     ) -> dict[str, torch.Tensor]:
-        if time_steps is not None:
-            shape = (batch_size, time_steps, sequence_length)
-        else:
-            shape = (batch_size, sequence_length)
+        shape = (batch_size, time_steps, sequence_length)
         token_ids = torch.from_numpy(
             rng.integers(low=0, high=VOCAB_SIZE, size=shape).astype(np.int64)
         )
@@ -107,9 +141,11 @@ class TestLanguageEncoderInitialization:
         language_encoder_factory: Callable[..., LanguageEncoder],
     ):
         encoder = language_encoder_factory()
-        assert hasattr(encoder, "forward")
-        assert hasattr(encoder, "get_output_specification")
-        assert hasattr(encoder, "input_specification")
+        spec = encoder.get_output_specification()
+        feature_keys = [m.key for m in spec]
+        assert len(feature_keys) == 2
+        assert EncoderOutputKeys.LANGUAGE.value in feature_keys
+        assert encoder.padding_mask_name in feature_keys
 
     @pytest.mark.parametrize(
         "pooling_method",
@@ -153,12 +189,24 @@ class TestLanguageEncoderInitialization:
             (
                 True,
                 PoolingMethod.DEFAULT.value,
-                pytest.raises(ValueError, match="use_embeddings_only=True"),
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "use_embeddings_only=True is only compatible with "
+                        "pooling_method=PoolingMethod.NONE"
+                    ),
+                ),
             ),
             (
                 True,
                 PoolingMethod.AVERAGE.value,
-                pytest.raises(ValueError, match="use_embeddings_only=True"),
+                pytest.raises(
+                    ValueError,
+                    match=re.escape(
+                        "use_embeddings_only=True is only compatible with "
+                        "pooling_method=PoolingMethod.NONE"
+                    ),
+                ),
             ),
         ],
     )
@@ -171,7 +219,6 @@ class TestLanguageEncoderInitialization:
         with (
             expectation,
             patch.object(LanguageEncoder, "_build_encoder", _mock_build_encoder),
-            patch.object(LanguageEncoder, "_setup_pooling", _mock_setup_pooling),
         ):
             LanguageEncoder(
                 pretrained=False,
@@ -198,128 +245,6 @@ class TestLanguageEncoderInitialization:
         assert encoder.padding_mask_name == expected
 
 
-class TestLanguageEncoderPoolFeatures:
-    def test_default_pooling_returns_cls_token(
-        self,
-        language_encoder_factory: Callable[..., LanguageEncoder],
-        rng: np.random.Generator,
-    ):
-        encoder = language_encoder_factory(pooling_method=PoolingMethod.DEFAULT.value)
-        batch_size = 2
-        sequence_length = 10
-        hidden_state = torch.from_numpy(
-            rng.standard_normal((batch_size, sequence_length, HIDDEN_SIZE)).astype(
-                np.float32
-            )
-        )
-        outputs = BaseModelOutput(last_hidden_state=hidden_state)
-        result = encoder._pool_features(outputs=outputs)
-        assert result.shape == (batch_size, HIDDEN_SIZE)
-        assert torch.allclose(result, hidden_state[:, 0])
-
-    def test_average_pooling_excludes_cls_token(
-        self,
-        language_encoder_factory: Callable[..., LanguageEncoder],
-        rng: np.random.Generator,
-    ):
-        encoder = language_encoder_factory(pooling_method=PoolingMethod.AVERAGE.value)
-        batch_size = 2
-        sequence_length = 10
-        hidden_state = torch.from_numpy(
-            rng.standard_normal((batch_size, sequence_length, HIDDEN_SIZE)).astype(
-                np.float32
-            )
-        )
-        outputs = BaseModelOutput(last_hidden_state=hidden_state)
-        result = encoder._pool_features(outputs=outputs)
-        expected = hidden_state[:, 1:].mean(dim=1)
-        assert result.shape == (batch_size, HIDDEN_SIZE)
-        assert torch.allclose(result, expected)
-
-    def test_learned_aggregation_pooling(
-        self,
-        language_encoder_factory: Callable[..., LanguageEncoder],
-        rng: np.random.Generator,
-    ):
-        encoder = language_encoder_factory(
-            pooling_method=PoolingMethod.LEARNED_AGGREGATION.value
-        )
-        mock_pooling_head = MagicMock()
-        batch_size = 2
-        sequence_length = 10
-        mock_pooling_head.return_value = torch.zeros(batch_size, HIDDEN_SIZE)
-        encoder.pooling_head = mock_pooling_head
-        hidden_state = torch.from_numpy(
-            rng.standard_normal((batch_size, sequence_length, HIDDEN_SIZE)).astype(
-                np.float32
-            )
-        )
-        outputs = BaseModelOutput(last_hidden_state=hidden_state)
-        result = encoder._pool_features(outputs=outputs)
-        mock_pooling_head.assert_called_once()
-        # Verify CLS token is excluded
-        call_args = mock_pooling_head.call_args[0][0]
-        assert torch.allclose(call_args, hidden_state[:, 1:])
-        assert result.shape == (batch_size, HIDDEN_SIZE)
-
-    def test_none_pooling_returns_full_hidden_state(
-        self,
-        language_encoder_factory: Callable[..., LanguageEncoder],
-        rng: np.random.Generator,
-    ):
-        encoder = language_encoder_factory(pooling_method=PoolingMethod.NONE.value)
-        batch_size = 2
-        sequence_length = 10
-        hidden_state = torch.from_numpy(
-            rng.standard_normal((batch_size, sequence_length, HIDDEN_SIZE)).astype(
-                np.float32
-            )
-        )
-        outputs = BaseModelOutput(last_hidden_state=hidden_state)
-        result = encoder._pool_features(outputs=outputs)
-        assert result.shape == (batch_size, sequence_length, HIDDEN_SIZE)
-        assert torch.allclose(result, hidden_state)
-
-    def test_invalid_pooling_method_raises(
-        self,
-        language_encoder_factory: Callable[..., LanguageEncoder],
-        rng: np.random.Generator,
-    ):
-        encoder = language_encoder_factory()
-        encoder.pooling_method = "invalid_method"
-        hidden_state = torch.from_numpy(
-            rng.standard_normal((2, 10, HIDDEN_SIZE)).astype(np.float32)
-        )
-        outputs = BaseModelOutput(last_hidden_state=hidden_state)
-        with pytest.raises(ValueError, match="Unsupported pooling method"):
-            encoder._pool_features(outputs=outputs)
-
-    def test_none_hidden_state_raises_runtime_error(
-        self,
-        language_encoder_factory: Callable[..., LanguageEncoder],
-    ):
-        encoder = language_encoder_factory(pooling_method=PoolingMethod.DEFAULT.value)
-        outputs = BaseModelOutput(last_hidden_state=None)
-        with pytest.raises(RuntimeError, match="last_hidden_state must be present"):
-            encoder._pool_features(outputs=outputs)
-
-    def test_learned_aggregation_with_none_head_raises(
-        self,
-        language_encoder_factory: Callable[..., LanguageEncoder],
-        rng: np.random.Generator,
-    ):
-        encoder = language_encoder_factory(
-            pooling_method=PoolingMethod.LEARNED_AGGREGATION.value
-        )
-        encoder.pooling_head = None
-        hidden_state = torch.from_numpy(
-            rng.standard_normal((2, 10, HIDDEN_SIZE)).astype(np.float32)
-        )
-        outputs = BaseModelOutput(last_hidden_state=hidden_state)
-        with pytest.raises(RuntimeError, match="pooling_head must be initialized"):
-            encoder._pool_features(outputs=outputs)
-
-
 class TestLanguageEncoderPadTextInputs:
     def test_truncation_when_longer_than_max_token_len(
         self,
@@ -336,7 +261,9 @@ class TestLanguageEncoderPadTextInputs:
         )
         mask = torch.zeros(2, longer_sequence_length, dtype=torch.bool)
         result_ids, result_mask = encoder._pad_text_inputs(
-            text_input_ids=text_ids, language_mask=mask
+            text_input_ids=text_ids,
+            language_mask=mask,
+            max_length=max_token_len,
         )
         assert result_ids.shape[1] == max_token_len
         assert result_mask.shape[1] == max_token_len
@@ -357,7 +284,9 @@ class TestLanguageEncoderPadTextInputs:
         )
         mask = torch.zeros(2, shorter_sequence_length, dtype=torch.bool)
         result_ids, result_mask = encoder._pad_text_inputs(
-            text_input_ids=text_ids, language_mask=mask
+            text_input_ids=text_ids,
+            language_mask=mask,
+            max_length=max_token_len,
         )
         assert result_ids.shape[1] == max_token_len
         assert result_mask.shape[1] == max_token_len
@@ -382,7 +311,9 @@ class TestLanguageEncoderPadTextInputs:
         )
         mask = torch.zeros(2, max_token_len, dtype=torch.bool)
         result_ids, result_mask = encoder._pad_text_inputs(
-            text_input_ids=text_ids, language_mask=mask
+            text_input_ids=text_ids,
+            language_mask=mask,
+            max_length=max_token_len,
         )
         assert torch.equal(result_ids, text_ids)
         assert torch.equal(result_mask, mask)
@@ -398,33 +329,28 @@ class TestLanguageEncoderPadTextInputs:
             rng.integers(low=0, high=VOCAB_SIZE, size=(2, 5)).astype(np.int64)
         )
         result_ids, result_mask = encoder._pad_text_inputs(
-            text_input_ids=text_ids, language_mask=None
+            text_input_ids=text_ids,
+            language_mask=None,
+            max_length=max_token_len,
         )
         assert result_ids.shape[1] == max_token_len
         assert result_mask is None
 
 
 class TestLanguageEncoderForward:
-    @pytest.mark.parametrize(
-        "time_steps, expected_ndim",
-        [
-            (None, 2),
-            (3, 3),
-        ],
-    )
-    def test_output_shape_with_and_without_time(
+    @pytest.mark.parametrize("time_steps", [1, 3])
+    def test_output_shape_with_temporal_dimension(
         self,
         language_encoder_factory: Callable[..., LanguageEncoder],
         token_input_factory: Callable[..., dict[str, torch.Tensor]],
-        time_steps: int | None,
-        expected_ndim: int,
+        time_steps: int,
     ):
         batch_size = 2
         encoder = language_encoder_factory(pooling_method=PoolingMethod.DEFAULT.value)
         encoder.use_embeddings_only = False
         mock_output = MagicMock()
         mock_output.last_hidden_state = torch.zeros(
-            batch_size * (time_steps or 1), MAX_TOKEN_LEN, HIDDEN_SIZE
+            batch_size * time_steps, MAX_TOKEN_LEN, HIDDEN_SIZE
         )
         encoder.encoder.return_value = mock_output
         inputs = token_input_factory(
@@ -435,26 +361,23 @@ class TestLanguageEncoderForward:
         )
         output = encoder(inputs=inputs)
         features = output[EncoderOutputKeys.LANGUAGE.value]
-        assert features.ndim == expected_ndim
-        assert features.shape[0] == batch_size
-        if time_steps is not None:
-            assert features.shape[1] == time_steps
+        assert features.shape == (batch_size, time_steps, HIDDEN_SIZE)
 
     def test_missing_language_key_raises(
         self,
         language_encoder_factory: Callable[..., LanguageEncoder],
     ):
         encoder = language_encoder_factory()
-        with pytest.raises(ValueError, match="Expected key"):
-            encoder(inputs={"wrong_key": torch.zeros(2, 10)})
-
-    def test_non_tensor_input_raises(
-        self,
-        language_encoder_factory: Callable[..., LanguageEncoder],
-    ):
-        encoder = language_encoder_factory()
-        with pytest.raises(ValueError, match="tokenized_observations must be a tensor"):
-            encoder(inputs={SampleKey.TOKENIZED_OBSERVATIONS.value: "not a tensor"})
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                f"LanguageEncoder expects pre-tokenized input. "
+                f"Expected key '{SampleKey.TOKENIZED_OBSERVATIONS.value}' "
+                f"not found in inputs. "
+                f"Ensure tokenization is enabled in DataloaderConfig."
+            ),
+        ):
+            encoder(inputs={"wrong_key": torch.zeros(2, 1, 10)})
 
     def test_embeddings_only_mode_uses_embedding_layer(
         self,
@@ -517,7 +440,67 @@ class TestLanguageEncoderForward:
         )
         output = encoder(inputs=inputs)
         features = output[EncoderOutputKeys.LANGUAGE.value]
-        assert features.shape == (batch_size, MAX_TOKEN_LEN, HIDDEN_SIZE)
+        # num_prefix_tokens=1 (CLS) drops the first token
+        expected_sequence_length = MAX_TOKEN_LEN - 1
+        assert features.shape == (batch_size, 1, expected_sequence_length, HIDDEN_SIZE)
+
+    def test_embeddings_only_strips_prefix_tokens_and_mask_aligns(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+        token_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 2
+        encoder = language_encoder_factory(
+            pooling_method=PoolingMethod.NONE.value,
+            use_embeddings_only=True,
+        )
+        encoder.encoder.return_value = torch.zeros(
+            batch_size, MAX_TOKEN_LEN, HIDDEN_SIZE
+        )
+        inputs = token_input_factory(
+            batch_size=batch_size,
+            sequence_length=MAX_TOKEN_LEN,
+        )
+        output = encoder(inputs=inputs)
+        features = output[EncoderOutputKeys.LANGUAGE.value]
+        mask = output[encoder.padding_mask_name]
+        expected_seq_len = MAX_TOKEN_LEN - encoder._num_prefix_tokens
+        assert features.shape == (batch_size, 1, expected_seq_len, HIDDEN_SIZE)
+        assert mask.shape[-1] == expected_seq_len
+
+
+class TestLanguageEncoderValidateInputMetadata:
+    @pytest.mark.parametrize(
+        "metadata, expected_error",
+        [
+            (
+                CameraMetadata(
+                    camera_key="left",
+                    dtype="uint8",
+                    channels=3,
+                    image_height=224,
+                    image_width=224,
+                ),
+                "LanguageEncoder cannot process image data for 'tokenized_observations'. "
+                "Got CameraMetadata, expected tokenized text input.",
+            ),
+            (
+                MagicMock(spec=BaseMetadata),
+                None,
+            ),
+        ],
+    )
+    def test_validates_non_camera_metadata(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+        metadata,
+        expected_error: str | None,
+    ):
+        encoder = language_encoder_factory()
+        result = encoder.validate_input_metadata(
+            key="tokenized_observations", metadata=metadata
+        )
+        assert result == expected_error
 
 
 class TestLanguageEncoderGetVocabSize:
@@ -531,23 +514,30 @@ class TestLanguageEncoderGetVocabSize:
 
 class TestLanguageEncoderGetOutputSpecification:
     @pytest.mark.parametrize(
-        "pooling_method, expected_dim",
+        "pooling_method, expected_dim_fn",
         [
-            (PoolingMethod.DEFAULT.value, HIDDEN_SIZE),
-            (PoolingMethod.AVERAGE.value, HIDDEN_SIZE),
-            (PoolingMethod.NONE.value, (MAX_TOKEN_LEN, HIDDEN_SIZE)),
+            (PoolingMethod.DEFAULT.value, lambda enc: (HIDDEN_SIZE,)),
+            (PoolingMethod.AVERAGE.value, lambda enc: (HIDDEN_SIZE,)),
+            (
+                PoolingMethod.NONE.value,
+                lambda enc: (MAX_TOKEN_LEN - enc._num_prefix_tokens, HIDDEN_SIZE),
+            ),
         ],
     )
     def test_output_dimension_matches_pooling_method(
         self,
         language_encoder_factory: Callable[..., LanguageEncoder],
         pooling_method: str,
-        expected_dim: int | tuple,
+        expected_dim_fn,
     ):
         encoder = language_encoder_factory(pooling_method=pooling_method)
         specification = encoder.get_output_specification()
+        expected = expected_dim_fn(encoder)
         assert (
-            specification.dimensions[EncoderOutputKeys.LANGUAGE.value] == expected_dim
+            next(
+                m for m in specification if m.key == EncoderOutputKeys.LANGUAGE.value
+            ).dimension
+            == expected
         )
 
     def test_features_include_language_and_padding_mask(
@@ -556,9 +546,10 @@ class TestLanguageEncoderGetOutputSpecification:
     ):
         encoder = language_encoder_factory()
         specification = encoder.get_output_specification()
-        assert EncoderOutputKeys.LANGUAGE.value in specification.features
-        assert encoder.padding_mask_name in specification.features
-        assert len(specification.features) == 2
+        feature_keys = [m.key for m in specification]
+        assert EncoderOutputKeys.LANGUAGE.value in feature_keys
+        assert encoder.padding_mask_name in feature_keys
+        assert len(feature_keys) == 2
 
 
 class TestLanguageEncoderBuildEncoder:
@@ -587,6 +578,153 @@ class TestLanguageEncoderBuildEncoder:
                 use_embeddings_only=True,
             )
 
+    @pytest.mark.parametrize(
+        "config_attrs, expected_dim",
+        [
+            (
+                {
+                    "embedding_size": 128,
+                    "hidden_size": HIDDEN_SIZE,
+                    "vocab_size": VOCAB_SIZE,
+                },
+                128,
+            ),
+            ({"hidden_size": 512, "vocab_size": VOCAB_SIZE}, 512),
+        ],
+        ids=["factorized_embedding_size", "hidden_size_fallback"],
+    )
+    def test_embeddings_only_uses_embedding_or_hidden_size(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+        config_attrs: dict,
+        expected_dim: int,
+    ):
+        encoder = language_encoder_factory(
+            pooling_method=PoolingMethod.NONE.value,
+            use_embeddings_only=True,
+            real_build=True,
+            config_attrs=config_attrs,
+        )
+        assert encoder.encoder.embedding_dim == expected_dim
+        assert encoder.encoder.num_embeddings == VOCAB_SIZE
+
+    def test_embeddings_only_loads_pretrained_weights(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+    ):
+        pretrained_embedding = torch.nn.Embedding(
+            num_embeddings=VOCAB_SIZE, embedding_dim=64
+        )
+        torch.nn.init.constant_(pretrained_embedding.weight, 7.0)
+        mock_model = MagicMock()
+        mock_model.get_input_embeddings.return_value = pretrained_embedding
+        encoder = language_encoder_factory(
+            pretrained=True,
+            pooling_method=PoolingMethod.NONE.value,
+            use_embeddings_only=True,
+            real_build=True,
+            config_attrs={"hidden_size": 64, "vocab_size": VOCAB_SIZE},
+            mock_model=mock_model,
+        )
+        assert torch.allclose(encoder.encoder.weight, torch.full((VOCAB_SIZE, 64), 7.0))
+
+    @pytest.mark.parametrize("pretrained", [True, False])
+    def test_full_model_build_branches(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+        pretrained: bool,
+    ):
+        encoder = language_encoder_factory(
+            pretrained=pretrained,
+            real_build=True,
+        )
+        # full-model path assigns the patched HF model instance
+        assert encoder.encoder is not None
+
+    def test_model_dtype_cast_applied_when_set(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+    ):
+        mock_model = MagicMock()
+        casted_model = MagicMock()
+        mock_model.to.return_value = casted_model
+        encoder = language_encoder_factory(
+            real_build=True,
+            model_dtype="bf16-mixed",
+            mock_model=mock_model,
+        )
+        mock_model.to.assert_called_once_with(torch.bfloat16)
+        assert encoder.encoder is casted_model
+
+    def test_frozen_calls_freeze_weights(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+    ):
+        with patch.object(EncodingMixin, "_freeze_weights") as mock_freeze:
+            language_encoder_factory(frozen=True)
+        mock_freeze.assert_called_once()
+
+
+class TestLanguageEncoderEncodeEdgeCases:
+    def test_missing_last_hidden_state_raises(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+        token_input_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        batch_size = 2
+        encoder = language_encoder_factory(pooling_method=PoolingMethod.DEFAULT.value)
+        encoder.use_embeddings_only = False
+        mock_output = MagicMock()
+        mock_output.last_hidden_state = None
+        encoder.encoder.return_value = mock_output
+        inputs = token_input_factory(
+            batch_size=batch_size,
+            sequence_length=MAX_TOKEN_LEN,
+        )
+        with pytest.raises(
+            RuntimeError,
+            match=re.escape("last_hidden_state must be present in model output"),
+        ):
+            encoder(inputs=inputs)
+
+
+GATED_LANGUAGE_MODELS = {
+    LanguageEncoderType.GEMMA_2B,
+    LanguageEncoderType.QWEN_2_1_5B,
+    LanguageEncoderType.LLAMA_3_2_1B,
+}
+
+NO_SDPA_LANGUAGE_MODELS = {
+    LanguageEncoderType.DEBERTA_V3_BASE,
+}
+
+TIKTOKEN_LANGUAGE_MODELS = {
+    LanguageEncoderType.DEBERTA_V3_BASE,
+}
+
+
+def _integration_marks(encoder_type: LanguageEncoderType) -> list:
+    marks = []
+    if encoder_type in GATED_LANGUAGE_MODELS:
+        marks.append(
+            pytest.mark.skipif(
+                True,
+                reason=f"{encoder_type.value} is a gated model requiring authentication",
+            )
+        )
+    if encoder_type in TIKTOKEN_LANGUAGE_MODELS:
+        marks.append(
+            pytest.mark.xfail(
+                reason=(
+                    f"{encoder_type.value} tokenizer requires `tiktoken`, "
+                    "which is not installed in the default environment"
+                ),
+                strict=False,
+                raises=ValueError,
+            )
+        )
+    return marks
+
 
 class TestLanguageEncoderIntegration:
     @pytest.mark.integration
@@ -595,11 +733,7 @@ class TestLanguageEncoderIntegration:
         [
             pytest.param(
                 encoder_type.value,
-                marks=pytest.mark.skipif(
-                    encoder_type
-                    in (LanguageEncoderType.GEMMA_2B, LanguageEncoderType.QWEN_2_1_5B),
-                    reason=f"{encoder_type.value} requires HuggingFace authentication",
-                ),
+                marks=_integration_marks(encoder_type),
             )
             for encoder_type in LanguageEncoderType
         ],
@@ -610,11 +744,18 @@ class TestLanguageEncoderIntegration:
         model_name: str,
     ):
         batch_size = 2
+        no_sdpa_values = {m.value for m in NO_SDPA_LANGUAGE_MODELS}
+        attention_type = (
+            AttentionImplementation.EAGER.value
+            if model_name in no_sdpa_values
+            else AttentionImplementation.SDPA.value
+        )
         encoder = LanguageEncoder(
             pretrained=False,
             frozen=False,
             pooling_method=PoolingMethod.DEFAULT.value,
             model_name=model_name,
+            attention_type=attention_type,
         )
         inputs = token_input_factory(
             batch_size=batch_size,
@@ -622,8 +763,7 @@ class TestLanguageEncoderIntegration:
         )
         output = encoder(inputs=inputs)
         features = output[EncoderOutputKeys.LANGUAGE.value]
-        assert features.ndim == 2
-        assert features.shape[0] == batch_size
+        assert features.shape == (batch_size, 1, encoder.output_dim)
 
     @pytest.mark.integration
     def test_pretrained_weights_differ_from_random_init(

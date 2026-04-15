@@ -8,9 +8,9 @@ import torch
 from versatil.models.encoding.fusion.base import (
     FusionInput,
     FusionModule,
-    FusionOutput,
     SequentialFusion,
 )
+from versatil.models.feature_meta import FeatureMetadata, FeatureType
 
 
 class ConcreteFusionModule(FusionModule):
@@ -28,16 +28,17 @@ class ConcreteFusionModule(FusionModule):
         )
         self._output_dim = 64
 
-    def _setup_layers(self, feature_keys_to_dims: dict[str, int | tuple]):
+    def _setup_layers(self, feature_registry: dict[str, FeatureMetadata]):
         pass
 
     def forward(self, features: list[torch.Tensor]) -> torch.Tensor:
         return features[0]
 
-    def get_output_specification(self) -> FusionOutput:
-        return FusionOutput(
-            output_name=self.output_name,
-            output_dim=self._output_dim,
+    def get_output_specification(self) -> FeatureMetadata:
+        return FeatureMetadata(
+            key=self.output_name,
+            feature_type=FeatureType.FLAT.value,
+            dimension=(self._output_dim,),
         )
 
 
@@ -50,11 +51,28 @@ class ConcreteSequentialFusion(SequentialFusion):
         projected = [proj(feat) for feat, proj in zip(features, self.projections)]
         return torch.cat(projected, dim=-1)
 
-    def get_output_specification(self) -> FusionOutput:
-        return FusionOutput(
-            output_name=self.output_name,
-            output_dim=self.hidden_dim * len(self.input_features),
+    def get_output_specification(self) -> FeatureMetadata:
+        return FeatureMetadata(
+            key=self.output_name,
+            feature_type=self._output_feature_type,
+            dimension=(self.hidden_dim * len(self.input_features),),
         )
+
+
+def _make_feature_registry(
+    dims: dict[str, tuple[int, ...]],
+) -> dict[str, FeatureMetadata]:
+    """Helper to build a feature registry from dimension tuples."""
+    return {
+        name: FeatureMetadata(
+            key=name,
+            feature_type=FeatureType.FLAT.value
+            if len(dim) == 1
+            else FeatureType.SEQUENTIAL.value,
+            dimension=dim,
+        )
+        for name, dim in dims.items()
+    }
 
 
 @pytest.fixture
@@ -115,19 +133,6 @@ class TestFusionInputDataclass:
         assert spec.max_count == max_count
 
 
-class TestFusionOutputDataclass:
-    @pytest.mark.parametrize("output_name", ["fused", "combined"])
-    @pytest.mark.parametrize("output_dim", [64, (16, 32)])
-    def test_stores_configuration(
-        self,
-        output_name: str,
-        output_dim: int | tuple[int, ...],
-    ):
-        spec = FusionOutput(output_name=output_name, output_dim=output_dim)
-        assert spec.output_name == output_name
-        assert spec.output_dim == output_dim
-
-
 class TestFusionModuleInitialization:
     @pytest.mark.parametrize(
         "input_features",
@@ -184,7 +189,10 @@ class TestFusionModuleSetup:
         fusion_module_factory: Callable[..., ConcreteFusionModule],
     ):
         module = fusion_module_factory()
-        module.setup(feature_keys_to_dims={"rgb_features": 64, "depth_features": 32})
+        registry = _make_feature_registry(
+            {"rgb_features": (64,), "depth_features": (32,)}
+        )
+        module.setup(feature_registry=registry)
         assert module._initialized is True
 
     def test_setup_skips_if_already_initialized(
@@ -192,19 +200,25 @@ class TestFusionModuleSetup:
         fusion_module_factory: Callable[..., ConcreteFusionModule],
     ):
         module = fusion_module_factory()
-        module.setup(feature_keys_to_dims={"rgb_features": 64, "depth_features": 32})
-        # Calling again should not raise or re-initialize
-        module.setup(feature_keys_to_dims={"rgb_features": 128})
+        registry = _make_feature_registry(
+            {"rgb_features": (64,), "depth_features": (32,)}
+        )
+        module.setup(feature_registry=registry)
+        registry_changed = _make_feature_registry({"rgb_features": (128,)})
+        module.setup(feature_registry=registry_changed)
         assert module._initialized is True
 
 
-class TestFusionModuleGetOutputDim:
-    def test_returns_output_dim_from_specification(
+class TestFusionModuleGetOutputSpecification:
+    def test_returns_feature_metadata(
         self,
         fusion_module_factory: Callable[..., ConcreteFusionModule],
     ):
         module = fusion_module_factory()
-        assert module.get_output_dim() == 64
+        spec = module.get_output_specification()
+        assert spec.key == "fused_output"
+        assert spec.dimension == (64,)
+        assert spec.feature_type == FeatureType.FLAT.value
 
 
 class TestSequentialFusionInitialization:
@@ -242,7 +256,7 @@ class TestSequentialFusionInitialization:
         assert hasattr(module, "input_features")
         assert hasattr(module, "output_name")
         assert hasattr(module, "setup")
-        assert hasattr(module, "get_output_dim")
+        assert hasattr(module, "get_output_specification")
 
 
 class TestSequentialFusionSetupLayers:
@@ -256,8 +270,10 @@ class TestSequentialFusionSetupLayers:
             input_features=["feat_a", "feat_b", "feat_c"],
             hidden_dim=hidden_dim,
         )
-        dims = {"feat_a": 64, "feat_b": 128, "feat_c": 256}
-        module.setup(feature_keys_to_dims=dims)
+        registry = _make_feature_registry(
+            {"feat_a": (64,), "feat_b": (128,), "feat_c": (256,)}
+        )
+        module.setup(feature_registry=registry)
         assert module.projections is not None
         assert len(module.projections) == 3
         for proj in module.projections:
@@ -270,12 +286,12 @@ class TestSequentialFusionSetupLayers:
         module = sequential_fusion_factory(
             input_features=["feat_a", "feat_b"],
         )
-        dims = {"feat_a": 64, "feat_b": 128}
-        module.setup(feature_keys_to_dims=dims)
+        registry = _make_feature_registry({"feat_a": (64,), "feat_b": (128,)})
+        module.setup(feature_registry=registry)
         assert module.projections[0].in_features == 64
         assert module.projections[1].in_features == 128
 
-    def test_handles_tuple_dimensions(
+    def test_handles_sequential_dimensions(
         self,
         sequential_fusion_factory: Callable[..., ConcreteSequentialFusion],
     ):
@@ -283,22 +299,79 @@ class TestSequentialFusionSetupLayers:
             input_features=["seq_feat"],
             hidden_dim=32,
         )
-        dims = {"seq_feat": (10, 64)}
-        module.setup(feature_keys_to_dims=dims)
+        registry = {
+            "seq_feat": FeatureMetadata(
+                key="seq_feat",
+                feature_type=FeatureType.SEQUENTIAL.value,
+                dimension=(10, 64),
+            )
+        }
+        module.setup(feature_registry=registry)
         assert module.projections[0].in_features == 64
 
-    def test_rejects_spatial_tuple_dimensions(
+    @pytest.mark.parametrize(
+        "registry, expected_type",
+        [
+            (
+                {"feat_a": (64,), "feat_b": (128,)},
+                FeatureType.FLAT.value,
+            ),
+            (
+                {
+                    "feat_a": (
+                        10,
+                        64,
+                    ),
+                    "feat_b": (
+                        10,
+                        128,
+                    ),
+                },
+                FeatureType.SEQUENTIAL.value,
+            ),
+            (
+                {
+                    "feat_a": (64,),
+                    "feat_b": (
+                        10,
+                        128,
+                    ),
+                },
+                FeatureType.SEQUENTIAL.value,
+            ),
+        ],
+    )
+    def test_output_feature_type_matches_inputs(
+        self,
+        sequential_fusion_factory: Callable[..., ConcreteSequentialFusion],
+        registry: dict[str, tuple[int, ...]],
+        expected_type: str,
+    ):
+        module = sequential_fusion_factory(
+            input_features=list(registry.keys()),
+        )
+        module.setup(feature_registry=_make_feature_registry(registry))
+        spec = module.get_output_specification()
+        assert spec.feature_type == expected_type
+
+    def test_rejects_spatial_features(
         self,
         sequential_fusion_factory: Callable[..., ConcreteSequentialFusion],
     ):
         module = sequential_fusion_factory(
             input_features=["spatial_feat"],
         )
-        dims = {"spatial_feat": (512, 7, 7)}
+        registry = {
+            "spatial_feat": FeatureMetadata(
+                key="spatial_feat",
+                feature_type=FeatureType.SPATIAL.value,
+                dimension=(512, 7, 7),
+            )
+        }
         with pytest.raises(
             ValueError, match="SequentialFusion requires flat or sequential"
         ):
-            module.setup(feature_keys_to_dims=dims)
+            module.setup(feature_registry=registry)
 
 
 class TestSequentialFusionForward:
@@ -314,8 +387,8 @@ class TestSequentialFusionForward:
             input_features=["feat_a", "feat_b"],
             hidden_dim=hidden_dim,
         )
-        dims = {"feat_a": 64, "feat_b": 128}
-        module.setup(feature_keys_to_dims=dims)
+        registry = _make_feature_registry({"feat_a": (64,), "feat_b": (128,)})
+        module.setup(feature_registry=registry)
         features = [
             input_tensor_factory(
                 input_dimension=dim,

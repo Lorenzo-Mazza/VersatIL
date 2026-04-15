@@ -1,6 +1,7 @@
 """Tests for versatil.models.decoding.decoders.factory.moe_free_action_transformer module."""
 
 import re
+import unittest.mock
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -8,6 +9,8 @@ import pytest
 import torch
 import torch.nn as nn
 
+from versatil.configs.experiment import ExperimentConfig
+from versatil.data.constants import SampleKey
 from versatil.data.tokenization import Tokenizer
 from versatil.models.decoding.action_heads.moe import MoEHead
 from versatil.models.decoding.action_heads.single_output import ActionHead
@@ -18,6 +21,7 @@ from versatil.models.decoding.decoders.factory.free_action_transformer import (
 from versatil.models.decoding.decoders.factory.moe_free_action_transformer import (
     MoEFreeActionTransformer,
 )
+from versatil.training.callbacks import LatentVisualizationCallback
 
 EMBEDDING_DIMENSION = 32
 NUMBER_OF_HEADS = 2
@@ -468,3 +472,78 @@ class TestMoEFreeActionTransformerForward:
             outputs_a[routing_key],
             outputs_b[routing_key],
         )
+
+    def test_training_does_not_use_generation_cache(
+        self,
+        moe_free_transformer_factory: Callable[..., MoEFreeActionTransformer],
+        mock_tokenizer_factory: Callable[..., MagicMock],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+        tokenized_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = moe_free_transformer_factory()
+        decoder.set_tokenizer(tokenizer=mock_tokenizer_factory(vocab_size=VOCAB_SIZE))
+        decoder.train()
+        features = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        actions = tokenized_actions_factory(
+            batch_size=BATCH_SIZE,
+            action_token_length=ACTION_TOKEN_LENGTH,
+            vocab_size=VOCAB_SIZE,
+        )
+        with unittest.mock.patch.object(
+            decoder.free_transformer, "forward", wraps=decoder.free_transformer.forward
+        ) as mock_forward:
+            decoder(features=features, actions=actions)
+            call_kwargs = mock_forward.call_args.kwargs
+            assert call_kwargs.get("generation_cache") is None
+
+    def test_inference_uses_generation_cache(
+        self,
+        moe_free_transformer_factory: Callable[..., MoEFreeActionTransformer],
+        mock_tokenizer_factory: Callable[..., MagicMock],
+        spatial_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = moe_free_transformer_factory()
+        decoder.set_tokenizer(tokenizer=mock_tokenizer_factory(vocab_size=VOCAB_SIZE))
+        decoder.eval()
+        features = spatial_feature_factory(
+            batch_size=BATCH_SIZE,
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        with unittest.mock.patch.object(
+            decoder.free_transformer, "forward", wraps=decoder.free_transformer.forward
+        ) as mock_forward:
+            with torch.no_grad():
+                decoder(features=features, actions=None)
+            first_call_kwargs = mock_forward.call_args_list[0].kwargs
+            assert first_call_kwargs.get("generation_cache") is not None
+
+
+def test_auxiliary_output_keys(
+    moe_free_transformer_factory: Callable[..., MoEFreeActionTransformer],
+):
+    decoder = moe_free_transformer_factory()
+    assert decoder.get_auxiliary_output_keys() == {
+        DecoderOutputKey.ROUTING_WEIGHTS.value,
+        DecoderOutputKey.BINARY_LOGITS.value,
+        DecoderOutputKey.LATENT_CODES.value,
+        SampleKey.TOKENIZED_ACTIONS.value,
+    }
+
+
+def test_get_callbacks_inherits_latent_visualization(
+    moe_free_transformer_factory: Callable[..., MoEFreeActionTransformer],
+):
+    decoder = moe_free_transformer_factory()
+    experiment_config = MagicMock(spec=ExperimentConfig)
+    experiment_config.val_every = 2
+    callbacks = decoder.get_callbacks(experiment_config=experiment_config)
+    assert len(callbacks) == 1
+    assert isinstance(callbacks[0], LatentVisualizationCallback)
+    assert callbacks[0].log_every_n_epochs == 2

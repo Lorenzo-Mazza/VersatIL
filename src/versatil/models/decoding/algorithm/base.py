@@ -51,6 +51,16 @@ class DecodingAlgorithm(nn.Module, abc.ABC):
         """
         raise NotImplementedError
 
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """Get keys for auxiliary outputs this algorithm adds to the decoder output.
+
+        Override in subclasses that inject additional outputs (e.g. latent variables).
+
+        Returns:
+            Set of auxiliary output key strings.
+        """
+        return set()
+
     @property
     def predicts_in_action_space(self) -> bool:
         """Whether the network output lives in the action space.
@@ -65,7 +75,7 @@ class DecodingAlgorithm(nn.Module, abc.ABC):
 
     def get_targets(
         self,
-        algorithm_output: dict[str, torch.Tensor],
+        algorithm_output: dict[str, torch.Tensor | dict[str, torch.Tensor]],
         ground_truth_actions: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Return the correct regression targets for the loss.

@@ -1,11 +1,7 @@
 """Endpoint test fixtures: synthetic zarr factories and e2e config helpers."""
 
-import os
 import socket as socket_module
 import threading
-
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
-
 from collections.abc import Callable
 from pathlib import Path
 
@@ -337,34 +333,63 @@ def build_tiny_overrides(config_name: str) -> list[str]:
                     f"policy.encoding_pipeline.encoders.{encoder_name}"
                     f".backbone=${{rgb_backbone:RESNET18}}"
                 )
+            elif "flat" in target.lower():
+                overrides.append(
+                    f"policy.encoding_pipeline.encoders.{encoder_name}"
+                    f".backbone=${{rgb_backbone:DEIT_TINY}}"
+                )
             else:
                 overrides.append(
                     f"policy.encoding_pipeline.encoders.{encoder_name}"
                     f".backbone=${{rgb_backbone:MOBILENETV4_SMALL_050}}"
                 )
         if "model_name" in encoder_cfg:
-            overrides.append(
-                f"policy.encoding_pipeline.encoders.{encoder_name}"
-                f".model_name=${{language_model:ALBERT_BASE}}"
-            )
+            target = encoder_cfg.get("_target_", "")
+            if "two_tower_vlm" in target.lower():
+                overrides.append(
+                    f"policy.encoding_pipeline.encoders.{encoder_name}"
+                    f".model_name=${{vlm_model:CLIP_VITB32}}"
+                )
+            elif "paligemma" not in target.lower() and "smolvlm" not in target.lower():
+                overrides.append(
+                    f"policy.encoding_pipeline.encoders.{encoder_name}"
+                    f".model_name=${{language_model:ALBERT_BASE}}"
+                )
         target = encoder_cfg.get("_target_", "")
-        if "light_geometric" not in target and "proprioceptive" not in target:
+        if "geometric_rgbd" not in target and "proprioceptive" not in target:
             overrides.append(
                 f"++policy.encoding_pipeline.encoders.{encoder_name}.frozen=true"
             )
 
-    # Match observation tokenizer model to language encoder model
+    # Match observation tokenizer model to the encoder type
     tokenization = OmegaConf.to_container(
         cfg.task.dataloader.get("tokenization", OmegaConf.create({})),
         resolve=False,
     )
+    has_two_tower_vlm = any(
+        "two_tower_vlm" in enc.get("_target_", "").lower()
+        for enc in encoders_dict.values()
+    )
+    has_generative_vlm = any(
+        any(
+            keyword in enc.get("_target_", "").lower()
+            for keyword in ("paligemma", "smolvlm")
+        )
+        for enc in encoders_dict.values()
+    )
     if tokenization:
         obs_tok = tokenization.get("observation_tokenizer", {})
         if obs_tok and "tokenizer_model" in obs_tok:
-            overrides.append(
-                "task.dataloader.tokenization.observation_tokenizer"
-                ".tokenizer_model=${language_model:ALBERT_BASE}"
-            )
+            if has_two_tower_vlm:
+                overrides.append(
+                    "task.dataloader.tokenization.observation_tokenizer"
+                    ".tokenizer_model=${vlm_model:CLIP_VITB32}"
+                )
+            elif not has_generative_vlm:
+                overrides.append(
+                    "task.dataloader.tokenization.observation_tokenizer"
+                    ".tokenizer_model=${language_model:ALBERT_BASE}"
+                )
 
     return overrides
 

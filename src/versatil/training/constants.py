@@ -60,17 +60,6 @@ class PrecisionType(StrEnum):
         )
 
 
-MAP_PRECISION_TO_DTYPE = {
-    PrecisionType.INT8: torch.uint8,
-    PrecisionType.FP32: torch.float32,
-    PrecisionType.FP16_MIXED: torch.float16,
-    PrecisionType.BF16_MIXED: torch.bfloat16,
-    PrecisionType.FP16_TRUE: torch.float16,
-    PrecisionType.BF16_TRUE: torch.bfloat16,
-    PrecisionType.FP64: torch.float64,
-}
-
-
 class CheckpointFilename(StrEnum):
     """Standard filenames within a training checkpoint directory."""
 

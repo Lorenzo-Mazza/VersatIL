@@ -1,13 +1,11 @@
 defaults:
-  - encoder/image/cnn@encoders.left
+  - encoder/image/spatial@encoders.left
   - encoder/language@encoders.instruction
   - _self_
 
-_target_: versatil.models.encoding.pipeline.EncodingPipeline
-
+  
 encoders:
   left:
-    _target_: versatil.models.encoding.encoders.rgb.cnn.CNNEncoder
     input_keys:
     - ${cameras:LEFT}
     backbone: ${rgb_backbone:EFFICIENTNET_B0}
@@ -15,8 +13,6 @@ encoders:
     frozen: false
     pooling_method: none
     batch_norm_handling: ${batch_norm_handling:FROZEN}
-
-
   instruction:
     model_name: ${language_model:GEMMA_2B}
     pretrained: true

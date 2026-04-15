@@ -34,7 +34,7 @@ from versatil.quantization.strategies import (
     PT2EStrategy,
     QuantizeApiStrategy,
 )
-from versatil.training.constants import CheckpointFilename, PrecisionType
+from versatil.training.constants import CheckpointFilename
 
 
 class PostTrainingCompressor:
@@ -103,7 +103,7 @@ class PostTrainingCompressor:
         policy_loader = self._load_policy()
         policy = policy_loader.policy
         modules = self.resolve_modules()
-        self.validate(policy=policy)
+        self.validate(policy=policy, modules=modules)
         self._prepare_and_prune(policy=policy, modules=modules)
         exportable = ExportablePolicy.from_policy(policy)
         logging.info("Input keys: %s", exportable.observation_keys)
@@ -160,19 +160,20 @@ class PostTrainingCompressor:
             )
         ]
 
-    def validate(self, policy: nn.Module) -> None:
+    def validate(self, policy: nn.Module, modules: list[CompressionTarget]) -> None:
         """Validate module paths and strategy compatibility.
 
         Args:
             policy: The loaded policy model.
+            modules: Resolved compression targets from resolve_modules().
 
         Raises:
             ValueError: If a module_path doesn't match a submodule,
                 or if PT2E and quantize_() strategies are both present.
         """
-        has_pt2e = any(isinstance(m.quantization, PT2EStrategy) for m in self.modules)
+        has_pt2e = any(isinstance(m.quantization, PT2EStrategy) for m in modules)
         has_quantize_api = any(
-            isinstance(m.quantization, QuantizeApiStrategy) for m in self.modules
+            isinstance(m.quantization, QuantizeApiStrategy) for m in modules
         )
         if has_pt2e and has_quantize_api:
             raise ValueError(
@@ -181,7 +182,7 @@ class PostTrainingCompressor:
                 "quantize_() requires eager nn.Module submodules. "
                 "Use one strategy per compression run."
             )
-        for module in self.modules:
+        for module in modules:
             if module.module_path == "":
                 continue
             try:
@@ -200,7 +201,6 @@ class PostTrainingCompressor:
             device=torch.device("cpu"),
             checkpoint_path=self.checkpoint_path,
             checkpoint_name=self.checkpoint_name,
-            precision=PrecisionType.FP32.value,
         )
 
     def _prepare_and_prune(
@@ -279,7 +279,7 @@ class PostTrainingCompressor:
             else build_example_inputs(
                 exportable=exportable,
                 observation_space=policy_loader.observation_space,
-                dataloader_config=policy_loader.config.task.dataloader,
+                observation_horizon=policy_loader.observation_horizon,
                 tokenizer=policy_loader.tokenizer,
             )
         )

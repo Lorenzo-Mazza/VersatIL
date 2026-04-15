@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 import torch
 
@@ -255,7 +256,10 @@ class TestCompositeLossParameters:
         assert "loss_modules" in module_names
         assert "loss_modules.a" in module_names
 
-    def test_gradient_flows_through_composite_to_sub_loss(self):
+    def test_gradient_flows_through_composite_to_sub_loss(
+        self,
+        rng: np.random.Generator,
+    ):
         # Use a custom parametric loss to verify gradient flow
         class ParametricLoss(BaseLoss):
             def __init__(self):
@@ -281,7 +285,8 @@ class TestCompositeLossParameters:
         assert composite_params[0] is parametric.linear.weight
 
         # Verify gradient flows
-        predictions = {"input": torch.randn(2, 3)}
+        input_data = rng.standard_normal((2, 3)).astype(np.float32)
+        predictions = {"input": torch.from_numpy(input_data)}
         output = composite(predictions, {})
         output.total_loss.backward()
         assert parametric.linear.weight.grad is not None

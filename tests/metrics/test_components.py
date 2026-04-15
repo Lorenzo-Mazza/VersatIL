@@ -2,12 +2,14 @@
 
 import math
 import re
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 import torch
 import torch.nn.functional as F
 
+from versatil.configs.experiment import ExperimentConfig
 from versatil.data.constants import BinaryGripperRange, GripperType, SampleKey
 from versatil.data.metadata import (
     GripperActionMetadata,
@@ -36,6 +38,7 @@ from versatil.metrics.components import (
 from versatil.metrics.constants import MetadataKey, MetricKey
 from versatil.metrics.kernels import KernelType
 from versatil.models.decoding.constants import DecoderOutputKey, LatentKey
+from versatil.training.callbacks import ExpertUsageCallback
 
 
 @pytest.fixture
@@ -1271,6 +1274,17 @@ class TestMoELossGetRequiredKeys:
         keys = moe_loss.get_required_keys()
         assert "position" in keys
         assert DecoderOutputKey.ROUTING_WEIGHTS.value in keys
+
+
+class TestMoELossGetCallbacks:
+    def test_returns_expert_usage_callback(self):
+        base_loss = RegressionLoss(action_keys=["position"])
+        moe_loss = MoELoss(base_loss=base_loss)
+        experiment_config = MagicMock(spec=ExperimentConfig)
+        callbacks = moe_loss.get_callbacks(experiment_config=experiment_config)
+        assert len(callbacks) == 1
+        assert isinstance(callbacks[0], ExpertUsageCallback)
+        assert callbacks[0].log_every_n_epochs == 1
 
 
 @pytest.mark.unit

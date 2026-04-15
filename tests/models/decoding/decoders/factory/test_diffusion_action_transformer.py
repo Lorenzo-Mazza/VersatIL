@@ -2,8 +2,9 @@
 
 import re
 from collections.abc import Callable
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 import torch
 
@@ -243,6 +244,7 @@ class TestDiffusionActionTransformerInitialization:
             number_of_layers=NUMBER_OF_LAYERS,
             feedforward_dimension=FEEDFORWARD_DIMENSION,
             activation=ActivationFunction.GELU.value,
+            normalization_type=NormalizationType.RMS_NORM.value,
         )
         for action_key in decoder.action_heads:
             assert len(decoder.action_heads[action_key].blocks) == 0
@@ -288,6 +290,35 @@ class TestDiffusionActionTransformerForward:
             match=re.escape(
                 f"Missing '{DecoderOutputKey.TIMESTEP.value}' in features dict. "
                 "The algorithm should inject timesteps into features."
+            ),
+        ):
+            decoder(features=features, actions=actions)
+
+    def test_raises_when_no_observation_tokens_produced(
+        self,
+        diffusion_transformer_factory: Callable[..., DiffusionActionTransformer],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+        rng: np.random.Generator,
+    ):
+        decoder = diffusion_transformer_factory(input_keys=["rgb_features"])
+        features = {
+            DecoderOutputKey.TIMESTEP.value: torch.from_numpy(
+                rng.standard_normal((BATCH_SIZE,)).astype(np.float32)
+            ),
+        }
+        actions = noisy_actions_factory()
+        with (
+            patch.object(
+                decoder.input_builder,
+                "forward",
+                return_value=(None, None, None),
+            ),
+            pytest.raises(
+                ValueError,
+                match=re.escape(
+                    "No valid observation features provided to "
+                    "DiffusionActionTransformer"
+                ),
             ),
         ):
             decoder(features=features, actions=actions)
@@ -437,3 +468,150 @@ class TestDiffusionActionTransformerTemporal:
     ):
         decoder = diffusion_transformer_factory(observation_horizon=1)
         assert decoder.input_builder.temporal_positional_encoding_layer is None
+
+
+class TestDiffusionActionTransformerEncoderCaching:
+    def test_enable_sets_caching_flag_and_clears_cache(
+        self,
+        diffusion_transformer_factory: Callable[..., DiffusionActionTransformer],
+    ):
+        decoder = diffusion_transformer_factory()
+        decoder.enable_encoder_cache()
+        assert decoder._caching_enabled is True
+        assert decoder._conditioning_cache is None
+
+    def test_disable_clears_caching_flag_and_cache(
+        self,
+        diffusion_transformer_factory: Callable[..., DiffusionActionTransformer],
+    ):
+        decoder = diffusion_transformer_factory()
+        decoder.enable_encoder_cache()
+        decoder.disable_encoder_cache()
+        assert decoder._caching_enabled is False
+        assert decoder._conditioning_cache is None
+
+    def test_cached_forward_matches_uncached_for_cross_attention_dit(
+        self,
+        diffusion_transformer_factory: Callable[..., DiffusionActionTransformer],
+        spatial_features_with_timestep_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = diffusion_transformer_factory(
+            diffusion_transformer_type=DiTType.CROSS_ATTENTION.value,
+        )
+        decoder.eval()
+        features_uncached = spatial_features_with_timestep_factory(
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        features_cached = {
+            key: tensor.clone() for key, tensor in features_uncached.items()
+        }
+        actions = noisy_actions_factory()
+        with torch.no_grad():
+            output_uncached = decoder(features=features_uncached, actions=actions)
+            decoder.enable_encoder_cache()
+            output_cached = decoder(features=features_cached, actions=actions)
+            decoder.disable_encoder_cache()
+        for action_key in actions:
+            torch.testing.assert_close(
+                output_cached[action_key], output_uncached[action_key]
+            )
+
+    def test_cache_populated_after_first_cached_forward(
+        self,
+        diffusion_transformer_factory: Callable[..., DiffusionActionTransformer],
+        spatial_features_with_timestep_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = diffusion_transformer_factory(
+            diffusion_transformer_type=DiTType.CROSS_ATTENTION.value,
+        )
+        decoder.eval()
+        decoder.enable_encoder_cache()
+        features = spatial_features_with_timestep_factory(
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        actions = noisy_actions_factory()
+        assert decoder._conditioning_cache is None
+        with torch.no_grad():
+            decoder(features=features, actions=actions)
+        assert decoder._conditioning_cache is not None
+
+    def test_precompute_called_once_across_multiple_forward_passes(
+        self,
+        diffusion_transformer_factory: Callable[..., DiffusionActionTransformer],
+        spatial_features_with_timestep_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = diffusion_transformer_factory(
+            diffusion_transformer_type=DiTType.CROSS_ATTENTION.value,
+        )
+        decoder.eval()
+        decoder.enable_encoder_cache()
+        original_precompute = decoder.transformer.precompute_conditioning_kv
+        call_count = 0
+
+        def counting_precompute(encoder_hidden_states):
+            nonlocal call_count
+            call_count += 1
+            return original_precompute(encoder_hidden_states=encoder_hidden_states)
+
+        decoder.transformer.precompute_conditioning_kv = counting_precompute
+        actions = noisy_actions_factory()
+        with torch.no_grad():
+            for _ in range(3):
+                features = spatial_features_with_timestep_factory(
+                    channels=EMBEDDING_DIMENSION,
+                    height=SPATIAL_HEIGHT,
+                    width=SPATIAL_WIDTH,
+                )
+                decoder(features=features, actions=actions)
+        assert call_count == 1
+
+    def test_caching_no_op_for_mmdit(
+        self,
+        diffusion_transformer_factory: Callable[..., DiffusionActionTransformer],
+        spatial_features_with_timestep_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = diffusion_transformer_factory(
+            diffusion_transformer_type=DiTType.MMDIT.value,
+        )
+        decoder.eval()
+        decoder.enable_encoder_cache()
+        features = spatial_features_with_timestep_factory(
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        actions = noisy_actions_factory()
+        with torch.no_grad():
+            decoder(features=features, actions=actions)
+        assert decoder._conditioning_cache is None
+
+    def test_disable_clears_populated_cache(
+        self,
+        diffusion_transformer_factory: Callable[..., DiffusionActionTransformer],
+        spatial_features_with_timestep_factory: Callable[..., dict[str, torch.Tensor]],
+        noisy_actions_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        decoder = diffusion_transformer_factory(
+            diffusion_transformer_type=DiTType.CROSS_ATTENTION.value,
+        )
+        decoder.eval()
+        decoder.enable_encoder_cache()
+        features = spatial_features_with_timestep_factory(
+            channels=EMBEDDING_DIMENSION,
+            height=SPATIAL_HEIGHT,
+            width=SPATIAL_WIDTH,
+        )
+        actions = noisy_actions_factory()
+        with torch.no_grad():
+            decoder(features=features, actions=actions)
+        assert decoder._conditioning_cache is not None
+        decoder.disable_encoder_cache()
+        assert decoder._conditioning_cache is None

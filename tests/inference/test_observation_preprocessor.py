@@ -12,6 +12,7 @@ from versatil_constants.shared import ObsKey
 from versatil_constants.tso import TSOProprioKey
 
 from versatil.data.constants import Cameras
+from versatil.data.metadata import CameraMetadata
 from versatil.inference.observation_preprocessor import ObservationPreprocessor
 
 
@@ -31,12 +32,21 @@ def preprocessor_factory() -> Callable[..., ObservationPreprocessor]:
             camera_keys = [Cameras.LEFT.value]
         if proprioceptive_keys is None:
             proprioceptive_keys = []
+        camera_metadata = {}
+        for key in camera_keys:
+            channels = 1 if key == Cameras.DEPTH.value else 3
+            camera_metadata[key] = CameraMetadata(
+                camera_key=key,
+                dtype="uint8",
+                channels=channels,
+                image_height=image_height,
+                image_width=image_width,
+            )
         return ObservationPreprocessor(
             camera_keys=camera_keys,
             proprioceptive_keys=proprioceptive_keys,
             has_language=has_language,
-            image_height=image_height,
-            image_width=image_width,
+            camera_metadata=camera_metadata,
             compression_type=compression_type,
             rotate_images=rotate_images,
             depth_clamp_range=depth_clamp_range,
@@ -179,22 +189,6 @@ class TestObservationPreprocessorInitialization:
             Cameras.LEFT.value,
             Cameras.RIGHT.value,
         ]
-
-    def test_depth_registered_as_mask_in_albumentations(self, preprocessor_factory):
-        preprocessor = preprocessor_factory(
-            camera_keys=[Cameras.LEFT.value, Cameras.DEPTH.value],
-        )
-        additional_targets = preprocessor.image_transform.additional_targets
-        assert additional_targets[Cameras.DEPTH.value] == "mask"
-
-    def test_second_rgb_camera_registered_as_additional_image(
-        self, preprocessor_factory
-    ):
-        preprocessor = preprocessor_factory(
-            camera_keys=[Cameras.LEFT.value, Cameras.RIGHT.value],
-        )
-        additional_targets = preprocessor.image_transform.additional_targets
-        assert additional_targets[Cameras.RIGHT.value] == "image"
 
 
 @pytest.mark.unit
@@ -392,20 +386,6 @@ class TestParseSingleEnvironment:
 
         assert ObsKey.LANGUAGE.value not in result[0]
 
-    def test_language_omitted_when_enabled_but_not_in_response(
-        self,
-        preprocessor_factory,
-    ):
-        preprocessor = preprocessor_factory(
-            camera_keys=[],
-            has_language=True,
-        )
-        response = {}
-
-        result = preprocessor._parse_single_environment(response=response)
-
-        assert ObsKey.LANGUAGE.value not in result[0]
-
     def test_result_keyed_by_environment_index_zero(
         self,
         preprocessor_factory,
@@ -416,42 +396,6 @@ class TestParseSingleEnvironment:
         result = preprocessor._parse_single_environment(response=response)
 
         assert list(result.keys()) == [0]
-
-    def test_missing_proprioceptive_key_in_single_env(
-        self,
-        preprocessor_factory,
-    ):
-        proprio_key = TSOProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
-        preprocessor = preprocessor_factory(
-            camera_keys=[],
-            proprioceptive_keys=[proprio_key],
-        )
-        # Proprioceptive key configured but absent from response
-        response = {}
-
-        result = preprocessor._parse_single_environment(response=response)
-
-        assert proprio_key not in result[0]
-
-    def test_missing_camera_key_skipped(
-        self,
-        preprocessor_factory,
-    ):
-        preprocessor = preprocessor_factory(
-            camera_keys=[Cameras.LEFT.value, Cameras.RIGHT.value],
-        )
-        image = np.zeros((4, 4, 3), dtype=np.uint8)
-
-        with patch(
-            "versatil.inference.observation_preprocessor.decompress_array",
-            return_value=image,
-        ):
-            # Only LEFT present, RIGHT missing
-            response = {Cameras.LEFT.value: b"data"}
-            result = preprocessor._parse_single_environment(response=response)
-
-            assert Cameras.LEFT.value in result[0]
-            assert Cameras.RIGHT.value not in result[0]
 
 
 @pytest.mark.unit
@@ -563,52 +507,6 @@ class TestParseMultiEnvironment:
 
             assert result[0][ObsKey.LANGUAGE.value] == "pick up block"
             assert result[1][ObsKey.LANGUAGE.value] == "place on table"
-
-    def test_missing_proprioceptive_key_in_multi_env(
-        self,
-        preprocessor_factory,
-    ):
-        # Proprioceptive key configured but absent from response -- should be skipped
-        proprio_key = TSOProprioKey.ROBOT_FRAME_CARTESIAN_TIP_POS.value
-        preprocessor = preprocessor_factory(
-            camera_keys=[Cameras.LEFT.value],
-            proprioceptive_keys=[proprio_key],
-        )
-        image = np.zeros((4, 4, 3), dtype=np.uint8)
-
-        with patch(
-            "versatil.inference.observation_preprocessor.decompress_array",
-            return_value=image,
-        ):
-            response = {
-                Cameras.LEFT.value: {"0": b"data", "1": b"data"},
-            }
-            result = preprocessor._parse_multi_environment(response=response)
-
-            assert proprio_key not in result[0]
-            assert proprio_key not in result[1]
-
-    def test_missing_language_in_multi_env_when_expected(
-        self,
-        preprocessor_factory,
-    ):
-        preprocessor = preprocessor_factory(
-            camera_keys=[Cameras.LEFT.value],
-            has_language=True,
-        )
-        image = np.zeros((4, 4, 3), dtype=np.uint8)
-
-        with patch(
-            "versatil.inference.observation_preprocessor.decompress_array",
-            return_value=image,
-        ):
-            # Language expected but not present in response
-            response = {
-                Cameras.LEFT.value: {"0": b"data"},
-            }
-            result = preprocessor._parse_multi_environment(response=response)
-
-            assert ObsKey.LANGUAGE.value not in result[0]
 
 
 @pytest.mark.unit
@@ -869,6 +767,19 @@ class TestTransformCameraObservations:
         )
         # No RGB keys should be present
         assert len(result) == 1
+
+    def test_missing_camera_key_raises(
+        self,
+        preprocessor_factory,
+    ):
+        preprocessor = preprocessor_factory(
+            camera_keys=[Cameras.LEFT.value],
+        )
+        with pytest.raises(
+            ValueError,
+            match=f"Missing camera key '{Cameras.LEFT.value}' in the server observation data.",
+        ):
+            preprocessor.transform_camera_observations(recent_observations={})
 
     def test_resize_applied_to_images(
         self,

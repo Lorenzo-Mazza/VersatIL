@@ -101,4 +101,5 @@ nav:
       - Inference: architecture/inference.md
       - Post-Training Compression: architecture/post_training_compression.md
   - API Reference: reference/
+  - Known Issues: known-issues.md
   - Changelog: changelog.md

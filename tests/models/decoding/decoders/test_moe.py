@@ -521,3 +521,13 @@ class TestCombineExpertOutputs:
             PREDICTION_HORIZON,
             POSITION_DIM,
         )
+
+
+def test_auxiliary_output_keys(
+    moe_decoder_factory: Callable[..., MoEDecoder],
+):
+    decoder = moe_decoder_factory()
+    assert decoder.get_auxiliary_output_keys() == {
+        DecoderOutputKey.ROUTING_WEIGHTS.value,
+        DecoderOutputKey.EXPERT_OUTPUTS.value,
+    }

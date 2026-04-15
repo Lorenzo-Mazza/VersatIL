@@ -18,9 +18,6 @@ import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.diffusion_transformer.dit_decoder import (
-    DiffusionTransformerDecoder,
-)
 from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
     FinalPredictionLayer,
 )
@@ -32,6 +29,9 @@ from versatil.models.layers.positional_encoding.base import (
 )
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
+)
+from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
+    ConditionalBidirectionalDecoder,
 )
 from versatil.models.layers.transformer.encoder import TransformerEncoder
 
@@ -130,10 +130,10 @@ class DiTBlock(nn.Module):
             normalization_epsilon=normalization_epsilon,
             initializer_range=initializer_range,
         )
-        self.decoder = DiffusionTransformerDecoder(
+        self.decoder = ConditionalBidirectionalDecoder(
             number_of_layers=number_of_decoder_layers,
             embedding_dimension=embedding_dimension,
-            timestep_dimension=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
             number_of_heads=number_of_heads,
             number_of_key_value_heads=number_of_key_value_heads,
             feedforward_dimension=feedforward_dimension,
@@ -146,6 +146,7 @@ class DiTBlock(nn.Module):
             maximum_sequence_length=maximum_decoder_length,
             bias=bias,
             normalization_epsilon=normalization_epsilon,
+            use_cross_attention=False,
             use_gating=use_gating,
             initializer_range=initializer_range,
         )
@@ -238,7 +239,7 @@ class DiTBlock(nn.Module):
         combined_conditioning = timestep_embedding + encoder_output_mean
         decoder_output = self.decoder(
             hidden_states=hidden_states,
-            conditioning_embedding=combined_conditioning,
-            padding_mask=padding_mask,
+            condition=combined_conditioning,
+            query_padding_mask=padding_mask,
         )
         return self.epsilon_network(decoder_output, combined_conditioning)

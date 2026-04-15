@@ -7,13 +7,22 @@ import numpy as np
 import pytest
 import torch
 
+from versatil.data.constants import RGB_CAMERAS
+from versatil.data.metadata import CameraMetadata
+from versatil.data.task import ObservationSpace
 from versatil.models.encoding.encoders.base import (
     EncoderInput,
-    EncoderOutput,
     EncodingMixin,
 )
 from versatil.models.encoding.encoders.conditional import ConditionalEncoder
+from versatil.models.encoding.encoders.rgb.conditional_cnn import ConditionalCNNEncoder
+from versatil.models.encoding.encoders.rgb.spatial import SpatialRGBEncoder
 from versatil.models.encoding.fusion.base import FusionModule
+from versatil.models.feature_meta import (
+    FeatureMetadata,
+    FeatureType,
+    infer_feature_type,
+)
 
 
 @pytest.fixture
@@ -22,37 +31,46 @@ def encoder_mock_factory(rng: np.random.Generator) -> Callable[..., MagicMock]:
 
     def factory(
         output_features: list[str] | None = None,
-        output_dimensions: dict[str, int | tuple[int, ...]] | None = None,
+        output_dimensions: dict[str, tuple[int, ...]] | None = None,
         input_keys: list[str] | None = None,
         requires_tokenized: bool = False,
         vocab_size: int | None = None,
         forward_return: dict[str, torch.Tensor] | None = None,
         batch_size: int = 2,
+        is_image_encoder: bool = False,
     ) -> MagicMock:
         if output_features is None:
             output_features = ["embedding"]
         if output_dimensions is None:
-            output_dimensions = dict.fromkeys(output_features, 64)
+            output_dimensions = dict.fromkeys(output_features, (64,))
         if input_keys is None:
             input_keys = ["left"]
-        encoder = MagicMock(spec=EncodingMixin)
-        encoder.get_output_specification.return_value = EncoderOutput(
-            features=output_features,
-            dimensions=output_dimensions,
+        spec = SpatialRGBEncoder if is_image_encoder else EncodingMixin
+        encoder = MagicMock(spec=spec)
+        encoder.get_output_specification = MagicMock(
+            return_value=[
+                FeatureMetadata(
+                    key=feat,
+                    feature_type=infer_feature_type(output_dimensions[feat]),
+                    dimension=output_dimensions[feat],
+                )
+                for feat in output_features
+            ]
         )
         encoder.input_specification = EncoderInput(
             keys=input_keys,
             requires_tokenized=requires_tokenized,
         )
-        encoder.get_vocab_size.return_value = vocab_size
+        encoder.get_vocab_size = MagicMock(return_value=vocab_size)
+        if is_image_encoder:
+            encoder._camera_group = RGB_CAMERAS
+            encoder.set_image_size = MagicMock(
+                side_effect=lambda image_height, image_width: None
+            )
         if forward_return is None:
             forward_return = {
                 feat: torch.from_numpy(
-                    rng.standard_normal(
-                        (batch_size, dim)
-                        if isinstance(dim, int)
-                        else (batch_size, *dim)
-                    ).astype(np.float32)
+                    rng.standard_normal((batch_size, *dim)).astype(np.float32)
                 )
                 for feat, dim in output_dimensions.items()
             }
@@ -70,22 +88,30 @@ def conditional_encoder_mock_factory(
 
     def factory(
         output_features: list[str] | None = None,
-        output_dimensions: dict[str, int | tuple[int, ...]] | None = None,
+        output_dimensions: dict[str, tuple[int, ...]] | None = None,
         input_keys: list[str] | None = None,
         condition_key: str = "rgb_encoder_embedding",
         forward_return: dict[str, torch.Tensor] | None = None,
         batch_size: int = 2,
+        is_image_encoder: bool = False,
     ) -> MagicMock:
         if output_features is None:
             output_features = ["embedding"]
         if output_dimensions is None:
-            output_dimensions = dict.fromkeys(output_features, 64)
+            output_dimensions = dict.fromkeys(output_features, (64,))
         if input_keys is None:
             input_keys = ["right"]
-        encoder = MagicMock(spec=ConditionalEncoder)
-        encoder.get_output_specification.return_value = EncoderOutput(
-            features=output_features,
-            dimensions=output_dimensions,
+        spec = ConditionalCNNEncoder if is_image_encoder else ConditionalEncoder
+        encoder = MagicMock(spec=spec)
+        encoder.get_output_specification = MagicMock(
+            return_value=[
+                FeatureMetadata(
+                    key=feat,
+                    feature_type=infer_feature_type(output_dimensions[feat]),
+                    dimension=output_dimensions[feat],
+                )
+                for feat in output_features
+            ]
         )
         encoder.input_specification = EncoderInput(
             keys=input_keys,
@@ -93,15 +119,16 @@ def conditional_encoder_mock_factory(
             requires_tokenized=False,
         )
         encoder.condition_key = condition_key
-        encoder.get_vocab_size.return_value = None
+        encoder.get_vocab_size = MagicMock(return_value=None)
+        if is_image_encoder:
+            encoder._camera_group = RGB_CAMERAS
+            encoder.set_image_size = MagicMock(
+                side_effect=lambda image_height, image_width: None
+            )
         if forward_return is None:
             forward_return = {
                 feat: torch.from_numpy(
-                    rng.standard_normal(
-                        (batch_size, dim)
-                        if isinstance(dim, int)
-                        else (batch_size, *dim)
-                    ).astype(np.float32)
+                    rng.standard_normal((batch_size, *dim)).astype(np.float32)
                 )
                 for feat, dim in output_dimensions.items()
             }
@@ -129,7 +156,11 @@ def fusion_module_mock_factory(
         fusion = MagicMock(spec=FusionModule)
         fusion.input_features = input_features
         fusion.output_name = output_name
-        fusion.get_output_dim.return_value = output_dimension
+        fusion.get_output_specification.return_value = FeatureMetadata(
+            key=output_name,
+            feature_type=FeatureType.FLAT.value,
+            dimension=(output_dimension,),
+        )
         if forward_return is None:
             forward_return = torch.from_numpy(
                 rng.standard_normal((batch_size, output_dimension)).astype(np.float32)
@@ -138,3 +169,28 @@ def fusion_module_mock_factory(
         return fusion
 
     return factory
+
+
+@pytest.fixture
+def default_observation_space(
+    observation_space_factory,
+) -> ObservationSpace:
+    """Default ObservationSpace with left/right cameras for pipeline tests."""
+    return observation_space_factory(
+        observations_metadata={
+            "left": CameraMetadata(
+                camera_key="left",
+                dtype="uint8",
+                channels=3,
+                image_height=224,
+                image_width=224,
+            ),
+            "right": CameraMetadata(
+                camera_key="right",
+                dtype="uint8",
+                channels=3,
+                image_height=224,
+                image_width=224,
+            ),
+        }
+    )

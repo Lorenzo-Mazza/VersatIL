@@ -23,5 +23,10 @@ class TestInferenceConfig:
 
     def test_has_all_expected_fields(self):
         field_names = {f.name for f in dataclasses.fields(InferenceConfig)}
-        expected = {"temporal_agg", "update_rate_hz", "rotate_images"}
+        expected = {
+            "temporal_agg",
+            "action_execution_horizon",
+            "update_rate_hz",
+            "rotate_images",
+        }
         assert expected == field_names

@@ -9,16 +9,15 @@ import logging
 import os
 from pathlib import Path
 
-import albumentations as A
 import cv2
 import hydra.utils
 import numpy as np
 import pandas as pd
 import torch
-from albumentations.pytorch import ToTensorV2
 from omegaconf import OmegaConf
 
 from versatil.data.constants import Cameras
+from versatil.data.processing.image_processor import ImageProcessor
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.explain.constants import ExplanationType
 from versatil.explain.explainer import show_cam_on_image
@@ -111,29 +110,16 @@ class ModelExplainer:
         os.makedirs(self.save_dir, exist_ok=True)
 
     def _setup_transforms(self):
-        """Setup image augmentation transforms using config."""
-        additional_targets = {"right_image": "image"}
-
+        """Setup image processing using observation space camera metadata."""
         cameras = [cam.value for cam in Cameras if cam != Cameras.DEPTH]
         if Cameras.DEPTH.value in self.observation_space.camera_keys:
-            additional_targets["depth"] = "mask"
             cameras.append(Cameras.DEPTH.value)
-
         self.camera_names = cameras
 
-        # Get image dimensions from config
-        image_height = self.config.task.dataloader.image_height
-        image_width = self.config.task.dataloader.image_width
-
-        self.transform = A.Compose(
-            [
-                A.Resize(height=image_height, width=image_width),
-                ToTensorV2(),
-            ],
-            additional_targets=additional_targets,
+        self.image_processor = ImageProcessor(
+            camera_metadata=self.config.task.observation_space.cameras,
+            train=False,
         )
-
-        # Get observation horizon from config
         self.observation_horizon = self.config.task.observation_horizon
 
     def get_observation(self) -> dict[str, torch.Tensor]:

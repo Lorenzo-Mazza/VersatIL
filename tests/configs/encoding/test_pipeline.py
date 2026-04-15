@@ -4,9 +4,16 @@ import pytest
 from hydra.utils import instantiate
 from omegaconf import MISSING
 
+from versatil.configs.data.task import ObservationSpaceConfig
 from versatil.configs.encoding.encoder import ProprioEncoderConfig
 from versatil.configs.encoding.pipeline import EncodingPipelineConfig
 from versatil.models.encoding.pipeline import EncodingPipeline
+
+
+@pytest.fixture
+def empty_observation_space() -> ObservationSpaceConfig:
+    """Empty observation space config for pipeline tests."""
+    return ObservationSpaceConfig(observations_metadata={})
 
 
 @pytest.mark.unit
@@ -26,20 +33,25 @@ class TestEncodingPipelineConfig:
 
 @pytest.mark.unit
 class TestEncodingPipelineInstantiation:
-    def test_empty_pipeline_instantiates(self):
-        config = EncodingPipelineConfig(encoders={})
+    def test_empty_pipeline_instantiates(self, empty_observation_space):
+        config = EncodingPipelineConfig(
+            encoders={},
+            observation_space=empty_observation_space,
+        )
         instance = instantiate(config)
         assert isinstance(instance, EncodingPipeline)
 
-    def test_pipeline_instantiates_with_encoder(self):
+    def test_pipeline_instantiates_with_encoder(self, empty_observation_space):
         config = EncodingPipelineConfig(
             encoders={
                 "proprio": ProprioEncoderConfig(
                     input_keys=["proprio"],
                     output_dim=64,
                     pretrained=False,
+                    model_dtype=None,
                 ),
             },
+            observation_space=empty_observation_space,
         )
         instance = instantiate(config)
         assert isinstance(instance, EncodingPipeline)

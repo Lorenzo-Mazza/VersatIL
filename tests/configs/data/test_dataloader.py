@@ -21,13 +21,6 @@ class TestDataLoaderConfig:
         assert config.num_workers == num_workers
         assert config.shuffle == shuffle
 
-    @pytest.mark.parametrize("image_height", [224, 480])
-    @pytest.mark.parametrize("image_width", [224, 640])
-    def test_stores_image_dimensions(self, image_height, image_width):
-        config = DataLoaderConfig(image_height=image_height, image_width=image_width)
-        assert config.image_height == image_height
-        assert config.image_width == image_width
-
     def test_image_norm_type_default_is_minus_one_to_one_string(self):
         config = DataLoaderConfig()
         assert config.image_norm_type == ImageNormalizationType.MINUS_ONE_TO_ONE.value

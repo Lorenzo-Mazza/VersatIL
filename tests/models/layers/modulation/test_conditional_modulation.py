@@ -25,7 +25,7 @@ def modulation_factory() -> Callable[..., ConditionalModulation]:
         use_shift: bool = True,
         use_gate: bool = False,
         activation: str = ActivationFunction.SILU.value,
-        init_strategy: str = "identity",
+        init_strategy: str = "zero",
     ) -> ConditionalModulation:
         return ConditionalModulation(
             condition_dim=condition_dim,
@@ -66,9 +66,8 @@ class TestConditionalModulationInitialization:
     @pytest.mark.parametrize(
         "init_strategy, expectation",
         [
-            ("identity", does_not_raise()),
-            ("xavier", does_not_raise()),
             ("zero", does_not_raise()),
+            ("xavier", does_not_raise()),
             (
                 "unknown_strategy",
                 pytest.raises(
@@ -88,13 +87,11 @@ class TestConditionalModulationInitialization:
             module = modulation_factory(init_strategy=init_strategy)
             assert module.init_strategy == init_strategy
 
-    @pytest.mark.parametrize("init_strategy", ["identity", "zero"])
-    def test_identity_and_zero_init_zero_all_projection_weights(
+    def test_zero_init_zeroes_all_projection_weights(
         self,
         modulation_factory: Callable[..., ConditionalModulation],
-        init_strategy: str,
     ):
-        module = modulation_factory(init_strategy=init_strategy)
+        module = modulation_factory(init_strategy="zero")
         for layer in module.projection.modules():
             if isinstance(layer, nn.Linear):
                 assert torch.all(layer.weight == 0)
@@ -114,7 +111,7 @@ class TestConditionalModulationInitialization:
         self,
         modulation_factory: Callable[..., ConditionalModulation],
     ):
-        module = modulation_factory(init_strategy="identity")
+        module = modulation_factory(init_strategy="zero")
         linear_layers = [
             m for m in module.projection.modules() if isinstance(m, nn.Linear)
         ]
@@ -138,7 +135,7 @@ class TestConditionalModulationInitialization:
         tensor = nchw_tensor_factory(batch_size=2, channels=feature_dim)
         condition = condition_factory(batch_size=2, condition_dim=32)
         with torch.no_grad():
-            output = module(x=tensor, condition=condition)
+            output, _ = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
 
 
@@ -156,7 +153,7 @@ class TestConditionalModulationForward:
             condition_dim=32,
             feature_dim=feature_dim,
             use_shift=use_shift,
-            init_strategy="identity",
+            init_strategy="zero",
         )
         tensor = sequence_tensor_factory(
             batch_size=2,
@@ -165,7 +162,7 @@ class TestConditionalModulationForward:
         )
         condition = condition_factory(batch_size=2, condition_dim=32)
         with torch.no_grad():
-            output = module(x=tensor, condition=condition)
+            output, _ = module(x=tensor, condition=condition)
         # gamma=0, beta=0 → x * (1+0) + 0 = x
         assert torch.allclose(output, tensor, atol=1e-6)
 
@@ -188,7 +185,7 @@ class TestConditionalModulationForward:
         )
         condition = condition_factory(batch_size=2, condition_dim=32)
         with torch.no_grad():
-            output = module(x=tensor, condition=condition)
+            output, _ = module(x=tensor, condition=condition)
         assert not torch.allclose(output, tensor)
 
     def test_different_conditions_produce_different_outputs(
@@ -211,8 +208,8 @@ class TestConditionalModulationForward:
         condition_a = condition_factory(batch_size=2, condition_dim=32)
         condition_b = condition_factory(batch_size=2, condition_dim=32)
         with torch.no_grad():
-            output_a = module(x=tensor, condition=condition_a)
-            output_b = module(x=tensor, condition=condition_b)
+            output_a, _ = module(x=tensor, condition=condition_a)
+            output_b, _ = module(x=tensor, condition=condition_b)
         assert not torch.allclose(output_a, output_b)
 
     def test_scale_only_without_shift(
@@ -239,7 +236,7 @@ class TestConditionalModulationForward:
             gamma = projected.split(feature_dim, dim=-1)[0]
             gamma_reshaped = gamma.unsqueeze(1)
             expected = tensor * (1 + gamma_reshaped)
-            output = module(x=tensor, condition=condition)
+            output, _ = module(x=tensor, condition=condition)
         assert torch.allclose(output, expected, atol=1e-5)
 
     def test_film_formula_with_shift(
@@ -267,7 +264,7 @@ class TestConditionalModulationForward:
             gamma = chunks[0].unsqueeze(1)
             beta = chunks[1].unsqueeze(1)
             expected = tensor * (1 + gamma) + beta
-            output = module(x=tensor, condition=condition)
+            output, _ = module(x=tensor, condition=condition)
         assert torch.allclose(output, expected, atol=1e-5)
 
     def test_4d_cnn_path_preserves_shape(
@@ -285,7 +282,7 @@ class TestConditionalModulationForward:
             batch_size=2, channels=feature_dim, height=8, width=8
         )
         condition = condition_factory(batch_size=2, condition_dim=32)
-        output = module(x=tensor, condition=condition)
+        output, _ = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
 
     def test_3d_conv1d_path_when_feature_dim_in_dim_1(
@@ -306,7 +303,7 @@ class TestConditionalModulationForward:
             sequence_length=20,
         )
         condition = condition_factory(batch_size=2, condition_dim=32)
-        output = module(x=tensor, condition=condition)
+        output, _ = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
 
     def test_3d_transformer_path_when_feature_dim_in_dim_2(
@@ -327,7 +324,7 @@ class TestConditionalModulationForward:
             embedding_dimension=feature_dim,
         )
         condition = condition_factory(batch_size=2, condition_dim=32)
-        output = module(x=tensor, condition=condition)
+        output, _ = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
 
     def test_3d_batch_in_dim_1_path(
@@ -346,7 +343,7 @@ class TestConditionalModulationForward:
         data = rng.standard_normal((5, batch_size, feature_dim)).astype(np.float32)
         tensor = torch.from_numpy(data)
         condition = condition_factory(batch_size=batch_size, condition_dim=32)
-        output = module(x=tensor, condition=condition)
+        output, _ = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
 
     def test_gate_returns_tuple_with_correct_shapes(
@@ -371,7 +368,7 @@ class TestConditionalModulationForward:
         assert modulated.shape == tensor.shape
         assert gate.shape == (2, feature_dim, 1, 1)
 
-    def test_no_gate_returns_single_tensor(
+    def test_no_gate_returns_ones_gate(
         self,
         modulation_factory: Callable[..., ConditionalModulation],
         sequence_tensor_factory: Callable[..., torch.Tensor],
@@ -389,9 +386,9 @@ class TestConditionalModulationForward:
             embedding_dimension=feature_dim,
         )
         condition = condition_factory(batch_size=2, condition_dim=32)
-        output = module(x=tensor, condition=condition)
-        # Accessing .shape would fail on a tuple
+        output, gate = module(x=tensor, condition=condition)
         assert output.shape == tensor.shape
+        assert torch.equal(gate, torch.ones(1, dtype=tensor.dtype))
 
     def test_batch_dimension_mismatch_raises(
         self,

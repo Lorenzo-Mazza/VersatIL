@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 import torch
 
+from versatil.data.constants import Cameras
 from versatil.models.encoding.encoders.base import EncoderInput
 
 
@@ -55,13 +56,37 @@ def image_input_factory(
         channels: int = 3,
         height: int = 224,
         width: int = 224,
-        time_steps: int | None = None,
+        time_steps: int = 1,
     ) -> dict[str, torch.Tensor]:
-        if time_steps is not None:
-            shape = (batch_size, time_steps, channels, height, width)
-        else:
-            shape = (batch_size, channels, height, width)
+        shape = (batch_size, time_steps, channels, height, width)
         tensor = torch.from_numpy(rng.standard_normal(shape).astype(np.float32))
         return {key: tensor}
+
+    return factory
+
+
+@pytest.fixture
+def rgbd_input_factory(
+    rng: np.random.Generator,
+) -> Callable[..., dict[str, torch.Tensor]]:
+    """Factory for paired RGB + depth input tensors."""
+
+    def factory(
+        rgb_key: str = Cameras.LEFT.value,
+        depth_key: str = Cameras.DEPTH.value,
+        batch_size: int = 2,
+        rgb_channels: int = 3,
+        depth_channels: int = 1,
+        height: int = 224,
+        width: int = 224,
+        time_steps: int = 1,
+    ) -> dict[str, torch.Tensor]:
+        rgb_shape = (batch_size, time_steps, rgb_channels, height, width)
+        depth_shape = (batch_size, time_steps, depth_channels, height, width)
+        rgb_tensor = torch.from_numpy(rng.standard_normal(rgb_shape).astype(np.float32))
+        depth_tensor = torch.from_numpy(
+            rng.standard_normal(depth_shape).astype(np.float32)
+        )
+        return {rgb_key: rgb_tensor, depth_key: depth_tensor}
 
     return factory

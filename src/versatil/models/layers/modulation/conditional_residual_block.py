@@ -34,7 +34,7 @@ class ConditionalResidualBlock1D(nn.Module):
             feature_dim=output_channels,
             use_shift=condition_predict_scale,
             activation=ActivationFunction.MISH.value,
-            init_strategy="identity",
+            init_strategy="zero",
         )
         self.residual_convolution = (
             nn.Conv1d(input_channels, output_channels, 1)
@@ -52,7 +52,7 @@ class ConditionalResidualBlock1D(nn.Module):
             torch.Tensor: Output tensor of shape (batch_size, output_channels, prediction horizon).
         """
         out = self.blocks[0](x)
-        out = self.modulator(out, condition)
+        out, _ = self.modulator(out, condition)
         out = self.blocks[1](out)
         out = out + self.residual_convolution(x)
         return out

@@ -15,7 +15,7 @@ A VersatIL policy is built from four decoupled components, orchestrated by the `
 
 ```python
 # 1. Encode observations
-features = encoding_pipeline(observations)  # Multi-modal → unified representation
+features = encoding_pipeline(observations)  # Multi-modal -> unified representation
 
 # 2. Decode actions (algorithm orchestrates the decoder internally)
 predictions = algorithm.forward(
@@ -25,6 +25,10 @@ predictions = algorithm.forward(
 )
 
 # 3. Compute loss
+targets = algorithm.get_targets(
+    algorithm_output=predictions,
+    ground_truth_actions=ground_truth,
+)
 loss = loss_module(predictions, targets)
 ```
 
@@ -49,6 +53,7 @@ VersatIL decouples the learning paradigm from the neural network structure. The 
 
 - Transformer-based (ACT, DiT, GPT, DETR, Free Transformer, etc.)
 - UNet-based (Conditional Action UNet for Diffusion Policy)
+- VLA interleaved decoders (Pi0, SmolVLA) that borrow layers from a pretrained VLM
 - MoE wrappers (applicable on top of any decoder)
 
 ```python
@@ -62,11 +67,28 @@ Policy(encoding_pipeline=..., algorithm=FlowMatching(...), decoder=GPTActionDeco
 ```
 
 The `DecodingAlgorithm` base class defines two abstract methods:
-
 - `forward(network, features, actions)` -- training pass (with ground-truth actions)
 - `predict(network, features)` -- inference pass (without actions)
 
 The algorithm receives the decoder as a `network` parameter and orchestrates its use. For generative algorithms, this means adding noise, calling the decoder to denoise, and computing the training objective internally.
+
+
+## VLM Backbone Wiring
+
+For VLA decoders (Pi0, SmolVLA), the `Policy` automatically wires the VLM encoder's pretrained layers to the decoder at initialization:
+
+```python
+def _wire_vlm_backbone(self):
+    vlm_encoder = self._find_vlm_encoder()
+    self.decoder.set_backbone(
+        vlm_layers=vlm_encoder.get_backbone_layers(),
+        rotary_emb=vlm_encoder.get_rotary_embedding(),
+        vlm_hidden_dimension=vlm_encoder.get_backbone_hidden_dim(),
+        vlm_text_config=vlm_encoder.get_text_config(),
+    )
+```
+
+This is triggered when the decoder's `DecoderInput` has `requires_vlm_backbone=True`. The VLM encoder uses `use_embeddings_only=True` so its LM layers are available for the decoder to borrow, rather than being used during encoding.
 
 ## Composable Loss
 
@@ -83,16 +105,21 @@ Loss configs are named by composition (e.g., `regression_KL.yaml`), not by datas
 
 VersatIL uses strict naming conventions to wire encoders to decoders automatically. Instead of manually passing tensors, components match by name.
 
-**The rule:** `feature_name = "{encoder_name}_{output_key}"`
+**The rule:** `feature_name = "{encoder_name}_{modality}"`
+For multi-output encoders, each modality produces a separate feature: `vlm_rgb`, `vlm_language`.
 
-| Encoder name | Output key | Feature name |
+
+| Encoder name | Modality | Feature name |
 |---|---|---|
 | `left_eye` | `rgb` | `left_eye_rgb` |
 | `robot_state` | `proprio` | `robot_state_proprio` |
-| `vlm_model` | `rgb` | `vlm_model_rgb` |
-| `vlm_model` | `language` | `vlm_model_language` |
+| `vlm_model` | `fused_rgb_language` | `vlm_model_fused_rgb_language` |
 
-For multi-output encoders (e.g., VLMs), use dot notation in fusion/decoder configs to select specific outputs: `vlm_model.rgb`, `vlm_model.language`.
+!!! note "Multi-camera naming"
+    For multi-camera encoders, the modality includes the camera key separated by a colon: `{encoder_name}_{modality}:{camera_key}` (e.g., `stereo_rgb:left`, `stereo_rgb:right`).
+
+!!! note "Pipeline prefixing"
+    The encoding pipeline always prepends each encoder's output key with the encoder name. Encoders return raw modality keys (e.g., `rgb`), the pipeline produces prefixed keys (e.g., `left_eye_rgb`).
 
 **Fusion outputs** specify `output_name` directly:
 
@@ -105,28 +132,20 @@ fusion = AttentionFusion(
 
 **Decoder inputs** reference encoder or fusion output names via `input_keys`.
 
-### Feature Consumption
-
-When fusion modules combine features, the input features are consumed and removed from the output dictionary. Only fusion outputs and non-consumed encoder features reach the decoder.
-
-```
-Encoders produce: A, B, C, D
-Fusion 1: B + C → E  (consumes B and C)
-Fusion 2: E + D → F  (consumes E and D)
-Final output: {A, F}  (not {A, B, C, D, E, F})
-```
+All encoder and fusion outputs persist in the feature dictionary -- fusion does not consume its inputs.
 
 ## Feature Types
 
-Feature dimensions determine their type, which decoders use for validation:
+Feature dimensions are declared via `FeatureMetadata(key, feature_type, dimension)`:
 
 | Type | Dimension | Example |
 |---|---|---|
 | **SPATIAL** | `(C, H, W)` | CNN feature maps |
-| **SEQUENTIAL** | `(T, D)` | Transformer token sequences |
-| **FLAT** | `int` or `(D,)` | Pooled embeddings |
+| **SEQUENTIAL** | `(S, D)` | Transformer token sequences, VLM fused embeddings |
+| **FLAT** | `(D,)` | Pooled embeddings |
 
-Decoders declare which feature types they require via `DecoderInput.required_types` and which they reject via `raises_for_types`.
+Decoders declare which feature types they require via `DecoderInput.required_types` and which they reject via `raises_for_types`. See [Encoding Pipeline](encoding.md#featuremetadata) for details.
+
 
 ## Runtime Validation
 

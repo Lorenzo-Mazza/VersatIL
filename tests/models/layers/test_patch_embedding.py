@@ -7,7 +7,7 @@ from contextlib import nullcontext as does_not_raise
 import pytest
 import torch
 
-from versatil.models.layers.normalization.frozen_batchnorm import FrozenBatchNorm2d
+from versatil.models.layers.frozen_batchnorm import FrozenBatchNorm2d
 from versatil.models.layers.patch_embedding import (
     PatchEmbedding,
     PatchEmbedType,

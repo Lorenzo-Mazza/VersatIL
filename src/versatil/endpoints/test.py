@@ -15,7 +15,7 @@ from versatil.inference.socket_transport import (
     SocketObservationTransport,
 )
 from versatil.post_training_compression.constants import CompressionFilename
-from versatil.training.constants import CheckpointFilename, PrecisionType
+from versatil.training.constants import CheckpointFilename
 
 
 def parse_args() -> argparse.Namespace:
@@ -58,7 +58,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--temporal_aggregation",
         action="store_true",
-        help="Enable temporal aggregation.",
+        help="Enable temporal ensemble (query every step, average overlapping chunks).",
+    )
+    parser.add_argument(
+        "--action_execution_horizon",
+        type=int,
+        default=None,
+        help="Actions to execute per chunk when temporal aggregation is off. Default: prediction_horizon.",
     )
     parser.add_argument(
         "--update_frequency",
@@ -89,7 +95,6 @@ def load_policy(
     checkpoint_path: str,
     device: torch.device,
     checkpoint_name: str = CheckpointFilename.DEFAULT_CHECKPOINT.value,
-    precision: str = PrecisionType.BF16_MIXED.value,
     compile_model: bool = True,
 ) -> PolicyInference:
     """Load a policy for inference, auto-detecting compressed checkpoints.
@@ -102,7 +107,6 @@ def load_policy(
         checkpoint_path: Path to the checkpoint directory.
         device: Device to load the model onto.
         checkpoint_name: Name of the checkpoint file (for float policies).
-        precision: Precision type for float policy inference.
         compile_model: Whether to compile the model with torch.compile.
 
     Returns:
@@ -122,7 +126,6 @@ def load_policy(
             device=device,
             checkpoint_path=checkpoint_path,
             checkpoint_name=checkpoint_name,
-            precision=precision,
             compile_model=compile_model,
         )
 
@@ -132,7 +135,10 @@ def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(module)s %(levelname)s %(message)s",
+        force=True,
     )
+    for handler in logging.root.handlers:
+        handler.flush = handler.stream.flush
     args = parse_args()
     if args.device:
         device = torch.device(args.device)
@@ -163,6 +169,7 @@ def main() -> None:
         observation_transport=observation_transport,
         action_transport=action_transport,
         temporal_aggregation=args.temporal_aggregation,
+        action_execution_horizon=args.action_execution_horizon,
         timing_log=args.timing_log,
         update_rate_hz=args.update_frequency,
     )

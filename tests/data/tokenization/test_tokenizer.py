@@ -208,9 +208,10 @@ class TestTokenizerSavePretrained:
 
 
 class TestTokenizerFromPretrained:
-    def test_raises_file_not_found_for_nonexistent_path(self):
+    def test_raises_file_not_found_for_nonexistent_path(self, tmp_path):
+        missing = tmp_path / "missing"
         with pytest.raises(FileNotFoundError, match="Tokenizer path not found"):
-            Tokenizer.from_pretrained("/nonexistent/path")
+            Tokenizer.from_pretrained(str(missing))
 
     @patch("versatil.data.tokenization.tokenizer.ActionTokenizer")
     @patch("versatil.data.tokenization.tokenizer.ObservationTokenizer")
@@ -276,7 +277,10 @@ class TestTokenizerFromPretrained:
 
         with patch("versatil.data.tokenization.tokenizer.logging") as mock_logging:
             Tokenizer.from_pretrained(save_path, device=device)
-            assert mock_logging.info.call_count == 2
+            assert mock_logging.info.call_count == 1
+            mock_logging.info.assert_called_once_with(
+                f"Loaded action tokenizer from {action_path}"
+            )
 
 
 class TestValidateTokenizerConfig:

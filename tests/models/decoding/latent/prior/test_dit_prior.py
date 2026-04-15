@@ -11,6 +11,7 @@ import torch
 from versatil.models.decoding.constants import (
     DenoisingAlgorithm,
     LatentKey,
+    PredictionType,
 )
 from versatil.models.decoding.latent.prior.base_prior import PriorLatentEncoder
 from versatil.models.decoding.latent.prior.dit_prior import DiTPrior
@@ -40,6 +41,7 @@ def dit_prior_factory() -> Callable[..., DiTPrior]:
         num_train_timesteps: int = NUM_TRAIN_TIMESTEPS,
         num_inference_steps: int = NUM_INFERENCE_STEPS,
         exclude_keys: list[str] | None = None,
+        prediction_type: str = PredictionType.EPSILON.value,
     ) -> DiTPrior:
         return DiTPrior(
             latent_dimension=latent_dimension,
@@ -53,6 +55,7 @@ def dit_prior_factory() -> Callable[..., DiTPrior]:
             num_train_timesteps=num_train_timesteps,
             num_inference_steps=num_inference_steps,
             exclude_keys=exclude_keys,
+            prediction_type=prediction_type,
         )
 
     return factory
@@ -288,7 +291,7 @@ class TestDiTPriorForwardDiffusion:
             LATENT_DIMENSION,
         )
 
-    def test_diffusion_target_is_noise_not_velocity(
+    def test_epsilon_target_is_noise(
         self,
         dit_prior_factory: Callable[..., DiTPrior],
         latent_tensor_factory: Callable[..., torch.Tensor],
@@ -296,6 +299,7 @@ class TestDiTPriorForwardDiffusion:
     ):
         prior = dit_prior_factory(
             algorithm_type=DenoisingAlgorithm.DIFFUSION.value,
+            prediction_type=PredictionType.EPSILON.value,
         )
         target_latents = latent_tensor_factory()
         observations = flat_feature_factory(
@@ -306,8 +310,93 @@ class TestDiTPriorForwardDiffusion:
             target_latents=target_latents,
             observations=observations,
         )
-        # The diffusion target is noise (random), so it should not equal the input latents
+        # Epsilon target is random noise, so it should differ from the clean latents
         assert not torch.equal(result[LatentKey.PRIOR_TARGET.value], target_latents)
+
+    def test_sample_target_equals_clean_latents(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+        latent_tensor_factory: Callable[..., torch.Tensor],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        prior = dit_prior_factory(
+            algorithm_type=DenoisingAlgorithm.DIFFUSION.value,
+            prediction_type=PredictionType.SAMPLE.value,
+        )
+        target_latents = latent_tensor_factory()
+        observations = flat_feature_factory(
+            feature_dim=EMBEDDING_DIMENSION,
+            feature_keys=["obs_feature"],
+        )
+        result = prior.forward(
+            target_latents=target_latents,
+            observations=observations,
+        )
+        # Sample prediction type targets the clean data directly
+        torch.testing.assert_close(result[LatentKey.PRIOR_TARGET.value], target_latents)
+
+    def test_velocity_target_differs_from_noise_and_clean(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+        latent_tensor_factory: Callable[..., torch.Tensor],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+    ):
+        prior = dit_prior_factory(
+            algorithm_type=DenoisingAlgorithm.DIFFUSION.value,
+            prediction_type=PredictionType.VELOCITY.value,
+        )
+        target_latents = latent_tensor_factory()
+        observations = flat_feature_factory(
+            feature_dim=EMBEDDING_DIMENSION,
+            feature_keys=["obs_feature"],
+        )
+        result = prior.forward(
+            target_latents=target_latents,
+            observations=observations,
+        )
+        target = result[LatentKey.PRIOR_TARGET.value]
+        # Velocity is a linear combination of noise and clean data — differs from both
+        assert not torch.equal(target, target_latents)
+        assert target.shape == target_latents.shape
+
+    @pytest.mark.parametrize(
+        "prediction_type",
+        [
+            PredictionType.EPSILON.value,
+            PredictionType.SAMPLE.value,
+            PredictionType.VELOCITY.value,
+        ],
+    )
+    def test_all_prediction_types_produce_correct_shapes(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+        latent_tensor_factory: Callable[..., torch.Tensor],
+        flat_feature_factory: Callable[..., dict[str, torch.Tensor]],
+        prediction_type: str,
+    ):
+        batch_size = 3
+        prior = dit_prior_factory(
+            algorithm_type=DenoisingAlgorithm.DIFFUSION.value,
+            prediction_type=prediction_type,
+        )
+        target_latents = latent_tensor_factory(batch_size=batch_size)
+        observations = flat_feature_factory(
+            batch_size=batch_size,
+            feature_dim=EMBEDDING_DIMENSION,
+            feature_keys=["obs_feature"],
+        )
+        result = prior.forward(
+            target_latents=target_latents,
+            observations=observations,
+        )
+        assert result[LatentKey.PRIOR_PREDICTION.value].shape == (
+            batch_size,
+            LATENT_DIMENSION,
+        )
+        assert result[LatentKey.PRIOR_TARGET.value].shape == (
+            batch_size,
+            LATENT_DIMENSION,
+        )
 
 
 class TestDiTPriorSamplePriorFlowMatching:

@@ -60,6 +60,12 @@ class TemporalAggregator:
         Returns:
             Dict mapping action key to averaged tensor of shape (dimension,).
         """
+        if self.timestep >= self.max_timesteps:
+            raise RuntimeError(
+                f"TemporalAggregator exceeded max_timesteps={self.max_timesteps} "
+                f"at timestep {self.timestep}. Increase max_timesteps or call reset() "
+                f"between episodes."
+            )
         horizon_slice = slice(self.timestep, self.timestep + self.prediction_horizon)
         self.populated_mask[[self.timestep], horizon_slice] = True
         for key, predictions in current_predictions.items():

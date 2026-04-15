@@ -1,3 +1,5 @@
+from typing import Literal
+
 import torch
 from torch import nn
 
@@ -15,6 +17,7 @@ class AdaNorm(nn.Module):
         feature_dim: int,
         use_gate: bool = False,
         activation: str = ActivationFunction.SILU.value,
+        init_strategy: Literal["zero", "xavier"] = "zero",
     ):
         super().__init__()
         self.norm = base_norm
@@ -27,16 +30,17 @@ class AdaNorm(nn.Module):
             use_shift=True,
             use_gate=use_gate,
             activation=ActivationFunction.SILU.value,
-            init_strategy="zero" if use_gate else "identity",
+            init_strategy=init_strategy,
         )
 
     def forward(
         self, x: torch.Tensor, condition: torch.Tensor
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        """Forward pass with optional conditioning
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass with conditioning.
 
         Returns:
-            The normalized and modulated input x or a tuple with x and the gate value (alpha) to be used by the residual connection, if use_gate is True.
+            Tuple of (normalized+modulated x, gate). Gate is a learned
+            tensor when use_gate=True, or 1.0 when use_gate=False.
         """
         x = self.norm(x)
         return self.modulation(x, condition)

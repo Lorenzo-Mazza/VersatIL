@@ -1,6 +1,7 @@
 """PyTorch Lightning wrapper for Policy."""
 
 import re
+import time
 from typing import Any
 
 import pytorch_lightning as pl
@@ -53,6 +54,10 @@ class LightningPolicy(pl.LightningModule):
         self._val_dataloader = None
         self.lr = None
 
+    def on_train_epoch_start(self) -> None:
+        """Record epoch start time for duration tracking."""
+        self._epoch_start_time = time.monotonic()
+
     def training_step(
         self, batch: dict[str, dict[str, torch.Tensor]], batch_idx: int
     ) -> torch.Tensor:
@@ -86,6 +91,19 @@ class LightningPolicy(pl.LightningModule):
             sync_dist=True,
         )
         self.train_metrics.reset()
+
+        # Log epoch duration in seconds
+        if hasattr(self, "_epoch_start_time"):
+            epoch_duration = time.monotonic() - self._epoch_start_time
+            self.log("train/epoch_time_seconds", epoch_duration, on_epoch=True)
+
+        # Log peak GPU memory usage in GB, then reset for next epoch
+        if torch.cuda.is_available() and self.device.type == "cuda":
+            peak_memory_gb = torch.cuda.max_memory_allocated(device=self.device) / (
+                1024**3
+            )
+            self.log("train/gpu_memory_peak_gb", peak_memory_gb, on_epoch=True)
+            torch.cuda.reset_peak_memory_stats(device=self.device)
 
     def validation_step(
         self, batch: dict[str, dict[str, torch.Tensor]], batch_idx: int
@@ -220,6 +238,7 @@ class LightningPolicy(pl.LightningModule):
             optimizer=optimizer,
             num_warmup_steps=self.training_config.lr_warmup_steps,
             num_training_steps=total_steps,
+            scheduler_specific_kwargs=self.training_config.lr_scheduler_kwargs or None,
         )
 
         return {

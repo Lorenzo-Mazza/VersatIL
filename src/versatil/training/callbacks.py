@@ -70,7 +70,6 @@ class EMACallback(Callback):
         self.min_value = min_value
         self.max_value = max_value
         self.decay = 0.0
-        self.optimization_step = 0
         self.ema_model: torch.nn.Module | None = None
 
     def on_fit_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
@@ -105,8 +104,8 @@ class EMACallback(Callback):
         if self.ema_model is None:
             return
 
-        # Compute decay factor
-        self.decay = self._get_decay(self.optimization_step)
+        # Compute decay factor using trainer's optimizer step count (not batch count)
+        self.decay = self._get_decay(trainer.global_step)
 
         # Update EMA model parameters (no_grad to avoid in-place operation errors)
         with torch.no_grad():
@@ -137,21 +136,20 @@ class EMACallback(Callback):
                             param.data.to(dtype=ema_param.dtype), alpha=1 - self.decay
                         )
 
-        self.optimization_step += 1
-
         # Log EMA decay factor
-        if self.optimization_step % 100 == 0:
+        if trainer.global_step % 100 == 0:
             pl_module.log("ema_decay", self.decay, on_step=True, on_epoch=False)
 
-    def _get_decay(self, optimization_step: int) -> float:
+    def _get_decay(self, global_step: int) -> float:
         """Compute the decay factor for the exponential moving average.
 
         Args:
-            optimization_step: Current optimization step
+            global_step: Current optimizer step count (from trainer.global_step).
 
         Returns:
             Decay factor between min_value and max_value
         """
+        optimization_step = global_step
         step = max(0, optimization_step - self.update_after_step - 1)
         value = 1 - (1 + step / self.inv_gamma) ** -self.power
 
@@ -624,28 +622,31 @@ class LatentVisualizationCallback(Callback):
         latent_data = pl_module.val_metrics.compute_latent_visualization_data()
         if latent_data is None:
             return
-
         z, z_prior, phase_per_sample = latent_data
-        figures = {
-            "posterior_latent_space_tsne": self._create_latent_figure(
+        if z is None and z_prior is None:
+            return
+
+        figures = {}
+        if z is not None:
+            figures["posterior_latent_space_tsne"] = self._create_latent_figure(
                 z, phase_per_sample, title="Posterior latent space"
-            ),
-            "prior_latent_space_tsne": self._create_latent_figure(
-                z_prior, phase_per_sample, title="Prior latent space"
-            ),
-            "posterior_latent_space_pca": self._create_pca_figure(
+            )
+            figures["posterior_latent_space_pca"] = self._create_pca_figure(
                 z, phase_per_sample, title="Posterior latent space"
-            ),
-            "prior_latent_space_pca": self._create_pca_figure(
+            )
+            figures["posterior_pca_explained_variance"] = (
+                self._create_pca_variance_figure(z, title="Posterior")
+            )
+        if z_prior is not None:
+            figures["prior_latent_space_tsne"] = self._create_latent_figure(
                 z_prior, phase_per_sample, title="Prior latent space"
-            ),
-            "posterior_pca_explained_variance": self._create_pca_variance_figure(
-                z, title="Posterior"
-            ),
-            "prior_pca_explained_variance": self._create_pca_variance_figure(
+            )
+            figures["prior_latent_space_pca"] = self._create_pca_figure(
+                z_prior, phase_per_sample, title="Prior latent space"
+            )
+            figures["prior_pca_explained_variance"] = self._create_pca_variance_figure(
                 z_prior, title="Prior"
-            ),
-        }
+            )
 
         latent_stats_table = self._create_latent_stats_table(
             pl_module.val_metrics.metadata

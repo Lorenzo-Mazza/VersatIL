@@ -178,3 +178,7 @@ Verify CUDA 12.8+ with `nvidia-smi` and check that `torch.cuda.is_available()` r
 - Verify Zarr dataset paths match `VERSATIL_ZARR_DIR` in `.env`
 - Ensure the dataset schema config matches your raw data format
 - Check sufficient disk space for Zarr cache (created automatically on first run)
+
+### Python 3.14 Compatibility
+
+If Hydra or torchao crash on Python 3.14, see [Known Issues](../known-issues.md) for active workarounds.

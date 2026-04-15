@@ -10,6 +10,7 @@ and generates action tokens in autoregressive manner.
 import torch
 from torch import nn
 
+from versatil.configs.experiment import ExperimentConfig
 from versatil.data.constants import SampleKey
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import Tokenizer
@@ -29,6 +30,7 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
+from versatil.training.callbacks import LatentVisualizationCallback
 
 
 class FreeActionTransformer(ActionDecoder):
@@ -143,6 +145,21 @@ class FreeActionTransformer(ActionDecoder):
         self.vocab_size = None
         self._build_transformer_components()
         self.to(self.device)
+
+    def get_callbacks(self, experiment_config: ExperimentConfig) -> list:
+        """Provide latent visualization callback for free transformer latent codes."""
+        return [
+            LatentVisualizationCallback(
+                log_every_n_epochs=experiment_config.val_every,
+            )
+        ]
+
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """Free transformer produces binary logits and latent codes."""
+        keys = super().get_auxiliary_output_keys()
+        keys.add(DecoderOutputKey.BINARY_LOGITS.value)
+        keys.add(DecoderOutputKey.LATENT_CODES.value)
+        return keys
 
     def _build_transformer_components(self):
         """Build core free transformer, input token sequence builder and positional encodings."""
@@ -282,8 +299,6 @@ class FreeActionTransformer(ActionDecoder):
         decoder_output, bit_logits, latent_codes, z, _ = self.free_transformer(
             hidden_states=full_token_sequence,
             key_padding_mask=full_key_padding_mask,
-            decoder_cache=None,
-            use_cache=False,
             self_attention_mask=full_attention_mask,
             is_inference=False,
             return_latent_embeddings=True,
@@ -322,15 +337,17 @@ class FreeActionTransformer(ActionDecoder):
         prefix_self_mask = torch.zeros(
             batch_size, 1, prefix_len, prefix_len, dtype=torch.bool, device=self.device
         )
-        decoder_output, _, latent_codes, z, decoder_cache = self.free_transformer(
+        generation_cache = self.free_transformer.create_empty_generation_cache(
+            batch_size=batch_size, device=self.device, dtype=feature_tokens.dtype
+        )
+        decoder_output, _, latent_codes, z, generation_cache = self.free_transformer(
             hidden_states=current_sequence,
             key_padding_mask=feature_token_mask,
             self_attention_mask=prefix_self_mask,
-            decoder_cache=None,
-            use_cache=True,
+            generation_cache=generation_cache,
             is_inference=True,
             return_latent_embeddings=True,
-        )  # (B, query_len, D), None, cache_dict
+        )  # (B, query_len, D)
         generated_tokens = []
         next_token_embedding = None
         for step in range(self.max_seq_len - prefix_len):
@@ -340,13 +357,12 @@ class FreeActionTransformer(ActionDecoder):
                     _,
                     latent_codes,
                     z,
-                    decoder_cache,
+                    generation_cache,
                 ) = self.free_transformer(
                     hidden_states=next_token_embedding,
                     key_padding_mask=None,  # Cached mask handles prefix padding; new token is always valid
                     self_attention_mask=None,  # Causal mask handled internally
-                    decoder_cache=decoder_cache,
-                    use_cache=True,
+                    generation_cache=generation_cache,
                     is_inference=True,
                     return_latent_embeddings=True,
                 )
@@ -359,7 +375,7 @@ class FreeActionTransformer(ActionDecoder):
             else:
                 probs = torch.softmax(logits_scaled, dim=-1)
                 next_token = torch.multinomial(
-                    probs.squeeze(-1), num_samples=1
+                    probs.squeeze(1), num_samples=1
                 )  # (B, 1)
             generated_tokens.append(next_token)
             if (next_token == self.tokenizer.eos_token_id).all():

@@ -5,10 +5,13 @@ import torch
 import torch.nn as nn
 
 from versatil.common.omegaconf_ops import resolve_dict_keys
+from versatil.data.constants import SampleKey
 from versatil.data.normalization.normalizer import LinearNormalizer
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization import ActionTokenizer, Tokenizer
-from versatil.models.decoding.constants import FeatureType
+from versatil.models.decoding.action_heads.moe import MoEHead
+from versatil.models.decoding.constants import DecoderOutputKey
+from versatil.models.feature_meta import FeatureMetadata
 
 
 @dataclass
@@ -23,6 +26,8 @@ class DecoderInput:
     raises_for_types: list[str] = field(default_factory=list)
     #: Requires actions during decoding
     requires_actions: bool = False
+    #: Requires VLM backbone layers for interleaved decoding (Pi0/SmolVLA)
+    requires_vlm_backbone: bool = False
     # For conditional decoders
     conditioning_key: str | None = None
     conditioning_required: list[str] = field(default_factory=list)
@@ -46,61 +51,37 @@ class DecoderInput:
 
     def validate_feature_types(
         self,
-        available_features_to_dims: dict[str, int | tuple[int, ...]],
+        available_features: dict[str, FeatureMetadata],
     ):
-        """Validate that the required input features to the decoder architecture are available at instantiation time.
-
-        Note: this validation avoids throwing errors at runtime, optimizing experiment runs.
+        """Validate that required feature types are available at instantiation time.
 
         Args:
-            available_features_to_dims: Dict mapping feature names to their dimensions
+            available_features: Dict mapping feature names to their metadata.
 
         Raises:
-            ValueError: If validation fails
+            ValueError: If a required type is missing or a rejected type is present.
         """
         for expected_type in self.required_types:
-            matched = False
-            for feature_name in self.keys:
-                feature_dim = available_features_to_dims[feature_name]
-                is_spatial = isinstance(feature_dim, tuple) and len(feature_dim) == 3
-                is_sequential = isinstance(feature_dim, tuple) and len(feature_dim) == 2
-                is_flat = isinstance(feature_dim, int) or (
-                    isinstance(feature_dim, tuple) and len(feature_dim) == 1
-                )
-                if (
-                    expected_type == FeatureType.SPATIAL.value
-                    and is_spatial
-                    or expected_type == FeatureType.SEQUENTIAL.value
-                    and is_sequential
-                    or expected_type == FeatureType.FLAT.value
-                    and is_flat
-                ):
-                    matched = True
+            matched = any(
+                available_features[key].feature_type == expected_type
+                for key in self.keys
+                if key in available_features
+            )
             if not matched:
                 raise ValueError(
-                    f"Decoder architecture requires at least one input feature of type '{expected_type}', "
-                    f"but none were found among the provided features: {self.keys}."
-                    f" Available features and dimensions: {available_features_to_dims.items()}"
+                    f"Decoder requires at least one feature of type '{expected_type}', "
+                    f"but none found among: {self.keys}. "
+                    f"Available: {available_features}"
                 )
-        for feature_type in self.raises_for_types:
-            for key in available_features_to_dims:
-                feature_dim = available_features_to_dims[key]
-                is_spatial = isinstance(feature_dim, tuple) and len(feature_dim) == 3
-                if feature_type == FeatureType.SPATIAL.value and is_spatial:
+        for rejected_type in self.raises_for_types:
+            for key in self.keys:
+                if (
+                    key in available_features
+                    and available_features[key].feature_type == rejected_type
+                ):
                     raise ValueError(
-                        "Decoder architecture cannot accept spatial features as input."
-                    )
-                is_sequential = isinstance(feature_dim, tuple) and len(feature_dim) == 2
-                if feature_type == FeatureType.SEQUENTIAL.value and is_sequential:
-                    raise ValueError(
-                        "Decoder architecture cannot accept sequential features as input."
-                    )
-                is_flat = isinstance(feature_dim, int) or (
-                    isinstance(feature_dim, tuple) and len(feature_dim) == 1
-                )
-                if feature_type == FeatureType.FLAT.value and is_flat:
-                    raise ValueError(
-                        "Decoder architecture cannot accept flat features as input."
+                        f"Decoder cannot accept {rejected_type} features, "
+                        f"but '{key}' is {rejected_type}."
                     )
 
 
@@ -197,6 +178,12 @@ class ActionDecoder(nn.Module, ABC):
         """
         self.normalizer = normalizer
 
+    def enable_encoder_cache(self) -> None:
+        """No-op. Override in decoders that support encoder caching."""
+
+    def disable_encoder_cache(self) -> None:
+        """No-op. Override in decoders that support encoder caching."""
+
     @abstractmethod
     def forward(
         self,
@@ -212,6 +199,22 @@ class ActionDecoder(nn.Module, ABC):
     def has_history(self) -> bool:
         """Whether the architecture processes temporal sequences."""
         return self.observation_horizon > 1
+
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """Get keys for auxiliary outputs this decoder produces beyond action predictions.
+
+        The base implementation includes tokenized action keys and MoE routing weights
+        when applicable. Subclasses override to add decoder-specific auxiliary keys.
+
+        Returns:
+            Set of auxiliary output key strings.
+        """
+        auxiliary_keys: set[str] = set()
+        if self.supports_tokenized_actions:
+            auxiliary_keys.add(SampleKey.TOKENIZED_ACTIONS.value)
+        if any(isinstance(head, MoEHead) for head in self.action_heads.values()):
+            auxiliary_keys.add(DecoderOutputKey.ROUTING_WEIGHTS.value)
+        return auxiliary_keys
 
     @property
     def action_dim(self) -> int:

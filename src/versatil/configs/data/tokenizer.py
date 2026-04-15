@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from versatil.data.constants import TokenizerType
+from versatil.data.constants import TokenizerType, TokenPaddingStrategy
 from versatil.models.encoding.encoders.constants import LanguageEncoderType
 
 
@@ -16,6 +16,12 @@ class ObservationTokenizationConfig:
     num_bins: int = 256
     # Maximum token length for the prompt
     max_token_len: int = 256
+    # Pass language text through unformatted (no "Task:" prefix, no lowercasing).
+    # Use for VLM policies (SmolVLA, Pi0) that expect raw text.
+    raw_text: bool = False
+    # Padding strategy: "max_length" pads all sequences to max_token_len,
+    # "longest" pads to the longest sequence in the batch.
+    padding_strategy: str = TokenPaddingStrategy.MAX_LENGTH.value
 
 
 @dataclass

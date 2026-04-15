@@ -11,9 +11,10 @@ from torch import nn
 
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey, FeatureType
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
+from versatil.models.feature_meta import FeatureType
 from versatil.models.layers import MLP
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType, PositionalEncodingType
@@ -156,6 +157,7 @@ class DiTBlockActionTransformer(ActionDecoder):
             number_of_encoder_layers=self.number_of_encoder_layers,
             number_of_decoder_layers=self.number_of_decoder_layers,
             embedding_dimension=self.embedding_dimension,
+            output_dimension=self.action_space.get_total_action_dim(),
             number_of_heads=self.number_of_heads,
             number_of_key_value_heads=self.number_of_key_value_heads,
             feedforward_dimension=self.feedforward_dimension,

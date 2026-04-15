@@ -76,11 +76,13 @@ class TestPolicyInstantiation:
         observation_space = ObservationSpaceConfig()
         action_space = ActionSpaceConfig()
         encoding_pipeline = EncodingPipelineConfig(
+            observation_space=observation_space,
             encoders={
                 "proprio": ProprioEncoderConfig(
                     input_keys=["proprio"],
                     output_dim=64,
                     pretrained=False,
+                    model_dtype=None,
                 ),
             },
         )

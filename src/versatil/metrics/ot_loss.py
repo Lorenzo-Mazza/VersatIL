@@ -5,7 +5,8 @@ IMPORTANT: geomloss is imported lazily to avoid PyKeOps JIT compilation overhead
 
 import torch
 
-from versatil.metrics import BaseLoss, LossOutput, MetadataKey, MetricKey
+from versatil.metrics.base import BaseLoss, LossOutput
+from versatil.metrics.constants import MetadataKey, MetricKey
 from versatil.models.decoding.constants import LatentKey
 
 

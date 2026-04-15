@@ -12,7 +12,6 @@ from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
     FinalPredictionLayer,
 )
-from versatil.models.layers.diffusion_transformer.mmdit_decoder import MMDiTDecoder
 from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.base import (
     DenominatorMode,
@@ -21,6 +20,9 @@ from versatil.models.layers.positional_encoding.base import (
 )
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
+)
+from versatil.models.layers.transformer.dual_stream_decoder import (
+    DualStreamBidirectionalDecoder,
 )
 
 
@@ -99,7 +101,7 @@ class MMDiTTransformer(nn.Module):
             mlp_activation=nn.SiLU,
             mlp_hidden_dimensions=[embedding_dimension, embedding_dimension],
         )
-        self.decoder = MMDiTDecoder(
+        self.decoder = DualStreamBidirectionalDecoder(
             number_of_layers=number_of_layers,
             embedding_dimension=embedding_dimension,
             conditioning_dimension=embedding_dimension,

@@ -21,17 +21,18 @@ class EncoderConfig:
     input_keys: list[str] = MISSING
     pretrained: bool = False
     frozen: bool = False
+    model_dtype: str | None = "${experiment.precision}"
 
 
 @dataclass
-class DepthCNNEncoderConfig(EncoderConfig):
-    """Depth CNN encoder configuration."""
+class SpatialDepthEncoderConfig(EncoderConfig):
+    """Spatial depth encoder configuration for backbones producing (B, C, H, W) feature maps."""
 
-    _target_: str = "versatil.models.encoding.encoders.depth.cnn.DepthCNNEncoder"
+    _target_: str = (
+        "versatil.models.encoding.encoders.depth.spatial.SpatialDepthEncoder"
+    )
     backbone: str = MISSING
     batch_norm_handling: str = BatchNormHandling.FROZEN.value
-    image_height: int = MISSING
-    image_width: int = MISSING
     pooling_method: str = PoolingMethod.NONE.value
 
 
@@ -39,7 +40,9 @@ class DepthCNNEncoderConfig(EncoderConfig):
 class DFormerEncoderConfig(EncoderConfig):
     """DFormer RGB+Depth encoder configuration."""
 
-    _target_: str = "versatil.models.encoding.encoders.depth.dformerv2.DFormerEncoder"
+    _target_: str = (
+        "versatil.models.encoding.encoders.cross_modal.rgbd.dformerv2.DFormerEncoder"
+    )
     input_keys: list[str] = field(
         default_factory=lambda: [Cameras.LEFT.value, Cameras.DEPTH.value]
     )
@@ -49,12 +52,10 @@ class DFormerEncoderConfig(EncoderConfig):
 
 
 @dataclass
-class LightGeometricEncoderConfig(EncoderConfig):
+class GeometricRGBDEncoderConfig(EncoderConfig):
     """Geometric RGB+Depth encoder configuration."""
 
-    _target_: str = (
-        "versatil.models.encoding.encoders.depth.light_geometric.LightGeometricEncoder"
-    )
+    _target_: str = "versatil.models.encoding.encoders.cross_modal.rgbd.geometric_rgbd.GeometricRGBDEncoder"
     input_keys: list[str] = field(
         default_factory=lambda: [Cameras.LEFT.value, Cameras.DEPTH.value]
     )
@@ -79,12 +80,32 @@ class ProprioEncoderConfig(EncoderConfig):
 
 
 @dataclass
-class VLMEncoderConfig(EncoderConfig):
-    """Vision-Language Model encoder configuration."""
+class TwoTowerVLMEncoderConfig(EncoderConfig):
+    """Two-tower VLM encoder configuration."""
 
-    _target_: str = "versatil.models.encoding.encoders.multimodal.vlm.VLMEncoder"
+    _target_: str = "versatil.models.encoding.encoders.cross_modal.vision_language.two_tower_vlm.TwoTowerVLMEncoder"
     model_name: str = MISSING
     pooling_method: str = PoolingMethod.NONE.value
+
+
+@dataclass
+class PaliGemmaEncoderConfig(EncoderConfig):
+    """PaliGemma VLM encoder configuration."""
+
+    _target_: str = "versatil.models.encoding.encoders.cross_modal.vision_language.paligemma.PaliGemmaEncoder"
+    model_name: str = MISSING
+    use_embeddings_only: bool = False
+    max_text_length: int | None = None
+
+
+@dataclass
+class SmolVLMEncoderConfig(EncoderConfig):
+    """SmolVLM/Idefics3 VLM encoder configuration."""
+
+    _target_: str = "versatil.models.encoding.encoders.cross_modal.vision_language.smolvlm.SmolVLMEncoder"
+    model_name: str = MISSING
+    use_embeddings_only: bool = False
+    max_text_length: int | None = None
 
 
 @dataclass
@@ -106,23 +127,23 @@ class LanguageEncoderConfig:
 
 @dataclass
 class ImageEncoderConfig(EncoderConfig):
-    """Abstract base config for image encoders (CNN or ViT)."""
+    """Abstract base config for image encoders."""
 
     _target_: str = MISSING
     backbone: str = MISSING
 
 
 @dataclass
-class CNNEncoderConfig(ImageEncoderConfig):
-    """CNN-based image encoder configuration."""
+class SpatialRGBEncoderConfig(ImageEncoderConfig):
+    """Spatial RGB encoder configuration for backbones producing (B, C, H, W) feature maps."""
 
-    _target_: str = "versatil.models.encoding.encoders.rgb.cnn.CNNEncoder"
+    _target_: str = "versatil.models.encoding.encoders.rgb.spatial.SpatialRGBEncoder"
     pooling_method: str = PoolingMethod.NONE.value
     batch_norm_handling: str = BatchNormHandling.FROZEN.value
 
 
 @dataclass
-class ConditionalCNNEncoderConfig(CNNEncoderConfig):
+class ConditionalCNNEncoderConfig(SpatialRGBEncoderConfig):
     """Language-conditioned CNN encoder configuration."""
 
     _target_: str = (
@@ -135,9 +156,8 @@ class ConditionalCNNEncoderConfig(CNNEncoderConfig):
 
 
 @dataclass
-class ViTEncoderConfig(ImageEncoderConfig):
-    """ViT-based image encoder configuration."""
+class FlatRGBEncoderConfig(ImageEncoderConfig):
+    """Flat RGB encoder configuration for backbones producing (B, S, D) token sequences."""
 
-    _target_: str = MISSING
-    feature_method: str = PoolingMethod.AVERAGE.value
+    _target_: str = "versatil.models.encoding.encoders.rgb.flat.FlatRGBEncoder"
     pooling_method: str = PoolingMethod.NONE.value

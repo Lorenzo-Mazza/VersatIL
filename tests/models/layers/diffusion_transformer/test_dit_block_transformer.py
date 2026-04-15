@@ -5,7 +5,7 @@ from collections.abc import Callable
 import pytest
 import torch
 
-from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
+from tests.models.layers.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.diffusion_transformer.dit_block_transformer import DiTBlock

@@ -196,11 +196,23 @@ def mock_policy_loader_factory(
     return factory
 
 
-@pytest.fixture
+@pytest.fixture(
+    params=[
+        (2, None),
+        (4, None),
+        (8, 3),
+    ],
+    ids=["pred=2", "pred=4", "pred=8_exec=3"],
+)
 def mock_policy_loader(
+    request,
     mock_policy_loader_factory: Callable[..., MagicMock],
 ) -> MagicMock:
-    return mock_policy_loader_factory()
+    prediction_horizon, action_execution_horizon = request.param
+    loader = mock_policy_loader_factory(prediction_horizon=prediction_horizon)
+    # Attach execution horizon so socket_integration_client can read it
+    loader.action_execution_horizon = action_execution_horizon
+    return loader
 
 
 @pytest.fixture(scope="session")
@@ -304,6 +316,7 @@ def socket_integration_client(
         policy_loader=mock_policy_loader,
         observation_transport=socket_observation_transport,
         action_transport=socket_action_transport,
+        action_execution_horizon=mock_policy_loader.action_execution_horizon,
         compression_type=CompressionType.RAW.value,
     )
 
@@ -449,7 +462,13 @@ class TestSocketProtocolEndToEnd:
         for _ in range(5):
             socket_integration_client.step()
 
-        assert len(collected_gripper_values) == 5
+        # 5 steps × action_execution_horizon actions per step (chunk execution)
+        execution_horizon = (
+            mock_policy_loader.action_execution_horizon
+            if mock_policy_loader.action_execution_horizon is not None
+            else mock_policy_loader.prediction_horizon
+        )
+        assert len(collected_gripper_values) == 5 * execution_horizon
         for gripper_values in collected_gripper_values:
             for value in gripper_values:
                 assert value in (0.0, 1.0), f"Expected 0.0 or 1.0, got {value}"
@@ -503,7 +522,8 @@ class TestSocketProtocolEndToEnd:
 
         client.step()
 
-        assert len(collected_actions) == 1
+        # 1 step × PREDICTION_HORIZON actions per chunk
+        assert len(collected_actions) == PREDICTION_HORIZON
         position_values = collected_actions[0][ActionComponent.POSITION.value]
         assert all(value == 0.0 for value in position_values)
 

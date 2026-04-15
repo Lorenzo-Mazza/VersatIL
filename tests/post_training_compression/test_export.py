@@ -8,7 +8,6 @@ import pytest
 import torch
 from torch import nn
 
-from versatil.configs.data.dataloader import DataLoaderConfig
 from versatil.data.constants import SampleKey
 from versatil.data.metadata import CameraMetadata
 from versatil.data.task import ObservationSpace
@@ -22,22 +21,6 @@ from versatil.post_training_compression.export import (
 )
 
 EXPORT_MODULE = "versatil.post_training_compression.export"
-
-
-@pytest.fixture
-def dataloader_config_factory() -> Callable[..., DataLoaderConfig]:
-    """Factory for DataLoaderConfig with custom image dimensions."""
-
-    def factory(
-        image_height: int = 32,
-        image_width: int = 32,
-    ) -> DataLoaderConfig:
-        return DataLoaderConfig(
-            image_height=image_height,
-            image_width=image_width,
-        )
-
-    return factory
 
 
 @pytest.fixture
@@ -114,34 +97,31 @@ class TestBuildExampleInputs:
     def test_camera_shapes_from_metadata_and_config(
         self,
         observation_space_factory,
-        dataloader_config_factory,
     ):
         cameras = {
             "left": CameraMetadata(
                 camera_key="agentview_rgb",
                 dtype="float32",
                 channels=3,
+                image_height=48,
+                image_width=64,
             ),
         }
         obs_space = observation_space_factory(cameras=cameras)
-        dataloader_config = dataloader_config_factory(image_height=48, image_width=64)
-
         exportable = MagicMock(spec=ExportablePolicy)
         exportable.get_example_inputs.return_value = (torch.zeros(2, 3, 48, 64),)
-
         build_example_inputs(
             exportable=exportable,
             observation_space=obs_space,
-            dataloader_config=dataloader_config,
+            observation_horizon=1,
         )
 
         call_shapes = exportable.get_example_inputs.call_args[1]["observation_shapes"]
-        assert call_shapes["left"] == (3, 48, 64)
+        assert call_shapes["left"] == (1, 3, 48, 64)
 
     def test_proprioceptive_shapes_from_metadata(
         self,
         observation_space_factory,
-        dataloader_config_factory,
     ):
         proprio = MagicMock()
         proprio.dimension = 7
@@ -155,16 +135,15 @@ class TestBuildExampleInputs:
         build_example_inputs(
             exportable=exportable,
             observation_space=obs_space,
-            dataloader_config=dataloader_config_factory(),
+            observation_horizon=1,
         )
 
         call_shapes = exportable.get_example_inputs.call_args[1]["observation_shapes"]
-        assert call_shapes["proprio_robot_frame"] == (7,)
+        assert call_shapes["proprio_robot_frame"] == (1, 7)
 
     def test_tokenized_shapes_from_tokenizer(
         self,
         observation_space_factory,
-        dataloader_config_factory,
         tokenizer_factory,
     ):
         tokenizer = tokenizer_factory(max_token_len=128)
@@ -178,28 +157,29 @@ class TestBuildExampleInputs:
         build_example_inputs(
             exportable=exportable,
             observation_space=observation_space_factory(),
-            dataloader_config=dataloader_config_factory(),
+            observation_horizon=1,
             tokenizer=tokenizer,
         )
 
         call_kwargs = exportable.get_example_inputs.call_args[1]
         shapes = call_kwargs["observation_shapes"]
         dtypes = call_kwargs["observation_dtypes"]
-        assert shapes[SampleKey.TOKENIZED_OBSERVATIONS.value] == (128,)
-        assert shapes[SampleKey.IS_PAD_OBSERVATION.value] == (128,)
+        assert shapes[SampleKey.TOKENIZED_OBSERVATIONS.value] == (1, 128)
+        assert shapes[SampleKey.IS_PAD_OBSERVATION.value] == (1, 128)
         assert dtypes[SampleKey.TOKENIZED_OBSERVATIONS.value] == torch.long
         assert dtypes[SampleKey.IS_PAD_OBSERVATION.value] == torch.bool
 
     def test_no_tokenizer_omits_language_keys(
         self,
         observation_space_factory,
-        dataloader_config_factory,
     ):
         cameras = {
             "left": CameraMetadata(
                 camera_key="agentview_rgb",
                 dtype="float32",
                 channels=3,
+                image_height=48,
+                image_width=64,
             ),
         }
         obs_space = observation_space_factory(cameras=cameras)
@@ -210,7 +190,7 @@ class TestBuildExampleInputs:
         build_example_inputs(
             exportable=exportable,
             observation_space=obs_space,
-            dataloader_config=dataloader_config_factory(),
+            observation_horizon=1,
             tokenizer=None,
         )
 
@@ -221,15 +201,22 @@ class TestBuildExampleInputs:
     def test_mixed_cameras_and_tokenizer(
         self,
         observation_space_factory,
-        dataloader_config_factory,
         tokenizer_factory,
     ):
         cameras = {
             "left": CameraMetadata(
-                camera_key="agentview_rgb", dtype="float32", channels=3
+                camera_key="agentview_rgb",
+                dtype="float32",
+                channels=3,
+                image_height=32,
+                image_width=32,
             ),
             "right": CameraMetadata(
-                camera_key="eye_in_hand_rgb", dtype="float32", channels=3
+                camera_key="eye_in_hand_rgb",
+                dtype="float32",
+                channels=3,
+                image_height=32,
+                image_width=32,
             ),
         }
         obs_space = observation_space_factory(cameras=cameras)
@@ -243,7 +230,7 @@ class TestBuildExampleInputs:
         build_example_inputs(
             exportable=exportable,
             observation_space=obs_space,
-            dataloader_config=dataloader_config_factory(),
+            observation_horizon=1,
             tokenizer=tokenizer,
         )
 

@@ -112,14 +112,14 @@ class PriorTransformerEncoder(PriorLatentEncoder):
 
     def forward(
         self,
+        target_latents: torch.Tensor,
         observations: dict[str, torch.Tensor],
-        target_latents: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         """Encode observation features to latent space z embedding using Variational Inference.
 
         Args:
+            target_latents: Target latent from posterior q(z|a,s). Not used by this prior.
             observations: Dictionary of observation features used as the input.
-            target_latents: Target latent from posterior q(z|a,s). Not used here.
 
         Returns:
             Dictionary of tensors (z, mu, logvar) with shape (B, latent_dim) for each.

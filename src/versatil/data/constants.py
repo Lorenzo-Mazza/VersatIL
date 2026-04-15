@@ -113,6 +113,13 @@ class KinematicsNormalizationType(enum.StrEnum):
     DEMEAN = "demean"
 
 
+class TokenPaddingStrategy(enum.StrEnum):
+    """Padding strategy for language tokenization."""
+
+    MAX_LENGTH = "max_length"
+    LONGEST = "longest"
+
+
 class ProprioceptiveType(enum.StrEnum):
     """Proprioceptive data types."""
 
@@ -177,6 +184,10 @@ RGB_CAMERAS = [
     Cameras.RIGHT.value,
     Cameras.AGENTVIEW.value,
     Cameras.EYE_IN_HAND.value,
+]
+
+DEPTH_CAMERAS = [
+    Cameras.DEPTH.value,
 ]
 
 # ref. https://github.com/VCIP-RGBD/RGBD-Pretrain/blob/main/data/constants.py#L3

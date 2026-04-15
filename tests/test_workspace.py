@@ -19,12 +19,6 @@ from pytorch_lightning.strategies import DDPStrategy
 from versatil.configs.experiment import ExperimentConfig
 from versatil.configs.training import AdamWConfig, TrainingConfig
 from versatil.data.normalization.normalizer import LinearNormalizer
-from versatil.metrics import MoELoss
-from versatil.models.decoding.algorithm import VariationalAlgorithm
-from versatil.models.decoding.decoders.factory.free_action_transformer import (
-    FreeActionTransformer,
-)
-from versatil.models.decoding.decoders.factory.phase_act import PhaseACT
 from versatil.models.policy import Policy
 from versatil.training.callbacks import (
     ConfusionMatrixCallback,
@@ -133,9 +127,9 @@ def mock_workspace_policy_factory() -> Callable[..., MagicMock]:
     """Factory for mock Policy instances with configurable decoder and algorithm."""
 
     def factory(
-        decoder_type: str | None = None,
-        algorithm_type: str | None = None,
-        has_moe_loss: bool = False,
+        decoder_callbacks: list | None = None,
+        algorithm_callbacks: list | None = None,
+        loss_callbacks: list | None = None,
     ) -> MagicMock:
         policy = MagicMock(spec=Policy)
         policy.set_normalizer = MagicMock()
@@ -144,22 +138,19 @@ def mock_workspace_policy_factory() -> Callable[..., MagicMock]:
         policy.set_gripper_class_weights = MagicMock()
         policy.predict_action = MagicMock(return_value={"action": torch.zeros(2, 7)})
 
-        if decoder_type == "phase_act":
-            policy.decoder = MagicMock(spec=PhaseACT)
-        elif decoder_type == "free_action_transformer":
-            policy.decoder = MagicMock(spec=FreeActionTransformer)
-        else:
-            policy.decoder = MagicMock()
+        policy.decoder = MagicMock()
+        if decoder_callbacks is not None:
+            policy.decoder.get_callbacks = MagicMock(return_value=decoder_callbacks)
 
-        if algorithm_type == "variational":
-            policy.algorithm = MagicMock(spec=VariationalAlgorithm)
-        else:
-            policy.algorithm = MagicMock()
+        policy.algorithm = MagicMock()
+        if algorithm_callbacks is not None:
+            policy.algorithm.get_callbacks = MagicMock(return_value=algorithm_callbacks)
 
         loss_module = MagicMock()
-        if has_moe_loss:
-            moe_loss = MagicMock(spec=MoELoss)
-            loss_module.loss_modules = {"moe": moe_loss}
+        if loss_callbacks is not None:
+            loss_mock = MagicMock()
+            loss_mock.get_callbacks = MagicMock(return_value=loss_callbacks)
+            loss_module.loss_modules = {"moe": loss_mock}
         else:
             plain_loss = MagicMock()
             loss_module.loss_modules = {"regression": plain_loss}
@@ -667,10 +658,12 @@ class TestCreateCallbacks:
                 annealing_epochs=5,
             )
 
-    def test_confusion_matrix_callback_added_for_phase_act_decoder(
+    def test_decoder_callbacks_collected_via_protocol(
         self, workspace_factory, mock_workspace_policy_factory
     ):
-        policy = mock_workspace_policy_factory(decoder_type="phase_act")
+        policy = mock_workspace_policy_factory(
+            decoder_callbacks=[ConfusionMatrixCallback(log_every_n_epochs=1)],
+        )
         workspace = workspace_factory(policy=policy)
         workspace.policy = policy
         workspace.val_loader = None
@@ -682,7 +675,24 @@ class TestCreateCallbacks:
         ]
         assert len(cm_callbacks) == 1
 
-    def test_confusion_matrix_callback_not_added_for_regular_decoder(
+    def test_algorithm_callbacks_collected_via_protocol(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory(
+            algorithm_callbacks=[LatentVisualizationCallback(log_every_n_epochs=5)],
+        )
+        workspace = workspace_factory(policy=policy)
+        workspace.policy = policy
+        workspace.val_loader = None
+
+        callbacks = workspace._create_callbacks()
+
+        latent_callbacks = [
+            cb for cb in callbacks if isinstance(cb, LatentVisualizationCallback)
+        ]
+        assert len(latent_callbacks) == 1
+
+    def test_no_component_callbacks_when_protocol_not_implemented(
         self, workspace_factory, mock_workspace_policy_factory
     ):
         policy = mock_workspace_policy_factory()
@@ -695,52 +705,33 @@ class TestCreateCallbacks:
         cm_callbacks = [
             cb for cb in callbacks if isinstance(cb, ConfusionMatrixCallback)
         ]
+        latent_callbacks = [
+            cb for cb in callbacks if isinstance(cb, LatentVisualizationCallback)
+        ]
+        expert_callbacks = [
+            cb for cb in callbacks if isinstance(cb, ExpertUsageCallback)
+        ]
         assert len(cm_callbacks) == 0
-
-    def test_latent_visualization_added_for_variational_algorithm(
-        self, workspace_factory, mock_workspace_policy_factory
-    ):
-        policy = mock_workspace_policy_factory(algorithm_type="variational")
-        workspace = workspace_factory(policy=policy)
-        workspace.policy = policy
-        workspace.val_loader = None
-
-        callbacks = workspace._create_callbacks()
-
-        latent_callbacks = [
-            cb for cb in callbacks if isinstance(cb, LatentVisualizationCallback)
-        ]
-        assert len(latent_callbacks) == 1
-
-    def test_latent_visualization_added_for_free_action_transformer_decoder(
-        self, workspace_factory, mock_workspace_policy_factory
-    ):
-        policy = mock_workspace_policy_factory(decoder_type="free_action_transformer")
-        workspace = workspace_factory(policy=policy)
-        workspace.policy = policy
-        workspace.val_loader = None
-
-        callbacks = workspace._create_callbacks()
-
-        latent_callbacks = [
-            cb for cb in callbacks if isinstance(cb, LatentVisualizationCallback)
-        ]
-        assert len(latent_callbacks) == 1
-
-    def test_latent_visualization_not_added_for_regular_algorithm_and_decoder(
-        self, workspace_factory, mock_workspace_policy_factory
-    ):
-        policy = mock_workspace_policy_factory()
-        workspace = workspace_factory(policy=policy)
-        workspace.policy = policy
-        workspace.val_loader = None
-
-        callbacks = workspace._create_callbacks()
-
-        latent_callbacks = [
-            cb for cb in callbacks if isinstance(cb, LatentVisualizationCallback)
-        ]
         assert len(latent_callbacks) == 0
+        assert len(expert_callbacks) == 0
+
+    def test_duplicate_callback_types_deduplicated(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory(
+            decoder_callbacks=[LatentVisualizationCallback(log_every_n_epochs=1)],
+            algorithm_callbacks=[LatentVisualizationCallback(log_every_n_epochs=5)],
+        )
+        workspace = workspace_factory(policy=policy)
+        workspace.policy = policy
+        workspace.val_loader = None
+
+        callbacks = workspace._create_callbacks()
+
+        latent_callbacks = [
+            cb for cb in callbacks if isinstance(cb, LatentVisualizationCallback)
+        ]
+        assert len(latent_callbacks) == 1
 
     def test_reduce_lr_callback_added_when_enabled(
         self, workspace_factory, mock_workspace_policy_factory
@@ -832,10 +823,12 @@ class TestCreateCallbacks:
         ]
         assert len(reduce_lr_callbacks) == 0
 
-    def test_expert_usage_callback_added_when_moe_loss_present(
+    def test_loss_module_callbacks_collected_via_protocol(
         self, workspace_factory, mock_workspace_policy_factory
     ):
-        policy = mock_workspace_policy_factory(has_moe_loss=True)
+        policy = mock_workspace_policy_factory(
+            loss_callbacks=[ExpertUsageCallback(log_every_n_epochs=1)],
+        )
         workspace = workspace_factory(policy=policy)
         workspace.policy = policy
         workspace.val_loader = None
@@ -847,10 +840,10 @@ class TestCreateCallbacks:
         ]
         assert len(expert_callbacks) == 1
 
-    def test_expert_usage_callback_not_added_without_moe_loss(
+    def test_loss_module_callbacks_not_collected_without_protocol(
         self, workspace_factory, mock_workspace_policy_factory
     ):
-        policy = mock_workspace_policy_factory(has_moe_loss=False)
+        policy = mock_workspace_policy_factory()
         workspace = workspace_factory(policy=policy)
         workspace.policy = policy
         workspace.val_loader = None
@@ -1188,6 +1181,7 @@ class TestInitializeLazyModules:
         workspace.train_loader = mock_loader
 
         mock_lightning_policy = MagicMock(spec=LightningPolicy)
+        mock_lightning_policy.train_metrics = MagicMock()
         workspace.lightning_policy = mock_lightning_policy
 
         with patch("versatil.workspace.to_device", return_value=mock_batch):
@@ -1196,6 +1190,7 @@ class TestInitializeLazyModules:
         mock_lightning_policy.eval.assert_not_called()
         mock_lightning_policy.training_step.assert_called_once_with(mock_batch, 0)
         mock_lightning_policy.train.assert_called_once()
+        mock_lightning_policy.train_metrics.reset.assert_called_once()
 
 
 @pytest.mark.unit
@@ -1492,11 +1487,12 @@ class TestRun:
             )
 
     def test_run_starts_from_scratch_when_resume_path_does_not_exist(
-        self, workspace_factory, mock_workspace_policy_factory
+        self, workspace_factory, mock_workspace_policy_factory, tmp_path
     ):
         policy = mock_workspace_policy_factory()
+        missing_checkpoint = tmp_path / "missing" / "checkpoint.ckpt"
         workspace = workspace_factory(
-            experiment_kwargs={"resume_from": "/nonexistent/checkpoint.ckpt"},
+            experiment_kwargs={"resume_from": str(missing_checkpoint)},
             policy=policy,
         )
 

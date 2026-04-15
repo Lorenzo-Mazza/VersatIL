@@ -6,9 +6,10 @@ import torch.nn as nn
 from versatil.data.task import ActionSpace, ObservationSpace
 from versatil.data.tokenization.tokenizer import Tokenizer
 from versatil.models.decoding.action_heads import ActionHead
-from versatil.models.decoding.constants import DecoderOutputKey, FeatureType
+from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder, DecoderInput
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
+from versatil.models.feature_meta import FeatureType
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.detr_transformer import Transformer
 from versatil.models.layers.positional_encoding.learned import (
@@ -87,7 +88,7 @@ class DiscreteDETRActionTransformer(ActionDecoder):
         decoder_input = DecoderInput(
             keys=input_keys,
             required_types=[FeatureType.SPATIAL.value],
-            requires_actions=True,
+            requires_actions=False,
         )
 
         super().__init__(

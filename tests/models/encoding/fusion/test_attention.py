@@ -7,6 +7,22 @@ import pytest
 import torch
 
 from versatil.models.encoding.fusion.attention import AttentionFusion
+from versatil.models.feature_meta import FeatureMetadata, FeatureType
+
+
+def _make_registry(
+    dims: dict[str, tuple[int, ...]],
+) -> dict[str, FeatureMetadata]:
+    return {
+        name: FeatureMetadata(
+            key=name,
+            feature_type=FeatureType.FLAT.value
+            if len(dim) == 1
+            else FeatureType.SEQUENTIAL.value,
+            dimension=dim,
+        )
+        for name, dim in dims.items()
+    }
 
 
 @pytest.fixture
@@ -130,7 +146,9 @@ class TestAttentionFusionForward:
             input_features=["feat_a", "feat_b"],
             hidden_dim=hidden_dim,
         )
-        module.setup(feature_keys_to_dims={"feat_a": 64, "feat_b": 128})
+        module.setup(
+            feature_registry=_make_registry({"feat_a": (64,), "feat_b": (128,)})
+        )
         features = [
             input_tensor_factory(
                 batch_size=batch_size,
@@ -160,7 +178,7 @@ class TestAttentionFusionForward:
             hidden_dim=hidden_dim,
             use_norm=False,
         )
-        module.setup(feature_keys_to_dims={"only_feat": 64})
+        module.setup(feature_registry=_make_registry({"only_feat": (64,)}))
         features = [input_tensor_factory(input_dimension=64)]
         output = module(features)
         assert output.shape == (2, hidden_dim)
@@ -176,7 +194,9 @@ class TestAttentionFusionForward:
             hidden_dim=hidden_dim,
             input_feature_query="feat_b",
         )
-        module.setup(feature_keys_to_dims={"feat_a": 64, "feat_b": 128})
+        module.setup(
+            feature_registry=_make_registry({"feat_a": (64,), "feat_b": (128,)})
+        )
         features = [
             input_tensor_factory(input_dimension=64),
             input_tensor_factory(input_dimension=128),
@@ -197,7 +217,9 @@ class TestAttentionFusionForward:
             hidden_dim=hidden_dim,
             use_residual=use_residual,
         )
-        module.setup(feature_keys_to_dims={"feat_a": 64, "feat_b": 128})
+        module.setup(
+            feature_registry=_make_registry({"feat_a": (64,), "feat_b": (128,)})
+        )
         features = [
             input_tensor_factory(input_dimension=64),
             input_tensor_factory(input_dimension=128),
@@ -218,7 +240,9 @@ class TestAttentionFusionForward:
             hidden_dim=hidden_dim,
             use_norm=use_norm,
         )
-        module.setup(feature_keys_to_dims={"feat_a": 64, "feat_b": 128})
+        module.setup(
+            feature_registry=_make_registry({"feat_a": (64,), "feat_b": (128,)})
+        )
         features = [
             input_tensor_factory(input_dimension=64),
             input_tensor_factory(input_dimension=128),
@@ -237,7 +261,9 @@ class TestAttentionFusionForward:
             hidden_dim=hidden_dim,
         )
         module.setup(
-            feature_keys_to_dims={"feat_a": 32, "feat_b": 64, "feat_c": 128},
+            feature_registry=_make_registry(
+                {"feat_a": (32,), "feat_b": (64,), "feat_c": (128,)}
+            ),
         )
         features = [
             input_tensor_factory(input_dimension=32),
@@ -256,7 +282,9 @@ class TestAttentionFusionForward:
             input_features=["feat_a", "feat_b"],
             use_norm=True,
         )
-        module.setup(feature_keys_to_dims={"feat_a": 64, "feat_b": 128})
+        module.setup(
+            feature_registry=_make_registry({"feat_a": (64,), "feat_b": (128,)})
+        )
         # Force norms to None while use_norm remains True
         module.norms = None
         features = [
@@ -279,7 +307,7 @@ class TestAttentionFusionGetOutputSpecification:
     ):
         module = attention_fusion_factory(hidden_dim=hidden_dim)
         spec = module.get_output_specification()
-        assert spec.output_dim == hidden_dim
+        assert spec.dimension[0] == hidden_dim
 
     def test_output_name_matches(
         self,
@@ -287,7 +315,7 @@ class TestAttentionFusionGetOutputSpecification:
     ):
         module = attention_fusion_factory(output_name="test_attn")
         spec = module.get_output_specification()
-        assert spec.output_name == "test_attn"
+        assert spec.key == "test_attn"
 
     def test_returns_specification_with_expected_fields(
         self,
@@ -295,5 +323,5 @@ class TestAttentionFusionGetOutputSpecification:
     ):
         module = attention_fusion_factory()
         spec = module.get_output_specification()
-        assert hasattr(spec, "output_name")
-        assert hasattr(spec, "output_dim")
+        assert hasattr(spec, "key")
+        assert hasattr(spec, "dimension")

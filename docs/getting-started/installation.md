@@ -52,17 +52,6 @@ pre-commit install
 
 This enables automatic Ruff formatting and linting on every `git commit`.
 
-## SLURM Cluster Installation
-
-!!! warning "GPU Required During Installation"
-    `flash-attn` must be compiled against the CUDA runtime. On SLURM clusters where login nodes lack GPUs, request an interactive session first:
-
-    ```bash
-    srun --gres=gpu:1 --cpus-per-task=1 --pty bash
-    ```
-
-    Then run the installation commands above within that session.
-
 ## Environment Configuration
 
 VersatIL uses a `.env` file for machine-specific paths. These variables are resolved at runtime by OmegaConf custom resolvers (e.g., `${checkpoint_dir:bowel_retraction}` in YAML configs).

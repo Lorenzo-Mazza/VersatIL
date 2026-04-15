@@ -1,6 +1,12 @@
-"""Cross-Attention Diffusion Transformer (PixArt style).
+"""Cross-Attention 1D Diffusion Transformer (PixArt style).
 
 DiT that conditions via cross-attention to observation tokens.
+
+Shape notation:
+    B: batch size
+    S: observation sequence length (from external embeddings)
+    T: action sequence length
+    D: embedding dimension
 
 
 References:
@@ -14,9 +20,6 @@ import torch.nn as nn
 
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
-from versatil.models.layers.diffusion_transformer.cross_attention_dit_decoder import (
-    CrossConditioningDecoder,
-)
 from versatil.models.layers.diffusion_transformer.final_prediction_layer import (
     FinalPredictionLayer,
 )
@@ -29,17 +32,14 @@ from versatil.models.layers.positional_encoding.base import (
 from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
 )
+from versatil.models.layers.transformer.cache.conditioning import ConditioningCache
+from versatil.models.layers.transformer.conditional_bidirectional_decoder import (
+    ConditionalBidirectionalDecoder,
+)
 
 
 class CrossAttentionDiT(nn.Module):
-    """DiT that conditions via cross-attention (PixArt style).
-
-    Shape notation:
-        B: batch size
-        S: observation sequence length (from external embeddings)
-        T: action sequence length
-        D: embedding dimension
-    """
+    """DiT that conditions via cross-attention (PixArt style)."""
 
     def __init__(
         self,
@@ -104,10 +104,10 @@ class CrossAttentionDiT(nn.Module):
             mlp_hidden_dimensions=[embedding_dimension, embedding_dimension],
         )
 
-        self.decoder = CrossConditioningDecoder(
+        self.decoder = ConditionalBidirectionalDecoder(
             number_of_layers=number_of_layers,
             embedding_dimension=embedding_dimension,
-            timestep_dimension=embedding_dimension,
+            conditioning_dimension=embedding_dimension,
             number_of_heads=number_of_heads,
             number_of_key_value_heads=number_of_key_value_heads,
             feedforward_dimension=feedforward_dimension,
@@ -122,6 +122,7 @@ class CrossAttentionDiT(nn.Module):
             normalization_epsilon=normalization_epsilon,
             use_gating=use_gating,
             initializer_range=initializer_range,
+            condition_final_normalization=False,
         )
 
         self.output_dimension = output_dimension or embedding_dimension
@@ -129,11 +130,21 @@ class CrossAttentionDiT(nn.Module):
             self.embedding_dimension, self.output_dimension
         )
 
+    def precompute_conditioning_kv(
+        self,
+        encoder_hidden_states: torch.Tensor,
+    ) -> ConditioningCache:
+        """Precompute decoder conditioning K/V for forward pass reuse."""
+        return self.decoder.precompute_conditioning_kv(
+            encoded_features=encoder_hidden_states,
+        )
+
     def forward(
         self,
         decoder_hidden_states: torch.Tensor,
         timesteps: torch.Tensor,
-        encoder_hidden_states: torch.Tensor,
+        encoder_hidden_states: torch.Tensor | None = None,
+        conditioning_cache: ConditioningCache | None = None,
         encoder_padding_mask: torch.Tensor | None = None,
         decoder_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
@@ -143,6 +154,8 @@ class CrossAttentionDiT(nn.Module):
             decoder_hidden_states: Noisy action tokens (B, T, D).
             timesteps: Diffusion timesteps (B,).
             encoder_hidden_states: External observation embeddings (B, S, D).
+            conditioning_cache: Precomputed K/V for reuse across denoising steps.
+                When provided, encoder_hidden_states is not needed.
             encoder_padding_mask: Padding mask for observations (B, S).
             decoder_padding_mask: Padding mask for actions (B, T).
 
@@ -152,9 +165,10 @@ class CrossAttentionDiT(nn.Module):
         timestep_embedding = self.timestep_embedding_network(timesteps)
         decoder_output = self.decoder(
             hidden_states=decoder_hidden_states,
-            conditioning_embedding=timestep_embedding,
-            encoder_hidden_states=encoder_hidden_states,
-            decoder_padding_mask=decoder_padding_mask,
-            encoder_padding_mask=encoder_padding_mask,
+            condition=timestep_embedding,
+            encoded_features=encoder_hidden_states,
+            conditioning_cache=conditioning_cache,
+            query_padding_mask=decoder_padding_mask,
+            memory_padding_mask=encoder_padding_mask,
         )
         return self.prediction_layer(decoder_output, timestep_embedding)

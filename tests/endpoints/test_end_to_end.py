@@ -2,9 +2,6 @@
 
 import gc
 import os
-
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
-
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +15,7 @@ from hydra import compose, initialize_config_dir
 from tso_robotics_sockets import CompressionType
 
 import versatil.configs  # noqa: F401
+from tests.conftest import get_test_device
 from tests.endpoints.conftest import (
     DATASET_SPECS,
     HYDRA_CONFIG_DIR,
@@ -36,16 +34,16 @@ from versatil.inference.socket_transport import (
 )
 from versatil.workspace import Workspace
 
+E2E_DEVICE = get_test_device()
+
 COMMON_OVERRIDES = [
     "task.dataloader.batch_size=2",
-    "task.dataloader.image_height=32",
-    "task.dataloader.image_width=32",
     "task.dataloader.num_workers=1",
     "task.dataloader.val_ratio=0.0",
     "training.num_epochs=1",
     "experiment.use_wandb=false",
     "experiment.name=e2e_test",
-    "experiment.device=cpu",
+    f"experiment.device={E2E_DEVICE.type}",
 ]
 
 IMAGE_HEIGHT = 32
@@ -111,6 +109,8 @@ def _create_synthetic_zarr(
 def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
     if "flow_unet" in config_name and "libero_hdf5" in config_name:
         pytest.skip("libero_hdf5/flow_unet has broken dropout_rate interpolation")
+    if "pi0" in config_name and not os.environ.get("HF_TOKEN"):
+        pytest.skip("pi0 requires HF_TOKEN for gated PaliGemma model")
 
     dataset_type = resolve_dataset_type(config_name)
     rng = np.random.default_rng(42)
@@ -144,7 +144,7 @@ def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
         ):
             config = hydra.utils.instantiate(yaml_config)
 
-    config.policy.to(torch.device("cpu"))
+    config.policy.to(E2E_DEVICE)
 
     with patch("versatil.workspace.HydraConfig") as mock_hydra:
         mock_hydra.get.return_value = MagicMock()
@@ -163,10 +163,9 @@ def test_train_one_epoch_reload_checkpoint_and_infer(config_name, tmp_path):
         lambda self, dataset_path: setattr(self, "dataset_path", dataset_path),
     ):
         policy_loader = PolicyLoader(
-            device=torch.device("cpu"),
+            device=E2E_DEVICE,
             checkpoint_path=str(output_dir),
             checkpoint_name="last.ckpt",
-            precision="32",
         )
 
     port = get_free_port()

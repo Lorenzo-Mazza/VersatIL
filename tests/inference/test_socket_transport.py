@@ -17,7 +17,9 @@ SOCKET_CLIENT_PATH = "versatil.inference.socket_transport.SocketClient"
 
 @pytest.fixture
 def mock_socket_client() -> MagicMock:
-    return MagicMock(spec=SocketClient)
+    mock = MagicMock(spec=SocketClient)
+    mock.request_socket = MagicMock()
+    return mock
 
 
 @pytest.fixture

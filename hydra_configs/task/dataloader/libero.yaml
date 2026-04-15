@@ -9,8 +9,6 @@ num_workers: 16
 shuffle: true
 
 # LIBERO images are 128x128
-image_height: 128
-image_width: 128
 
 image_norm_type:  ${image_norm_type:MINUS_ONE_TO_ONE}
 depth_norm_type:  ${image_norm_type:MINUS_ONE_TO_ONE}

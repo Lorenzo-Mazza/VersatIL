@@ -7,19 +7,20 @@ from versatil.common.dict_of_tensor_mixin import DictOfTensorMixin
 from versatil.common.tensor_ops import to_device
 from versatil.data.constants import Cameras, SampleKey
 from versatil.data.normalization.normalizer import LinearNormalizer
-from versatil.data.task import ActionSpace, ObservationSpace
-from versatil.data.tokenization import Tokenizer
-from versatil.data.transform import (
+from versatil.data.processing.transform import (
     detokenize_actions,
     normalize_observation,
     tokenize_observation,
     unnormalize_actions,
 )
+from versatil.data.task import ActionSpace, ObservationSpace
+from versatil.data.tokenization import Tokenizer
 from versatil.metrics.base import BaseLoss, LossOutput
 from versatil.metrics.components import GripperLoss
 from versatil.models.decoding.algorithm.base import DecodingAlgorithm
 from versatil.models.decoding.constants import DecoderOutputKey
 from versatil.models.decoding.decoders.base import ActionDecoder
+from versatil.models.encoding.encoders.base import EncodingMixin
 from versatil.models.encoding.pipeline import EncodingPipeline
 
 
@@ -65,9 +66,9 @@ class Policy(nn.Module):
         self.device = torch.device(device)
         self.normalizer: LinearNormalizer = LinearNormalizer()
         self.tokenizer = None  # Set later via set_tokenizer()
-        self.denoising_thresholds = (
-            DictOfTensorMixin()
-        )  # Set later via set_denoising_thresholds()
+        self.denoising_thresholds = DictOfTensorMixin()
+        if self.decoder.decoder_input.requires_vlm_backbone:
+            self._wire_vlm_backbone()
 
     @property
     def input_keys(self) -> list[str]:
@@ -89,6 +90,45 @@ class Policy(nn.Module):
     def output_keys(self) -> list[str]:
         """Sorted action keys the policy produces as output."""
         return sorted(self.decoder.action_heads.keys())
+
+    def _wire_vlm_backbone(self) -> None:
+        """Pass VLM backbone layers to the VLA decoders for interleaved processing.
+
+        Searches the encoding pipeline for a VLM encoder that exposes backbone
+        layers and injects them into the decoder via ``set_backbone()``.
+
+        Raises:
+            ValueError: If no VLM encoder with backbone access is found.
+        """
+        vlm_encoder = self._find_vlm_encoder()
+        self.decoder.set_backbone(
+            vlm_layers=vlm_encoder.get_backbone_layers(),
+            rotary_emb=vlm_encoder.get_rotary_embedding(),
+            vlm_hidden_dimension=vlm_encoder.get_backbone_hidden_dim(),
+            vlm_text_config=vlm_encoder.get_text_config(),
+        )
+
+    def _find_vlm_encoder(self) -> EncodingMixin:
+        """Find the VLM encoder in the pipeline that exposes backbone layers.
+
+        Returns:
+            The VLM encoder instance.
+
+        Raises:
+            ValueError: If no encoder has ``get_backbone_layers``.
+        """
+        all_encoders = {
+            **self.encoding_pipeline.encoders,
+            **self.encoding_pipeline.conditional_encoders,
+        }
+        for encoder in all_encoders.values():
+            if hasattr(encoder, "get_backbone_layers"):
+                return encoder
+        raise ValueError(
+            "VLA decoders require a VLM encoder with get_backbone_layers(), "
+            "but none found in the encoding pipeline. "
+            "Use PaliGemmaEncoder or SmolVLMEncoder with use_embeddings_only=True."
+        )
 
     def set_normalizer(self, normalizer: LinearNormalizer) -> None:
         """Set normalizer for observations and actions."""
@@ -228,11 +268,11 @@ class Policy(nn.Module):
         """Get vision encoder modules that can produce spatial feature maps for explainability.
 
         Supports the following encoder types:
-        - CNNEncoder (RGB): Has 'backbone' attribute
-        - DepthCNNEncoder: Has 'backbone' attribute
+        - SpatialRGBEncoder (RGB): Has 'backbone' attribute
+        - SpatialDepthEncoder: Has 'backbone' attribute
         - ConditionalCNNEncoder (FiLM): Has 'layer4' attribute
         - DFormerEncoder: Has 'stages' attribute
-        - LightGeometricEncoder: Has 'attention_block' attribute
+        - GeometricRGBDEncoder: Has 'attention_block' attribute
 
         Returns:
             Dictionary mapping encoder names to their encoder instances.
@@ -244,7 +284,7 @@ class Policy(nn.Module):
         vision_encoders = {}
 
         def is_vision_encoder(encoder: nn.Module) -> bool:
-            # TIMM-based encoders (CNNEncoder, DepthCNNEncoder)
+            # TIMM-based encoders (SpatialRGBEncoder, SpatialDepthEncoder)
             if hasattr(encoder, "backbone"):
                 return True
             # DFormer-based encoders
@@ -271,7 +311,7 @@ class Policy(nn.Module):
             raise RuntimeError(
                 "No compatible vision encoders found in the encoding pipeline. "
                 "Explainer requires encoders that produce spatial feature maps "
-                "(CNNEncoder, DepthCNNEncoder, ConditionalCNNEncoder, DFormerEncoder, LightGeometricEncoder). "
+                "(SpatialRGBEncoder, SpatialDepthEncoder, ConditionalCNNEncoder, DFormerEncoder, GeometricRGBDEncoder). "
                 "Available encoders: "
                 + str(
                     list(self.encoding_pipeline.encoders.keys())
@@ -285,10 +325,10 @@ class Policy(nn.Module):
         """Get target layers for GradCAM from a specific vision encoder.
 
         Supports different encoder architectures:
-        - TIMM backbones (CNNEncoder, DepthCNNEncoder): Returns last stage
+        - TIMM backbones (SpatialRGBEncoder, SpatialDepthEncoder): Returns last stage
         - ConditionalCNNEncoder (FiLM): Returns last block of layer4
         - DFormerEncoder: Returns last stage
-        - LightGeometricEncoder: Returns attention block
+        - GeometricRGBDEncoder: Returns attention block
 
         Args:
             encoder_name: Name of the encoder in the encoding pipeline
@@ -309,28 +349,11 @@ class Policy(nn.Module):
 
         encoder = vision_encoders[encoder_name]
 
-        # TIMM-based encoders (CNNEncoder, DepthCNNEncoder)
+        # TIMM-based encoders (SpatialRGBEncoder, SpatialDepthEncoder, FlatRGBEncoder)
         if hasattr(encoder, "backbone"):
             backbone = encoder.backbone
-
-            # TimmBackbone wraps the actual model in _backbone
-            if hasattr(backbone, "_backbone"):
-                actual_backbone = backbone._backbone
-                # ResNet-style architectures have layer1, layer2, layer3, layer4
-                if hasattr(actual_backbone, "layer4"):
-                    return [actual_backbone.layer4]
-                # Other architectures might have stages
-                elif (
-                    hasattr(actual_backbone, "stages")
-                    and len(actual_backbone.stages) > 0
-                ):
-                    return [actual_backbone.stages[-1]]
-                else:
-                    raise RuntimeError(
-                        f"Encoder '{encoder_name}' backbone structure not recognized. "
-                        f"Backbone type: {type(actual_backbone).__name__}"
-                    )
-            # Direct TIMM models with stages attribute
+            if hasattr(backbone, "layer4"):
+                return [backbone.layer4]
             elif hasattr(backbone, "stages") and len(backbone.stages) > 0:
                 return [backbone.stages[-1]]
             else:
@@ -354,8 +377,8 @@ class Policy(nn.Module):
         raise RuntimeError(
             f"Encoder '{encoder_name}' architecture not supported for GradCAM. "
             f"Encoder type: {type(encoder).__name__}. "
-            f"Supported types: CNNEncoder, DepthCNNEncoder, ConditionalCNNEncoder, "
-            f"DFormerEncoder, LightGeometricEncoder."
+            f"Supported types: SpatialRGBEncoder, SpatialDepthEncoder, ConditionalCNNEncoder, "
+            f"DFormerEncoder, GeometricRGBDEncoder."
         )
 
     def get_camera_to_encoder_mapping(self) -> dict[str, str]:

@@ -6,7 +6,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from tests.models.layers.diffusion_transformer.conftest import reinit_modulation_layers
+from tests.models.layers.conftest import reinit_modulation_layers
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import AttentionType
 from versatil.models.layers.diffusion_transformer.cross_attention_dit import (
@@ -252,6 +252,63 @@ class TestCrossAttentionDiTForward:
             encoder_hidden_states=encoder_b,
         )
         assert not torch.allclose(output_a, output_b)
+
+    def test_cached_forward_matches_uncached(
+        self,
+        cross_attention_dit_factory: Callable[..., CrossAttentionDiT],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+        continuous_timestep_factory: Callable[..., torch.Tensor],
+    ):
+        embedding_dimension = 32
+        model = cross_attention_dit_factory(
+            embedding_dimension=embedding_dimension,
+        )
+        model.eval()
+        decoder_hidden = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=4,
+            embedding_dimension=embedding_dimension,
+        )
+        encoder_hidden = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=6,
+            embedding_dimension=embedding_dimension,
+        )
+        timesteps = continuous_timestep_factory(batch_size=2)
+        output_uncached = model(
+            decoder_hidden_states=decoder_hidden,
+            timesteps=timesteps,
+            encoder_hidden_states=encoder_hidden,
+        )
+        conditioning_cache = model.precompute_conditioning_kv(
+            encoder_hidden_states=encoder_hidden,
+        )
+        output_cached = model(
+            decoder_hidden_states=decoder_hidden,
+            timesteps=timesteps,
+            conditioning_cache=conditioning_cache,
+        )
+        assert torch.allclose(output_uncached, output_cached, atol=1e-5)
+
+    def test_precompute_returns_one_cache_per_layer(
+        self,
+        cross_attention_dit_factory: Callable[..., CrossAttentionDiT],
+        sequence_tensor_factory: Callable[..., torch.Tensor],
+    ):
+        number_of_layers = 3
+        model = cross_attention_dit_factory(
+            number_of_layers=number_of_layers,
+            embedding_dimension=32,
+        )
+        encoder_hidden = sequence_tensor_factory(
+            batch_size=2,
+            sequence_length=6,
+            embedding_dimension=32,
+        )
+        conditioning_cache = model.precompute_conditioning_kv(
+            encoder_hidden_states=encoder_hidden,
+        )
+        assert len(conditioning_cache.layers) == number_of_layers
 
     def test_gradient_flows_through_full_model(
         self,

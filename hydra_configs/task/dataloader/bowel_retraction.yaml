@@ -6,10 +6,6 @@ batch_size: 64
 num_workers: 16
 shuffle: true
 
-# Image dimensions
-image_height: 270
-image_width: 480
-
 # Normalization
 image_norm_type: ${image_norm_type:IMAGENET}
 depth_norm_type:  ${image_norm_type:IMAGENET}

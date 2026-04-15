@@ -70,6 +70,13 @@ class MoEDecoder(BaseMixtureOfExperts, ActionDecoder):
         self.action_keys = list(base_expert.action_heads.keys())
         self.action_heads = base_expert.action_heads
 
+    def get_auxiliary_output_keys(self) -> set[str]:
+        """MoE decoder produces routing weights and per-expert outputs."""
+        keys = super().get_auxiliary_output_keys()
+        keys.add(DecoderOutputKey.ROUTING_WEIGHTS.value)
+        keys.add(DecoderOutputKey.EXPERT_OUTPUTS.value)
+        return keys
+
     @staticmethod
     def _create_experts_from_config(
         base_expert: ActionDecoder,
