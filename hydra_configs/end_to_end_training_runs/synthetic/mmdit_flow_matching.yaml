@@ -54,4 +54,4 @@ policy:
   algorithm:
     ode_solver: "euler"
     num_inference_steps: 10
-    sigma: 0.5
+    sigma: 0.1
