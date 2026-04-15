@@ -1,0 +1,17 @@
+defaults:
+  - encoder/vlm/smolvlm@encoders.vlm
+  - _self_
+
+encoders:
+  vlm:
+    input_keys:
+      - ${cameras:AGENTVIEW}
+      - ${cameras:EYE_IN_HAND}
+      - ${sample_key:TOKENIZED_OBSERVATIONS}
+    model_name: ${smolvlm_model:SMOLVLM_500M}
+    pretrained: true
+    frozen: true
+    use_embeddings_only: false
+    max_text_length: ${task.dataloader.tokenization.observation_tokenizer.max_token_len}
+
+fusion_stages: []

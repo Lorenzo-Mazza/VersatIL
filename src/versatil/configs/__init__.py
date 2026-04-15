@@ -193,8 +193,10 @@ from versatil.models.encoding.encoders.constants import (
     BatchNormHandling,
     ImageTextModelType,
     LanguageEncoderType,
+    PaliGemmaModelType,
     PoolingMethod,
     RGBBackboneType,
+    SmolVLMModelType,
 )
 from versatil.models.layers.activation import ActivationFunction
 from versatil.models.layers.constants import (
@@ -332,6 +334,14 @@ def register_resolvers():
     if not OmegaConf.has_resolver("vlm_model"):
         OmegaConf.register_new_resolver(
             "vlm_model", lambda name: ImageTextModelType[name].value
+        )
+    if not OmegaConf.has_resolver("smolvlm_model"):
+        OmegaConf.register_new_resolver(
+            "smolvlm_model", lambda name: SmolVLMModelType[name].value
+        )
+    if not OmegaConf.has_resolver("paligemma_model"):
+        OmegaConf.register_new_resolver(
+            "paligemma_model", lambda name: PaliGemmaModelType[name].value
         )
     if not OmegaConf.has_resolver("activation_function"):
         OmegaConf.register_new_resolver(
