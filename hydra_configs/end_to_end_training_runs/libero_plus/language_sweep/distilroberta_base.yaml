@@ -24,7 +24,7 @@ task:
   dataloader:
     tokenization:
       observation_tokenizer:
-        tokenizer_model: ${language_model:DEBERTA_V3_BASE}
+        tokenizer_model: ${language_model:DISTIL_ROBERTA_BASE}
 
 experiment:
   precision: ${precision:FP32}
@@ -65,7 +65,7 @@ policy:
         backbone: ${rgb_backbone:EFFICIENTNET_B0}
         frozen: false
       instruction:
-        model_name: ${language_model:DEBERTA_V3_BASE}
+        model_name: ${language_model:DISTIL_ROBERTA_BASE}
         frozen: true
         use_embeddings_only: false
   decoder:

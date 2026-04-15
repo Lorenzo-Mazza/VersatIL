@@ -798,18 +798,21 @@ class TestSetTokenizer:
             pipeline.set_tokenizer(tokenizer=tokenizer)
 
     @pytest.mark.parametrize(
-        "encoder_vocab_size, data_vocab_size, expectation",
+        "encoder_vocab_size, data_vocab_size, base_vocab_size, expectation",
         [
-            (50000, 50000, does_not_raise()),
-            (50000, 30000, does_not_raise()),
+            (50000, 50000, 50000, does_not_raise()),
+            (50000, 30000, 30000, does_not_raise()),
+            (30000, 30001, 30000, does_not_raise()),
+            (30000, 50000, 30000, does_not_raise()),
             (
                 30000,
+                50000,
                 50000,
                 pytest.raises(
                     ValueError,
                     match=re.escape(
-                        "Vocab size mismatch: Observation tokenizer has vocab_size=50000, "
-                        "but encoder 'language' only supports vocab_size=30000. "
+                        "Vocab size mismatch: Observation tokenizer has vocab_size=50000 "
+                        "(base=50000), but encoder 'language' only supports vocab_size=30000. "
                     ),
                 ),
             ),
@@ -820,6 +823,7 @@ class TestSetTokenizer:
         encoder_mock_factory: Callable[..., MagicMock],
         encoder_vocab_size: int,
         data_vocab_size: int,
+        base_vocab_size: int,
         expectation,
         default_observation_space,
     ):
@@ -833,6 +837,7 @@ class TestSetTokenizer:
         tokenizer = MagicMock(spec=Tokenizer)
         tokenizer.observation_tokenizer = MagicMock()
         tokenizer.observation_tokenizer.vocab_size = data_vocab_size
+        tokenizer.observation_tokenizer.language_tokenizer.vocab_size = base_vocab_size
         tokenizer.observation_tokenizer.tokenizer_model = "test_model"
         with expectation:
             pipeline.set_tokenizer(tokenizer=tokenizer)
@@ -902,18 +907,21 @@ class TestSetTokenizer:
             pipeline.set_tokenizer(tokenizer=tokenizer)
 
     @pytest.mark.parametrize(
-        "encoder_vocab_size, data_vocab_size, expectation",
+        "encoder_vocab_size, data_vocab_size, base_vocab_size, expectation",
         [
-            (50000, 50000, does_not_raise()),
-            (50000, 30000, does_not_raise()),
+            (50000, 50000, 50000, does_not_raise()),
+            (50000, 30000, 30000, does_not_raise()),
+            (30000, 30001, 30000, does_not_raise()),
+            (30000, 50000, 30000, does_not_raise()),
             (
                 30000,
+                50000,
                 50000,
                 pytest.raises(
                     ValueError,
                     match=re.escape(
-                        "Vocab size mismatch: Observation tokenizer has vocab_size=50000, "
-                        "but encoder 'film' only supports vocab_size=30000. "
+                        "Vocab size mismatch: Observation tokenizer has vocab_size=50000 "
+                        "(base=50000), but encoder 'film' only supports vocab_size=30000. "
                     ),
                 ),
             ),
@@ -925,6 +933,7 @@ class TestSetTokenizer:
         conditional_encoder_mock_factory: Callable[..., MagicMock],
         encoder_vocab_size: int,
         data_vocab_size: int,
+        base_vocab_size: int,
         expectation,
         default_observation_space,
     ):
@@ -942,6 +951,7 @@ class TestSetTokenizer:
         tokenizer = MagicMock(spec=Tokenizer)
         tokenizer.observation_tokenizer = MagicMock()
         tokenizer.observation_tokenizer.vocab_size = data_vocab_size
+        tokenizer.observation_tokenizer.language_tokenizer.vocab_size = base_vocab_size
         tokenizer.observation_tokenizer.tokenizer_model = "test_model"
         with expectation:
             pipeline.set_tokenizer(tokenizer=tokenizer)

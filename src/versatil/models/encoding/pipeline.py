@@ -318,12 +318,23 @@ class EncodingPipeline(nn.Module):
                     f"but no observation tokenizer is available."
                 )
             data_vocab_size = tokenizer.observation_tokenizer.vocab_size
+            base_vocab_size = (
+                tokenizer.observation_tokenizer.language_tokenizer.vocab_size
+            )
             encoder_vocab_size = encoder.get_vocab_size()
-            if encoder_vocab_size < data_vocab_size:
+            # Accept if the encoder covers either the total tokenizer vocab
+            # (base + added) or at least the base vocabulary. Some tokenizers
+            # (e.g. EmbeddingGemma) can add extra tokens that never appear in
+            # text prompts, so tolerating the gap is safe.
+            if (
+                encoder_vocab_size < data_vocab_size
+                and encoder_vocab_size < base_vocab_size
+            ):
                 raise ValueError(
-                    f"Vocab size mismatch: Observation tokenizer has vocab_size={data_vocab_size}, "
-                    f"but encoder '{encoder_name}' only supports vocab_size={encoder_vocab_size}. "
-                    f"The encoder's embedding matrix must be at least as large as the tokenizer's vocabulary. "
+                    f"Vocab size mismatch: Observation tokenizer has vocab_size={data_vocab_size} "
+                    f"(base={base_vocab_size}), but encoder '{encoder_name}' only supports "
+                    f"vocab_size={encoder_vocab_size}. The encoder's embedding matrix must be "
+                    f"at least as large as the tokenizer's base vocabulary. "
                     f"Observation tokenizer model: {tokenizer.observation_tokenizer.tokenizer_model}"
                 )
 

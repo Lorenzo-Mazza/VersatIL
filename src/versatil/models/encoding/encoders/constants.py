@@ -154,6 +154,7 @@ class LanguageEncoderType(enum.StrEnum):
     ROBERTA_BASE = "roberta-base"
     GPT2 = "gpt2"
     DEBERTA_V3_BASE = "microsoft/deberta-v3-base"
+    DISTIL_ROBERTA_BASE = "distilbert/distilroberta-base"
     PHI_2 = "microsoft/phi-2"
     LLAMA_3_2_1B = "meta-llama/Llama-3.2-1B"
 
