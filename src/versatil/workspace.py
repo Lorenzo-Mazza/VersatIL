@@ -338,19 +338,24 @@ class Workspace:
         else:
             logging.info("Skipping ModelCheckpoint callbacks (save_checkpoints=False)")
 
-        if has_validation:
+        early_stopping_patience = self.config.training.early_stopping_patience
+        if not has_validation:
+            logging.info("Skipping EarlyStopping callback (no validation data)")
+        elif early_stopping_patience is None:
+            logging.info(
+                "Skipping EarlyStopping callback (early_stopping_patience=None)"
+            )
+        else:
             early_stopping_callback = ResumableEarlyStopping(
                 monitor="val_loss",
                 mode="min",
-                patience=self.config.training.early_stopping_patience,
+                patience=early_stopping_patience,
                 verbose=True,
             )
             callbacks.append(early_stopping_callback)
             logging.info(
-                f"Added EarlyStopping callback (patience={self.config.training.early_stopping_patience})"
+                f"Added EarlyStopping callback (patience={early_stopping_patience})"
             )
-        else:
-            logging.info("Skipping EarlyStopping callback (no validation data)")
 
         gradient_norm_callback = GradientNormCallback(log_every_n_steps=50)
         callbacks.append(gradient_norm_callback)

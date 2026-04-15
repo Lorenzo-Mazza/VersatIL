@@ -19,7 +19,7 @@ optimizer:
 clip_gradient_norm: true
 clip_max_norm: 10.0
 lr_schedule: null
-lr_warmup_steps: 1000
+lr_warmup_steps: 0
 use_ema: false
 swa_lrs: null
 early_stopping_patience: 100

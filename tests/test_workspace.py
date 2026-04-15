@@ -92,7 +92,7 @@ def mock_training_config_factory() -> Callable[..., MagicMock]:
         swa_epoch_start: float = 0.5,
         swa_annealing_epochs: int = 10,
         tune_lr: bool = False,
-        early_stopping_patience: int = 10,
+        early_stopping_patience: int | None = 10,
         reduce_lr_on_plateau: bool = False,
         reduce_lr_patience: int = 10,
         reduce_lr_cooldown: int = 10,
@@ -608,6 +608,24 @@ class TestCreateCallbacks:
         workspace = workspace_factory(policy=policy)
         workspace.policy = policy
         workspace.val_loader = None
+
+        callbacks = workspace._create_callbacks()
+
+        early_stop_callbacks = [
+            cb for cb in callbacks if isinstance(cb, ResumableEarlyStopping)
+        ]
+        assert len(early_stop_callbacks) == 0
+
+    def test_early_stopping_not_added_when_patience_is_none(
+        self, workspace_factory, mock_workspace_policy_factory
+    ):
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(
+            training_kwargs={"early_stopping_patience": None},
+            policy=policy,
+        )
+        workspace.policy = policy
+        workspace.val_loader = MagicMock()
 
         callbacks = workspace._create_callbacks()
 
