@@ -268,6 +268,7 @@ class Workspace:
             log_every_n_steps=50,
             enable_progress_bar=True,
             enable_model_summary=True,
+            enable_checkpointing=self.config.experiment.save_checkpoints,
             deterministic=False,  # For performance
             precision=self.config.experiment.precision,
         )
@@ -290,49 +291,52 @@ class Workspace:
             callbacks.append(ema_callback)
             logging.info(f"Added EMA callback (power={self.config.training.ema_power})")
 
-        if has_validation:
-            checkpoint_callback_best = ModelCheckpoint(
+        if self.config.experiment.save_checkpoints:
+            if has_validation:
+                checkpoint_callback_best = ModelCheckpoint(
+                    dirpath=self.output_dir,
+                    filename="best-{epoch:02d}-{val_loss:.4f}",
+                    monitor="val_loss",
+                    mode="min",
+                    save_top_k=3,
+                    save_last=True,
+                    verbose=True,
+                    auto_insert_metric_name=False,
+                )
+            else:
+                checkpoint_callback_best = ModelCheckpoint(
+                    dirpath=self.output_dir,
+                    filename="best-{epoch:02d}-{train_loss_epoch:.4f}",
+                    monitor="train_loss_epoch",
+                    mode="min",
+                    save_top_k=3,
+                    save_last=True,
+                    verbose=True,
+                    auto_insert_metric_name=False,
+                )
+            callbacks.append(checkpoint_callback_best)
+            logging.info(
+                f"Added ModelCheckpoint callback (top-k=3, monitor={checkpoint_callback_best.monitor})"
+            )
+
+            checkpoint_callback_latest = ModelCheckpoint(
                 dirpath=self.output_dir,
-                filename="best-{epoch:02d}-{val_loss:.4f}",
-                monitor="val_loss",
-                mode="min",
-                save_top_k=3,
+                filename="latest-{epoch:02d}",
+                monitor="epoch",
+                mode="max",
+                save_top_k=-1,
+                every_n_epochs=self.config.experiment.checkpoint_every,
                 save_last=True,
                 verbose=True,
                 auto_insert_metric_name=False,
+                save_on_train_epoch_end=not has_validation,
+            )
+            callbacks.append(checkpoint_callback_latest)
+            logging.info(
+                f"Added latest checkpoint callback (every {self.config.experiment.checkpoint_every} epochs)"
             )
         else:
-            checkpoint_callback_best = ModelCheckpoint(
-                dirpath=self.output_dir,
-                filename="best-{epoch:02d}-{train_loss_epoch:.4f}",
-                monitor="train_loss_epoch",
-                mode="min",
-                save_top_k=3,
-                save_last=True,
-                verbose=True,
-                auto_insert_metric_name=False,
-            )
-        callbacks.append(checkpoint_callback_best)
-        logging.info(
-            f"Added ModelCheckpoint callback (top-k=3, monitor={checkpoint_callback_best.monitor})"
-        )
-
-        checkpoint_callback_latest = ModelCheckpoint(
-            dirpath=self.output_dir,
-            filename="latest-{epoch:02d}",
-            monitor="epoch",
-            mode="max",
-            save_top_k=-1,
-            every_n_epochs=self.config.experiment.checkpoint_every,
-            save_last=True,
-            verbose=True,
-            auto_insert_metric_name=False,
-            save_on_train_epoch_end=not has_validation,
-        )
-        callbacks.append(checkpoint_callback_latest)
-        logging.info(
-            f"Added latest checkpoint callback (every {self.config.experiment.checkpoint_every} epochs)"
-        )
+            logging.info("Skipping ModelCheckpoint callbacks (save_checkpoints=False)")
 
         if has_validation:
             early_stopping_callback = ResumableEarlyStopping(
