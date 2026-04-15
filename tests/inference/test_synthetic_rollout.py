@@ -16,7 +16,6 @@ from versatil.data.synthetic.constants import CIRCLE_CONTEXT_COLORS, SyntheticTa
 from versatil.data.synthetic.task_layout import SyntheticTaskLayout
 from versatil.inference.synthetic_rollout import (
     _expert_endpoint_reach_threshold,
-    _get_render_goal,
     _prepare_observation,
     _save_rollout_visualizations,
     evaluate_rollouts,
@@ -37,7 +36,7 @@ def mock_layout_factory() -> Callable[..., MagicMock]:
             (0.1 * index, 0.2, 0.1 * index + 0.05, 0.3)
             for index in range(num_obstacles)
         ]
-        layout.goal = np.array([0.5, 0.5], dtype=np.float32) if has_goal else None
+        layout.goals = np.array([[0.5, 0.5]], dtype=np.float32) if has_goal else None
         layout.start = np.array([0.0, 0.0], dtype=np.float32)
         layout.num_modes = num_modes
         return layout
@@ -96,56 +95,6 @@ def mock_expert_episodes_factory(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "has_goal, task_name, expected_goal, expectation",
-    [
-        (
-            True,
-            SyntheticTaskName.CIRCLE.value,
-            np.array([0.5, 0.5], dtype=np.float32),
-            does_not_raise(),
-        ),
-        (
-            False,
-            SyntheticTaskName.SEQUENTIAL_DECISION.value,
-            np.array([0.5, 0.95], dtype=np.float32),
-            does_not_raise(),
-        ),
-        (
-            False,
-            SyntheticTaskName.RADIAL.value,
-            np.array([0.5, 0.5], dtype=np.float32),
-            does_not_raise(),
-        ),
-        (
-            False,
-            SyntheticTaskName.CIRCLE.value,
-            None,
-            does_not_raise(),
-        ),
-        (
-            False,
-            SyntheticTaskName.CONDITIONAL_CIRCLE.value,
-            None,
-            does_not_raise(),
-        ),
-    ],
-)
-def test_get_render_goal_returns_layout_goal_or_task_fallback(
-    mock_layout_factory: Callable[..., MagicMock],
-    has_goal: bool,
-    task_name: str,
-    expected_goal: np.ndarray | None,
-    expectation: AbstractContextManager,
-):
-    layout = mock_layout_factory(has_goal=has_goal)
-
-    with expectation:
-        result = _get_render_goal(layout=layout, task_name=task_name)
-        np.testing.assert_array_equal(result, expected_goal)
-
-
-@pytest.mark.unit
 @pytest.mark.parametrize("obs_horizon", [1, 3])
 @pytest.mark.parametrize(
     "has_image, has_position, has_context, context_vector_provided",
@@ -175,7 +124,6 @@ def test_prepare_observation_assembles_keys_per_observation_space(
 
     position_history = position_history_factory(obs_horizon=obs_horizon)
     obstacles: list[tuple[float, float, float, float]] = []
-    goal = np.array([1.0, 1.0], dtype=np.float32)
     image_size = 16
     num_context_channels = 3
     context_vector = (
@@ -191,7 +139,6 @@ def test_prepare_observation_assembles_keys_per_observation_space(
         observation = _prepare_observation(
             position_history=position_history,
             obstacles=obstacles,
-            goal=goal,
             image_size=image_size,
             observation_keys=observation_keys,
             context_vector=context_vector,
@@ -246,7 +193,6 @@ def test_prepare_observation_forwards_context_color_to_render_frame(
         _prepare_observation(
             position_history=position_history,
             obstacles=[],
-            goal=None,
             image_size=16,
             observation_keys=observation_keys,
             context_color=context_color,
@@ -257,7 +203,7 @@ def test_prepare_observation_forwards_context_color_to_render_frame(
 
 
 @pytest.mark.unit
-def test_prepare_observation_passes_none_goal_to_render_frame(
+def test_prepare_observation_never_passes_goal_to_render_frame(
     position_history_factory: Callable[..., np.ndarray],
 ):
     position_history = position_history_factory(obs_horizon=1)
@@ -271,12 +217,11 @@ def test_prepare_observation_passes_none_goal_to_render_frame(
         _prepare_observation(
             position_history=position_history,
             obstacles=[],
-            goal=None,
             image_size=16,
             observation_keys=observation_keys,
         )
 
-    assert mock_render.call_args.kwargs["goal"] is None
+    assert "goal" not in mock_render.call_args.kwargs
 
 
 @pytest.mark.unit
@@ -753,10 +698,6 @@ def test_run_rollouts_queries_policy_per_temporal_mode_and_obs_horizon(
             return_value=layout,
         ),
         patch(
-            "versatil.inference.synthetic_rollout._get_render_goal",
-            return_value=np.array([1.0, 1.0], dtype=np.float32),
-        ),
-        patch(
             "versatil.inference.synthetic_rollout._prepare_observation",
             return_value={},
         ),
@@ -811,10 +752,6 @@ def test_run_rollouts_builds_one_hot_context_vector(
         patch(
             "versatil.inference.synthetic_rollout.get_task_layout",
             return_value=layout,
-        ),
-        patch(
-            "versatil.inference.synthetic_rollout._get_render_goal",
-            return_value=np.array([1.0, 1.0], dtype=np.float32),
         ),
         patch(
             "versatil.inference.synthetic_rollout._prepare_observation",
@@ -884,10 +821,6 @@ def test_run_rollouts_saves_visualizations_only_when_output_dir_set(
             return_value=layout,
         ),
         patch(
-            "versatil.inference.synthetic_rollout._get_render_goal",
-            return_value=np.array([1.0, 1.0], dtype=np.float32),
-        ),
-        patch(
             "versatil.inference.synthetic_rollout._prepare_observation",
             return_value={},
         ),
@@ -943,10 +876,6 @@ def test_run_rollouts_integrates_constant_action_deltas_into_positions(
         patch(
             "versatil.inference.synthetic_rollout.get_task_layout",
             return_value=layout,
-        ),
-        patch(
-            "versatil.inference.synthetic_rollout._get_render_goal",
-            return_value=np.array([1.0, 1.0], dtype=np.float32),
         ),
         patch(
             "versatil.inference.synthetic_rollout._prepare_observation",

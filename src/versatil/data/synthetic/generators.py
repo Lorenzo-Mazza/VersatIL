@@ -309,7 +309,6 @@ def _generate_sequential_decision(
             ),
             (start_x + first_x_delta + second_x_delta, SEQUENTIAL_ENDPOINT_Y),
         ]
-        goal = np.array(waypoints[-1], dtype=np.float32)
         for _ in range(episodes_per_mode[mode_index]):
             positions = _interpolate_waypoints(
                 waypoints=waypoints, num_points=trajectory_length
@@ -323,7 +322,6 @@ def _generate_sequential_decision(
             images = render_episode(
                 positions=positions,
                 obstacles=SEQUENTIAL_OBSTACLES,
-                goal=goal,
                 image_size=image_size,
             )
             context = np.zeros((trajectory_length, compound_modes), dtype=np.float32)
@@ -368,7 +366,6 @@ def _generate_radial(
         angle = 2.0 * np.pi * mode_index / num_modes
         endpoint_x = float(RADIAL_CENTER[0]) + RADIAL_RADIUS * np.cos(angle)
         endpoint_y = float(RADIAL_CENTER[1]) + RADIAL_RADIUS * np.sin(angle)
-        goal = np.array([endpoint_x, endpoint_y], dtype=np.float32)
         waypoints = [
             (float(RADIAL_CENTER[0]), float(RADIAL_CENTER[1])),
             (endpoint_x, endpoint_y),
@@ -387,7 +384,6 @@ def _generate_radial(
             images = render_episode(
                 positions=positions,
                 obstacles=obstacles,
-                goal=goal,
                 image_size=image_size,
             )
             context = np.zeros((trajectory_length, num_modes), dtype=np.float32)
@@ -471,7 +467,6 @@ def _generate_corridor_navigation(
                 images = render_episode(
                     positions=positions,
                     obstacles=obstacles,
-                    goal=CORRIDOR_GOAL,
                     image_size=image_size,
                 )
                 context = np.zeros((trajectory_length, total_modes), dtype=np.float32)

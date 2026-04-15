@@ -58,7 +58,7 @@ def rollout_mode_id_factory() -> Callable[..., np.ndarray]:
 def mock_layout_factory() -> Callable[..., MagicMock]:
     def factory(
         num_obstacles: int = 0,
-        has_goal: bool = False,
+        num_goals: int = 0,
         num_modes: int = 3,
     ) -> MagicMock:
         layout = MagicMock(spec=SyntheticTaskLayout)
@@ -66,7 +66,13 @@ def mock_layout_factory() -> Callable[..., MagicMock]:
             (0.1 * index, 0.2, 0.1 * index + 0.05, 0.3)
             for index in range(num_obstacles)
         ]
-        layout.goal = np.array([0.5, 0.5], dtype=np.float32) if has_goal else None
+        if num_goals == 0:
+            layout.goals = None
+        else:
+            layout.goals = np.array(
+                [[0.1 + 0.2 * index, 0.5] for index in range(num_goals)],
+                dtype=np.float32,
+            )
         layout.start = np.array([0.0, 0.0], dtype=np.float32)
         layout.num_modes = num_modes
         return layout
@@ -113,25 +119,19 @@ def test_apply_plot_theme_registers_font_conditionally_and_sets_theme(
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "num_obstacles, has_goal, expected_patch_count",
-    [
-        (0, False, 0),
-        (0, True, 1),
-        (2, False, 2),
-        (2, True, 3),
-    ],
+    "num_obstacles, num_goals",
+    [(0, 0), (0, 1), (0, 4), (2, 0), (2, 1), (2, 4)],
 )
 def test_draw_task_background_adds_expected_patches_and_styles_axes(
     mock_layout_factory: Callable[..., MagicMock],
     num_obstacles: int,
-    has_goal: bool,
-    expected_patch_count: int,
+    num_goals: int,
 ):
-    layout = mock_layout_factory(num_obstacles=num_obstacles, has_goal=has_goal)
+    layout = mock_layout_factory(num_obstacles=num_obstacles, num_goals=num_goals)
     figure, axes = plt.subplots()
     _draw_task_background(axes=axes, layout=layout)
 
-    assert len(axes.patches) == expected_patch_count
+    assert len(axes.patches) == num_obstacles + num_goals
     assert axes.get_xlim() == (-0.02, 1.02)
     assert axes.get_ylim() == (-0.02, 1.02)
     assert axes.get_aspect() == 1.0
@@ -142,23 +142,24 @@ def test_draw_task_background_adds_expected_patches_and_styles_axes(
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "has_goal, has_obstacles, expected_labels",
+    "num_goals, has_obstacles, expected_labels",
     [
-        (False, False, ["Agent", "Trajectory"]),
-        (True, False, ["Agent", "Trajectory", "Goal"]),
-        (False, True, ["Agent", "Trajectory", "Obstacle"]),
-        (True, True, ["Agent", "Trajectory", "Goal", "Obstacle"]),
+        (0, False, ["Agent", "Trajectory"]),
+        (1, False, ["Agent", "Trajectory", "Goal"]),
+        (4, False, ["Agent", "Trajectory", "Goal"]),
+        (0, True, ["Agent", "Trajectory", "Obstacle"]),
+        (1, True, ["Agent", "Trajectory", "Goal", "Obstacle"]),
     ],
 )
 def test_build_legend_handles_composition_matches_layout(
     mock_layout_factory: Callable[..., MagicMock],
-    has_goal: bool,
+    num_goals: int,
     has_obstacles: bool,
     expected_labels: list[str],
 ):
     layout = mock_layout_factory(
         num_obstacles=1 if has_obstacles else 0,
-        has_goal=has_goal,
+        num_goals=num_goals,
     )
 
     handles = _build_legend_handles(layout=layout)
@@ -186,23 +187,24 @@ def test_mode_color_bgr_returns_palette_color_with_modulo_wrap(
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "num_obstacles, has_goal, trails_kind, num_agents, expected_polyline_calls",
+    "num_obstacles, num_goals, trails_kind, num_agents, expected_polyline_calls",
     [
-        (0, False, "none", 2, 0),
-        (0, True, "single_point", 2, 0),
-        (2, False, "multi_point", 3, 3),
-        (2, True, "multi_point", 1, 1),
+        (0, 0, "none", 2, 0),
+        (0, 1, "single_point", 2, 0),
+        (2, 0, "multi_point", 3, 3),
+        (2, 1, "multi_point", 1, 1),
+        (2, 4, "multi_point", 2, 2),
     ],
 )
 def test_render_multi_agent_frame_draws_expected_cv2_shapes(
     mock_layout_factory: Callable[..., MagicMock],
     num_obstacles: int,
-    has_goal: bool,
+    num_goals: int,
     trails_kind: str,
     num_agents: int,
     expected_polyline_calls: int,
 ):
-    layout = mock_layout_factory(num_obstacles=num_obstacles, has_goal=has_goal)
+    layout = mock_layout_factory(num_obstacles=num_obstacles, num_goals=num_goals)
     image_size = 32
     positions = np.tile(np.array([0.5, 0.5], dtype=np.float32), (num_agents, 1))
     if trails_kind == "none":
@@ -231,8 +233,7 @@ def test_render_multi_agent_frame_draws_expected_cv2_shapes(
     assert image.shape == (image_size, image_size, 3)
     assert image.dtype == np.uint8
     assert mock_rectangle.call_count == num_obstacles
-    expected_circle_calls = (1 if has_goal else 0) + num_agents
-    assert mock_circle.call_count == expected_circle_calls
+    assert mock_circle.call_count == num_goals + num_agents
     assert mock_polylines.call_count == expected_polyline_calls
 
 
@@ -256,7 +257,7 @@ def test_plot_trajectories_2d_delegates_drawing_and_writes_output(
     custom_title: str | None,
     expected_scatter_calls: int,
 ):
-    layout = mock_layout_factory(num_obstacles=2, has_goal=True)
+    layout = mock_layout_factory(num_obstacles=2, num_goals=1)
     trajectories = rollout_trajectory_factory(num_trajectories=num_trajectories)
     mode_ids = (
         rollout_mode_id_factory(num_trajectories=num_trajectories)
@@ -522,7 +523,7 @@ def test_save_rollouts_gif_renders_frame_per_timestep_and_saves(
     frames_per_second: int,
     expected_duration_ms: int,
 ):
-    layout = mock_layout_factory(num_obstacles=1, has_goal=True)
+    layout = mock_layout_factory(num_obstacles=1, num_goals=1)
     trajectories = rollout_trajectory_factory(
         num_trajectories=2, num_timesteps=num_timesteps
     )
@@ -602,7 +603,7 @@ def test_save_rollouts_gif_validates_task_name(
     task_name: str,
     expectation,
 ):
-    layout = mock_layout_factory(num_obstacles=0, has_goal=True)
+    layout = mock_layout_factory(num_obstacles=0, num_goals=1)
     fake_frame = np.zeros((16, 16, 3), dtype=np.uint8)
 
     with (
