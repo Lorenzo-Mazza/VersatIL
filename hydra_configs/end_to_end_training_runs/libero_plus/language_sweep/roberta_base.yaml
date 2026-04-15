@@ -24,7 +24,7 @@ task:
   dataloader:
     tokenization:
       observation_tokenizer:
-        tokenizer_model: ${language_model:QWEN_3_5_0_8B}
+        tokenizer_model: ${language_model:ROBERTA_BASE}
 
 experiment:
   precision: ${precision:FP32}
@@ -65,7 +65,7 @@ policy:
         backbone: ${rgb_backbone:EFFICIENTNET_B0}
         frozen: false
       instruction:
-        model_name: ${language_model:QWEN_3_5_0_8B}
+        model_name: ${language_model:ROBERTA_BASE}
         frozen: true
         use_embeddings_only: false
   decoder:

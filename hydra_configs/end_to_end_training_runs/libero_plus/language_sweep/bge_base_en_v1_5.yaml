@@ -10,7 +10,7 @@ defaults:
   - /task/action_space: libero_precomputed_lerobot
   - /task/observation_space: libero_plus_rgb_lerobot
   - /training: default
-  - /policy/encoding_pipeline: stereo_smolvlm
+  - /policy/encoding_pipeline: mono_rgb_language_encoder_tiny
   - /policy/decoder: action_transformer_language
   - /policy/algorithm: behavioral_cloning
   - /policy/loss: regression_gripper
@@ -24,7 +24,7 @@ task:
   dataloader:
     tokenization:
       observation_tokenizer:
-        tokenizer_model: ${smolvlm_model:SMOLVLM_500M}
+        tokenizer_model: ${language_model:BGE_BASE_EN_V1_5}
 
 experiment:
   precision: ${precision:FP32}
@@ -58,8 +58,18 @@ policy:
         action_key: ${proprio_key:EE_POS_ACTION}
   encoding_pipeline:
     encoders:
-      vlm:
-        model_name: ${smolvlm_model:SMOLVLM_500M}
+      left:
+        input_keys:
+          - ${cameras:AGENTVIEW}
+          - ${cameras:EYE_IN_HAND}
+        backbone: ${rgb_backbone:EFFICIENTNET_B0}
+        frozen: false
+      instruction:
+        model_name: ${language_model:BGE_BASE_EN_V1_5}
+        frozen: true
+        use_embeddings_only: false
   decoder:
     input_keys:
-      - vlm_fused_rgb_language
+      - 'left_rgb:agentview_rgb'
+      - 'left_rgb:eye_in_hand_rgb'
+      - instruction_language

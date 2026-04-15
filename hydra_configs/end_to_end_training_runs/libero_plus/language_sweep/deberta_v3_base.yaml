@@ -24,7 +24,7 @@ task:
   dataloader:
     tokenization:
       observation_tokenizer:
-        tokenizer_model: ${language_model:GEMMA_2B}
+        tokenizer_model: ${language_model:DEBERTA_V3_BASE}
 
 experiment:
   precision: ${precision:FP32}
@@ -65,11 +65,11 @@ policy:
         backbone: ${rgb_backbone:EFFICIENTNET_B0}
         frozen: false
       instruction:
-        model_name: ${language_model:GEMMA_2B}
+        model_name: ${language_model:DEBERTA_V3_BASE}
         frozen: true
         use_embeddings_only: false
   decoder:
     input_keys:
       - 'left_rgb:agentview_rgb'
       - 'left_rgb:eye_in_hand_rgb'
-      - 'instruction_language'
+      - instruction_language
