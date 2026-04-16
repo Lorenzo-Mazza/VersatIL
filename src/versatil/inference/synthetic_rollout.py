@@ -365,20 +365,20 @@ def _expert_endpoint_reach_threshold(
     expert_trajectories: np.ndarray,
     expert_mode_ids: np.ndarray,
     mode_endpoints: np.ndarray,
+    min_threshold: float = 0.1,
 ) -> float:
     """Expert-derived "close enough" radius around each mode endpoint.
 
     Uses mean + 5·std of expert final-position distances to their own
-    mode mean. The mean covers the typical Rayleigh-distributed offset,
-    and 5·std on top gives a generous tail margin so trajectories that
-    are noticeably-but-acceptably off center still count as reaching
-    the endpoint.
+    mode mean, floored at ``min_threshold``. The floor prevents overly strict
+    thresholds on closed-loop tasks where all endpoints cluster at the
+    start.
     """
     final_positions = expert_trajectories[:, -1, :]  # (num_expert, 2)
     distances = np.linalg.norm(
         final_positions - mode_endpoints[expert_mode_ids], axis=-1
     )  # (num_expert,)
-    return float(distances.mean() + 5.0 * distances.std())
+    return float(max(distances.mean() + 5.0 * distances.std(), min_threshold))
 
 
 def _prepare_observation(

@@ -471,10 +471,6 @@ def test_evaluate_rollouts_forwards_half_expert_mean_path_length(
 
 @pytest.mark.unit
 def test_expert_endpoint_reach_threshold_returns_mean_plus_five_std():
-    # Two modes with endpoints (0,0) and (1,1). Four experts (two per mode)
-    # land at handcrafted offsets so distances are {0.1, 0.3, 0.2, 0.4} with
-    # mean=0.25 and population std = sqrt(((0.1-0.25)^2 + (0.3-0.25)^2
-    # + (0.2-0.25)^2 + (0.4-0.25)^2) / 4) = sqrt(0.0125) ≈ 0.1118.
     mode_endpoints = np.array([[0.0, 0.0], [1.0, 1.0]], dtype=np.float32)
     expert_mode_ids = np.array([0, 0, 1, 1], dtype=np.int64)
     final_positions = np.array(
@@ -491,7 +487,49 @@ def test_expert_endpoint_reach_threshold_returns_mean_plus_five_std():
 
     distances = np.array([0.1, 0.3, 0.2, 0.4], dtype=np.float64)
     expected = float(distances.mean() + 5.0 * distances.std())
+    assert expected > 0.1
     assert threshold == pytest.approx(expected, abs=1e-6)
+
+
+@pytest.mark.unit
+def test_expert_endpoint_reach_threshold_floors_at_min_threshold():
+    mode_endpoints = np.array([[0.5, 0.5]], dtype=np.float32)
+    expert_mode_ids = np.array([0, 0, 0, 0], dtype=np.int64)
+    final_positions = np.array(
+        [[0.505, 0.5], [0.495, 0.5], [0.5, 0.505], [0.5, 0.495]], dtype=np.float32
+    )
+    expert_trajectories = np.zeros((4, 3, 2), dtype=np.float32)
+    expert_trajectories[:, -1, :] = final_positions
+
+    distances = np.linalg.norm(
+        final_positions - mode_endpoints[expert_mode_ids], axis=-1
+    )
+    spread_threshold = float(distances.mean() + 5.0 * distances.std())
+    assert spread_threshold < 0.1
+
+    threshold = _expert_endpoint_reach_threshold(
+        expert_trajectories=expert_trajectories,
+        expert_mode_ids=expert_mode_ids,
+        mode_endpoints=mode_endpoints,
+    )
+    assert threshold == pytest.approx(0.1, abs=1e-6)
+
+
+@pytest.mark.unit
+def test_expert_endpoint_reach_threshold_respects_custom_min_threshold():
+    mode_endpoints = np.array([[0.5, 0.5]], dtype=np.float32)
+    expert_mode_ids = np.array([0, 0], dtype=np.int64)
+    final_positions = np.array([[0.501, 0.5], [0.499, 0.5]], dtype=np.float32)
+    expert_trajectories = np.zeros((2, 3, 2), dtype=np.float32)
+    expert_trajectories[:, -1, :] = final_positions
+
+    threshold = _expert_endpoint_reach_threshold(
+        expert_trajectories=expert_trajectories,
+        expert_mode_ids=expert_mode_ids,
+        mode_endpoints=mode_endpoints,
+        min_threshold=0.05,
+    )
+    assert threshold == pytest.approx(0.05, abs=1e-6)
 
 
 @pytest.mark.unit
