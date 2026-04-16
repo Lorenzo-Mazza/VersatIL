@@ -2,3 +2,4 @@ defaults:
   - default
 
 save_checkpoints: false
+val_every: 100
