@@ -641,20 +641,13 @@ class TestLanguageEncoderBuildEncoder:
         # full-model path assigns the patched HF model instance
         assert encoder.encoder is not None
 
-    def test_model_dtype_cast_applied_when_set(
+    def test_apply_model_dtype_called_when_model_dtype_set(
         self,
         language_encoder_factory: Callable[..., LanguageEncoder],
     ):
-        mock_model = MagicMock()
-        casted_model = MagicMock()
-        mock_model.to.return_value = casted_model
-        encoder = language_encoder_factory(
-            real_build=True,
-            model_dtype="bf16-mixed",
-            mock_model=mock_model,
-        )
-        mock_model.to.assert_called_once_with(torch.bfloat16)
-        assert encoder.encoder is casted_model
+        with patch.object(LanguageEncoder, "_apply_model_dtype") as mock_apply:
+            language_encoder_factory(model_dtype="bf16-mixed")
+        mock_apply.assert_called_once()
 
     def test_frozen_calls_freeze_weights(
         self,

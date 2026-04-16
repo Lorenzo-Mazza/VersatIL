@@ -625,10 +625,6 @@ class TestSpatialDepthEncoderModelDtype:
     def test_apply_model_dtype_called_again_in_set_image_size(self):
         with (
             patch.object(SpatialDepthEncoder, "_build_backbone", _mock_build_backbone),
-            patch.object(SpatialDepthEncoder, "_setup_pooling", _mock_setup_pooling),
-            patch.object(
-                SpatialDepthEncoder, "_has_strict_image_size", return_value=False
-            ),
             patch.object(SpatialDepthEncoder, "_apply_model_dtype") as mock_apply,
         ):
             encoder = SpatialDepthEncoder(
@@ -637,7 +633,11 @@ class TestSpatialDepthEncoderModelDtype:
                 pretrained=False,
             )
             mock_apply.reset_mock()
-            encoder.set_image_size(image_height=224, image_width=224)
+            encoder.backbone.return_value = [torch.zeros(1, 512, 7, 7)]
+            with patch.object(
+                SpatialDepthEncoder, "_setup_pooling", _mock_setup_pooling
+            ):
+                encoder.set_image_size(image_height=224, image_width=224)
         mock_apply.assert_called_once()
 
     @pytest.mark.integration

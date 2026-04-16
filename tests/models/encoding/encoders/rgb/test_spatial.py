@@ -666,10 +666,6 @@ class TestSpatialRGBEncoderModelDtype:
     def test_apply_model_dtype_called_again_in_set_image_size(self):
         with (
             patch.object(SpatialRGBEncoder, "_build_backbone", _mock_build_backbone),
-            patch.object(SpatialRGBEncoder, "_setup_pooling", _mock_setup_pooling),
-            patch.object(
-                SpatialRGBEncoder, "_has_strict_image_size", return_value=False
-            ),
             patch.object(SpatialRGBEncoder, "_apply_model_dtype") as mock_apply,
         ):
             encoder = SpatialRGBEncoder(
@@ -678,7 +674,9 @@ class TestSpatialRGBEncoderModelDtype:
                 pretrained=False,
             )
             mock_apply.reset_mock()
-            encoder.set_image_size(image_height=224, image_width=224)
+            encoder.backbone.return_value = [torch.zeros(1, 512, 7, 7)]
+            with patch.object(SpatialRGBEncoder, "_setup_pooling", _mock_setup_pooling):
+                encoder.set_image_size(image_height=224, image_width=224)
         mock_apply.assert_called_once()
 
     @pytest.mark.integration

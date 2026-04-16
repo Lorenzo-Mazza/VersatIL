@@ -8,7 +8,7 @@ encoders:
     input_keys:
       - ${cameras:AGENTVIEW}
       - ${cameras:EYE_IN_HAND}
-      - ${sample_key:TOKENIZED_OBSERVATIONS}
+      # Language is routed automatically in a VLM
     model_name: HuggingFaceTB/SmolVLM2-500M-Instruct
     pretrained: true
     frozen: true

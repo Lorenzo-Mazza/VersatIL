@@ -296,6 +296,10 @@ class TestLanguageEncoderConfig:
         config = LanguageEncoderConfig()
         assert not isinstance(config, EncoderConfig)
 
+    def test_model_dtype_defaults_to_experiment_precision_interpolation(self):
+        config = LanguageEncoderConfig()
+        assert config.model_dtype == "${experiment.precision}"
+
 
 @pytest.mark.unit
 class TestEncoderInstantiation:

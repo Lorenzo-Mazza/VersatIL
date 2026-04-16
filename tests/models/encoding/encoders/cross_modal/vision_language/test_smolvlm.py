@@ -89,10 +89,7 @@ def smolvlm_encoder_factory(
         use_embeddings_only: bool = False,
     ) -> SmolVLMEncoder:
         if input_keys is None:
-            input_keys = [
-                Cameras.LEFT.value,
-                SampleKey.TOKENIZED_OBSERVATIONS.value,
-            ]
+            input_keys = [Cameras.LEFT.value]
         mock_config = _create_mock_config()
         camera_count = sum(1 for k in input_keys if k in RGB_CAMERAS)
         mock_vlm = mock_vlm_factory(num_cameras=max(camera_count, 1))
@@ -190,15 +187,8 @@ class TestSmolVLMEncoderInitialization:
     @pytest.mark.parametrize(
         "input_keys, expected_camera_count",
         [
-            ([Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value], 1),
-            (
-                [
-                    Cameras.LEFT.value,
-                    Cameras.RIGHT.value,
-                    SampleKey.TOKENIZED_OBSERVATIONS.value,
-                ],
-                2,
-            ),
+            ([Cameras.LEFT.value], 1),
+            ([Cameras.LEFT.value, Cameras.RIGHT.value], 2),
         ],
     )
     @pytest.mark.parametrize("frozen", [True, False])
@@ -543,18 +533,8 @@ class TestSmolVLMEncoderGetOutputSpecification:
     @pytest.mark.parametrize(
         "input_keys, expected_total_image_tokens",
         [
-            (
-                [Cameras.LEFT.value, SampleKey.TOKENIZED_OBSERVATIONS.value],
-                NUM_IMAGE_TOKENS,
-            ),
-            (
-                [
-                    Cameras.LEFT.value,
-                    Cameras.RIGHT.value,
-                    SampleKey.TOKENIZED_OBSERVATIONS.value,
-                ],
-                2 * NUM_IMAGE_TOKENS,
-            ),
+            ([Cameras.LEFT.value], NUM_IMAGE_TOKENS),
+            ([Cameras.LEFT.value, Cameras.RIGHT.value], 2 * NUM_IMAGE_TOKENS),
         ],
     )
     def test_fused_dimension_scales_with_cameras(

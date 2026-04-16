@@ -7,7 +7,7 @@ encoders:
     input_keys:
       - ${cameras:AGENTVIEW}
       - ${cameras:EYE_IN_HAND}
-      - ${sample_key:TOKENIZED_OBSERVATIONS}
+      # Language is routed automatically in a VLM
     model_name: google/paligemma-3b-pt-224
     pretrained: true
     frozen: true

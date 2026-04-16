@@ -45,8 +45,11 @@ class GenerativeVLMEncoder(LanguageEncoderMixin, Encoder, abc.ABC):
         model_dtype: str | None = None,
         max_text_length: int | None = None,
     ):
+        if isinstance(input_keys, str):
+            input_keys = [input_keys]
+        all_keys = list(input_keys) + [SampleKey.TOKENIZED_OBSERVATIONS.value]
         specification = EncoderInput(
-            keys=input_keys,
+            keys=all_keys,
             at_least_one_of_groups=[RGB_CAMERAS],
             required=[SampleKey.TOKENIZED_OBSERVATIONS.value],
             requires_tokenized=True,

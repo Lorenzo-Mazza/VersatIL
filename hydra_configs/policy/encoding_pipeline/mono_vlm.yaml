@@ -5,7 +5,7 @@ encoders:
   left:
     input_keys:
     - ${cameras:LEFT}
-    - ${sample_key:TOKENIZED_OBSERVATIONS}
+    # Language is routed automatically in a VLM
     model_name: ${vlm_model:CLIP_VITB32}
     pretrained: true
     frozen: true
