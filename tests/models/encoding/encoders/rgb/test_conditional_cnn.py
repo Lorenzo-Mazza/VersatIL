@@ -750,3 +750,68 @@ class TestConditionalCNNEncoderRealBuild:
         rgb = output[EncoderOutputKeys.RGB.value]
         assert rgb.shape[0] == batch_size
         assert rgb.shape[-1] == encoder.feature_dim
+
+
+def _real_filmed_build_backbone(self):
+    """Install a real FiLM-style backbone stub with actual nn.Module params."""
+    self.conv1 = nn.Conv2d(3, 16, kernel_size=7, padding=3)
+    self.bn1 = nn.Identity()
+    self.relu = nn.Identity()
+    self.maxpool = nn.Identity()
+    self.layer1 = nn.ModuleList()
+    self.layer2 = nn.ModuleList()
+    self.layer3 = nn.ModuleList()
+    self.layer4 = nn.ModuleList()
+
+
+class TestConditionalCNNEncoderModelDtype:
+    @pytest.mark.unit
+    def test_apply_model_dtype_called_once_in_init(self):
+        with (
+            patch.object(
+                ConditionalCNNEncoder,
+                "_build_filmed_backbone",
+                _mock_build_filmed_backbone,
+            ),
+            patch.object(ConditionalCNNEncoder, "_apply_model_dtype") as mock_apply,
+        ):
+            ConditionalCNNEncoder(
+                input_keys="left",
+                condition_key="language_instruction",
+                condition_dim=64,
+                backbone=SpatialBackboneType.RESNET18.value,
+                pretrained=False,
+            )
+        mock_apply.assert_called_once()
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "model_dtype, expected_dtype",
+        [
+            (None, torch.float32),
+            ("32", torch.float32),
+            ("bf16-mixed", torch.bfloat16),
+        ],
+    )
+    def test_all_parameters_share_model_dtype_after_init(
+        self,
+        model_dtype: str | None,
+        expected_dtype: torch.dtype,
+    ):
+        with patch.object(
+            ConditionalCNNEncoder,
+            "_build_filmed_backbone",
+            _real_filmed_build_backbone,
+        ):
+            encoder = ConditionalCNNEncoder(
+                input_keys="left",
+                condition_key="language_instruction",
+                condition_dim=64,
+                backbone=SpatialBackboneType.RESNET18.value,
+                pooling_method=PoolingMethod.SPATIAL_SOFTMAX.value,
+                batch_norm_handling=BatchNormHandling.DEFAULT.value,
+                pretrained=False,
+                model_dtype=model_dtype,
+            )
+        for parameter in encoder.parameters():
+            assert parameter.dtype == expected_dtype

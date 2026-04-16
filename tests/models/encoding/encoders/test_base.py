@@ -36,6 +36,12 @@ class ConcreteEncodingMixin(EncodingMixin):
             model_dtype=model_dtype,
         )
         self.linear = nn.Linear(64, 64)
+        self._apply_model_dtype()
+
+    def rebuild(self) -> None:
+        """Simulates a deferred rebuild (e.g. set_image_size / _build_network)."""
+        self.linear = nn.Linear(64, 64)
+        self._apply_model_dtype()
 
     def get_output_specification(self) -> list[FeatureMetadata]:
         return [
@@ -382,3 +388,52 @@ class TestEncodingMixinModelDtype:
         with expectation:
             encoder = concrete_encoder_factory(model_dtype=model_dtype)
             assert encoder.model_dtype == expected_dtype
+
+
+class TestEncodingMixinApplyModelDtype:
+    @pytest.mark.parametrize(
+        "model_dtype, expected_dtype",
+        [
+            (None, torch.float32),
+            (PrecisionType.FP32.value, torch.float32),
+            (PrecisionType.BF16_MIXED.value, torch.bfloat16),
+            (PrecisionType.BF16_TRUE.value, torch.bfloat16),
+            (PrecisionType.FP16_MIXED.value, torch.float16),
+        ],
+    )
+    def test_all_parameters_share_model_dtype_after_init(
+        self,
+        concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
+        model_dtype: str | None,
+        expected_dtype: torch.dtype,
+    ):
+        encoder = concrete_encoder_factory(model_dtype=model_dtype)
+        for parameter in encoder.parameters():
+            assert parameter.dtype == expected_dtype
+
+    @pytest.mark.parametrize(
+        "model_dtype, expected_dtype",
+        [
+            (PrecisionType.FP32.value, torch.float32),
+            (PrecisionType.BF16_MIXED.value, torch.bfloat16),
+        ],
+    )
+    def test_rebuild_preserves_model_dtype(
+        self,
+        concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
+        model_dtype: str,
+        expected_dtype: torch.dtype,
+    ):
+        encoder = concrete_encoder_factory(model_dtype=model_dtype)
+        encoder.rebuild()
+        for parameter in encoder.parameters():
+            assert parameter.dtype == expected_dtype
+
+    def test_no_op_when_model_dtype_is_none(
+        self,
+        concrete_encoder_factory: Callable[..., ConcreteEncodingMixin],
+    ):
+        encoder = concrete_encoder_factory(model_dtype=None)
+        # Preserve PyTorch's default parameter dtype (fp32) without any cast.
+        for parameter in encoder.parameters():
+            assert parameter.dtype == torch.float32

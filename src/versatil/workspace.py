@@ -209,6 +209,10 @@ class Workspace:
         """Instantiate policy and wrap with Lightning."""
         logging.info("Instantiating policy...")
         self.policy: Policy = self.config.policy
+        pipeline_dtype = PrecisionType(
+            str(self.config.experiment.precision)
+        ).get_model_dtype()
+        self.policy.encoding_pipeline.set_output_dtype(pipeline_dtype)
         self.policy.set_normalizer(self.normalizer)
         self.policy.set_tokenizer(self.tokenizer)
         self.policy.set_denoising_thresholds(self.denoising_thresholds)

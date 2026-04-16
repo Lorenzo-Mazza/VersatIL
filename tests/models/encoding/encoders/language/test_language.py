@@ -808,3 +808,75 @@ class TestLanguageEncoderIntegration:
         )
         for parameter in encoder.parameters():
             assert not parameter.requires_grad
+
+
+class TestLanguageEncoderModelDtype:
+    @pytest.mark.unit
+    def test_apply_model_dtype_called_once_in_init(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+    ):
+        with patch.object(LanguageEncoder, "_apply_model_dtype") as mock_apply:
+            language_encoder_factory()
+        mock_apply.assert_called_once()
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "model_dtype, expected_dtype",
+        [
+            (None, torch.float32),
+            ("32", torch.float32),
+            ("bf16-mixed", torch.bfloat16),
+        ],
+    )
+    def test_embedding_only_encoder_parameters_share_model_dtype(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+        model_dtype: str | None,
+        expected_dtype: torch.dtype,
+    ):
+        encoder = language_encoder_factory(
+            pretrained=False,
+            pooling_method=PoolingMethod.NONE.value,
+            use_embeddings_only=True,
+            model_dtype=model_dtype,
+            real_build=True,
+        )
+        # Real nn.Embedding built by _build_encoder when pretrained=False; all
+        # parameters (embedding + any pooling head weights) must be cast together.
+        trainable_params = [
+            p for p in encoder.parameters() if isinstance(p, torch.nn.Parameter)
+        ]
+        assert trainable_params, "Encoder should have at least the embedding params"
+        for parameter in trainable_params:
+            assert parameter.dtype == expected_dtype
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "model_dtype, expected_dtype",
+        [
+            ("32", torch.float32),
+            ("bf16-mixed", torch.bfloat16),
+        ],
+    )
+    def test_full_encoder_pooling_head_matches_backbone_dtype(
+        self,
+        language_encoder_factory: Callable[..., LanguageEncoder],
+        model_dtype: str,
+        expected_dtype: torch.dtype,
+    ):
+        # Build against a real nn.Module backbone (not just MagicMock) so
+        # .to(dtype) actually propagates.
+        mock_backbone = torch.nn.Linear(HIDDEN_SIZE, HIDDEN_SIZE)
+        encoder = language_encoder_factory(
+            pretrained=True,
+            pooling_method=PoolingMethod.DEFAULT.value,
+            use_embeddings_only=False,
+            model_dtype=model_dtype,
+            real_build=True,
+            mock_model=mock_backbone,
+        )
+        for parameter in encoder.encoder.parameters():
+            assert parameter.dtype == expected_dtype
+        for parameter in encoder.token_pooling_head.parameters():
+            assert parameter.dtype == expected_dtype

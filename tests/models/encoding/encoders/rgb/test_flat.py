@@ -775,3 +775,96 @@ class TestFlatRGBEncoderIntegration:
         encoder.set_image_size(image_height=518, image_width=518)
         for parameter in encoder.parameters():
             assert parameter.requires_grad is not frozen
+
+
+def _real_flat_build_backbone(self):
+    """Side-effect installing a real nn.Linear as backbone so .to(dtype) has effect."""
+    backbone = torch.nn.Linear(16, FEATURE_DIM)
+    backbone.num_features = FEATURE_DIM
+    backbone.num_prefix_tokens = 1
+    backbone.patch_embed = None
+    self.backbone = backbone
+    self.expected_image_size = None
+    self.requires_strict_image_size = False
+    self.patch_size = None
+
+
+class TestFlatRGBEncoderModelDtype:
+    @pytest.mark.unit
+    def test_apply_model_dtype_called_once_in_init(self):
+        with (
+            patch.object(FlatRGBEncoder, "_build_backbone", _mock_build_backbone),
+            patch.object(FlatRGBEncoder, "_apply_model_dtype") as mock_apply,
+        ):
+            FlatRGBEncoder(
+                input_keys="left",
+                backbone=FlatBackboneType.DINOV2_VITS14.value,
+                pretrained=False,
+                frozen=False,
+            )
+        mock_apply.assert_called_once()
+
+    @pytest.mark.unit
+    def test_apply_model_dtype_called_again_in_set_image_size(self):
+        with (
+            patch.object(FlatRGBEncoder, "_build_backbone", _mock_build_backbone),
+            patch.object(FlatRGBEncoder, "_apply_model_dtype") as mock_apply,
+        ):
+            encoder = FlatRGBEncoder(
+                input_keys="left",
+                backbone=FlatBackboneType.DINOV2_VITS14.value,
+                pretrained=False,
+                frozen=False,
+            )
+            mock_apply.reset_mock()
+            encoder.set_image_size(image_height=224, image_width=224)
+        mock_apply.assert_called_once()
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "model_dtype, expected_dtype",
+        [
+            (None, torch.float32),
+            ("32", torch.float32),
+            ("bf16-mixed", torch.bfloat16),
+        ],
+    )
+    def test_all_parameters_share_model_dtype_after_init(
+        self,
+        model_dtype: str | None,
+        expected_dtype: torch.dtype,
+    ):
+        with patch.object(FlatRGBEncoder, "_build_backbone", _real_flat_build_backbone):
+            encoder = FlatRGBEncoder(
+                input_keys="left",
+                backbone=FlatBackboneType.DINOV2_VITS14.value,
+                pooling_method=PoolingMethod.DEFAULT.value,
+                pretrained=False,
+                frozen=False,
+                model_dtype=model_dtype,
+            )
+        for parameter in encoder.parameters():
+            assert parameter.dtype == expected_dtype
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "model_dtype, expected_dtype",
+        [("32", torch.float32), ("bf16-mixed", torch.bfloat16)],
+    )
+    def test_set_image_size_rebuild_preserves_model_dtype(
+        self,
+        model_dtype: str,
+        expected_dtype: torch.dtype,
+    ):
+        with patch.object(FlatRGBEncoder, "_build_backbone", _real_flat_build_backbone):
+            encoder = FlatRGBEncoder(
+                input_keys="left",
+                backbone=FlatBackboneType.DINOV2_VITS14.value,
+                pooling_method=PoolingMethod.DEFAULT.value,
+                pretrained=False,
+                frozen=False,
+                model_dtype=model_dtype,
+            )
+            encoder.set_image_size(image_height=224, image_width=224)
+        for parameter in encoder.parameters():
+            assert parameter.dtype == expected_dtype

@@ -232,6 +232,7 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
             self._load_checkpoint(checkpoint_path)
         if frozen:
             super()._freeze_weights()
+        self._apply_model_dtype()
 
     def _build_backbone(
         self,
@@ -363,10 +364,13 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
             image_height: Target image height.
             image_width: Target image width.
         """
+        probe_dtype = (
+            self.model_dtype if self.model_dtype is not None else torch.float32
+        )
         with torch.no_grad():
-            mock_rgb = torch.zeros(1, 3, image_height, image_width)
+            mock_rgb = torch.zeros(1, 3, image_height, image_width, dtype=probe_dtype)
             features = self.patch_embed(mock_rgb)
-            depth_mock = torch.zeros(1, 1, image_height, image_width)
+            depth_mock = torch.zeros(1, 1, image_height, image_width, dtype=probe_dtype)
             depth_map = F.interpolate(
                 depth_mock, size=features.shape[1:3], mode="bilinear"
             )
@@ -374,6 +378,7 @@ class DFormerEncoder(RGBDEncoderMixin, Encoder):
                 _, features, depth_map = stage(features, depth_map)
             _, spatial_height, spatial_width, _ = features.shape
         self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)
+        self._apply_model_dtype()
 
     def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
         """Validate that RGB keys have 3-channel metadata and depth key is single-channel.

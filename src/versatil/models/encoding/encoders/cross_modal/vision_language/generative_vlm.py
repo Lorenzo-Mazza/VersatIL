@@ -71,8 +71,6 @@ class GenerativeVLMEncoder(LanguageEncoderMixin, Encoder, abc.ABC):
             )
         else:
             self.vlm = AutoModel.from_config(config, attn_implementation=attention_type)
-        if self.model_dtype is not None:
-            self.vlm = self.vlm.to(self.model_dtype)
         self.image_size: int = config.vision_config.image_size
         self.hidden_dim: int = config.text_config.hidden_size
         self.num_image_tokens_per_camera: int = self._compute_num_image_tokens(config)
@@ -84,6 +82,7 @@ class GenerativeVLMEncoder(LanguageEncoderMixin, Encoder, abc.ABC):
         self.use_embeddings_only = use_embeddings_only
         if frozen:
             super()._freeze_weights()
+        self._apply_model_dtype()
 
     @property
     def total_image_tokens(self) -> int:

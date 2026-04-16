@@ -596,3 +596,100 @@ class TestSpatialDepthEncoderBuildBackbone:
                 batch_norm_handling=invalid_handling,
                 pretrained=False,
             )
+
+
+def _real_depth_build_backbone(self, img_size: tuple[int, int] | None = None):
+    """Side-effect installing a real nn.Conv2d (1-channel) so .to(dtype) has effect."""
+    backbone = torch.nn.Conv2d(1, 16, kernel_size=3)
+    backbone.feature_info = MagicMock()
+    backbone.feature_info.channels.return_value = [16]
+    backbone.patch_embed = None
+    self.backbone = backbone
+
+
+class TestSpatialDepthEncoderModelDtype:
+    @pytest.mark.unit
+    def test_apply_model_dtype_called_once_in_init(self):
+        with (
+            patch.object(SpatialDepthEncoder, "_build_backbone", _mock_build_backbone),
+            patch.object(SpatialDepthEncoder, "_apply_model_dtype") as mock_apply,
+        ):
+            SpatialDepthEncoder(
+                input_keys=Cameras.DEPTH.value,
+                backbone=SpatialBackboneType.RESNET18.value,
+                pretrained=False,
+            )
+        mock_apply.assert_called_once()
+
+    @pytest.mark.unit
+    def test_apply_model_dtype_called_again_in_set_image_size(self):
+        with (
+            patch.object(SpatialDepthEncoder, "_build_backbone", _mock_build_backbone),
+            patch.object(SpatialDepthEncoder, "_setup_pooling", _mock_setup_pooling),
+            patch.object(
+                SpatialDepthEncoder, "_has_strict_image_size", return_value=False
+            ),
+            patch.object(SpatialDepthEncoder, "_apply_model_dtype") as mock_apply,
+        ):
+            encoder = SpatialDepthEncoder(
+                input_keys=Cameras.DEPTH.value,
+                backbone=SpatialBackboneType.RESNET18.value,
+                pretrained=False,
+            )
+            mock_apply.reset_mock()
+            encoder.set_image_size(image_height=224, image_width=224)
+        mock_apply.assert_called_once()
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "model_dtype, expected_dtype",
+        [
+            (None, torch.float32),
+            ("32", torch.float32),
+            ("bf16-mixed", torch.bfloat16),
+        ],
+    )
+    def test_all_parameters_share_model_dtype_after_init(
+        self,
+        model_dtype: str | None,
+        expected_dtype: torch.dtype,
+    ):
+        with patch.object(
+            SpatialDepthEncoder, "_build_backbone", _real_depth_build_backbone
+        ):
+            encoder = SpatialDepthEncoder(
+                input_keys=Cameras.DEPTH.value,
+                backbone=SpatialBackboneType.RESNET18.value,
+                pooling_method=PoolingMethod.AVERAGE.value,
+                batch_norm_handling=BatchNormHandling.DEFAULT.value,
+                pretrained=False,
+                model_dtype=model_dtype,
+            )
+        for parameter in encoder.parameters():
+            assert parameter.dtype == expected_dtype
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "model_dtype, expected_dtype",
+        [("32", torch.float32), ("bf16-mixed", torch.bfloat16)],
+    )
+    def test_backbone_rebuild_preserves_model_dtype(
+        self,
+        model_dtype: str,
+        expected_dtype: torch.dtype,
+    ):
+        with patch.object(
+            SpatialDepthEncoder, "_build_backbone", _real_depth_build_backbone
+        ):
+            encoder = SpatialDepthEncoder(
+                input_keys=Cameras.DEPTH.value,
+                backbone=SpatialBackboneType.RESNET18.value,
+                pooling_method=PoolingMethod.AVERAGE.value,
+                batch_norm_handling=BatchNormHandling.DEFAULT.value,
+                pretrained=False,
+                model_dtype=model_dtype,
+            )
+            encoder._build_backbone(img_size=(224, 224))
+            encoder._apply_model_dtype()
+        for parameter in encoder.parameters():
+            assert parameter.dtype == expected_dtype

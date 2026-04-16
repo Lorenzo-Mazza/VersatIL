@@ -95,6 +95,7 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
         )
         if frozen:
             super()._freeze_weights()
+        self._apply_model_dtype()
 
     def _build_encoder(self):
         """Build language encoder and tokenizer."""
@@ -131,8 +132,6 @@ class LanguageEncoder(LanguageEncoderMixin, Encoder):
                 self.encoder = AutoModel.from_config(
                     self.config, attn_implementation=self.attention_type
                 )
-            if self.model_dtype is not None:
-                self.encoder = self.encoder.to(self.model_dtype)
 
     def encode(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Encode pre-tokenized text into language features.

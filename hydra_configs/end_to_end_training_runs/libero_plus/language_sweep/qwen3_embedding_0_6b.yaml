@@ -68,6 +68,7 @@ policy:
         model_name: ${language_model:QWEN_3_EMBEDDING_0_6B}
         frozen: true
         use_embeddings_only: false
+        model_dtype: ${precision:BF16_MIXED}
   decoder:
     input_keys:
       - 'left_rgb:agentview_rgb'

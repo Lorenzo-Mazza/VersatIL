@@ -105,6 +105,7 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
         self.output_dim: int | tuple[int, ...] = self.embedding_dimension
         if frozen:
             super()._freeze_weights()
+        self._apply_model_dtype()
 
     def _setup_pooling(self, spatial_height: int, spatial_width: int) -> None:
         """Create pooling head from feature map spatial dimensions.
@@ -193,13 +194,17 @@ class GeometricRGBDEncoder(RGBDEncoderMixin, Encoder):
             image_height: Target image height.
             image_width: Target image width.
         """
+        probe_dtype = (
+            self.model_dtype if self.model_dtype is not None else torch.float32
+        )
         with torch.no_grad():
-            mock_rgb = torch.zeros(1, 3, image_height, image_width)
-            mock_depth = torch.zeros(1, 1, image_height, image_width)
+            mock_rgb = torch.zeros(1, 3, image_height, image_width, dtype=probe_dtype)
+            mock_depth = torch.zeros(1, 1, image_height, image_width, dtype=probe_dtype)
             _, spatial_height, spatial_width = self.encode_features(
                 rgb_image=mock_rgb, depth_map=mock_depth
             )
         self._setup_pooling(spatial_height=spatial_height, spatial_width=spatial_width)
+        self._apply_model_dtype()
 
     def validate_input_metadata(self, key: str, metadata: BaseMetadata) -> str | None:
         """Validate that RGB keys have 3-channel metadata and depth key is single-channel.

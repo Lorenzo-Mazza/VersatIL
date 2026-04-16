@@ -43,9 +43,19 @@ class EncodingPipeline(nn.Module):
         #: all feature_name (both encoders and fusion layers) -> FeatureMetadata
         self._feature_registry: dict[str, FeatureMetadata] = {}
         self._encoder_feature_keys: dict[str, list[str]] = {}
+        #: Set by the workspace from experiment.precision via set_output_dtype.
+        self.output_dtype: torch.dtype | None = None
         self._setup_encoders(encoders=encoders)
         self._setup_fusion_modules(fusion_stages=fusion_stages)
         self._validate_pipeline()
+
+    def set_output_dtype(self, output_dtype: torch.dtype | None) -> None:
+        """Pin the dtype of features emitted by ``forward``.
+
+        Called once by the workspace after Hydra instantiation, with the
+        pipeline-wide precision (``experiment.precision``).
+        """
+        self.output_dtype = output_dtype
 
     def _setup_encoders(self, encoders: dict[str, EncodingMixin]):
         """Register encoders and set per-camera image sizes from observation space.
@@ -285,6 +295,11 @@ class EncodingPipeline(nn.Module):
         features = dict_apply(
             features, lambda x: x.squeeze(1) if x.ndim > 1 and x.shape[1] == 1 else x
         )
+        if self.output_dtype is not None:
+            features = dict_apply(
+                features,
+                lambda x: x.to(self.output_dtype) if torch.is_floating_point(x) else x,
+            )
         return features
 
     def get_feature_names(self) -> list[str]:

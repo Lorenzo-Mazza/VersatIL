@@ -143,6 +143,7 @@ def mock_workspace_policy_factory(
         if decoder_callbacks is not None:
             policy.decoder.get_callbacks = MagicMock(return_value=decoder_callbacks)
 
+        policy.encoding_pipeline = MagicMock()
         policy.algorithm = MagicMock()
         if algorithm_callbacks is not None:
             policy.algorithm.get_callbacks = MagicMock(return_value=algorithm_callbacks)
@@ -1234,6 +1235,45 @@ class TestSetupPolicy:
         policy.set_denoising_thresholds.assert_called_once_with({"key": 0.5})
         policy.set_gripper_class_weights.assert_called_once_with(None)
 
+    @pytest.mark.parametrize(
+        "precision, expected_dtype",
+        [
+            ("32", torch.float32),
+            ("bf16-mixed", torch.bfloat16),
+            ("bf16-true", torch.bfloat16),
+            ("16-mixed", torch.float16),
+        ],
+    )
+    def test_pipeline_output_dtype_set_from_experiment_precision(
+        self,
+        workspace_factory,
+        mock_workspace_policy_factory,
+        precision: str,
+        expected_dtype: torch.dtype,
+    ):
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(
+            experiment_kwargs={"precision": precision},
+            policy=policy,
+        )
+        workspace.policy = None
+
+        workspace.normalizer = MagicMock(spec=LinearNormalizer)
+        workspace.tokenizer = None
+        workspace.denoising_thresholds = {}
+        workspace.gripper_class_weights = None
+        mock_train_loader = MagicMock()
+        mock_train_loader.__len__ = MagicMock(return_value=10)
+        workspace.train_loader = mock_train_loader
+        workspace.config.policy = policy
+
+        with patch.object(workspace, "_initialize_lazy_modules"):
+            workspace._setup_policy()
+
+        policy.encoding_pipeline.set_output_dtype.assert_called_once_with(
+            expected_dtype
+        )
+
     def test_computes_total_training_steps_correctly(
         self, workspace_factory, mock_workspace_policy_factory
     ):
@@ -1578,6 +1618,7 @@ class TestRun:
             mock_trainer.fit.assert_called_once_with(
                 model=mock_lightning_policy,
                 ckpt_path=None,
+                weights_only=False,
             )
 
     def test_run_passes_resume_checkpoint_when_path_exists(
@@ -1611,6 +1652,7 @@ class TestRun:
             mock_trainer.fit.assert_called_once_with(
                 model=workspace.lightning_policy,
                 ckpt_path=str(checkpoint_path),
+                weights_only=False,
             )
 
     def test_run_starts_from_scratch_when_resume_path_does_not_exist(
@@ -1642,6 +1684,7 @@ class TestRun:
             mock_trainer.fit.assert_called_once_with(
                 model=workspace.lightning_policy,
                 ckpt_path=None,
+                weights_only=False,
             )
 
     def test_run_assigns_dataloaders_to_lightning_policy(

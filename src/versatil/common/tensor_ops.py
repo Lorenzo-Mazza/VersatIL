@@ -996,33 +996,6 @@ def pad_sequence(
     )
 
 
-def assert_size_at_dim_single(x, size, dim, msg):
-    """
-    Ensure that array or tensor @action_embedding has size @size in dim @dim.
-
-    Args:
-        x (np.ndarray or torch.Tensor): input array or tensor
-        size (int): size that tensors should have at @dim
-        dim (int): dimension to check
-        msg (str): text to display if assertion fails
-    """
-    if x.shape[dim] != size:
-        raise ValueError(msg)
-
-
-def assert_size_at_dim(x, size, dim, msg):
-    """
-    Ensure that arrays and tensors in nested dictionary or list or tuple have
-    size @size in dim @dim.
-
-    Args:
-        x (dict or list or tuple): a possibly nested dictionary or list or tuple
-        size (int): size that tensors should have at @dim
-        dim (int): dimension to check
-    """
-    map_tensor(x, lambda t, s=size, d=dim, m=msg: assert_size_at_dim_single(t, s, d, m))
-
-
 def get_shape(x):
     """
     Get all shapes of arrays and tensors in nested dictionary or list or tuple.
