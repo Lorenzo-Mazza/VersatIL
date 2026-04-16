@@ -883,6 +883,70 @@ class TestModeACTGMMInitialization:
         expected = data_min + 0.5 * (data_max - data_min)
         torch.testing.assert_close(centers[0], expected, atol=1e-6, rtol=0)
 
+    @pytest.mark.parametrize(
+        "num_mixture_components",
+        [2, 4, 8, 16],
+    )
+    def test_initialize_gaussian_mixture_uses_qfat_style_fixed_variance(
+        self,
+        gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+        num_mixture_components: int,
+    ):
+        decoder = gaussian_mode_act_factory(
+            input_keys=["rgb_features"],
+            num_mixture_components=num_mixture_components,
+        )
+        action_key = next(iter(decoder.action_heads.keys()))
+        action_dim = decoder.action_heads[action_key].output_proj.bias.shape[0]
+        data_min = -torch.ones(action_dim)
+        data_max = torch.ones(action_dim)
+        decoder._initialize_gaussian_mixture(
+            action_key=action_key,
+            output_stats={"min": data_min, "max": data_max},
+        )
+        expected_logvar = 2 * torch.log(torch.ones(action_dim))
+        for head in decoder.mixture_heads[action_key]:
+            torch.testing.assert_close(
+                head._logvar_proj.bias,
+                expected_logvar.clamp(min=head.min_logvar, max=head.max_logvar),
+                atol=1e-6,
+                rtol=0,
+            )
+            torch.testing.assert_close(
+                head._logvar_proj.weight,
+                torch.zeros_like(head._logvar_proj.weight),
+                atol=0,
+                rtol=0,
+            )
+            torch.testing.assert_close(
+                head.output_proj.weight,
+                torch.zeros_like(head.output_proj.weight),
+                atol=0,
+                rtol=0,
+            )
+
+    def test_initialize_gaussian_mixture_scales_with_data_range(
+        self,
+        gaussian_mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+    ):
+        decoder = gaussian_mode_act_factory(input_keys=["rgb_features"])
+        action_key = next(iter(decoder.action_heads.keys()))
+        action_dim = decoder.action_heads[action_key].output_proj.bias.shape[0]
+        data_min = -2.0 * torch.ones(action_dim)
+        data_max = 2.0 * torch.ones(action_dim)
+        decoder._initialize_gaussian_mixture(
+            action_key=action_key,
+            output_stats={"min": data_min, "max": data_max},
+        )
+        expected_logvar = 2 * torch.log(2.0 * torch.ones(action_dim))
+        for head in decoder.mixture_heads[action_key]:
+            torch.testing.assert_close(
+                head._logvar_proj.bias,
+                expected_logvar.clamp(min=head.min_logvar, max=head.max_logvar),
+                atol=1e-6,
+                rtol=0,
+            )
+
 
 class TestModeACTInferenceMode:
     def test_stochastic_gaussian_inference_differs_from_deterministic(

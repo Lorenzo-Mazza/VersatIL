@@ -323,8 +323,11 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
             )
 
         data_range = data_max - data_min
-        expert_sigma = data_range / self.num_mixture_components
-        expert_logvar = 2 * torch.log(expert_sigma.clamp(min=1e-6))
+        # QFAT-style fixed variance: sigma = half-range, regardless of K.
+        # For [-1, 1] normalized data this gives sigma = 1, so every component
+        # has non-trivial responsibility for every data point at init.
+        expert_sigma = (data_range / 2.0).clamp(min=1e-6)
+        expert_logvar = 2 * torch.log(expert_sigma)
         for k, head in enumerate(self.mixture_heads[action_key]):
             self._initialize_single_gaussian_head(
                 head=head, mean=centers[k], logvar=expert_logvar

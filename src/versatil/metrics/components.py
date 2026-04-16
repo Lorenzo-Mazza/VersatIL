@@ -1228,12 +1228,58 @@ class PriorDenoisingLoss(BaseLoss):
         )
 
 
+def _aggregate_mixture_nll(
+    log_component: torch.Tensor,
+    mixing_probs: torch.Tensor,
+    is_pad: torch.Tensor | None,
+) -> torch.Tensor:
+    """Combine per-step per-component log densities into per-batch NLL.
+
+    Dispatch on routing shape:
+        (B, K)    → trajectory-level mixture: sum_t log p_k inside logsumexp_k.
+                    Components are full trajectories selected once per batch.
+        (B, T, K) → per-step mixture: logsumexp_k inside, then average over valid t.
+                    Components are selected independently at each timestep.
+
+    Args:
+        log_component: (B, T, K) per-component per-timestep log-pdf.
+        mixing_probs: (B, K) or (B, T, K) mixture weights summing to 1 along K.
+        is_pad: (B, T) boolean mask, True for padded positions (excluded).
+
+    Returns:
+        (B,) per-batch NLL.
+    """
+    if mixing_probs.dim() == 2:
+        if is_pad is not None:
+            log_component = log_component.masked_fill(is_pad.unsqueeze(-1), 0.0)
+        log_traj_per_component = log_component.sum(dim=1)  # (B, K)
+        log_pi = torch.log(mixing_probs + 1e-8)  # (B, K)
+        return -torch.logsumexp(log_pi + log_traj_per_component, dim=-1)  # (B,)
+    log_pi = torch.log(mixing_probs + 1e-8)  # (B, T, K)
+    log_step_mix = torch.logsumexp(log_pi + log_component, dim=-1)  # (B, T)
+    if is_pad is not None:
+        log_step_mix = log_step_mix.masked_fill(is_pad, 0.0)
+        valid_count = (~is_pad).float().sum(dim=-1).clamp(min=1.0)
+        return -log_step_mix.sum(dim=-1) / valid_count  # (B,)
+    return -log_step_mix.mean(dim=-1)  # (B,)
+
+
 class GaussianMixtureNLLoss(BaseLoss):
     """Negative Log-Likelihood loss for Gaussian Mixture Model.
 
     Supports both learned variance (from logvar predictions) and fixed variance (sigma parameter).
 
-    The loss computes: NLL = -log Σ_k π_k · N(a | μ_k, σ_k²)
+    Two regimes are supported, dispatched on the shape of routing_weights:
+
+    Per-trajectory routing (B, K) — one mixture component is selected for the entire
+    chunk (e.g., MoDEACT). The joint trajectory likelihood is:
+        log p(a_{1:T}|s) = logsumexp_k [log π_k + Σ_t log N(a_t | μ_k(t), σ_k(t)²)]
+    Components are forced to model coherent trajectories; without this formulation the
+    gating collapses to one component that averages distinct trajectory modes.
+
+    Per-timestep routing (B, T, K) — a component is selected per timestep (e.g.,
+    PhaseACT). The per-step mixture likelihood applies:
+        log p(a_t|s, t) = logsumexp_k [log π_kt + log N(a_t | μ_kt, σ_kt²)]
     """
 
     def __init__(
@@ -1279,7 +1325,7 @@ class GaussianMixtureNLLoss(BaseLoss):
 
         Args:
             predictions: Dictionary containing:
-                - routing_weights: (B, K) or (B, T, K)
+                - routing_weights: (B, K) for per-trajectory or (B, T, K) for per-timestep.
                 - If learned_variance: {action_key}_mean (B, T, K, D), {action_key}_logvar (B, T, K, D)
                 - If fixed variance: {action_key} (B, T, K, D) stacked expert means
             targets: Dictionary with action_key targets (B, T, D).
@@ -1300,15 +1346,20 @@ class GaussianMixtureNLLoss(BaseLoss):
             if self.learned_variance:
                 logvar_key = f"{action_key}_{DecoderOutputKey.LOGVAR.value}"
                 logvars = predictions[logvar_key]  # (B, T, K, D)
-                nll = self._compute_learned_variance_nll(
-                    target, mixing_probs, means, logvars
+                log_component = self._compute_learned_variance_log_pdf(
+                    target, means, logvars
                 )
             else:
                 sigma = self.sigmas.get(action_key, 0.5)
-                nll = self._compute_fixed_variance_nll(
-                    target, mixing_probs, means, sigma
+                log_component = self._compute_fixed_variance_log_pdf(
+                    target, means, sigma
                 )
-            nll_reduced = reduce_loss_with_padding(nll, is_pad, reduction="mean")
+            nll_per_batch = _aggregate_mixture_nll(
+                log_component=log_component,
+                mixing_probs=mixing_probs,
+                is_pad=is_pad,
+            )  # (B,)
+            nll_reduced = nll_per_batch.mean()
             key_weight = self.per_key_weights.get(action_key, 1.0)
             component_losses[f"{action_key}_{MetricKey.GAUSSIAN_MIXTURE_NLL.value}"] = (
                 nll_reduced
@@ -1318,45 +1369,41 @@ class GaussianMixtureNLLoss(BaseLoss):
             total_loss=self.weight * total_loss, component_losses=component_losses
         )
 
-    def _compute_learned_variance_nll(
+    def _compute_learned_variance_log_pdf(
         self,
         target: torch.Tensor,
-        mixing_probs: torch.Tensor,
         means: torch.Tensor,
         logvars: torch.Tensor,
     ) -> torch.Tensor:
-        """Compute NLL with learned variance from logvar predictions."""
+        """Per-component Gaussian log-pdf with learned variance.
+
+        Returns:
+            (B, T, K) tensor of log N(a_t | μ_kt, σ_kt²) per component per timestep.
+        """
         action_dimension = target.shape[-1]
         logvars = logvars.clamp(min=math.log(self.min_variance))
         target = target.unsqueeze(2)  # (B, T, 1, D)
         difference = target - means  # (B, T, K, D)
         scaled_squared_error = (difference**2) * torch.exp(-logvars)  # (B, T, K, D)
         log_normalization = -0.5 * action_dimension * math.log(2 * math.pi)
-        log_gaussian = log_normalization - 0.5 * (logvars + scaled_squared_error).sum(
-            dim=-1
-        )
-        if mixing_probs.dim() == 2:
-            mixing_probs = mixing_probs.unsqueeze(1)  # (B, 1, K)
-        log_mixing_weights = torch.log(mixing_probs + 1e-8)  # (B, T, K)
-        log_mixture_prob = torch.logsumexp(log_mixing_weights + log_gaussian, dim=-1)
-        return -log_mixture_prob
+        return log_normalization - 0.5 * (logvars + scaled_squared_error).sum(dim=-1)
 
-    def _compute_fixed_variance_nll(
-        self,
+    @staticmethod
+    def _compute_fixed_variance_log_pdf(
         target: torch.Tensor,
-        mixing_probs: torch.Tensor,
         means: torch.Tensor,
         sigma: float,
     ) -> torch.Tensor:
-        """Compute NLL with fixed variance (sigma parameter)."""
+        """Per-component Gaussian log-pdf with fixed variance.
+
+        The constant log normalization is omitted (it cancels in logsumexp_k).
+
+        Returns:
+            (B, T, K) tensor of log-pdf up to a per-component-shared constant.
+        """
         target = target.unsqueeze(2)  # (B, T, 1, D)
         difference = target - means  # (B, T, K, D)
-        log_gaussian = -0.5 * (difference**2).sum(-1) / (sigma**2)  # (B, T, K)
-        if mixing_probs.dim() == 2:
-            mixing_probs = mixing_probs.unsqueeze(1)  # (B, 1, K)
-        log_mixing_weights = torch.log(mixing_probs + 1e-8)  # (B, T, K)
-        log_mixture_prob = torch.logsumexp(log_mixing_weights + log_gaussian, dim=-1)
-        return -log_mixture_prob
+        return -0.5 * (difference**2).sum(-1) / (sigma**2)
 
 
 class GripperMixtureNLLoss(BaseLoss):
@@ -1447,17 +1494,16 @@ class GripperMixtureNLLoss(BaseLoss):
             )
         target = targets[self.key]
         mixing_probs = predictions[DecoderOutputKey.ROUTING_WEIGHTS.value]
-        if mixing_probs.dim() == 2:
-            mixing_probs = mixing_probs.unsqueeze(1)  # (B, 1, K)
-        log_mixing_weights = torch.log(mixing_probs + 1e-8)  # (B, T, K)
         if self.gripper_type == GripperType.BINARY.value:
             log_component = self._compute_binary_log_component(predictions, target)
         else:
             log_component = self._compute_continuous_log_component(predictions, target)
-
-        log_mixture_prob = torch.logsumexp(log_mixing_weights + log_component, dim=-1)
-        nll = -log_mixture_prob
-        nll_reduced = reduce_loss_with_padding(nll, is_pad, reduction="mean")
+        nll_per_batch = _aggregate_mixture_nll(
+            log_component=log_component,
+            mixing_probs=mixing_probs,
+            is_pad=is_pad,
+        )
+        nll_reduced = nll_per_batch.mean()
         return LossOutput(
             total_loss=self.weight * nll_reduced,
             component_losses={MetricKey.GRIPPER_NLL.value: nll_reduced},

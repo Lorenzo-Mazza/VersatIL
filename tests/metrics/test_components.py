@@ -1345,6 +1345,140 @@ class TestGaussianMixtureNLLossForward:
             2.0 * output_w1.total_loss.item(), rel=1e-4
         )
 
+    def test_per_trajectory_routing_uses_joint_logsumexp(self):
+        batch_size, horizon, num_experts, action_dim = 1, 3, 2, 2
+        target = torch.tensor([[[1.0, 0.0], [2.0, 0.0], [3.0, 0.0]]])
+        means = torch.zeros(batch_size, horizon, num_experts, action_dim)
+        means[0, :, 0, :] = target[0]
+        means[0, :, 1, :] = -target[0]
+        logvars = torch.zeros(batch_size, horizon, num_experts, action_dim)
+        routing_weights = torch.tensor([[0.5, 0.5]])
+        predictions = {
+            "position_mean": means,
+            "position_logvar": logvars,
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        loss = GaussianMixtureNLLoss(action_keys=["position"], learned_variance=True)
+        actual = loss(predictions, {"position": target}).total_loss
+        log_norm = -0.5 * action_dim * math.log(2 * math.pi)
+        log_pi = math.log(0.5)
+        sum_sq_match = float((target**2).sum().item())
+        log_traj_match = horizon * log_norm - 0.5 * 0.0
+        log_traj_other = horizon * log_norm - 0.5 * 4.0 * sum_sq_match
+        expected = -math.log(
+            math.exp(log_pi + log_traj_match) + math.exp(log_pi + log_traj_other)
+        )
+        assert actual.item() == pytest.approx(expected, rel=1e-4)
+
+    def test_per_step_routing_uses_per_step_logsumexp(self):
+        batch_size, horizon, num_experts, action_dim = 1, 3, 2, 2
+        target = torch.tensor([[[1.0, 0.0], [2.0, 0.0], [3.0, 0.0]]])
+        means = torch.zeros(batch_size, horizon, num_experts, action_dim)
+        means[0, :, 0, :] = target[0]
+        means[0, :, 1, :] = -target[0]
+        logvars = torch.zeros(batch_size, horizon, num_experts, action_dim)
+        routing_weights = torch.full((batch_size, horizon, num_experts), 0.5)
+        predictions = {
+            "position_mean": means,
+            "position_logvar": logvars,
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        loss = GaussianMixtureNLLoss(action_keys=["position"], learned_variance=True)
+        actual = loss(predictions, {"position": target}).total_loss
+        log_norm = -0.5 * action_dim * math.log(2 * math.pi)
+        log_pi = math.log(0.5)
+        per_step_nll = 0.0
+        for step in range(horizon):
+            sq_match = float((target[0, step] ** 2).sum().item())
+            log_match = log_norm - 0.5 * 0.0
+            log_other = log_norm - 0.5 * 4.0 * sq_match
+            log_step_mix = math.log(
+                math.exp(log_pi + log_match) + math.exp(log_pi + log_other)
+            )
+            per_step_nll -= log_step_mix
+        expected = per_step_nll / horizon
+        assert actual.item() == pytest.approx(expected, rel=1e-4)
+
+    def test_padding_excludes_padded_timesteps_from_trajectory_sum(self):
+        batch_size, horizon, num_experts, action_dim = 1, 4, 2, 2
+        target = torch.zeros(batch_size, horizon, action_dim)
+        means = torch.zeros(batch_size, horizon, num_experts, action_dim)
+        means[0, 3, :, :] = 100.0
+        logvars = torch.zeros(batch_size, horizon, num_experts, action_dim)
+        routing_weights = torch.tensor([[0.5, 0.5]])
+        predictions = {
+            "position_mean": means,
+            "position_logvar": logvars,
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        loss = GaussianMixtureNLLoss(action_keys=["position"], learned_variance=True)
+        is_pad = torch.tensor([[False, False, False, True]])
+        finite = loss(predictions, {"position": target}, is_pad=is_pad).total_loss
+        no_pad_target = target[:, :3].clone()
+        no_pad_means = means[:, :3].clone()
+        no_pad_logvars = logvars[:, :3].clone()
+        reference_predictions = {
+            "position_mean": no_pad_means,
+            "position_logvar": no_pad_logvars,
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        reference = loss(reference_predictions, {"position": no_pad_target}).total_loss
+        assert finite.item() == pytest.approx(reference.item(), rel=1e-5)
+
+    def test_trajectory_loss_separates_opposite_modes(self):
+        torch.manual_seed(0)
+        batch_size, horizon, num_experts, action_dim = 256, 60, 2, 2
+        timesteps = torch.linspace(0, 2 * math.pi, horizon)
+        cos = torch.cos(timesteps)
+        sin = torch.sin(timesteps)
+        mode_a = torch.stack([cos, sin], dim=-1)
+        mode_b = torch.stack([cos, -sin], dim=-1)
+        targets = torch.stack(
+            [mode_a if i < batch_size // 2 else mode_b for i in range(batch_size)]
+        )
+        targets = targets + 0.01 * torch.randn_like(targets)
+        means = torch.nn.Parameter(torch.randn(num_experts, horizon, action_dim) * 0.3)
+        logvars = torch.nn.Parameter(torch.zeros(num_experts, horizon, action_dim))
+        pi_logits = torch.nn.Parameter(torch.zeros(num_experts))
+        optimizer = torch.optim.Adam([means, logvars, pi_logits], lr=1e-2)
+        loss = GaussianMixtureNLLoss(action_keys=["position"], learned_variance=True)
+        for _ in range(800):
+            stacked_means = (
+                means.unsqueeze(0).expand(batch_size, -1, -1, -1).permute(0, 2, 1, 3)
+            )
+            stacked_logvars = (
+                logvars.unsqueeze(0).expand(batch_size, -1, -1, -1).permute(0, 2, 1, 3)
+            )
+            routing_weights = (
+                torch.softmax(pi_logits, dim=0).unsqueeze(0).expand(batch_size, -1)
+            )
+            output = loss(
+                {
+                    "position_mean": stacked_means,
+                    "position_logvar": stacked_logvars,
+                    DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+                },
+                {"position": targets},
+            )
+            optimizer.zero_grad()
+            output.total_loss.backward()
+            optimizer.step()
+        with torch.no_grad():
+            mode_a_reference = mode_a
+            mode_b_reference = mode_b
+            distances_to_a = [
+                (means[k] - mode_a_reference).pow(2).mean().sqrt().item()
+                for k in range(num_experts)
+            ]
+            distances_to_b = [
+                (means[k] - mode_b_reference).pow(2).mean().sqrt().item()
+                for k in range(num_experts)
+            ]
+        assignment_one = distances_to_a[0] + distances_to_b[1]
+        assignment_two = distances_to_a[1] + distances_to_b[0]
+        best_assignment = min(assignment_one, assignment_two)
+        assert best_assignment < 0.05
+
 
 @pytest.mark.unit
 class TestGripperMixtureNLLossInit:
