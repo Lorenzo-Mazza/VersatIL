@@ -685,6 +685,13 @@ GATED_LANGUAGE_MODELS = {
     LanguageEncoderType.GEMMA_2B,
     LanguageEncoderType.QWEN_2_1_5B,
     LanguageEncoderType.LLAMA_3_2_1B,
+    LanguageEncoderType.EMBEDDINGGEMMA_300M,
+}
+
+TRUST_REMOTE_CODE_LANGUAGE_MODELS = {
+    LanguageEncoderType.LLAMA_EMBED_NEMOTRON_8B,
+    LanguageEncoderType.LLAMA_NEMOTRON_EMBED_1B_V2,
+    LanguageEncoderType.JINA_EMBEDDINGS_V3,
 }
 
 NO_SDPA_LANGUAGE_MODELS = {
@@ -705,6 +712,13 @@ def _integration_marks(encoder_type: LanguageEncoderType) -> list:
                 reason=f"{encoder_type.value} is a gated model requiring authentication",
             )
         )
+    if encoder_type in TRUST_REMOTE_CODE_LANGUAGE_MODELS:
+        marks.append(
+            pytest.mark.skipif(
+                True,
+                reason=f"{encoder_type.value} requires trust_remote_code=True",
+            )
+        )
     if encoder_type in TIKTOKEN_LANGUAGE_MODELS:
         marks.append(
             pytest.mark.xfail(
@@ -719,6 +733,21 @@ def _integration_marks(encoder_type: LanguageEncoderType) -> list:
     return marks
 
 
+ENCODER_ONLY_MODELS = [
+    LanguageEncoderType.BERT_BASE,
+    LanguageEncoderType.DISTILBERT_BASE,
+    LanguageEncoderType.MINI_LM_L6,
+    LanguageEncoderType.MINI_LM_L12,
+    LanguageEncoderType.ALBERT_BASE,
+    LanguageEncoderType.ROBERTA_BASE,
+    LanguageEncoderType.DISTIL_ROBERTA_BASE,
+    LanguageEncoderType.BGE_BASE_EN_V1_5,
+    LanguageEncoderType.E5_BASE,
+    LanguageEncoderType.EMBEDDINGGEMMA_300M,
+    LanguageEncoderType.QWEN_3_EMBEDDING_0_6B,
+]
+
+
 class TestLanguageEncoderIntegration:
     @pytest.mark.integration
     @pytest.mark.parametrize(
@@ -728,7 +757,7 @@ class TestLanguageEncoderIntegration:
                 encoder_type.value,
                 marks=_integration_marks(encoder_type),
             )
-            for encoder_type in LanguageEncoderType
+            for encoder_type in ENCODER_ONLY_MODELS
         ],
     )
     def test_forward_pass_per_model(

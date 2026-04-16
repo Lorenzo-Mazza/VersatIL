@@ -54,6 +54,14 @@ class TransformerInputBuilder(nn.Module):
         Features may have different spatial sizes (H, W) or temporal lengths (T),
          as long as batch dims are consistent within each feature.
 
+        Positional encoding contract:
+            Callers must always pre-add the returned ``pos_encodings`` to ``input_tokens``
+            before passing them to the transformer (``hidden_states = tokens + pos_encodings``).
+            This ensures cross-attention keys carry absolute position information regardless
+            of the transformer's internal PE setting. When ``positional_encoding_type`` on
+            the transformer is not None (e.g. RoPE), the internal PE applies to self-attention
+            Q/K only and complements — not replaces — the pre-added additive PE.
+
     Example:
         >>> pos_enc = SinusoidalPositionalEncoding2D(embedding_dimension=256)
         >>> input_builder = TransformerInputBuilder(embedding_dim=256, spatial_positional_encoding_layer=pos_enc)

@@ -33,6 +33,10 @@ def vae_encoder_factory() -> Callable[..., VAETransformerEncoder]:
         deterministic: bool = False,
         min_logvar: float | None = None,
         exclude_keys: list[str] | None = None,
+        attention_dropout: float = 0.0,
+        normalization_type: str = "rmsnorm",
+        attention_type: str = "mha",
+        positional_encoding_type: str | None = None,
     ) -> VAETransformerEncoder:
         return VAETransformerEncoder(
             embedding_dimension=embedding_dimension,
@@ -46,6 +50,10 @@ def vae_encoder_factory() -> Callable[..., VAETransformerEncoder]:
             deterministic=deterministic,
             min_logvar=min_logvar,
             exclude_keys=exclude_keys,
+            attention_dropout=attention_dropout,
+            normalization_type=normalization_type,
+            attention_type=attention_type,
+            positional_encoding_type=positional_encoding_type,
         )
 
     return factory
@@ -99,6 +107,30 @@ class TestVAETransformerEncoderInitialization:
         assert (
             encoder.latent_projection.out_features
             == latent_dimension * expected_multiplier
+        )
+
+    @pytest.mark.parametrize("positional_encoding_type", [None, "rope"])
+    def test_positional_encoding_type_forwarded_to_transformer(
+        self,
+        positional_encoding_type: str | None,
+    ):
+        with patch(
+            "versatil.models.decoding.latent.posterior.transformer_encoder.TransformerEncoder"
+        ) as mock_encoder_cls:
+            VAETransformerEncoder(
+                embedding_dimension=64,
+                latent_dimension=16,
+                prediction_horizon=8,
+                observation_horizon=1,
+                device="cpu",
+                number_of_heads=4,
+                feedforward_dimension=128,
+                number_of_encoder_layers=2,
+                positional_encoding_type=positional_encoding_type,
+            )
+        assert (
+            mock_encoder_cls.call_args.kwargs["positional_encoding_type"]
+            == positional_encoding_type
         )
 
 

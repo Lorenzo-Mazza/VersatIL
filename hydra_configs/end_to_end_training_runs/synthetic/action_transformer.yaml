@@ -42,9 +42,9 @@ policy:
   decoder:
     input_keys:
       - left_rgb
-    embedding_dimension: 64
-    number_of_heads: 4
-    feedforward_dimension: 128
-    number_of_layers: 2
+    embedding_dimension: 256
+    number_of_heads: 8
+    feedforward_dimension: 512
+    number_of_layers: 4
     dropout_rate: 0.0
     attention_dropout: 0.0

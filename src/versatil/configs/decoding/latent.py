@@ -54,7 +54,10 @@ class VAETransformerEncoderConfig(PosteriorLatentEncoderConfig):
     number_of_encoder_layers: int = 4
     activation: str = ActivationFunction.SWIGLU.value
     dropout_rate: float = 0.1
-    normalize_before: bool = False
+    attention_dropout: float = 0.0
+    normalization_type: str = NormalizationType.RMS_NORM.value
+    attention_type: str = AttentionType.MULTI_HEAD.value
+    positional_encoding_type: str | None = None
     exclude_keys: list[str] | None = None
     min_logvar: float | None = None
     deterministic: bool = False
@@ -86,7 +89,10 @@ class PriorTransformerEncoderConfig(PriorLatentEncoderConfig):
     number_of_encoder_layers: int = 4
     activation: str = ActivationFunction.SWIGLU.value
     dropout_rate: float = 0.1
-    normalize_before: bool = False
+    attention_dropout: float = 0.0
+    normalization_type: str = NormalizationType.RMS_NORM.value
+    attention_type: str = AttentionType.MULTI_HEAD.value
+    positional_encoding_type: str | None = None
     exclude_keys: list[str] | None = None
     learn_variance: bool = True
     min_logvar: float | None = None
@@ -165,7 +171,10 @@ class VQPosteriorEncoderConfig(PosteriorLatentEncoderConfig):
     number_of_encoder_layers: int = 1
     activation: str = ActivationFunction.SWIGLU.value
     dropout_rate: float = 0.0
-    normalize_before: bool = False
+    attention_dropout: float = 0.0
+    normalization_type: str = NormalizationType.RMS_NORM.value
+    attention_type: str = AttentionType.MULTI_HEAD.value
+    positional_encoding_type: str | None = None
     exclude_keys: list[str] | None = None
 
 
@@ -195,6 +204,9 @@ class CodebookPriorConfig(PriorLatentEncoderConfig):
     number_of_encoder_layers: int = 1
     activation: str = ActivationFunction.SWIGLU.value
     dropout_rate: float = 0.0
-    normalize_before: bool = False
+    attention_dropout: float = 0.0
+    normalization_type: str = NormalizationType.RMS_NORM.value
+    attention_type: str = AttentionType.MULTI_HEAD.value
+    positional_encoding_type: str | None = None
     exclude_keys: list[str] | None = None
     temperature: float = 1.0

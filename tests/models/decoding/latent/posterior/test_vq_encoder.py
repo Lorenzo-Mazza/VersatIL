@@ -2,7 +2,7 @@
 
 import logging
 from collections.abc import Callable
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -23,6 +23,10 @@ def vq_encoder_factory() -> Callable[..., VQPosteriorEncoder]:
         embedding_dimension: int = 16,
         prediction_horizon: int = 4,
         observation_horizon: int = 1,
+        attention_dropout: float = 0.0,
+        normalization_type: str = "rmsnorm",
+        attention_type: str = "mha",
+        positional_encoding_type: str | None = None,
     ) -> VQPosteriorEncoder:
         return VQPosteriorEncoder(
             latent_dimension=latent_dimension,
@@ -36,6 +40,10 @@ def vq_encoder_factory() -> Callable[..., VQPosteriorEncoder]:
             feedforward_dimension=32,
             number_of_encoder_layers=1,
             dropout_rate=0.0,
+            attention_dropout=attention_dropout,
+            normalization_type=normalization_type,
+            attention_type=attention_type,
+            positional_encoding_type=positional_encoding_type,
         )
 
     return factory
@@ -102,6 +110,32 @@ class TestVQPosteriorEncoderInit:
         assert encoder.num_residual_layers == num_residual_layers
         assert encoder.latent_dimension == latent_dimension
         assert len(encoder.residual_vq.layers) == num_residual_layers
+
+    @pytest.mark.parametrize("positional_encoding_type", [None, "rope"])
+    def test_positional_encoding_type_forwarded_to_transformer(
+        self,
+        positional_encoding_type: str | None,
+    ) -> None:
+        with patch(
+            "versatil.models.decoding.latent.posterior.vq_encoder.TransformerEncoder"
+        ) as mock_encoder_cls:
+            VQPosteriorEncoder(
+                latent_dimension=8,
+                num_codes=4,
+                num_residual_layers=1,
+                embedding_dimension=16,
+                prediction_horizon=4,
+                observation_horizon=1,
+                device="cpu",
+                number_of_heads=2,
+                feedforward_dimension=32,
+                number_of_encoder_layers=1,
+                positional_encoding_type=positional_encoding_type,
+            )
+        assert (
+            mock_encoder_cls.call_args.kwargs["positional_encoding_type"]
+            == positional_encoding_type
+        )
 
 
 class TestVQPosteriorEncoderGetAuxiliaryOutputKeys:

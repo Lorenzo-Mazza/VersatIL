@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Callable
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -359,6 +359,25 @@ class TestModeACTInitialization:
                         not torch.equal(parameter_a, parameter_b)
                         or parameter_a.numel() == 0
                     )
+
+    @pytest.mark.parametrize(
+        "positional_encoding_type",
+        [None, PositionalEncodingType.ROPE.value],
+    )
+    def test_positional_encoding_type_forwarded_to_decoder(
+        self,
+        mode_act_factory: Callable[..., MixtureOfDensitiesActionTransformer],
+        positional_encoding_type: str | None,
+    ):
+        with patch(
+            "versatil.models.decoding.decoders.factory.mode_act.BidirectionalDecoder",
+        ) as mock_decoder_class:
+            mode_act_factory(
+                positional_encoding_type=positional_encoding_type,
+            )
+        assert mock_decoder_class.call_args.kwargs["positional_encoding_type"] == (
+            positional_encoding_type
+        )
 
 
 class TestModeACTForwardWithGaussianHead:

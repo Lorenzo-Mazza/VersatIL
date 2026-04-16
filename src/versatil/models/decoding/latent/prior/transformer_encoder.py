@@ -8,10 +8,8 @@ from versatil.models.decoding.latent import PriorLatentEncoder
 from versatil.models.decoding.latent.reparametrize import reparametrize
 from versatil.models.decoding.transformer_input_builder import TransformerInputBuilder
 from versatil.models.layers.activation import ActivationFunction
-from versatil.models.layers.detr_transformer import (
-    TransformerEncoder,
-    TransformerEncoderLayer,
-)
+from versatil.models.layers.constants import AttentionType
+from versatil.models.layers.normalization.constants import NormalizationType
 from versatil.models.layers.positional_encoding.learned import (
     LearnedPositionalEncoding1D,
 )
@@ -19,6 +17,7 @@ from versatil.models.layers.positional_encoding.sinusoidal import (
     SinusoidalPositionalEncoding1D,
     SinusoidalPositionalEncoding2D,
 )
+from versatil.models.layers.transformer.encoder import TransformerEncoder
 
 
 class PriorTransformerEncoder(PriorLatentEncoder):
@@ -39,7 +38,10 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         number_of_encoder_layers: int = 4,
         activation: str = ActivationFunction.SWIGLU.value,
         dropout_rate: float = 0.1,
-        normalize_before: bool = False,
+        attention_dropout: float = 0.0,
+        normalization_type: str = NormalizationType.RMS_NORM.value,
+        attention_type: str = AttentionType.MULTI_HEAD.value,
+        positional_encoding_type: str | None = None,
         use_proprioceptive: bool = False,
         exclude_keys: list[str] | None = None,
         learn_variance: bool = True,
@@ -62,21 +64,22 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         self.number_of_encoder_layers = number_of_encoder_layers
         self.activation = activation
         self.dropout_rate = dropout_rate
-        self.normalize_before = normalize_before
+        self.attention_dropout = attention_dropout
+        self.normalization_type = normalization_type
+        self.attention_type = attention_type
+        self.positional_encoding_type = positional_encoding_type
         self.learn_variance = learn_variance
         self.encoder = TransformerEncoder(
-            encoder_layer=TransformerEncoderLayer(
-                embedding_dimension=self.embedding_dimension,
-                number_of_heads=self.number_of_heads,
-                feedforward_dimension=self.feedforward_dimension,
-                activation=self.activation,
-                dropout=self.dropout_rate,
-                normalize_before=self.normalize_before,
-            ),
             number_of_layers=self.number_of_encoder_layers,
-            normalization=nn.LayerNorm(self.embedding_dimension)
-            if self.normalize_before
-            else None,
+            embedding_dimension=self.embedding_dimension,
+            number_of_heads=self.number_of_heads,
+            feedforward_dimension=self.feedforward_dimension,
+            activation=self.activation,
+            dropout=self.dropout_rate,
+            attention_dropout=self.attention_dropout,
+            normalization_type=self.normalization_type,
+            attention_type=self.attention_type,
+            positional_encoding_type=self.positional_encoding_type,
         )
 
         image_positional_encoding = SinusoidalPositionalEncoding2D(
@@ -146,11 +149,10 @@ class PriorTransformerEncoder(PriorLatentEncoder):
         input_tokens, pos_encodings, padding_mask = self.input_sequence_builder(
             input_observations
         )  # (B, seq_len, embedding_dimension)
-        # input_tokens contains the CLS token at the end of the sequence
+        hidden_states = input_tokens + pos_encodings
         encoder_output = self.encoder(
-            input_tokens,
-            positional_encoding=pos_encodings,
-            source_key_padding_mask=padding_mask,
+            hidden_states=hidden_states,
+            padding_mask=padding_mask,
         )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dim)
         latent_stats = self.latent_projection(encoder_output)
         if self.deterministic:
