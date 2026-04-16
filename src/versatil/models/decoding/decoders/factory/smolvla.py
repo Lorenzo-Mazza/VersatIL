@@ -384,6 +384,18 @@ class SmolVLADecoder(ActionDecoder):
             hidden_states=expert_hidden,
             position_ids=expert_position_ids,
         )
+        # Cross-attention rotates expert queries in a frame independent of the
+        # prefix length: positions are shifted to start from 0 so the relative
+        # distance to the VLM keys (also at [0, P)) covers the informative range
+        # of RoPE. Matches the reference SmolVLA implementation.
+        expert_cross_attn_position_ids = (
+            expert_position_ids - expert_position_ids.min(dim=1, keepdim=True).values
+        )
+        expert_cross_attn_rope = GenerativeVLMEncoder.compute_rope(
+            rotary_embedding=self.vlm_rotary_embedding,
+            hidden_states=expert_hidden,
+            position_ids=expert_cross_attn_position_ids,
+        )
         use_cached_prefix = (
             self._encoder_cache_enabled and self._prefix_cache is not None
         )
@@ -394,6 +406,7 @@ class SmolVLADecoder(ActionDecoder):
                 attention_mask=attention_mask,
                 cross_attention_mask=cross_attention_mask,
                 expert_action_rope=expert_action_rope,
+                expert_cross_attn_rope=expert_cross_attn_rope,
             )
         elif self._encoder_cache_enabled:
             vlm_attention_mask = None
@@ -411,6 +424,7 @@ class SmolVLADecoder(ActionDecoder):
                 attention_mask=attention_mask,
                 cross_attention_mask=cross_attention_mask,
                 expert_action_rope=expert_action_rope,
+                expert_cross_attn_rope=expert_cross_attn_rope,
             )
         else:
             vlm_train_mask = None
@@ -425,6 +439,7 @@ class SmolVLADecoder(ActionDecoder):
                 cross_attention_mask=cross_attention_mask,
                 position_ids=position_ids,
                 expert_action_rope=expert_action_rope,
+                expert_cross_attn_rope=expert_cross_attn_rope,
                 vlm_prefix_attention_mask=vlm_train_mask,
             )
         expert_hidden = self.expert_final_norm(expert_hidden)
@@ -447,6 +462,7 @@ class SmolVLADecoder(ActionDecoder):
         cross_attention_mask: torch.Tensor,
         position_ids: torch.Tensor,
         expert_action_rope: tuple[torch.Tensor, torch.Tensor],
+        expert_cross_attn_rope: tuple[torch.Tensor, torch.Tensor],
         vlm_prefix_attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Interleaved VLM + expert forward for training.
@@ -460,7 +476,10 @@ class SmolVLADecoder(ActionDecoder):
             attention_mask: Joint mask (B, 1, A+P, A+P) for dual-stream layers.
             cross_attention_mask: Expert→VLM mask (B, 1, A, P) for cross-attention layers.
             position_ids: Position IDs (B, P+A).
-            expert_action_rope: Pre-computed (cos, sin) for expert RoPE.
+            expert_action_rope: Pre-computed (cos, sin) for expert RoPE in the
+                joint position frame (positions [P, P+A)).
+            expert_cross_attn_rope: Pre-computed (cos, sin) for expert RoPE in
+                the shifted cross-attn frame (positions [0, A)).
             vlm_prefix_attention_mask: Optional HF-style mask for VLM layers
                 (B, 1, 1, P) where True=attend, False=masked.
         """
@@ -541,7 +560,7 @@ class SmolVLADecoder(ActionDecoder):
                             keys=vlm_keys, values=vlm_values
                         ),
                         attention_mask=cross_attention_mask,
-                        precomputed_rope=expert_action_rope,
+                        precomputed_rope=expert_cross_attn_rope,
                     )
                     vlm_layer_index += 1
                     expert_layer_index += 1
@@ -623,6 +642,7 @@ class SmolVLADecoder(ActionDecoder):
         attention_mask: torch.Tensor,
         cross_attention_mask: torch.Tensor,
         expert_action_rope: tuple[torch.Tensor, torch.Tensor],
+        expert_cross_attn_rope: tuple[torch.Tensor, torch.Tensor],
     ) -> torch.Tensor:
         """Run expert layers using cached VLM states (inference only).
 
@@ -631,7 +651,10 @@ class SmolVLADecoder(ActionDecoder):
             vlm_cache: Precomputed VLM K/V/Q per layer.
             attention_mask: Joint mask (B, 1, A+P, A+P) for dual-stream layers.
             cross_attention_mask: Expert→VLM mask (B, 1, A, P) for cross-attention layers.
-            expert_action_rope: Precomputed (cos, sin) for expert positions.
+            expert_action_rope: Precomputed (cos, sin) for expert positions in
+                the joint frame (used by joint self-attention layers).
+            expert_cross_attn_rope: Precomputed (cos, sin) for expert positions
+                shifted to start from 0 (used by cross-attention layers).
         """
         for expert_layer_index, expert_layer in enumerate(self.expert_layers):
             is_dual_stream = isinstance(expert_layer, PrecomputedDualStreamLayer)
@@ -641,6 +664,8 @@ class SmolVLADecoder(ActionDecoder):
                 attention_mask=attention_mask
                 if is_dual_stream
                 else cross_attention_mask,
-                precomputed_rope=expert_action_rope,
+                precomputed_rope=expert_action_rope
+                if is_dual_stream
+                else expert_cross_attn_rope,
             )
         return expert_hidden
