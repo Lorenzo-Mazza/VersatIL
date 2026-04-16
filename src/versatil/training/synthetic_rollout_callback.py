@@ -70,7 +70,9 @@ class SyntheticRolloutCallback(Callback):
             self._log_training_data(trainer=trainer)
             self._training_data_logged = True
 
-        if trainer.current_epoch % self.log_every_n_epochs != 0:
+        is_log_epoch = trainer.current_epoch % self.log_every_n_epochs == 0
+        is_last_epoch = trainer.current_epoch == trainer.max_epochs - 1
+        if not is_log_epoch and not is_last_epoch:
             return
 
         policy: Policy = pl_module.policy
