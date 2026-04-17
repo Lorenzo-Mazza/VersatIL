@@ -1628,6 +1628,77 @@ class TestMoELossForward:
         # Weighted mean = 0.5 * 0 + 0.5 * 2 = 1.0 = target => MSE ≈ 0
         assert output.total_loss.item() == pytest.approx(0.0, abs=1e-5)
 
+    def test_load_balance_minimum_at_uniform_per_trajectory_routing(self):
+        batch_size, num_experts = 8, 4
+        # Each example argmaxes to a different expert in round-robin → uniform usage
+        routing_weights = torch.full((batch_size, num_experts), 1.0 / num_experts)
+        argmax_targets = torch.arange(batch_size) % num_experts
+        for b, k in enumerate(argmax_targets):
+            routing_weights[b, k] += 1e-3  # break ties toward round-robin assignment
+        routing_weights = routing_weights / routing_weights.sum(dim=-1, keepdim=True)
+        predictions = {
+            "position": torch.zeros(batch_size, 3, 2),
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        targets = {"position": torch.zeros(batch_size, 3, 2)}
+        base_loss = RegressionLoss(action_keys=["position"], mse_weight=1.0)
+        moe_loss = MoELoss(
+            base_loss=base_loss, entropy_weight=0.0, load_balance_weight=1.0
+        )
+        output = moe_loss(predictions, targets)
+        load_balance = output.component_losses[
+            MetricKey.EXPERTS_LOAD_BALANCE.value
+        ].item()
+        # f_k = 1/K, P_k ≈ 1/K, so K * sum(f_k * P_k) ≈ K * K * (1/K)² = 1.0
+        assert load_balance == pytest.approx(1.0, rel=1e-3)
+
+    def test_load_balance_penalises_collapsed_routing(self):
+        batch_size, num_experts = 8, 4
+        # All examples route exclusively to expert 0
+        routing_weights = torch.zeros(batch_size, num_experts)
+        routing_weights[:, 0] = 1.0
+        predictions = {
+            "position": torch.zeros(batch_size, 3, 2),
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        targets = {"position": torch.zeros(batch_size, 3, 2)}
+        base_loss = RegressionLoss(action_keys=["position"], mse_weight=1.0)
+        moe_loss = MoELoss(
+            base_loss=base_loss, entropy_weight=0.0, load_balance_weight=1.0
+        )
+        output = moe_loss(predictions, targets)
+        load_balance = output.component_losses[
+            MetricKey.EXPERTS_LOAD_BALANCE.value
+        ].item()
+        # f_0 = 1, P_0 = 1, all others = 0 → K * sum = K * 1 = num_experts
+        assert load_balance == pytest.approx(float(num_experts), rel=1e-5)
+
+    def test_load_balance_handles_per_step_routing_with_padding(self):
+        batch_size, horizon, num_experts = 2, 4, 4
+        # Per-step routing collapsed at every valid timestep to expert 0;
+        # padded timestep would (incorrectly) look balanced but must be ignored.
+        routing_weights = torch.zeros(batch_size, horizon, num_experts)
+        routing_weights[:, :3, 0] = 1.0
+        routing_weights[:, 3, :] = 1.0 / num_experts
+        is_pad = torch.tensor(
+            [[False, False, False, True], [False, False, False, True]]
+        )
+        predictions = {
+            "position": torch.zeros(batch_size, horizon, 2),
+            DecoderOutputKey.ROUTING_WEIGHTS.value: routing_weights,
+        }
+        targets = {"position": torch.zeros(batch_size, horizon, 2)}
+        base_loss = RegressionLoss(action_keys=["position"], mse_weight=1.0)
+        moe_loss = MoELoss(
+            base_loss=base_loss, entropy_weight=0.0, load_balance_weight=1.0
+        )
+        output = moe_loss(predictions, targets, is_pad=is_pad)
+        load_balance = output.component_losses[
+            MetricKey.EXPERTS_LOAD_BALANCE.value
+        ].item()
+        # Only valid positions count → all route to expert 0 → load_balance == K
+        assert load_balance == pytest.approx(float(num_experts), rel=1e-5)
+
 
 @pytest.mark.unit
 class TestMetadataPassthroughGetRequiredKeys:

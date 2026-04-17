@@ -42,6 +42,7 @@ class MetricKey(StrEnum):
     GAUSSIAN_MIXTURE_NLL = "gaussian_mixture_nll"
     BERNOULLI_MIXTURE_NLL = "bernoulli_mixture_nll"
     EXPERTS_ENTROPY = "experts_entropy"
+    EXPERTS_LOAD_BALANCE = "experts_load_balance"
     HYPERPRIOR_KL_REGULARIZATION = "hyperprior_kl_regularization"
     HYPERPRIOR_MMD_REGULARIZATION = "hyperprior_mmd_regularization"
     COVARIANCE_LOSS = "covariance_loss"
