@@ -45,6 +45,7 @@ class TransformBuilder:
         clamp_kinematics_range: bool = True,
         min_kinematics_std: float = 2e-2,
         min_kinematics_range: float = 4e-2,
+        action_sample_size: int = 2048,
     ):
         """Initialize transform builder.
 
@@ -63,6 +64,11 @@ class TransformBuilder:
             clamp_kinematics_range: Whether to clamp std/range to minimum values.
             min_kinematics_std: Minimum std for Gaussian mode when clamp_kinematics_range=True.
             min_kinematics_range: Minimum range for MinMax mode when clamp_kinematics_range=True.
+            action_sample_size: Number of action rows to stash alongside each action
+                key's normalizer for downstream data-aware initialization (e.g.
+                mixture-density head k-means++). Set to 0 to disable. Memory cost
+                per action key is ``action_sample_size * action_dim * bytes_per_element``
+                (four bytes for float32, eight for float64).
         """
         self.replay_buffer = replay_buffer
         self.action_processor = action_processor
@@ -78,6 +84,7 @@ class TransformBuilder:
         self.clamp_kinematics_range = clamp_kinematics_range
         self.min_kinematics_std = min_kinematics_std
         self.min_kinematics_range = min_kinematics_range
+        self.action_sample_size = action_sample_size
 
     def create_normalizer_and_tokenizer(
         self,
@@ -177,13 +184,20 @@ class TransformBuilder:
                     )
                 data_to_normalize[key] = self.replay_buffer[key][:]
 
+        action_normalization_keys: set[str] = set()
         for key, meta in action_meta.items():
             if meta.needs_normalization:
                 data_to_normalize[key] = action_data[key]
+                action_normalization_keys.add(key)
         if self.kinematics_winsorize_quantiles:
             data_to_normalize = self._apply_winsorization(
                 data_to_normalize, self.kinematics_winsorize_quantiles
             )
+        sample_sizes = (
+            dict.fromkeys(action_normalization_keys, self.action_sample_size)
+            if self.action_sample_size > 0
+            else 0
+        )
         normalizer.fit(
             data=data_to_normalize,
             last_n_dims=1,
@@ -193,6 +207,7 @@ class TransformBuilder:
             clamp_range=self.clamp_kinematics_range,
             min_std=self.min_kinematics_std,
             min_range=self.min_kinematics_range,
+            sample_size=sample_sizes,
         )
         self._setup_image_normalizers(normalizer, device, winsorize_depth)
         self._log_normalized_proprio_stats(normalizer, data_to_normalize)

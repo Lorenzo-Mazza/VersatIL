@@ -277,12 +277,15 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         for action_key in self.action_keys:
             if action_key not in normalizer.params_dict:
                 continue
-            output_stats = normalizer[action_key].get_output_stats()
+            field_normalizer = normalizer[action_key]
+            output_stats = field_normalizer.get_output_stats()
+            candidate_sample = field_normalizer.get_output_sample()
             base_head = self.action_heads[action_key]
             if isinstance(base_head, GaussianHead):
                 self._initialize_gaussian_mixture(
                     action_key=action_key,
                     output_stats=output_stats,
+                    candidate_sample=candidate_sample,
                 )
 
     def _initialize_gating_network(self) -> None:
@@ -298,22 +301,38 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
         self,
         action_key: str,
         output_stats: dict[str, torch.Tensor],
+        candidate_sample: torch.Tensor | None = None,
     ) -> None:
         """Initialize Gaussian mixture heads from output statistics.
 
         Args:
             action_key: Key for the action head.
             output_stats: Dict with "min", "max", "std" tensors from normalizer.get_output_stats().
+            candidate_sample: Optional (N, out_dim) tensor of normalized action samples
+                to use as the candidate pool for k-means++. When supplied, k-means++
+                picks centers from actual action data, so centers land near true data
+                modes. When ``None``, the candidate pool is sampled uniformly from
+                ``[data_min, data_max]`` and reflects only the bounding box, not the
+                modal structure.
         """
         data_min = output_stats["min"]
         data_max = output_stats["max"]
         out_dim = data_min.shape[0]
         if self.gmm_init_strategy == GMMInitStrategy.KMEANS_PLUS_PLUS.value:
+            if candidate_sample is not None and candidate_sample.numel() > 0:
+                candidate_points = candidate_sample.to(
+                    dtype=data_min.dtype, device=data_min.device
+                )
+            else:
+                candidate_points = self._sample_uniform_candidates(
+                    data_min=data_min,
+                    data_max=data_max,
+                    num_candidates=1000,
+                    out_dim=out_dim,
+                )
             centers = self._compute_kmeans_plus_plus_centers(
-                data_min=data_min,
-                data_max=data_max,
+                candidate_points=candidate_points,
                 number_of_mixture_components=self.num_mixture_components,
-                out_dim=out_dim,
             )
         else:
             centers = self._compute_uniform_centers(
@@ -335,39 +354,28 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
 
     @staticmethod
     def _compute_kmeans_plus_plus_centers(
-        data_min: torch.Tensor,
-        data_max: torch.Tensor,
+        candidate_points: torch.Tensor,
         number_of_mixture_components: int,
-        out_dim: int,
     ) -> torch.Tensor:
-        """Compute K centers using k-means++ initialization.
+        """Compute K centers using k-means++ initialization over a candidate pool.
 
-        Note: from https://github.com/ziyadsheeba/qfat/blob/main/src/qfat/models/qfat.py
+        With a uniformly-sampled pool the picked centers span the bounding box but
+        may fall in empty regions of the action distribution. With a pool of real
+        action samples the picked centers land on actual data (and, for well-
+        separated modes, concentrate one center per mode).
+
+        Note: adapted from https://github.com/ziyadsheeba/qfat/blob/main/src/qfat/models/qfat.py
 
         Args:
-            data_min: Min values per dimension from output stats.
-            data_max: Max values per dimension from output stats.
-            number_of_mixture_components: Number of mixture components.
-            out_dim: Output dimension.
+            candidate_points: ``(N, out_dim)`` tensor of points to select centers from.
+            number_of_mixture_components: Number of mixture components ``K``.
 
         Returns:
-            Tensor of shape (K, out_dim) with k-means++ initialized centers.
+            Tensor of shape ``(K, out_dim)`` with selected centers.
         """
-        # Generate candidate points uniformly within the data range for each dimension
-        num_candidates = 1000
-        candidate_points = torch.empty(
-            (num_candidates, out_dim), device=data_min.device
-        )
-        for dim in range(out_dim):
-            candidate_points[:, dim] = torch.empty(
-                num_candidates, device=data_min.device
-            ).uniform_(data_min[dim].item(), data_max[dim].item())
-
-        # Pick the first center randomly from the candidate pool
+        num_candidates = candidate_points.shape[0]
         first_center_idx = torch.randint(0, num_candidates, (1,)).item()
         selected_centers = candidate_points[first_center_idx].unsqueeze(0)
-        # Select remaining centers with probability proportional to squared distance
-        # from the nearest existing center (k-means++ initialization)
         for _ in range(1, number_of_mixture_components):
             squared_distances = torch.cdist(
                 candidate_points, selected_centers, p=2
@@ -382,6 +390,28 @@ class MixtureOfDensitiesActionTransformer(ActionDecoder):
                 dim=0,
             )
         return selected_centers
+
+    @staticmethod
+    def _sample_uniform_candidates(
+        data_min: torch.Tensor,
+        data_max: torch.Tensor,
+        num_candidates: int,
+        out_dim: int,
+    ) -> torch.Tensor:
+        """Sample ``num_candidates`` points uniformly from the bounding box.
+
+        Fallback candidate pool used only when no data sample is available on the
+        normalizer. Covers the hyperrectangle evenly, so it ignores the modal
+        structure of the action distribution.
+        """
+        candidate_points = torch.empty(
+            (num_candidates, out_dim), device=data_min.device
+        )
+        for dim in range(out_dim):
+            candidate_points[:, dim] = torch.empty(
+                num_candidates, device=data_min.device
+            ).uniform_(data_min[dim].item(), data_max[dim].item())
+        return candidate_points
 
     @staticmethod
     def _compute_uniform_centers(

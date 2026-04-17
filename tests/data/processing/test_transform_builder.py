@@ -94,6 +94,7 @@ def transform_builder_factory(
         denoise_actions: bool = False,
         tokenization_config: MagicMock = None,
         use_zarr: bool = False,
+        action_sample_size: int = 2048,
     ) -> TransformBuilder:
         action_space = action_space_factory(
             actions_metadata=actions_metadata or {},
@@ -124,6 +125,7 @@ def transform_builder_factory(
             image_norm_type=image_norm_type,
             depth_norm_type=depth_norm_type,
             tokenization_config=tokenization_config,
+            action_sample_size=action_sample_size,
         )
 
     return factory
@@ -162,6 +164,15 @@ class TestTransformBuilderInitialization:
     ):
         builder = transform_builder_factory(prediction_horizon=prediction_horizon)
         assert builder.prediction_horizon == prediction_horizon
+
+    @pytest.mark.parametrize("action_sample_size", [0, 128, 2048])
+    def test_stores_action_sample_size(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+        action_sample_size: int,
+    ):
+        builder = transform_builder_factory(action_sample_size=action_sample_size)
+        assert builder.action_sample_size == action_sample_size
 
 
 class TestApplyWinsorization:
@@ -715,6 +726,84 @@ class TestCreateNormalizer:
         fit_call_data = mock_normalizer.fit.call_args[1]["data"]
         assert "position" in fit_call_data
         assert Cameras.LEFT.value not in fit_call_data
+
+    def test_passes_action_sample_size_only_for_action_keys(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+        rng: np.random.Generator,
+    ):
+        position_source = position_observation_metadata_factory(dimension=3)
+        position_data = rng.standard_normal((100, 3)).astype(np.float32)
+
+        builder = transform_builder_factory(
+            observations_metadata={"position": position_source},
+            replay_buffer_data={"position": position_data},
+            action_sample_size=256,
+        )
+
+        action_meta = {
+            "position_action": on_the_fly_action_metadata_factory(
+                source_metadata=position_source,
+            )
+        }
+        action_data = {
+            "position_action": rng.standard_normal((99, 3)).astype(np.float32)
+        }
+
+        mock_normalizer = MagicMock()
+        with (
+            patch(
+                "versatil.data.processing.transform_builder.LinearNormalizer",
+                return_value=mock_normalizer,
+            ),
+            patch.object(builder, "_setup_image_normalizers"),
+            patch.object(builder, "_log_normalized_proprio_stats"),
+        ):
+            builder._create_normalizer(action_data=action_data, action_meta=action_meta)
+
+        passed_sample_size = mock_normalizer.fit.call_args[1]["sample_size"]
+        assert passed_sample_size == {"position_action": 256}
+
+    def test_action_sample_size_zero_disables_sample_storage(
+        self,
+        transform_builder_factory: Callable[..., TransformBuilder],
+        position_observation_metadata_factory: Callable[
+            ..., PositionObservationMetadata
+        ],
+        on_the_fly_action_metadata_factory: Callable[..., OnTheFlyActionMetadata],
+        rng: np.random.Generator,
+    ):
+        position_source = position_observation_metadata_factory(dimension=3)
+        builder = transform_builder_factory(
+            observations_metadata={"position": position_source},
+            replay_buffer_data={
+                "position": rng.standard_normal((100, 3)).astype(np.float32)
+            },
+            action_sample_size=0,
+        )
+        action_meta = {
+            "position_action": on_the_fly_action_metadata_factory(
+                source_metadata=position_source,
+            )
+        }
+        action_data = {
+            "position_action": rng.standard_normal((99, 3)).astype(np.float32)
+        }
+        mock_normalizer = MagicMock()
+        with (
+            patch(
+                "versatil.data.processing.transform_builder.LinearNormalizer",
+                return_value=mock_normalizer,
+            ),
+            patch.object(builder, "_setup_image_normalizers"),
+            patch.object(builder, "_log_normalized_proprio_stats"),
+        ):
+            builder._create_normalizer(action_data=action_data, action_meta=action_meta)
+        assert mock_normalizer.fit.call_args[1]["sample_size"] == 0
 
     def test_raises_for_non_numerical_observation_needing_normalization(
         self,
