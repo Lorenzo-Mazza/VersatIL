@@ -86,6 +86,7 @@ def get_dataloaders(
         clamp_kinematics_range=dataloader_config.clamp_kinematics_range,
         min_kinematics_std=dataloader_config.min_kinematics_std,
         min_kinematics_range=dataloader_config.min_kinematics_range,
+        action_sample_size=dataloader_config.action_sample_size,
         device=torch.device("cpu"),  # Keep on CPU for DataLoader workers
     )
     train_dataset.set_normalizer(normalizer)

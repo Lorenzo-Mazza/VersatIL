@@ -51,3 +51,8 @@ class DataLoaderConfig:
     val_ratio: float = 0.1
     #: Ratio of total dataset episodes to use (for ablation studies on varying dataset sizes).
     total_ratio: float = 1.0
+    #: Number of action rows to stash on the normalizer per action key for downstream
+    #: data-aware initialization (e.g. mixture-density head k-means++). Set to 0 to
+    #: disable. Memory cost per action key is ``action_sample_size * action_dim *
+    #: bytes_per_element``.
+    action_sample_size: int = 2048

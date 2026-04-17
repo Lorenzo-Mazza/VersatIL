@@ -837,10 +837,34 @@ class TestGetNormalizerAndTokenizer:
             assert call_kwargs["depth_winsorize_quantiles"] is not None
         else:
             assert call_kwargs["depth_winsorize_quantiles"] is None
+
         if winsorize_kinematics:
             assert call_kwargs["kinematics_winsorize_quantiles"] is not None
         else:
             assert call_kwargs["kinematics_winsorize_quantiles"] is None
+
+    @pytest.mark.parametrize("action_sample_size", [0, 100, 2048])
+    def test_passes_action_sample_size_to_builder(
+        self,
+        episodic_dataset_factory: Callable[..., EpisodicDataset],
+        action_sample_size: int,
+    ):
+        dataset = episodic_dataset_factory()
+        with patch(
+            "versatil.data.episodic_dataset.TransformBuilder"
+        ) as mock_builder_class:
+            mock_builder_instance = MagicMock()
+            mock_builder_instance.create_normalizer_and_tokenizer.return_value = (
+                MagicMock(),
+                None,
+            )
+            mock_builder_class.return_value = mock_builder_instance
+            dataset.get_normalizer_and_tokenizer(
+                action_sample_size=action_sample_size,
+            )
+        assert (
+            mock_builder_class.call_args[1]["action_sample_size"] == action_sample_size
+        )
 
 
 class TestApplyDownsampling:

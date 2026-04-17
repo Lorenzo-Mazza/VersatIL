@@ -21,6 +21,8 @@ defaults:
 task:
   observation_horizon: 1
   prediction_horizon: 60
+  dataloader:
+    action_sample_size: 100
 
 experiment:
   checkpoint_folder: ${checkpoint_dir:synthetic}

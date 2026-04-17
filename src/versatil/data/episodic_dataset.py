@@ -273,6 +273,7 @@ class EpisodicDataset(data.Dataset):
         clamp_kinematics_range: bool = True,
         min_kinematics_std: float = 2e-2,
         min_kinematics_range: float = 4e-2,
+        action_sample_size: int = 2048,
     ) -> tuple[LinearNormalizer, Tokenizer | None]:
         """Get normalizer and optionally tokenizer for this dataset.
 
@@ -286,6 +287,8 @@ class EpisodicDataset(data.Dataset):
             clamp_kinematics_range: Whether to clamp std/range to minimum values.
             min_kinematics_std: Minimum std for Gaussian mode when clamp_kinematics_range=True.
             min_kinematics_range: Minimum range for MinMax mode when clamp_kinematics_range=True.
+            action_sample_size: Number of action rows to stash on the normalizer per
+                action key for downstream data-aware initialization. Set to 0 to disable.
 
         Returns:
             Tuple of (normalizer, tokenizer) where tokenizer is None if not configured
@@ -309,6 +312,7 @@ class EpisodicDataset(data.Dataset):
             clamp_kinematics_range=clamp_kinematics_range,
             min_kinematics_std=min_kinematics_std,
             min_kinematics_range=min_kinematics_range,
+            action_sample_size=action_sample_size,
         )
 
         return normalizer_builder.create_normalizer_and_tokenizer(

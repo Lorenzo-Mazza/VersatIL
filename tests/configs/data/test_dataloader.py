@@ -49,6 +49,7 @@ class TestDataLoaderConfig:
     @pytest.mark.parametrize("trailing_padded_actions", [None, 5])
     @pytest.mark.parametrize("val_ratio", [0.2])
     @pytest.mark.parametrize("total_ratio", [0.5])
+    @pytest.mark.parametrize("action_sample_size", [0, 100, 2048])
     def test_stores_configuration(
         self,
         preload_data_in_memory: bool,
@@ -67,6 +68,7 @@ class TestDataLoaderConfig:
         trailing_padded_actions: int | None,
         val_ratio: float,
         total_ratio: float,
+        action_sample_size: int,
     ):
         config = DataLoaderConfig(
             preload_data_in_memory=preload_data_in_memory,
@@ -85,6 +87,7 @@ class TestDataLoaderConfig:
             trailing_padded_actions=trailing_padded_actions,
             val_ratio=val_ratio,
             total_ratio=total_ratio,
+            action_sample_size=action_sample_size,
         )
         assert config.preload_data_in_memory == preload_data_in_memory
         assert config.batch_size == batch_size
@@ -102,6 +105,7 @@ class TestDataLoaderConfig:
         assert config.trailing_padded_actions == trailing_padded_actions
         assert config.val_ratio == val_ratio
         assert config.total_ratio == total_ratio
+        assert config.action_sample_size == action_sample_size
 
     def test_defaults(self):
         config = DataLoaderConfig()
@@ -129,3 +133,4 @@ class TestDataLoaderConfig:
         assert config.trailing_padded_actions is None
         assert config.val_ratio == 0.1
         assert config.total_ratio == 1.0
+        assert config.action_sample_size == 2048
