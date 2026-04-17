@@ -1,0 +1,26 @@
+# @package _global_
+# MDN on synthetic/sequential (K=4 modes).
+
+defaults:
+  - /end_to_end_training_runs/synthetic/mdn_action_transformer
+  - /task_bundle_plain/synthetic: sequential
+  - override /hydra/sweeper: basic
+  - _self_
+
+task:
+  dataloader:
+    action_sample_size: 1000
+
+policy:
+  decoder:
+    gmm_init_strategy: ${gmm_init:KMEANS_PLUS_PLUS}
+  loss:
+    loss_modules:
+      moe_loss:
+        entropy_weight: 0.05
+        load_balance_weight: 0.2
+
+hydra:
+  sweeper:
+    params:
+      policy.decoder.num_mixture_components: 4,8

@@ -1,0 +1,19 @@
+# @package _global_
+# Sweep: LACT + DiT prior, inference_steps=100 rerun.
+# 6 tasks × 1 = 6 runs.
+
+defaults:
+  - /end_to_end_training_runs/synthetic/lact_dit_prior
+  - /task_bundle/synthetic: circle
+  - override /hydra/sweeper: basic
+  - _self_
+
+policy:
+  algorithm:
+    prior:
+      num_inference_steps: 100
+
+hydra:
+  sweeper:
+    params:
+      task_bundle/synthetic: circle,conditional_circle,sequential,radial_k8,radial_k16,corridor_k8

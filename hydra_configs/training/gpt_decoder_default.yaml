@@ -17,7 +17,7 @@ optimizer:
       params_pattern: "encoding_pipeline\\.encoders\\.(left|right)\\."
 
 clip_gradient_norm: true
-clip_max_norm: 1.0
+clip_max_norm: 10.0
 
 lr_schedule: cosine
 lr_warmup_steps: 20000
@@ -26,7 +26,7 @@ use_ema: true
 ema_power: 0.999
 
 tune_lr: false
-early_stopping_patience: 200
+early_stopping_patience: 1000
 reduce_lr_on_plateau: true
-reduce_lr_patience: 10
+reduce_lr_patience: 100
 reduce_lr_cooldown: 50

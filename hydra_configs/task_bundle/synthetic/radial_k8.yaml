@@ -1,0 +1,20 @@
+# @package _global_
+# Task bundle: synthetic radial, K=8 modes.
+defaults:
+  - override /task/dataset_schema: synthetic/radial
+  - override /task/observation_space: synthetic_image_state
+  - override /policy/encoding_pipeline: mono_rgb
+
+task:
+  dataset_schema:
+    num_modes: 8
+
+policy:
+  algorithm:
+    posterior_encoder:
+      latent_dimension: 16
+    prior:
+      latent_dimension: 16
+
+training:
+  num_epochs: 4000

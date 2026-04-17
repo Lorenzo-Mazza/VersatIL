@@ -1,0 +1,21 @@
+# @package _global_
+# Stage 2: LACT with learned Gaussian prior + MMD w=10.
+# 6 tasks × 1 = 6 runs.
+
+defaults:
+  - /end_to_end_training_runs/synthetic/lact_mmd_gaussian
+  - /task_bundle/synthetic: circle
+  - override /policy/algorithm: bc_with_learned_prior
+  - override /hydra/sweeper: basic
+  - _self_
+
+policy:
+  loss:
+    loss_modules:
+      maximum_mean_discrepancy:
+        weight: 10
+
+hydra:
+  sweeper:
+    params:
+      task_bundle/synthetic: circle,conditional_circle,sequential,radial_k8,radial_k16,corridor_k8

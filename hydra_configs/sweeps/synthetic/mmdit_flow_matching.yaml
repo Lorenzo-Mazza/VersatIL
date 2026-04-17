@@ -1,0 +1,18 @@
+# @package _global_
+# Sweep: MMDiT flow-matching rerun at inference_steps=100.
+# 6 tasks × 1 = 6 runs.
+
+defaults:
+  - /end_to_end_training_runs/synthetic/mmdit_flow_matching
+  - /task_bundle_plain/synthetic: circle
+  - override /hydra/sweeper: basic
+  - _self_
+
+policy:
+  algorithm:
+    num_inference_steps: 100
+
+hydra:
+  sweeper:
+    params:
+      task_bundle_plain/synthetic: circle,conditional_circle,sequential,radial_k8,radial_k16,corridor_k8
