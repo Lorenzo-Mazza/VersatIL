@@ -1365,8 +1365,11 @@ class TestGaussianMixtureNLLossForward:
         sum_sq_match = float((target**2).sum().item())
         log_traj_match = horizon * log_norm - 0.5 * 0.0
         log_traj_other = horizon * log_norm - 0.5 * 4.0 * sum_sq_match
-        expected = -math.log(
-            math.exp(log_pi + log_traj_match) + math.exp(log_pi + log_traj_other)
+        expected = (
+            -math.log(
+                math.exp(log_pi + log_traj_match) + math.exp(log_pi + log_traj_other)
+            )
+            / horizon
         )
         assert actual.item() == pytest.approx(expected, rel=1e-4)
 

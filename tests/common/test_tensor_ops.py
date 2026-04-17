@@ -10,8 +10,6 @@ import torch
 from torch import nn
 
 from versatil.common.tensor_ops import (
-    assert_size_at_dim,
-    assert_size_at_dim_single,
     clone,
     contiguous,
     detach,
@@ -842,32 +840,6 @@ class TestPadSequenceSingle:
                 pad_same=False,
                 pad_values=0,
             )
-
-
-@pytest.mark.unit
-class TestAssertSizeAtDimSingle:
-    def test_passes_when_size_matches(self):
-        tensor = torch.zeros(2, 3, 4)
-        assert_size_at_dim_single(tensor, size=3, dim=1, msg="wrong size")
-
-    def test_raises_when_size_mismatches(self):
-        tensor = torch.zeros(2, 3, 4)
-        message = "Expected size 5 at dim 1"
-        with pytest.raises(ValueError, match=re.escape(message)):
-            assert_size_at_dim_single(tensor, size=5, dim=1, msg=message)
-
-
-@pytest.mark.unit
-class TestAssertSizeAtDim:
-    def test_validates_all_tensors_in_structure(self):
-        data = {"a": torch.zeros(2, 4), "b": torch.zeros(2, 4)}
-        assert_size_at_dim(data, size=4, dim=1, msg="size mismatch")
-
-    def test_raises_on_first_mismatch(self):
-        data = {"a": torch.zeros(2, 4), "b": torch.zeros(2, 3)}
-        message = "All tensors must have size 4 at dim 1"
-        with pytest.raises(ValueError, match=re.escape(message)):
-            assert_size_at_dim(data, size=4, dim=1, msg=message)
 
 
 @pytest.mark.unit

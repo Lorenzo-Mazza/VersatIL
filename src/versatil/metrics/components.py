@@ -1235,10 +1235,17 @@ def _aggregate_mixture_nll(
 ) -> torch.Tensor:
     """Combine per-step per-component log densities into per-batch NLL.
 
+    Both regimes return a per-step-averaged NLL so the loss magnitude is
+    independent of the prediction horizon. This keeps gradients balanced
+    against other terms (e.g. routing entropy) and prevents the trajectory
+    log-likelihood from drowning the gating signal at long horizons.
+
     Dispatch on routing shape:
-        (B, K)    → trajectory-level mixture: sum_t log p_k inside logsumexp_k.
+        (B, K)    → trajectory-level mixture: sum_t log p_k inside logsumexp_k,
+                    then divide by the number of valid timesteps.
                     Components are full trajectories selected once per batch.
-        (B, T, K) → per-step mixture: logsumexp_k inside, then average over valid t.
+        (B, T, K) → per-step mixture: logsumexp_k inside, then average over
+                    valid timesteps.
                     Components are selected independently at each timestep.
 
     Args:
@@ -1247,14 +1254,24 @@ def _aggregate_mixture_nll(
         is_pad: (B, T) boolean mask, True for padded positions (excluded).
 
     Returns:
-        (B,) per-batch NLL.
+        (B,) per-batch NLL averaged over valid timesteps.
     """
+    horizon = log_component.shape[1]
     if mixing_probs.dim() == 2:
         if is_pad is not None:
             log_component = log_component.masked_fill(is_pad.unsqueeze(-1), 0.0)
+            valid_count = (~is_pad).float().sum(dim=-1).clamp(min=1.0)  # (B,)
+        else:
+            valid_count = torch.full(
+                (log_component.shape[0],),
+                float(horizon),
+                device=log_component.device,
+                dtype=log_component.dtype,
+            )
         log_traj_per_component = log_component.sum(dim=1)  # (B, K)
         log_pi = torch.log(mixing_probs + 1e-8)  # (B, K)
-        return -torch.logsumexp(log_pi + log_traj_per_component, dim=-1)  # (B,)
+        joint_nll = -torch.logsumexp(log_pi + log_traj_per_component, dim=-1)  # (B,)
+        return joint_nll / valid_count
     log_pi = torch.log(mixing_probs + 1e-8)  # (B, T, K)
     log_step_mix = torch.logsumexp(log_pi + log_component, dim=-1)  # (B, T)
     if is_pad is not None:
