@@ -1,0 +1,15 @@
+defaults:
+  - encoder/proprio@encoders.robot_state
+  - _self_
+
+encoders:
+  robot_state:
+    input_keys:
+      - ${proprio_key:EE_POS}
+      - ${proprio_key:PUSHT_BLOCK_POS}
+      - ${proprio_key:PUSHT_BLOCK_ANGLE}
+      - ${proprio_key:PUSHT_KEYPOINTS}
+      - ${proprio_key:PUSHT_CONTACTS}
+    output_dim: 64
+
+fusion_stages: []

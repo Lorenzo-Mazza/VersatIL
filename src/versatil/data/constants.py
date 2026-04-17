@@ -57,6 +57,8 @@ class RawCameraKey(enum.StrEnum):
     WRIST = "observation.images.wrist"
     # MetaWorld LeRobot
     IMAGE_METAWORLD = "observation.image"
+    # PushT LeRobot
+    IMAGE_PUSHT = "observation.image"
 
 
 RAW_TO_CAMERA_MAPPING: dict[str, str] = {
@@ -75,6 +77,8 @@ RAW_TO_CAMERA_MAPPING: dict[str, str] = {
     RawCameraKey.WRIST.value: Cameras.EYE_IN_HAND.value,
     # MetaWorld LeRobot
     RawCameraKey.IMAGE_METAWORLD.value: Cameras.AGENTVIEW.value,
+    # PushT LeRobot (same raw key as MetaWorld, mapped to AGENTVIEW)
+    RawCameraKey.IMAGE_PUSHT.value: Cameras.AGENTVIEW.value,
 }
 
 
@@ -99,6 +103,12 @@ class ProprioKey(enum.StrEnum):
     # Synthetic data
     SYNTHETIC_POSITION = "synthetic_position"
     SYNTHETIC_POSITION_ACTION = "synthetic_position_action"
+
+    # PushT data
+    PUSHT_BLOCK_POS = "pusht_block_pos"
+    PUSHT_BLOCK_ANGLE = "pusht_block_angle"
+    PUSHT_KEYPOINTS = "pusht_keypoints"
+    PUSHT_CONTACTS = "pusht_contacts"
 
 
 class SyntheticObsKey(enum.StrEnum):
@@ -158,6 +168,7 @@ class DatasetType(enum.StrEnum):
     TSO = "tso"
     METAWORLD = "metaworld"
     SYNTHETIC = "synthetic"
+    PUSHT = "pusht"
 
 
 class LeRobotPathsV30(enum.StrEnum):

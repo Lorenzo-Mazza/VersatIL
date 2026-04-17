@@ -1,0 +1,70 @@
+# @package _global_
+# Flow Matching with DiT Cross-Attention Transformer - RGB + ee_pos proprio
+# Follows DiffusionPolicy-T hyperparameters from Chi et al. 2023 for Push-T image
+_target_: versatil.configs.main.MainConfig
+
+defaults:
+  - /task: base
+  - /policy: base
+  - /experiment: default
+  - /task/dataset_schema: pusht
+  - /task/dataloader: pusht_rgb
+  - /task/action_space: pusht_precomputed
+  - /task/observation_space: pusht_rgb_proprio
+  - /training: ema
+  - /policy/encoding_pipeline: pusht_rgb_proprio
+  - /policy/decoder: dit_cross_attention_transformer
+  - /policy/algorithm: flow_matching
+  - /policy/loss: regression_synthetic
+  - /inference: default
+  - override /policy/decoder/heads@policy.decoder.action_heads: pusht_2d
+  - _self_
+
+task:
+  observation_horizon: 2
+  prediction_horizon: 16
+  dataloader:
+    val_ratio: 0.0
+
+experiment:
+  checkpoint_folder: ${checkpoint_dir:pusht}
+
+training:
+  num_epochs: 3000
+  early_stopping_patience: 500
+
+policy:
+  _target_: versatil.models.policy.Policy
+  observation_space: ${task.observation_space}
+  action_space: ${task.action_space}
+  prediction_horizon: ${task.prediction_horizon}
+  observation_horizon: ${task.observation_horizon}
+  device: ${experiment.device}
+  validate_loss_keys: true
+  loss:
+    loss_modules:
+      regression_loss:
+        action_keys:
+          - ${proprio_key:EE_POS_ACTION}
+        mse_weight: 1.0
+        l1_weight: 0.0
+        huber_weight: 0.0
+      trajectory_length:
+        weight: 0.0
+        action_key: ${proprio_key:EE_POS_ACTION}
+  encoding_pipeline:
+    encoders:
+      left:
+        input_keys:
+          - ${cameras:AGENTVIEW}
+  decoder:
+    input_keys:
+      - left_rgb
+      - robot_state_proprio
+    embedding_dimension: 256
+    timestep_embedding_dimension: 128
+    number_of_heads: 8
+    number_of_layers: 8
+    feedforward_dimension: 1024
+    dropout_rate: 0.1
+    attention_dropout: 0.01

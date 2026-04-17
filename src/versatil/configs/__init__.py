@@ -531,6 +531,13 @@ def register_resolvers():
                 Path(os.environ.get("VERSATIL_METAWORLD_LEROBOT_DIR", ".")) / subpath
             ),
         )
+    if not OmegaConf.has_resolver("pusht_lerobot_dir"):
+        OmegaConf.register_new_resolver(
+            "pusht_lerobot_dir",
+            lambda subpath="": str(
+                Path(os.environ.get("VERSATIL_PUSHT_LEROBOT_DIR", ".")) / subpath
+            ),
+        )
     if not OmegaConf.has_resolver("prunable_layer"):
         OmegaConf.register_new_resolver(
             "prunable_layer",
