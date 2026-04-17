@@ -4,6 +4,7 @@ defaults:
 batch_size: 256
 num_workers: 8
 shuffle: true
+preload_data_in_memory: true
 
 image_norm_type: ${image_norm_type:MINUS_ONE_TO_ONE}
 depth_norm_type: ${image_norm_type:MINUS_ONE_TO_ONE}

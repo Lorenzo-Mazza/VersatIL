@@ -21,10 +21,11 @@ defaults:
   - _self_
 
 task:
-  observation_horizon: 2
-  prediction_horizon: 16
+  observation_horizon: 1
+  prediction_horizon: 10
   dataloader:
     val_ratio: 0.0
+    preload_data_in_memory: true
 
 experiment:
   checkpoint_folder: ${checkpoint_dir:pusht}
