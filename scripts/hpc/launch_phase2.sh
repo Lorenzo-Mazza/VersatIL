@@ -13,12 +13,17 @@ mkdir -p "$LOG_DIR"
 SBATCH_HEADER='#!/bin/bash
 #SBATCH --account=p_dl_surgery
 #SBATCH --partition=capella
-#SBATCH --gres=gpu:1
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
+#SBATCH --gres=gpu:1
 #SBATCH --mem=48G
 #SBATCH --time=7-00:00:00
+#SBATCH --exclude=c110
+#SBATCH --chdir='"$CODE"'
 #SBATCH --output='"$LOG_DIR"'/%x_%j.out
 
+export PATH=/data/horse/ws/loma592g-environments/versatil/bin:$PATH
 export WANDB_INIT_TIMEOUT=1800
 export WANDB__SERVICE_WAIT=300
 cd '"$CODE"'
