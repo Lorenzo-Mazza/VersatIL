@@ -141,7 +141,7 @@ class SyntheticSchema(DatasetSchema):
                 num_styles=self.num_styles,
                 trajectory_length=self.trajectory_length,
                 noise_std=self.noise_std,
-                num_rollouts=50,
+                num_rollouts=200,
                 image_size=self.image_size,
                 log_every_n_epochs=experiment_config.val_every,
             )
