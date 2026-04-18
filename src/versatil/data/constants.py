@@ -110,6 +110,17 @@ class ProprioKey(enum.StrEnum):
     PUSHT_KEYPOINTS = "pusht_keypoints"
     PUSHT_CONTACTS = "pusht_contacts"
 
+    # Block pushing (multimodal_push_seed) data
+    BLOCK_PUSH_BLOCK1_POS = "block_push_block1_pos"
+    BLOCK_PUSH_BLOCK1_ANGLE = "block_push_block1_angle"
+    BLOCK_PUSH_BLOCK2_POS = "block_push_block2_pos"
+    BLOCK_PUSH_BLOCK2_ANGLE = "block_push_block2_angle"
+    BLOCK_PUSH_EE_COMMANDED = "block_push_ee_commanded"
+    BLOCK_PUSH_TARGET1_POS = "block_push_target1_pos"
+    BLOCK_PUSH_TARGET1_ANGLE = "block_push_target1_angle"
+    BLOCK_PUSH_TARGET2_POS = "block_push_target2_pos"
+    BLOCK_PUSH_TARGET2_ANGLE = "block_push_target2_angle"
+
 
 class SyntheticObsKey(enum.StrEnum):
     """Non-proprioceptive observation keys for synthetic benchmark tasks.
@@ -169,6 +180,7 @@ class DatasetType(enum.StrEnum):
     METAWORLD = "metaworld"
     SYNTHETIC = "synthetic"
     PUSHT = "pusht"
+    BLOCK_PUSHING = "block_pushing"
 
 
 class LeRobotPathsV30(enum.StrEnum):
