@@ -741,6 +741,8 @@ class TestGradientNormCallback:
             for call_args in pl_module.log.call_args_list
         }
         assert abs(log_calls["grad_norm"] - expected_norm) < 1e-5
+        assert abs(log_calls["train/grad_norm_step"] - expected_norm) < 1e-5
+        assert log_calls["train/grad_clip_active_step"] == 0.0
 
     def test_logs_per_group_norms_with_multiple_param_groups(
         self,
@@ -775,8 +777,45 @@ class TestGradientNormCallback:
 
         assert "grad_norm_group_0" in log_calls
         assert "grad_norm_group_1" in log_calls
+        assert "train/grad_norm_group_0_step" in log_calls
+        assert "train/grad_norm_group_1_step" in log_calls
         assert abs(log_calls["grad_norm_group_0"] - 1.0) < 1e-5
         assert abs(log_calls["grad_norm_group_1"] - 2.0) < 1e-5
+        assert abs(log_calls["train/grad_norm_group_0_step"] - 1.0) < 1e-5
+        assert abs(log_calls["train/grad_norm_group_1_step"] - 2.0) < 1e-5
+
+    def test_logs_epoch_summary_and_clears_buffer(
+        self,
+        mock_trainer_factory: Callable,
+    ):
+        callback = GradientNormCallback(log_every_n_steps=1)
+
+        param = torch.nn.Parameter(torch.zeros(2))
+        param.grad = torch.tensor([3.0, 4.0])
+
+        pl_module = MagicMock()
+        pl_module.parameters.return_value = [param]
+        pl_module.log = MagicMock()
+
+        optimizer = MagicMock()
+        optimizer.param_groups = [{"params": [param]}]
+        trainer = mock_trainer_factory(current_epoch=3, global_step=0)
+        trainer.gradient_clip_val = 4.0
+
+        callback.on_before_optimizer_step(
+            trainer=trainer, pl_module=pl_module, optimizer=optimizer
+        )
+        callback.on_train_epoch_end(trainer=trainer, pl_module=pl_module)
+
+        trainer.logger.log_metrics.assert_called_once()
+        metrics = trainer.logger.log_metrics.call_args.args[0]
+        assert metrics["train/grad_norm_epoch"] == pytest.approx(5.0)
+        assert metrics["train/grad_norm_max_epoch"] == pytest.approx(5.0)
+        assert metrics["train/grad_clip_active_ratio"] == pytest.approx(1.0)
+        assert metrics["epoch"] == 3
+        assert trainer.logger.log_metrics.call_args.kwargs["step"] == 3
+        assert callback._epoch_grad_norms == []
+        assert callback._epoch_grad_clip_active == []
 
 
 @pytest.mark.unit

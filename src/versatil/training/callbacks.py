@@ -391,11 +391,14 @@ class ConfusionMatrixCallback(Callback):
 
 
 class GradientNormCallback(Callback):
-    """Callback to log gradient norms before and after clipping.
+    """Callback to log gradient norms during training.
 
     Logs:
-    - grad_norm_before_clip: Total gradient norm before clipping
-    - grad_norm_after_clip: Total gradient norm after clipping (if clipping is enabled)
+    - grad_norm: root step metric
+    - train/grad_norm_step: Step metric under the train namespace
+    - train/grad_norm_epoch: Mean sampled gradient norm over the epoch
+    - train/grad_norm_max_epoch: Max sampled gradient norm over the epoch
+    - train/grad_clip_active_ratio: Fraction of sampled steps above the clip threshold
     - Individual parameter group gradient norms
     """
 
@@ -407,6 +410,8 @@ class GradientNormCallback(Callback):
         """
         super().__init__()
         self.log_every_n_steps = log_every_n_steps
+        self._epoch_grad_norms: list[float] = []
+        self._epoch_grad_clip_active: list[float] = []
 
     def on_before_optimizer_step(
         self,
@@ -414,7 +419,7 @@ class GradientNormCallback(Callback):
         pl_module: pl.LightningModule,
         optimizer: torch.optim.Optimizer,
     ) -> None:
-        """Log gradient norms before optimizer step (after gradient clipping).
+        """Log gradient norms before optimizer step.
 
         Args:
             trainer: Lightning trainer
@@ -424,12 +429,35 @@ class GradientNormCallback(Callback):
         if trainer.global_step % self.log_every_n_steps != 0:
             return
 
-        # Compute gradient norm across all parameters
         grad_norm = self._compute_grad_norm(pl_module)
+        self._epoch_grad_norms.append(grad_norm)
+        clip_val = getattr(trainer, "gradient_clip_val", None)
+        clip_active = (
+            isinstance(clip_val, (int, float))
+            and clip_val > 0.0
+            and grad_norm > clip_val
+        )
+        self._epoch_grad_clip_active.append(float(clip_active))
 
-        # Log to wandb
+        # Keep the old root metric for existing W&B panels.
         pl_module.log(
             "grad_norm",
+            grad_norm,
+            on_step=True,
+            on_epoch=False,
+            prog_bar=False,
+            logger=True,
+        )
+        pl_module.log(
+            "train/grad_clip_active_step",
+            float(clip_active),
+            on_step=True,
+            on_epoch=False,
+            prog_bar=False,
+            logger=True,
+        )
+        pl_module.log(
+            "train/grad_norm_step",
             grad_norm,
             on_step=True,
             on_epoch=False,
@@ -451,6 +479,36 @@ class GradientNormCallback(Callback):
                     prog_bar=False,
                     logger=True,
                 )
+                pl_module.log(
+                    f"train/grad_norm_group_{idx}_step",
+                    group_grad_norm,
+                    on_step=True,
+                    on_epoch=False,
+                    prog_bar=False,
+                    logger=True,
+                )
+
+    def on_train_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
+        """Log epoch-level summaries so gradient norms appear with train charts."""
+        if not self._epoch_grad_norms:
+            return
+
+        grad_norms = np.asarray(self._epoch_grad_norms, dtype=np.float32)
+        metrics = {
+            "train/grad_norm_epoch": float(grad_norms.mean()),
+            "train/grad_norm_max_epoch": float(grad_norms.max()),
+            "epoch": trainer.current_epoch,
+        }
+        if self._epoch_grad_clip_active:
+            metrics["train/grad_clip_active_ratio"] = float(
+                np.asarray(self._epoch_grad_clip_active, dtype=np.float32).mean()
+            )
+        if trainer.logger is not None:
+            trainer.logger.log_metrics(metrics, step=trainer.current_epoch)
+        self._epoch_grad_norms.clear()
+        self._epoch_grad_clip_active.clear()
 
     def _compute_grad_norm(self, pl_module: pl.LightningModule) -> float:
         """Compute the total gradient norm across all parameters.
