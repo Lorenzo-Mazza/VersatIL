@@ -12,6 +12,8 @@ defaults:
 task:
   dataloader:
     val_ratio: 0.05
+training:
+  num_epochs: 2000
 
 policy:
   loss:
@@ -21,15 +23,26 @@ policy:
   algorithm:
     posterior_encoder:
       latent_dimension: 4
+      mu_tanh_bound: 4.0
       min_logvar: -4.0
       deterministic: false
+      embedding_dimension: 32
+      number_of_heads: 4
+      feedforward_dimension: 128
+      number_of_encoder_layers: 4
+      activation: ${activation_function:RELU}
+
     prior:
       latent_dimension: 4
       num_inference_steps: 10
+      embedding_dimension: 32
+      number_of_heads: 4
+      feedforward_dimension: 128
+      activation: ${activation_function:RELU}
 
 hydra:
   sweeper:
     params:
-      policy.loss.loss_modules.denoising_prior.weight: 0.03,0.1,0.3
-      policy.algorithm.posterior_encoder.deterministic: false,true
+      policy.loss.loss_modules.denoising_prior.weight: 0.03,5, 0.1, 1.0
+      policy.algorithm.posterior_encoder.deterministic: true,false
       #experiment.seed: 42,43,44

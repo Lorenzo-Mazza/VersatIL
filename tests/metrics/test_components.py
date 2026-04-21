@@ -1200,6 +1200,46 @@ class TestPriorDenoisingLossForward:
         expected = F.mse_loss(pred, target)
         assert output.total_loss.item() == pytest.approx(expected.item())
 
+    def test_logs_target_scale_normalized_prior_metrics(self):
+        pred = torch.zeros(2, 2)
+        target = torch.tensor([[1.0, 3.0], [5.0, 7.0]])
+        predictions = {
+            LatentKey.PRIOR_PREDICTION.value: pred,
+            LatentKey.PRIOR_TARGET.value: target,
+        }
+        loss = PriorDenoisingLoss(weight=1.0)
+        output = loss(predictions, {})
+
+        prior_mse = F.mse_loss(pred, target)
+        target_var = target.var(unbiased=False)
+        target_std = torch.sqrt(target_var + 1e-8)
+        assert output.component_losses[
+            MetricKey.PRIOR_DENOISING_TARGET_STD.value
+        ].item() == pytest.approx(target_std.item())
+        assert output.component_losses[
+            MetricKey.PRIOR_DENOISING_NORMALIZED_MSE.value
+        ].item() == pytest.approx((prior_mse / (target_var + 1e-8)).item())
+        assert output.component_losses[
+            MetricKey.PRIOR_DENOISING_NORMALIZED_RMSE.value
+        ].item() == pytest.approx((torch.sqrt(prior_mse) / target_std).item())
+
+    def test_normalized_prior_metrics_are_finite_for_constant_target(self):
+        pred = torch.zeros(2, 2)
+        target = torch.ones(2, 2)
+        predictions = {
+            LatentKey.PRIOR_PREDICTION.value: pred,
+            LatentKey.PRIOR_TARGET.value: target,
+        }
+        loss = PriorDenoisingLoss(weight=1.0)
+        output = loss(predictions, {})
+
+        assert torch.isfinite(
+            output.component_losses[MetricKey.PRIOR_DENOISING_NORMALIZED_MSE.value]
+        )
+        assert torch.isfinite(
+            output.component_losses[MetricKey.PRIOR_DENOISING_NORMALIZED_RMSE.value]
+        )
+
     def test_weight_scales_loss(self, rng):
         pred = torch.from_numpy(rng.standard_normal((4, 8)).astype(np.float32))
         target = torch.from_numpy(rng.standard_normal((4, 8)).astype(np.float32))

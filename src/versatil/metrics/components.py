@@ -1197,6 +1197,11 @@ class PriorDenoisingLoss(BaseLoss):
             predictions[LatentKey.PRIOR_PREDICTION.value],
             predictions[LatentKey.PRIOR_TARGET.value],
         )
+        target = predictions[LatentKey.PRIOR_TARGET.value].float()
+        target_var = target.var(unbiased=False)
+        target_std = torch.sqrt(target_var + 1e-8)
+        normalized_mse = prior_loss / (target_var + 1e-8)
+        normalized_rmse = torch.sqrt(prior_loss) / target_std
         metadata: dict[str, torch.Tensor] = {}
         if LatentKey.POSTERIOR_LATENT.value in predictions:
             metadata[MetadataKey.POSTERIOR_Z.value] = predictions[
@@ -1223,7 +1228,12 @@ class PriorDenoisingLoss(BaseLoss):
 
         return LossOutput(
             total_loss=self.weight * prior_loss,
-            component_losses={MetricKey.PRIOR_DENOISING_LOSS.value: prior_loss},
+            component_losses={
+                MetricKey.PRIOR_DENOISING_LOSS.value: prior_loss,
+                MetricKey.PRIOR_DENOISING_TARGET_STD.value: target_std,
+                MetricKey.PRIOR_DENOISING_NORMALIZED_MSE.value: normalized_mse,
+                MetricKey.PRIOR_DENOISING_NORMALIZED_RMSE.value: normalized_rmse,
+            },
             metadata=metadata,
         )
 

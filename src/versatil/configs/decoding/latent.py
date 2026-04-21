@@ -61,6 +61,7 @@ class VAETransformerEncoderConfig(PosteriorLatentEncoderConfig):
     exclude_keys: list[str] | None = None
     min_logvar: float | None = None
     deterministic: bool = False
+    mu_tanh_bound: float | None = None
 
 
 @dataclass

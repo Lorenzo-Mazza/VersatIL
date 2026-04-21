@@ -66,6 +66,7 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         exclude_keys: list[str] | None = None,
         min_logvar: float | None = None,
         deterministic: bool = False,
+        mu_tanh_bound: float | None = None,
     ):
         """Initialize VAE latent action encoder.
 
@@ -86,15 +87,20 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             min_logvar: Minimum log variance for avoiding variance collapse
             deterministic: If True, output deterministic embeddings without reparameterization.
                 Use with MMD or OT regularizers instead of KL divergence.
+            mu_tanh_bound: Optional symmetric bound for posterior mu. When set, applies
+                ``bound * tanh(raw_mu / bound)`` before sampling/returning z.
 
         """
         super().__init__(
             latent_dimension=latent_dimension,
             device=device,
         )
+        if mu_tanh_bound is not None and mu_tanh_bound <= 0:
+            raise ValueError("mu_tanh_bound must be positive when set.")
         self.exclude_keys = exclude_keys if exclude_keys is not None else []
         self.min_logvar = min_logvar
         self.deterministic = deterministic
+        self.mu_tanh_bound = mu_tanh_bound
         self.embedding_dimension = embedding_dimension
         self.use_proprioceptive = use_proprioceptive
         self.prediction_horizon = prediction_horizon
@@ -150,6 +156,11 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
             projection_dim,
         )
         self.to(device)
+
+    def _bound_mu(self, mu: torch.Tensor) -> torch.Tensor:
+        if self.mu_tanh_bound is None:
+            return mu
+        return self.mu_tanh_bound * torch.tanh(mu / self.mu_tanh_bound)
 
     def get_auxiliary_output_keys(self) -> set[str]:
         """Gaussian posterior keys, excluding logvar when deterministic."""
@@ -220,12 +231,13 @@ class VAETransformerEncoder(PosteriorLatentEncoder):
         )[:, -1, :]  # (B, CLS_TOKEN only, embedding_dim)
         latent_stats = self.latent_projection(encoder_output)
         if self.deterministic:
-            z = latent_stats  # (B, latent_dim)
+            z = self._bound_mu(latent_stats)  # (B, latent_dim)
             return {
                 LatentKey.POSTERIOR_LATENT.value: z,
                 LatentKey.POSTERIOR_MU.value: z,
             }
-        mu, logvar = latent_stats.chunk(2, dim=1)  # Each (B, latent_dim)
+        raw_mu, logvar = latent_stats.chunk(2, dim=1)  # Each (B, latent_dim)
+        mu = self._bound_mu(raw_mu)
         if self.min_logvar is not None:
             logvar = torch.clamp(logvar, min=self.min_logvar)
         z = reparametrize(mu, logvar)  # (B, latent_dim)

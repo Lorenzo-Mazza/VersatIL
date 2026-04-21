@@ -32,6 +32,7 @@ def vae_encoder_factory() -> Callable[..., VAETransformerEncoder]:
         number_of_encoder_layers: int = 2,
         deterministic: bool = False,
         min_logvar: float | None = None,
+        mu_tanh_bound: float | None = None,
         exclude_keys: list[str] | None = None,
         attention_dropout: float = 0.0,
         normalization_type: str = "rmsnorm",
@@ -49,6 +50,7 @@ def vae_encoder_factory() -> Callable[..., VAETransformerEncoder]:
             number_of_encoder_layers=number_of_encoder_layers,
             deterministic=deterministic,
             min_logvar=min_logvar,
+            mu_tanh_bound=mu_tanh_bound,
             exclude_keys=exclude_keys,
             attention_dropout=attention_dropout,
             normalization_type=normalization_type,
@@ -85,6 +87,20 @@ class TestVAETransformerEncoderInitialization:
         assert encoder.embedding_dimension == embedding_dimension
         assert encoder.latent_dimension == latent_dimension
         assert encoder.deterministic is deterministic
+
+    def test_stores_mu_tanh_bound(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+    ):
+        encoder = vae_encoder_factory(mu_tanh_bound=4.0)
+        assert encoder.mu_tanh_bound == 4.0
+
+    def test_rejects_non_positive_mu_tanh_bound(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+    ):
+        with pytest.raises(ValueError, match="mu_tanh_bound must be positive"):
+            vae_encoder_factory(mu_tanh_bound=0.0)
 
     @pytest.mark.parametrize(
         "deterministic, expected_multiplier",
@@ -255,6 +271,31 @@ class TestVAETransformerEncoderEncode:
         result = encoder.encode(actions=actions, observations=features)
         logvar = result[LatentKey.POSTERIOR_LOGVAR.value]
         assert torch.all(logvar >= min_logvar)
+
+    @pytest.mark.parametrize("deterministic", [True, False])
+    def test_mu_tanh_bound_limits_posterior_mu(
+        self,
+        vae_encoder_factory: Callable[..., VAETransformerEncoder],
+        action_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        feature_dictionary_factory: Callable[..., dict[str, torch.Tensor]],
+        deterministic: bool,
+    ):
+        bound = 4.0
+        encoder = vae_encoder_factory(
+            deterministic=deterministic,
+            mu_tanh_bound=bound,
+        )
+        with torch.no_grad():
+            encoder.latent_projection.weight.zero_()
+            encoder.latent_projection.bias.zero_()
+            encoder.latent_projection.bias[: encoder.latent_dimension].fill_(100.0)
+
+        actions = action_dictionary_factory(prediction_horizon=8)
+        features = feature_dictionary_factory()
+        result = encoder.encode(actions=actions, observations=features)
+        mu = result[LatentKey.POSTERIOR_MU.value]
+        assert torch.all(mu <= bound)
+        assert torch.all(mu >= -bound)
 
     def test_excludes_keys_from_observations(
         self,
