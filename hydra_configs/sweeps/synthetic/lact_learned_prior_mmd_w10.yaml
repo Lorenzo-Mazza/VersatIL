@@ -1,6 +1,7 @@
 # @package _global_
-# Stage 2: LACT with learned Gaussian prior + MMD w=10.
-# 6 tasks × 1 = 6 runs.
+# Stage 2: LACT with learned Gaussian prior + MMD.
+# 5 tasks × 2 weights × 3 seeds = 30 runs.
+# WAE recipe: IMQ kernel, use_median_heuristic=false, bandwidth=2*latent_dim.
 
 defaults:
   - /end_to_end_training_runs/synthetic/lact_mmd_gaussian
@@ -13,9 +14,14 @@ policy:
   loss:
     loss_modules:
       maximum_mean_discrepancy:
-        weight: 10
+        kernel_type: ${kernel_type:IMQ}
+        use_median_heuristic: false
+        bandwidth_multipliers:
+          - ${mul:2,${policy.algorithm.posterior_encoder.latent_dimension}}
 
 hydra:
   sweeper:
     params:
-      task_bundle/synthetic: circle,conditional_circle,sequential,radial_k8,radial_k16,corridor_k8
+      task_bundle/synthetic: circle,sequential,corridor_k8,corridor_k16,radial_k16
+      policy.loss.loss_modules.maximum_mean_discrepancy.weight: 1,10
+      experiment.seed: 42,43,44

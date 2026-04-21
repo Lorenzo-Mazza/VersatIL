@@ -536,6 +536,11 @@ def register_resolvers():
             "prunable_layer",
             lambda name: PrunableLayerType[name].value,
         )
+    if not OmegaConf.has_resolver("mul"):
+        OmegaConf.register_new_resolver(
+            "mul",
+            lambda a, b: float(a) * float(b),
+        )
 
 
 def register_configs():
