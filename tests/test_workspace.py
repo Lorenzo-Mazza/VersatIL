@@ -26,6 +26,7 @@ from versatil.training.callbacks import (
     ExpertUsageCallback,
     GradientNormCallback,
     LatentVisualizationCallback,
+    ProgressiveFreezingCallback,
     ReduceLROnPlateauCallback,
     ResumableEarlyStopping,
 )
@@ -96,6 +97,7 @@ def mock_training_config_factory() -> Callable[..., MagicMock]:
         reduce_lr_on_plateau: bool = False,
         reduce_lr_patience: int = 10,
         reduce_lr_cooldown: int = 10,
+        progressive_freezing: list[dict[str, object]] | None = None,
         compile: bool = False,
         compile_mode: str = "default",
         lr: float = 1e-4,
@@ -115,6 +117,7 @@ def mock_training_config_factory() -> Callable[..., MagicMock]:
         config.reduce_lr_on_plateau = reduce_lr_on_plateau
         config.reduce_lr_patience = reduce_lr_patience
         config.reduce_lr_cooldown = reduce_lr_cooldown
+        config.progressive_freezing = progressive_freezing or []
         config.compile = compile
         config.compile_mode = compile_mode
         config.optimizer = MagicMock(spec=AdamWConfig)
@@ -737,6 +740,33 @@ class TestCreateCallbacks:
                 swa_epoch_start=80,  # int(0.8 * 100)
                 annealing_epochs=5,
             )
+
+    def test_progressive_freezing_callback_added_when_configured(
+        self,
+        workspace_factory: Callable[..., Workspace],
+        mock_workspace_policy_factory: Callable[..., MagicMock],
+    ) -> None:
+        policy = mock_workspace_policy_factory()
+        workspace = workspace_factory(
+            training_kwargs={
+                "progressive_freezing": [
+                    {
+                        "epoch": 200,
+                        "trainable_patterns": [r"^algorithm\.prior\."],
+                    }
+                ]
+            },
+            policy=policy,
+        )
+        workspace.policy = policy
+        workspace.val_loader = None
+
+        callbacks = workspace._create_callbacks()
+
+        progressive_callbacks = [
+            cb for cb in callbacks if isinstance(cb, ProgressiveFreezingCallback)
+        ]
+        assert len(progressive_callbacks) == 1
 
     def test_decoder_callbacks_collected_via_protocol(
         self, workspace_factory, mock_workspace_policy_factory

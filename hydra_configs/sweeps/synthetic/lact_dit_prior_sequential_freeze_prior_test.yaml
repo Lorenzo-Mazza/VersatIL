@@ -1,0 +1,65 @@
+# @package _global_
+# Diagnostic: train LACT + DiT prior jointly until epoch 200, then freeze
+# encoder/posterior/decoder and continue training only the DiT prior.
+
+defaults:
+  - /end_to_end_training_runs/synthetic/lact_dit_prior
+  - /task_bundle/synthetic: sequential
+  - override /hydra/sweeper: basic
+  - _self_
+
+task:
+  dataloader:
+    val_ratio: 0.05
+
+training:
+  num_epochs: 1000
+  early_stopping_patience: null
+  optimizer:
+    lr: 5.0e-4
+    weight_decay: 2.0e-2
+    param_groups:
+      - name: backbone
+        lr: 1.0e-5
+        weight_decay: 1.0e-3
+        params_pattern: "encoding_pipeline.encoders.*.backbone"
+      - name: posterior
+        lr: 1.0e-4
+        params_pattern: "^algorithm\\.posterior_encoder\\."
+      - name: prior
+        lr: 1.0e-3
+        params_pattern: "^algorithm\\.prior\\."
+      - name: decoder
+        lr: 2.0e-4
+        params_pattern: "^decoder\\."
+  progressive_freezing:
+    - epoch: 200
+      trainable_patterns:
+        - "^algorithm\\.prior\\."
+      eval_frozen_modules: true
+
+policy:
+  loss:
+    loss_modules:
+      denoising_prior:
+        weight: 0.03
+  algorithm:
+    sampling_from_prior_probability: 0.0
+    posterior_encoder:
+      latent_dimension: 4
+      mu_tanh_bound: 4.0
+      min_logvar: -4.0
+      deterministic: true
+      embedding_dimension: 32
+      number_of_heads: 4
+      feedforward_dimension: 128
+      number_of_encoder_layers: 4
+      activation: ${activation_function:RELU}
+
+    prior:
+      latent_dimension: 4
+      num_inference_steps: 10
+      embedding_dimension: 32
+      number_of_heads: 4
+      feedforward_dimension: 128
+      activation: ${activation_function:RELU}

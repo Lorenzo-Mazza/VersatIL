@@ -156,6 +156,7 @@ from versatil.configs.training import (
     AdamWConfig,
     OptimizerConfig,
     ParameterGroupConfig,
+    ProgressiveFreezingConfig,
     SGDConfig,
     TrainingConfig,
 )
@@ -221,6 +222,7 @@ __all__ = [
     "TrainingConfig",
     "OptimizerConfig",
     "ParameterGroupConfig",
+    "ProgressiveFreezingConfig",
     "TaskSpaceConfig",
     "PolicyConfig",
     "EncoderConfig",
@@ -644,6 +646,11 @@ def register_configs():
         group="training/optimizer/parameter_group",
         name="base",
         node=ParameterGroupConfig,
+    )
+    cs.store(
+        group="training/progressive_freezing",
+        name="base",
+        node=ProgressiveFreezingConfig,
     )
 
     cs.store(group="policy", name="base", node=PolicyConfig)

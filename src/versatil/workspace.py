@@ -32,6 +32,7 @@ from versatil.training.callback_provider import CallbackProvider
 from versatil.training.callbacks import (
     EMACallback,
     GradientNormCallback,
+    ProgressiveFreezingCallback,
     ReduceLROnPlateauCallback,
     ResumableEarlyStopping,
 )
@@ -387,6 +388,16 @@ class Workspace:
             logging.info(
                 f"Added SWA callback (lr={self.config.training.swa_lrs}, "
                 f"start_epoch={swa_epoch_start}, annealing_epochs={self.config.training.swa_annealing_epochs})"
+            )
+
+        progressive_freezing = self.config.training.progressive_freezing
+        if progressive_freezing:
+            progressive_freezing_callback = ProgressiveFreezingCallback(
+                schedule=progressive_freezing
+            )
+            callbacks.append(progressive_freezing_callback)
+            logging.info(
+                f"Added ProgressiveFreezing callback ({len(progressive_freezing)} phases)"
             )
 
         if self.config.training.reduce_lr_on_plateau:

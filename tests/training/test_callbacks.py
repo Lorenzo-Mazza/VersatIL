@@ -1,5 +1,6 @@
 """Tests for versatil.training.callbacks module."""
 
+import re
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -17,6 +18,7 @@ from versatil.training.callbacks import (
     ExpertUsageCallback,
     GradientNormCallback,
     LatentVisualizationCallback,
+    ProgressiveFreezingCallback,
     ReduceLROnPlateauCallback,
     ResumableEarlyStopping,
     _figure_to_wandb_image,
@@ -66,7 +68,7 @@ def simple_module_factory(rng: np.random.Generator) -> Callable[..., torch.nn.Mo
 
 @pytest.fixture
 def pl_module_with_policy_factory(
-    simple_module_factory: Callable,
+    simple_module_factory: Callable[..., torch.nn.Module],
 ) -> Callable[..., MagicMock]:
     def factory(
         policy: torch.nn.Module | None = None,
@@ -106,6 +108,140 @@ def mock_pl_module_factory() -> Callable[..., MagicMock]:
         return pl_module
 
     return factory
+
+
+class ToyPolicy(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.encoding_pipeline = torch.nn.Linear(2, 2)
+        self.algorithm = torch.nn.Module()
+        self.algorithm.posterior_encoder = torch.nn.Linear(2, 2)
+        self.algorithm.prior = torch.nn.Linear(2, 2)
+        self.decoder = torch.nn.Linear(2, 2)
+
+
+@pytest.mark.unit
+class TestProgressiveFreezingCallback:
+    def test_requires_non_empty_schedule(self) -> None:
+        expected_message = "ProgressiveFreezingCallback requires a non-empty schedule."
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            ProgressiveFreezingCallback(schedule=[])
+
+    def test_rule_is_not_applied_before_epoch(
+        self, pl_module_with_policy_factory: Callable[..., MagicMock]
+    ) -> None:
+        policy = ToyPolicy()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        trainer = MagicMock()
+        trainer.current_epoch = 199
+        callback = ProgressiveFreezingCallback(
+            schedule=[
+                {
+                    "epoch": 200,
+                    "trainable_patterns": [r"^algorithm\.prior\."],
+                }
+            ]
+        )
+
+        callback.on_train_epoch_start(trainer, pl_module)
+
+        assert all(parameter.requires_grad for parameter in policy.parameters())
+
+    def test_trainable_patterns_freeze_everything_else(
+        self, pl_module_with_policy_factory: Callable[..., MagicMock]
+    ) -> None:
+        policy = ToyPolicy()
+        policy.train()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        trainer = MagicMock()
+        trainer.current_epoch = 200
+        callback = ProgressiveFreezingCallback(
+            schedule=[
+                {
+                    "epoch": 200,
+                    "trainable_patterns": [r"^algorithm\.prior\."],
+                }
+            ]
+        )
+
+        callback.on_train_epoch_start(trainer, pl_module)
+
+        for name, parameter in policy.named_parameters():
+            assert parameter.requires_grad is name.startswith("algorithm.prior.")
+        assert policy.algorithm.prior.training is True
+        assert policy.algorithm.posterior_encoder.training is False
+        assert policy.decoder.training is False
+        assert policy.encoding_pipeline.training is False
+
+    def test_later_phase_can_unfreeze_parameters(
+        self, pl_module_with_policy_factory: Callable[..., MagicMock]
+    ) -> None:
+        policy = ToyPolicy()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        trainer = MagicMock()
+        callback = ProgressiveFreezingCallback(
+            schedule=[
+                {
+                    "epoch": 0,
+                    "trainable_patterns": [r"^algorithm\.prior\."],
+                },
+                {
+                    "epoch": 2,
+                    "trainable_patterns": [r"^algorithm\.prior\.", r"^decoder\."],
+                },
+            ]
+        )
+
+        trainer.current_epoch = 0
+        callback.on_train_epoch_start(trainer, pl_module)
+        assert all(
+            parameter.requires_grad
+            for name, parameter in policy.named_parameters()
+            if name.startswith("algorithm.prior.")
+        )
+        assert all(
+            not parameter.requires_grad
+            for name, parameter in policy.named_parameters()
+            if name.startswith("decoder.")
+        )
+
+        trainer.current_epoch = 2
+        callback.on_train_epoch_start(trainer, pl_module)
+
+        assert all(
+            parameter.requires_grad
+            for name, parameter in policy.named_parameters()
+            if name.startswith("algorithm.prior.") or name.startswith("decoder.")
+        )
+        assert all(
+            not parameter.requires_grad
+            for name, parameter in policy.named_parameters()
+            if name.startswith("algorithm.posterior_encoder.")
+            or name.startswith("encoding_pipeline.")
+        )
+        assert policy.decoder.training is True
+
+    def test_frozen_patterns_only_leave_other_parameters_unchanged(
+        self, pl_module_with_policy_factory: Callable[..., MagicMock]
+    ) -> None:
+        policy = ToyPolicy()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        trainer = MagicMock()
+        trainer.current_epoch = 5
+        callback = ProgressiveFreezingCallback(
+            schedule=[
+                {
+                    "epoch": 5,
+                    "frozen_patterns": [r"^decoder\."],
+                }
+            ]
+        )
+
+        callback.on_train_epoch_start(trainer, pl_module)
+
+        for name, parameter in policy.named_parameters():
+            should_be_trainable = not name.startswith("decoder.")
+            assert parameter.requires_grad is should_be_trainable
 
 
 @pytest.fixture

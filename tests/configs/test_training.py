@@ -9,6 +9,7 @@ from versatil.configs.training import (
     AdamWConfig,
     OptimizerConfig,
     ParameterGroupConfig,
+    ProgressiveFreezingConfig,
     SGDConfig,
     TrainingConfig,
 )
@@ -34,6 +35,30 @@ class TestParameterGroupConfig:
             name="group", lr=1e-4, params_pattern=params_pattern
         )
         assert config.params_pattern == params_pattern
+
+
+@pytest.mark.unit
+class TestProgressiveFreezingConfig:
+    def test_stores_configuration(self) -> None:
+        config = ProgressiveFreezingConfig(
+            epoch=200,
+            trainable_patterns=[r"^algorithm\.prior\."],
+            frozen_patterns=[r"^decoder\."],
+            eval_frozen_modules=False,
+            log=False,
+        )
+        assert config.epoch == 200
+        assert config.trainable_patterns == [r"^algorithm\.prior\."]
+        assert config.frozen_patterns == [r"^decoder\."]
+        assert config.eval_frozen_modules is False
+        assert config.log is False
+
+    def test_defaults_to_empty_patterns(self) -> None:
+        config = ProgressiveFreezingConfig(epoch=10)
+        assert config.trainable_patterns == []
+        assert config.frozen_patterns == []
+        assert config.eval_frozen_modules is True
+        assert config.log is True
 
 
 @pytest.mark.unit
@@ -162,6 +187,16 @@ class TestTrainingConfig:
         config = TrainingConfig(swa_lrs=swa_lrs)
         assert config.swa_lrs == swa_lrs
 
+    def test_stores_progressive_freezing_schedule(self) -> None:
+        schedule = [
+            ProgressiveFreezingConfig(
+                epoch=200,
+                trainable_patterns=[r"^algorithm\.prior\."],
+            )
+        ]
+        config = TrainingConfig(progressive_freezing=schedule)
+        assert config.progressive_freezing == schedule
+
     def test_has_all_expected_fields(self):
         field_names = {f.name for f in dataclasses.fields(TrainingConfig)}
         expected = {
@@ -183,6 +218,7 @@ class TestTrainingConfig:
             "reduce_lr_on_plateau",
             "reduce_lr_patience",
             "reduce_lr_cooldown",
+            "progressive_freezing",
             "compile",
             "compile_mode",
         }
