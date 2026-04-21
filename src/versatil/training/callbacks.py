@@ -612,14 +612,43 @@ class LatentVisualizationCallback(Callback):
         self.log_every_n_epochs = log_every_n_epochs
         self.max_samples = max_samples
 
+    def on_train_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
+        """Create and log latent space visualization at end of training epoch."""
+        self._log_latent(
+            trainer=trainer,
+            metrics_accumulator=pl_module.train_metrics,
+            split="train",
+        )
+
     def on_validation_epoch_end(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ) -> None:
         """Create and log latent space visualization at end of validation epoch."""
+        self._log_latent(
+            trainer=trainer,
+            metrics_accumulator=pl_module.val_metrics,
+            split="val",
+        )
+
+    def _log_latent(
+        self,
+        trainer: pl.Trainer,
+        metrics_accumulator,
+        split: str,
+    ) -> None:
+        """Compute and log latent-space visualizations for the given metrics accumulator.
+
+        Args:
+            trainer: Lightning trainer.
+            metrics_accumulator: Either train_metrics or val_metrics.
+            split: "train" or "val" — used as a prefix on logged metric keys.
+        """
         if trainer.current_epoch % self.log_every_n_epochs != 0:
             return
 
-        latent_data = pl_module.val_metrics.compute_latent_visualization_data()
+        latent_data = metrics_accumulator.compute_latent_visualization_data()
         if latent_data is None:
             return
         z, z_prior, phase_per_sample = latent_data
@@ -632,8 +661,8 @@ class LatentVisualizationCallback(Callback):
                 self._build_latent_figures(
                     z=z,
                     phases=phase_per_sample,
-                    prefix="posterior",
-                    title="Posterior latent space",
+                    prefix=f"{split}_posterior",
+                    title=f"{split.title()} posterior latent space",
                 )
             )
         if z_prior is not None:
@@ -641,19 +670,19 @@ class LatentVisualizationCallback(Callback):
                 self._build_latent_figures(
                     z=z_prior,
                     phases=phase_per_sample,
-                    prefix="prior",
-                    title="Prior latent space",
+                    prefix=f"{split}_prior",
+                    title=f"{split.title()} prior latent space",
                 )
             )
 
         latent_stats_table = self._create_latent_stats_table(
-            pl_module.val_metrics.metadata
+            metrics_accumulator.metadata
         )
 
         if trainer.logger is not None:
             metrics = {key: _figure_to_wandb_image(fig) for key, fig in figures.items()}
             if latent_stats_table is not None:
-                metrics["latent_space_statistics"] = latent_stats_table
+                metrics[f"{split}_latent_space_statistics"] = latent_stats_table
             trainer.logger.log_metrics(metrics, step=trainer.current_epoch)
 
         for fig in figures.values():
