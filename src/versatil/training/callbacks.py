@@ -263,7 +263,9 @@ class ProgressiveFreezingCallback(Callback):
             [self._normalize_rule(rule) for rule in schedule],
             key=lambda rule: rule.epoch,
         )
-        self._last_announced_phase_index: int | None = None
+        self._last_applied_phase_index: int | None = None
+        self._frozen_modules: tuple[torch.nn.Module, ...] = ()
+        self._trainable_modules: tuple[torch.nn.Module, ...] = ()
 
     @staticmethod
     def _normalize_rule(rule: FreezingRuleInput) -> FreezingPhase:
@@ -301,15 +303,15 @@ class ProgressiveFreezingCallback(Callback):
         active_index = self._active_phase_index(trainer.current_epoch)
         if active_index is None:
             return
-        announce = active_index != self._last_announced_phase_index
+        if active_index == self._last_applied_phase_index:
+            self._restore_cached_module_modes()
+            return
         self._apply_rule(
             pl_module=pl_module,
             rule=self.schedule[active_index],
             phase_index=active_index,
-            announce=announce,
         )
-        if announce:
-            self._last_announced_phase_index = active_index
+        self._last_applied_phase_index = active_index
 
     def _active_phase_index(self, current_epoch: int) -> int | None:
         """Return the latest phase whose epoch has been reached."""
@@ -326,7 +328,6 @@ class ProgressiveFreezingCallback(Callback):
         pl_module: pl.LightningModule,
         rule: FreezingPhase,
         phase_index: int,
-        announce: bool,
     ) -> None:
         """Apply one freezing phase to the wrapped policy."""
         policy = pl_module.policy
@@ -357,7 +358,12 @@ class ProgressiveFreezingCallback(Callback):
                 frozen_parameters += count
 
         if rule.eval_frozen_modules:
-            self._sync_module_modes(policy)
+            self._frozen_modules, self._trainable_modules = self._sync_module_modes(
+                policy
+            )
+        else:
+            self._frozen_modules = ()
+            self._trainable_modules = ()
 
         if rule.log:
             self._log_counts(
@@ -368,15 +374,14 @@ class ProgressiveFreezingCallback(Callback):
                 trainable_parameters=trainable_parameters,
                 frozen_parameters=frozen_parameters,
             )
-        if announce:
-            logging.info(
-                "Applied progressive freezing phase %s at epoch %s: "
-                "%s trainable tensors, %s frozen tensors",
-                phase_index,
-                rule.epoch,
-                trainable_tensors,
-                frozen_tensors,
-            )
+        logging.info(
+            "Applied progressive freezing phase %s at epoch %s: "
+            "%s trainable tensors, %s frozen tensors",
+            phase_index,
+            rule.epoch,
+            trainable_tensors,
+            frozen_tensors,
+        )
 
     @staticmethod
     def _matches_any(name: str, patterns: Sequence[re.Pattern[str]]) -> bool:
@@ -384,8 +389,12 @@ class ProgressiveFreezingCallback(Callback):
         return any(pattern.search(name) for pattern in patterns)
 
     @staticmethod
-    def _sync_module_modes(policy: torch.nn.Module) -> None:
+    def _sync_module_modes(
+        policy: torch.nn.Module,
+    ) -> tuple[tuple[torch.nn.Module, ...], tuple[torch.nn.Module, ...]]:
         """Put fully frozen modules in eval mode and fully trainable modules in train mode."""
+        frozen_modules: list[torch.nn.Module] = []
+        trainable_modules: list[torch.nn.Module] = []
         for name, module in policy.named_modules():
             if name == "":
                 continue
@@ -394,8 +403,18 @@ class ProgressiveFreezingCallback(Callback):
                 continue
             if all(not parameter.requires_grad for parameter in parameters):
                 module.eval()
+                frozen_modules.append(module)
             elif all(parameter.requires_grad for parameter in parameters):
                 module.train()
+                trainable_modules.append(module)
+        return tuple(frozen_modules), tuple(trainable_modules)
+
+    def _restore_cached_module_modes(self) -> None:
+        """Restore module modes without reapplying parameter freezing."""
+        for module in self._trainable_modules:
+            module.train()
+        for module in self._frozen_modules:
+            module.eval()
 
     @staticmethod
     def _log_counts(

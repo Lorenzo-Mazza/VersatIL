@@ -110,6 +110,7 @@ def mock_pl_module_factory() -> Callable[..., MagicMock]:
     return factory
 
 
+# Real nn.Parameters are needed because the callback mutates requires_grad.
 class ToyPolicy(torch.nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -225,6 +226,8 @@ class TestProgressiveFreezingCallback:
         self, pl_module_with_policy_factory: Callable[..., MagicMock]
     ) -> None:
         policy = ToyPolicy()
+        policy.nested = torch.nn.Module()
+        policy.nested.decoder = torch.nn.Linear(2, 2)
         pl_module = pl_module_with_policy_factory(policy=policy)
         trainer = MagicMock()
         trainer.current_epoch = 5
@@ -232,7 +235,7 @@ class TestProgressiveFreezingCallback:
             schedule=[
                 {
                     "epoch": 5,
-                    "frozen_patterns": [r"^decoder\."],
+                    "frozen_patterns": [r"decoder\."],
                 }
             ]
         )
@@ -240,8 +243,34 @@ class TestProgressiveFreezingCallback:
         callback.on_train_epoch_start(trainer, pl_module)
 
         for name, parameter in policy.named_parameters():
-            should_be_trainable = not name.startswith("decoder.")
+            should_be_trainable = "decoder." not in name
             assert parameter.requires_grad is should_be_trainable
+
+    def test_same_phase_restores_modes_without_duplicate_logs(
+        self, pl_module_with_policy_factory: Callable[..., MagicMock]
+    ) -> None:
+        policy = ToyPolicy()
+        pl_module = pl_module_with_policy_factory(policy=policy)
+        trainer = MagicMock()
+        trainer.current_epoch = 0
+        callback = ProgressiveFreezingCallback(
+            schedule=[
+                {
+                    "epoch": 0,
+                    "trainable_patterns": [r"^algorithm\.prior\."],
+                }
+            ]
+        )
+
+        callback.on_train_epoch_start(trainer, pl_module)
+        assert policy.decoder.training is False
+
+        policy.decoder.train()
+        pl_module.log.reset_mock()
+        callback.on_train_epoch_start(trainer, pl_module)
+
+        assert policy.decoder.training is False
+        pl_module.log.assert_not_called()
 
 
 @pytest.fixture

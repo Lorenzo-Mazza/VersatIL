@@ -714,6 +714,50 @@ class TestCreateParameterGroups:
         decoder_group = groups[2]
         assert decoder_group["lr"] == 1e-4
 
+    def test_parameter_group_patterns_can_match_nested_substrings(
+        self,
+        rng: np.random.Generator,
+        lightning_policy_factory: Callable,
+        training_config_factory: Callable,
+    ) -> None:
+        encoder_weight = torch.nn.Parameter(
+            torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
+        )
+        nested_encoder_weight = torch.nn.Parameter(
+            torch.from_numpy(rng.standard_normal((4,)).astype(np.float32))
+        )
+
+        policy = MagicMock()
+        policy.named_parameters.return_value = iter(
+            [
+                ("encoder.layer.weight", encoder_weight),
+                ("nested.encoder.layer.weight", nested_encoder_weight),
+            ]
+        )
+        policy.parameters.return_value = iter([encoder_weight, nested_encoder_weight])
+
+        param_groups = [
+            ParameterGroupConfig(
+                name="encoder",
+                lr=1e-5,
+                params_pattern=r"encoder\.",
+            ),
+        ]
+        optimizer_config = AdamWConfig(lr=1e-3, param_groups=param_groups)
+        config = training_config_factory(optimizer=optimizer_config)
+        lightning_policy = lightning_policy_factory(
+            policy=policy, training_config=config
+        )
+
+        groups = lightning_policy._create_parameter_groups(config.optimizer)
+
+        assert len(groups) == 1
+        assert groups[0]["lr"] == 1e-5
+        assert [id(parameter) for parameter in groups[0]["params"]] == [
+            id(encoder_weight),
+            id(nested_encoder_weight),
+        ]
+
     def test_skips_frozen_parameters(
         self,
         rng: np.random.Generator,
