@@ -55,6 +55,6 @@ policy:
       number_of_encoder_layers: 4
       dropout_rate: 0.0
       device: ${policy.device}
-      min_logvar: -4.0
+      min_logvar: -6.0
     prior:
       latent_dimension: 1
