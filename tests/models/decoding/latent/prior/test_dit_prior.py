@@ -168,6 +168,32 @@ class TestDiTPriorInitialization:
         prior = dit_prior_factory(observation_horizon=1)
         assert prior.input_builder.temporal_positional_encoding_layer is None
 
+    @pytest.mark.unit
+    def test_top_level_projection_layers_use_dit_init(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+    ):
+        prior = dit_prior_factory(latent_dimension=4, embedding_dimension=32)
+
+        top_level_linears = [
+            prior.latent_input_proj,
+            prior.timestep_mlp[0],
+            prior.timestep_mlp[2],
+        ]
+        for layer in top_level_linears:
+            assert 0.005 < layer.weight.std().item() < 0.05
+            assert torch.all(layer.bias == 0.0)
+
+    @pytest.mark.unit
+    def test_final_prediction_layer_remains_zero_initialized(
+        self,
+        dit_prior_factory: Callable[..., DiTPrior],
+    ):
+        prior = dit_prior_factory()
+        output_linear = prior.final_layer.output_linear
+        assert torch.all(output_linear.weight == 0.0)
+        assert torch.all(output_linear.bias == 0.0)
+
 
 class TestDiTPriorGetAuxiliaryOutputKeys:
     @pytest.mark.unit
