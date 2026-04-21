@@ -136,9 +136,9 @@ def mock_latent_pl_module_factory(
     phase_array_factory: Callable[..., np.ndarray],
 ) -> Callable[..., MagicMock]:
     """Factory for a ``pl_module`` MagicMock pre-wired for
-    ``LatentVisualizationCallback.on_validation_epoch_end`` tests. Override
-    ``posterior_latent`` / ``prior_latent`` with ``None`` to exercise the
-    missing-branch paths."""
+    ``LatentVisualizationCallback`` tests (both train and val epoch ends).
+    Override ``posterior_latent`` / ``prior_latent`` with ``None`` to exercise
+    the missing-branch paths."""
 
     def factory(
         posterior_latent: np.ndarray | None = ...,
@@ -154,12 +154,14 @@ def mock_latent_pl_module_factory(
         if phases is ...:
             phases = phase_array_factory()
         pl_module = MagicMock()
-        pl_module.val_metrics.compute_latent_visualization_data.return_value = (
-            posterior_latent,
-            prior_latent,
-            phases,
-        )
-        pl_module.val_metrics.metadata = metadata if metadata is not None else {}
+        for accumulator_name in ("train_metrics", "val_metrics"):
+            accumulator = getattr(pl_module, accumulator_name)
+            accumulator.compute_latent_visualization_data.return_value = (
+                posterior_latent,
+                prior_latent,
+                phases,
+            )
+            accumulator.metadata = metadata if metadata is not None else {}
         return pl_module
 
     return factory
@@ -1148,29 +1150,49 @@ class TestLatentVisualizationCallback:
         assert callback.log_every_n_epochs == log_every_n_epochs
         assert callback.max_samples == max_samples
 
+    @pytest.mark.parametrize(
+        "hook, accumulator_name",
+        [
+            ("on_train_epoch_end", "train_metrics"),
+            ("on_validation_epoch_end", "val_metrics"),
+        ],
+    )
     def test_skips_logging_on_non_matching_epochs(
         self,
         mock_trainer_factory: Callable,
+        hook: str,
+        accumulator_name: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=5)
         pl_module = MagicMock()
         trainer = mock_trainer_factory(current_epoch=3)
 
-        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+        getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
-        pl_module.val_metrics.compute_latent_visualization_data.assert_not_called()
+        accumulator = getattr(pl_module, accumulator_name)
+        accumulator.compute_latent_visualization_data.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "hook, accumulator_name",
+        [
+            ("on_train_epoch_end", "train_metrics"),
+            ("on_validation_epoch_end", "val_metrics"),
+        ],
+    )
     def test_skips_logging_when_no_latent_data(
         self,
         mock_trainer_factory: Callable,
+        hook: str,
+        accumulator_name: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1)
         pl_module = MagicMock()
-        pl_module.val_metrics.compute_latent_visualization_data.return_value = None
+        accumulator = getattr(pl_module, accumulator_name)
+        accumulator.compute_latent_visualization_data.return_value = None
 
         trainer = mock_trainer_factory(current_epoch=0)
 
-        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+        getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         trainer.logger.log_metrics.assert_not_called()
 
@@ -1250,28 +1272,37 @@ class TestFigureToWandbImage:
 
 
 @pytest.mark.unit
-class TestLatentVisualizationCallbackOnValidationEpochEnd:
+@pytest.mark.parametrize(
+    "hook, split",
+    [
+        ("on_train_epoch_end", "train"),
+        ("on_validation_epoch_end", "val"),
+    ],
+)
+class TestLatentVisualizationCallbackEpochEnd:
     def test_logs_posterior_and_prior_figures_with_phases(
         self,
         mock_trainer_factory: Callable,
         mock_latent_pl_module_factory: Callable,
+        hook: str,
+        split: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
         pl_module = mock_latent_pl_module_factory()
         trainer = mock_trainer_factory(current_epoch=0)
 
         with patch("versatil.training.callbacks._figure_to_wandb_image"):
-            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+            getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         trainer.logger.log_metrics.assert_called_once()
         logged_metrics = trainer.logger.log_metrics.call_args.args[0]
         expected_keys = {
-            "posterior_latent_space_tsne",
-            "posterior_latent_space_pca",
-            "posterior_pca_explained_variance",
-            "prior_latent_space_tsne",
-            "prior_latent_space_pca",
-            "prior_pca_explained_variance",
+            f"{split}_posterior_latent_space_tsne",
+            f"{split}_posterior_latent_space_pca",
+            f"{split}_posterior_pca_explained_variance",
+            f"{split}_prior_latent_space_tsne",
+            f"{split}_prior_latent_space_pca",
+            f"{split}_prior_pca_explained_variance",
         }
         assert expected_keys.issubset(set(logged_metrics.keys()))
         assert trainer.logger.log_metrics.call_args.kwargs["step"] == 0
@@ -1280,29 +1311,30 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         self,
         mock_trainer_factory: Callable,
         mock_latent_pl_module_factory: Callable,
+        hook: str,
+        split: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
         pl_module = mock_latent_pl_module_factory(latent_dimension=1)
         trainer = mock_trainer_factory(current_epoch=0)
 
         with patch("versatil.training.callbacks._figure_to_wandb_image"):
-            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+            getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         trainer.logger.log_metrics.assert_called_once()
         logged_metrics = trainer.logger.log_metrics.call_args.args[0]
         expected_keys = {
-            "posterior_latent_space_histogram",
-            "prior_latent_space_histogram",
+            f"{split}_posterior_latent_space_histogram",
+            f"{split}_prior_latent_space_histogram",
         }
         assert expected_keys.issubset(set(logged_metrics.keys()))
-        # PCA/t-SNE are skipped for 1D latents — histograms replace them.
         for pca_tsne_key in (
-            "posterior_latent_space_pca",
-            "posterior_latent_space_tsne",
-            "posterior_pca_explained_variance",
-            "prior_latent_space_pca",
-            "prior_latent_space_tsne",
-            "prior_pca_explained_variance",
+            f"{split}_posterior_latent_space_pca",
+            f"{split}_posterior_latent_space_tsne",
+            f"{split}_posterior_pca_explained_variance",
+            f"{split}_prior_latent_space_pca",
+            f"{split}_prior_latent_space_tsne",
+            f"{split}_prior_pca_explained_variance",
         ):
             assert pca_tsne_key not in logged_metrics
 
@@ -1310,6 +1342,8 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         self,
         mock_trainer_factory: Callable,
         mock_latent_pl_module_factory: Callable,
+        hook: str,
+        split: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
         pl_module = mock_latent_pl_module_factory(
@@ -1317,7 +1351,7 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         )
         trainer = mock_trainer_factory(current_epoch=0)
 
-        callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+        getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         trainer.logger.log_metrics.assert_not_called()
 
@@ -1325,24 +1359,26 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         self,
         mock_trainer_factory: Callable,
         mock_latent_pl_module_factory: Callable,
+        hook: str,
+        split: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
         pl_module = mock_latent_pl_module_factory(posterior_latent=None)
         trainer = mock_trainer_factory(current_epoch=0)
 
         with patch("versatil.training.callbacks._figure_to_wandb_image"):
-            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+            getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         logged_metrics = trainer.logger.log_metrics.call_args.args[0]
         prior_keys = {
-            "prior_latent_space_tsne",
-            "prior_latent_space_pca",
-            "prior_pca_explained_variance",
+            f"{split}_prior_latent_space_tsne",
+            f"{split}_prior_latent_space_pca",
+            f"{split}_prior_pca_explained_variance",
         }
         posterior_keys = {
-            "posterior_latent_space_tsne",
-            "posterior_latent_space_pca",
-            "posterior_pca_explained_variance",
+            f"{split}_posterior_latent_space_tsne",
+            f"{split}_posterior_latent_space_pca",
+            f"{split}_posterior_pca_explained_variance",
         }
         assert prior_keys.issubset(set(logged_metrics.keys()))
         assert posterior_keys.isdisjoint(set(logged_metrics.keys()))
@@ -1351,6 +1387,8 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         self,
         mock_trainer_factory: Callable,
         mock_latent_pl_module_factory: Callable,
+        hook: str,
+        split: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
         pl_module = mock_latent_pl_module_factory(prior_latent=None)
@@ -1359,7 +1397,7 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         with patch(
             "versatil.training.callbacks._figure_to_wandb_image"
         ) as mock_to_wandb:
-            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+            getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         mock_to_wandb.assert_not_called()
 
@@ -1368,6 +1406,8 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         mock_trainer_factory: Callable,
         mock_latent_pl_module_factory: Callable,
         rng: np.random.Generator,
+        hook: str,
+        split: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
         mu = torch.from_numpy(rng.standard_normal((8, 4)).astype(np.float32))
@@ -1378,15 +1418,17 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
         trainer = mock_trainer_factory(current_epoch=0)
 
         with patch("versatil.training.callbacks._figure_to_wandb_image"):
-            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+            getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         logged_metrics = trainer.logger.log_metrics.call_args.args[0]
-        assert "latent_space_statistics" in logged_metrics
+        assert f"{split}_latent_space_statistics" in logged_metrics
 
     def test_closes_figures_after_logging(
         self,
         mock_trainer_factory: Callable,
         mock_latent_pl_module_factory: Callable,
+        hook: str,
+        split: str,
     ):
         callback = LatentVisualizationCallback(log_every_n_epochs=1, max_samples=100)
         pl_module = mock_latent_pl_module_factory(prior_latent=None)
@@ -1396,7 +1438,7 @@ class TestLatentVisualizationCallbackOnValidationEpochEnd:
             patch("versatil.training.callbacks._figure_to_wandb_image"),
             patch("versatil.training.callbacks.plt.close") as mock_close,
         ):
-            callback.on_validation_epoch_end(trainer=trainer, pl_module=pl_module)
+            getattr(callback, hook)(trainer=trainer, pl_module=pl_module)
 
         # Posterior path generates 3 figures: tsne, pca, explained_variance
         assert mock_close.call_count == 3
