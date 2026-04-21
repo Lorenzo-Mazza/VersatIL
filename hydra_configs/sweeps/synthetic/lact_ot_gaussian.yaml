@@ -1,6 +1,7 @@
 # @package _global_
 # Sweep: LACT variational Gaussian prior with Sinkhorn OT objective.
-# 6 tasks × 3 blur × 3 weight × 3 reach = 162 runs.
+# 5 tasks × 2 weights × 3 seeds = 30 runs.
+# blur=0.1, reach=null, min_logvar=null (no variance floor).
 
 defaults:
   - /end_to_end_training_runs/synthetic/lact_ot_gaussian
@@ -8,10 +9,19 @@ defaults:
   - override /hydra/sweeper: basic
   - _self_
 
+policy:
+  loss:
+    loss_modules:
+      latent_ot:
+        blur_fraction: 0.1
+        reach_multiplier: null
+  algorithm:
+    posterior_encoder:
+      min_logvar: null
+
 hydra:
   sweeper:
     params:
-      task_bundle/synthetic: circle,conditional_circle,sequential,radial_k8,radial_k16,corridor_k8
-      policy.loss.loss_modules.latent_ot.blur_fraction: 0.1,0.3,0.5
-      policy.loss.loss_modules.latent_ot.weight: 0.01,0.1,1
-      policy.loss.loss_modules.latent_ot.reach_multiplier: null,1,10
+      task_bundle/synthetic: circle,sequential,corridor_k8,corridor_k16,radial_k16
+      policy.loss.loss_modules.latent_ot.weight: 0.01,0.1
+      experiment.seed: 42,43,44
