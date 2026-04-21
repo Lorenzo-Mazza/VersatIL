@@ -21,9 +21,9 @@ policy:
           - ${mul:2,${policy.algorithm.posterior_encoder.latent_dimension}}
   algorithm:
     posterior_encoder:
-      min_logvar: -6.0
+      min_logvar: -8.0
     prior:
-      min_logvar: -6.0
+      min_logvar: -8.0
 
 hydra:
   sweeper:
