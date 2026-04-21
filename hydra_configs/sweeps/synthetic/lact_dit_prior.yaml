@@ -1,6 +1,7 @@
 # @package _global_
-# Sweep: LACT + DiT prior, inference_steps=100 rerun.
-# 6 tasks × 1 = 6 runs.
+# Sweep: LACT + DiT flow prior, weight=0.1, 10 inference steps.
+# 5 tasks × 3 seeds = 15 runs.
+# min_logvar=null (no variance floor on posterior).
 
 defaults:
   - /end_to_end_training_runs/synthetic/lact_dit_prior
@@ -9,11 +10,18 @@ defaults:
   - _self_
 
 policy:
+  loss:
+    loss_modules:
+      denoising_prior:
+        weight: 0.1
   algorithm:
+    posterior_encoder:
+      min_logvar: null
     prior:
-      num_inference_steps: 100
+      num_inference_steps: 10
 
 hydra:
   sweeper:
     params:
-      task_bundle/synthetic: circle,conditional_circle,sequential,radial_k8,radial_k16,corridor_k8
+      task_bundle/synthetic: circle,sequential,corridor_k8,corridor_k16,radial_k16
+      experiment.seed: 42,43,44
