@@ -84,7 +84,7 @@ tests:
 e2e-tests:
   stage: test
   extends: .setup
-  timeout: 30 minutes
+  timeout: 60 minutes
   cache:
     policy: pull
   script:

@@ -49,6 +49,7 @@ class SyntheticSchema(DatasetSchema):
         noise_std: float = 0.01,
         num_styles: int = 1,
         mode_weights: list[float] | None = None,
+        num_rollouts: int = 200,
     ):
         """Initialize and validate the synthetic benchmark schema.
 
@@ -65,6 +66,7 @@ class SyntheticSchema(DatasetSchema):
             noise_std: Standard deviation of Gaussian trajectory noise.
             num_styles: Number of sinusoidal style variations per corridor.
             mode_weights: Per-mode sampling weights. None for uniform.
+            num_rollouts: Rollouts per evaluation in the training callback.
         """
         if dataset_type != DatasetType.SYNTHETIC.value:
             raise ValueError(
@@ -80,6 +82,7 @@ class SyntheticSchema(DatasetSchema):
         self.noise_std = noise_std
         self.num_styles = num_styles
         self.mode_weights = mode_weights
+        self.num_rollouts = num_rollouts
         self._validate_metadata(metadata)
         super().__init__(
             zarr_path=zarr_path,
@@ -141,7 +144,7 @@ class SyntheticSchema(DatasetSchema):
                 num_styles=self.num_styles,
                 trajectory_length=self.trajectory_length,
                 noise_std=self.noise_std,
-                num_rollouts=200,
+                num_rollouts=self.num_rollouts,
                 image_size=self.image_size,
                 log_every_n_epochs=experiment_config.val_every,
             )
